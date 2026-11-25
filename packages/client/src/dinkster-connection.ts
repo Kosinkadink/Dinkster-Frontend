@@ -68,7 +68,6 @@ import {
   type DinksterRawMessage,
   type ExecutionRef,
   type EffectiveExtensionSnapshot,
-  type InputSpec,
   type Json,
   type JsonObject,
   type NodeSchema,
@@ -111,55 +110,11 @@ const asLinkTuple = (v: unknown): readonly [string, number] | undefined =>
     ? (v as [string, number])
     : undefined
 
-type MaterializedPathKind = 'combo' | 'other' | 'missing'
-
-/** Classify a materialized path through only the stored active branches. */
-function materializedPathKind(
-  inputs: readonly InputSpec[],
-  parts: readonly string[],
-  choices: Readonly<Record<string, string>>,
-  prefix: readonly string[] = [],
-): MaterializedPathKind {
-  if (parts.length === 0) return 'missing'
-  const input = inputs.find((candidate) => candidate.id === parts[0])
-  if (input === undefined) return 'missing'
-  const rest = parts.slice(1)
-  const path = [...prefix, input.id]
-  const construct = path.join('.')
-  const dynamic = input.dynamic
-  if (dynamic?.kind === 'dynamicCombo') {
-    const selected = choices[construct]
-    const active = dynamic.materialization === 'wire15'
-      ? dynamic.options.find((option) => option.key === selected)
-      : undefined
-    if (active === undefined) return 'other'
-    return rest.length === 0
-      ? 'combo'
-      : materializedPathKind(active.inputs, rest, choices, path)
-  }
-  if (dynamic?.kind === 'autogrow') {
-    return rest.length >= 2
-      ? materializedPathKind(dynamic.template, rest.slice(1), choices, [...path, rest[0]!])
-      : 'other'
-  }
-  if (dynamic?.kind === 'dynamicSlot') {
-    if (rest.length === 0) return 'other'
-    const shared = materializedPathKind(dynamic.inputs, rest, choices, path)
-    if (shared !== 'missing') return shared
-    const selected = choices[construct]
-    const active = dynamic.variants?.find((variant) => variant.key === selected)
-    return active === undefined
-      ? 'missing'
-      : materializedPathKind(active.inputs, rest, choices, path)
-  }
-  return rest.length === 0 ? 'other' : 'missing'
-}
-
 /**
  * Convert a compiled V1 prompt to the native Dinkster graph wire. Link tuples
  * become {$link: {node, output}} by indexing compiler-owned outputIds; only
- * legacy prompts use the catalog's declared outputs. DynamicCombo selectors stay in the V1
- * prompt but move to slotVariants instead of remaining native inputs.
+ * legacy prompts use the catalog's declared outputs. Choice keys travel in
+ * slotVariants, never as inputs.
  */
 export function promptToDinksterGraph(prompt: Prompt, resolve: SchemaResolver): PromptToGraphResult {
   const nodes: Record<string, { nodeType: string; inputs: Record<string, DinksterInputWire>; outputMembers?: Readonly<Record<string, readonly string[]>>; slotVariants?: Readonly<Record<string, string>> }> = {}
@@ -180,10 +135,7 @@ export function promptToDinksterGraph(prompt: Prompt, resolve: SchemaResolver): 
   if (diagnostics.length > 0) return { ok: false, diagnostics }
   for (const [nodeId, node] of Object.entries(prompt)) {
     const inputs: Record<string, DinksterInputWire> = {}
-    const nodeSchema = resolve(node.class_type)
     for (const [inputId, value] of Object.entries(node.inputs)) {
-      if (nodeSchema !== undefined &&
-          materializedPathKind(inputsOf(nodeSchema), inputId.split('.'), node.slotVariants ?? {}) === 'combo') continue
       const link = asLinkTuple(value)
       if (link === undefined) {
         inputs[inputId] = value
@@ -781,6 +733,8 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   readonly clientId: string
   /** Immutable window project; folder preferences never change global priorities. */
   readonly project?: string
+  /** Receives each committed /api/nodes body once the backend has finished composing it. */
+  readonly keepSchemas?: (payload: DinksterNodesPayload) => void
   /** WS endpoint override; defaults to baseUrl with ws(s) scheme + /api/events. */
   readonly wsUrl?: string
   readonly fetchFn?: FetchLike
@@ -1973,6 +1927,7 @@ export class DinksterConnection {
   private readonly baseUrl: string
   private readonly clientId: string
   private readonly project: string | undefined
+  private readonly keepSchemas: ((payload: DinksterNodesPayload) => void) | undefined
   private readonly fetchFn: FetchLike
   private readonly registryFetchFn: FetchLike
   private readonly registryStaticUrl: () => string
@@ -1985,6 +1940,7 @@ export class DinksterConnection {
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
   private readonly mountListeners = new Set<() => void>()
   private readonly libraryListeners = new Set<() => void>()
+  private readonly lookupListeners = new Set<(functions: readonly string[]) => void>()
   private readonly socket: ReconnectingSocket
   private readonly jobIdFactory: () => string
   private protocolErrors = 0
@@ -2022,6 +1978,7 @@ export class DinksterConnection {
     this.baseUrl = config.baseUrl
     this.clientId = config.clientId
     this.project = config.project
+    this.keepSchemas = config.keepSchemas
     const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
     this.registryFetchFn = fetchFn
     this.registryStaticUrl = config.registryStaticUrl ?? (() => '')
@@ -2124,6 +2081,12 @@ export class DinksterConnection {
     return () => this.libraryListeners.delete(listener)
   }
 
+  /** The declared lookups whose kept answers a host event made old, by wire name. */
+  onLookupsChanged(listener: (functions: readonly string[]) => void): () => void {
+    this.lookupListeners.add(listener)
+    return () => this.lookupListeners.delete(listener)
+  }
+
   private emit(events: readonly NormalizedEvent[]): void {
     for (const e of events) for (const l of [...this.listeners]) l(e)
   }
@@ -2132,6 +2095,11 @@ export class DinksterConnection {
     if (live && !(raw instanceof ArrayBuffer) && (raw.type === 'mounts_changed' || raw.type === 'library_changed')) {
       for (const listener of [...this.mountListeners]) listener()
       if (raw.type === 'library_changed') for (const listener of [...this.libraryListeners]) listener()
+      return
+    }
+    if (live && !(raw instanceof ArrayBuffer) && raw.type === 'lookups_changed') {
+      const functions = Array.isArray(raw['functions']) ? raw['functions'].filter((name) => typeof name === 'string') : []
+      if (functions.length > 0) for (const listener of [...this.lookupListeners]) listener(functions)
       return
     }
     if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw)
@@ -2247,8 +2215,26 @@ export class DinksterConnection {
     if (generation === this.schemaRequestGeneration) {
       this.registry = registry
       if (extensionSnapshotPair) this.extensionSnapshots.set(extensionSnapshotPair.digest, extensionSnapshotPair.snapshot)
+      if (payload.composing !== true) this.keepSchemas?.(payload)
     }
     return registry
+  }
+
+  /**
+   * The node table the always-on process recorded from this project's engine
+   * at its last run, served whatever the engine's state; undefined when there
+   * is none or the backend does not serve one.
+   */
+  async fetchProvisionalSchemas(): Promise<DinksterNodesPayload | undefined> {
+    const query = this.project === undefined ? '' : `?${new URLSearchParams({ project: this.project })}`
+    try {
+      const res = await this.fetchFn(`${this.baseUrl}/api/nodes/provisional${query}`)
+      if (!res.ok) return undefined
+      const raw: unknown = await res.json()
+      return typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw as DinksterNodesPayload : undefined
+    } catch {
+      return undefined
+    }
   }
 
   /** The registry the connection currently submits against (last committed

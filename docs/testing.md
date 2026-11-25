@@ -160,7 +160,8 @@ reviewing a deliberate appearance change. Screenshot thresholds stay unchanged.
 Failed hosted browser lanes retain their actual,
 expected and diff images in `browser-failure-*` artifacts for seven days.
 
-`.github/workflows/full-validation.yml` runs on pushes to main, every two
+`.github/workflows/full-validation.yml` runs on pushes to main and to
+`feature/node-declaration` (each in its own concurrency group), every two
 hours from 06:00 through 22:00 Pacific, daily at 10:43 UTC, and on manual
 dispatch. The `on.schedule`
 cron list in that file is the single schedule definition; change its first

@@ -9,7 +9,7 @@
  * additional family targets. Outputs keep exactly one source.
  *
  * Layers pinned here: format shape validation, boundary schema derivation
- * (type/optionality/diagnostics), compiler lowering (links, value sources,
+ * (type/optionality/diagnostics), compiler lowering (links, primitives,
  * promoted values, nesting, dynamic members, muted targets), and the
  * boundary.addBinding / boundary.removeBinding commands (undo included).
  */
@@ -22,6 +22,7 @@ import { validateDocumentShape } from '../src/format/validate.js'
 import { asConnectionId } from '../src/ids.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { inputsOf, type InputSpec, type NodeSchema, type OutputSpec, type TypeExpr } from '../src/schema/model.js'
+import { withPrimitives } from './fixtures/primitive-schemas.js'
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -43,7 +44,7 @@ const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema =
   category: 'test',
   source: 'v3',
   isOutputNode: true, // keeps every test node in full scope without sinks
-  items,
+  body: items,
 })
 
 const schemas: Record<string, NodeSchema> = {
@@ -56,27 +57,27 @@ const schemas: Record<string, NodeSchema> = {
   Knob: schemaOf('Knob', [
     input('v', { type: FLOAT, widget: { widgetType: 'FLOAT', options: {}, default: 0.5 } }),
   ]),
-  // Single-slot autogrow (wire names images.image0, image1, ...): dynamic
-  // member routes must fan out like static ports.
-  Batcher: schemaOf('Batcher', [
-    {
-      ...input('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('image')],
-        naming: { kind: 'prefix', prefix: 'image', min: 1, max: 2 },
+  // A group of one input per member (images.image0, images.image1): member
+  // routes must fan out like static ports.
+  Batcher: {
+    ...schemaOf('Batcher', [output('out')]),
+    body: [
+      {
+        kind: 'group', id: 'images', value: input('image'),
+        keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 },
+        grows: 'link', minMembers: 1, maxMembers: 2,
       },
-    },
-    output('out'),
-  ]),
+      output('out'),
+    ],
+  },
 }
-const resolve = (type: string) => schemas[type]
+const resolve = withPrimitives((type: string) => schemas[type])
 
 // ---------------------------------------------------------------------------
 // Document builder (same shape as compile-forwarding.test.ts)
 // ---------------------------------------------------------------------------
 
-type End = [node: string, port: string, members?: string[]] | { reroute: string } | { valueSource: string }
+type End = [node: string, port: string] | { reroute: string }
 type NodeSpec = {
   type: string
   values?: Record<string, unknown>
@@ -87,12 +88,11 @@ type GraphSpec = {
   nodes: Record<string, NodeSpec>
   links?: [from: End, to: End][]
   reroutes?: string[]
-  valueSources?: Record<string, unknown>
   boundary?: { inputs?: unknown[]; outputs?: unknown[] }
 }
 
 const end = (e: End): unknown =>
-  Array.isArray(e) ? { node: e[0], port: e[1], ...(e[2] ? { members: e[2] } : {}) } : e
+  Array.isArray(e) ? { node: e[0], port: e[1] } : e
 
 const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
   const defs: Record<string, unknown> = {}
@@ -117,13 +117,6 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
       ),
       nets: {},
       reroutes: Object.fromEntries((g.reroutes ?? []).map((r) => [r, { id: r }])),
-      ...(g.valueSources
-        ? {
-            valueSources: Object.fromEntries(
-              Object.entries(g.valueSources).map(([vid, value]) => [vid, { id: vid, value }]),
-            ),
-          }
-        : {}),
       nextOrdinal: 100,
       ...(g.boundary ? { boundary: { inputs: g.boundary.inputs ?? [], outputs: g.boundary.outputs ?? [] } } : {}),
     }
@@ -174,8 +167,7 @@ const defOf = (nodes: Record<string, NodeSpec>, boundary: { inputs?: unknown[]; 
     boundary: { inputs: boundary.inputs ?? [], outputs: boundary.outputs ?? [] },
   })
 
-const bind = (node: string, port: string, members?: string[]) =>
-  ({ kind: 'port', node, port, ...(members ? { members } : {}) }) as const
+const bind = (node: string, port: string) => ({ kind: 'port', node, port }) as const
 
 // ---------------------------------------------------------------------------
 // Format shape validation
@@ -196,16 +188,6 @@ describe('format validation of alsoBinds', () => {
   it('accepts a valid input-side fan-out', () => {
     expect(errorsOf(docWith({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in')] }))).toEqual([])
   })
-
-  it('accepts family-kind alsoBinds when the primary forwards a family', () => {
-    const errs = errorsOf(docWith({
-      id: 'in',
-      binds: { kind: 'family', node: 's1', port: 'in' },
-      alsoBinds: [{ kind: 'family', node: 's2', port: 'in' }],
-    }))
-    expect(errs).toEqual([])
-  })
-
 })
 
 // ---------------------------------------------------------------------------
@@ -266,20 +248,6 @@ describe('deriveBoundarySchema with fan-out', () => {
     expect(gain.optional).toBe(true) // both targets widget-backed
   })
 
-  it('derives whole-family input fan-out from the authoritative primary target', () => {
-    const def = defOf(
-      { b1: { type: 'Batcher' }, b2: { type: 'Batcher' } },
-      { inputs: [{
-        id: 'in',
-        binds: { kind: 'family', node: 'b1', port: 'images' },
-        alsoBinds: [{ kind: 'family', node: 'b2', port: 'images' }],
-      }] },
-    )
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
-    expect(diagnostics).toEqual([])
-    expect(inputsOf(schema!)[0]).toMatchObject({ id: 'in', dynamic: { kind: 'autogrow' } })
-  })
-
 })
 
 // ---------------------------------------------------------------------------
@@ -319,15 +287,14 @@ describe('compile lowers boundary fan-out', () => {
     expect(prompt['i.k2']!.inputs).toEqual({ v: 2 })
   })
 
-  it('a value source through a reroute chain bakes into every target (mixed components)', () => {
+  it('a primitive value through a reroute chain bakes into every target (mixed components)', () => {
     const prompt = okPrompt(
       docOf({
         g0: {
-          nodes: { i: { type: '#sub' } },
+          nodes: { i: { type: '#sub' }, p: { type: 'dinkster.utilities.primitive_float', values: { value: 7 } } },
           reroutes: ['r0', 'r1'],
-          valueSources: { v0: 7 },
           links: [
-            [{ valueSource: 'v0' }, { reroute: 'r0' }],
+            [['p', 'value'], { reroute: 'r0' }],
             [{ reroute: 'r0' }, { reroute: 'r1' }],
             [{ reroute: 'r1' }, ['i', 'gain']],
           ],
@@ -364,7 +331,7 @@ describe('compile lowers boundary fan-out', () => {
     expect(prompt['i.si.t2']!.inputs).toEqual({ in: ['a', 0] })
   })
 
-  it('dynamic member routes fan out (autogrow targets on two inner nodes)', () => {
+  it('group member routes fan out (member targets on two inner nodes)', () => {
     const prompt = okPrompt(
       docOf({
         g0: {
@@ -373,14 +340,14 @@ describe('compile lowers boundary fan-out', () => {
         },
         sub: {
           nodes: {
-            b1: { type: 'Batcher', dynamic: { images: { members: ['m0'] } } },
-            b2: { type: 'Batcher', dynamic: { images: { members: ['m0'] } } },
+            b1: { type: 'Batcher', dynamic: { images: { members: ['image0'] } } },
+            b2: { type: 'Batcher', dynamic: { images: { members: ['image0'] } } },
           },
           boundary: {
             inputs: [{
               id: 'first',
-              binds: bind('b1', 'images.image', ['m0']),
-              alsoBinds: [bind('b2', 'images.image', ['m0'])],
+              binds: bind('b1', 'images.image0'),
+              alsoBinds: [bind('b2', 'images.image0')],
             }],
           },
         },
@@ -447,8 +414,7 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
   const itemOf = (store: DocumentStore): BoundaryItem =>
     (store.doc.graphs['sub'] as GraphDef).boundary!.inputs[0]!
 
-  const params = (node: string, port = 'in', members?: string[]) =>
-    ({ graphId: 'sub', itemId: 'in', node, port, ...(members ? { members } : {}) })
+  const params = (node: string, port = 'in') => ({ graphId: 'sub', itemId: 'in', node, port })
 
   it('addBinding appends a target and undo restores the exact previous state', () => {
     const store = makeStore({ id: 'in', binds: bind('s1', 'in') })
@@ -470,8 +436,8 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
     }
   })
 
-  it('addBinding rejects a family-forwarding item (boundary.bindKind)', () => {
-    const store = makeStore({ id: 'in', binds: { kind: 'family', node: 'b1', port: 'images' } })
+  it('addBinding rejects an item whose primary is not a port (boundary.bindKind)', () => {
+    const store = makeStore({ id: 'in', binds: { kind: 'unbound', type: { kind: 'wildcard' } } })
     const out = store.dispatch({ command: 'boundary.addBinding', params: params('s2') })
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.diagnostics.some((e) => e.code === 'boundary.bindKind')).toBe(true)

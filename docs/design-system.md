@@ -37,7 +37,8 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 ## Source of truth
 
 The dark palette uses cyan-tinted greys: canvas `#0E1414`, panel `#141C1D`,
-raised `#1E292A`, hover `#283537`, and subtle border `#324143`. The frame role
+raised `#1E292A`, hover `#283537`, pressed `#324143`, and subtle border `#324143`
+(the light theme's pressed is `#D3D9DE`, one step past its hover `#E4E8EC`). The frame role
 is `#090D0D`, exposed as `surface.frame` and `--dinkster-surface-frame`.
 The active workflow tab's top tint, `rgba(120, 205, 210, 0.08)` in both
 themes, is the translucent `interaction.activeTabTint`
@@ -93,7 +94,7 @@ portable distribution includes it in the SHA-256 manifest.
 App action labels, settings categories and panel headings use sentence case.
 Canvas context-menu actions set their labels at the registry source, including
 reset actions and plural counts. Proper names, acronyms and user-authored node,
-net and selector branch names retain their original capitalization.
+net and Switch branch names retain their original capitalization.
 
 `@dinkster/ui` exports the script-enabled components from `packages/ui/src`.
 They use only the shared stylesheet, not app-specific CSS. Import the stylesheet
@@ -183,6 +184,12 @@ every core tab once.
   before its text. A notification can be dismissed at once and otherwise
   leaves after five seconds, counted from when the pointer and keyboard focus
   have both left it.
+  Every message kind (error, warning, information, success) has one look:
+  its text and icon in the meaning's colour, over that colour at 7% inside a
+  1 px outline of it at 38% (the `quiet-background` and `quiet-border`
+  tokens). A link inside a message stays primary and its close button
+  secondary, so the strip is not one colour. The toast puts the message on
+  the raised surface because it floats over other content.
 - `ProductConfirmation` orders the title, consequence, solid action and Cancel.
   Sites use it as page content. Inside `ProductDialog`, omit the confirmation's
   duplicate title and let the dialog provide it. `ProductDialog` provides native modal inertness,
@@ -363,9 +370,7 @@ definitions and no retained definitions without private success-border styling.
 The Settings result-count announcement and Escape-to-clear behavior remain
 independent of the empty presentation.
 
-Canvas value-source and execution-selector popovers use ProductEmptyState when
-their target is unavailable. The popover keeps its focus and anchor until focus
-leaves it. Problems uses the shared empty card without a private color override.
+Problems uses the shared empty card without a private color override.
 
 Collaboration discovery uses ProductEmptyState for unavailable, loading, empty
 and error results, and for a workflow that is not shared. Loading announces
@@ -535,7 +540,7 @@ not grow. This inventory is a migration queue, not a second component system.
 | Surface     | canvas, panel, inset, raised, selected                                                          |
 | Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
 | Border      | subtle, hover, strong, focus, selected                                                          |
-| Meaning     | accent, success, warning, danger, info; each has foreground, background, and border             |
+| Meaning     | accent, success, warning, danger, info; each has foreground, background, border, rest border, quiet border, quiet background, wash and pressed wash |
 | Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only   |
 | Interaction | 32 px compact control, 40 px primary input, 24 px canvas input, 2 px focus ring, hover, pressed, selected, disabled |
 | Motion      | fast, standard, reduced-motion duration, one product easing curve                               |
@@ -545,6 +550,24 @@ Canvas code receives space, relevant type roles, surfaces, text, borders,
 meaning, shapes, and bounded interaction state. It does not receive DOM
 elevation or motion tokens. DOM surfaces consume the generated
 `--dinkster-*` variables.
+
+A control's fill gets stronger at each step: at rest, under the pointer
+(`interaction-hover`), then pressed (`interaction-pressed`, one step past
+hover). No pressed fill is weaker than its hover. A neutral outline follows
+the same order: subtle at rest, the hover outline under the pointer and
+strong only while pressed or open. A control whose outline is a meaning
+colour (an add or remove outline button, Run, an outlined danger action)
+keeps its text in full colour. Its outline rests at 55% of that colour
+(`rest-border`) and is full strength under the pointer and while pressed,
+where it also fills with a quiet wash of that colour: 12% under the pointer
+(`wash`) and 20% while pressed (`wash-pressed`). Plain controls keep the
+neutral hover grey, and solid buttons keep their own fill. A disabled solid
+button turns neutral: the raised fill, the subtle outline and secondary text.
+
+Each screen and each dialog shows at most one solid coloured button, the one
+that does its main job. Its other actions are outline buttons of their role.
+A popover or dialog counts on its own, and so does a confirmation step that
+replaces the button that opened it.
 
 Every scrolling surface in the app, the gallery and the site uses one scrollbar
 from the shared stylesheet: `scrollbar-size` (8 px) with no track or arrows, so
@@ -665,7 +688,7 @@ shape, label, line style, icon, or other non-color cue.
 The document and core model own graph/product semantics. `scene.ts` owns the
 immutable document-to-scene projection and `layout.ts` owns world geometry.
 The app host owns runtime-derived presentation state: progress, diagnostics,
-mode, companions, previews, badges, selector resolutions, remote presence,
+mode, companions, previews, badges, remote presence,
 and focused/transient controls. Command and undo ownership do not move into
 the renderer.
 
@@ -684,7 +707,7 @@ not re-derive semantic truth. In particular:
   committed scene after dispatch.
 
 The main renderer's fixed paint phases are groups, links, reroutes/net views,
-nodes and boundary nodes, value sources/selectors, selection/gesture
+nodes and boundary nodes, selection/gesture
 adornments, and screen-sized toolbox chrome. Host-owned bookmark state is
 painted as minimap marker descriptors, outside the main renderer. Changes may
 insert only into a named phase and must preserve occlusion and matching hit
@@ -827,24 +850,35 @@ field under a choice's option is lost on copy and paste and on replacing the
 node, and a subgraph's face cannot offer it. A card may carry its own pointer
 state, the same overlay the interaction controller sets for that gesture.
 
-Switch and Primitive, under Flow nodes, draws the proposed Switch and Primitive
-nodes that replace the value source pill and the selector box, one card per
+Switch and Primitive, under Flow nodes, draws the Switch and Primitive nodes,
+one card per
 state, each painted from its own document at the top level or inside a subgraph
 entered through one subgraph node. The Switch cards show a pick known before the
 run with the branch not picked dimmed, a pick arriving on a wire, a picked
 branch with nothing plugged in, a stored branch that was removed, a position
-outside the branch list, a wired text picking a branch by name, a Choice
-primitive on Pick, a text that names no branch, renaming and random picks, and
+outside the branch list, a wired text picking a branch by name, a Custom Combo
+on Pick, a Choice primitive on Pick, a text that names no branch, renaming and random picks, and
 one subgraph row driving two Switches with and without matching branches. The
 Primitive cards show a range worked out from the fields it feeds, fields that
 share no value, typed and pinned limits, the typed Int, Float, Text, Boolean and
 Choice primitives beside the general one, the Inputs panel with and without a
 subgraph node, a value arriving on a wire, refused edits and plugging in that
-narrows the range. The first card shows today's pill and selector box for
-comparison. A card may carry its own scene, run states, companions, row marks
+narrows the range. A card may carry its own scene, run states, companions, row marks
 and dimmed nodes. Captions name what the canvas does not draw yet: "Not run" and
 "Nothing plugged in" text, and "Not known yet" in place of a wired field's
 struck-through stored value.
+
+Or else, Has value and Only if, under Flow nodes, draws those three nodes as
+ordinary nodes, one card per state of their design. The cards show Or else
+giving its first input that has a value and stopping there, falling through a
+skipped stage, an added third input, two orders of its rows, every input
+nothing, a failure that is not a fallback and a refused wire of another type;
+Has value on 0, No, empty text, an empty list, nothing and no wire; Only if on
+and off, behind a switched-off stage with an Or else after it, with nothing
+plugged into Value, with a Condition that is itself nothing, and with
+Condition shown on two subgraph nodes beside a finished run. A value on a wire
+is named in the caption, since the canvas does not paint it; a skipped node
+shows today's Skipped state and a node that was not run shows no state.
 
 The Idle outline page compares the previous outline (Before) with the quieter
 current outline (After) on idle, hovered and selected nodes. The app and

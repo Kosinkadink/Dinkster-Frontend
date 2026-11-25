@@ -13,7 +13,7 @@ const primitive = (type: string, name: 'FLOAT' | 'INT' | 'BOOLEAN', output = 'va
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'value',

@@ -371,6 +371,16 @@ describe('postOp status mapping', () => {
     ).toEqual({ kind: 'snapshot-required' })
   })
 
+  it('maps 422 to a refusal carrying the server reason', async () => {
+    const message = 'Sampler: steps = 12000 refused. Allowed: 1 to 10000. Nothing stored.'
+    const { connection } = harness({
+      fetchFn: async () => jsonResponse(422, { error: 'value-outside-limits', message, problems: [] }),
+    })
+    expect(
+      await connection.postOp({ protocolVersion: 1, opId: 'o', actorId: 'a', baseRevision: 3, patch: [] }),
+    ).toEqual({ kind: 'refused', code: 'value-outside-limits', message })
+  })
+
   it('maps 406 to protocol-unsupported with the supported list (malformed list = empty)', async () => {
     const { connection } = harness({
       fetchFn: async () =>

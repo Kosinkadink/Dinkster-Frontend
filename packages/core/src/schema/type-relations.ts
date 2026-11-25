@@ -29,7 +29,6 @@ export const atomNamesOf = (t: TypeExpr): readonly string[] | undefined => {
     case 'variable':
       if (!t.allowedTypes || t.allowedTypes.length === 0) return undefined
       return t.allowedTypes.flatMap((a) => atomNamesOf(a) ?? [])
-    case 'family_tuple':
     case 'tuple_element':
       return undefined
     case 'tuple': {

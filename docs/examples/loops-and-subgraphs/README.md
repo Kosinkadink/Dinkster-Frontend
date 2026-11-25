@@ -13,7 +13,8 @@ cache reads, writes, and same-run single-flight reuse for its body occurrences.
 Nested regions apply their own policy and retain occurrence-scoped identity.
 
 The arithmetic bodies use `dinkster.utilities.primitive_int` to bind their typed
-integer boundaries into `dinkster.utilities.comfy_math_expression` input families.
+integer boundaries into members of the `dinkster.utilities.comfy_math_expression`
+`values` group.
 The While body uses the expression's `BOOL` output for its continue flag.
 
 `packages/client/test/executable-examples.test.ts` checks every authored document

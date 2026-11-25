@@ -6,8 +6,6 @@
  */
 
 import {
-  addressOfElabKey,
-  asDynamicMemberId,
   asNodeId,
   asPortId,
   boundaryBindingKey,
@@ -18,43 +16,46 @@ import {
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
   documentNodeResolver,
-  documentValueSourceResolver,
+  documentPrimitiveResolver,
+  primitiveOf,
   effectiveOccurrenceTopology,
-  elabKeyOf,
+  elabInputsOf,
+  elabOutputsOf,
   elaborateInterface,
+  EMPTY_CONNECTIVITY,
+  type ElaborateOptions,
   hasPreviewSurface,
   inputsOf,
   isOccurrenceKeyWithin,
   isPortEndpoint,
   isRerouteRef,
-  isSelectorRef,
-  isValueSourceRef,
   isWidgetTapRef,
-  memberHopsOf,
+  matchBypassInput,
   netSinkKey,
   netViewPositions,
   occurrenceDynamicView,
-  occurrenceFamilyEndpoint,
-  occurrenceFamilyMemberOwner,
-  occurrenceSubtreeKey,
+  portAddressKey,
   portRefKey,
   regionBoundaryLabels,
   resolveBoundaryRoute,
+  resolveWidgetRepresentation,
   outputsOf,
+  allRowsOf,
   samePortRef,
   solveGraphTypes,
   subgraphDefIdOf,
   traceEndpoint,
   traceEndpointAll,
   typeExprFromTypeId,
+  valueKeyOf,
   type BoundaryItem,
+  type BypassCandidate,
   type BoundaryPositionResolver,
   type CommandInvocation,
+  type Connectivity,
   type Diagnostic,
   type DynamicPortState,
-  type DynamicMemberId,
   type ElaboratedInterface,
-  type EffectiveValueSourceSpec,
   type EffectiveLinkIdentity,
   type EffectiveOccurrenceTopology,
   type GraphDef,
@@ -63,16 +64,16 @@ import {
   type LinkEndpoint,
   type NodeData,
   type NodeProgress,
+  type NodeSchema,
   type OccurrenceLinkEndpoint,
   type OccurrenceRef,
   type PortRef,
-  type PortAddress,
+  type RerouteTrace,
   type SchemaResolver,
-  type SelectorData,
   type SolveResult,
   type TypeExpr,
-  type ValueSourceData,
   type VirtualNodeRenderModel,
+  type WidgetSpec,
   type WorkflowDocument,
 } from '@dinkster/core'
 import {
@@ -137,10 +138,10 @@ const onlyNodePositionsChanged = (
   next: WorkflowDocument['view']['graphs'][string],
 ): boolean => {
   if (previous === undefined || next === undefined ||
-      previous.reroutes !== next.reroutes || previous.valueSources !== next.valueSources ||
-      previous.selectors !== next.selectors || previous.groups !== next.groups ||
+      previous.reroutes !== next.reroutes || previous.groups !== next.groups ||
       previous.groupSeq !== next.groupSeq || previous.collapsedNets !== next.collapsedNets ||
-      previous.guideNets !== next.guideNets || previous.boundary !== next.boundary || previous.ext !== next.ext) return false
+      previous.guideNets !== next.guideNets || previous.boundary !== next.boundary || previous.inputsPanel !== next.inputsPanel ||
+      previous.ext !== next.ext) return false
   const previousIds = Object.keys(previous.nodes)
   const nextIds = Object.keys(next.nodes)
   if (previousIds.length !== nextIds.length || previousIds.some((id) => next.nodes[id] === undefined)) return false
@@ -150,7 +151,8 @@ const onlyNodePositionsChanged = (
     return before === after || (
       before.size === after.size && before.collapsed === after.collapsed && before.views === after.views &&
       before.textLines === after.textLines && before.previewFolded === after.previewFolded &&
-      before.minimizedPreviewOpen === after.minimizedPreviewOpen && before.sections === after.sections && before.color === after.color && before.ext === after.ext
+      before.minimizedPreviewOpen === after.minimizedPreviewOpen && before.sections === after.sections &&
+      before.editors === after.editors && before.pictureHeights === after.pictureHeights && before.color === after.color && before.ext === after.ext
     )
   })
 }
@@ -224,7 +226,6 @@ const sameTypeExpr = (left: TypeExpr, right: TypeExpr): boolean => {
     }
     case 'wildcard': return true
     case 'tuple': return left.elements.length === (right as typeof left).elements.length && left.elements.every((element, index) => sameTypeExpr(element, (right as typeof left).elements[index]!))
-    case 'family_tuple': return left.input === (right as typeof left).input
     case 'tuple_element': {
       const other = right as typeof left
       return left.input === other.input && left.index === other.index && (left.element === undefined ? other.element === undefined : other.element !== undefined && sameTypeExpr(left.element, other.element))
@@ -257,6 +258,12 @@ export interface SceneNode {
   readonly virtual?: VirtualNodeRenderModel
   /** Full effective interface, including inputs hidden by presentation state. */
   readonly elaborated?: ElaboratedInterface
+  /**
+   * Every field row of a minimized node or of a node with a folded section,
+   * laid out open with its sections unfolded, so a problem on a field the
+   * node does not show still reaches its tab. Absent when layout shows them all.
+   */
+  readonly fieldRows?: readonly LayoutRow[]
   /** Schema declares live previews or an output intended for preview. */
   readonly previewCapable?: true
   /** The open node's preview is folded to its caption row. */
@@ -273,6 +280,8 @@ export interface SceneNode {
   readonly unrecognized?: true
   /** Set when the node's schema could not be resolved (rendered as an error shell). */
   readonly missingSchema?: boolean
+  /** Set instead of the two marks above while no node definitions are held yet. */
+  readonly schemaPending?: true
 }
 
 /**
@@ -291,8 +300,7 @@ export interface SceneBoundaryNode {
    * item id as on the subgraph node outside. They are the values of the
    * subgraph node the editor came in through, or the defaults a new
    * subgraph node starts with when it came in through none. Each row's
-   * `familyOwner` names the node and value key an edit writes, or its
-   * `valueSourceOwner` the value source.
+   * `familyOwner` names the node and value key an edit writes.
    */
   readonly fields?: {
     readonly node: NodeData
@@ -317,56 +325,34 @@ export function boundaryFieldNode(bnode: SceneBoundaryNode): SceneNode | undefin
  */
 export const boundarySceneId = (side: 'inputs' | 'outputs'): string => `@boundary:${side}`
 
-/** One end of a scene noodle: a node port pin, a reroute junction, a value source, or a boundary pseudo-node pin. */
+/** One end of a scene noodle: a node port pin, a widget tap, a reroute junction, or a boundary pseudo-node pin. */
 export type SceneLinkEnd =
   | {
       readonly kind: 'port'
       readonly node: string
       readonly port: string
-      /** Dynamic-family member path (document identity, mirrors PortRef). */
-      readonly members?: readonly DynamicMemberId[]
     }
   | { readonly kind: 'reroute'; readonly reroute: string }
-  | { readonly kind: 'valueSource'; readonly valueSource: string }
   | { readonly kind: 'widgetTap'; readonly node: string; readonly input: string }
-  /** A selector endpoint: with `candidate` = one branch input, without = the output. */
-  | { readonly kind: 'selector'; readonly selector: string; readonly candidate?: string }
   /** A boundary pseudo-node pin; `item` is the boundary item id (opaque - never split). */
   | { readonly kind: 'boundary'; readonly side: 'inputs' | 'outputs'; readonly item: string }
 
-/** The elab key a port end's pin is laid out under (pins are keyed by elab key). */
-export const portEndKey = (end: {
-  port: string
-  members?: readonly DynamicMemberId[]
-}): string =>
-  elabKeyOf({ port: end.port, ...(end.members !== undefined ? { members: end.members } : {}) })
-
 export const netDeliveryLinkId = (netId: string, sinkIndex: number): string => `${netId}:${sinkIndex}`
 
-/**
- * A consumer end: value sources produce, never consume (invariant I10), so a
- * link's `to` is structurally narrower than its `from`.
- */
-export type SceneLinkTo = Exclude<SceneLinkEnd, { kind: 'valueSource' }>
-
-/** The scene id a link end rides during drags (node, reroute, source, selector, or boundary pseudo-node id). */
+/** The scene id a link end rides during drags (node, reroute, or boundary pseudo-node id). */
 export const sceneEndId = (end: SceneLinkEnd): string =>
   end.kind === 'port'
     ? end.node
     : end.kind === 'reroute'
       ? end.reroute
-      : end.kind === 'valueSource'
-        ? end.valueSource
-        : end.kind === 'widgetTap'
-          ? end.node
-        : end.kind === 'selector'
-          ? end.selector
-          : boundarySceneId(end.side)
+      : end.kind === 'widgetTap'
+        ? end.node
+        : boundarySceneId(end.side)
 
 export interface SceneLink {
   readonly id: string
   readonly from: SceneLinkEnd
-  readonly to: SceneLinkTo
+  readonly to: SceneLinkEnd
   /** Absolute endpoint coordinates (source pin -> target pin). */
   readonly x1: number
   readonly y1: number
@@ -383,6 +369,10 @@ export interface SceneLink {
    * DISTINCT from error/conflict styling - maybe-absent is normal.
    */
   readonly maybeAbsent?: true
+  /** The wire leaves a kept row (a field no longer part of its node): drawn dimmed, it gives nothing. */
+  readonly dimmed?: true
+  /** The traced producer is a muted node: the wire is drawn faded like that node. */
+  readonly sourceMuted?: true
   /**
    * Set when this noodle renders a named-net fan-out rather than a document
    * link. Its `id` is synthetic (`netId:index`); deletion must go through
@@ -413,13 +403,6 @@ export interface SceneLink {
    * commands, never link commands, so these are not link hit targets.
    */
   readonly boundary?: true
-  /**
-   * Boundary noodles only: the inner binding is a dynamic FAMILY, not one
-   * exact port, so its inner anchor may legally sit on the first
-   * family-member pin or the header center (see innerAnchor). Exact 'port'
-   * bindings never set this - their anchor must be the precise real pin.
-   */
-  readonly boundaryFamily?: true
   /** Effective owner identity used by drilled occurrence gestures. */
   readonly effectiveIdentity?: EffectiveLinkIdentity
   /** Every delivery represented by a coincident projected boundary alias. */
@@ -470,161 +453,6 @@ export const REROUTE_SOCKET_OFFSET = REROUTE_RADIUS + canvasPaintTokens.reroute.
 export const REROUTE_SOCKET_RADIUS = canvasPaintTokens.reroute.socketRadius
 
 /**
- * A value source rendered as a compact literal pill: title + value + spec
- * badge + ONE output pin. It is NOT a node - no schema, no input pins, no
- * rows - and it compiles away entirely. The effective widget spec (and its
- * declared/derived/conflict status) is derived at build time, never stored.
- */
-export interface SceneValueSource {
-  readonly id: string
-  /** Top-left, world coords. */
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-  readonly source: ValueSourceData
-  /** Display title: explicit title, else the effective widget kind, else 'value'. */
-  readonly title: string
-  /** Compact one-line value text (raw JSON rendering for non-strings). */
-  readonly valueText: string
-  /** Effective spec + consumers + diagnostics, derived during build. */
-  readonly effective: EffectiveValueSourceSpec
-  /** Advisory concrete type (pin/noodle color), when determinable. */
-  readonly typeName?: string
-  /** declared: pinned spec; derived: unified from consumers; raw: neither. */
-  readonly specState: 'declared' | 'derived' | 'raw'
-  /** Derivation reported conflicts (badge renders as a warning). */
-  readonly conflict: boolean
-  /**
-   * While a subgraph node is entered, the value it sends through this
-   * source, which the Inputs panel edits. The pill shows it dimmed and is
-   * not edited there.
-   */
-  readonly arriving?: { readonly value: Json }
-  /**
-   * While a subgraph node is entered, the boundary input that shows this
-   * source as a field on that node, and the input's name there; painted as
-   * the cyan subgraph icon before the title (valueSourceMarkRect).
-   */
-  readonly subgraphMark?: { readonly item: string; readonly label: string }
-}
-
-export const VS_HEIGHT_PAD = canvasPaintTokens.valueSource.heightPadding
-export const VS_MIN_WIDTH = canvasPaintTokens.valueSource.minWidth
-export const VS_BADGE_SIZE = canvasPaintTokens.valueSource.badgeSize
-/** Badge inset from the pill's right edge. */
-export const VS_BADGE_INSET = canvasPaintTokens.valueSource.badgeInset
-
-/** A value source's single output pin center, world coords. */
-export const valueSourcePinPosition = (vs: SceneValueSource): { x: number; y: number } => ({
-  x: vs.x + vs.width,
-  y: vs.y + vs.height / 2,
-})
-
-/** World-space rect of a value source's spec badge (declared/derived/conflict). */
-export function valueSourceBadgeRect(vs: SceneValueSource): {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-} {
-  return {
-    x: vs.x + vs.width - VS_BADGE_SIZE - VS_BADGE_INSET,
-    y: vs.y + vs.height / 2 - VS_BADGE_SIZE / 2,
-    width: VS_BADGE_SIZE,
-    height: VS_BADGE_SIZE,
-  }
-}
-
-/**
- * World-space square of the subgraph mark before a value source's title
- * (SceneValueSource.subgraphMark). Shared by painting and pointer hit
- * testing; `padX` is the design tokens' padX.
- */
-export function valueSourceMarkRect(vs: SceneValueSource, padX: number): { readonly x: number; readonly y: number; readonly size: number } {
-  const size = canvasPaintTokens.widget.subgraphMark.size
-  return { x: vs.x + padX, y: vs.y + (vs.height - size) / 2, size }
-}
-
-/** Compact one-line value text ('' for null; first line of strings). */
-export const valueSourceValueText = (value: Json): string =>
-  value === null ? '' : typeof value === 'string' ? (value.split('\n')[0] ?? '') : JSON.stringify(value)
-
-/**
- * One candidate row of a selector: a branch input pin plus its label.
- * `y` is the pin/row center relative to the selector's top edge.
- */
-export interface SceneSelectorCandidate {
-  readonly id: string
-  readonly label: string
-  readonly y: number
-  /** Concrete type traced from this branch's driver, when statically known. */
-  readonly typeName?: string
-}
-
-/**
- * A selector rendered as a compact node-like box: header (title + policy
- * badge + ONE output pin) over one row per candidate branch. It is NOT a
- * node - no schema, no widgets - and unselected branches compile away.
- * Semantics live in GraphDef.selectors; this carries geometry plus traced
- * types for coloring.
- */
-export interface SceneSelector {
-  readonly id: string
-  /** Top-left, world coords. */
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-  readonly headerHeight: number
-  readonly data: SelectorData
-  /** Display title: explicit title, else 'Select'. */
-  readonly title: string
-  readonly candidates: readonly SceneSelectorCandidate[]
-  /** The fixed policy's chosen candidate id (undefined under random policy). */
-  readonly activeCandidate?: string
-  /** True under random policy (badge renders as a die). */
-  readonly random: boolean
-  /** Output color: the single concrete type ALL driven branches agree on. */
-  readonly typeName?: string
-}
-
-export const SELECTOR_MIN_WIDTH = canvasPaintTokens.selector.minWidth
-export const SELECTOR_BADGE_SIZE = canvasPaintTokens.selector.badgeSize
-/** Badge inset from the selector's right edge (header band). */
-export const SELECTOR_BADGE_INSET = canvasPaintTokens.selector.badgeInset
-
-/** A selector's single output pin center, world coords (header band, right edge). */
-export const selectorOutPinPosition = (sel: SceneSelector): { x: number; y: number } => ({
-  x: sel.x + sel.width,
-  y: sel.y + sel.headerHeight / 2,
-})
-
-/** One candidate's input pin center, world coords (left edge at its row). */
-export const selectorCandidatePinPosition = (
-  sel: SceneSelector,
-  candidateId: string,
-): { x: number; y: number } | undefined => {
-  const c = sel.candidates.find((cand) => cand.id === candidateId)
-  return c ? { x: sel.x, y: sel.y + c.y } : undefined
-}
-
-/** World-space rect of a selector's policy badge (fixed/random details + menu). */
-export function selectorBadgeRect(sel: SceneSelector): {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-} {
-  return {
-    x: sel.x + sel.width - SELECTOR_BADGE_SIZE - SELECTOR_BADGE_INSET,
-    y: sel.y + sel.headerHeight / 2 - SELECTOR_BADGE_SIZE / 2,
-    width: SELECTOR_BADGE_SIZE,
-    height: SELECTOR_BADGE_SIZE,
-  }
-}
-
-/**
  * A collapsed net's endpoint tag: drawn beside the pin instead of noodles.
  * Geometry is precomputed here (the scene has the measurer) so drawing and
  * hit-testing agree without re-measuring text.
@@ -638,8 +466,6 @@ export interface SceneNetStub {
   readonly mismatch?: true
   readonly nodeId: string
   readonly portId: string
-  /** Dynamic-family member path (document identity, mirrors PortRef). */
-  readonly members?: readonly DynamicMemberId[]
   /** Pin center the tag points at, world coords. */
   readonly pinX: number
   readonly pinY: number
@@ -668,7 +494,7 @@ export const NET_STUB_HEIGHT = canvasPaintTokens.net.height
 export const NET_STUB_PAD_X = canvasPaintTokens.net.paddingX
 
 export const netStubId = (netId: string, role: 'source' | 'sink', ref: PortRef): string =>
-  JSON.stringify(['netView', netId, role, ref.node, ref.port, ref.members ?? []])
+  JSON.stringify(['netView', netId, role, ref.node, ref.port])
 
 /**
  * A visual group rectangle (view state passed through verbatim). Groups have
@@ -693,8 +519,6 @@ export interface Scene {
   readonly nodes: readonly SceneNode[]
   readonly links: readonly SceneLink[]
   readonly reroutes: readonly SceneReroute[]
-  readonly valueSources: readonly SceneValueSource[]
-  readonly selectors: readonly SceneSelector[]
   readonly netStubs: readonly SceneNetStub[]
   readonly groups: readonly SceneGroup[]
   /** Boundary pseudo-nodes (subgraph definitions only; empty elsewhere). */
@@ -733,27 +557,6 @@ export function reroutesInGroup(scene: Scene, group: SceneGroup): string[] {
     .map((r) => r.id)
 }
 
-/** Value source ids a group carries, using the same center rule as nodes. */
-export function valueSourcesInGroup(scene: Scene, group: SceneGroup): string[] {
-  return scene.valueSources
-    .filter((v) => {
-      const cx = v.x + v.width / 2
-      const cy = v.y + v.height / 2
-      return cx >= group.x && cx <= group.x + group.width && cy >= group.y && cy <= group.y + group.height
-    })
-    .map((v) => v.id)
-}
-
-/** Selector ids a group carries, using the same center rule as nodes. */
-export function selectorsInGroup(scene: Scene, group: SceneGroup): string[] {
-  return scene.selectors
-    .filter((s) => {
-      const cx = s.x + s.width / 2
-      const cy = s.y + s.height / 2
-      return cx >= group.x && cx <= group.x + group.width && cy >= group.y && cy <= group.y + group.height
-    })
-    .map((s) => s.id)
-}
 
 /** Boundary pseudo-node sides a group carries, using the node-center rule. */
 export function boundaryNodesInGroup(scene: Scene, group: SceneGroup): Array<'inputs' | 'outputs'> {
@@ -818,7 +621,7 @@ function projectedTypeConstraints(
     if (solved === undefined) return []
     return traceEndpointAll(solved.graph, link.from.endpoint, buildRerouteIndex(solved.graph)).flatMap((trace) => {
       if (trace.kind !== 'output') return []
-      const type = solved.result.portTypeOf(trace.ref.node, 'output', elabKeyOf(trace.ref))
+      const type = solved.result.portTypeOf(trace.ref.node, 'output', trace.ref.port)
       return type === undefined ? [] : [{
         type: projectTypeThroughRegionInputs(document, link, type),
         to: link.to.endpoint as PortRef,
@@ -868,30 +671,27 @@ function projectedTypeConstraints(
     for (const link of effective?.projectedParentLinks ?? []) {
       if (link.from.graphId === graph.id && isPortEndpoint(link.from.endpoint)) {
         const keys = projectedOutputKeys.get(link.from.endpoint.node) ?? new Set<string>()
-        keys.add(portEndKey(link.from.endpoint))
+        keys.add(link.from.endpoint.port)
         projectedOutputKeys.set(link.from.endpoint.node, keys)
       }
       if (link.to.graphId === graph.id && isPortEndpoint(link.to.endpoint)) {
         const keys = projectedInputKeys.get(link.to.endpoint.node) ?? new Set<string>()
-        keys.add(portEndKey(link.to.endpoint))
+        keys.add(link.to.endpoint.port)
         projectedInputKeys.set(link.to.endpoint.node, keys)
-        if (link.to.endpoint.members === undefined || link.to.endpoint.members.length === 0) {
-          const ports = projectedInputPortKeys.get(link.to.endpoint.node) ?? new Set<string>()
-          ports.add(link.to.endpoint.port)
-          projectedInputPortKeys.set(link.to.endpoint.node, ports)
-        }
+        const ports = projectedInputPortKeys.get(link.to.endpoint.node) ?? new Set<string>()
+        ports.add(link.to.endpoint.port)
+        projectedInputPortKeys.set(link.to.endpoint.node, ports)
       }
     }
     const connectivityOf = (nodeId: import('@dinkster/core').NodeId) => {
       const base = baseConnectivity(nodeId)
       return {
-        isInputConnected: (port: string, members?: readonly string[]) =>
-          projectedInputKeys.get(nodeId)?.has(portEndKey({ port: asPortId(port), ...(members === undefined ? {} : { members: members as readonly DynamicMemberId[] }) })) ||
-          base.isInputConnected(port, members),
-        isOutputConnected: (port: string, members?: readonly string[]) =>
-          projectedOutputKeys.get(nodeId)?.has(portEndKey({ port: asPortId(port), ...(members === undefined ? {} : { members: members as readonly DynamicMemberId[] }) })) ||
-          base.isOutputConnected(port, members),
+        isInputConnected: (port: string) =>
+          projectedInputKeys.get(nodeId)?.has(port) || base.isInputConnected(port),
+        isOutputConnected: (port: string) =>
+          projectedOutputKeys.get(nodeId)?.has(port) || base.isOutputConnected(port),
         inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPortKeys.get(nodeId) ?? [])])],
+        outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(projectedOutputKeys.get(nodeId) ?? [])])],
       }
     }
     const result = solveGraphTypes(solveGraph, resolve, {
@@ -909,13 +709,34 @@ function projectedTypeConstraints(
   return constraintsOf(topology, graphId)
 }
 
+/** A field row whose stored value the host checks. */
+export interface StoredValueRow {
+  readonly nodeId: string
+  readonly inputId: string
+  readonly valueKey: string
+  readonly spec: WidgetSpec
+}
+
 export interface BuildSceneInput {
   readonly document: WorkflowDocument
+  /**
+   * Whether a field's stored value fails its widget's own check (the
+   * host's widget kinds). A hidden row whose value fails shows, as a row
+   * with a problem does.
+   */
+  readonly storedValueProblem?: (row: StoredValueRow, value: Json | undefined) => boolean
   /** App capability controlling seed-controller UI construction. */
   readonly seedControllerEnabled?: boolean
+  /** What the editor holds for lookup calls; absent where lookups are off (frozen views, previews). */
+  readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
   /** Graph definition to render (the root, or a subgraph being edited). */
   readonly graphId: string
   readonly resolve: SchemaResolver
+  /**
+   * No node definitions are held yet, so a node that resolves to no schema
+   * may still have one: it is marked `schemaPending`, not missing.
+   */
+  readonly schemasPending?: boolean
   readonly renderVirtualNode?: (node: NodeData) => VirtualNodeRenderModel | undefined
   readonly tokens: DesignTokens
   readonly measure: TextMeasurer
@@ -927,20 +748,15 @@ export interface BuildSceneInput {
     readonly owner: OccurrenceRef
     readonly plannerAvailable: boolean
   }
-  /** Effective state for an occurrence; inferred from the document when omitted. */
   readonly occurrenceView?: {
     readonly dynamic: ReadonlyMap<string, Readonly<Record<string, DynamicPortState>>>
     readonly values?: ReadonlyMap<string, Readonly<Record<string, Json>>>
     readonly controllers?: import('@dinkster/core').OccurrenceDynamicView['controllers']
-    readonly subtreeOwners?: import('@dinkster/core').OccurrenceDynamicView['subtreeOwners']
     readonly valueOwners?: ReadonlyMap<string, ReadonlyMap<string, {
       readonly graphId: string
       readonly nodeId: string
       readonly valueKey: string
     }>>
-    readonly selectorOwners: ReadonlyMap<string, ReadonlyMap<string, { readonly graphId: string; readonly nodeId: string; readonly boundaryId: string }>>
-    readonly familyOwners?: import('@dinkster/core').OccurrenceDynamicView['familyOwners']
-    readonly valueSources?: import('@dinkster/core').OccurrenceDynamicView['valueSources']
   }
 }
 
@@ -1053,6 +869,7 @@ export function updateSceneNodeValues(
   current: WorkflowDocument,
   graphId: string,
   resolve: SchemaResolver,
+  lookupAnswers?: ElaborateOptions['lookupAnswers'],
 ): Scene | undefined {
   if (scene.graphId !== graphId || graphId !== current.root || Object.keys(current.graphs).length !== 1 ||
       !sameReferencesExcept(previous as unknown as Readonly<Record<string, unknown>>, current as unknown as Readonly<Record<string, unknown>>, 'graphs') ||
@@ -1061,11 +878,11 @@ export function updateSceneNodeValues(
   const after = current.graphs[graphId]
   if (!before || !after || !sameReferencesExcept(before as unknown as Readonly<Record<string, unknown>>, after as unknown as Readonly<Record<string, unknown>>, 'nodes') ||
       Object.keys(before.nodes).length !== Object.keys(after.nodes).length || scene.nodes.length !== Object.keys(after.nodes).length) return undefined
-  if (after.boundary || Object.keys(after.valueSources ?? {}).length || Object.keys(after.selectors ?? {}).length) return undefined
+  if (after.boundary) return undefined
   for (const node of Object.values(after.nodes)) {
     const schema = resolve(node.type)
     if (node.virtual || node.type.startsWith('#') || node.region || !schema || schema.virtual ||
-        schema.items.some((item) => item.kind !== 'section' && (item.dynamic !== undefined || item.outputDescriptors !== undefined))) return undefined
+        allRowsOf(schema.body).some((row) => row.kind === 'group' || row.kind === 'choice' || row.kind === 'typeChoice' || row.kind === 'described')) return undefined
   }
   let changed = false
   const nodes: SceneNode[] = []
@@ -1077,17 +894,17 @@ export function updateSceneNodeValues(
     if (existing.node !== old || node.virtual || node.type.startsWith('#') ||
         !sameReferencesExcept(old as unknown as Readonly<Record<string, unknown>>, node as unknown as Readonly<Record<string, unknown>>, 'values')) return undefined
     const schema = resolve(node.type)
-    if (!schema || schema.selector || schema.widgetGroups || schema.items.some((item) =>
-      item.kind === 'section' || item.dynamic !== undefined || item.outputDescriptors !== undefined ||
-      (item.kind === 'input' && (item.advanced || item.section !== undefined)))) return undefined
+    // A row with `visible` may show for a problem the new value has: the full build decides.
+    if (!schema || schema.selector ||
+      !schema.body.every((row) => (row.kind === 'input' || row.kind === 'output') && row.visible === undefined)) return undefined
     for (const key of new Set([...Object.keys(old.values), ...Object.keys(node.values)])) {
       if (old.values[key] === node.values[key]) continue
-      const input = schema.items.find((item) => item.kind === 'input' && item.id === key)
-      if (input?.kind !== 'input' || !['INT', 'FLOAT'].includes(input.widget?.widgetType ?? '') ||
+      const input = inputsOf(schema).find((item) => item.id === key)
+      if (input === undefined || !['INT', 'FLOAT'].includes(input.widget?.widgetType ?? '') ||
           typeof node.values[key] !== 'number' || !Number.isFinite(node.values[key]) ||
           (old.values[key] !== undefined && (typeof old.values[key] !== 'number' || !Number.isFinite(old.values[key])))) return undefined
     }
-    if (!structuralEqual(existing.elaborated, elaborateInterface(schema, node))) return undefined
+    if (!structuralEqual(existing.elaborated, elaborateInterface(schema, node, EMPTY_CONNECTIVITY, lookupAnswers === undefined ? {} : { lookupAnswers }))) return undefined
     changed = true
     nodes.push({ ...existing, node })
   }
@@ -1106,18 +923,43 @@ export function boundaryPositions(input: BuildSceneInput): ReturnType<BoundaryPo
 
 export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
-  if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
-  let resolveSource: ReturnType<typeof documentValueSourceResolver> | undefined
+  /**
+   * A node's interface as drawn. A row hidden by its `visible` shows while it
+   * has a problem: a solver problem on its port, or a stored value its
+   * widget's own check refuses.
+   */
+  const elaborateShown = (
+    schema: NodeSchema,
+    node: NodeData,
+    connectivity: Connectivity,
+    nodeId: string,
+    solverProblems: ReadonlySet<string> | undefined,
+    representations: Readonly<Record<string, string>> | undefined,
+  ): ElaboratedInterface => {
+    const problemRows = new Set(solverProblems)
+    const lookups = input.lookupAnswers === undefined ? {} : { lookupAnswers: input.lookupAnswers }
+    const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows, ...lookups } : lookups)
+    const check = input.storedValueProblem
+    if (check === undefined) return elaborated
+    for (const item of elabInputsOf(elaborated)) {
+      const widget = item.spec.widget
+      if (item.spec.hidden !== true || widget === undefined) continue
+      const valueKey = valueKeyOf(item)
+      const spec = resolveWidgetRepresentation(widget, representations?.[valueKey]).spec
+      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, node.values[valueKey])) problemRows.add(item.address.port)
+    }
+    return problemRows.size > (solverProblems?.size ?? 0)
+      ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
+      : elaborated
+  }
+  if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   const sourcePath = input.occurrence === undefined
     ? input.graphId === input.document.root ? [] : undefined
     : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
-  if (input.occurrenceView === undefined) {
-    const occurrenceView = occurrenceDynamicView(input.document, input.resolve, sourcePath ?? [], sourcePath === undefined ? input.graphId : input.document.root)
-    if (input.occurrence !== undefined || occurrenceView.values.size > 0) input = { ...input, occurrenceView }
-  }
-  const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, sourceId, path) => {
-    resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
-    return resolveSource(graphId, sourceId, path)
+  let resolvePrimitive: ReturnType<typeof documentPrimitiveResolver> | undefined
+  const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, node, path) => {
+    resolvePrimitive ??= documentPrimitiveResolver(input.document, input.resolve)
+    return resolvePrimitive(graphId, node, path)
   })
   const view = input.document.view.graphs[input.graphId]
   const positioned = positionedSceneCache.get(def)
@@ -1151,13 +993,13 @@ export function buildScene(input: BuildSceneInput): Scene {
   const guideNets = new Set((graphView?.guideNets ?? []).filter((netId) => collapsedNets.has(netId)))
   const authoredNetViews = netViewPositions(input.document, input.graphId)
 
-  // Connected ports by node id (links + named nets), keyed over ELAB KEYS:
+  // Connected ports by node id (links + named nets), keyed by flattened id:
   // collapsed sections keep pins for these so their noodles never dangle.
   const connectedByNode = new Map<string, Set<string>>()
   const markConnected = (ref: PortRef, direction: 'in' | 'out'): void => {
     let set = connectedByNode.get(ref.node)
     if (!set) connectedByNode.set(ref.node, (set = new Set()))
-    set.add(connectedPortKey(direction, portEndKey(ref)))
+    set.add(connectedPortKey(direction, ref.port))
   }
   const structuralLinks = effective === undefined
     ? Object.values(def.links).map((link) => ({ from: { endpoint: link.from }, to: { endpoint: link.to } }))
@@ -1167,8 +1009,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const toEndpoint = 'endpoint' in link.to ? link.to.endpoint : link.to
     if (isPortEndpoint(fromEndpoint)) markConnected(fromEndpoint, 'out')
     // A widget tap is a producer connection too: the tap's input must keep
-    // its right-edge anchor inside a collapsed section (taps are memberless,
-    // so the elab key is the bare port).
+    // its right-edge anchor inside a collapsed section.
     else if (isWidgetTapRef(fromEndpoint)) {
       let set = connectedByNode.get(fromEndpoint.node)
       if (!set) connectedByNode.set(fromEndpoint.node, (set = new Set()))
@@ -1187,12 +1028,12 @@ export function buildScene(input: BuildSceneInput): Scene {
     for (const item of def.boundary.inputs) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (b.kind === 'port')
-          markConnected({ node: b.node, port: b.port, ...(b.members !== undefined ? { members: b.members } : {}) }, 'in')
+          markConnected({ node: b.node, port: b.port }, 'in')
       }
     }
     for (const item of def.boundary.outputs) {
       if (item.binds.kind === 'port')
-        markConnected({ node: item.binds.node, port: item.binds.port, ...(item.binds.members !== undefined ? { members: item.binds.members } : {}) }, 'out')
+        markConnected({ node: item.binds.node, port: item.binds.port }, 'out')
       else if (item.binds.kind === 'widgetTap') {
         let set = connectedByNode.get(item.binds.node)
         if (!set) connectedByNode.set(item.binds.node, (set = new Set()))
@@ -1214,7 +1055,6 @@ export function buildScene(input: BuildSceneInput): Scene {
   const effectiveGraph: GraphDef = effective === undefined ? (occurrenceNodes === def.nodes ? def : { ...def, nodes: occurrenceNodes }) : (() => {
     const occupied = new Set([
       ...Object.keys(def.nodes), ...Object.keys(def.reroutes),
-      ...Object.keys(def.valueSources ?? {}), ...Object.keys(def.selectors ?? {}),
     ])
     const links = Object.fromEntries(effective.links.filter((link) =>
       !(isPortEndpoint(link.from.endpoint) && link.from.endpoint.node === DINKSTER_REGION_PSEUDO_NODE),
@@ -1240,30 +1080,27 @@ export function buildScene(input: BuildSceneInput): Scene {
   for (const link of effective?.projectedParentLinks ?? []) {
     if (link.from.graphId === def.id && isPortEndpoint(link.from.endpoint)) {
       const set = projectedOutputs.get(link.from.endpoint.node) ?? new Set<string>()
-      set.add(portEndKey(link.from.endpoint))
+      set.add(link.from.endpoint.port)
       projectedOutputs.set(link.from.endpoint.node, set)
     }
     if (link.to.graphId === def.id && isPortEndpoint(link.to.endpoint)) {
       const set = projectedInputs.get(link.to.endpoint.node) ?? new Set<string>()
-      set.add(portEndKey(link.to.endpoint))
+      set.add(link.to.endpoint.port)
       projectedInputs.set(link.to.endpoint.node, set)
-      if (link.to.endpoint.members === undefined || link.to.endpoint.members.length === 0) {
-        const ports = projectedInputPorts.get(link.to.endpoint.node) ?? new Set<string>()
-        ports.add(link.to.endpoint.port)
-        projectedInputPorts.set(link.to.endpoint.node, ports)
-      }
+      const ports = projectedInputPorts.get(link.to.endpoint.node) ?? new Set<string>()
+      ports.add(link.to.endpoint.port)
+      projectedInputPorts.set(link.to.endpoint.node, ports)
     }
   }
   const connectivityOf = (nodeId: import('@dinkster/core').NodeId) => {
     const base = baseConnectivityOf(nodeId)
     return {
-      isInputConnected: (port: string, members?: readonly string[]) =>
-        projectedInputs.get(nodeId)?.has(portEndKey({ port: asPortId(port), ...(members !== undefined ? { members: members as readonly DynamicMemberId[] } : {}) })) ||
-        base.isInputConnected(port, members),
-      isOutputConnected: (port: string, members?: readonly string[]) =>
-        projectedOutputs.get(nodeId)?.has(portEndKey({ port: asPortId(port), ...(members !== undefined ? { members: members as readonly DynamicMemberId[] } : {}) })) ||
-        base.isOutputConnected(port, members),
+      isInputConnected: (port: string) =>
+        projectedInputs.get(nodeId)?.has(port) || base.isInputConnected(port),
+      isOutputConnected: (port: string) =>
+        projectedOutputs.get(nodeId)?.has(port) || base.isOutputConnected(port),
       inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPorts.get(nodeId) ?? [])])],
+      outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(projectedOutputs.get(nodeId) ?? [])])],
     }
   }
 
@@ -1303,7 +1140,23 @@ export function buildScene(input: BuildSceneInput): Scene {
       rendered = rendered.replaceAll(`link '${solverId}'`, `link '${sceneId}'`)
     return rendered
   }
-  const solverDiagnostics = solvedTypes.diagnostics.map((diagnostic): Diagnostic => {
+  // A primitive whose fed fields share no value shows the problem on its
+  // value pin and on each wire it sends here; the value and wires stay.
+  const primitiveDiagnostics: Diagnostic[] = []
+  for (const node of Object.values(def.nodes)) {
+    const base = input.resolve(node.type)
+    const shape = base && primitiveOf(base)
+    if (!shape) continue
+    resolvePrimitive ??= documentPrimitiveResolver(input.document, input.resolve)
+    for (const diagnostic of resolvePrimitive(input.graphId, node, sourcePath)?.diagnostics ?? []) {
+      primitiveDiagnostics.push({ ...diagnostic, anchor: { port: { node: node.id, port: asPortId(shape.value.id) } } })
+      for (const link of Object.values(def.links)) {
+        if (isPortEndpoint(link.from) && link.from.node === node.id && link.from.port === shape.output.id)
+          primitiveDiagnostics.push({ ...diagnostic, anchor: { link: link.id } })
+      }
+    }
+  }
+  const solverDiagnostics = [...solvedTypes.diagnostics.map((diagnostic): Diagnostic => {
     const link = diagnostic.anchor?.link
     const renderedLink = link === undefined ? undefined : solverToScene.get(link)
     const edges = diagnostic.data?.['edges']
@@ -1318,20 +1171,24 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(renderedLink === undefined ? {} : { anchor: { ...diagnostic.anchor, link: renderedLink as import('@dinkster/core').LinkId } }),
       ...(renderedEdges === undefined ? {} : { data: { ...diagnostic.data, edges: renderedEdges } }),
     }
-  })
+  }), ...primitiveDiagnostics]
 
-  // Port-anchored solver diagnostics (e.g. a stale DynamicSlot
-  // specialization) mark their pin: the warning must be visible where the
-  // user will act on it, not only in the Problems panel. Keys use the
-  // elaborated port key so dynamic member pins match exactly.
-  const warnedPins = new Set<string>()
+  /** Ports with a solver error or warning, by node: rows with a problem show even when hidden. */
+  const problemPorts = new Map<string, Set<string>>()
   for (const d of solverDiagnostics) {
     const ref = d.anchor?.port
-    if (ref !== undefined) warnedPins.add(`${ref.node}\u0000${elabKeyOf(ref)}`)
+    if (ref === undefined) continue
+    if (d.severity === 'info') continue
+    let ports = problemPorts.get(ref.node)
+    if (!ports) problemPorts.set(ref.node, (ports = new Set()))
+    ports.add(ref.port)
   }
 
   const nodes: SceneNode[] = []
   const byId = new Map<string, SceneNode>()
+  // An automatic value that cannot be worked out: the field's warning, also
+  // listed in Problems, where picking it moves to the field.
+  const automaticDiagnostics: Diagnostic[] = []
   let fallbackY = 0
   for (const node of Object.values(def.nodes)) {
     const view = viewNodes[node.id]
@@ -1352,8 +1209,13 @@ export function buildScene(input: BuildSceneInput): Scene {
         }
     const schema = resolveNode(input.graphId, occurrenceNode, sourcePath)
     const elaborated = schema
-      ? elaborateInterface(schema, occurrenceNode, connectivityOf(node.id))
+      ? elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views)
       : undefined
+    for (const diagnostic of elaborated?.diagnostics ?? []) {
+      const port = diagnostic.data?.['input']
+      if (diagnostic.code !== 'automatic.default' || typeof port !== 'string') continue
+      automaticDiagnostics.push({ ...diagnostic, anchor: { port: { node: asNodeId(node.id), port: asPortId(port) } } })
+    }
     const baseLayout = schema
       ? layoutNode(schema, occurrenceNode, input.tokens, measure, input.widgetMeasure, {
           ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
@@ -1362,9 +1224,11 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(sectionOverrides ? { sectionOverrides } : {}),
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
           ...(view?.textLines ? { textBoxLines: view.textLines } : {}),
+          ...(view?.editors
+            ? { editorUnfolded: Object.fromEntries(Object.entries(view.editors).map(([key, e]) => [key, e.unfolded])) }
+            : {}),
+          ...(view?.pictureHeights ? { pictureHeights: view.pictureHeights } : {}),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
-          // Subgraph instances resolve to boundary-derived schemas, so a
-          // forwarded family's suffix ghost elaborates here like any node's.
           ...(elaborated !== undefined ? { elaborated } : {}),
         })
       : missingLayout(
@@ -1374,213 +1238,43 @@ export function buildScene(input: BuildSceneInput): Scene {
           missingConnections(def, node.id),
           view?.size,
           view?.collapsed === true,
+          input.schemasPending === true,
         )
-    const subtreeTarget = (key: string) => {
-      const matches = (input.occurrenceView?.subtreeOwners?.get(node.id) ?? []).flatMap((owner) => {
-        const valueKey = occurrenceSubtreeKey(owner, key)
-        const address = valueKey === undefined ? undefined : addressOfElabKey(valueKey, true)
-        return address === undefined ? [] : [{ owner, valueKey: valueKey!, address }]
-      })
-      return matches.length === 1 ? matches[0] : undefined
-    }
-    const mapFrames = (owner: import('@dinkster/core').SubtreeOwner, frames: readonly import('@dinkster/core').MaterializeFrame[]) => frames.flatMap((frame, index) => {
-      const key = occurrenceSubtreeKey(owner, elabKeyOf({ port: frame.construct, members: frames.slice(0, index).map((ancestor) => asDynamicMemberId(ancestor.members.at(-1)!)) }))
-      const address = key === undefined ? undefined : addressOfElabKey(key, true)
-      return address === undefined ? [] : [{ ...frame, construct: address.port }]
-    })
-    const mapAncestors = (owner: import('@dinkster/core').SubtreeOwner, ancestors: readonly { readonly construct: string; readonly member: string }[]) => ancestors.flatMap((ancestor, index) => {
-      const key = occurrenceSubtreeKey(owner, elabKeyOf({ port: ancestor.construct, members: ancestors.slice(0, index).map((entry) => asDynamicMemberId(entry.member)) }))
-      const address = key === undefined ? undefined : addressOfElabKey(key, true)
-      return address === undefined ? [] : [{ construct: address.port, member: ancestor.member }]
-    })
-    const familyOwnerFor = (construct: string) => input.occurrenceView?.familyOwners?.get(node.id)?.get(construct)
-    const pinFamilyOwner = (pin: typeof baseLayout.pins[number]) => {
-      const construct = pin.materialize?.at(-1)?.construct
-      const growthOwner = construct === undefined ? undefined : familyOwnerFor(construct)
-      if (growthOwner !== undefined) return growthOwner
-      for (const owner of input.occurrenceView?.familyOwners?.get(node.id)?.values() ?? []) {
-        if (occurrenceFamilyMemberOwner(owner, pin.address.port, pin.address.members)) return owner
-      }
-      return undefined
-    }
-    const rowFamilyOwner = (row: Extract<typeof baseLayout.rows[number], { kind: 'widget' }>) => {
-      for (const [familyPath, owner] of input.occurrenceView?.familyOwners?.get(node.id) ?? []) {
-        if (owner.optionalAfterMinimum) {
-          const frame = row.materialize?.at(-1)
-          const predicted = frame?.construct === familyPath && row.address.port === `${familyPath}.${frame.members.at(-1)}`
-          const source = occurrenceFamilyMemberOwner(owner, row.address.port, row.address.members) ?? (predicted ? owner.ghostOwner : undefined)
-          if (!source) continue
-          return {
-            graphId: source.graphId, nodeId: source.nodeId, construct: source.boundaryId,
-            valueKey: `${source.boundaryId}${row.valueKey.slice(familyPath.length)}`,
-          }
-        }
-        const member = row.address.members?.[0]
-        const persisted = member === undefined ? undefined : owner.suffixMembers.get(member as string)
-        if (persisted === undefined || !row.address.port.startsWith(`${familyPath}.`)) continue
-        // The instance schema exposes the same member-relative suffix under
-        // its boundary construct. Member ids are identity, so only the
-        // crossing's rebased id is translated back to its persisted id.
-        const valueKey = row.valueKey
-          .replace(familyPath, owner.boundaryId)
-          .replace(`#${member as string}`, `#${persisted}`)
-        return { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.boundaryId, valueKey }
-      }
-      return undefined
-    }
+    // A promoted boundary input owns the value and editable menu of the
+    // inner row it binds; edits on that row write to the owning instance.
     const optionsOwnerFor = (row: Extract<typeof baseLayout.rows[number], { kind: 'widget' }>) => {
       if (row.optionsTarget === undefined) return undefined
-      let source: { graphId: string; nodeId: string; address: PortAddress } | undefined
-      let materialize = row.materialize
-      for (const owner of input.occurrenceView?.familyOwners?.get(node.id)?.values() ?? []) {
-        const endpoint = occurrenceFamilyEndpoint(owner, row.address.port, row.address.members, row.materialize?.at(-1)?.members.at(-1))
-        if (endpoint === undefined || endpoint.kind !== 'boundary') continue
-        const member = occurrenceFamilyMemberOwner(owner, row.address.port, row.address.members) ?? owner.ghostOwner
-        source = { graphId: member.graphId, nodeId: member.nodeId, address: endpoint.address }
-        materialize = row.materialize?.flatMap((frame) => {
-          const canonical = owner.optionalAfterMinimum && frame.construct === owner.familyPath
-          const level = row.optionsTarget!.ancestors.findIndex((ancestor) => ancestor.construct === frame.construct)
-          const addresses = frame.members.flatMap((candidate) => {
-            const mapped = occurrenceFamilyEndpoint(owner, canonical ? `${frame.construct}.${candidate}` : frame.construct,
-              [...row.optionsTarget!.ancestors.slice(0, Math.max(0, level)).map((ancestor) => asDynamicMemberId(ancestor.member)), asDynamicMemberId(candidate)], candidate)
-            return mapped?.kind === 'boundary' ? [mapped.address] : []
-          })
-          return addresses.length === 0 ? [] : [{ construct: canonical ? member.boundaryId : addresses[0]!.port,
-            members: addresses.map((address, candidate) => address.members?.at(-1) ?? frame.members[candidate]!),
-          }]
-        })
-        break
-      }
-      if (source === undefined) {
-        const subtree = subtreeTarget(row.valueKey)
-        if (subtree !== undefined) {
-          source = { graphId: subtree.owner.graphId, nodeId: subtree.owner.nodeId, address: subtree.address }
-          materialize = row.materialize === undefined ? undefined : mapFrames(subtree.owner, row.materialize)
-        }
-      }
-      if (source === undefined) {
-        const owner = input.occurrenceView?.valueOwners?.get(node.id)?.get(row.valueKey)
-        // Value owners project only static promoted ports, so this is the
-        // boundary's document id, not an elaborated member key.
-        if (owner !== undefined) source = { graphId: owner.graphId, nodeId: owner.nodeId, address: { port: asPortId(owner.valueKey) } }
-      }
-      if (source === undefined) return undefined
-      const target = input.document.graphs[source.graphId]?.nodes[source.nodeId]
-      const targetSchema = target && resolveNode(source.graphId, target)
+      const owner = input.occurrenceView?.valueOwners?.get(node.id)?.get(row.valueKey)
+      if (owner === undefined) return undefined
+      const target = input.document.graphs[owner.graphId]?.nodes[owner.nodeId]
+      const targetSchema = target && resolveNode(owner.graphId, target)
       if (!targetSchema) return undefined
-      const route = resolveBoundaryRoute(targetSchema, { kind: 'port', node: asNodeId(source.nodeId), ...source.address, port: asPortId(source.address.port) }, 'input')
+      // Value owners project only static promoted ports, so this is the
+      // boundary's document id, not an elaborated member key.
+      const route = resolveBoundaryRoute(targetSchema, { kind: 'port', node: asNodeId(owner.nodeId), port: asPortId(owner.valueKey) }, 'input')
       if (!route.ok) return undefined
-      return { owner: { graphId: source.graphId, nodeId: source.nodeId, construct: source.address.port,
-        ancestors: memberHopsOf(route.route.hops).map((hop) => ({ construct: hop.familyPath, member: hop.member as string })),
-      }, ...(materialize === undefined ? {} : { materialize }),
+      return {
+        owner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.valueKey },
+        ...(row.materialize === undefined ? {} : { materialize: row.materialize }),
       }
     }
     const rawLayout = schema && input.occurrenceView
       ? {
           ...baseLayout,
-          rows: baseLayout.rows.map((baseRow) => {
-            const optionSourceOwner = baseRow.kind === 'widget' && baseRow.spec.optionSource !== undefined
-              ? familyOwnerFor(baseRow.spec.optionSource.inputFamily)
-              : undefined
-            const optionsOwner = baseRow.kind === 'widget' ? optionsOwnerFor(baseRow) : undefined
-            const menuRow = optionsOwner === undefined || baseRow.kind !== 'widget' ? baseRow : {
-              ...baseRow, optionsTarget: { ...baseRow.optionsTarget!, ...optionsOwner },
+          rows: baseLayout.rows.map((row) => {
+            if (row.kind !== 'widget') return row
+            const optionsOwner = optionsOwnerFor(row)
+            const menuRow = optionsOwner === undefined ? row : {
+              ...row, optionsTarget: { ...row.optionsTarget!, ...optionsOwner },
             }
-            const row = optionSourceOwner === undefined ? menuRow : {
+            const valueOwner = input.occurrenceView!.valueOwners?.get(node.id)?.get(row.valueKey)
+            return valueOwner === undefined ? menuRow : {
               ...menuRow,
-              inputFamilyOwner: {
-                graphId: optionSourceOwner.graphId,
-                nodeId: optionSourceOwner.nodeId,
-                construct: optionSourceOwner.boundaryId,
-                memberIds: Object.fromEntries(optionSourceOwner.suffixMembers),
-              },
-            }
-            const family = row.kind === 'widget' ? rowFamilyOwner(row) : row.kind === 'growth' ? familyOwnerFor(row.construct) : undefined
-            const subtree = family !== undefined ? undefined : row.kind === 'widget' ? subtreeTarget(row.valueKey) : row.kind === 'growth' ? subtreeTarget(row.construct) : undefined
-            if (subtree !== undefined && (row.kind === 'widget' || row.kind === 'growth')) {
-              const owner = { graphId: subtree.owner.graphId, nodeId: subtree.owner.nodeId, construct: subtree.address.port, valueKey: subtree.valueKey }
-              if (row.kind === 'growth') return { ...row, frames: mapFrames(subtree.owner, row.frames), familyOwner: owner }
-              const ancestors = row.selector === undefined ? undefined : mapAncestors(subtree.owner, row.selector.ancestors)
-              return { ...row, familyOwner: owner,
-                ...(row.materialize !== undefined ? { materialize: mapFrames(subtree.owner, row.materialize) } : {}),
-                ...(row.selector !== undefined ? { selector: { ...row.selector, owner: { ...owner, ancestors: ancestors ?? [] } } } : {}),
-              }
-            }
-            if (row.kind === 'widget') {
-              const owner = rowFamilyOwner(row)
-              if (owner !== undefined) {
-                const construct = row.materialize?.at(-1)?.construct
-                const canonical = construct !== undefined && familyOwnerFor(construct)?.optionalAfterMinimum
-                return { ...row, familyOwner: owner,
-                  ...(canonical ? { materialize: row.materialize!.map((frame) => frame.construct === construct ? { ...frame, construct: owner.construct } : frame) } : {}),
-                }
-              }
-              const valueOwner = input.occurrenceView!.valueOwners?.get(node.id)?.get(row.valueKey)
-              if (valueOwner !== undefined) {
-                return {
-                  ...row,
-                  familyOwner: {
-                    graphId: valueOwner.graphId,
-                    nodeId: valueOwner.nodeId,
-                    construct: row.valueKey,
-                    valueKey: valueOwner.valueKey,
-                  },
-                }
-              }
-            }
-            if (row.kind === 'growth') {
-              const owner = familyOwnerFor(row.construct)
-              return owner === undefined ? row : { ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.boundaryId } }
-            }
-            if ((row.kind === 'widget' || row.kind === 'ports') && 'materialize' in row) {
-              const construct = row.materialize?.at(-1)?.construct
-              const owner = construct === undefined ? undefined : familyOwnerFor(construct)
-              if (owner !== undefined) return { ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.boundaryId } }
-            }
-            if (row.kind !== 'widget' || row.selector === undefined || row.selector.ancestors.length > 0) return row
-            const owner = input.occurrenceView!.selectorOwners.get(node.id)?.get(row.selector.construct)
-            return owner === undefined ? row : {
-              ...row,
-              selector: { ...row.selector, owner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.boundaryId } },
-            }
-          }),
-          pins: baseLayout.pins.map((pin) => {
-            const owner = pinFamilyOwner(pin)
-            const subtree = owner === undefined ? subtreeTarget(elabKeyOf(pin.address)) : undefined
-            if (subtree !== undefined) return {
-              ...pin,
-              ...(pin.dynamicSlot !== undefined ? { dynamicSlot: { ...pin.dynamicSlot, owner: {
-                graphId: subtree.owner.graphId, nodeId: subtree.owner.nodeId, construct: subtree.address.port,
-                ancestors: mapAncestors(subtree.owner, pin.dynamicSlot.ancestors),
-              } } } : {}),
               familyOwner: {
-                graphId: subtree.owner.graphId, nodeId: subtree.owner.nodeId, construct: subtree.address.port,
-                occurrence: subtree.owner.occurrence, route: subtree.owner.route,
-                sourceEndpoint: { kind: 'boundary' as const, occurrence: subtree.owner.occurrence, address: { ...subtree.address, port: asPortId(subtree.address.port) }, route: subtree.owner.route },
-                ...(input.occurrence?.plannerAvailable === true ? { socketed: true as const } : {}),
-              },
-            }
-            if (owner === undefined) return pin
-            const memberOwner = occurrenceFamilyMemberOwner(owner, pin.address.port, pin.address.members)
-            const sourceOwner = memberOwner ?? (owner.optionalAfterMinimum && pin.ghost ? owner.ghostOwner : owner)
-            const sourceEndpoint = occurrenceFamilyEndpoint(
-              owner,
-              pin.address.port,
-              pin.address.members,
-              pin.materialize?.at(-1)?.members.at(-1),
-            )
-            return {
-              ...pin,
-              familyOwner: {
-                graphId: sourceOwner.graphId,
-                nodeId: sourceOwner.nodeId,
-                construct: sourceOwner.boundaryId,
-                occurrence: sourceOwner.occurrence,
-                familyPath: owner.familyPath,
-                ...(memberOwner !== undefined ? { sourceMember: memberOwner.sourceMember } : {}),
-                route: sourceOwner.route,
-                ...(sourceEndpoint !== undefined ? { sourceEndpoint } : {}),
-                ...(input.occurrence?.plannerAvailable === true && sourceEndpoint !== undefined ? { socketed: true as const } : {}),
+                graphId: valueOwner.graphId,
+                nodeId: valueOwner.nodeId,
+                construct: row.valueKey,
+                valueKey: valueOwner.valueKey,
               },
             }
           }),
@@ -1601,12 +1295,10 @@ export function buildScene(input: BuildSceneInput): Scene {
                 ? matchVariableOf(pin.type)
                 : undefined
             const matchConstraint = matchConstraintOf(pin.type)
-            const warn = warnedPins.has(`${node.id}\u0000${elabKeyOf(pin.address)}`)
             if (matchVariable === undefined) {
               return {
                 ...pin,
                 type,
-                ...(warn ? { warn: true as const } : {}),
               }
             }
             return {
@@ -1617,20 +1309,22 @@ export function buildScene(input: BuildSceneInput): Scene {
                 ? { matchConstraint }
                 : {}),
               ...(!sameTypeExpr(type, pin.type) ? { inferred: true as const } : {}),
-              ...(warn ? { warn: true as const } : {}),
             }
           }),
         }
-      : {
-          // Missing schema: no solver substitution, but anchored diagnostics
-          // still mark their pin so the red ring appears where the user acts.
-          ...rawLayout,
-          pins: rawLayout.pins.map((pin) =>
-            warnedPins.has(`${node.id}\u0000${elabKeyOf(pin.address)}`) ? { ...pin, warn: true as const } : pin,
-          ),
-        }
+      : rawLayout
     const virtual = node.virtual === true ? input.renderVirtualNode?.(occurrenceNode) : undefined
     const layout = virtual === undefined ? layoutWithPorts : { ...layoutWithPorts, pins: [] }
+    const foldedSections = elaborated?.items.filter((item) => item.kind === 'section').map((item) => item.spec.id) ?? []
+    const hidesFields = view?.collapsed === true || baseLayout.rows.some((row) => row.kind === 'section' && row.collapsed)
+    const fieldRows = schema && hidesFields
+      ? layoutNode(schema, occurrenceNode, input.tokens, measure, input.widgetMeasure, {
+          ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
+          sectionOverrides: Object.fromEntries(foldedSections.map((id) => [id, false])),
+          ...(view?.views ? { widgetRepresentations: view.views } : {}),
+          ...(elaborated !== undefined ? { elaborated } : {}),
+        }).rows.filter((row) => row.kind === 'widget')
+      : undefined
     const sceneNode: SceneNode = {
       id: node.id,
       x: pos.x,
@@ -1639,6 +1333,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       node: occurrenceNode,
       ...(virtual !== undefined ? { virtual } : {}),
       ...(elaborated !== undefined ? { elaborated } : {}),
+      ...(fieldRows !== undefined ? { fieldRows } : {}),
       ...(schema !== undefined && hasPreviewSurface(schema)
         ? { previewCapable: true as const }
         : {}),
@@ -1647,7 +1342,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(view?.color !== undefined ? { color: view.color } : {}),
       isSubgraph: subgraphDefIdOf(node.type) !== undefined,
       ...(node.region !== undefined ? { regionKind: node.region.kind } : {}),
-      ...(schema ? {} : { unrecognized: true, missingSchema: true }),
+      ...(schema ? {} : input.schemasPending === true ? { schemaPending: true } : { unrecognized: true, missingSchema: true }),
     }
     nodes.push(sceneNode)
     byId.set(node.id, sceneNode)
@@ -1664,71 +1359,6 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     ownerNode = ownerGraph?.nodes[input.occurrence.owner.node]
   }
-  // While a node is entered, a value source that node shows as a field sends
-  // the node's value (or the outer owner's), else its own.
-  const sentSourceValues = new Map<string, Json>()
-  if (ownerNode !== undefined) {
-    for (const item of def.boundary?.inputs ?? []) {
-      const source = item.binds.kind === 'valueSource' && item.promoted === true ? def.valueSources?.[item.binds.valueSource] : undefined
-      if (source === undefined) continue
-      const occurrence = input.occurrenceView?.valueSources?.get(source.id)
-      const value = occurrence !== undefined ? occurrence.value
-        : Object.hasOwn(ownerNode.values, item.id) ? ownerNode.values[item.id] : undefined
-      sentSourceValues.set(source.id, value !== undefined ? value : source.value)
-    }
-  }
-
-  // Value sources: compact literal pills. Semantics from GraphDef, geometry
-  // from view state (fallback stack for imports that lost positions), the
-  // effective spec derived fresh every build - NEVER stored (hazard P1).
-  // Built BEFORE reroutes: reroute chains fed by a source take its color.
-  const viewValueSources = graphView?.valueSources ?? {}
-  const valueSources: SceneValueSource[] = []
-  const valueSourceById = new Map<string, SceneValueSource>()
-  let vsFallbackY = 0
-  for (const vs of Object.values(def.valueSources ?? {})) {
-    const pos = viewValueSources[vs.id]?.position ?? { x: 0, y: (vsFallbackY += canvasPaintTokens.scene.valueSourceFallbackStepY) }
-    resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
-    const effective = resolveSource(def.id, vs.id, sourcePath)!
-    const title = vs.title ?? effective.spec?.widgetType ?? 'value'
-    const sent = sentSourceValues.has(vs.id) ? { value: sentSourceValues.get(vs.id)! } : undefined
-    const valueText = valueSourceValueText(sent !== undefined ? sent.value : vs.value)
-    // A sent value comes from a field on the entered node: room for its mark.
-    const markReserve = sent === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
-    const width = Math.min(
-      input.tokens.nodeMaxAutoWidth,
-      Math.max(
-        VS_MIN_WIDTH,
-        input.tokens.padX +
-          markReserve +
-          measure(title, 'label') +
-          canvasPaintTokens.valueSource.valueGap +
-          measure(valueText, 'value') +
-          canvasPaintTokens.valueSource.valueGap +
-          VS_BADGE_SIZE +
-          VS_BADGE_INSET,
-      ),
-    )
-    const typeName = canonicalTypeIdOf(effective.type)
-    const sceneSource: SceneValueSource = {
-      id: vs.id,
-      x: pos.x,
-      y: pos.y,
-      width,
-      height: input.tokens.rowHeight + VS_HEIGHT_PAD,
-      source: vs,
-      title,
-      valueText,
-      effective,
-      ...(typeName !== undefined ? { typeName } : {}),
-      specState: vs.spec ? 'declared' : effective.spec ? 'derived' : 'raw',
-      conflict: effective.diagnostics.length > 0,
-      ...(sent !== undefined ? { arriving: sent } : {}),
-    }
-    valueSources.push(sceneSource)
-    valueSourceById.set(vs.id, sceneSource)
-  }
-
   // Reroute junctions: geometry from view state (fallback stack for imports
   // that lost positions), effective type traced through the chain to the
   // driving output so every segment of a chain shares one color.
@@ -1738,7 +1368,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   let rerouteFallbackY = 0
   const outputTypeName = (ref: PortRef): string | undefined => {
     const producer = byId.get(ref.node)
-    const key = portEndKey(ref)
+    const key = ref.port
     // Real output only: a widget tap shares its input's port id on the 'out'
     // side, so an unguarded lookup would color off the widget row.
     const pin = producer?.layout.pins.find((p) => p.direction === 'out' && p.portId === key && p.widgetTap !== true)
@@ -1754,47 +1384,76 @@ export function buildScene(input: BuildSceneInput): Scene {
       return widgetTapTypeName(from.node, from.tap)
     }
     const trace = traceEndpoint(def, from, rerouteIndex)
-    if (trace.kind === 'valueSource') return valueSourceById.get(trace.id)?.typeName
     if (trace.kind === 'tapValue') return widgetTapTypeName(trace.node, trace.input)
-    if (trace.kind === 'selector') {
-      // A selector output has no single producer without a resolution; color
-      // only when EVERY driven branch agrees on one concrete type (matches
-      // the solver's all-candidate view, so the color never lies).
-      let name: string | undefined
-      for (const t of traceEndpointAll(def, from, rerouteIndex)) {
-        if (t.kind === 'valueSource') {
-          const n = valueSourceById.get(t.id)?.typeName
-          if (n === undefined || (name !== undefined && name !== n)) return undefined
-          name = n
-        } else if (t.kind === 'tapValue') {
-          const n = widgetTapTypeName(t.node, t.input)
-          if (n === undefined || (name !== undefined && name !== n)) return undefined
-          name = n
-        } else if (t.kind === 'output') {
-          const n = outputTypeName(t.ref)
-          if (n === undefined || (name !== undefined && name !== n)) return undefined
-          name = n
-        }
-      }
-      return name
-    }
     if (trace.kind !== 'output') return undefined
     return outputTypeName(trace.ref)
   }
   /**
    * True when the REAL producer behind `from` declares an optional output
    * (may deliberately emit no value at runtime) - a static schema fact, so
-   * it needs no solver. A selector counts when ANY driven branch is
-   * maybe-absent (policy can switch to that branch at any moment).
+   * it needs no solver.
    */
+  /**
+   * The real producers behind `from`, routed as the compiler routes a
+   * value: past a bypassed node to the input its passthrough matcher picks,
+   * and past an output that passes on one of its node's inputs (knownValue)
+   * to that input's wire. A muted node stops the walk: it is the producer.
+   */
+  const passedOn = (ref: PortRef): LinkEndpoint | undefined => {
+    const node = byId.get(ref.node)
+    const elab = node?.elaborated
+    if (node === undefined || elab === undefined || node.node.mode === 'muted') return undefined
+    const address = portAddressKey(ref.port)
+    const outputs = elabOutputsOf(elab)
+    const output = outputs.find((candidate) => portAddressKey(candidate.address.port) === address)
+    if (output === undefined) return undefined
+    const driverOf = (port: string): LinkEndpoint | undefined => {
+      const key = portRefKey({ node: ref.node, port: asPortId(port) })
+      return rerouteIndex.inputDriverOf.get(key)?.from ?? rerouteIndex.netSourceOf.get(key)
+    }
+    if (node.node.mode === 'bypassed') {
+      const index = outputs.filter((candidate) => candidate.wireable !== false).indexOf(output)
+      if (index < 0) return undefined
+      const candidates: BypassCandidate<LinkEndpoint>[] = []
+      let wireIndex = 0
+      for (const input of elabInputsOf(elab)) {
+        if (input.apiName === undefined || input.ancestry?.some((entry) => entry.synthetic) === true) continue
+        const candidateIndex = wireIndex++
+        const driver = driverOf(input.address.port)
+        if (driver !== undefined) candidates.push({ index: candidateIndex, type: input.spec.type, driver })
+      }
+      return matchBypassInput({ index, type: output.spec.type }, candidates)?.driver
+    }
+    const known = output.spec.knownValue
+    if (known === undefined) return undefined
+    const input = elabInputsOf(elab).find((candidate) => candidate.spec.id === known.input)
+    return input === undefined ? undefined : driverOf(input.address.port)
+  }
+  const tracedProducers = (from: LinkEndpoint, seen = new Set<string>()): RerouteTrace[] =>
+    traceEndpointAll(def, from, rerouteIndex).flatMap((t) => {
+      if (t.kind !== 'output') return [t]
+      const key = portRefKey(t.ref)
+      if (seen.has(key)) return []
+      seen.add(key)
+      const next = passedOn(t.ref)
+      return next === undefined ? [t] : tracedProducers(next, seen)
+    })
   const tracedMaybeAbsent = (from: LinkEndpoint): boolean => {
-    for (const t of traceEndpointAll(def, from, rerouteIndex)) {
+    for (const t of tracedProducers(from)) {
       if (t.kind !== 'output') continue
       const producer = byId.get(t.ref.node)
-      const key = portEndKey(t.ref)
+      const key = t.ref.port
       if (producer?.layout.pins.some((p) => p.direction === 'out' && p.portId === key && p.maybeAbsent === true)) return true
     }
     return false
+  }
+  /**
+   * True when every real producer behind `from` is an output of a muted
+   * node, traced like {@link tracedMaybeAbsent}.
+   */
+  const tracedSourceMuted = (from: LinkEndpoint): boolean => {
+    const traces = tracedProducers(from)
+    return traces.length > 0 && traces.every((t) => t.kind === 'output' && byId.get(t.ref.node)?.node.mode === 'muted')
   }
   for (const reroute of Object.values(def.reroutes)) {
     const pos = viewReroutes[reroute.id]?.position ?? { x: 0, y: (rerouteFallbackY += canvasPaintTokens.scene.rerouteFallbackStepY) }
@@ -1809,80 +1468,11 @@ export function buildScene(input: BuildSceneInput): Scene {
     rerouteById.set(reroute.id, sceneReroute)
   }
 
-  // Selectors: compact node-like boxes (header + one row per candidate).
-  // Semantics from GraphDef.selectors, geometry from view state, branch and
-  // output types traced fresh every build - never stored.
-  const viewSelectors = graphView?.selectors ?? {}
-  const selectors: SceneSelector[] = []
-  const selectorById = new Map<string, SceneSelector>()
-  let selectorFallbackY = 0
-  for (const sel of Object.values(def.selectors ?? {})) {
-    const pos = viewSelectors[sel.id]?.position ?? { x: 0, y: (selectorFallbackY += canvasPaintTokens.scene.selectorFallbackStepY) }
-    const title = sel.title ?? 'Select'
-    const headerHeight = input.tokens.headerHeight
-    const rowHeight = input.tokens.rowHeight
-    const candidates: SceneSelectorCandidate[] = sel.candidates.map((c, i) => {
-      const typeName = tracedTypeName({ selector: sel.id, candidate: c.id })
-      return {
-        id: c.id,
-        label: c.title ?? `${i + 1}`,
-        y: headerHeight + rowHeight * i + rowHeight / 2,
-        ...(typeName !== undefined ? { typeName } : {}),
-      }
-    })
-    const width = Math.min(
-      input.tokens.nodeMaxAutoWidth,
-      Math.max(
-        SELECTOR_MIN_WIDTH,
-        input.tokens.padX * 2 + measure(title, 'title') + canvasPaintTokens.selector.widthPadding + SELECTOR_BADGE_SIZE + SELECTOR_BADGE_INSET,
-        ...candidates.map((c) => input.tokens.padX * 2 + measure(c.label, 'label') + canvasPaintTokens.selector.widthPadding),
-      ),
-    )
-    const typeName = tracedTypeName({ selector: sel.id })
-    const sceneSelector: SceneSelector = {
-      id: sel.id,
-      x: pos.x,
-      y: pos.y,
-      width,
-      height: headerHeight + rowHeight * candidates.length + input.tokens.padBottom,
-      headerHeight,
-      data: sel,
-      title,
-      candidates,
-      ...(sel.policy.kind === 'fixed' ? { activeCandidate: sel.policy.candidate as string } : {}),
-      random: sel.policy.kind === 'random',
-      ...(typeName !== undefined ? { typeName } : {}),
-    }
-    selectors.push(sceneSelector)
-    selectorById.set(sel.id, sceneSelector)
-  }
-
   // A link end's anchor point: pin center for ports, dot center for reroutes.
-  const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr } | undefined => {
+  const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr; kept?: true } | undefined => {
     if (isRerouteRef(end)) {
       const r = rerouteById.get(end.reroute)
       return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id }, ...(r.typeName ? { type: typeExprFromTypeId(r.typeName) } : {}) } : undefined
-    }
-    if (isValueSourceRef(end)) {
-      const vs = valueSourceById.get(end.valueSource)
-      if (!vs) return undefined
-      const pin = valueSourcePinPosition(vs)
-      return { x: pin.x, y: pin.y, end: { kind: 'valueSource', valueSource: vs.id }, type: vs.effective.type }
-    }
-    if (isSelectorRef(end)) {
-      const sel = selectorById.get(end.selector)
-      if (!sel) return undefined
-      const pin =
-        end.candidate !== undefined
-          ? selectorCandidatePinPosition(sel, end.candidate)
-          : selectorOutPinPosition(sel)
-      if (!pin) return undefined
-      return {
-        x: pin.x,
-        y: pin.y,
-        end: { kind: 'selector', selector: sel.id, ...(end.candidate !== undefined ? { candidate: end.candidate } : {}) },
-        ...(sel.typeName ? { type: typeExprFromTypeId(sel.typeName) } : {}),
-      }
     }
     if (isWidgetTapRef(end)) {
       const node = byId.get(end.node)
@@ -1892,10 +1482,11 @@ export function buildScene(input: BuildSceneInput): Scene {
         y: node.y + pin.y,
         end: { kind: 'widgetTap', node: end.node, input: end.tap },
         type: pin.type,
+        ...(pin.kept !== undefined ? { kept: true as const } : {}),
       } : undefined
     }
     const node = byId.get(end.node)
-    const key = portEndKey(end)
+    const key = end.port
     // Real port only: a widget tap shares its input's port id on the 'out'
     // side, so an unguarded lookup would anchor the noodle on the widget row
     // when a real output uses the same id (LoadImage 'image').
@@ -1908,7 +1499,6 @@ export function buildScene(input: BuildSceneInput): Scene {
         kind: 'port',
         node: end.node,
         port: end.port,
-        ...(end.members !== undefined ? { members: end.members } : {}),
       },
       type: pin.type,
     }
@@ -1981,7 +1571,6 @@ export function buildScene(input: BuildSceneInput): Scene {
     const from = endPoint(c.from, 'out')
     const to = endPoint(c.to, 'in')
     if (!from || !to) continue
-    if (to.end.kind === 'valueSource') continue // illegal consumer (I10); validation owns the report
     const typeName = tracedTypeName(c.from)
     links.push({
       id: c.id,
@@ -1995,6 +1584,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(to.type !== undefined ? { toType: to.type } : typeName !== undefined ? { toType: typeExprFromTypeId(typeName) } : {}),
       ...(typeName !== undefined ? { typeName } : {}),
       ...(tracedMaybeAbsent(c.from) ? { maybeAbsent: true as const } : {}),
+      ...(tracedSourceMuted(c.from) ? { sourceMuted: true as const } : {}),
+      ...(from.kept === true ? { dimmed: true as const } : {}),
       ...(c.mismatch === true ? { mismatch: true as const } : {}),
       ...(c.diagnostics !== undefined && c.diagnostics.length > 0 ? { diagnostics: c.diagnostics } : {}),
       ...(c.netId !== undefined ? { netId: c.netId } : {}),
@@ -2018,7 +1609,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       const node = byId.get(ref.node)
       if (!node) return
       const direction = role === 'source' ? 'out' : 'in'
-      const key = portEndKey(ref)
+      const key = ref.port
       // Real port only (nets never source from widget taps; see pin lookup
       // guards elsewhere for the same-id tap/output collision).
       const pin = node.layout.pins.find((p) => p.direction === direction && p.portId === key && p.widgetTap !== true)
@@ -2044,7 +1635,6 @@ export function buildScene(input: BuildSceneInput): Scene {
         ...(mismatch ? { mismatch: true as const } : {}),
         nodeId: ref.node,
         portId: ref.port,
-        ...(ref.members !== undefined ? { members: ref.members } : {}),
         pinX,
         pinY,
         x: geometry === undefined ? fallbackX : geometry.kind === 'offset' ? node.x + geometry.x : geometry.x,
@@ -2090,28 +1680,13 @@ export function buildScene(input: BuildSceneInput): Scene {
     // receives in this occurrence (the entered node's value, else the
     // default), and an edit writes where that value is owned: the entered
     // node (or the outer node that owns its value), or with no node entered
-    // the inner node's stored value, which is the default. A value source
-    // the input binds is edited the same way, its own value being the
-    // default.
+    // the inner node's stored value, which is the default.
     const fieldValues: Record<string, Json> = {}
     const fieldControllers: Record<string, NonNullable<NodeData['controllers']>[string]> = {}
-    const fieldOwners = new Map<string,
-      { readonly graphId: string; readonly nodeId: string; readonly valueKey: string } | { readonly graphId: string; readonly valueSourceId: string }>()
+    const fieldOwners = new Map<string, { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }>()
     for (const item of def.boundary.inputs) {
       const binds = item.binds
-      if (binds.kind === 'valueSource' && item.promoted === true) {
-        const source = def.valueSources?.[binds.valueSource]
-        if (source === undefined) continue
-        const occurrence = input.occurrenceView?.valueSources?.get(source.id)
-        const controller = occurrence !== undefined ? occurrence.controller : ownerNode?.controllers?.[item.id]
-        fieldValues[item.id] = sentSourceValues.has(source.id) ? sentSourceValues.get(source.id)! : source.value
-        if (controller !== undefined) fieldControllers[item.id] = controller
-        fieldOwners.set(item.id, occurrence?.owner ?? (ownerNode !== undefined && ownerGraph !== undefined
-          ? { graphId: ownerGraph.id, nodeId: ownerNode.id, valueKey: item.id }
-          : { graphId: def.id, valueSourceId: source.id }))
-        continue
-      }
-      if (binds.kind !== 'port' || binds.members !== undefined || item.promoted !== true) continue
+      if (binds.kind !== 'port' || item.promoted !== true) continue
       const inner = def.nodes[binds.node]
       if (inner === undefined) continue
       const port = binds.port as string
@@ -2135,87 +1710,41 @@ export function buildScene(input: BuildSceneInput): Scene {
       controllers: fieldControllers,
     }
     const outsideRows = new Map<string, Extract<LayoutRow, { kind: 'widget' }>[]>()
+    const outsideSpaces = new Map<string, NonNullable<BoundarySlotInfo['editorSpaces']>>()
+    const panelView = graphView?.inputsPanel
     if (derived !== undefined && fieldOwners.size > 0) {
       // The entered node's chosen views, so a field drawn as a slider there
       // is a slider here too.
       const ownerView = ownerNode !== undefined && ownerGraph !== undefined
         ? input.document.view.graphs[ownerGraph.id]?.nodes[ownerNode.id]
         : undefined
-      const outside = layoutNode(derived, fieldNode, input.tokens, measure, input.widgetMeasure, {
+      // The fields as the subgraph node outside draws them, so a primitive's
+      // value has the range the fields it feeds inside give it.
+      const fieldSchema = (ownerNode !== undefined && ownerGraph !== undefined
+        ? resolveNode(ownerGraph.id, ownerNode, input.occurrence!.owner.instancePath)
+        : resolveNode(def.id, fieldNode)) ?? derived
+      const outside = layoutNode(fieldSchema, fieldNode, input.tokens, measure, input.widgetMeasure, {
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
         ...(ownerView?.views !== undefined ? { widgetRepresentations: ownerView.views } : {}),
         ...(ownerView?.textLines !== undefined ? { textBoxLines: ownerView.textLines } : {}),
+        // The panel's own folds, not the subgraph node's outside; each starts folded.
+        editorsStartFolded: true,
+        ...(panelView?.editors !== undefined
+          ? { editorUnfolded: Object.fromEntries(Object.entries(panelView.editors).map(([key, e]) => [key, e.unfolded])) } : {}),
+        ...(panelView?.pictureHeights !== undefined ? { pictureHeights: panelView.pictureHeights } : {}),
       })
       for (const row of outside.rows) {
-        const owner = row.kind === 'widget' ? fieldOwners.get(row.inputId) : undefined
-        // Rows whose options are edited on the node (editable choices,
-        // family members) stay pins: those edits target the node itself.
-        if (row.kind !== 'widget' || owner === undefined || row.selector !== undefined || row.address.members !== undefined ||
-          row.optionsTarget !== undefined || row.inputFamilyOwner !== undefined) continue
-        outsideRows.set(row.inputId, [{ ...row, ...('valueSourceId' in owner
-          ? { valueSourceOwner: owner }
-          : { familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }) }])
-      }
-    }
-    // A dropdown that leads options reaches the subgraph node as a forwarded
-    // choice: the dropdown alone (a port binding) or with the fields of its
-    // chosen option (a dynamicCombo binding). The panel shows the rows of
-    // the node that owns the choice, as that node shows them, and edits
-    // them there: the occurrence's owner, the entered node, or with no node
-    // entered the inner node, whose choice is the default.
-    for (const item of def.boundary.inputs) {
-      const binds = item.binds
-      if ((binds.kind !== 'port' && binds.kind !== 'dynamicCombo') || binds.members !== undefined || binds.viaReroute !== undefined) continue
-      const inner = def.nodes[binds.node]
-      const bound = inner === undefined ? undefined : resolveNode(def.id, inner, sourcePath)?.items.find((candidate) => candidate.kind === 'input' && candidate.id === binds.port)
-      if (inner === undefined || bound?.kind !== 'input' || bound.dynamic?.kind !== 'dynamicCombo') continue
-      const port = binds.port as string
-      const selectorOwner = input.occurrenceView?.selectorOwners.get(inner.id)?.get(port)
-      const subtreeOwners = (input.occurrenceView?.subtreeOwners?.get(inner.id) ?? []).flatMap((candidate) => {
-        const key = occurrenceSubtreeKey(candidate, port)
-        const address = key === undefined ? undefined : addressOfElabKey(key, true)
-        return address === undefined || address.members !== undefined ? [] : [{ graphId: candidate.graphId, nodeId: candidate.nodeId, construct: address.port as string, subtree: candidate }]
-      })
-      const owner = selectorOwner !== undefined
-        ? { graphId: selectorOwner.graphId, nodeId: selectorOwner.nodeId, construct: selectorOwner.boundaryId }
-        : subtreeOwners.length === 1 ? subtreeOwners[0]!
-        : ownerNode !== undefined && ownerGraph !== undefined ? { graphId: ownerGraph.id, nodeId: ownerNode.id, construct: item.id }
-        : { graphId: def.id, nodeId: inner.id, construct: port }
-      const choiceNode = input.document.graphs[owner.graphId]?.nodes[owner.nodeId]
-      const schema = choiceNode === undefined ? undefined
-        : owner.graphId === def.id ? resolveNode(def.id, choiceNode, sourcePath) : resolveNode(owner.graphId, choiceNode)
-      if (choiceNode === undefined || schema === undefined) continue
-      // An option's field the owner has not set takes the value the inner
-      // node receives in this occurrence, which is what a run uses.
-      const received: Record<string, Json> = {}
-      const subtree = selectorOwner === undefined && subtreeOwners.length === 1 ? subtreeOwners[0]!.subtree : undefined
-      if (subtree !== undefined) {
-        for (const [key, value] of Object.entries(input.occurrenceView?.values?.get(inner.id) ?? inner.values)) {
-          const ownerKey = occurrenceSubtreeKey(subtree, key)
-          if (ownerKey !== undefined) received[ownerKey] = value
+        if (row.kind === 'editorSpace' && fieldOwners.has(row.inputId)) {
+          const { kind: _kind, y: _y, inset: _inset, width: _width, rowAbove: _rowAbove, ...space } = row
+          outsideSpaces.set(row.inputId, { ...outsideSpaces.get(row.inputId), [row.valueKey]: space })
+          continue
         }
+        const owner = row.kind === 'widget' ? fieldOwners.get(row.inputId) : undefined
+        // Rows whose options are edited on the node (editable choices)
+        // stay pins: those edits target the node itself.
+        if (row.kind !== 'widget' || owner === undefined || row.selector !== undefined || row.optionsTarget !== undefined) continue
+        outsideRows.set(row.inputId, [{ ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }])
       }
-      const choiceView = input.document.view.graphs[owner.graphId]?.nodes[owner.nodeId]
-      const choiceLayout = layoutNode(schema, choiceNode, input.tokens, measure, input.widgetMeasure, {
-        ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
-        ...(choiceView?.views !== undefined ? { widgetRepresentations: choiceView.views } : {}),
-        ...(choiceView?.textLines !== undefined ? { textBoxLines: choiceView.textLines } : {}),
-      })
-      const rows: Extract<LayoutRow, { kind: 'widget' }>[] = []
-      for (const row of choiceLayout.rows) {
-        if (row.kind !== 'widget' || row.optionsTarget !== undefined || row.inputFamilyOwner !== undefined) continue
-        const head = row.address.port === owner.construct && row.selector?.construct === owner.construct && row.selector.ancestors.length === 0
-        if (rows.length === 0 ? !head : binds.kind !== 'dynamicCombo' || !(row.address.port as string).startsWith(`${owner.construct}.`)) continue
-        if (Object.hasOwn(choiceNode.values, row.valueKey)) fieldValues[row.valueKey] = choiceNode.values[row.valueKey]!
-        else if (Object.hasOwn(received, row.valueKey)) fieldValues[row.valueKey] = received[row.valueKey]!
-        if (choiceNode.controllers !== undefined && Object.hasOwn(choiceNode.controllers, row.valueKey)) fieldControllers[row.valueKey] = choiceNode.controllers[row.valueKey]!
-        rows.push({
-          ...row,
-          familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.address.port as string, valueKey: row.valueKey },
-          ...(row.selector !== undefined ? { selector: { ...row.selector, owner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.selector.construct, ancestors: row.selector.ancestors } } } : {}),
-        })
-      }
-      if (rows.length > 0) outsideRows.set(item.id, rows)
     }
     // A value the owner receives by a wire outside the subgraph is not
     // edited here; a document literal on that wire is shown instead.
@@ -2258,18 +1787,16 @@ export function buildScene(input: BuildSceneInput): Scene {
             : derivedOutputs.find((s) => s.id === item.id)
         const label = boundaryLabel(item, spec?.displayName, defaults, roles)
         const fields = side === 'inputs' ? outsideRows.get(item.id) : undefined
-        // A value source's field has no wire either: the pill has only an
-        // output, and the row's pin cannot start one (boundary.addBinding
-        // fans out port bindings only).
-        const pinless = side === 'inputs' && (item.wireHidden === true || item.binds.kind === 'valueSource' && fields !== undefined)
+        const editorSpaces = fields === undefined ? undefined : outsideSpaces.get(item.id)
+        const pinless = side === 'inputs' && item.wireHidden === true
         if (pinless) markLabels.set(item.id, label)
         return {
           id: item.id,
           label,
           ...(spec !== undefined ? { type: spec.type } : {}),
           ...(spec?.kind === 'input' && spec.acceptsList ? { acceptsList: true as const } : {}),
-          ...(item.binds.kind === 'family' ? { family: true as const } : {}),
           ...(fields !== undefined ? { fields: pinless ? fields.map((field, index) => index === 0 ? { ...field, subgraphMark: { item: item.id, label } } : field) : fields } : {}),
+          ...(editorSpaces !== undefined ? { editorSpaces } : {}),
           ...(pinless ? { pinless: true as const } : {}),
         }
       })
@@ -2293,20 +1820,10 @@ export function buildScene(input: BuildSceneInput): Scene {
       maxX = Math.max(maxX, n.x + n.layout.width)
       minY = Math.min(minY, n.y)
     }
-    for (const vs of valueSources) {
-      minX = Math.min(minX, vs.x)
-      maxX = Math.max(maxX, vs.x + vs.width)
-      minY = Math.min(minY, vs.y)
-    }
     for (const r of reroutes) {
       minX = Math.min(minX, r.x)
       maxX = Math.max(maxX, r.x)
       minY = Math.min(minY, r.y)
-    }
-    for (const s of selectors) {
-      minX = Math.min(minX, s.x)
-      maxX = Math.max(maxX, s.x + s.width)
-      minY = Math.min(minY, s.y)
     }
     if (!Number.isFinite(minX)) {
       minX = 0
@@ -2328,9 +1845,9 @@ export function buildScene(input: BuildSceneInput): Scene {
     const regionIndexPin = inputsLayout.pins.find((pin) => pin.regionIndex === true)
     if (regionIndexPin !== undefined) {
       for (const c of connections) {
-        if (!isPortEndpoint(c.from) || c.from.node !== DINKSTER_REGION_PSEUDO_NODE || c.from.port !== 'index' || c.from.members !== undefined) continue
+        if (!isPortEndpoint(c.from) || c.from.node !== DINKSTER_REGION_PSEUDO_NODE || c.from.port !== 'index') continue
         const to = endPoint(c.to, 'in')
-        if (!to || to.end.kind === 'valueSource') continue
+        if (!to) continue
         links.push({
           id: c.id,
           from: { kind: 'boundary', side: 'inputs', item: REGION_INDEX_SLOT },
@@ -2348,28 +1865,12 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
 
     // Junction attachments bind at the retained dot, not their schema authority.
-    // Other 'port' and 'widgetTap' bindings bind at the exact inner pin;
-    // 'family' binds anchor at the family's first pin (template-slot paths reserve
-    // dots, so prefix-matching binds.port here is grammar-safe - boundary
-    // item ids are never split). Fallback: the node's header edge.
-    const membersPrefixOk = (
-      pinMembers: readonly DynamicMemberId[] | undefined,
-      bindMembers: readonly DynamicMemberId[] | undefined,
-    ): boolean => {
-      const prefix = bindMembers ?? []
-      const full = pinMembers ?? []
-      return prefix.length <= full.length && prefix.every((m, i) => full[i] === m)
-    }
+    // Other 'port' and 'widgetTap' bindings bind at the exact inner pin.
     const innerAnchor = (
       binds: BoundaryItem['binds'],
       direction: 'in' | 'out',
-    ): { x: number; y: number; end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' | 'valueSource' }> } | undefined => {
+    ): { x: number; y: number; end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' }> } | undefined => {
       if (binds.kind === 'unbound') return undefined
-      if (binds.kind === 'valueSource') {
-        const source = valueSourceById.get(binds.valueSource)
-        if (direction !== 'out' || source === undefined) return undefined
-        return { ...valueSourcePinPosition(source), end: { kind: 'valueSource', valueSource: source.id } }
-      }
       if (binds.viaReroute !== undefined) {
         const reroute = direction === 'in' ? rerouteById.get(binds.viaReroute) : undefined
         return reroute && { x: reroute.x, y: reroute.y, end: { kind: 'reroute', reroute: reroute.id } }
@@ -2388,25 +1889,13 @@ export function buildScene(input: BuildSceneInput): Scene {
         kind: 'port',
         node: binds.node,
         port: binds.port,
-        ...(binds.members !== undefined ? { members: binds.members } : {}),
       }
-      if (binds.kind === 'port') {
-        const key = portEndKey({ port: binds.port, ...(binds.members !== undefined ? { members: binds.members } : {}) })
-        // Real port only: excludes the same-id widget tap pin (see the
-        // endpoint resolver above).
-        const pin = node.layout.pins.find((p) => p.direction === direction && p.portId === key && p.widgetTap !== true)
-        if (!pin) return undefined
-        return { x: edgeX, y: node.y + pin.y, end }
-      }
-      const familyPin = node.layout.pins.find(
-        (p) =>
-          p.direction === direction &&
-          p.widgetTap !== true &&
-          (p.address.port === binds.port || p.address.port.startsWith(`${binds.port}.`)) &&
-          membersPrefixOk(p.address.members, binds.members),
-      )
-      const y = familyPin ? node.y + familyPin.y : node.y + node.layout.headerHeight / 2
-      return { x: edgeX, y, end }
+      const key = binds.port
+      // Real port only: excludes the same-id widget tap pin (see the
+      // endpoint resolver above).
+      const pin = node.layout.pins.find((p) => p.direction === direction && p.portId === key && p.widgetTap !== true)
+      if (!pin) return undefined
+      return { x: edgeX, y: node.y + pin.y, end }
     }
 
     const boundaryPin = (bnode: SceneBoundaryNode, itemId: string): { x: number; y: number } | undefined => {
@@ -2418,7 +1907,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const projectedAnchors = (
       direction: 'in' | 'out', item: BoundaryItem, binding: BoundaryItem['binds'],
     ): readonly {
-      readonly anchor: NonNullable<ReturnType<typeof endPoint>> & { readonly end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' | 'valueSource' }> }
+      readonly anchor: NonNullable<ReturnType<typeof endPoint>> & { readonly end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' }> }
       readonly identities: readonly EffectiveLinkIdentity[]
     }[] => {
       const grouped = new Map<string, { endpoint: LinkEndpoint; identities: EffectiveLinkIdentity[] }>()
@@ -2430,7 +1919,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           leg?.boundaryId !== item.id || boundaryBindingKey(leg.binding) !== boundaryBindingKey(binding) ||
           resolved.graphId !== def.id ||
           (direction === 'in' && !isPortEndpoint(resolved.endpoint) && !isRerouteRef(resolved.endpoint)) ||
-          (direction === 'out' && !isPortEndpoint(resolved.endpoint) && !isWidgetTapRef(resolved.endpoint) && !isValueSourceRef(resolved.endpoint))
+          (direction === 'out' && !isPortEndpoint(resolved.endpoint) && !isWidgetTapRef(resolved.endpoint))
         ) continue
         const key = JSON.stringify(resolved.endpoint)
         const group = grouped.get(key) ?? { endpoint: resolved.endpoint, identities: [] }
@@ -2439,7 +1928,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       }
       return [...grouped.values()].flatMap((group) => {
         const anchor = endPoint(group.endpoint, direction)
-        return anchor?.end.kind === 'port' || anchor?.end.kind === 'widgetTap' || anchor?.end.kind === 'reroute' || anchor?.end.kind === 'valueSource'
+        return anchor?.end.kind === 'port' || anchor?.end.kind === 'widgetTap' || anchor?.end.kind === 'reroute'
           ? [{ anchor: { ...anchor, end: anchor.end }, identities: group.identities }]
           : []
       })
@@ -2467,7 +1956,6 @@ export function buildScene(input: BuildSceneInput): Scene {
         const fallback = innerAnchor(b, 'in')
         const targets = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
-          if (to.end.kind === 'valueSource') return
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,
             from: { kind: 'boundary', side: 'inputs', item: item.id },
@@ -2479,7 +1967,6 @@ export function buildScene(input: BuildSceneInput): Scene {
             ...(typeName !== undefined ? { typeName } : {}),
             boundary: true,
             ...(item.wireHidden === true ? { hidden: true as const } : {}),
-            ...(b.kind === 'family' ? { boundaryFamily: true as const } : {}),
             ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
             ...(identities.length > 0 ? { effectiveIdentities: identities } : {}),
           })
@@ -2491,19 +1978,11 @@ export function buildScene(input: BuildSceneInput): Scene {
       const label = markLabels.get(item.id)
       if (label === undefined) continue
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
-        // A value source's pill carries it while a node is entered, the
-        // pill then showing the value that node's field sends.
-        if (b.kind === 'valueSource') {
-          const index = valueSources.findIndex((vs) => vs.id === b.valueSource && vs.arriving !== undefined && vs.subgraphMark === undefined)
-          if (index >= 0) valueSources[index] = { ...valueSources[index]!, subgraphMark: { item: item.id, label } }
-          continue
-        }
-        if (b.kind !== 'port' && b.kind !== 'dynamicCombo') continue
+        if (b.kind !== 'port') continue
         const index = nodes.findIndex((candidate) => candidate.id === b.node)
         const target = nodes[index]
         if (target === undefined) continue
-        const rows = target.layout.rows.map((row) => row.kind === 'widget' && row.address.port === b.port &&
-          portEndKey(row.address) === portEndKey({ port: b.port, ...(b.members !== undefined ? { members: b.members } : {}) })
+        const rows = target.layout.rows.map((row) => row.kind === 'widget' && row.address.port === b.port
           ? { ...row, subgraphMark: { item: item.id, label } } : row)
         nodes[index] = { ...target, layout: { ...target.layout, rows } }
       }
@@ -2517,12 +1996,13 @@ export function buildScene(input: BuildSceneInput): Scene {
           ? tracedTypeName({
               node: item.binds.node,
               port: item.binds.port,
-              ...(item.binds.members !== undefined ? { members: item.binds.members } : {}),
             })
           : item.binds.kind === 'widgetTap'
             ? widgetTapTypeName(item.binds.node, item.binds.tap)
           : undefined
       const typeName = traced ?? (pinType === undefined ? undefined : canonicalTypeIdOf(pinType))
+      const maybeAbsent = item.binds.kind === 'port' && tracedMaybeAbsent({ node: item.binds.node, port: item.binds.port })
+      const sourceMuted = item.binds.kind === 'port' && tracedSourceMuted({ node: item.binds.node, port: item.binds.port })
       const projected = projectedAnchors('out', item, item.binds)
       const fallback = innerAnchor(item.binds, 'out')
       const sources = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
@@ -2536,8 +2016,9 @@ export function buildScene(input: BuildSceneInput): Scene {
           x2: to.x,
           y2: to.y,
           ...(typeName !== undefined ? { typeName } : {}),
+          ...(maybeAbsent ? { maybeAbsent: true as const } : {}),
+          ...(sourceMuted ? { sourceMuted: true as const } : {}),
           boundary: true,
-          ...(item.binds.kind === 'family' ? { boundaryFamily: true as const } : {}),
           ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
           ...(identities.length > 0 ? { effectiveIdentities: identities } : {}),
         })
@@ -2546,8 +2027,8 @@ export function buildScene(input: BuildSceneInput): Scene {
   }
 
   const result: Scene = {
-    graphId: input.graphId, nodes, links, reroutes, valueSources, selectors, netStubs, groups, boundaryNodes,
-    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? [])],
+    graphId: input.graphId, nodes, links, reroutes, netStubs, groups, boundaryNodes,
+    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...automaticDiagnostics],
     ...(input.occurrence !== undefined ? { occurrence: { owner: input.occurrence.owner, bodyGraph: def.id } } : {}),
   }
   if (input.layoutGeneration !== undefined && input.occurrence === undefined && input.occurrenceView === undefined && view !== undefined) {
@@ -2575,7 +2056,7 @@ export function buildScene(input: BuildSceneInput): Scene {
  * Connections the DOCUMENT proves a node has, used when its schema cannot be
  * resolved: every link/net/boundary endpoint touching the node yields a port
  * (or widget tap) so the unresolved node keeps its pins and every visible
- * noodle stays attached. Keyed/deduped by elab key, document order.
+ * noodle stays attached. Keyed/deduped by flattened port id, document order.
  */
 function missingConnections(
   def: GraphDef,
@@ -2585,7 +2066,7 @@ function missingConnections(
   const outs = new Map<string, PortRef>()
   const taps = new Set<string>()
   const mark = (map: Map<string, PortRef>, ref: PortRef): void => {
-    if (ref.node === nodeId && !map.has(portEndKey(ref))) map.set(portEndKey(ref), ref)
+    if (ref.node === nodeId && !map.has(ref.port)) map.set(ref.port, ref)
   }
   for (const link of Object.values(def.links)) {
     if (isPortEndpoint(link.from)) mark(outs, link.from)
@@ -2599,12 +2080,12 @@ function missingConnections(
   if (def.boundary) {
     for (const item of def.boundary.inputs) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
-        if (b.kind === 'port') mark(ins, { node: b.node, port: b.port, ...(b.members !== undefined ? { members: b.members } : {}) })
+        if (b.kind === 'port') mark(ins, { node: b.node, port: b.port })
       }
     }
     for (const item of def.boundary.outputs) {
       const b = item.binds
-      if (b.kind === 'port') mark(outs, { node: b.node, port: b.port, ...(b.members !== undefined ? { members: b.members } : {}) })
+      if (b.kind === 'port') mark(outs, { node: b.node, port: b.port })
       else if (b.kind === 'widgetTap' && b.node === nodeId) taps.add(b.tap)
     }
   }
@@ -2632,12 +2113,16 @@ function missingLayout(
   connections: { inputs: readonly PortRef[]; outputs: readonly PortRef[]; taps: readonly string[] },
   sizeOverride?: SizeOverride,
   minimized = false,
+  pending = false,
 ): NodeLayout {
   const titleRenamed = node.title !== undefined && node.title !== node.type
-  const title = node.title ?? node.type
+  // A node waiting for definitions shows its type id without the pack part,
+  // as written. A missing node keeps the whole id: the pack part says what to
+  // install.
+  const lastDot = node.type.lastIndexOf('.')
+  const shortType = pending && lastDot >= 0 && lastDot < node.type.length - 1 ? node.type.slice(lastDot + 1) : node.type
+  const title = node.title ?? shortType
   const unknownType = { kind: 'wildcard' } as const
-  const labelOf = (ref: PortRef): string =>
-    ref.members !== undefined ? `${ref.port}.${ref.members.join('.')}` : ref.port
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []
   let y = tokens.headerHeight
@@ -2649,16 +2134,16 @@ function missingLayout(
     const outRef = connections.outputs[i]
     const height = tokens.rowHeight
     const input = inRef === undefined ? undefined : {
-      portId: portEndKey(inRef),
-      label: labelOf(inRef),
+      portId: inRef.port,
+      label: inRef.port,
       type: unknownType,
-      address: { port: inRef.port, ...(inRef.members !== undefined ? { members: inRef.members } : {}) },
+      address: { port: inRef.port },
     }
     const output = outRef === undefined ? undefined : {
-      portId: portEndKey(outRef),
-      label: labelOf(outRef),
+      portId: outRef.port,
+      label: outRef.port,
       type: unknownType,
-      address: { port: outRef.port, ...(outRef.members !== undefined ? { members: outRef.members } : {}) },
+      address: { port: outRef.port },
       index: i,
     }
     rows.push({ kind: 'ports', y, height, ...(input !== undefined ? { input } : {}), ...(output !== undefined ? { output } : {}) })

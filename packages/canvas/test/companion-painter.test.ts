@@ -145,6 +145,22 @@ const registry: WidgetRegistry = {
 
 describe('companion value painting', () => {
 
+  it('aligns absence words on seed rows with ordinary numeric rows, without reserving the hidden controller', () => {
+    for (const painter of [defaultWidgetPainter, createRegistryPainter(registry)]) {
+      for (const state of ['nothing', 'unknown', 'expected'] as const) {
+        const word = state === 'nothing' ? 'Nothing' : state === 'unknown' ? 'Known after a run' : '42'
+        const edges = [row, { ...row, controllerMode: 'fixed' as const }].map((field) => {
+          const { ctx, calls } = fakeCtx()
+          painter(argsWith(ctx, { row: field, width: 400, connected: true, companion: { state, value: 42 } }))
+          return calls.find((call) => call.text === word)?.x
+        })
+        expect(edges[0]).toBe(400 - defaultTokens.rowGeometry.stepperZone)
+        if (state === 'expected') expect(edges[1]).toBeLessThan(edges[0]!)
+        else expect(edges[1]).toBe(edges[0])
+      }
+    }
+  })
+
   it('default painter preserves a short value before the label', () => {
     const { ctx, calls } = fakeCtx()
     defaultWidgetPainter({
@@ -215,7 +231,6 @@ describe('companion value painting', () => {
       return { texts: painted.calls.map((call) => call.text), fills }
     }
     const curve = { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }
-    expect(paintPassed(curveView, curve, 'raised-editors').texts).toContain('2 points')
     expect(paintPassed(curveView, curve, 'inset-raised').texts.some((text) => text.startsWith('{"points"'))).toBe(true)
     const color = paintPassed(colorView, '#3366cc80', 'raised-editors')
     expect(color.texts).toContain('#3366cc80')

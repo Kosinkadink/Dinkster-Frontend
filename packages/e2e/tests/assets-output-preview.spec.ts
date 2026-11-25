@@ -16,7 +16,7 @@ const imageOutput = (names: readonly string[]) => ({
 async function mockBackend(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated proof' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'output-proof', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'output-proof', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('**/api/assets/*', async (route) => {
     const digest = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
@@ -47,7 +47,7 @@ async function installExecution(page: Page): Promise<void> {
   await page.evaluate(async (output) => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'OutputPreviewProof', displayName: 'Save Image', category: 'proof', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'IMAGE' } }],
+      body: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'IMAGE' } }],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'output-preview-proof', root: 'g0',
@@ -319,6 +319,9 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
 })
 
 test('output inspection distinguishes lifecycle, asset identity, errors, and unavailable owners', async ({ page }) => {
+  // Rows sit under Running, Queued and Finished, newest first in each.
+  const section = { queued: 'runs-queued', running: 'runs-running' } as const
+  let row = page.getByTestId('execution-row').first()
   const installState = async (kind: 'queued' | 'running' | 'loading' | 'empty' | 'error' | 'asset' | 'disconnected-owner' | 'removed-owner') => {
     await page.evaluate((stateKind) => {
       const app = window.__dinksterTest!.app as any
@@ -376,10 +379,15 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
         if (stateKind === 'empty') app.store.hydrateArtifacts(ref, [])
       }
     }, kind)
+    row = kind === 'queued' || kind === 'running' ? page.getByTestId(section[kind]).getByTestId('execution-row').first()
+      : kind === 'disconnected-owner' ? page.getByRole('list', { name: 'Configured disconnected owner', exact: true }).getByTestId('execution-row')
+      : kind === 'removed-owner' ? page.getByRole('list', { name: /removed backend executions/ }).getByTestId('execution-row')
+      : page.getByTestId('runs-finished').getByTestId('execution-row').first()
+    // A row shows its outputs once its name is pressed.
+    if (await row.locator('.runs-output-thumbnails').count() === 0) await row.locator('.run-row-name').click()
+    state = row.locator('.runs-output-thumbnails > [data-state]')
   }
-
-  const row = page.getByTestId('execution-row').first()
-  const state = row.locator('.runs-output-thumbnails > [data-state]')
+  let state = row.locator('.runs-output-thumbnails > [data-state]')
   await installState('queued')
   await expect(state).toHaveText('Waiting for image outputs')
   await expect(state).toHaveAttribute('title', 'The execution is queued.')

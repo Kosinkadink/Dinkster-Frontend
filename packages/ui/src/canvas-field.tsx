@@ -566,6 +566,67 @@ export function CanvasRowFocus(
 const MINUS_PATH = 'M9.5 12.5H15.5'
 const PLUS_PATH = 'M8.5 12.5H14.5M11.5 9.5V15.5'
 
+/** The chevron the canvas draws at a choice row's end, in the stepper's 24px zone. */
+const CHEVRON_PATH = 'M8.5 10.5L11.5 13.5L14.5 10.5'
+
+/**
+ * A row drawn as the canvas draws it while closed, for rows the canvas does
+ * not paint itself, such as an editor's own: a number with its minus and
+ * plus (given `onStep`), a choice with its chevron (`choice`), or a line of
+ * text. Pressing the row opens it; the caller lays the open field or list
+ * over it.
+ */
+export function CanvasClosedRow(props: {
+  label: string
+  value: string
+  onOpen: () => void
+  onStep?: (direction: -1 | 1, fast: boolean) => void
+  /**
+   * Names minus and plus and makes them reachable by keyboard, for a row
+   * outside a node; `detail` is the tooltip's second line, such as a
+   * shortcut.
+   */
+  steps?: {
+    readonly decrease: { readonly label: string; readonly detail?: string | undefined }
+    readonly increase: { readonly label: string; readonly detail?: string | undefined }
+  }
+  choice?: boolean
+}) {
+  const stepper = (direction: -1 | 1) => {
+    const named = () => props.steps?.[direction < 0 ? 'decrease' : 'increase']
+    return (
+      <button type="button" class="dinkster-canvas-field-step" tabindex={named() === undefined ? -1 : 0}
+        aria-label={named()?.label ?? (direction < 0 ? 'Decrease' : 'Increase')}
+        data-tooltip-label={named()?.label} data-tooltip-detail={named()?.detail}
+        onClick={(event) => props.onStep?.(direction, event.shiftKey)}>
+        <StepGlyph path={direction < 0 ? MINUS_PATH : PLUS_PATH} />
+      </button>
+    )
+  }
+  return (
+    <Show when={props.onStep} fallback={
+      <button type="button" class="dinkster-canvas-field-row dinkster-canvas-closed-row" data-steppers="false"
+        {...(props.choice === true ? { 'aria-haspopup': 'listbox' as const } : {})} onClick={() => props.onOpen()}>
+        <span class="dinkster-canvas-field-label">{props.label}</span>
+        <span class="dinkster-canvas-closed-row-value">{props.value}</span>
+        <Show when={props.choice === true}>
+          <span class="dinkster-canvas-closed-row-chevron"><StepGlyph path={CHEVRON_PATH} /></span>
+        </Show>
+      </button>
+    }>
+      <div class="dinkster-canvas-field-row dinkster-canvas-closed-row" data-steppers="true">
+        {stepper(-1)}
+        <button type="button" class="dinkster-canvas-closed-row-open" aria-label={props.label === '' ? props.value : `${props.label}: ${props.value}`}
+          onClick={() => props.onOpen()}>
+          <span class="dinkster-canvas-field-label">{props.label}</span>
+          <span class="dinkster-canvas-closed-row-value">{props.value}</span>
+        </button>
+        {stepper(1)}
+      </div>
+    </Show>
+  )
+}
+
 function StepGlyph(props: { path: string }) {
   return (
     <svg

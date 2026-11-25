@@ -73,52 +73,12 @@ slider); the view is chosen there, so a right-click on a panel field opens
 the canvas menu. Tab, Enter and Escape move through the panel's fields as
 through a node's, skipping wired ones, and the canvas keyboard list names
 each as a row of Inputs. A choice whose options are edited on the node
-itself (editable choices, family members) stays a name and a pin. A field
+itself (editable choices) stays a name and a pin. A field
 row is renamed in the Boundary panel, not by double-clicking it. A text box
 has the height the subgraph node gives it and is resized there.
 
-A dropdown that leads options is a field too, whichever binding forwards
-it: forwarded alone it is the dropdown, and forwarded with its options
-(a `dynamicCombo` binding) it brings the fields of the chosen option,
-which change when the choice does. Both are the rows of the node that owns
-the choice, edited there; the input's pin sits on the dropdown. An option's
-field that node has not set shows the value the inner node receives, which
-is the value a run uses. The inner node's own dropdown stays its editor of
-the same choice.
-
 A field whose input reaches the inner node through a reroute is the same
-field, and the inner field shows its value through the reroute. A
-forwarded group, a forwarded slot and a field inside a group member stay a
-name and a pin.
-
-A value source exposed as a field is a field too. It shows the value the
-entered node (or the outer node that owns it) gives the source, and the
-source's own value when that node sets none. While a node is entered, the
-source's pill and the fields it feeds show that same value dimmed, as an
-arriving value, and the pill is not edited there: an edit on it would change
-the value every other node of the definition falls back to. Entered with no
-node, the field is the source's own value: its stepper and drag edit the
-source, and a click opens the source's own editor over the field (never an
-in-row editor), the same editor a click on the pill opens.
-
-## Subgraph field values
-
-A subgraph node displays the value a run sends: a value set on the instance
-wins, otherwise a forwarded option field inherits the inner node's stored
-value. Scene construction derives this state when no occurrence view is
-supplied, including gallery and standalone canvas callers, without writing
-inherited values into the document.
-
-## Canvas panel positions
-
-The Inputs and Outputs panels inside a subgraph keep their own saved positions.
-Moving, adding, removing or resizing other graph items does not move them. Drag a
-panel, alone or in a selection, to reposition it.
-
-New definitions store their initial content-bound positions during extraction,
-paste or import. Opening an older document does not change it: the first command
-that edits a definition stores its previously drawn panel positions in that same
-undo step. Undo restores the edited items and the panels' original places.
+field, and the inner field shows its value through the reroute.
 
 ## Showing a field on the subgraph node
 
@@ -128,11 +88,13 @@ at the end of the inputs and in one undo step, and the subgraph node
 outside shows it as a field with a pin, starting from the inner field's
 value. No wire is drawn inside: the Inputs panel row is a field without a
 pin, and the inner field has no pin and shows the entered node's value dimmed, as a wired
-one does. A dropdown that leads options is shown through its options
-binding; its Inputs panel row has no pin and carries the icon, and the
-fields of its option follow it unmarked. The entry is not offered in the top-level workflow, on a field
-a wire or another input already drives, or on a field the subgraph node cannot show
-(a member of a forwarded group, a construct, a row with no stored value).
+one does. The entry is not offered in the top-level workflow, on a field
+a wire or another input already drives, on a choice's or type choice's own
+row, or on a row of a construct already shown whole, and it is refused with a
+message on any other field the subgraph node cannot show (a row with no
+stored value). A group, choice, type choice or described row is shown whole
+instead, by **Show <name> on subgraph node** (see Groups and choices below);
+its wire is always drawn.
 
 On a field already on the subgraph node the entry reads **Remove from
 subgraph node** and removes that input. A field whose wire is drawn also
@@ -149,24 +111,19 @@ and the subgraph node outside carry none. Hovering the icon names the input
 ("On the subgraph node as strength"); clicking it opens the Boundary panel
 with that input selected.
 
-A value source exposed as a field has no wire to its pill either (the pill
-has only an output), so its Inputs panel row has no pin and carries the icon
-too. While a node is entered, the pill carries the same icon before its
-title, so the pill and the row read as one field; hovering and clicking it
-work as on a field, and a click elsewhere on the pill works as before.
+## Groups and choices
 
-## Nested slot exposure
-
-A forwarded family starts in **Tracks template** mode. New nested slots become
-exposed automatically. **Pin selection** records the current explicit slot
-set; checkboxes then expose a whole subtree, a narrowed subtree, or no part of
-that subtree. **Track all slots** removes the explicit set.
-
-The document remains authoritative. Slot edits use `boundary.setSlots` and
-`boundary.clearSlots`, remain one undo step, and never keep a second local
-selection. The panel refuses an empty pinned selection, reports invalid stored
-paths and derivation diagnostics inline, and names an unavailable schema
-catalog instead of hiding the exposure state.
+A boundary item forwards one inner input or output by its flattened id, such
+as `loras.lora0.strength` (see [Node body](node-body.md)), or shows a whole
+group, choice, type choice or described row. Right-click any row of one inside
+the subgraph and choose **Show <name> on subgraph node**; the item binds the
+construct and the subgraph node shows its members, pick and fields, stored on
+that node. Inside, the definition's own members come first and the entered
+node's follow with its values; editing one, or picking an option, writes the
+entered node. A row inside a construct that is already shown, or a construct
+around a row that is already shown, is not offered and is refused
+(`boundary.constructOwned`). Boundary diagnostics, such as a row of an option
+that is not chosen, appear inline on their item.
 
 ## Regions and frozen views
 

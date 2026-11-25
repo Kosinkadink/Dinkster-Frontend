@@ -61,7 +61,8 @@
     "iconSize": 16,
     "railIconSize": 20,
     "menuRowHeight": 28,
-    "scrollbarSize": 8
+    "scrollbarSize": 8,
+    "problemBoxMaxHeight": 400
   },
   "siteLayout": {
     "shellMaxWidth": 1040,

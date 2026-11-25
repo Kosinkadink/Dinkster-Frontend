@@ -11,6 +11,16 @@ export interface MeaningToken {
   readonly foreground: string
   readonly background: string
   readonly border: string
+  /** A coloured outline button's outline at rest: the foreground at 55%. */
+  readonly restBorder: string
+  /** A message's outline: the foreground at 38%. */
+  readonly quietBorder: string
+  /** A message's fill over the surface behind it: the foreground at 7%. */
+  readonly quietBackground: string
+  /** A control outlined in this meaning, under the pointer: the foreground at 12%. */
+  readonly wash: string
+  /** The same control while pressed: the foreground at 20%. */
+  readonly washPressed: string
 }
 
 const deepFreeze = <T>(value: T): T => {
@@ -53,6 +63,8 @@ export interface SemanticDesignTokens {
     readonly panel: string
     readonly inset: string
     readonly raised: string
+    /** A quiet surface on a panel, such as the projects page's fact boxes: half the step to raised. */
+    readonly quiet: string
     readonly selected: string
     /** A canvas row's field while it is open for editing. */
     readonly fieldOpen: string
@@ -81,8 +93,25 @@ export interface SemanticDesignTokens {
     readonly selected: string
     /** A quiet line between two parts of one shape, such as a title bar and its body. */
     readonly divider: string
+    /** Quieter than divider: a line between the items of one list in a small box over the canvas. */
+    readonly faint: string
     /** The edge around a group of controls picked from as one. */
     readonly group: string
+    /** The outline of a box or a button drawn on a node. */
+    readonly box: string
+  }
+  /**
+   * A button that stands raised on a node: its face at rest, under the
+   * pointer and held down, the lit line along its top and the dark line
+   * under it. A held button loses both lines; a disabled one fades by
+   * interaction.disabledOpacity.
+   */
+  readonly button: {
+    readonly face: string
+    readonly faceHover: string
+    readonly facePressed: string
+    readonly litEdge: string
+    readonly shade: string
   }
   readonly meaning: {
     readonly accent: MeaningToken
@@ -131,10 +160,21 @@ export const semanticTokensForTheme = (
   theme: 'dark' | 'light',
 ): SemanticDesignTokens => {
   const colors = palette[theme]
+  const withAlpha = (color: string, strength: number): string =>
+    color +
+    Math.round(strength * 255)
+      .toString(16)
+      .padStart(2, '0')
+      .toUpperCase()
   const meaning = (foreground: string): MeaningToken => ({
     foreground,
     background: colors.bg.surface,
     border: foreground,
+    restBorder: withAlpha(foreground, 0.55),
+    quietBorder: withAlpha(foreground, 0.38),
+    quietBackground: withAlpha(foreground, 0.07),
+    wash: withAlpha(foreground, 0.12),
+    washPressed: withAlpha(foreground, 0.2),
   })
   return deepFreeze({
     space: components.space,
@@ -146,6 +186,7 @@ export const semanticTokensForTheme = (
       panel: colors.bg.surface,
       inset: colors.bg.canvas,
       raised: colors.bg.raised,
+      quiet: colors.bg.quiet,
       selected: colors.bg.hover,
       fieldOpen: colors.bg.fieldOpen,
     },
@@ -168,7 +209,16 @@ export const semanticTokensForTheme = (
       selected: colors.text.primary,
       // Looks are decided in the dark theme; the light theme keeps its border.
       divider: colors.border.divider,
+      faint: colors.border.faint,
       group: colors.border.group,
+      box: theme === 'dark' ? '#343A41' : colors.border.default,
+    },
+    button: {
+      face: theme === 'dark' ? colors.bg.raised : colors.bg.surface,
+      faceHover: colors.bg.hover,
+      facePressed: colors.bg.pressed,
+      litEdge: theme === 'dark' ? colors.border.hover : colors.bg.surface,
+      shade: theme === 'dark' ? colors.bg.field : colors.border.hover,
     },
     meaning: {
       accent: meaning(colors.status.info),
@@ -186,7 +236,7 @@ export const semanticTokensForTheme = (
     interaction: {
       ...components.interaction,
       hoverOverlay: colors.bg.hover,
-      pressedOverlay: colors.bg.raised,
+      pressedOverlay: colors.bg.pressed,
       selectedOverlay: colors.bg.hover,
       activeTabTint: colors.bg.activeTabTint,
     },
@@ -303,6 +353,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-surface-panel': semanticDesignTokens.surface.panel,
     '--dinkster-surface-inset': semanticDesignTokens.surface.inset,
     '--dinkster-surface-raised': semanticDesignTokens.surface.raised,
+    '--dinkster-surface-quiet': semanticDesignTokens.surface.quiet,
     '--dinkster-surface-selected': semanticDesignTokens.surface.selected,
     '--dinkster-surface-field-open': semanticDesignTokens.surface.fieldOpen,
     '--dinkster-checker-dark': semanticDesignTokens.checker.dark,
@@ -319,30 +370,87 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-border-focus': semanticDesignTokens.border.focus,
     '--dinkster-border-selected': semanticDesignTokens.border.selected,
     '--dinkster-border-divider': semanticDesignTokens.border.divider,
+    '--dinkster-border-faint': semanticDesignTokens.border.faint,
     '--dinkster-border-group': semanticDesignTokens.border.group,
+    '--dinkster-border-box': semanticDesignTokens.border.box,
+    '--dinkster-button-face': semanticDesignTokens.button.face,
+    '--dinkster-button-face-hover': semanticDesignTokens.button.faceHover,
+    '--dinkster-button-face-pressed': semanticDesignTokens.button.facePressed,
+    '--dinkster-button-lit-edge': semanticDesignTokens.button.litEdge,
+    '--dinkster-button-shade': semanticDesignTokens.button.shade,
     '--dinkster-accent-foreground':
       semanticDesignTokens.meaning.accent.foreground,
     '--dinkster-accent-background':
       semanticDesignTokens.meaning.accent.background,
     '--dinkster-accent-border': semanticDesignTokens.meaning.accent.border,
+    '--dinkster-accent-rest-border':
+      semanticDesignTokens.meaning.accent.restBorder,
+    '--dinkster-accent-quiet-border':
+      semanticDesignTokens.meaning.accent.quietBorder,
+    '--dinkster-accent-quiet-background':
+      semanticDesignTokens.meaning.accent.quietBackground,
+    '--dinkster-accent-wash':
+      semanticDesignTokens.meaning.accent.wash,
+    '--dinkster-accent-wash-pressed':
+      semanticDesignTokens.meaning.accent.washPressed,
     '--dinkster-success-foreground':
       semanticDesignTokens.meaning.success.foreground,
     '--dinkster-success-background':
       semanticDesignTokens.meaning.success.background,
     '--dinkster-success-border': semanticDesignTokens.meaning.success.border,
+    '--dinkster-success-rest-border':
+      semanticDesignTokens.meaning.success.restBorder,
+    '--dinkster-success-quiet-border':
+      semanticDesignTokens.meaning.success.quietBorder,
+    '--dinkster-success-quiet-background':
+      semanticDesignTokens.meaning.success.quietBackground,
+    '--dinkster-success-wash':
+      semanticDesignTokens.meaning.success.wash,
+    '--dinkster-success-wash-pressed':
+      semanticDesignTokens.meaning.success.washPressed,
     '--dinkster-warning-foreground':
       semanticDesignTokens.meaning.warning.foreground,
     '--dinkster-warning-background':
       semanticDesignTokens.meaning.warning.background,
     '--dinkster-warning-border': semanticDesignTokens.meaning.warning.border,
+    '--dinkster-warning-rest-border':
+      semanticDesignTokens.meaning.warning.restBorder,
+    '--dinkster-warning-quiet-border':
+      semanticDesignTokens.meaning.warning.quietBorder,
+    '--dinkster-warning-quiet-background':
+      semanticDesignTokens.meaning.warning.quietBackground,
+    '--dinkster-warning-wash':
+      semanticDesignTokens.meaning.warning.wash,
+    '--dinkster-warning-wash-pressed':
+      semanticDesignTokens.meaning.warning.washPressed,
     '--dinkster-danger-foreground':
       semanticDesignTokens.meaning.danger.foreground,
     '--dinkster-danger-background':
       semanticDesignTokens.meaning.danger.background,
     '--dinkster-danger-border': semanticDesignTokens.meaning.danger.border,
+    '--dinkster-danger-rest-border':
+      semanticDesignTokens.meaning.danger.restBorder,
+    '--dinkster-danger-quiet-border':
+      semanticDesignTokens.meaning.danger.quietBorder,
+    '--dinkster-danger-quiet-background':
+      semanticDesignTokens.meaning.danger.quietBackground,
+    '--dinkster-danger-wash':
+      semanticDesignTokens.meaning.danger.wash,
+    '--dinkster-danger-wash-pressed':
+      semanticDesignTokens.meaning.danger.washPressed,
     '--dinkster-info-foreground': semanticDesignTokens.meaning.info.foreground,
     '--dinkster-info-background': semanticDesignTokens.meaning.info.background,
     '--dinkster-info-border': semanticDesignTokens.meaning.info.border,
+    '--dinkster-info-rest-border':
+      semanticDesignTokens.meaning.info.restBorder,
+    '--dinkster-info-quiet-border':
+      semanticDesignTokens.meaning.info.quietBorder,
+    '--dinkster-info-quiet-background':
+      semanticDesignTokens.meaning.info.quietBackground,
+    '--dinkster-info-wash':
+      semanticDesignTokens.meaning.info.wash,
+    '--dinkster-info-wash-pressed':
+      semanticDesignTokens.meaning.info.washPressed,
     '--dinkster-radius-small': px(semanticDesignTokens.shape.small),
     '--dinkster-radius-control': px(semanticDesignTokens.shape.control),
     '--dinkster-radius-card': px(semanticDesignTokens.shape.card),

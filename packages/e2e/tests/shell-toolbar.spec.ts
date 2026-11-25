@@ -1,7 +1,7 @@
 import { expect, nativeTest, test } from './fixtures.js'
 import components from '../../../branding/tokens/dinkster-components.json' with { type: 'json' }
 
-test('execution status stays below canvas controls when the toolbar wraps', async ({ page }) => {
+test('the frozen line stays centred, inside the canvas and clear of its controls when the toolbar wraps', async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.routeWebSocket('/ws*', () => {})
@@ -13,7 +13,6 @@ test('execution status stays below canvas controls when the toolbar wraps', asyn
     const app = window.__dinksterTest!.app as NonNullable<typeof window.__dinksterTest>['app'] & {
       store: { restoreCompleted(state: unknown): void }
       semanticHashOfTab(tab: unknown): string
-      pinExecutionOverlay(tabId: string, ref: unknown): boolean
     }
     const tab = app.activeTab()!
     const connection = app.backendForTab(tab).id
@@ -29,33 +28,24 @@ test('execution status stays below canvas controls when the toolbar wraps', asyn
       nodes: {}, outputs: {}, artifacts: [],
       jobRef: 'shell-layout-job', sourceDocument: tab.id, queuedAt: 1, endedAt: 2,
     })
-    app.pinExecutionOverlay(tab.id, ref)
+    void app.openExecutionView(ref)
   })
-  const chip = page.getByTestId('sync-chip')
-  await expect(chip).toHaveAttribute('data-overlay-mode', 'pinned')
+  const frozen = page.getByTestId('frozen-banner')
+  await expect(frozen).toBeVisible()
   for (const width of [1440, 1100, 1440]) {
     await page.setViewportSize({ width, height: 900 })
     await expect.poll(async () => {
-      const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
-      const status = (await chip.boundingBox())!
-      return status.y - (toolbar.y + toolbar.height)
-    }).toBeGreaterThanOrEqual(8)
+      const line = (await frozen.boundingBox())!
+      const controls = await Promise.all((await page.locator('.canvas-stage-toolbar button').all()).map(async (control) => (await control.boundingBox())!))
+      return controls.every((box) => box.x + box.width <= line.x || box.x >= line.x + line.width ||
+        box.y + box.height <= line.y || box.y >= line.y + line.height)
+    }).toBe(true)
     const stage = (await page.locator('.canvas-stage').boundingBox())!
-    const status = (await chip.boundingBox())!
-    expect(status.x).toBeGreaterThanOrEqual(stage.x)
-    expect(status.x + status.width).toBeLessThanOrEqual(stage.x + stage.width)
-    for (const control of await page.locator('.canvas-stage-toolbar button').all()) {
-      const box = (await control.boundingBox())!
-      expect(box.x).toBeGreaterThanOrEqual(stage.x)
-      expect(box.x + box.width).toBeLessThanOrEqual(stage.x + stage.width)
-    }
+    const line = (await frozen.boundingBox())!
+    expect(Math.abs(line.x + line.width / 2 - (stage.x + stage.width / 2))).toBeLessThanOrEqual(1)
+    expect(line.x).toBeGreaterThanOrEqual(stage.x)
+    expect(line.x + line.width).toBeLessThanOrEqual(stage.x + stage.width)
   }
-  await page.getByTestId('sync-chip-open').click()
-  const frozen = page.getByTestId('frozen-banner')
-  await expect(frozen).toBeVisible()
-  const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
-  const banner = (await frozen.boundingBox())!
-  expect(banner.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height + 8)
 })
 
 test('narrow shell preserves canvas space and keeps search clear of layout controls', async ({ page }) => {

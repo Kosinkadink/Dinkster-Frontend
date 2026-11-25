@@ -1,6 +1,6 @@
 import { splitProps, type JSX } from 'solid-js'
 
-export type ProductButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
+export type ProductButtonVariant = 'primary' | 'secondary' | 'accent' | 'danger' | 'ghost'
 export type ProductControlSize = 'control' | 'compact'
 
 export function ProductButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement> & {

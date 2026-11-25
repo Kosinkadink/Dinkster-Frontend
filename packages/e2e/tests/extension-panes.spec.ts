@@ -39,7 +39,7 @@ async function backend(page: Page, base: string, initial: string) {
     }] })
     const path = new URL(route.request().url()).pathname
     if (path === `${base}/api/nodes`) return route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'proof', schemaWire: 1 }, extensionSnapshotDigest: hash(body), nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'proof', schemaWire: 2 }, extensionSnapshotDigest: hash(body), nodes: {},
     } })
     if (path === `${base}/api/extensions/snapshot`) return route.fulfill({ body, contentType: 'application/json' })
     if (path === `${base}${moduleUrl}`) return route.fulfill({ body: source, contentType: 'text/javascript', headers: { 'Cache-Control': 'private, immutable' } })
@@ -83,7 +83,7 @@ async function split(page: Page, title: string) {
   await expect(page.getByTestId('editor-group')).toHaveCount(2)
 }
 
-async function selectView(pane: Locator, name: 'Graph' | 'App view') {
+async function selectView(pane: Locator, name: 'Graph' | 'App') {
   await pane.getByTestId('views-switcher').click()
   await pane.page().getByRole('menuitemradio', { name, exact: true }).click()
 }
@@ -149,7 +149,7 @@ test.beforeEach(async ({ page }) => {
   await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'PaneProof', displayName: 'Snapshot widget', category: 'test', source: 'v3', isOutputNode: true,
-    items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
+    body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: { widgetType: 'pane-proof.kind', options: {}, default: 7 } }],
   }]))
 })
@@ -181,8 +181,8 @@ test('simultaneous split panes paint and edit their own connection worlds regard
   await page.mouse.click(point.x, point.y)
   await expect(page.getByText('Editor world B', { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
-  await selectView(a, 'App view')
-  await selectView(b, 'App view')
+  await selectView(a, 'App')
+  await selectView(b, 'App')
   await expect(a.getByTestId('app-view-widget-preview')).toHaveAttribute('data-widget-view', 'pane-proof.viewA')
   await expect(b.getByTestId('app-view-widget-preview')).toHaveAttribute('data-widget-view', 'pane-proof.viewB')
   await a.locator('.tab-select', { hasText: 'Pane A' }).click()

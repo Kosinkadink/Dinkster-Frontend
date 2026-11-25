@@ -17,6 +17,7 @@ import {
   asPromptId,
   canonicalJson,
   canonicalTypeIdOf,
+  automaticValuesOfJob,
   companionSourcesOf,
   compile,
   documentResolver,
@@ -67,7 +68,6 @@ import {
   isPortEndpoint,
   nodeStatesFromDinksterJob,
   numericStepConstraints,
-  outputCountInputsOf,
   outputsOf,
   occurrenceDynamicView,
   EMPTY_SUBGRAPH_DEFINITION,
@@ -77,6 +77,7 @@ import {
   projectWorkspaceCompileArtifact,
   randomNumericValue,
   registerSchemaRules,
+  isSameTypeMigration,
   replacementInvocation,
   scanReplacements,
   stepNumericValue,
@@ -98,6 +99,8 @@ import {
   type ControllerInputProvenance,
   type ControllerInputSource,
   type ControllerNodeInputSource,
+  inGoneMember,
+  wiresFromNode,
   type ControllerMode,
   type Diagnostic,
   type DiagnosticAnchor,
@@ -134,6 +137,7 @@ import {
   type Vec2,
   type CompileArtifact,
 } from '@dinkster/core'
+import { lookupAnswersOf, recordRunAnswers } from './lookup-demand.js'
 import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
@@ -141,8 +145,11 @@ import {
   PackInstallError,
   ExecutionStore,
   createScopedClient,
+  createLookupClient,
+  type LookupClient,
   discoverBackend,
   hydrateDinksterCompletedExecution,
+  noEngineOpen,
   probeSupervisorStatus,
   reconcileDinksterExecutions,
   restartSupervisorEngine,
@@ -178,7 +185,7 @@ import {
   webcamKind,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
+import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Model3dCameraState, type Model3dTransform, type Viewport } from '@dinkster/canvas'
 import { canvasMeasures } from './canvas-measures.js'
 import { batch, createComponent } from 'solid-js'
 import { layoutGroups, moveTabToGroup, repairEditorLayout } from './editor-layout.js'
@@ -189,6 +196,7 @@ import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 import type { CanvasLens } from './data-lens.js'
 import { registerLocaleSetting } from './locale.js'
+import { runClock } from './execution-activity.js'
 import { registerThemeSetting } from './theme.js'
 import {
   assetGuessCandidateToRef,
@@ -212,8 +220,7 @@ import {
   type ImportAssetDigestHint,
 } from './import-asset-autoresolve.js'
 import { createCoreLensRegistry } from './lenses.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
-import { isCurveValue, type CurveValue } from '@dinkster/widgets'
+import { APP_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
 import { validFile3dAsset } from './file3d-preview.js'
 import { isAssetRef, savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
 import { DockLayout } from './dock-layout.js'
@@ -227,6 +234,7 @@ import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
 import { activeProjectId, migrateBrowserProjects, scopedSharedName, scopedStorageKey } from './projects.js'
+import { keepSchemas, keptRegistry, newerKeptTable, readKeptSchemas } from './kept-schemas.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
@@ -882,25 +890,16 @@ export interface AdvancementPlan {
   readonly modeGenerations: ReadonlyMap<string, number>
 }
 
-type AdvancementInputLocation = { readonly graphId: string } & (
-  | { readonly nodeId: string; readonly inputId: string }
-  | { readonly valueSourceId: string }
-)
+type AdvancementInputLocation = { readonly graphId: string; readonly nodeId: string; readonly inputId: string }
 
 const advancementInputKey = (step: AdvancementInputLocation): string =>
-  JSON.stringify('valueSourceId' in step
-    ? ['graphs', step.graphId, 'valueSources', step.valueSourceId, 'value']
-    : ['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
+  JSON.stringify(['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
 
 const controllerSourceLocation = (source: ControllerInputSource): AdvancementInputLocation =>
-  'valueSource' in source
-    ? { graphId: source.graph, valueSourceId: source.valueSource }
-    : { graphId: source.graph, nodeId: source.occurrence.node, inputId: source.valueKey }
+  ({ graphId: source.graph, nodeId: source.occurrence.node, inputId: source.valueKey })
 
 const controllerStoredValue = (document: WorkflowDocument, location: AdvancementInputLocation): Json | undefined =>
-  'valueSourceId' in location
-    ? document.graphs[location.graphId]?.valueSources?.[location.valueSourceId]?.value
-    : document.graphs[location.graphId]?.nodes[location.nodeId]?.values[location.inputId]
+  document.graphs[location.graphId]?.nodes[location.nodeId]?.values[location.inputId]
 
 const controllerInputKey = (
   runtimeId: string,
@@ -971,8 +970,8 @@ export function comboRefreshAdvancementPlan(
   for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
     const schema = registry.resolve(node.type)
     if (!schema) continue
-    for (const input of schema.items) {
-      const widget = input.kind === 'input' ? input.widget : undefined
+    for (const input of inputsOf(schema)) {
+      const widget = input.widget
       if (widget?.widgetType !== 'COMBO' || widget.controller !== 'after_refresh' || widget.remote?.route !== route) continue
       const mode = node.controllers?.[input.id] ?? widget.controllerInitial ?? 'randomize'
       if (mode === 'fixed') continue
@@ -1004,8 +1003,9 @@ export function comboRefreshAdvancement(
     const linkDriven = Object.values(graph.links).some((link) => 'port' in link.to && link.to.node === node.id && link.to.port === step.inputId)
       || Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === node.id && sink.port === step.inputId))
     if (linkDriven) continue
-    const input = resolve(node.type)?.items.find((item) => item.kind === 'input' && item.id === step.inputId)
-    const widget = input?.kind === 'input' ? input.widget : undefined
+    const schema = resolve(node.type)
+    const input = schema === undefined ? undefined : inputsOf(schema).find((item) => item.id === step.inputId)
+    const widget = input?.widget
     if (widget?.widgetType !== 'COMBO' || widget.controller !== 'after_refresh' || widget.remote?.route !== plan.route) continue
     const mode = node.controllers?.[step.inputId] ?? widget.controllerInitial ?? 'randomize'
     if (mode !== step.mode) continue
@@ -1034,14 +1034,12 @@ function effectiveControllerState(
   let mode: ControllerMode | undefined
   let valueSourceCount = sources.length
   for (const [index, source] of sources.entries()) {
-    const graph = document.graphs[source.graph]
-    const node = 'valueSource' in source ? undefined : graph?.nodes[source.occurrence.node]
-    const literal = 'valueSource' in source ? graph?.valueSources?.[source.valueSource] : undefined
+    const node = document.graphs[source.graph]?.nodes[source.occurrence.node]
     if (current === undefined) {
       current = controllerStoredValue(document, controllerSourceLocation(source))
       if (current !== undefined) valueSourceCount = index + 1
     }
-    if (mode === undefined) mode = 'valueSource' in source ? literal?.controller : node?.controllers?.[source.valueKey]
+    if (mode === undefined) mode = node?.controllers?.[source.valueKey]
   }
   if (current === undefined && (widget.default !== undefined || !optional)) {
     current = effectiveWidgetDefault(widget)
@@ -1065,9 +1063,8 @@ export function controllerAdvancement(
 
 /** The batch invocation for a set of advancement steps ([] -> undefined). */
 export function advancementInvocation(steps: readonly AdvancementStep[]): CommandInvocation | undefined {
-  const invocations = steps.map((step) => 'valueSourceId' in step
-    ? { command: 'valueSource.setValue', params: { graphId: step.graphId, valueSourceId: step.valueSourceId, value: step.value } }
-    : { command: 'node.setValue', params: { graphId: step.graphId, nodeId: step.nodeId, inputId: step.inputId, value: step.value } })
+  const invocations = steps.map((step) =>
+    ({ command: 'node.setValue', params: { graphId: step.graphId, nodeId: step.nodeId, inputId: step.inputId, value: step.value } }))
   return invocations.length > 0 ? { command: 'batch', params: { invocations } as unknown as Json } : undefined
 }
 
@@ -1103,7 +1100,7 @@ export function controllerAdvancementPlan(
     if (input === undefined) continue
     const location = controllerSourceLocation(owner)
     const graph = document.graphs[owner.graph]
-    if ('valueSourceId' in location ? !graph?.valueSources?.[location.valueSourceId] : !graph?.nodes[location.nodeId]) continue
+    if (!graph?.nodes[location.nodeId]) continue
     const state = effectiveControllerState(document, input.sources, input.widget, input.optional)
     if (state.current === undefined || state.mode === 'fixed') continue
     let value: Json
@@ -1170,7 +1167,6 @@ const LEGACY_BOOLEAN_TOKENS: ReadonlyMap<string, boolean> = new Map([
 export interface CanvasBridge {
   readonly selectedNodes: () => readonly string[]
   readonly groupMembers: (graphId: string, groupId: string) => readonly string[] | undefined
-  readonly showValueSource?: (tabId: string, graphId: string, valueSourceId: string) => void
   /** App-level actions live here so commands do not reach into renderer internals. */
   readonly deleteSelection: () => void | Promise<void>
   readonly selectAll: () => void
@@ -1221,6 +1217,8 @@ export interface DiagnosticFocusRequest {
   readonly anchor: DiagnosticAnchor
   readonly openAssetInput?: string
   readonly missingAssetDigest?: string
+  /** The problem Show on canvas picked; the node's box opens on its line. */
+  readonly diagnostic?: Diagnostic
   /** Current view context for solver anchors that carry only a port. */
   readonly portInstancePath?: readonly string[]
 }
@@ -1301,17 +1299,6 @@ export interface Tab {
   readonly replacesFrozenTabId?: string
 }
 
-export interface CurveEditorTarget {
-  readonly tabId: string
-  readonly graphId: string
-  readonly nodeId: string
-  readonly inputId: string
-  readonly instancePath: readonly string[]
-  readonly openedStoredValue: Json | undefined
-  readonly openedSchemaDefault: unknown
-  readonly openedValue: CurveValue
-}
-
 export interface GlslEditorTarget {
   readonly tabId: string
   readonly graphId: string
@@ -1323,8 +1310,7 @@ export interface GlslEditorTarget {
   readonly openedValue: string
 }
 
-const isSessionOnlyEditorKind = (kind: string): boolean =>
-  kind === CURVE_EDITOR_KIND || kind === GLSL_EDITOR_KIND
+const isSessionOnlyEditorKind = (kind: string): boolean => kind === GLSL_EDITOR_KIND
 
 /** A tab's live shared-session membership (session-only; never persisted). */
 export interface CollabTabState {
@@ -2278,6 +2264,12 @@ interface BackendBase {
   readonly label: string
   readonly baseUrl: string
   readonly registry: Signal<SchemaRegistry | undefined>
+  /**
+   * Built from the node table this browser kept from the backend's last
+   * answer. Only the canvas draws from it, and only until `registry` is held;
+   * nothing that needs the backend reads it.
+   */
+  readonly keptRegistry: Signal<SchemaRegistry | undefined>
   readonly comfyTranslations: Signal<readonly ComfyTranslation[]>
   readonly comfyTranslationsUnavailable: Signal<boolean>
   /** Execution locations advertised by the current native server life. */
@@ -2304,6 +2296,14 @@ interface BackendBase {
   /** Request the latest native advisory snapshot. */
   readonly refreshDiagnostics: () => void
   readonly scopedClient: RefreshableScopedClient
+  /**
+   * The one lookup client for this backend: every field, note, list and
+   * button press asks declared lookups through it, so equal calls share one
+   * answer. Its partition follows the held schema epoch.
+   */
+  readonly lookups: LookupClient
+  /** Counts changes to what `lookups` holds, so views that show answers rebuild. */
+  readonly lookupGeneration: Signal<number>
   /** Clear remote-choice authority after a schema/server generation change. */
   readonly invalidateRemoteChoices: () => void
   /**
@@ -2411,11 +2411,7 @@ const readableRegionTemplateLayout = (document: WorkflowDocument): WorkflowDocum
     const previous = document.view.graphs[graphId]
     const hasDependentGeometry =
       Object.keys(graph.reroutes).length > 0 ||
-      Object.keys(graph.valueSources ?? {}).length > 0 ||
-      Object.keys(graph.selectors ?? {}).length > 0 ||
       Object.keys(previous?.reroutes ?? {}).length > 0 ||
-      Object.keys(previous?.valueSources ?? {}).length > 0 ||
-      Object.keys(previous?.selectors ?? {}).length > 0 ||
       Object.keys(previous?.groups ?? {}).length > 0 ||
       previous?.boundary !== undefined
     if (queue.length !== nodeIds.length || hasDependentGeometry) {
@@ -2435,6 +2431,18 @@ const readableRegionTemplateLayout = (document: WorkflowDocument): WorkflowDocum
     return [graphId, { ...previous, nodes }]
   }))
   return { ...document, view: { ...document.view, graphs: graphViews } }
+}
+
+/** A box off the screen, at a picture's size, for drawing a view that is not shown. */
+function offscreenContainer(width: number, height: number): HTMLDivElement {
+  const container = document.createElement('div')
+  container.style.position = 'fixed'
+  container.style.left = '-100000px'
+  container.style.top = '0'
+  container.style.width = `${width}px`
+  container.style.height = `${height}px`
+  document.body.append(container)
+  return container
 }
 
 export class AppState {
@@ -2838,8 +2846,6 @@ export class AppState {
   readonly registry: Signal<SchemaRegistry | undefined>
   readonly tabs: Signal<readonly Tab[]> = createSignal<readonly Tab[]>([])
   readonly activeTabId: Signal<string> = createSignal('')
-  /** Never serialized: identifies the one input projected by the curve editor. */
-  readonly curveEditorTarget: Signal<CurveEditorTarget | undefined> = createSignal<CurveEditorTarget | undefined>(undefined)
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
   /**
@@ -3096,10 +3102,8 @@ export class AppState {
     this.settings.register({ id: 'canvas.minimap.bookmarks', get name() { return t('settings.canvas.minimap.bookmarks') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.visible', get name() { return t('settings.canvas.minimap.visible') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.nodes', get name() { return t('settings.canvas.minimap.nodes') }, type: 'boolean', defaultValue: true })
-    this.settings.register({ id: 'canvas.minimap.bypass', get name() { return t('settings.canvas.minimap.bypass') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.noodles', get name() { return t('settings.canvas.minimap.noodles') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.groups', get name() { return t('settings.canvas.minimap.groups') }, type: 'boolean', defaultValue: true })
-    this.settings.register({ id: 'canvas.minimap.reroutes', get name() { return t('settings.canvas.minimap.reroutes') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.errors', get name() { return t('settings.canvas.minimap.errors') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
@@ -3333,6 +3337,20 @@ export class AppState {
       if ([...executions.values()].some((execution) => execution.status === 'completed' &&
         this.store.canRestoreCompleted(execution.ref))) this.refreshPersistedExecutionResults()
     })
+    // Once per run: a recorded lookup answer the editor does not hold makes that call old.
+    // Reconnects and restores hand over the same records again as new arrays.
+    const recordedRuns = new Set<string>()
+    this.store.executions.subscribe((executions) => {
+      for (const key of recordedRuns) if (!executions.has(key)) recordedRuns.delete(key)
+      for (const [key, execution] of executions) {
+        const records = execution.automaticValues
+        const calls = execution.artifact?.automaticCalls
+        if (records === undefined || calls === undefined || recordedRuns.has(key)) continue
+        recordedRuns.add(key)
+        const lookups = this.backendFor(execution.ref.connection)?.lookups
+        if (lookups !== undefined) recordRunAnswers(lookups, calls, records)
+      }
+    })
     let previousProblems: readonly OwnedDiagnostic[] = []
     this.problems.subscribe((problems) => {
       // Identity-based: owner-scoped replace/drop retains other owners'
@@ -3486,15 +3504,11 @@ export class AppState {
       this.workflowOpenIntent += 1
       this.templateGalleryOpen.set(false)
       this.selectExtensionWorld()
-      const curveTarget = this.curveEditorTarget.get()
       const glslTarget = this.glslEditorTarget.get()
-      if (curveTarget && curveTarget.tabId !== activeId) this.curveEditorTarget.set(undefined)
-      if (glslTarget && glslTarget.tabId !== activeId) this.glslEditorTarget.set(undefined)
-      if ((curveTarget && curveTarget.tabId !== activeId) ||
-          (glslTarget && glslTarget.tabId !== activeId)) {
+      if (glslTarget && glslTarget.tabId !== activeId) {
+        this.glslEditorTarget.set(undefined)
         this.tabs.update((list) => list.map((tab) =>
-          (tab.id === curveTarget?.tabId && tab.editorKind === CURVE_EDITOR_KIND) ||
-          (tab.id === glslTarget?.tabId && tab.editorKind === GLSL_EDITOR_KIND)
+          tab.id === glslTarget.tabId && tab.editorKind === GLSL_EDITOR_KIND
             ? { ...tab, editorKind: GRAPH_EDITOR_KIND }
             : tab))
       }
@@ -4412,6 +4426,18 @@ export class AppState {
     const registry = createSignal<SchemaRegistry | undefined>(undefined)
     const workerCatalog = createSignal<WorkerCatalogState>({ status: 'unsupported' })
     const scopedClient = createScopedClient({ baseUrl })
+    const lookups = createLookupClient({ baseUrl })
+    const lookupGeneration = createSignal(0)
+    // Answers often settle together: one rebuild for each turn of the event loop.
+    let lookupBump = false
+    lookups.subscribe(() => {
+      if (lookupBump) return
+      lookupBump = true
+      queueMicrotask(() => {
+        lookupBump = false
+        lookupGeneration.update((value) => value + 1)
+      })
+    })
     const schemaProblemsOwner = Symbol(`schema-problems:${id}`)
     const packProblemsOwner = Symbol(`pack-problems:${id}`)
     let refreshDiagnostics = (): void => {}
@@ -4426,6 +4452,7 @@ export class AppState {
         principalGeneration: 0,
         schemaEpoch: remoteChoiceSchemaGeneration,
       })
+      lookups.setPartition({ backend: baseUrl, epoch: registry.get()?.epoch, principal: 0 })
       this.backendsTick.update((value) => value + 1)
     }
     // Scoped client per backend: remote combos (model lists) differ per server.
@@ -4434,6 +4461,7 @@ export class AppState {
       label,
       baseUrl,
       registry,
+      keptRegistry: createSignal<SchemaRegistry | undefined>(undefined),
       comfyTranslations: createSignal<readonly ComfyTranslation[]>([]),
       comfyTranslationsUnavailable: createSignal(true),
       workerCatalog,
@@ -4448,6 +4476,8 @@ export class AppState {
       packInferenceUnavailable: createSignal<readonly PackInferenceUnavailable[]>([]),
       refreshDiagnostics: () => refreshDiagnostics(),
       scopedClient,
+      lookups,
+      lookupGeneration,
       invalidateRemoteChoices,
       supervisor: createSignal<SupervisorStatus | undefined>(undefined),
       composition: createSignal<SupervisorProgress | undefined>(undefined),
@@ -4542,6 +4572,7 @@ export class AppState {
         base.templatesEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.guidesAvailable.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.schemaState.subscribe(() => this.backendsTick.update((v) => v + 1)),
+        base.keptRegistry.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.replacementProblems.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.compatSkips.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.supervisor.subscribe(() => this.backendsTick.update((v) => v + 1)),
@@ -4551,8 +4582,10 @@ export class AppState {
     }
     {
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
-      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
+      const project = activeProjectId()
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project,
         registryStaticUrl: () => this.settings.get<string>('search.registryUrl'),
+        keepSchemas: (payload) => void keepSchemas(baseUrl, project, payload),
       })
       // Epoch-gated registry refresh (schema_changed / composition_complete
       // pings are invalidations, never deltas). Coalesced: one fetch in
@@ -4742,6 +4775,8 @@ export class AppState {
         }
         this.invalidateWorkerCatalog(nativeBackend)
         base.invalidateRemoteChoices()
+        // A new server life may answer differently: ask again what is shown.
+        lookups.invalidate()
         startRefresh('reconnect')
       }
       const handleStatusChange = (status: ConnectionStatus): void => {
@@ -4764,6 +4799,9 @@ export class AppState {
         handleStatusChange,
       )
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
+      const disposeLookupChanges = connection.onLookupsChanged((functions) => lookups.invalidate(functions))
+      // A mount's scan commits as a mount ping; a local file a lookup waited on may be checked now.
+      const disposeLookupFiles = connection.onMountsChanged(() => lookups.filesChanged())
       const disposeLibraryChanges = connection.onLibraryChanged(() => {
         for (const tab of this.tabs.get()) {
           if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
@@ -4808,8 +4846,11 @@ export class AppState {
           disposeCompletionHydration()
           disposeLibraryChanges()
           disposeMountHealth()
+          disposeLookupChanges()
+          disposeLookupFiles()
           disposeConnection()
           scopedClient.dispose()
+          lookups.dispose()
         },
       }
       return nativeBackend
@@ -5086,6 +5127,19 @@ export class AppState {
     return this.backendForTab(tab).registry.get()
   }
 
+  /** The kept node table the canvas draws from while `registryForTab` has none. */
+  keptRegistryForTab(tab: Tab): SchemaRegistry | undefined {
+    return tab.execution ? undefined : this.backendForTab(tab).keptRegistry.get()
+  }
+
+  /** Why what the engine answers is off for this tab: no engine is open, or its real node table has not arrived. */
+  engineOffReason(tab: Tab, message: (key: string) => string): string | undefined {
+    const backend = this.backendForTab(tab)
+    if (noEngineOpen(backend.supervisor.get())) return message('shell.engine.notRunning')
+    if (tab.execution || this.registryForTab(tab) !== undefined) return undefined
+    return message(backend.schemaState.get().status === 'error' ? 'shell.engine.notAnswering' : 'shell.engine.stillStarting')
+  }
+
   /** Pane-local widget definitions, independent of the focused shell's world. */
   widgetRegistryForTab(tab: Tab | undefined): typeof this.widgetRegistry {
     const registry = tab === undefined ? undefined : this.registryForTab(tab)
@@ -5172,6 +5226,34 @@ export class AppState {
     }
     const invocations: CommandInvocation[] = []
     const entries: Diagnostic[] = []
+    const anchorOf = (graphId: string, nodeId: NodeId) => {
+      const instancePath = paths.get(graphId)
+      return instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: nodeId } } }
+    }
+    // The members a node has are the ones its elaboration gives on open: a
+    // wire, named net or subgraph output forward from any other member goes.
+    const what = { link: 'the wire', net: 'the named net', forward: 'the subgraph output' } as const
+    for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+      const wires = wiresFromNode(graph, node.id)
+      const schema = wires.length === 0 ? undefined : resolve(graph.id, node)
+      if (schema === undefined) continue
+      const elaborated = elaborateInterface(schema, node, buildGraphConnectivity(graph)(node.id))
+      const gone = wires.filter((wire) => inGoneMember(elaborated, wire.address))
+      if (gone.length === 0) continue
+      for (const wire of gone) {
+        if (wire.kind === 'link') invocations.push({ command: 'link.disconnect', params: { graphId: graph.id, linkId: wire.id } })
+        else if (wire.kind === 'net') invocations.push({ command: 'net.remove', params: { graphId: graph.id, netId: wire.id } })
+        else {
+          const binds = graph.boundary?.outputs.find((item) => item.id === wire.id)?.binds
+          invocations.push({ command: 'boundary.unbind', params: { graphId: graph.id, side: 'outputs', itemId: wire.id, node: node.id,
+            ...(binds?.kind === 'widgetTap' ? { tap: wire.address } : { port: wire.address }) } })
+        }
+      }
+      entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
+        `${node.title ?? schema.displayName}: ${gone.map((wire) =>
+          `${what[wire.kind]} from '${wire.address}' is removed, because its member is no longer part of the node.`).join(' ')}`,
+        { refs: [{ graphId: graph.id, nodeId: node.id }], ...anchorOf(graph.id, node.id) }))
+    }
     for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = resolve(graph.id, node)
       if (schema === undefined || node.dynamic === undefined) continue
@@ -5186,18 +5268,17 @@ export class AppState {
       if (changes.length === 0) continue
       for (const entry of changes) {
         if (entry.code === 'elab.dynamic.unknownState' || entry.data === undefined) continue
-        const { construct, selected, ancestors } = entry.data
+        const { construct, selected } = entry.data
         if (typeof selected !== 'string' && selected !== null) continue
         invocations.push({ command: selected === null ? 'dynamic.specializeSlot' : 'dynamic.selectOption', params: {
-          graphId: graph.id, nodeId: node.id, construct, ancestors,
+          graphId: graph.id, nodeId: node.id, construct,
           ...(selected === null ? { variant: null } : { option: selected }),
         } as Json })
       }
-      const instancePath = paths.get(graph.id)
       entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
         `${node.title ?? schema.displayName}: ${[...new Set(changes.map((entry) => entry.message))].join(' ')}`, {
           refs: [{ graphId: graph.id, nodeId: node.id }],
-          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: node.id } } }),
+          ...anchorOf(graph.id, node.id),
         }))
     }
     if (invocations.length > 0) return Promise.resolve(this.dispatchTo(tab,
@@ -5246,7 +5327,8 @@ export class AppState {
   private readonly schemaDiagnosticsPending = new Set<string>()
 
   /**
-   * Tabs awaiting a legacy-boolean normalization pass. Unlike schema diagnostics
+   * Tabs awaiting a legacy-boolean normalization pass, followed by storing the
+   * start key of each required choice with nothing stored. Unlike schema diagnostics
    * this RE-ARMS on retarget: which schemas interpret the document is the
    * tab's target backend, and a document opened while targeting one backend
    * (where its types may not even resolve) can be pointed at another whose
@@ -5269,7 +5351,14 @@ export class AppState {
       }
       if (!this.registryForTab(tab)) continue // still waiting for schemas
       this.legacyBooleanPending.delete(tab.id)
-      void this.normalizeLegacyBooleans(tab)
+      const store = tab.store
+      void this.normalizeLegacyBooleans(tab).then(() => {
+        // A required choice saved with nothing stored gets its start key.
+        if (this.tabs.get().includes(tab) && tab.store === store) {
+          return this.dispatchTo(tab, { command: 'dynamic.storeStartState', params: {} })
+        }
+        return undefined
+      }).catch(() => undefined) // A tab whose schemas vanish keeps its document as saved.
     }
   }
 
@@ -5355,8 +5444,8 @@ export class AppState {
     for (const [graphId, graph] of Object.entries(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = registry.resolve(node.type)
       if (!schema) continue
-      for (const item of schema.items) {
-        if (item.kind !== 'input' || item.widget?.widgetType !== 'BOOLEAN') continue
+      for (const item of inputsOf(schema)) {
+        if (item.widget?.widgetType !== 'BOOLEAN') continue
         const value = node.values[item.id]
         if (typeof value !== 'string') continue
         const mapped = LEGACY_BOOLEAN_TOKENS.get(value.toLowerCase())
@@ -5472,7 +5561,6 @@ export class AppState {
     editorKind = this.availableEditorKind(editorKind)
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution !== undefined || tab.editorKind === editorKind) return
-    if (editorKind !== CURVE_EDITOR_KIND && this.curveEditorTarget.get()?.tabId === tabId) this.curveEditorTarget.set(undefined)
     if (editorKind !== GLSL_EDITOR_KIND && this.glslEditorTarget.get()?.tabId === tabId) this.glslEditorTarget.set(undefined)
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, editorKind } : t)))
     this.schedulePersistTabs()
@@ -5492,9 +5580,8 @@ export class AppState {
   async duplicateTab(tabId: string, replaceFrozen = false): Promise<Tab | undefined> {
     const source = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (!source || ![GRAPH_EDITOR_KIND, APP_EDITOR_KIND].includes(source.editorKind)) return undefined
-    const title = source.execution
-      ? source.title.slice(0, -` @ ${source.execution.prompt.slice(0, 8)}`.length)
-      : source.title
+    const suffix = source.execution === undefined ? '' : this.frozenTitleSuffix(source.execution)
+    const title = suffix !== '' && source.title.endsWith(suffix) ? source.title.slice(0, -suffix.length) : source.title
     const titles = new Set(this.tabs.get().map((tab) => tab.title))
     let copyTitle = `${title} copy`
     for (let ordinal = 2; titles.has(copyTitle); ordinal++) copyTitle = `${title} copy ${ordinal}`
@@ -5531,63 +5618,6 @@ export class AppState {
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, appArrange } : t)))
   }
 
-  curveTargetForInput(
-    tab: Tab,
-    graphId: string,
-    nodeId: string,
-    inputId: string,
-    instancePath: readonly string[] = [],
-  ): CurveEditorTarget | undefined {
-    if (tab.execution !== undefined) return undefined
-    const graph = tab.store.doc.graphs[graphId]
-    const node = graph?.nodes[nodeId]
-    const resolve = this.registryForTab(tab)?.resolve
-    const input = node ? resolve?.(node.type)?.items.find((item) => item.kind === 'input' && item.id === inputId) : undefined
-    const driven = graph && (Object.values(graph.links).some((link) => 'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
-      Object.values(graph.nets).some((net) => net.sinks.some((sink) => 'port' in sink && sink.node === nodeId && sink.port === inputId)))
-    const stored = node?.values[inputId]
-    const fallback = input?.kind === 'input' && input.widget ? effectiveWidgetDefault(input.widget) : undefined
-    const value = isCurveValue(stored) ? stored : isCurveValue(fallback) ? fallback : undefined
-    if (input?.kind !== 'input' || input.widget?.widgetType !== 'CURVE' || !value) return undefined
-    return !driven
-      ? {
-          tabId: tab.id,
-          graphId,
-          nodeId,
-          inputId,
-          instancePath: [...instancePath],
-          openedStoredValue: stored,
-          openedSchemaDefault: input.widget.default,
-          openedValue: value,
-        }
-      : undefined
-  }
-
-  openCurveEditor(target: CurveEditorTarget): boolean {
-    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
-    const current = tab && this.curveTargetForInput(
-      tab, target.graphId, target.nodeId, target.inputId, target.instancePath,
-    )
-    if (!tab || !current) return false
-    const previous = this.curveEditorTarget.get()
-    if (previous && previous.tabId !== current.tabId) {
-      this.tabs.update((list) => list.map((candidate) =>
-        candidate.id === previous.tabId && candidate.editorKind === CURVE_EDITOR_KIND
-          ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
-          : candidate))
-    }
-    this.curveEditorTarget.set(current)
-    this.setTabEditorKind(tab.id, CURVE_EDITOR_KIND)
-    this.activeTabId.set(tab.id)
-    return true
-  }
-
-  closeCurveEditor(target: CurveEditorTarget): void {
-    if (this.curveEditorTarget.get() !== target) return
-    this.curveEditorTarget.set(undefined)
-    this.setTabEditorKind(target.tabId, GRAPH_EDITOR_KIND)
-  }
-
   glslTargetForInput(
     tab: Tab,
     graphId: string,
@@ -5600,8 +5630,8 @@ export class AppState {
     const node = graph?.nodes[nodeId]
     const resolver = this.registryForTab(tab)?.resolve
     if (!node || resolver?.(node.type)?.editorRole !== 'glsl') return undefined
-    const input = resolver?.(node.type)?.items.find((item) =>
-      item.kind === 'input' && item.id === inputId)
+    const inputSchema = resolver?.(node.type)
+    const input = inputSchema === undefined ? undefined : inputsOf(inputSchema).find((item) => item.id === inputId)
     const definitionDriven = graph && (Object.values(graph.links).some((link) =>
       'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
       Object.values(graph.nets).some((net) => net.sinks.some((sink) =>
@@ -5829,84 +5859,6 @@ export class AppState {
     this.problems.update((p) => p.filter((d) => d.owner !== owner))
   }
 
-  private countAwareValueInvocations(tab: Tab, invocation: CommandInvocation): readonly CommandInvocation[] {
-    if (
-      (invocation.command !== 'node.setValue' && invocation.command !== 'node.setValues') ||
-      typeof invocation.params !== 'object' ||
-      invocation.params === null ||
-      Array.isArray(invocation.params)
-    ) return [invocation]
-    const params = invocation.params as JsonObject
-    const graphId = typeof params.graphId === 'string' ? params.graphId : undefined
-    const nodeId = typeof params.nodeId === 'string' ? params.nodeId : undefined
-    if (graphId === undefined || nodeId === undefined) return [invocation]
-    const node = tab.store.doc.graphs[graphId]?.nodes[nodeId]
-    const registry = this.registryForTab(tab)
-    if (node === undefined || registry === undefined) return [invocation]
-    const schema = documentResolver(tab.store.doc, registry.resolve)(node.type)
-    if (schema === undefined) return [invocation]
-    const countInputs = new Set(outputCountInputsOf(schema))
-    if (invocation.command === 'node.setValue') {
-      const inputId = typeof params.inputId === 'string' ? params.inputId : undefined
-      if (inputId === undefined || !countInputs.has(inputId)) return [invocation]
-      return [{
-        ...invocation,
-        command: 'node.setOutputCount',
-        params: { ...params, removedLinks: 'preserve' },
-      }]
-    }
-    if (
-      typeof params.values !== 'object' ||
-      params.values === null ||
-      Array.isArray(params.values)
-    ) return [invocation]
-    const countValues: [string, Json][] = []
-    const ordinaryValues: Record<string, Json> = {}
-    for (const [inputId, value] of Object.entries(params.values)) {
-      if (countInputs.has(inputId)) countValues.push([inputId, value])
-      else ordinaryValues[inputId] = value
-    }
-    if (countValues.length === 0) return [invocation]
-    const normalized: CommandInvocation[] = []
-    if (Object.keys(ordinaryValues).length > 0) {
-      normalized.push({ ...invocation, params: { ...params, values: ordinaryValues } })
-    }
-    for (const [inputId, value] of countValues) {
-      normalized.push({
-        command: 'node.setOutputCount',
-        params: { graphId, nodeId, inputId, value, removedLinks: 'preserve' },
-      })
-    }
-    return normalized
-  }
-
-  private countAwareValueInvocation(tab: Tab, invocation: CommandInvocation): CommandInvocation {
-    if (
-      invocation.command === 'batch' &&
-      typeof invocation.params === 'object' &&
-      invocation.params !== null &&
-      !Array.isArray(invocation.params)
-    ) {
-      const params = invocation.params as JsonObject
-      if (!Array.isArray(params.invocations)) return invocation
-      const normalized: CommandInvocation[] = []
-      for (const candidate of params.invocations) {
-        if (
-          typeof candidate !== 'object' ||
-          candidate === null ||
-          Array.isArray(candidate) ||
-          typeof candidate.command !== 'string'
-        ) return invocation
-        normalized.push(...this.countAwareValueInvocations(tab, candidate as unknown as CommandInvocation))
-      }
-      return { ...invocation, params: { ...params, invocations: normalized } as unknown as Json }
-    }
-    const normalized = this.countAwareValueInvocations(tab, invocation)
-    return normalized.length === 1
-      ? normalized[0]!
-      : { command: 'batch', params: { invocations: normalized } as unknown as Json }
-  }
-
   refuseFrozenEdit(tab: Tab): CommandOutcome {
     this.frozenEditRefusal.set({ tabId: tab.id })
     return { ok: false, diagnostics: [] }
@@ -5923,8 +5875,8 @@ export class AppState {
         typeof (item as JsonObject).command === 'string' && this.frozenPresentationCommand(item as unknown as CommandInvocation))
     }
     return [
-      'node.move', 'selection.move', 'reroute.move', 'valueSource.move', 'selector.move',
-      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed',
+      'node.move', 'selection.move', 'reroute.move',
+      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed', 'view.setEditorUnfolded',
       'view.moveBoundaryNode', 'view.moveGroup', 'view.setGroupBounds',
       'view.setNetCollapsed', 'view.setNetDisplay', 'view.setAllNetsDisplay',
       'view.setNodeVideo', 'view.setNodeColor', 'view.setGroupColor', 'view.setWidgetRepresentation',
@@ -5935,8 +5887,7 @@ export class AppState {
   /** Dispatch to the tab's session; ordinary command failures append to Problems. */
   dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
     if (tab.execution && !this.frozenPresentationCommand(invocation)) return this.refuseFrozenEdit(tab)
-    const effective = this.countAwareValueInvocation(tab, invocation)
-    const outcome = tab.store.dispatch(effective)
+    const outcome = tab.store.dispatch(invocation)
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
     return outcome
   }
@@ -6018,7 +5969,7 @@ export class AppState {
     if (!backend) return false
     if (!stillWanted()) return false
     this.store.retain(ref)
-    const title = `${this.tabTitleFor(ref)} @ ${ref.prompt.slice(0, 8)}`
+    const title = `${this.tabTitleFor(ref)}${this.frozenTitleSuffix(ref)}`
     const tab = this.makeTab(artifact.snapshot, title, ref)
     this.tabs.update((tabs) => [...tabs, tab])
     this.activeTabId.set(id)
@@ -6053,7 +6004,6 @@ export class AppState {
 
   private cleanupClosedTab(id: string): void {
     this.dismissMigrationNotice(id)
-    if (this.curveEditorTarget.get()?.tabId === id) this.curveEditorTarget.set(undefined)
     if (this.glslEditorTarget.get()?.tabId === id) this.glslEditorTarget.set(undefined)
     this.dropCollabFor(id) // leave the shared session; the server session survives
     this.dropProblems(id) // its diagnostics may not outlive the tab
@@ -6310,9 +6260,11 @@ export class AppState {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
         boundaryPositionsFor: this.boundaryPositionResolver(sessionResolver),
         onConflict: (conflict: SessionConflict) =>
-          report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
-            `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
-            { data: { diagnostics: conflict.diagnostics } })),
+          report(conflict.during === 'refused'
+            ? conflict.diagnostics[0]!
+            : diag('warning', 'collab', `collab.conflict.${conflict.during}`,
+              `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
+              { data: { diagnostics: conflict.diagnostics } })),
         onError: (message: string) => report(diag('error', 'collab', 'collab.session', message)),
       })
       owner = session.doc.lineage
@@ -7022,8 +6974,8 @@ export class AppState {
     for (const [graphId, graph] of Object.entries(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = resolve(node.type)
       if (!schema) continue
-      for (const item of schema.items) {
-        if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET' || item.widget.selection === true) continue
+      for (const item of inputsOf(schema)) {
+        if (item.widget?.widgetType !== 'ASSET' || item.widget.selection === true) continue
         const value = node.values[item.id]
         if (typeof value === 'string') refs.push({ graphId, nodeId: node.id, inputId: item.id, name: value })
       }
@@ -7764,7 +7716,7 @@ export class AppState {
     }
     const installed = [...registry.schemas.values()].flatMap((schema): ComfyTranslation[] => {
       const version = schema.pack === undefined ? undefined : registry.packs?.get(schema.pack)?.version
-      return (schema.replacements ?? []).filter((rule) => rule.migration === undefined).map((rule) => ({
+      return (schema.replacements ?? []).filter((rule) => !isSameTypeMigration(rule)).map((rule) => ({
         schema, rule,
         ...(schema.pack !== undefined ? { pack: schema.pack } : {}),
         ...(version !== undefined ? { version } : {}),
@@ -7773,12 +7725,12 @@ export class AppState {
     const installedSources = new Set(installed.map((record) => record.rule.from))
     const result = importLitegraph(json as JsonObject, registry.resolve, undefined, [
       ...translations.filter((record) => !installedSources.has(record.source ?? record.rule.from)),
-      // Input renames need the historical source values and undoable migration,
-      // not the target interface used as a decoder for the saved source.
-      ...installed.filter(({ rule }) => rule.cases.every((branch) =>
+      // A rule that renames inputs must name the source's inputs, so the saved
+      // node is not read through the target's interface.
+      ...installed.filter(({ rule }) => rule.migration !== undefined || rule.cases.every((branch) =>
         Object.entries(branch.inputs ?? {}).every(([target, mapping]) =>
           mapping.kind === 'constant' || mapping.input === target))),
-    ])
+    ], registry.schemas.values())
     const imported = result.document === undefined ? result : {
       ...result,
       document: initializeBoundaryViews(result.document, this.boundaryPositionResolver(registry.resolve)).doc,
@@ -7873,6 +7825,22 @@ export class AppState {
     this.packLocaleSources.set(localized, source)
     backend.registry.set(localized)
     backend.invalidateRemoteChoices()
+  }
+
+  /**
+   * Draw each backend's nodes from a kept node table until the backend
+   * answers: this browser's copy or the table the always-on process recorded
+   * from the engine, whichever was recorded last.
+   */
+  async loadKeptSchemas(): Promise<void> {
+    await Promise.all(this.backends.get().map(async (backend) => {
+      const kept = newerKeptTable(...await Promise.all([
+        readKeptSchemas(backend.baseUrl, activeProjectId()),
+        backend.connection.fetchProvisionalSchemas(),
+      ]))
+      if (kept === undefined || backend.registry.get() !== undefined) return
+      backend.keptRegistry.set(keptRegistry(backend.id, kept))
+    }))
   }
 
   async start(): Promise<void> {
@@ -8006,6 +7974,7 @@ export class AppState {
       outputs,
       artifacts: job.artifacts ?? [],
       ...(result.submittedBy === undefined ? {} : { submittedBy: result.submittedBy }),
+      automaticValues: automaticValuesOfJob(job),
       jobRef: result.jobRef,
       sourceDocument: result.sourceDocument,
       queuedAt: result.queuedAt,
@@ -8280,6 +8249,9 @@ export class AppState {
       // Capability-negotiated graph wire forms (e.g. $typed) are gated on
       // the TARGET backend's advertised features, exactly like the registry.
       ...(registry.graphFeatures ? { graphFeatures: registry.graphFeatures } : {}),
+      // An automatic lookup field copied into another node passes on the
+      // answer its row shows; a frozen view of a run calls no lookups.
+      ...(tab.execution === undefined ? { lookupAnswers: lookupAnswersOf(backend.lookups) } : {}),
     }
   }
 
@@ -8555,7 +8527,7 @@ export class AppState {
         const child = tab.store.doc.graphs[childId]
         if (!child) return
         const childPath = [...path, asNodeId(id)]
-        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.flatMap((item) => item.binds.kind === 'unbound' || item.binds.kind === 'valueSource' ? [] : [item.binds.node]) ?? [])
+        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.flatMap((item) => item.binds.kind === 'unbound' ? [] : [item.binds.node]) ?? [])
         for (const inner of Object.values(child.nodes)) if (resolve(inner.type)?.isOutputNode) childTargets.add(inner.id)
         for (const childTarget of [...childTargets].sort()) visit(childId, childPath, childTarget)
       }
@@ -8906,9 +8878,12 @@ export class AppState {
       if (!result.ok) continue
       const artifact = projectWorkspaceCompileArtifact(result.artifact)
       if (canonicalJson(artifact) !== canonicalJson(registration.artifact)) continue
-      this.retainedRegistries.set(artifact, registry)
+      // The lookup calls depend on this window's answers, so they are compared
+      // nowhere; kept on the run, this window still asks again where it differs.
+      const registered = result.artifact.automaticCalls === undefined ? artifact : { ...artifact, automaticCalls: result.artifact.automaticCalls }
+      this.retainedRegistries.set(registered, registry)
       this.hydrated.delete(key)
-      this.store.register(registration.ref, artifact, registration.timestamp, {
+      this.store.register(registration.ref, registered, registration.timestamp, {
         ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
         ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
       })
@@ -8970,12 +8945,7 @@ export class AppState {
         const selected = choices.get(JSON.stringify([graph, selector]))
         return selected !== undefined && candidates.includes(selected) ? selected : undefined
       },
-      pickCandidate: ({ graph, selector }) => {
-        const selected = choices.get(JSON.stringify([graph, selector]))
-        const candidates = tab.store.doc.graphs[graph]?.selectors?.[selector]?.candidates
-        const index = selected === undefined ? -1 : candidates?.findIndex((candidate) => candidate.id === selected) ?? -1
-        return index < 0 ? 0 : index
-      },
+      pickCandidate: () => 0,
     })
     if (!current.ok) return
     const liveControllerInputs = new Map((current.artifact.provenance.controllerInputs ?? []).map((controller) => [
@@ -8985,7 +8955,7 @@ export class AppState {
     const doc = tab.store.doc
     const applicable = plan.steps.filter((step) => {
       const graph = doc.graphs[step.graphId]
-      if ('valueSourceId' in step ? !graph?.valueSources?.[step.valueSourceId] : !graph?.nodes[step.nodeId]) return false
+      if (!graph?.nodes[step.nodeId]) return false
       if (controllerStoredValue(doc, step) !== step.expected) return false
       const liveController = step.controllers.flatMap((queued) => {
         const live = liveControllerInputs.get(controllerInputKey(queued.runtimeId, queued.terminal))
@@ -9023,17 +8993,24 @@ export class AppState {
     this.queueRefusal.set(tab)
   }
 
-  private captureQueueWebcams(tab: Tab, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> | undefined {
-    const backend = this.backendForTab(tab)
-    const registry = backend.registry.get()!
+  /**
+   * The nodes of a compiled run whose `widgetType` input holds its own value:
+   * not driven by a wire or by the subgraph around it. Each comes with the
+   * place its value is kept, which for a promoted input is outside the node.
+   */
+  private queueCaptureTargets(tab: Tab, artifact: CompileArtifact, widgetType: string): {
+    readonly node: CompileArtifact['prompt'][string]
+    readonly input: ReturnType<typeof inputsOf>[number]
+    readonly location: { readonly graphId: string }
+    readonly nodeId: string
+    readonly owner: { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }
+  }[] {
+    const registry = this.backendForTab(tab).registry.get()!
     const document = tab.store.doc
-    const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
-    const capturedOwners = new Map<string, { width: number; height: number }>()
-    for (const [runtimeId, node] of Object.entries(artifact.prompt)) {
-      if (node.inputs['capture_on_queue'] !== true) continue
+    return Object.entries(artifact.prompt).flatMap(([runtimeId, node]) => {
       const schema = registry.resolve(node.class_type)
-      const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === webcamKind.type)
-      if (input === undefined || Array.isArray(node.inputs[input.id])) continue
+      const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === widgetType)
+      if (input === undefined || Array.isArray(node.inputs[input.id])) return []
       const occurrence = parseOccurrenceKey(artifact.provenance.toSource[runtimeId]!)
       const location = resolveNodeOccurrence(document, occurrence)!
       const graph = document.graphs[location.graphId]!
@@ -9041,23 +9018,46 @@ export class AppState {
       const definitionDriven = Object.values(graph.links).some((link) =>
         isPortEndpoint(link.to) && link.to.node === target.node && link.to.port === target.port) ||
         Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === target.node && sink.port === target.port))
-      if (occurrence.instancePath.length === 0 && definitionDriven) continue
+      if (occurrence.instancePath.length === 0 && definitionDriven) return []
       if (occurrence.instancePath.length > 0) {
         const topology = effectiveOccurrenceTopology(document, registry.resolve, {
           instancePath: occurrence.instancePath.slice(0, -1),
           node: occurrence.instancePath.at(-1)!,
         })
-        if (effectiveTopologyDrivesPort(topology, graph.id, occurrence.instancePath, target)) continue
+        if (effectiveTopologyDrivesPort(topology, graph.id, occurrence.instancePath, target)) return []
       }
       const view = occurrenceDynamicView(document, registry.resolve, occurrence.instancePath)
       const owner = view.valueOwners.get(occurrence.node)?.get(input.id) ?? {
         graphId: location.graphId, nodeId: occurrence.node, valueKey: input.id,
       }
+      return [{ node, input, location, nodeId: occurrence.node, owner }]
+    })
+  }
+
+  /**
+   * Takes what a run needs from the user's devices and views as it is queued:
+   * a webcam frame where capture on queue is on, and the image, mask and
+   * normal of each 3D view that changed since its pictures were taken. They
+   * are stored on their nodes in one step before the run is sent.
+   */
+  private captureQueueViews(tab: Tab, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> | undefined {
+    const backend = this.backendForTab(tab)
+    const registry = backend.registry.get()!
+    const document = tab.store.doc
+    const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
+    const capturedOwners = new Map<string, { width: number; height: number }>()
+    for (const { node, input, owner } of this.queueCaptureTargets(tab, artifact, webcamKind.type)) {
+      // Capture on queue is the row the webcam widget reads under that part; without one, it never captures.
+      const captureRow = input.widget?.reads?.['capture_on_queue']
+      if (captureRow === undefined || node.inputs[captureRow] !== true) continue
       const key = JSON.stringify(owner)
-      const dimensions = {
-        width: typeof node.inputs['width'] === 'number' ? node.inputs['width'] : 0,
-        height: typeof node.inputs['height'] === 'number' ? node.inputs['height'] : 0,
+      // The capture size comes from the rows the webcam widget reads; a part it does not name is absent.
+      const dimension = (part: 'width' | 'height'): number => {
+        const row = input.widget?.reads?.[part]
+        const value = row === undefined ? undefined : node.inputs[row]
+        return typeof value === 'number' ? value : 0
       }
+      const dimensions = { width: dimension('width'), height: dimension('height') }
       const previous = capturedOwners.get(key)
       if (previous !== undefined) {
         if (previous.width !== dimensions.width || (dimensions.width !== 0 && previous.height !== dimensions.height)) {
@@ -9068,25 +9068,112 @@ export class AppState {
       capturedOwners.set(key, dimensions)
       captures.push({ owner, ...dimensions })
     }
-    if (captures.length === 0) return undefined
+    // A 3D view on its own input gives pictures; one that writes a separate state row stores its view only.
+    const models = backend.protocol !== 'dinkster' ? [] : this.queueCaptureTargets(tab, artifact, 'LOAD_3D')
+      .filter(({ input }) => input.widget?.writes === undefined || Object.keys(input.widget.writes).length === 0)
+      .filter((target, index, all) => all.findIndex((other) => JSON.stringify(other.owner) === JSON.stringify(target.owner)) === index)
+    if (captures.length === 0 && models.length === 0) return undefined
     return (async () => {
       const invocations: CommandInvocation[] = []
+      const current = (): void => {
+        signal.throwIfAborted()
+        if (tab.store.doc !== document || backend.registry.get() !== registry || this.backendForTab(tab) !== backend) {
+          throw new Error('Workflow or backend changed while capturing; queue again.')
+        }
+      }
       for (const { owner, width, height } of captures) {
         const file = await captureWebcamFrame({ width, height }, signal)
         const ref = await backend.connection.uploadMediaAsset(file, {
           scope: 'local', kind: 'media/image', name: file.name, signal,
         })
-        signal.throwIfAborted()
-        if (tab.store.doc !== document || backend.registry.get() !== registry || this.backendForTab(tab) !== backend) {
-          throw new Error('Workflow or backend changed while capturing webcam; queue again.')
-        }
+        current()
         invocations.push({ command: 'node.setValue', params: {
           graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: { ...ref },
         } })
       }
-      signal.throwIfAborted()
+      if (models.length > 0) {
+        const [{ openLoad3dSource, Load3dSourceError }, { mountModel3dViewer }] = await Promise.all([
+          import('./load3d-source.js'), import('./model3d-viewer.js'),
+        ])
+        for (const { node, input, location, nodeId, owner } of models) {
+          const stored = node.inputs[input.id]
+          const value: Record<string, Json> = typeof stored === 'object' && stored !== null && !Array.isArray(stored)
+            ? { ...(stored as Record<string, Json>) } : {}
+          const pictureKeys = ['image', 'mask', 'normal', 'pictures_view']
+          // A model a wire brings is known only once this run brings it, so no pictures are stored
+          // or sent for it, not even ones of an earlier model.
+          const dropPictures = (): void => {
+            if (!pictureKeys.some((name) => name in value)) return
+            const rest = Object.fromEntries(Object.entries(value).filter(([name]) => !pictureKeys.includes(name)))
+            invocations.push({ command: 'node.setValue', params: { graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: rest } })
+          }
+          let source
+          try {
+            source = await openLoad3dSource(this, tab, { graphId: location.graphId, nodeId, parts: { writes: {}, reads: input.widget?.reads ?? {} } }, signal)
+          } catch (error) {
+            // No model, or one a wire brings in this same run: no pictures can be taken now.
+            if (error instanceof Load3dSourceError && error.problem !== 'unavailable') {
+              if (error.modelWired) dropPictures()
+              continue
+            }
+            throw error
+          }
+          if (source.modelWired) {
+            source.release()
+            dropPictures()
+            continue
+          }
+          const size = (part: 'width' | 'height'): number => {
+            const read = source.inputValue(part)
+            return typeof read === 'number' ? read : 1024
+          }
+          // The view the pictures show, stored with them so a run (and a reopened workflow) can tell whether they still match.
+          const view = (state: Record<string, Json>): Json => ({ model_file: source.inputValue('model_file') ?? null,
+            camera_info: state['camera_info'] ?? null, model_3d_info: state['model_3d_info'] ?? null, width: size('width'), height: size('height') })
+          const captured = ['image', 'mask', 'normal'].every((name) => value[name] !== undefined && value[name] !== null && value[name] !== '')
+          if (captured && value['pictures_view'] !== undefined && canonicalJson(value['pictures_view']) === canonicalJson(view(value))) {
+            source.release()
+            continue
+          }
+          // The view is drawn off the screen at the node's width and height, as its stored camera shows it.
+          const container = offscreenContainer(size('width'), size('height'))
+          try {
+            const models3d = value['model_3d_info']
+            const viewer = await mountModel3dViewer(container, source.src, source.mime, {
+              ...source.options,
+              ...(value['camera_info'] ? { camera: value['camera_info'] as unknown as Model3dCameraState } : {}),
+              ...(Array.isArray(models3d) && models3d[0] ? { transform: models3d[0] as unknown as Model3dTransform } : {}),
+            })
+            try {
+              const pictures = await viewer.capture(size('width'), size('height'))
+              const next: Record<string, Json> = {
+                ...value,
+                camera_info: { ...(value['camera_info'] as Record<string, Json> | undefined ?? {}), ...JSON.parse(JSON.stringify(viewer.cameraState())) },
+                model_3d_info: [{ ...(Array.isArray(models3d) ? models3d[0] as Record<string, Json> ?? {} : {}), ...JSON.parse(JSON.stringify(viewer.modelTransform())) },
+                  ...(Array.isArray(models3d) ? models3d.slice(1) : [])],
+                recording: value['recording'] ?? '',
+              }
+              for (const name of ['image', 'mask', 'normal'] as const) {
+                const file = new File([pictures[name]], `viewport-${name}.png`, { type: 'image/png' })
+                const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal })
+                next[name] = JSON.parse(JSON.stringify(ref)) as Json
+              }
+              next['pictures_view'] = view(next)
+              current()
+              invocations.push({ command: 'node.setValue', params: { graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: next } })
+            } finally {
+              viewer.dispose()
+            }
+          } finally {
+            container.remove()
+            source.release()
+          }
+        }
+      }
+      current()
+      if (invocations.length === 0) return document
       const outcome = await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
-      if (!outcome.ok) throw new Error('Could not save captured webcam frame.')
+      if (!outcome.ok) throw new Error('Could not save the pictures taken for the run.')
       return outcome.doc
     })()
   }
@@ -9192,10 +9279,10 @@ export class AppState {
       const captureRegistry = captureBackend.registry.get()
       let capturedDocument: WorkflowDocument
       try {
-        const capture = this.captureQueueWebcams(tab, result.artifact, lease.signal)
+        const capture = this.captureQueueViews(tab, result.artifact, lease.signal)
         capturedDocument = capture === undefined ? compiledDocument : await capture
         if (tab.store.doc !== capturedDocument || this.backendForTab(tab) !== captureBackend || captureBackend.registry.get() !== captureRegistry) {
-          throw new Error('Workflow or backend changed while capturing webcam; queue again.')
+          throw new Error('Workflow or backend changed while capturing; queue again.')
         }
       } catch (error) {
         if (!lease.signal.aborted && this.tabs.get().includes(tab)) {
@@ -9614,28 +9701,10 @@ export class AppState {
     return this.semanticHashOfTab(live) === artifact.semanticHash ? 'in-sync' : 'diverged'
   }
 
-  /**
-   * For a LIVE tab: how its document relates to the execution its overlay
-   * shows (pinned run when pinned, else the lineage's latest). `inSync:
-   * false` means edits landed after that submission - progress overlays may
-   * not match what actually runs; the frozen view is the truth.
-   */
-  liveSyncStatus(tab: Tab): {
-    ref: ExecutionRef
-    status: ExecutionStatus
-    inSync: boolean
-    mode: 'latest' | 'pinned'
-  } | undefined {
-    if (tab.execution) return undefined
-    const pinned = this.pinnedExecutionFor(tab)
-    const shown = pinned ?? this.latestExecutionFor(tab.store.doc.lineage)
-    if (!shown?.artifact) return undefined
-    return {
-      ref: shown.ref,
-      status: shown.status,
-      inSync: this.semanticHashOfTab(tab) === shown.artifact.semanticHash,
-      mode: pinned ? 'pinned' : 'latest',
-    }
+  /** A frozen tab is named by its workflow and the time the run was queued, such as "Portrait, 14:02". */
+  private frozenTitleSuffix(ref: ExecutionRef): string {
+    const state = this.store.get(ref)
+    return state === undefined ? '' : `, ${runClock(state.queuedAt)}`
   }
 
   tabTitleFor(ref: ExecutionRef): string {

@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 2,
+  "nodeType": "dinkster.image.adjust",
+  "version": 2,
+  "displayName": "Adjust Image",
+  "category": "image/adjust",
+  "description": "",
+  "idempotent": true,
+  "interface": [],
+  "body": [
+    {
+      "kind": "input",
+      "id": "image",
+      "type": {
+        "kind": "concrete",
+        "types": [
+          "IMAGE"
+        ]
+      },
+      "required": true
+    },
+    {
+      "kind": "choice",
+      "id": "operation",
+      "options": [
+        {
+          "key": "invert",
+          "rows": []
+        },
+        {
+          "key": "normalize",
+          "rows": [
+            {
+              "kind": "input",
+              "id": "mean",
+              "type": {
+                "kind": "concrete",
+                "types": [
+                  "FLOAT"
+                ]
+              },
+              "required": false,
+              "default": 0.5,
+              "widget": {
+                "type": "NUMBER",
+                "min": -10.0,
+                "max": 10.0,
+                "step": 0.01
+              }
+            },
+            {
+              "kind": "input",
+              "id": "standard_deviation",
+              "type": {
+                "kind": "concrete",
+                "types": [
+                  "FLOAT"
+                ]
+              },
+              "required": false,
+              "default": 0.5,
+              "widget": {
+                "type": "NUMBER",
+                "min": 0.001,
+                "max": 10.0,
+                "step": 0.001
+              }
+            }
+          ]
+        },
+        {
+          "key": "brightness",
+          "rows": [
+            {
+              "kind": "use",
+              "id": "factor"
+            }
+          ]
+        },
+        {
+          "key": "contrast",
+          "rows": [
+            {
+              "kind": "use",
+              "id": "factor"
+            }
+          ]
+        }
+      ],
+      "shared": [
+        {
+          "kind": "input",
+          "id": "factor",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "FLOAT"
+            ]
+          },
+          "required": false,
+          "default": 1.0,
+          "widget": {
+            "type": "NUMBER",
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.01
+          }
+        }
+      ],
+      "default": "brightness"
+    },
+    {
+      "kind": "output",
+      "id": "image",
+      "type": {
+        "kind": "concrete",
+        "types": [
+          "IMAGE"
+        ]
+      },
+      "preview": true
+    }
+  ],
+  "searchTerms": [
+    "invert image",
+    "normalize image",
+    "brightness",
+    "contrast",
+    "ImageInvert",
+    "NormalizeImages"
+  ],
+  "replacements": [
+    {
+      "from": "dinkster.image.adjust",
+      "migration": {
+        "historicalInputs": [
+          "operation",
+          "mean",
+          "standard_deviation",
+          "factor"
+        ]
+      },
+      "cases": [
+        {
+          "to": "dinkster.image.adjust",
+          "when": {
+            "kind": "all",
+            "of": [
+              {
+                "kind": "not",
+                "of": {
+                  "kind": "inputConnected",
+                  "input": "operation"
+                }
+              },
+              {
+                "kind": "valueEquals",
+                "input": "operation",
+                "value": "invert"
+              }
+            ]
+          },
+          "slotVariants": {
+            "operation": "invert"
+          },
+          "inputs": {
+            "image": {
+              "kind": "copy",
+              "input": "image"
+            }
+          },
+          "outputs": {
+            "image": "image"
+          }
+        },
+        {
+          "to": "dinkster.image.adjust",
+          "when": {
+            "kind": "all",
+            "of": [
+              {
+                "kind": "not",
+                "of": {
+                  "kind": "inputConnected",
+                  "input": "operation"
+                }
+              },
+              {
+                "kind": "valueEquals",
+                "input": "operation",
+                "value": "normalize"
+              }
+            ]
+          },
+          "slotVariants": {
+            "operation": "normalize"
+          },
+          "inputs": {
+            "image": {
+              "kind": "copy",
+              "input": "image"
+            },
+            "operation.mean": {
+              "kind": "copy",
+              "input": "mean"
+            },
+            "operation.standard_deviation": {
+              "kind": "copy",
+              "input": "standard_deviation"
+            }
+          },
+          "outputs": {
+            "image": "image"
+          }
+        },
+        {
+          "to": "dinkster.image.adjust",
+          "when": {
+            "kind": "all",
+            "of": [
+              {
+                "kind": "not",
+                "of": {
+                  "kind": "inputConnected",
+                  "input": "operation"
+                }
+              },
+              {
+                "kind": "valueEquals",
+                "input": "operation",
+                "value": "contrast"
+              }
+            ]
+          },
+          "slotVariants": {
+            "operation": "contrast"
+          },
+          "inputs": {
+            "image": {
+              "kind": "copy",
+              "input": "image"
+            },
+            "operation.factor": {
+              "kind": "copy",
+              "input": "factor"
+            }
+          },
+          "outputs": {
+            "image": "image"
+          }
+        },
+        {
+          "to": "dinkster.image.adjust",
+          "slotVariants": {
+            "operation": "brightness"
+          },
+          "inputs": {
+            "image": {
+              "kind": "copy",
+              "input": "image"
+            },
+            "operation.factor": {
+              "kind": "copy",
+              "input": "factor"
+            }
+          },
+          "outputs": {
+            "image": "image"
+          }
+        }
+      ]
+    }
+  ],
+  "mirror": {
+    "kind": "glsl",
+    "precision": "bounded",
+    "tolerance": {
+      "perChannel": 0.00392156862745098
+    },
+    "source": "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n\nuniform sampler2D u_image;\nuniform int operation;\nuniform float factor;\nuniform float mean;\nuniform float standard_deviation;\n\nout vec4 fragColor;\n\nvoid main() {\n    vec4 x = texelFetch(u_image, ivec2(gl_FragCoord.xy), 0);\n    if (operation == 0) {\n        fragColor = 1.0 - x;\n    } else if (operation == 1) {\n        fragColor = (x - mean) / standard_deviation;\n    } else if (operation == 2) {\n        fragColor = clamp(x * factor, 0.0, 1.0);\n    } else {\n        fragColor = clamp((x - 0.5) * factor + 0.5, 0.0, 1.0);\n    }\n}\n"
+  }
+}

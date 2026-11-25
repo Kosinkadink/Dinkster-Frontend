@@ -5,13 +5,14 @@ import {
   elaborateInterface,
   elabInputsOf,
   elabOutputsOf,
-  elabKeyOf,
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
+import { memberKeyAt } from '../schema/body.js'
 import {
   cardinalityOf,
   inputsOf,
   outputsOf,
+  scopeRowsOf,
   type NodeSchema,
   type TypeExpr,
 } from '../schema/model.js'
@@ -65,7 +66,7 @@ export function convertLitegraphListConsumers(
   const sourceType = (endpoint: Mutable): TypeExpr | undefined => {
     const traced = traceEndpoint(graph as GraphDef, endpoint as LinkEndpoint)
     if (traced.kind !== 'output') return undefined
-    const key = `${traced.ref.node}/${elabKeyOf(traced.ref)}`
+    const key = `${traced.ref.node}/${traced.ref.port}`
     const cached = sourceTypes.get(key)
     if (cached) return cached
     const source = graph['nodes'][traced.ref.node] as Mutable | undefined
@@ -90,7 +91,7 @@ export function convertLitegraphListConsumers(
     const type = solved.portTypeOf(
       traced.ref.node,
       'output',
-      elabKeyOf(traced.ref),
+      traced.ref.port,
     )
     resolving.delete(key)
     if (type) sourceTypes.set(key, type)
@@ -104,11 +105,15 @@ export function convertLitegraphListConsumers(
       string,
       Mutable,
     ][]) {
+      // The helper feeds the concat node's first list member.
+      const concat = localResolve('std.list.concat')
+      const lists = concat && scopeRowsOf(concat.body).find((row) => row.kind === 'group' && row.id === 'lists')
+      const firstList = lists?.kind === 'group' && lists.value?.kind === 'input' ? memberKeyAt(lists.keys, 0) : undefined
       if (
         node['type'] === 'EndLoop' &&
         (node['mode'] === undefined || node['mode'] === 'active') &&
         !flattened.has(id) &&
-        localResolve('std.list.concat')
+        firstList !== undefined
       ) {
         const output = incomingTo(id).find(
           (link) => link['to']['port'] === 'output_value',
@@ -125,7 +130,7 @@ export function convertLitegraphListConsumers(
                 id: 'body',
                 type: 'std.list.concat',
                 values: {},
-                dynamic: { lists: { members: ['m0'], seq: 1 } },
+                dynamic: { lists: { members: [firstList], seq: 1 } },
               },
             },
             links: {},
@@ -139,8 +144,7 @@ export function convertLitegraphListConsumers(
                   binds: {
                     kind: 'port',
                     node: 'body',
-                    port: 'lists.lists',
-                    members: ['m0'],
+                    port: `lists.${firstList}`,
                   },
                 },
               ],
@@ -220,9 +224,9 @@ export function convertLitegraphListConsumers(
       const elementInputs = new Set(
         incoming
           .filter((link) => {
-            const key = previous ? link['to']['port'] : elabKeyOf(link['to'])
+            const key = link['to']['port']
             const input = inputs.find(
-              (input) => elabKeyOf(input.address) === key,
+              (input) => input.address.port === key,
             )
             return (
               input !== undefined &&
@@ -231,9 +235,7 @@ export function convertLitegraphListConsumers(
               sourceIsList(link['from'])
             )
           })
-          .map((link) =>
-            previous ? (link['to']['port'] as string) : elabKeyOf(link['to']),
-          ),
+          .map((link) => link['to']['port'] as string),
       )
       if (elementInputs.size === 0) continue
       if (
@@ -250,11 +252,11 @@ export function convertLitegraphListConsumers(
         (output) => output.wireable !== false,
       )
       const boundaryKeys = new Set(
-        inputs.map((input) => elabKeyOf(input.address)),
+        inputs.map((input) => input.address.port),
       )
       const outputKeys = new Map(
         outputs.map((output) => {
-          const key = elabKeyOf(output.address)
+          const key = output.address.port
           let exposed = key
           while (boundaryKeys.has(exposed)) exposed = `output.${exposed}`
           boundaryKeys.add(exposed)
@@ -271,15 +273,15 @@ export function convertLitegraphListConsumers(
         nextOrdinal: 1,
         boundary: {
           inputs: inputs.map((input) => ({
-            id: elabKeyOf(input.address),
+            id: input.address.port,
             binds: { kind: 'port', node: 'body', ...input.address },
             ...(input.spec.widget &&
-            !elementInputs.has(elabKeyOf(input.address))
+            !elementInputs.has(input.address.port)
               ? { promoted: true }
               : {}),
           })),
           outputs: outputs.map((output) => ({
-            id: outputKeys.get(elabKeyOf(output.address))!,
+            id: outputKeys.get(output.address.port)!,
             binds: { kind: 'port', node: 'body', ...output.address },
           })),
         },
@@ -290,7 +292,7 @@ export function convertLitegraphListConsumers(
         binding: 'broadcast',
         outputRoles: Object.fromEntries(
           outputs.map((output) => [
-            outputKeys.get(elabKeyOf(output.address))!,
+            outputKeys.get(output.address.port)!,
             { kind: output.spec.type.kind === 'list' ? 'flatten' : 'gather' },
           ]),
         ),
@@ -322,24 +324,21 @@ export function convertLitegraphListConsumers(
                 node: id,
                 port:
                   side === 'from'
-                    ? outputKeys.get(elabKeyOf(link[side]))!
-                    : elabKeyOf(link[side]),
+                    ? outputKeys.get(link[side].port)!
+                    : link[side].port,
               }
         }
         for (const net of Object.values(graph['nets']) as Mutable[]) {
           if (endpointNode(net['source']) === id)
             net['source'] = {
               node: id,
-              port: outputKeys.get(elabKeyOf(net['source']))!,
+              port: outputKeys.get(net['source'].port)!,
             }
           net['sinks'] = net['sinks'].map((sink: Mutable) =>
             endpointNode(sink) === id
               ? {
                   node: id,
-                  port: elabKeyOf({
-                    port: sink['port'],
-                    members: sink['members'],
-                  }),
+                  port: sink['port'],
                 }
               : sink,
           )

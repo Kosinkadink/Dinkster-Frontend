@@ -34,7 +34,7 @@ const FRONTEND_VERSION = (
 /** A Dinkster /api/nodes payload with the full environment surface (5b58c53). */
 const nodesPayload: DinksterNodesPayload = {
   schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
-  dinkster: { version: '0.9.0', schemaWire: 1 },
+  dinkster: { version: '0.9.0', schemaWire: 2 },
   packs: {
     core: { displayName: 'Dinkster Core', version: '1.2.0' },
     'vhs.video': {
@@ -46,8 +46,8 @@ const nodesPayload: DinksterNodesPayload = {
     },
   },
   nodes: {
-    'std.a': { displayName: 'A', pack: 'core', signature: 'sig-a-1', interface: [] },
-    'std.b': { displayName: 'B', pack: 'vhs.video', signature: 'sig-b-1', interface: [] },
+    'std.a': { displayName: 'A', pack: 'core', signature: 'sig-a-1', body: [] },
+    'std.b': { displayName: 'B', pack: 'vhs.video', signature: 'sig-b-1', body: [] },
   },
 }
 
@@ -113,7 +113,7 @@ describe('exportDocument', () => {
     const tab = (await open(docJson('lin-stamp', ['std.a'])))
     const out = app.exportDocument(tab.id)!
     expect(out.environment).toEqual({
-      dinkster: { version: '0.9.0', schemaWire: 1 },
+      dinkster: { version: '0.9.0', schemaWire: 2 },
       frontend: { version: FRONTEND_VERSION },
       packs: { core: { version: '1.2.0' } }, // vhs.video unused -> absent
       nodes: { 'std.a': { pack: 'core', signature: 'sig-a-1' } },

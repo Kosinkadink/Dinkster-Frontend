@@ -81,7 +81,7 @@
           "name": "vae",
           "source": { "node": "n1", "port": "out0" },
           "sinks": [
-            { "node": "n2", "port": "input.input", "members": ["m0"] }
+            { "node": "n2", "port": "input.m0" }
           ]
         }
       },

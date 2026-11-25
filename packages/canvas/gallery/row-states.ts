@@ -38,13 +38,13 @@ const field = (
   optional: false,
   widget: { widgetType, options, default: value },
 })
-const schema = (type: string, items: NodeSchema['items']): NodeSchema => ({
+const schema = (type: string, body: NodeSchema['body']): NodeSchema => ({
   type,
   displayName: type,
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body,
 })
 
 const measureNode = schema('Measure mask', [
@@ -230,7 +230,7 @@ export function rowStateExamples(
       caption: 'A row that gives nothing and has a problem. The problem outline keeps full contrast beside the absence. Absence alone never makes a problem.',
       scene: feed(),
       states: skipped,
-      rowMarks: { soften: new Set(['radius']) },
+      rowMarks: { soften: { radius: 'error' } },
     },
     {
       id: 'unknown',
@@ -310,7 +310,7 @@ export function createRepresentationScene(
 ): Scene {
   const definition = only === undefined ? representationSchema : {
     ...representationSchema,
-    items: representationSchema.items.filter((item) => item.kind !== 'input' || only.includes(item.id)),
+    body: representationSchema.body.filter((item) => item.kind !== 'input' || only.includes(item.id)),
   }
   return sceneOf(
     [{ id: 'Soften', schema: definition, x: position.x, y: position.y, width, views }],

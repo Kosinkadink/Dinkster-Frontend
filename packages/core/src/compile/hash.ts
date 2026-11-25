@@ -6,13 +6,7 @@
  * boundaries, and extension data (extensions may affect compilation). It
  * excludes view state, meta, control-surface chrome, node titles (a retitle
  * never dirties an execution), link IDs, and reroutes (links hash as traced
- * producer->consumer pairs, so pure reroute edits are hash-neutral). Value
- * sources hash by delivered value+controller per consumer pair - never by
- * id or declared spec (P1), so spec pinning and unconnected sources are
- * hash-neutral too. Selectors are NOT canonicalized away: their policy,
- * candidate order, and candidate feeds all change what may execute, so they
- * hash structurally; only the exact random OUTCOME stays out (it lives in
- * the execution artifact, never in document semantics).
+ * producer->consumer pairs, so pure reroute edits are hash-neutral).
  *
  * Hash: FNV-1a 64-bit over canonical (sorted-key) JSON. Dependency-free and
  * synchronous; collision resistance is not a security requirement here -
@@ -141,8 +135,8 @@ const SHA256_CONSTANTS = new Uint32Array([
  * skeletons behind (CO3). Hashing it raw would make materialize-then-undo
  * hash differently from never-materialized - violating "equal hash means
  * equal current execution semantics" the same way hashing nextOrdinal or
- * surfaceSeq would. So `seq` is stripped at declared DynamicPortState
- * positions, containers emptied by the stripping are pruned, and everything
+ * surfaceSeq would. So `seq` is stripped from each DynamicPortState,
+ * states emptied by the stripping are pruned, and everything
  * else (members, selected, unknown extension props) hashes verbatim.
  */
 function semanticDynamicState(st: Json): Json | undefined {
@@ -150,23 +144,6 @@ function semanticDynamicState(st: Json): Json | undefined {
   const out: Record<string, Json> = {}
   for (const [key, v] of Object.entries(st)) {
     if (key === 'seq' || key === 'memberLabels') continue
-    if (key === 'memberState' && typeof v === 'object' && v !== null && !Array.isArray(v)) {
-      const ms: Record<string, Json> = {}
-      for (const [member, constructs] of Object.entries(v)) {
-        if (typeof constructs !== 'object' || constructs === null || Array.isArray(constructs)) {
-          ms[member] = constructs
-          continue
-        }
-        const cs: Record<string, Json> = {}
-        for (const [construct, nested] of Object.entries(constructs)) {
-          const ns = semanticDynamicState(nested)
-          if (ns !== undefined) cs[construct] = ns
-        }
-        if (Object.keys(cs).length > 0) ms[member] = cs
-      }
-      if (Object.keys(ms).length > 0) out['memberState'] = ms
-      continue
-    }
     out[key] = v
   }
   return Object.keys(out).length > 0 ? out : undefined
@@ -214,34 +191,6 @@ function semanticConnections(g: GraphDef): Json {
   for (const link of Object.values(g.links)) {
     if (isRerouteRef(link.to)) continue // structural feed into a reroute
     const trace = traceEndpoint(g, link.from, rerouteIndex)
-    if (trace.kind === 'valueSource') {
-      // A value-source-driven consumer hashes by the VALUE it receives (plus
-      // controller mode, which changes the value at queue time) - not by the
-      // source's id or declared spec. Ids are canonicalized away like link
-      // ids; the declared spec never affects compilation, so a spec edit or
-      // pin must not dirty frozen views (P1). Unconnected value sources are
-      // hash-neutral by construction (they produce no pairs).
-      const vs = g.valueSources?.[trace.id]
-      if (!vs) continue // dangling ref: compiles to nothing
-      pairs.push({
-        fromValue: { value: vs.value, ...(vs.controller ? { controller: vs.controller } : {}) },
-        to: link.to as unknown as Json,
-        ...(link.ext ? { ext: link.ext } : {}),
-      })
-      continue
-    }
-    if (trace.kind === 'selector') {
-      // A consumer fed by a selector OUTPUT hashes by the selector's
-      // identity: which branch actually flows is the policy's business
-      // (hashed with the selector config below), and the exact random
-      // outcome lives in the execution artifact - never in doc semantics.
-      pairs.push({
-        fromSelector: trace.id,
-        to: link.to as unknown as Json,
-        ...(link.ext ? { ext: link.ext } : {}),
-      })
-      continue
-    }
     if (trace.kind === 'tapValue') {
       // Literal taps are topology too: node values are hashed separately,
       // while this pair records which consumer receives that effective value.
@@ -265,24 +214,7 @@ function semanticConnections(g: GraphDef): Json {
     .map(([, p]) => p)
 }
 
-/**
- * The execution-semantic subset of one selector: policy, candidate ids in
- * order (order is the random-resolution domain), and ext. Titles are
- * diagnostics/display chrome, excluded like node titles. Candidate DRIVERS
- * are covered by {@link semanticConnections} (pairs targeting candidate
- * endpoints), so a reroute inserted on a branch stays hash-neutral.
- */
-function semanticSelector(s: NonNullable<GraphDef['selectors']>[string]): Json {
-  return {
-    id: s.id,
-    policy: s.policy,
-    candidates: s.candidates.map((c) => c.id),
-    ...(s.ext ? { ext: s.ext } : {}),
-  } as unknown as Json
-}
-
 function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean): Json {
-  const selectors = Object.entries(g.selectors ?? {})
   return {
     nodes: Object.fromEntries(
       Object.entries(g.nodes)
@@ -293,10 +225,6 @@ function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean): J
     nets: g.nets,
     // Whether a boundary input's wire is drawn is presentation only.
     ...(g.boundary ? { boundary: { ...g.boundary, inputs: g.boundary.inputs.map(({ wireHidden: _wireHidden, ...item }) => item) } } : {}),
-    // Guarded on non-empty so `selectors: {}` and absent hash identically.
-    ...(selectors.length > 0
-      ? { selectors: Object.fromEntries(selectors.map(([k, s]) => [k, semanticSelector(s)])) }
-      : {}),
   } as unknown as Json
 }
 
@@ -306,8 +234,6 @@ const semanticBoundaryBinding = (binding: BoundaryBinding): Json => binding.kind
       kind: binding.kind,
       node: binding.node,
       port: binding.port,
-      ...(binding.members ? { members: binding.members } : {}),
-      ...(binding.slots ? { slots: [...binding.slots].sort() } : {}),
       ...(binding.viaReroute !== undefined ? { viaReroute: binding.viaReroute } : {}),
     } as unknown as Json
 
@@ -335,18 +261,6 @@ const semanticOccurrenceSource = (
 ): Json => {
   if (endpoint.kind === 'boundary') return semanticOccurrenceEndpoint(endpoint)
   const trace = traceEndpoint(body, endpoint.endpoint, rerouteIndex)
-  if (trace.kind === 'valueSource') {
-    const source = body.valueSources?.[trace.id]
-    return source === undefined
-      ? semanticOccurrenceEndpoint(endpoint)
-      : {
-          kind: 'body',
-          value: source.value,
-          ...(source.controller ? { controller: source.controller } : {}),
-        } as unknown as Json
-  }
-  if (trace.kind === 'selector')
-    return { kind: 'body', selector: trace.id } as unknown as Json
   if (trace.kind === 'tapValue')
     return { kind: 'body', tap: { node: trace.node, input: trace.input } } as unknown as Json
   if (trace.kind === 'output')
@@ -392,7 +306,7 @@ function semanticOccurrenceTopology(
     } as unknown as Json
     return [canonicalJson(value), value] as const
   }).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, link]) => link)
-  // Body-local links execute in one occurrence-aware reroute/selector/tap
+  // Body-local links execute in one occurrence-aware reroute/tap
   // index together with definition links. Hash the connection delta produced
   // by adding those local links, rather than their persisted structural
   // segments, so a local driver into a body reroute composes with every

@@ -92,7 +92,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   page.on('pageerror', (error) => pageErrors.push(error.message))
   const catalog = await page.request.get('/api/nodes')
   expect(catalog.ok()).toBe(true)
-  expect(((await catalog.json()) as { dinkster?: { schemaWire?: number } }).dinkster?.schemaWire).toBe(1)
+  expect(((await catalog.json()) as { dinkster?: { schemaWire?: number } }).dinkster?.schemaWire).toBe(2)
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size ?? 0,

@@ -10,7 +10,8 @@ import type { Json, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { type MenuActionItem, type MenuContext, type MenuItem, type MenuTarget } from '../src/menus/contract.js'
 import { resetMenuContributions } from '../src/menus/reset-items.js'
-import type { InterfaceItem, NodeSchema, SchemaResolver } from '../src/index.js'
+import { defaultValuesOf } from '../src/schema/body.js'
+import type { BodyRow, NodeSchema, SchemaResolver } from '../src/index.js'
 
 const tunableSchema: NodeSchema = {
   type: 'Tunable',
@@ -18,7 +19,7 @@ const tunableSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'seed',
@@ -33,24 +34,34 @@ const tunableSchema: NodeSchema = {
       optional: false,
       widget: { widgetType: 'INT', options: {}, default: 20 },
     },
-    { kind: 'section', id: 'adv', displayName: 'Advanced' },
     {
-      kind: 'input',
-      id: 'cfg',
-      type: { kind: 'concrete', name: 'FLOAT' },
-      optional: false,
-      section: 'adv',
-      widget: { widgetType: 'FLOAT', options: {}, default: 7.5 },
+      kind: 'section',
+      id: 'adv',
+      displayName: 'Advanced',
+      rows: [
+        {
+          kind: 'input',
+          id: 'cfg',
+          type: { kind: 'concrete', name: 'FLOAT' },
+          optional: false,
+          widget: { widgetType: 'FLOAT', options: {}, default: 7.5 },
+        },
+      ],
     },
-    { kind: 'section', id: 'empty', displayName: 'Empty' },
     {
-      kind: 'input',
-      id: 'img',
-      type: { kind: 'concrete', name: 'IMAGE' },
-      optional: false,
-      section: 'empty',
+      kind: 'section',
+      id: 'empty',
+      displayName: 'Empty',
+      rows: [
+        {
+          kind: 'input',
+          id: 'img',
+          type: { kind: 'concrete', name: 'IMAGE' },
+          optional: false,
+        },
+      ],
     },
-  ] satisfies InterfaceItem[],
+  ] satisfies BodyRow[],
 }
 
 const resolver: SchemaResolver = (type) => (type === 'Tunable' ? tunableSchema : undefined)
@@ -81,7 +92,7 @@ function ctx(target: MenuTarget, values: Record<string, Json>): MenuContext {
     doc: docWith(values),
     graphId: 'g0',
     target,
-    selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] },
+    selection: { nodes: [], links: [], reroutes: [] },
     worldX: 0,
     worldY: 0,
   }
@@ -144,4 +155,23 @@ describe('reset menu contributions', () => {
     expect(untouched[0]!.disabled).toBe(true)
   })
 
+
+  it('a new node stores nothing for an automatic field, and reset removes a stored one', () => {
+    const automatic: NodeSchema = {
+      ...tunableSchema,
+      type: 'Automatic',
+      body: [
+        { kind: 'input', id: 'width', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 64 } },
+        { kind: 'input', id: 'fps', type: { kind: 'concrete', name: 'INT' }, optional: false, automatic: { formula: 'width' }, widget: { widgetType: 'INT', options: {}, default: 24 } },
+      ] satisfies BodyRow[],
+    }
+    expect(defaultValuesOf(automatic)).toEqual({ width: 64 })
+    const [widget, , node] = resetMenuContributions(() => (type) => (type === 'Tunable' ? automatic : undefined))
+    const fixed = widget!.resolve(ctx(widgetTarget('fps'), { fps: 24 }))
+    expect(fixed[0]!.disabled).toBeUndefined()
+    expect(valuesOf(fixed[0]!).params).toEqual({ graphId: 'g0', nodeId: 'n1', values: {}, unset: ['fps'] })
+    expect(widget!.resolve(ctx(widgetTarget('fps'), {}))[0]!.disabled).toBe(true)
+    const all = node!.resolve(ctx({ kind: 'node', nodeId: 'n1' }, { fps: 30, width: 32 }))
+    expect(valuesOf(all[0]!).params).toEqual({ graphId: 'g0', nodeId: 'n1', values: { width: 64 }, unset: ['fps'] })
+  })
 })

@@ -165,8 +165,8 @@ What survives across processes:
   rejects the whole paste. Worse, an unrelated target definition with the same
   ID can capture the instance reference. Numeric definition IDs are
   document-local, not portable identities.
-- Named nets, surfaces, selectors, value sources, boundary bindings, and links
-  crossing outside the selection do not survive.
+- Named nets, surfaces, boundary bindings, and links crossing outside the
+  selection do not survive.
 
 The in-memory fallback is per page JavaScript realm. It helps a denied read
 after a copy in the same page, but cannot rescue another tab or process. True
@@ -268,8 +268,7 @@ Recommended converter pipeline:
    source node, link, value, geometry, or semantic construct was dropped or
    unresolved blocks commit.
 6. Preflight the imported result against what `DinksterClipboardEnvelope` can
-   represent. The first slice must reject PrimitiveNode-derived value sources,
-   Set/Get-derived named nets, notes, and any other root constructs the native
+   represent. The first slice must reject Set/Get-derived named nets, notes, and any other root constructs the native
    envelope cannot carry. For the ordinary-node subset, convert the imported
    root graph to an envelope and use the existing one-command paste planner for
    fresh IDs, positioning, undo, shared-session allocation, and ownership
@@ -297,7 +296,7 @@ Cut should compose the existing serializer, clipboard writer, and deletion
 commands rather than introduce a second envelope. Version 1 must be limited to
 entity kinds the envelope actually represents. Today CanvasHost copy supplies
 nodes and reroutes, while selection deletion can also remove standalone links,
-net sinks, boundary bindings, value sources, and selectors. Deleting the live
+net sinks, and boundary bindings. Deleting the live
 selection after serializing only part of it would lose uncopied content.
 
 Recommended contract:
@@ -306,8 +305,8 @@ Recommended contract:
    dry-run the exact delete command to derive its complete deletion and
    modification closure. Refuse Cut when the selection or closure contains
    anything the payload does not represent: unsupported selected kinds,
-   boundary-crossing links, named nets or sinks, boundary bindings, value
-   sources, selectors, surviving dynamic-node compaction, or any other
+   boundary-crossing links, named nets or sinks, boundary bindings, surviving
+   dynamic-node compaction, or any other
    cascading record change. Internal links are allowed because the
    self-contained payload represents them. Groups can join only when the UI
    actually supplies them to both serializer and deletion path.
@@ -377,7 +376,7 @@ image/mask editor and bundle semantics.
 10. Should v1 refuse every Cut with boundary-crossing links (recommended), or
     does the product require a reconnect-stub representation before Cut ships?
 11. Is v1 Cut limited to nodes and reroutes, or must standalone links, groups,
-    value sources, selectors, nets, and boundary bindings become portable too?
+    nets, and boundary bindings become portable too?
     Should a mixed supported/unsupported selection block the whole Cut
     (recommended)?
 12. Must any document revision change cancel Cut, including an unrelated

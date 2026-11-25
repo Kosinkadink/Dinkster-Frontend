@@ -46,7 +46,7 @@ test('renders a local template thumbnail from owned bytes and cancels it when th
     features: { templates: { enabled: true } }, categories: { granted: [], available: [] }, settings: {},
   } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'gallery-test', schemaWire: 1 }, packs: {}, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'gallery-test', schemaWire: 2 }, packs: {}, nodes: {},
   } }))
   await page.route('/api/templates*', (route) => route.fulfill({ json: { templates: [{
     pack: 'demo', id: 'starter', name: 'Local image starter', digest,
@@ -149,7 +149,7 @@ test('refreshes the remote family gallery and opens a digest-verified template',
         json: {
           schemaVersion: 1,
           epoch: 1,
-          dinkster: { version: 'gallery-test', schemaWire: 1 },
+          dinkster: { version: 'gallery-test', schemaWire: 2 },
           packs: {},
           nodes: {},
         },

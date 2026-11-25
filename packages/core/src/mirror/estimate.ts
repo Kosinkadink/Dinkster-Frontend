@@ -64,8 +64,7 @@ const EXPRESSION_MIRROR_INPUT_ID = 'expression'
 /** Whether an elaborated input address carries a schema's expression text. */
 export const isExpressionMirrorInput = (schema: NodeSchema, address: PortAddress): boolean =>
   supportsExpressionMirror(schema) &&
-  address.port === EXPRESSION_MIRROR_INPUT_ID &&
-  (address.members?.length ?? 0) === 0
+  address.port === EXPRESSION_MIRROR_INPUT_ID
 
 /** Largest bigint magnitude representable exactly as a JSON number. */
 const MAX_SAFE_JSON_INT = 9007199254740991n
@@ -128,9 +127,7 @@ export function deriveMirrorEstimates(
     return inputs
   }
   const tapValueOf = (nodeId: string, inputId: string): Json | undefined => {
-    const input = inputsOfNode(nodeId)?.find(
-      (item) => (item.address.members?.length ?? 0) === 0 && item.address.port === inputId,
-    )
+    const input = inputsOfNode(nodeId)?.find((item) => item.address.port === inputId)
     const node = def.nodes[nodeId]
     return input === undefined || node === undefined ? undefined : residentValueOf(node.values, input)
   }
@@ -180,7 +177,6 @@ export function deriveMirrorEstimates(
       const key = portRefKey({
         node: node.id,
         port: asPortId(item.address.port),
-        ...(item.address.members ? { members: item.address.members } : {}),
       })
       const driver = index.inputDriverOf.get(key)
       let value: Json | undefined

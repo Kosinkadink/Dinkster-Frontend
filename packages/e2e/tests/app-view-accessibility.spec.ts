@@ -2,7 +2,7 @@ import { expect, appViewTest as test, waitForWorkspaceReady, type Page } from '.
 
 async function selectAppView(page: Page): Promise<void> {
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
 }
 
 async function setEditorWidth(page: Page, width: number): Promise<void> {
@@ -54,7 +54,7 @@ test.beforeEach(async ({ page }) => {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AppViewA11yTest', displayName: 'Accessible App', category: 'test', source: 'v3', isOutputNode: false,
-      items: [widget('prompt', 'STRING', 'portrait'), widget('steps', 'INT', 20)],
+      body: [widget('prompt', 'STRING', 'portrait'), widget('steps', 'INT', 20)],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-a11y-test', root: 'g0',

@@ -56,6 +56,13 @@ export async function productOption(page: Page, optionId: string): Promise<Locat
   return option
 }
 
+/** Shows this workflow's runs or every workflow's in the Runs panel. */
+export async function chooseRunScope(page: Page, scope: 'workflow' | 'all'): Promise<void> {
+  const control = page.getByTestId('runs-scope')
+  await control.locator('.dinkster-segment').filter({ has: page.locator(`input[value="${scope}"]`) }).click()
+  await expect(control).toHaveAttribute('data-selected-id', scope)
+}
+
 export async function selectProductOption(page: Page, control: Locator, optionId: string, selectedId = optionId): Promise<void> {
   await control.click()
   await (await productOption(page, optionId)).click()
@@ -79,8 +86,34 @@ export async function subgraphMarkPoint(page: Page, nodeId: string): Promise<{ x
   return await point.jsonValue() as { x: number; y: number }
 }
 
+/**
+ * Clicks the row of an editor shown in the node, which folds the editor out
+ * under it, and returns the editor's controls laid over its space.
+ */
+export async function unfoldNodeEditor(page: Page, nodeId: string, inputId: string): Promise<Locator> {
+  const point = await page.waitForFunction(({ nodeId, inputId }) => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((entry) => entry.id === nodeId)
+    const row = node?.layout.rows.find((entry) => entry.kind === 'widget' && entry.inputId === inputId)
+    if (node === undefined || row === undefined) return undefined
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return {
+      x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+      y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
+    }
+  }, { nodeId, inputId })
+  const { x, y } = await point.jsonValue() as { x: number; y: number }
+  await page.mouse.click(x, y)
+  const editor = page.locator(`.node-editor-space-overlay[data-node-id="${nodeId}"][data-value-key="${inputId}"]`)
+  await expect(editor).toBeVisible()
+  return editor
+}
+
 export async function executionDetails(row: Locator): Promise<Locator> {
   const details = row.locator('details.runs-details')
+  // A running or queued row shows its outputs and details once its name is pressed.
+  if (await details.count() === 0) await row.locator('.run-row-name').click()
   if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) {
     await details.locator('summary').click()
   }

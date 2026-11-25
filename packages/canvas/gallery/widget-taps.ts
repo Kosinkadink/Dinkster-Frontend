@@ -48,13 +48,13 @@ const socket = (id: string, type: string): InputSpec => ({
   type: concrete(type),
   optional: false,
 })
-const schema = (type: string, items: NodeSchema['items']): NodeSchema => ({
+const schema = (type: string, body: NodeSchema['body']): NodeSchema => ({
   type,
   displayName: type,
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body,
 })
 
 const steps = field('steps', 'steps', 'INT', 20, { min: 1, max: 10000 })
@@ -127,14 +127,13 @@ const foldedSampler = schema('Sampler with a folded section', [
     id: 'advanced',
     displayName: 'Advanced',
     collapsedByDefault: true,
-  },
-  {
-    ...field('denoise', 'denoise', 'FLOAT', 0.6, {
-      min: 0,
-      max: 1,
-      step: 0.01,
-    }),
-    section: 'advanced',
+    rows: [
+      field('denoise', 'denoise', 'FLOAT', 0.6, {
+        min: 0,
+        max: 1,
+        step: 0.01,
+      }),
+    ],
   },
 ])
 const weight = field('weight', 'weight', 'FLOAT', 0.5, {
@@ -145,50 +144,70 @@ const weight = field('weight', 'weight', 'FLOAT', 0.5, {
 const grouped = schema('Weights in a group', [
   field('scale', 'scale', 'FLOAT', 1, { min: 0, max: 10, step: 0.1 }),
   {
-    kind: 'input',
+    kind: 'group',
     id: 'weights',
-    type: concrete('FLOAT'),
-    optional: true,
-    dynamic: {
-      kind: 'autogrow',
-      template: [{ ...weight, optional: true }],
-      naming: { kind: 'prefix', prefix: 'weight', min: 1, max: 4 },
-    },
+    value: { ...weight, optional: true },
+    keys: { kind: 'numbered', prefix: 'weight', start: 0, pad: 0 },
+    grows: 'link',
+    minMembers: 1,
+    maxMembers: 4,
   },
 ])
 const chosen = schema('Strength under a choice', [
   { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
   {
-    kind: 'input',
+    kind: 'choice',
     id: 'mode',
     displayName: 'mode',
-    type: concrete('COMBO'),
-    optional: false,
-    dynamic: {
-      kind: 'dynamicCombo',
-      options: [
-        {
-          key: 'fixed',
-          inputs: [
-            field('strength', 'strength', 'FLOAT', 0.8, {
-              min: 0,
-              max: 1,
-              step: 0.05,
-            }),
-          ],
-        },
-        {
-          key: 'ramp',
-          inputs: [
-            field('start', 'start', 'FLOAT', 0),
-            field('end', 'end', 'FLOAT', 1),
-          ],
-        },
-      ],
-    },
+    required: true,
+    shared: [],
+    options: [
+      {
+        key: 'fixed',
+        rows: [
+          field('strength', 'strength', 'FLOAT', 0.8, {
+            min: 0,
+            max: 1,
+            step: 0.05,
+          }),
+        ],
+      },
+      {
+        key: 'ramp',
+        rows: [
+          field('start', 'start', 'FLOAT', 0),
+          field('end', 'end', 'FLOAT', 1),
+        ],
+      },
+    ],
+  },
+])
+const typeLed = schema('Resize by input type', [
+  { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+  {
+    kind: 'typeChoice',
+    id: 'input',
+    displayName: 'input',
+    required: false,
+    rows: [],
+    variants: [
+      {
+        key: 'IMAGE',
+        type: concrete('IMAGE'),
+        rows: [field('width', 'width', 'FLOAT', 512)],
+      },
+      {
+        key: 'LATENT',
+        type: concrete('LATENT'),
+        rows: [
+          field('scale', 'scale', 'FLOAT', 1.5, { min: 0, max: 8, step: 0.25 }),
+        ],
+      },
+    ],
   },
 ])
 const schemas = [
+  typeLed,
   sampler,
   scheduler,
   fieldScheduler,
@@ -208,6 +227,7 @@ interface Placed {
   readonly y: number
   readonly width?: number
   readonly values?: Record<string, Json>
+  readonly dynamic?: Record<string, Json>
 }
 interface Wire {
   readonly from: LinkEndpoint
@@ -363,19 +383,64 @@ export function widgetTapGallery(
       [0, 60],
     ),
     card(
-      "Does not work today: a field in a group's member has no pin, even with the node pointed at, so it cannot be wired.",
-      [{ id: 'grouped', schema: grouped, x: 0 }],
+      "A field in a group's member has its own pin, like every other field.",
+      [
+        {
+          id: 'grouped',
+          schema: grouped,
+          x: 0,
+          dynamic: { weights: { members: ['weight0'] } },
+        },
+      ],
     ),
     card(
-      "Does not work today: the wire from a field under a choice's option is lost on copy and paste and on replacing the node, and a subgraph's face cannot offer it.",
+      "A field under a choice's option has its own pin. Its wire survives copy and paste and replacing the node, and a subgraph's face can offer it.",
       [
         { id: 'chosen', schema: chosen, x: 0 },
         { id: 'chosen blend', schema: blend, x: right, ...small },
       ],
       [
         {
-          from: tap('chosen', 'mode.[fixed].strength'),
+          from: tap('chosen', 'mode.strength'),
           to: { node: 'chosen blend', port: 'factor' },
+        },
+      ],
+      [0, 60],
+    ),
+    card(
+      "A row that stays for its wire, under an option not chosen: the wire stays on strength, dimmed and marked inactive, after the chosen option's rows. It cannot be edited and gives nothing until it is unplugged or 'fixed' is chosen again.",
+      [
+        {
+          id: 'kept option',
+          schema: chosen,
+          x: 0,
+          dynamic: { mode: { selected: 'ramp' } },
+        },
+        { id: 'kept option blend', schema: blend, x: right, ...small },
+      ],
+      [
+        {
+          from: tap('kept option', 'mode.strength'),
+          to: { node: 'kept option blend', port: 'factor' },
+        },
+      ],
+      [0, 60],
+    ),
+    card(
+      'A row that stays for its wire, under a type-led pin: the input now takes an IMAGE, and the LATENT row scale stays, dimmed and marked inactive, after the IMAGE rows, with its wire.',
+      [
+        {
+          id: 'kept type',
+          schema: typeLed,
+          x: 0,
+          dynamic: { input: { selected: 'IMAGE' } },
+        },
+        { id: 'kept type blend', schema: blend, x: right, ...small },
+      ],
+      [
+        {
+          from: tap('kept type', 'input.scale'),
+          to: { node: 'kept type blend', port: 'factor' },
         },
       ],
       [0, 60],
@@ -400,6 +465,7 @@ export function widgetTapGallery(
               id: node.id,
               type: node.schema.type,
               values: { ...defaultValuesOf(node.schema), ...node.values },
+              ...(node.dynamic ? { dynamic: node.dynamic } : {}),
             },
           ]),
         ),

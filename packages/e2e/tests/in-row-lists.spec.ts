@@ -26,7 +26,7 @@ const MANY = Array.from({ length: 1000 }, (_, index) => ({ value: index * 10, la
 
 async function openLists(page: Page, values: Record<string, unknown> = {}): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'inrow-lists', schemaWire: 1, graphFeatures: ['decimalInt'] }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'inrow-lists', schemaWire: 2, graphFeatures: ['decimalInt'] }, nodes: {},
   } }))
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
@@ -41,7 +41,7 @@ async function openLists(page: Page, values: Record<string, unknown> = {}): Prom
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'Lists', displayName: 'Lists', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { ...widget('style', 'COMBO', 'style-landscape', { options: styles }), tooltip: 'The look to apply.' },
         widget('steps', 'INT', 20, { min: 1, max: 10000, step: 1 }),
         widget('enabled', 'BOOLEAN', true),

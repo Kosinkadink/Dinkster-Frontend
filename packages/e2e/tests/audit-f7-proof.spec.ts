@@ -3,7 +3,7 @@ import { expect, mockProjectPacks, nativeAppViewTest as test, type Page } from '
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f7-proof', schemaWire: 1 },
+  dinkster: { version: 'audit-f7-proof', schemaWire: 2 },
   packs: {},
   nodes: {},
 }

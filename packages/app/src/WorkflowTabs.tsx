@@ -41,6 +41,8 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly runState?: ((tab: T) => TabRunState) | undefined
   readonly isDirty: (tab: T) => boolean
   readonly isFrozen: (tab: T) => boolean
+  /** The tab's tooltip when it says more than the title, such as a frozen run's job id and state. */
+  readonly tooltip?: ((tab: T) => string | undefined) | undefined
   readonly isShared: (tab: T) => boolean
   readonly renderLeading?: (tab: T) => JSX.Element
   readonly setRoot: (root: HTMLElement) => void
@@ -307,7 +309,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               id={workflowTabDomId(tab.id)}
               class="tab-select"
               role="tab"
-              data-tooltip-label={tab.title}
+              data-tooltip-label={props.tooltip?.(tab) ?? tab.title}
               aria-label={label(tab)}
               aria-selected={tab.id === props.activeId}
               aria-controls={props.panelId ?? 'workflow-editor-panel'}

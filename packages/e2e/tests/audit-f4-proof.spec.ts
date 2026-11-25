@@ -5,7 +5,7 @@ const digest = (character: string): string => `blake3:${character.repeat(64)}`
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f4-proof', schemaWire: 1 },
+  dinkster: { version: 'audit-f4-proof', schemaWire: 2 },
   packs: {},
   nodes: {},
 }
@@ -19,7 +19,7 @@ async function installAssetDocument(page: Page, multi: boolean): Promise<void> {
       : { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } }
     app.registerSchemas([{
       type: 'FileAcquisitionProof', displayName: 'File acquisition proof', category: 'proof', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'image', type, optional: false,
+      body: [{ kind: 'input', id: 'image', type, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
     }])
     await app.openDocument({

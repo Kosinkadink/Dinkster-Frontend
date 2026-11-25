@@ -21,7 +21,7 @@ const blur: NodeSchema = {
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     { kind: 'input', id: 'image', type: image, optional: false },
     {
       kind: 'input',
@@ -54,14 +54,8 @@ const edge: NodeSchema = {
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items: [
-    {
-      kind: 'input',
-      id: 'edge',
-      type: { kind: 'concrete', name: 'COMBO' },
-      optional: false,
-      dynamic: { kind: 'dynamicCombo', options: [{ key: 'soft', inputs: [feather] }, { key: 'hard', inputs: [] }] },
-    },
+  body: [
+    { kind: 'choice', id: 'edge', options: [{ key: 'soft', rows: [feather] }, { key: 'hard', rows: [] }], shared: [], required: true },
   ],
 }
 
@@ -107,7 +101,7 @@ export function structuralGalleryScene(
             values: { radius: 8 },
             title: 'Alternative',
           },
-          sub: { id: 'sub', type: '#g1', values: { radius: 6, strength: 0.75, 'edge.[soft].feather': 3, grain: 0.4 }, dynamic: { edge: { selected: 'soft' } } },
+          sub: { id: 'sub', type: '#g1', values: { radius: 6, strength: 0.75, feather: 3 } },
           note: {
             id: 'note',
             type: 'dinkster.note',
@@ -123,25 +117,10 @@ export function structuralGalleryScene(
           minimized: { id: 'minimized', type: 'Blur', values: {} },
         },
         links: {
-          l1: {
-            id: 'l1',
-            from: { node: 'a', port: 'IMAGE' },
-            to: { selector: 's', candidate: 'full' },
-          },
-          l2: {
-            id: 'l2',
-            from: { node: 'b', port: 'IMAGE' },
-            to: { selector: 's', candidate: 'draft' },
-          },
           l3: {
             id: 'l3',
-            from: { selector: 's' },
+            from: { node: 'a', port: 'IMAGE' },
             to: { node: 'sub', port: 'image' },
-          },
-          l4: {
-            id: 'l4',
-            from: { valueSource: 'size' },
-            to: { node: 'a', port: 'radius' },
           },
           l5: {
             id: 'l5',
@@ -163,18 +142,6 @@ export function structuralGalleryScene(
           },
         },
         reroutes: { r: { id: 'r' } },
-        valueSources: { size: { id: 'size', value: 12, title: 'Radius' } },
-        selectors: {
-          s: {
-            id: 's',
-            title: 'Quality',
-            candidates: [
-              { id: 'full', title: 'Full' },
-              { id: 'draft', title: 'Draft' },
-            ],
-            policy: { kind: 'fixed', candidate: 'full' },
-          },
-        },
       },
       g1: {
         id: 'g1',
@@ -187,14 +154,6 @@ export function structuralGalleryScene(
         links: {},
         nets: {},
         reroutes: {},
-        valueSources: {
-          grain: {
-            id: 'grain',
-            value: 0.25,
-            title: 'Grain',
-            spec: { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.05 } },
-          },
-        },
         boundary: {
           inputs: [
             {
@@ -213,18 +172,11 @@ export function structuralGalleryScene(
               wireHidden: true,
             },
             {
-              id: 'edge',
-              binds: { kind: 'dynamicCombo', node: 'edge', port: 'edge' },
-              wireHidden: true,
-            },
-            {
-              id: 'grain',
-              binds: {
-                kind: 'valueSource',
-                valueSource: 'grain',
-                type: { kind: 'concrete', name: 'FLOAT' },
-              },
+              id: 'feather',
+              displayName: 'feather',
+              binds: { kind: 'port', node: 'edge', port: 'edge.feather' },
               promoted: true,
+              wireHidden: true,
             },
           ],
           outputs: [
@@ -253,8 +205,6 @@ export function structuralGalleryScene(
               size: { width: 300, height: 140 },
             },
           },
-          selectors: { s: { position: { x: 360, y: 100 } } },
-          valueSources: { size: { position: { x: 360, y: 300 } } },
           reroutes: { r: { position: { x: 900, y: 240 } } },
           groups: {
             group: {
@@ -269,7 +219,6 @@ export function structuralGalleryScene(
         },
         g1: {
           nodes: { inner: { position: { x: 350, y: 120 } }, edge: { position: { x: 350, y: 240 } } },
-          valueSources: { grain: { position: { x: 350, y: 340 } } },
         },
       },
     },
@@ -335,7 +284,7 @@ export function boundaryNamesGalleryScene(
     ...blur,
     type: 'Boundary example',
     displayName: 'Boundary example',
-    items: [
+    body: [
       ...inputs.map((id) => ({
         kind: 'input' as const,
         id,

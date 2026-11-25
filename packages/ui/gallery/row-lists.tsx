@@ -66,13 +66,13 @@ const widget = (
   widget: { widgetType, options, default: value },
   ...(tooltip === undefined ? {} : { tooltip }),
 })
-const schema = (type: string, items: NodeSchema['items']): NodeSchema => ({
+const schema = (type: string, body: NodeSchema['body']): NodeSchema => ({
   type,
   displayName: type,
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body,
 })
 
 const PRESETS = ['portrait', 'landscape', 'line-art']
@@ -336,11 +336,11 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
       },
       {
         id: 'paused',
-        title: 'Rate limited',
+        title: 'Paused',
         caption: 'Paused, under the list beside Refresh: the list keeps what it shows and the filter. Refresh can be tried by hand; nothing retries on a timer.',
         node: 'preset',
         open: 'preset',
-        list: { options: presets(), highlight: 0, status: { tone: 'notice', text: 'Rate limited' }, actions: refresh },
+        list: { options: presets(), highlight: 0, status: { tone: 'notice', text: 'Paused' }, actions: refresh },
         side: presetSide,
       },
       {

@@ -81,7 +81,7 @@ test.beforeEach(async ({ page }) => {
       category: 'proof',
       source: 'v3',
       isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input',
         id: 'choice',
         type: { kind: 'concrete', name: 'COMBO' },

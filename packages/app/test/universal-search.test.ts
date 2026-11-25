@@ -1,9 +1,6 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { parseDinksterSchema, type DinksterNodesPayload, type SearchResult } from '@dinkster/core'
+import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterSchema, type DinksterNodesPayload, type SearchResult } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { SettingsRegistry } from '../src/settings.js'
@@ -113,9 +110,20 @@ describe('universal search model', () => {
     // Real catalog schemas serialize far past the search contract's string
     // param cap; the emitted schemaKey must stay a short digest or every
     // activation dies inside decodeSearchHostAction.
-    const nodesPayload = JSON.parse(readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), '../../core/fixtures/dinkster-nodes-comfy.json'), 'utf8',
-    )) as DinksterNodesPayload
+    const INT = { kind: 'concrete', types: ['INT'] }
+    const nodesPayload: DinksterNodesPayload = {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      nodes: {
+        'comfy.EmptyImage': {
+          nodeType: 'comfy.EmptyImage', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1, displayName: 'Empty Image',
+          category: 'comfy/image', description: '', idempotent: true, aliases: ['EmptyImage'], pack: 'comfy',
+          body: [
+            ...['width', 'height', 'batch_size', 'color'].map((id) => ({ kind: 'input', id, type: INT, required: false, default: id === 'batch_size' ? 1 : id === 'color' ? 0 : 512 })),
+            { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
+          ],
+        },
+      },
+    }
     const app = prepareWorkflowApp(new AppState())
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
@@ -166,10 +174,10 @@ describe('universal search model', () => {
   it('searches preview-only catalog nodes, rejects stale actions, and gives installed schemas precedence', () => {
     const app = new AppState()
     const backend = app.backends.get()[0]!
-    backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: 1, nodes: {}, packs: {} }))
+    backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {}, packs: {} }))
     const armNodePlacement = vi.fn(() => true)
     app.canvasBridge.set({ armNodePlacement } as never)
-    const schema = parseDinksterSchema('image.resize', { schemaVersion: 1, interface: [], displayName: 'Resize', searchTerms: ['resample'], pack: 'image-tools' }).schema!
+    const schema = parseDinksterSchema('image.resize', { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [], displayName: 'Resize', searchTerms: ['resample'], pack: 'image-tools' }).schema!
     const pack = { name: 'image-tools', publisher: 'dinkster' as const, version: '1.10.0', displayName: 'Image Tools', platforms: ['linux'], url: '', digest: '' }
     const dispose = registerCoreSearchProviders(app)
     const query = () => app.searchRegistry.list().find((provider) => provider.id === 'core.nodes')!.query('resample', { selection: { nodes: [] }, signal: new AbortController().signal }) as readonly SearchResult[]

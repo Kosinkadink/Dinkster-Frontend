@@ -1,9 +1,12 @@
 """Generate a golden /api/nodes payload through the REAL backend encoder.
 
-Covers every TypeExpr kind (concrete, union, wildcard, variable free and
-constrained, list incl. nested and element-polymorphic), input/output
-families, defaults, onAbsent policies, optional outputs, docs, and the
-admission hints (occupies/ioBound) - all emitted by dinkster_schema.schema_to_wire.
+Every node declares its rows as a schema wire 2 body tree. Covers every
+TypeExpr kind (concrete, union, wildcard, variable free and constrained,
+list incl. nested and element-polymorphic), growing Group rows of inputs
+and of outputs (grows on link, numbered member keys, bounded and
+unbounded), defaults, onAbsent policies, optional outputs, tooltips,
+widgets, editor roles, and the admission hint occupies - all emitted by
+dinkster_schema.schema_to_wire.
 
 Usage (requires a Dinkster checkout at /tmp/dinkster-src unless
 DINKSTER_SOURCE_ROOT is set):
@@ -22,14 +25,14 @@ sys.path.insert(0, f"{SOURCE_ROOT}/packages/dinkster-values/src")
 sys.path.insert(0, f"{SOURCE_ROOT}/packages/dinkster-schema/src")
 
 from dinkster_schema import (  # noqa: E402
-    AssetWidget,
     SCHEMA_WIRE_VERSION,
-    InputFamilySpec,
-    InputSpec,
+    AssetWidget,
+    Group,
+    Input,
     NodeSchema,
+    Numbered,
     NumberWidget,
-    OutputFamilySpec,
-    OutputSpec,
+    Output,
     TypeExpr,
     schema_to_wire,
 )
@@ -47,30 +50,29 @@ schemas = [
         node_type="std.math.add_ints",
         display_name="Add Ints",
         category="math",
-        inputs=(InputSpec("a", INT), InputSpec("b", INT, default=1)),
-        outputs=(OutputSpec("sum", INT),),
+        body=(Input("a", INT), Input("b", INT, default=1), Output("sum", INT)),
     ),
     NodeSchema(
         node_type="test.primitives",
         display_name="Primitives",
         category="test",
         description="every widget-derivable primitive",
-        inputs=(
-            InputSpec("count", INT, default=4, doc="how many"),
-            InputSpec("scale", FLOAT, default=0.5),
-            InputSpec("label", STRING, default="hi"),
-            InputSpec("enabled", BOOLEAN, default=True),
-            InputSpec("image", IMAGE, required=False),
+        body=(
+            Input("count", INT, default=4, tooltip="how many"),
+            Input("scale", FLOAT, default=0.5),
+            Input("label", STRING, default="hi"),
+            Input("enabled", BOOLEAN, default=True),
+            Input("image", IMAGE, required=False),
+            Output("out", STRING),
         ),
-        outputs=(OutputSpec("out", STRING),),
     ),
     NodeSchema(
         node_type="test.editor_metadata",
         display_name="Editor Metadata",
         category="test",
         editor_role="video-edit",
-        inputs=(
-            InputSpec(
+        body=(
+            Input(
                 "edit",
                 TypeExpr.concrete(VIDEO_EDIT_TYPE),
                 required=False,
@@ -83,22 +85,20 @@ schemas = [
         node_type="test.absence",
         display_name="Absence",
         category="test",
-        inputs=(
-            InputSpec("must", IMAGE, on_absent="fail"),
-            InputSpec("tolerant", IMAGE, on_absent="accept"),
-            InputSpec("maybe", IMAGE, required=False),
-        ),
-        outputs=(
-            OutputSpec("image", IMAGE),
-            OutputSpec("mask", IMAGE, optional=True, doc="present when detected"),
+        body=(
+            Input("must", IMAGE, on_absent="fail"),
+            Input("tolerant", IMAGE, on_absent="accept"),
+            Input("maybe", IMAGE, required=False),
+            Output("image", IMAGE),
+            Output("mask", IMAGE, optional=True, tooltip="present when detected"),
         ),
     ),
     NodeSchema(
         node_type="test.numeric_union",
         display_name="Frame rate",
         category="test",
-        inputs=(
-            InputSpec(
+        body=(
+            Input(
                 "frame_rate",
                 TypeExpr.union("FLOAT", "INT"),
                 default=25.0,
@@ -112,38 +112,50 @@ schemas = [
         node_type="test.types",
         display_name="Types",
         category="test",
-        inputs=(
-            InputSpec("either", TypeExpr.union("INT", "FLOAT")),
-            InputSpec("anything", TypeExpr.wildcard()),
-            InputSpec("t_in", TypeExpr.variable("T")),
-            InputSpec("c_in", TypeExpr.variable("C", allowed=("INT", "FLOAT"))),
-            InputSpec("ints", TypeExpr.list_of(INT)),
-            InputSpec("matrix", TypeExpr.list_of(TypeExpr.list_of(INT))),
-            InputSpec("items", TypeExpr.list_of(TypeExpr.variable("T"))),
+        body=(
+            Input("either", TypeExpr.union("INT", "FLOAT")),
+            Input("anything", TypeExpr.wildcard()),
+            Input("t_in", TypeExpr.variable("T")),
+            Input("c_in", TypeExpr.variable("C", allowed=("INT", "FLOAT"))),
+            Input("ints", TypeExpr.list_of(INT)),
+            Input("matrix", TypeExpr.list_of(TypeExpr.list_of(INT))),
+            Input("items", TypeExpr.list_of(TypeExpr.variable("T"))),
+            Output("t_out", TypeExpr.variable("T")),
         ),
-        outputs=(OutputSpec("t_out", TypeExpr.variable("T")),),
         idempotent=False,
     ),
-    # Families, both sides; bounded and unbounded.
+    # Growing groups of inputs and of outputs; bounded and unbounded.
     NodeSchema(
         node_type="test.families",
         display_name="Families",
         category="test",
-        inputs=(InputSpec("bias", INT, default=0),),
-        input_families=(
-            InputFamilySpec("operands", INT, min_members=2, max_members=8, doc="grows"),
-            InputFamilySpec("extras", IMAGE),
+        body=(
+            Input("bias", INT, default=0),
+            Group(
+                "operands",
+                value=Input("value", INT),
+                keys=Numbered("value", start=0),
+                min_members=2,
+                max_members=8,
+                tooltip="grows",
+            ),
+            Group("extras", value=Input("value", IMAGE), keys=Numbered("value", start=0)),
+            Output("out", INT),
+            Group(
+                "parts",
+                value=Output("part", STRING),
+                keys=Numbered("part", start=0),
+                min_members=1,
+                max_members=4,
+            ),
         ),
-        outputs=(OutputSpec("out", INT),),
-        output_families=(OutputFamilySpec("parts", STRING, min_members=1, max_members=4),),
     ),
     # Admission hints ride the wire but must not affect editor semantics.
     NodeSchema(
         node_type="test.hints",
         display_name="Hints",
         category="test",
-        inputs=(InputSpec("image", IMAGE),),
-        outputs=(OutputSpec("out", IMAGE),),
+        body=(Input("image", IMAGE), Output("out", IMAGE)),
         occupies=("gpu",),
     ),
 ]
@@ -156,7 +168,7 @@ for kind, default in (
 ):
     schemas.append(NodeSchema(
         node_type=f"test.selection_{kind.replace('/', '_')}",
-        inputs=(InputSpec(
+        body=(Input(
             "name",
             TypeExpr.union("COMBO", "ASSET") if kind == "model/vae" else TypeExpr.concrete("COMBO"),
             default=default,
