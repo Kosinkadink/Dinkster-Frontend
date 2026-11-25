@@ -8871,9 +8871,12 @@ export class AppState {
       if (!result.ok) continue
       const artifact = projectWorkspaceCompileArtifact(result.artifact)
       if (canonicalJson(artifact) !== canonicalJson(registration.artifact)) continue
-      this.retainedRegistries.set(artifact, registry)
+      // The lookup calls depend on this window's answers, so they are compared
+      // nowhere; kept on the run, this window still asks again where it differs.
+      const registered = result.artifact.automaticCalls === undefined ? artifact : { ...artifact, automaticCalls: result.artifact.automaticCalls }
+      this.retainedRegistries.set(registered, registry)
       this.hydrated.delete(key)
-      this.store.register(registration.ref, artifact, registration.timestamp, {
+      this.store.register(registration.ref, registered, registration.timestamp, {
         ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
         ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
       })
