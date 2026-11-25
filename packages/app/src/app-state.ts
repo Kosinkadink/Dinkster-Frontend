@@ -137,7 +137,7 @@ import {
   type Vec2,
   type CompileArtifact,
 } from '@dinkster/core'
-import { lookupAnswersOf } from './lookup-demand.js'
+import { lookupAnswersOf, recordRunAnswers } from './lookup-demand.js'
 import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
@@ -3336,6 +3336,20 @@ export class AppState {
       }
       if ([...executions.values()].some((execution) => execution.status === 'completed' &&
         this.store.canRestoreCompleted(execution.ref))) this.refreshPersistedExecutionResults()
+    })
+    // Once per run: a recorded lookup answer the editor does not hold makes that call old.
+    // Reconnects and restores hand over the same records again as new arrays.
+    const recordedRuns = new Set<string>()
+    this.store.executions.subscribe((executions) => {
+      for (const key of recordedRuns) if (!executions.has(key)) recordedRuns.delete(key)
+      for (const [key, execution] of executions) {
+        const records = execution.automaticValues
+        const calls = execution.artifact?.automaticCalls
+        if (records === undefined || calls === undefined || recordedRuns.has(key)) continue
+        recordedRuns.add(key)
+        const lookups = this.backendFor(execution.ref.connection)?.lookups
+        if (lookups !== undefined) recordRunAnswers(lookups, calls, records)
+      }
     })
     let previousProblems: readonly OwnedDiagnostic[] = []
     this.problems.subscribe((problems) => {
@@ -8864,9 +8878,12 @@ export class AppState {
       if (!result.ok) continue
       const artifact = projectWorkspaceCompileArtifact(result.artifact)
       if (canonicalJson(artifact) !== canonicalJson(registration.artifact)) continue
-      this.retainedRegistries.set(artifact, registry)
+      // The lookup calls depend on this window's answers, so they are compared
+      // nowhere; kept on the run, this window still asks again where it differs.
+      const registered = result.artifact.automaticCalls === undefined ? artifact : { ...artifact, automaticCalls: result.artifact.automaticCalls }
+      this.retainedRegistries.set(registered, registry)
       this.hydrated.delete(key)
-      this.store.register(registration.ref, artifact, registration.timestamp, {
+      this.store.register(registration.ref, registered, registration.timestamp, {
         ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
         ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
       })
