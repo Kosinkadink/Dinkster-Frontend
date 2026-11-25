@@ -185,7 +185,7 @@ export function ProductFixesNotice(props: {
                                 {(entry) => (
                                   <button
                                     type="button"
-                                    class="dinkster-fixes-review-row"
+                                    class="dinkster-list-row dinkster-fixes-review-row"
                                     aria-current={
                                       chosen() === entry().target
                                         ? 'true'
@@ -234,6 +234,7 @@ export function ProductFixesNotice(props: {
             ? props.strings.undone
             : props.strings.adjusted(count())}
         </span>
+        <span class="canvas-chrome-divider" aria-hidden="true" />
         <Show
           when={props.state !== 'undone'}
           fallback={

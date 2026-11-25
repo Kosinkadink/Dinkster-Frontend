@@ -88,7 +88,13 @@ const four: readonly FixesNoticeChange[] = [
   change('steps', 'limits', 'sampler', 'Sampler', 'steps: 12000 to 10000'),
   change('cfg', 'limits', 'sampler', 'Sampler', 'cfg: -2 to 0'),
   change('frames', 'outputs', 'frames', 'Unpack frames', 'Output 4 added.'),
-  change('resize', 'replaced', 'resize', 'Resize image', 'replaced older node'),
+  change(
+    'resize',
+    'replaced',
+    'resize',
+    'Resize image',
+    'Replaced an older node.\nIts wire from Image was removed.',
+  ),
 ]
 
 /** The two kinds the editor reports first: node replacement and replaced removed choices. */
@@ -100,7 +106,13 @@ const firstKinds: readonly FixesNoticeChange[] = [
     'Upscale image',
     'Save image',
   ].map((node, index) =>
-    change(`r${index}`, 'replaced', `r${index}`, node, 'replaced older node'),
+    change(
+      `r${index}`,
+      'replaced',
+      `r${index}`,
+      node,
+      'Replaced an older node.',
+    ),
   ),
   change(
     'c0',
@@ -146,7 +158,7 @@ interface NoticeCard {
   readonly arrives?: readonly FixesNoticeChange[]
   /** The notice's words after Undo, when they differ from the plain "Adjustments undone". */
   readonly undoneText?: string
-  /** `wide`: room for open Review beside the node; `node`: only as tall as the node. */
+  /** `wide`: room for Review below the node; `node`: only as tall as the node. */
   readonly stage?: 'wide' | 'node'
 }
 
@@ -155,7 +167,7 @@ const cards: readonly NoticeCard[] = [
     id: 'grouped',
     title: 'More than ten changes',
     description:
-      'Opening a workflow that needed 12 changes shows one quiet line in the bottom right corner of the canvas. Review groups the changes by kind, each kind with its count; under a kind each node appears once. Choosing a row asks the canvas to go to that node. Undo takes back all 12 in one step; the cross dismisses the notice and Escape closes only Review.',
+      'Opening a workflow that needed 12 changes shows one quiet line at the bottom centre of the canvas. Review groups the changes by kind, each kind with its count; under a kind each node appears once. Choosing a row asks the canvas to go to that node. Undo takes back all 12 in one step; the cross dismisses the notice and Escape closes only Review.',
     changes: twelve,
     review: true,
     stage: 'wide',
@@ -242,12 +254,12 @@ const cards: readonly NoticeCard[] = [
   },
 ]
 
-/** Room for the node and for Review opening above the notice line. */
+/** Room for the node above Review and the centred notice line. */
 const STAGE_WIDTH = 640
-const STAGE_HEIGHT = 460
+const STAGE_HEIGHT = 600
 /** Review's width, the fixesReviewWidth component token. */
 const REVIEW_WIDTH = 360
-/** The node, then Review beside it, so the open list never covers the node. */
+/** The wider examples keep the node separate from the centred Review. */
 const WIDE_STAGE_WIDTH =
   MARGIN * 2 + NODE_WIDTH + MARGIN + REVIEW_WIDTH + MARGIN
 
