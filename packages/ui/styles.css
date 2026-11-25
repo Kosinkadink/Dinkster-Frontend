@@ -690,6 +690,7 @@
 :is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button:hover:not(:disabled) { border-color: transparent; background: var(--dinkster-interaction-hover); }
 :is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button:active:not(:disabled), :is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button[aria-expanded='true'] { border-color: transparent; background: var(--dinkster-interaction-pressed); }
 :is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+:is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button.product-button:focus-visible { outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
 .canvas-chrome-button svg { width: 16px; height: 16px; flex: none; }
 .canvas-chrome-divider { flex: none; width: 1px; height: 18px; margin: 0 3px; background: var(--dinkster-border-subtle); }
 .canvas-view-controls .canvas-lens-button { gap: 5px; padding: 0 5px 0 6px; }
