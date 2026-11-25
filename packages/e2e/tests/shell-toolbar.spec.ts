@@ -268,7 +268,11 @@ nativeTest('editor bar holds the project menu and the left bar holds the account
   await expect(brand.getByTestId('dinkster-menu-button')).toBeVisible()
   await page.getByTestId('dinkster-menu-button').click()
   // One account row heads the menu and opens the left bar button's account menu.
-  const accountRow = page.getByTestId('context-menu').locator('[data-item-id="account"]')
+  // The window, not the shared 400 px menu cap, bounds this menu, so Settings needs no scroll.
+  const appMenu = page.getByTestId('context-menu')
+  await expect(appMenu.locator('[data-item-id="settings.open"]')).toBeVisible()
+  expect(await appMenu.evaluate((node) => node.scrollHeight <= node.clientHeight)).toBe(true)
+  const accountRow = appMenu.locator('[data-item-id="account"]')
   await expect(accountRow).toHaveText(/Alex Rivers/)
   await accountRow.click()
   const submenu = page.getByTestId('context-submenu')

@@ -322,6 +322,8 @@ export function DinksterAppMenu(props: {
           menu={{ ...anchor(), worldX: 0, worldY: 0, groups: groups() }}
           onInvoke={invoke}
           onClose={(reason) => close(reason === 'escape')}
+          // Settings sits last; the window, not the shared 400 px cap, bounds this menu.
+          maxHeight={Number.POSITIVE_INFINITY}
         />
       </Show>
     </div>
