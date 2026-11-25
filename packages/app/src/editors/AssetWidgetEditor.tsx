@@ -698,6 +698,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               before this body sees the event, so the refusal is advertised
               through data-dismiss-blocked. */}
           <div class="widget-editor asset-editor widget-modal-editor" data-testid="asset-editor" data-dismiss-blocked={assetUploading() ? 'uploading' : undefined}>
+            <div class="asset-editor-scroll">
             <div class="asset-editor-context" data-testid="asset-schema-metadata" aria-label="Asset requirements">
               <strong>{assetMulti ? `Multiple ${assetVocabulary().plural}` : `Single ${assetVocabulary().singular}`}</strong>
               <Show when={assetBrowseKind()}>{(kind) => <span>{kind()}</span>}</Show>
@@ -949,6 +950,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 disabled={assetUploading()} onChange={setDestination} />}
             </Show>
             <Show when={uploadedLocation()}><ProductNotice tone="status">{uploadedLocation()}</ProductNotice></Show>
+            </div>
             <ProductActionFooter
               status={<span role="status">{assetUploading() ? `Uploading ${assetVocabulary().uploadPlural}...` : assetUploadLimitLabel !== undefined ? `Uploads up to ${assetUploadLimitLabel}` : ''}</span>}
             >
