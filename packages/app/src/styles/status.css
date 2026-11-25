@@ -3,8 +3,9 @@
 .status-item.product-button { flex: none; min-height: 0; padding: 0 var(--dinkster-space-4); gap: var(--dinkster-space-4); color: var(--dinkster-text-secondary); font-size: inherit; line-height: inherit; }
 .status-item .dinkster-icon { width: var(--dinkster-space-12); height: var(--dinkster-space-12); }
 .status-connection-dot { width: var(--dinkster-space-8); height: var(--dinkster-space-8); border-radius: 50%; background: var(--dinkster-success-foreground); }
-.status-connection:not([data-state='connected']) { color: var(--dinkster-warning-foreground); }
-.status-connection:not([data-state='connected']) .status-connection-dot { background: var(--dinkster-warning-foreground); }
+.status-connection:not([data-state='connected'], [data-state='no-engine']) { color: var(--dinkster-warning-foreground); }
+.status-connection:not([data-state='connected'], [data-state='no-engine']) .status-connection-dot { background: var(--dinkster-warning-foreground); }
+.status-connection[data-state='no-engine'] .status-connection-dot { background: var(--dinkster-text-muted); }
 .status-problems[data-severity='error'] { color: var(--dinkster-danger-foreground); }
 .status-problems[data-severity='warning'] { color: var(--dinkster-warning-foreground); }
 .status-problems[data-severity='info'] { color: var(--dinkster-info-foreground); }

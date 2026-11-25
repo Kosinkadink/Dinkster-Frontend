@@ -1321,7 +1321,18 @@ export interface ProjectNeeds {
   readonly unknown: readonly { readonly scope: string; readonly id: string }[]
 }
 
+export interface AccountProjectLink {
+  readonly issuer: string
+  readonly id: string
+}
+
+export interface AccountProjectChoices {
+  readonly issuer: string
+  readonly projects: readonly { readonly id: string; readonly displayName: string | null }[]
+}
+
 export interface LibraryProject {
+  readonly accountProject?: AccountProjectLink | null
   readonly id: string
   readonly uid?: string
   readonly name: string
@@ -1360,7 +1371,20 @@ function decodeLibraryProject(value: unknown): LibraryProject {
       throw new Error('Malformed library project environment')
     }
   }
+  const accountProject = row['accountProject']
+  let link: AccountProjectLink | null | undefined
+  if (accountProject === null) link = null
+  else if (accountProject !== undefined) {
+    if (typeof accountProject !== 'object' || Array.isArray(accountProject)) throw new Error('Malformed library project account link')
+    const record = accountProject as Record<string, unknown>
+    if (typeof record['issuer'] !== 'string' || !/^https?:\/\/[^\s]+$/.test(record['issuer']) ||
+      typeof record['id'] !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(record['id'])) {
+      throw new Error('Malformed library project account link')
+    }
+    link = { issuer: record['issuer'], id: record['id'] }
+  }
   return {
+    ...(link === undefined ? {} : { accountProject: link }),
     id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'],
     ...(uid === undefined ? {} : { uid: uid as string }),
     ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),
@@ -4122,10 +4146,38 @@ export class DinksterConnection {
     return decodeAccountStatus(await this.accountRequest('POST', '/api/account/sign-out', signal))
   }
 
-  private async accountRequest(method: 'GET' | 'POST' | 'DELETE', path: string, signal?: AbortSignal): Promise<unknown> {
+  async accountProjects(signal?: AbortSignal): Promise<AccountProjectChoices> {
+    const raw = await this.accountRequest('GET', '/api/account/projects', signal)
+    const invalid = () => new Error('Malformed account project choices')
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+    const row = raw as Record<string, unknown>
+    if (typeof row['issuer'] !== 'string' || !/^https?:\/\/[^\s]+$/.test(row['issuer']) || !Array.isArray(row['projects'])) throw invalid()
+    const projects = row['projects'].map((raw: unknown) => {
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+      const project = raw as Record<string, unknown>
+      if (typeof project['id'] !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(project['id']) ||
+        !(project['displayName'] === null || typeof project['displayName'] === 'string' && project['displayName'].trim().length > 0)) throw invalid()
+      return { id: project['id'], displayName: project['displayName'] }
+    })
+    return { issuer: row['issuer'], projects }
+  }
+
+  async setProjectAccountLink(id: string, accountProject: string | null, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    const payload = await this.accountRequest('PUT', `/api/account/projects/${encodeURIComponent(id)}`, signal, { revision, accountProject }) as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id) throw new Error('Library returned another project')
+    if (project.deleted) throw new Error('Project is unavailable')
+    if (project.accountProject === undefined ||
+      (accountProject === null ? project.accountProject !== null : project.accountProject?.id !== accountProject)) {
+      throw new Error('Library returned another account link')
+    }
+    return project
+  }
+
+  private async accountRequest(method: 'GET' | 'POST' | 'DELETE' | 'PUT', path: string, signal?: AbortSignal, body: Readonly<Record<string, unknown>> = {}): Promise<unknown> {
     const res = await this.fetchFn(`${this.baseUrl}${path}`, {
       method, cache: 'no-store',
-      ...(method === 'POST' ? { headers: { 'Content-Type': 'application/json' }, body: '{}' } : {}),
+      ...(method === 'POST' || method === 'PUT' ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
       ...(signal === undefined ? {} : { signal }),
     })
     const payload: unknown = await res.json().catch(() => undefined)
