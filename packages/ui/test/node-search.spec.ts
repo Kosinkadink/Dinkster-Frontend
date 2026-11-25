@@ -88,6 +88,36 @@ test('recent entries, categories, type menus and installation actions stay on th
   await expect(takes).toBeFocused()
 })
 
+test('type menus retain start alignment and keep end-aligned output dots inside wide and narrow searches', async ({ page }) => {
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/#node-search')
+    const search = page.getByTestId('node-search-typed')
+    await search.scrollIntoViewIfNeeded()
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+    for (const direction of ['Takes', 'Gives']) {
+      const trigger = search.getByRole('button', { name: `${direction} type`, exact: true })
+      await trigger.click()
+      const menu = search.getByRole('menu')
+      const bounds = (await menu.boundingBox())!
+      const anchor = (await trigger.boundingBox())!
+      expect(bounds.x).toBeGreaterThanOrEqual(8)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8)
+      if (direction === 'Takes' && width === 1440) expect(bounds.x).toBeCloseTo(anchor.x, 1)
+      if (direction === 'Gives') {
+        expect(bounds.x + bounds.width).toBeCloseTo(anchor.x + anchor.width, 1)
+        const searchBounds = (await search.boundingBox())!
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(searchBounds.x + searchBounds.width)
+        const dots = await menu.locator('.dinkster-search-chip-dot').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().right))
+        expect(dots).toHaveLength(4)
+        expect(Math.max(...dots) - Math.min(...dots)).toBeLessThan(0.5)
+      }
+      await page.keyboard.press('Escape')
+      await expect(trigger).toBeFocused()
+    }
+  }
+})
+
 test('custom menu content keeps string names, separate descriptions and selection behavior', async ({ page }) => {
   await page.goto('/#node-search')
   const trigger = page.getByRole('button', { name: 'Choose example type', exact: true })

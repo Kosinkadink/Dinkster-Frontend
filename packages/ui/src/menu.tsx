@@ -84,6 +84,7 @@ function Menu(props: {
   project?: boolean
   iconOnly?: boolean | undefined
   fill?: 'quiet' | undefined
+  align?: 'start' | 'end' | undefined
   busy?: boolean
   title?: string | undefined
   attention?: ProductAttention | undefined
@@ -141,14 +142,15 @@ function Menu(props: {
         ;(items[last ? items.length - 1 : 0] ?? menu).focus()
         return
       }
-      // Left edges align; a trigger too near the right edge of the window
-      // aligns right edges instead, before the shared clamp applies.
+      // Explicit end alignment and triggers near the window's right edge
+      // align right edges before the shared clamp applies.
       const fitsFromLeft =
         anchor.left + surface.width <= window.innerWidth - margin
       const placement = placeFloatingSurface({
         surface,
         anchor: {
           left:
+            props.align !== 'end' &&
             fitsFromLeft &&
             !(props.account && trigger.closest('[data-density="site"]'))
               ? anchor.left
@@ -346,10 +348,10 @@ function Menu(props: {
                         >
                           <ProductIcon icon={Check} />
                         </Show>
-                        <Show when={item().description} fallback={<span class="dinkster-menu-item-label">{item().labelContent ?? item().label}</span>}>
+                        <Show when={item().description} fallback={<span class="dinkster-menu-item-label" data-custom-label={item().labelContent !== undefined ? '' : undefined}>{item().labelContent ?? item().label}</span>}>
                           {(description) => (
-                            <span class="dinkster-menu-item-copy">
-                              <span class="dinkster-menu-item-label">{item().labelContent ?? item().label}</span>
+                            <span class="dinkster-menu-item-copy" data-custom-label={item().labelContent !== undefined ? '' : undefined}>
+                              <span class="dinkster-menu-item-label" data-custom-label={item().labelContent !== undefined ? '' : undefined}>{item().labelContent ?? item().label}</span>
                               <span id={descriptionId} class="dinkster-menu-item-description">{description()}</span>
                             </span>
                           )}
@@ -405,6 +407,8 @@ export function ProductMenu(props: {
   iconOnly?: boolean
   /** A borderless text trigger; absent keeps the outlined trigger. */
   fill?: 'quiet'
+  /** The preferred trigger edge, before viewport clamping. */
+  align?: 'start' | 'end'
   /** Shown on the trigger's corner and read after its name. */
   attention?: ProductAttention | undefined
 }) {
@@ -416,6 +420,7 @@ export function ProductMenu(props: {
       identity={props.identity}
       iconOnly={props.iconOnly}
       fill={props.fill}
+      align={props.align}
       attention={props.attention}
       title={props.title}
     >

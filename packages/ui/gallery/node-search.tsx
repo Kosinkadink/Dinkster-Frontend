@@ -95,6 +95,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
   const typeMenu = (direction: 'Takes' | 'Gives', value: string, change: (value: string) => void) => (
     <ProductMenu
       fill="quiet"
+      align={direction === 'Gives' ? 'end' : 'start'}
       label={`${direction}: ${value === '' ? 'Any type' : value.toLowerCase()}`}
       title={`${direction}: ${value === '' ? 'Any type' : value.toLowerCase()}`}
       labelContent={<ProductSearchTypeLabel label={value === '' ? 'Any type' : value.toLowerCase()} direction={direction === 'Takes' ? 'takes' : 'gives'} color={value === '' ? undefined : typeColor(defaultTokens, value)} />}

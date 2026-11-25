@@ -84,7 +84,7 @@ export function ProductSearchTypeLabel(props: {
       <circle cx="4" cy="4" r="4" fill={props.color ?? 'currentColor'} />
     </svg>
   )
-  return <span class="dinkster-search-type-label">
+  return <span class="dinkster-search-type-label" data-direction={props.direction}>
     <Show when={props.direction === 'takes'}>{dot()}</Show>
     <span>{props.label}</span>
     <Show when={props.direction === 'gives'}>{dot()}</Show>
