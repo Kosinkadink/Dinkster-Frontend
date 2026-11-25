@@ -134,8 +134,8 @@
 /* A neutral outline is subtle at rest, the hover outline under the pointer and strong only while pressed or open. :where keeps these at the base rule's weight, so roles, fills and the bars that hide the outline still win. */
 .dinkster-button:where(:not(:disabled, [aria-disabled='true']):hover) { border-color: var(--dinkster-border-hover); }
 .dinkster-button:where(:not(:disabled, [aria-disabled='true']):active, [aria-expanded='true']) { border-color: var(--dinkster-border-strong); }
-.dinkster-button[data-role='add'] { color: var(--dinkster-accent-foreground); border-color: var(--dinkster-accent-border); }
-.dinkster-button[data-role='remove'] { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); }
+.dinkster-button[data-role='add'] { color: var(--dinkster-accent-foreground); border-color: var(--dinkster-accent-rest-border); }
+.dinkster-button[data-role='remove'] { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-rest-border); }
 .dinkster-button[data-fill='solid'] { color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); border-color: var(--dinkster-action-primary-bg); }
 .dinkster-button[data-role='remove'][data-fill='solid'] { color: var(--dinkster-action-remove-text); background: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); }
 .dinkster-button[data-fill='quiet'] { border-color: transparent; }
@@ -143,13 +143,15 @@
 .dinkster-button:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-interaction-hover); }
 .dinkster-button:not(:disabled, [aria-disabled='true']):active { background: var(--dinkster-interaction-pressed); }
 /* An add or remove outline fills with its own colour, quietly: 12% under the pointer and 20% while pressed. Solid and quiet fills keep their own. */
-.dinkster-button[data-role='add']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):hover { background: var(--dinkster-accent-wash); }
-.dinkster-button[data-role='add']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):active { background: var(--dinkster-accent-wash-pressed); }
-.dinkster-button[data-role='remove']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):hover { background: var(--dinkster-danger-wash); }
-.dinkster-button[data-role='remove']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):active { background: var(--dinkster-danger-wash-pressed); }
+.dinkster-button[data-role='add']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):hover { border-color: var(--dinkster-accent-border); background: var(--dinkster-accent-wash); }
+.dinkster-button[data-role='add']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):active { border-color: var(--dinkster-accent-border); background: var(--dinkster-accent-wash-pressed); }
+.dinkster-button[data-role='remove']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):hover { border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash); }
+.dinkster-button[data-role='remove']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):active { border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash-pressed); }
 .dinkster-button[data-fill='solid']:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-action-primary-bg); filter: brightness(0.9); }
 .dinkster-button[data-fill='solid']:not(:disabled, [aria-disabled='true']):active { background: var(--dinkster-action-primary-bg); filter: brightness(0.8); }
 .dinkster-button[data-role='remove'][data-fill='solid']:not(:disabled, [aria-disabled='true']):is(:hover, :active) { background: var(--dinkster-danger-foreground); }
+/* A disabled solid button turns neutral: the raised fill, the subtle outline and secondary text, so an unavailable action is not a block of colour. A pending button is working, not unavailable, and keeps its colour. */
+.dinkster-button[data-fill='solid']:is(:disabled, [aria-disabled='true']):not([aria-busy='true']) { color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); border-color: var(--dinkster-border-subtle); opacity: 1; filter: none; }
 .dinkster-button[data-icon-only][data-fill='quiet'][aria-pressed='true'] { color: var(--dinkster-accent-foreground); background: transparent; border-color: transparent; }
 .dinkster-root :is(button, input, select, textarea):disabled, .dinkster-root [aria-disabled='true'] { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .dinkster-field { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
@@ -1112,7 +1114,7 @@
   gap: var(--dinkster-space-8);
   padding: var(--dinkster-space-8) var(--dinkster-space-12);
   color: var(--dinkster-success-foreground);
-  border-color: var(--dinkster-success-border);
+  border-color: var(--dinkster-success-rest-border);
   border-radius: var(--dinkster-radius-control) 0 0 var(--dinkster-radius-control);
   background: var(--dinkster-success-background);
 }
@@ -1132,8 +1134,8 @@
   font-size: var(--dinkster-type-metadata-size);
 }
 /* Run fills with its own green, quietly: 12% under the pointer and 20% while pressed. The list beside it takes the neutral hover. */
-.workflow-queue-submit:hover:not(:disabled) { background: var(--dinkster-success-wash); }
-.workflow-queue-submit:active:not(:disabled) { background: var(--dinkster-success-wash-pressed); }
+.workflow-queue-submit:hover:not(:disabled) { border-color: var(--dinkster-success-border); background: var(--dinkster-success-wash); }
+.workflow-queue-submit:active:not(:disabled) { border-color: var(--dinkster-success-border); background: var(--dinkster-success-wash-pressed); }
 .workflow-queue-toggle:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .workflow-queue-submit:focus-visible,
 .workflow-queue-toggle:focus-visible { z-index: 1; outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
