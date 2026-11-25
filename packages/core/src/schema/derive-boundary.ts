@@ -41,6 +41,7 @@ import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
 import { buildGraphConnectivity, describedEntries, elabInputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from './elaborate.js'
 import { applyUse, choiceScopeRows, framesNamesOf, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf } from './body.js'
 import { canonicalTypeIdOf, inputsOf, scopeRowsOf, typeExprFromTypeId } from './model.js'
+import { readWhenUnset } from './widget-defaults.js'
 import type {
   BodyRow,
   ChoiceSpec,
@@ -504,7 +505,7 @@ function scopesAround(body: readonly BodyRow[], path: string): readonly { readon
 /** Each row's own default value, as a formula reads it with nothing stored. */
 const ownDefaultOf = (row: Exclude<BodyRow, { kind: 'row' }> | undefined, stored: DynamicPortState | undefined): unknown => {
   if (row === undefined) return undefined
-  if (row.kind === 'input') return row.widget?.default ?? row.ext?.['default']
+  if (row.kind === 'input') return readWhenUnset(row)
   if (row.kind === 'state') return row.default
   if (row.kind === 'choice') return stored?.selected ?? (row.required ? row.default ?? row.options[0]?.key : null)
   return undefined

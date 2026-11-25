@@ -36,7 +36,7 @@ test('sibling subgraph occurrences project independently at root and when drille
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [],
+      body: [],
     }])
     const document = {
       format: 'dinkster-workflow',

@@ -32,7 +32,7 @@ import type { Json } from '../format/document.js'
 import { EMPTY_COMPOSITOR_RECIPE, isCompositorRecipe } from '../compositor.js'
 import { isComboValue, normalizeComboOption } from './combo-options.js'
 import { isIntegerWidgetValue } from './numeric-step.js'
-import type { WidgetSpec } from './model.js'
+import type { InputSpec, WidgetSpec } from './model.js'
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 
@@ -170,4 +170,27 @@ export function effectiveWidgetDefault(widget: WidgetSpec): Json | undefined {
     default:
       return undefined
   }
+}
+
+/**
+ * The value compile sends for an input with nothing stored and no wire: its
+ * widget's effective default, when a default is declared or the input is
+ * required. Undefined when the run gets none: an optional widget input with
+ * no default keeps the backend's own, and a hidden, unsent or automatic
+ * field, or a kind with no intrinsic value, is not filled in.
+ */
+export function sentWhenUnset(spec: InputSpec): Json | undefined {
+  const widget = spec.widget
+  if (widget === undefined || spec.hidden === true || spec.sent === false || spec.automatic !== undefined || widget.automatic === true) return undefined
+  if (widget.default === undefined && spec.optional) return undefined
+  return effectiveWidgetDefault(widget)
+}
+
+/**
+ * What a formula reads for an input with nothing stored: what the run is
+ * sent for it, else its declared default, which the engine also gives an
+ * automatic field it cannot work out.
+ */
+export function readWhenUnset(spec: InputSpec): unknown {
+  return sentWhenUnset(spec) ?? spec.widget?.default ?? spec.ext?.['default']
 }

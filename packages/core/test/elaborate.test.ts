@@ -1131,7 +1131,7 @@ describe('automatic values', () => {
   })
 
   it('waits quietly for an argument field left empty, and warns for a stored value that does not fit', () => {
-    const video = intInput('video', { type: { kind: 'concrete', name: 'STRING' }, displayName: 'Video', widget: { widgetType: 'STRING', options: {} } })
+    const video = intInput('video', { type: { kind: 'concrete', name: 'STRING' }, displayName: 'Video', optional: true, widget: { widgetType: 'STRING', options: {} } })
     const delay = intInput('delay', { widget: { widgetType: 'INT', options: {}, default: 0 } })
     const lookupRate = (args: readonly (string | { readonly formula: string })[]) => intInput('fps', {
       automatic: { lookup: 'video.rate_of', args: args as never },

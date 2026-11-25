@@ -296,7 +296,7 @@
   max-height: calc(100vh - 16px);
   resize: both;
   overflow: hidden;
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-card);
   background: var(--dinkster-surface-panel);
   box-shadow: var(--dinkster-elevation-high);
@@ -332,11 +332,12 @@
   padding: var(--dinkster-space-4) var(--dinkster-space-12);
   color: var(--dinkster-text-primary);
   background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
   font: inherit;
   cursor: pointer;
 }
+.detached-workspace-state button:where(:hover:not(:disabled)), .native-panel-window-missing button:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 
 .detached-workspace-state button:hover,
 .native-panel-window-missing button:hover { background: var(--dinkster-interaction-hover); }
@@ -373,8 +374,9 @@
 .seed-controller-option.selected {
   color: var(--dinkster-text-primary);
   background: var(--dinkster-interaction-selected);
-  border-color: var(--dinkster-border-focus);
+  border-color: var(--dinkster-border-hover);
 }
+.seed-controller-option.selected { border-color: var(--dinkster-border-focus); }
 .seed-controller-option:disabled {
   color: var(--dinkster-text-secondary);
   opacity: 1;
@@ -410,7 +412,7 @@
 
 .widget-editor-type {
   padding: 0 var(--dinkster-space-8);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-capsule);
   color: var(--dinkster-text-secondary);
   font-size: var(--dinkster-type-metadata-size);
@@ -513,12 +515,13 @@
 .banner-button {
   background: var(--dinkster-surface-raised);
   color: var(--dinkster-text-primary);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: 4px;
   padding: 2px 10px;
   font: 12px/1.4 var(--dinkster-font-family);
   cursor: pointer;
 }
+.banner-button:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 
 .banner-button:hover {
   background: var(--dinkster-interaction-hover);

@@ -1,4 +1,4 @@
-.audio-transport { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); border: 1px solid var(--dinkster-border-strong); border-radius: 6px; font-size: 11px; overflow: auto; max-height: 100%; }
+.audio-transport { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); border: 1px solid var(--dinkster-border-subtle); border-radius: 6px; font-size: 11px; overflow: auto; max-height: 100%; }
 .audio-transport audio { display: none; }
 .audio-transport.interactive { pointer-events: auto; }
 .audio-waveform { height: 56px; position: relative; display: flex; align-items: center; justify-content: center; background: var(--dinkster-surface-inset); overflow: hidden; }
@@ -9,7 +9,7 @@
 .audio-gain { display: flex; gap: 4px; align-items: center; flex: 1; min-width: 70px; }
 .audio-facts { display: flex; flex-wrap: wrap; gap: 3px 10px; margin: 7px 0; color: var(--dinkster-text-secondary); }
 .audio-diagnostic { color: var(--dinkster-warning-foreground); margin-top: 6px; overflow-wrap: anywhere; }
-.audio-recorder { border: 1px solid var(--dinkster-border-strong); border-radius: 6px; margin: 8px; padding: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.audio-recorder { border: 1px solid var(--dinkster-border-subtle); border-radius: 6px; margin: 8px; padding: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .audio-recorder p { width: 100%; margin: 0; }
 .audio-recorder label { display: flex; align-items: center; gap: 6px; }
 .audio-recorder input[type=number] { width: 65px; }
