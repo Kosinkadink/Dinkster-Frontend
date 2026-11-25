@@ -352,8 +352,30 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
     page.getByRole('link', { name: 'link to another page' }),
   ).toHaveCSS('color', await token(page, '--dinkster-accent-foreground'))
   const field = page.getByLabel('Display name', { exact: true })
-  await field.focus()
+  await field.click()
+  await expect(field).toHaveCSS('border-top-width', '1px')
+  await expect(field).toHaveCSS(
+    'border-top-color',
+    await token(page, '--dinkster-border-focus'),
+  )
+  await expect(field).toHaveCSS('outline-width', '0px')
+  await field.press('a')
+  await expect(field).toHaveCSS('outline-width', '0px')
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(field).toBeFocused()
   await expect(field).toHaveCSS('outline-width', '2px')
+  await expect(field).toHaveCSS(
+    'border-top-color',
+    await token(page, '--dinkster-border-subtle'),
+  )
+  await field.click()
+  await expect(field).toHaveCSS('outline-width', '0px')
+  await expect(field).toHaveCSS(
+    'border-top-color',
+    await token(page, '--dinkster-border-focus'),
+  )
+  await page.keyboard.press('Tab')
   await page.getByLabel('Unchecked option').focus()
   await page.keyboard.press('Space')
   await expect(page.getByLabel('Unchecked option')).toBeChecked()
