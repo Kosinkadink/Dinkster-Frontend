@@ -3,7 +3,7 @@ import { ArrowLeft, Download, Folder, PanelTop, Wrench } from 'lucide-solid'
 import { autoConnectTarget, schemaMatchesAnyPortFilters, type NodeSchema, type WidgetRegistry } from '@dinkster/core'
 import { defaultTokens, typeColor } from '@dinkster/canvas'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
-import { BlueprintIcon, ProductButton, ProductIcon, ProductMenu, ProductSearch, ProductSearchNodePreview, ProductSection, type ProductSearchGroup } from '../src/index.js'
+import { BlueprintIcon, ProductButton, ProductIcon, ProductMenu, ProductSearch, ProductSearchNodePreview, ProductSearchTypeLabel, ProductSection, type ProductSearchGroup } from '../src/index.js'
 import { NodeDrawing, node } from './search.js'
 
 type Kind = 'node' | 'blueprint' | 'utility'
@@ -95,10 +95,13 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
   const typeMenu = (direction: 'Takes' | 'Gives', value: string, change: (value: string) => void) => (
     <ProductMenu
       fill="quiet"
-      label={`${direction}: ${value === '' ? 'any' : value.toLowerCase()}`}
+      label={`${direction}: ${value === '' ? 'Any type' : value.toLowerCase()}`}
+      title={`${direction}: ${value === '' ? 'Any type' : value.toLowerCase()}`}
+      labelContent={<ProductSearchTypeLabel label={value === '' ? 'Any type' : value.toLowerCase()} direction={direction === 'Takes' ? 'takes' : 'gives'} color={value === '' ? undefined : typeColor(defaultTokens, value)} />}
       triggerName={`${direction} type`}
       items={['', 'IMAGE', 'STRING', 'INT'].map((type) => ({
-        label: type === '' ? 'Any type' : type.toLowerCase(),
+        label: `${direction} ${type === '' ? 'Any type' : type.toLowerCase()}`,
+        labelContent: <ProductSearchTypeLabel label={type === '' ? 'Any type' : type.toLowerCase()} direction={direction === 'Takes' ? 'takes' : 'gives'} color={type === '' ? undefined : typeColor(defaultTokens, type)} />,
         checked: type === value,
         onSelect: () => change(type),
       }))}
@@ -153,8 +156,9 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
 
 export function NodeSearchGallery() {
   const registry = createWidgetRegistry()
+  const [chosenLabel, setChosenLabel] = createSignal('Nothing chosen yet')
   registerCoreWidgets(widgetRegistrationDoors(registry))
-  return <For each={[
+  return <><For each={[
     { title: 'After typing', text: 'The shared search surface with the node drawn beside the list. Packs are named in the preview, not on every row.', id: 'node-search-typed', query: 'image' },
     { title: 'From a dropped wire', text: 'Only installed entries that can take the wire are offered. The row names the input; Enter places and connects.', id: 'node-search-wire', wire: true },
     { title: 'Before you type', text: 'What was placed last and the categories to walk through. Opening a category keeps the same search surface.', id: 'node-search-before' },
@@ -162,4 +166,15 @@ export function NodeSearchGallery() {
     <p class="dinkster-description">{example.text}</p>
     <NodeSearchExample {...example} registry={registry} />
   </ProductSection>}</For>
+    <ProductSection title="Custom menu labels">
+      <p class="dinkster-description">The type word and dot are visible; the full label names each control. Descriptions remain separate from that name.</p>
+      <ProductMenu label="Type label examples" triggerName="Choose example type" title="Choose an example type"
+        labelContent={<ProductSearchTypeLabel label="image" direction="takes" color={typeColor(defaultTokens, 'IMAGE')} />}
+        items={[
+          { label: 'Image input', labelContent: <ProductSearchTypeLabel label="image" direction="takes" color={typeColor(defaultTokens, 'IMAGE')} />, onSelect: () => setChosenLabel('Image input') },
+          { label: 'Image output', labelContent: <ProductSearchTypeLabel label="image" direction="gives" color={typeColor(defaultTokens, 'IMAGE')} />, description: 'Accepts a picture from the node.', onSelect: () => setChosenLabel('Image output') },
+        ]} />
+      <p class="dinkster-metadata" data-testid="custom-menu-chosen">{chosenLabel()}</p>
+    </ProductSection>
+  </>
 }

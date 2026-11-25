@@ -36,6 +36,8 @@ export interface ProductAttention {
 
 export interface ProductMenuItem {
   label: string
+  /** Non-interactive visible content; label still names the item. */
+  labelContent?: JSX.Element
   description?: string
   icon?: LucideIcon
   intent?: ProductRole
@@ -83,7 +85,7 @@ function Menu(props: {
   iconOnly?: boolean | undefined
   fill?: 'quiet' | undefined
   busy?: boolean
-  title?: string
+  title?: string | undefined
   attention?: ProductAttention | undefined
   onTrigger?: (() => void) | undefined
   onOpen?: (() => void) | undefined
@@ -323,7 +325,7 @@ function Menu(props: {
                           const attention = item().attention
                           return attention
                             ? `${item().label}${strings.statusSeparator}${attention.label}`
-                            : item().description ? item().label : undefined
+                            : item().description || item().labelContent !== undefined ? item().label : undefined
                         })()}
                         class="dinkster-menu-item"
                         data-description={item().description ? '' : undefined}
@@ -344,10 +346,10 @@ function Menu(props: {
                         >
                           <ProductIcon icon={Check} />
                         </Show>
-                        <Show when={item().description} fallback={<span class="dinkster-menu-item-label">{item().label}</span>}>
+                        <Show when={item().description} fallback={<span class="dinkster-menu-item-label">{item().labelContent ?? item().label}</span>}>
                           {(description) => (
                             <span class="dinkster-menu-item-copy">
-                              <span class="dinkster-menu-item-label">{item().label}</span>
+                              <span class="dinkster-menu-item-label">{item().labelContent ?? item().label}</span>
                               <span id={descriptionId} class="dinkster-menu-item-description">{description()}</span>
                             </span>
                           )}
@@ -393,7 +395,10 @@ function Menu(props: {
 
 export function ProductMenu(props: {
   label: string
+  /** Non-interactive visible content; label and triggerName keep their names. */
+  labelContent?: JSX.Element
   triggerName?: string
+  title?: string
   items: readonly (ProductMenuItem | 'separator')[]
   identity?: MenuIdentity
   icon?: LucideIcon
@@ -412,10 +417,11 @@ export function ProductMenu(props: {
       iconOnly={props.iconOnly}
       fill={props.fill}
       attention={props.attention}
+      title={props.title}
     >
       <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
       <Show when={!props.iconOnly}><span class="dinkster-menu-label" data-compact={!!props.icon}>
-        {props.label}
+        {props.labelContent ?? props.label}
       </span></Show>
     </Menu>
   )

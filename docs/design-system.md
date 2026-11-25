@@ -167,7 +167,7 @@ every core tab once.
   then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
   to clamp and to flip above when needed. Scroll outside or resize dismisses
   the menu rather than leaving a stale anchor. Its document listeners exist
-  only while it is open. Item text follows its intent; optional `description` is a muted second line associated as the item's accessible description, without changing its label. Removal callbacks open a
+  only while it is open. Item text follows its intent; optional non-interactive `labelContent` replaces visible trigger or item text while `label` and `triggerName` retain their accessible names, and `title` supplies the trigger tooltip. Optional `description` is a muted second line associated as the item's accessible description, without changing its label. Removal callbacks open a
   confirmation. Use `iconOnly` with an icon for compact folder actions; the
   label remains the trigger and menu's accessible name. `ProductAccountMenu` shows the person's initial and name on a
   borderless trigger (the initial alone below the breakpoint), reads out name

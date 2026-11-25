@@ -77,7 +77,7 @@ export interface ProductSearchChip {
 export function ProductSearchTypeLabel(props: {
   label: string
   direction: 'takes' | 'gives'
-  color?: string
+  color?: string | undefined
 }) {
   const dot = () => (
     <svg class="dinkster-search-chip-dot" viewBox="0 0 8 8" aria-hidden="true">
@@ -401,7 +401,7 @@ export function ProductSearch(props: {
           <Show when={props.chip}>
             {(chip) => (
               <span class="dinkster-search-chip" role="group" aria-label={chip().name} title={chip().name}>
-                <ProductSearchTypeLabel label={chip().label} direction={chip().direction} {...(chip().color === undefined ? {} : { color: chip().color })} />
+                <ProductSearchTypeLabel label={chip().label} direction={chip().direction} color={chip().color} />
                 <button
                   type="button"
                   class="dinkster-search-chip-remove"
