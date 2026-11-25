@@ -405,18 +405,18 @@ describe('registry painter label/value split', () => {
     expect(texts).toContain('20') // value survives at its minimum reserve
   })
 
+  // At 7 px a character, the 166 px row is the image row of the narrow node
+  // that showed "Im..." beside the whole "Choose image".
   it.each([
-    { look: 'raised-editors' as const, width: 121 },
-    { look: 'raised-editors' as const, width: 160 },
-    { look: 'inset-raised' as const, width: 160 },
-  ])('keeps a short ASSET placeholder whole with $look controls and a long label', ({ look, width }) => {
-    const tokens = { ...defaultTokens, widgetRowLook: look }
+    { label: 'Image', empty: 'Choose image' },
+    { label: 'ckpt_name', empty: 'Choose model' },
+  ])('keeps the $label label whole on an empty row and cuts "$empty" first', ({ label, empty }) => {
     const assetKind: WidgetKind = {
       ...stubKind, type: 'ASSET', defaultValue: () => null, defaultView: () => 'core.asset',
     }
     const assetView: WidgetView = {
       ...stubView, id: 'core.asset', kind: 'ASSET',
-      drawCompact: (scene) => scene.text(1, 0, 'no asset', {
+      drawCompact: (scene) => scene.text(1, 0, empty, {
         role: 'widgetValue', align: 'right', width: 1, placeholder: true,
       }),
     }
@@ -425,31 +425,58 @@ describe('registry painter label/value split', () => {
       kind: (type) => type === 'ASSET' ? assetKind : undefined,
       viewsFor: (type) => type === 'ASSET' ? [assetView] : [],
     }
-    const painted = fakeCtx(width === 121 ? 6.05 : 6)
-    createRegistryPainter(assetRegistry)({
-      ctx: painted.ctx,
-      row: {
-        ...rowWith(null), label: 'checkpoint model name', viewId: 'core.asset',
-        spec: { widgetType: 'ASSET', options: {}, default: null },
-      },
-      value: null, x: 0, y: 0, width, rowHeight: 24, connected: false, tokens,
-    })
-    expect(painted.texts).toContain('no asset')
-    if (width !== 121) expect(painted.texts[0]).toMatch(/\.\.\.$/)
-    const placeholder = painted.textCalls.find((call) => call.text === 'no asset')!
-    expect(placeholder.fill).toBe(defaultTokens.colors.label)
-    expect(placeholder.font).toContain('italic')
+    const paintAt = (width: number) => {
+      const painted = fakeCtx(7)
+      createRegistryPainter(assetRegistry)({
+        ctx: painted.ctx,
+        row: { ...rowWith(null), label, viewId: 'core.asset', spec: { widgetType: 'ASSET', options: {}, default: null } },
+        value: null, x: 0, y: 0, width, rowHeight: 24, connected: false, tokens: defaultTokens,
+      })
+      const italic = painted.textCalls.filter((call) => call.font.includes('italic'))
+      const plain = painted.textCalls.filter((call) => !call.font.includes('italic'))
+      return { label: plain[0]?.text ?? '', empty: italic[0]?.text ?? '' }
+    }
+    // Wide: both whole. The empty text keeps its muted italic look.
+    expect(paintAt(260)).toEqual({ label, empty })
+    // Narrower: the label stays whole and the empty text is cut, down to
+    // nothing once the label's own width is all the field has.
+    const whole = 44 + 7 * label.length + 12
+    const cuts = [...[166, 150, 130, 115].filter((width) => width > whole), whole].map(paintAt)
+    for (const cut of cuts) {
+      expect(cut.label).toBe(label)
+      expect(cut.empty === '' || cut.empty === empty || cut.empty.endsWith('...')).toBe(true)
+      if (cut.empty.endsWith('...')) expect(empty.startsWith(cut.empty.slice(0, -3))).toBe(true)
+    }
+    expect(cuts[0]!.empty).not.toBe(empty)
+    expect(cuts.at(-1)!.empty).toBe('')
+    // Only a row too narrow for the label alone cuts the label.
+    const tight = paintAt(44 + 7 * label.length)
+    expect(tight.label).not.toBe(label)
+    expect(tight.label.endsWith('...')).toBe(true)
+    expect(tight.empty).toBe('')
+  })
 
-    const malformed = fakeCtx()
-    createRegistryPainter(assetRegistry)({
-      ctx: malformed.ctx,
-      row: {
-        ...rowWith(null), label: 'checkpoint model name', viewId: 'core.asset',
-        spec: { widgetType: 'ASSET', options: {}, default: null },
-      },
-      value: { bad: true }, x: 0, y: 0, width, rowHeight: 24, connected: false, tokens,
+  it('still shares a stored asset name with its label the ordinary way', () => {
+    const assetKind: WidgetKind = {
+      ...stubKind, type: 'ASSET', defaultValue: () => null, defaultView: () => 'core.asset',
+    }
+    const assetView: WidgetView = {
+      ...stubView, id: 'core.asset', kind: 'ASSET',
+      drawCompact: (scene) => scene.text(1, 0, 'cat.png', { role: 'widgetValue', align: 'right', width: 1 }),
+    }
+    const painted = fakeCtx(7)
+    createRegistryPainter({
+      ...registry,
+      kind: (type) => type === 'ASSET' ? assetKind : undefined,
+      viewsFor: (type) => type === 'ASSET' ? [assetView] : [],
+    })({
+      ctx: painted.ctx,
+      row: { ...rowWith(null), label: 'reference image', viewId: 'core.asset', spec: { widgetType: 'ASSET', options: {}, default: null } },
+      value: { name: 'cat.png' }, x: 0, y: 0, width: 166, rowHeight: 24, connected: false, tokens: defaultTokens,
     })
-    expect(malformed.texts).toContain('no asset')
+    // A short stored value stays whole and the label is cut first.
+    expect(painted.texts).toContain('cat.png')
+    expect(painted.texts[0]).toMatch(/^ref.*\.\.\.$/)
   })
 
   it('paints the host summary of a folded editor row in place of the view text, an empty one whole', () => {
@@ -470,7 +497,7 @@ describe('registry painter label/value split', () => {
       createRegistryPainter(editorRegistry)({
         ctx: painted.ctx,
         row: {
-          ...rowWith(null), label: 'viewport camera state', viewId: 'core.load3d',
+          ...rowWith(null), label: 'camera', viewId: 'core.load3d',
           spec: { widgetType: 'LOAD_3D', options: {}, default: null },
         },
         value: { camera: 'state' }, x: 0, y: 0, width: 160, rowHeight: 24, connected: false,
@@ -484,7 +511,7 @@ describe('registry painter label/value split', () => {
     const placeholder = empty.textCalls.find((call) => call.text === 'No model')!
     expect(placeholder.fill).toBe(defaultTokens.colors.label)
     expect(placeholder.font).toContain('italic')
-    // A named value shares the row with a long label like any value.
+    // A named value shares the row with its label like any value.
     const named = paintSummary({ text: 'chair.glb' }).textCalls.find((call) => call.text.startsWith('cha'))!
     expect(named.fill).toBe(defaultTokens.colors.value)
     expect(named.font).not.toContain('italic')
