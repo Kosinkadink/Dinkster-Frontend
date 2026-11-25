@@ -175,7 +175,6 @@
   "modelConsent.plan.consent-required": "Review the size, source, license and destination before Download. Download does not run the graph.",
   "modelConsent.plan.local": "Available locally. Run once retries the captured submission.",
   "modelConsent.plan.folder-disabled": "Enable the model folder in settings, then review again.",
-  "modelConsent.plan.duplicate": "Two files with this name",
   "modelConsent.duplicateDetail": "Two files named {name} are in this project's model folders. Choose one on the node, then run again.",
   "modelConsent.reviewDuplicateDetail": "Two files named {name} are in this project's model folders. Choose one on the node.",
   "modelReviewGallery.title": "Model download review",

@@ -164,7 +164,9 @@ export function AssetConsentDialog(props: { app: AppState }) {
               <div class="asset-decision-row-copy">
                 <strong>{state().requirement.name}</strong>
                 <span class="asset-kind">{state().requirement.kind}</span>
-                <ProductNotice tone="status" testId="model-consent-phase">{phase()}</ProductNotice>
+                <Show when={!duplicate()} fallback={<ProductNotice tone="warning" testId="model-consent-phase">{message(standalone() ? 'modelConsent.reviewDuplicateDetail' : 'modelConsent.duplicateDetail', { name: state().requirement.name })}</ProductNotice>}>
+                  <ProductNotice tone="status" testId="model-consent-phase">{phase()}</ProductNotice>
+                </Show>
                 <Show when={state().job?.error}>{(error) => <ProductNotice tone="error">{['credential-required', 'provider-grant-required', 'civitai-access-required', 'model-hidden'].includes(error()) ? message(`modelConsent.plan.${error()}`) : error()}</ProductNotice>}</Show>
                 <Show when={!duplicate() && (state().source !== undefined || state().plan?.status === 'picker-required')}>
                   <ProductField controlId={`model-source-${index}`} layout="stack"
@@ -202,7 +204,6 @@ export function AssetConsentDialog(props: { app: AppState }) {
                 </>}</Show>
                 <Show when={state().error}><ProductNotice tone="error">{state().error}</ProductNotice></Show>
                 <Show when={state().plan?.status === 'folder-disabled'}><ProductNotice tone="warning">{message('assetConsent.folderDisabled')}</ProductNotice></Show>
-                <Show when={duplicate()}><ProductNotice tone="warning">{message(standalone() ? 'modelConsent.reviewDuplicateDetail' : 'modelConsent.duplicateDetail', { name: state().requirement.name })}</ProductNotice></Show>
                 <div class="asset-decision-source-details">
                   <Show when={!duplicate()}><ProductButton disabled={state().pending || request()?.busy} onClick={() => void request()?.reviewModel?.(index)}>{message(state().job || state().interrupted ? 'modelConsent.reconnect' : 'modelConsent.review')}</ProductButton></Show>
                   <Show when={nextDownload() === index}>
