@@ -28,18 +28,18 @@ async function seedRun(page: Page): Promise<Seed> {
     bridge.app.registerSchemas([
       {
         type: 'EmptyImage', displayName: 'Empty Image', category: 'e2e', source: 'e2e', isOutputNode: false,
-        items: [{ kind: 'output', id: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } }],
+        body: [{ kind: 'output', id: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
       {
         type: 'ImageScaleBy', displayName: 'Scale Image', category: 'e2e', source: 'e2e', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
           { kind: 'output', id: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } },
         ],
       },
       {
         type: 'PreviewImage', displayName: 'Preview Image', category: 'e2e', source: 'e2e', isOutputNode: true,
-        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+        body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
       },
     ])
     const diagnostics = (await bridge.app.openDocument(

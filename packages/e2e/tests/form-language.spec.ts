@@ -7,7 +7,7 @@ async function installStartup(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'form-language-e2e', schemaWire: 1 },
+    dinkster: { version: 'form-language-e2e', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
@@ -18,7 +18,7 @@ async function openNumericWidget(page: Page): Promise<void> {
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'FormLanguageWidget', displayName: 'Form language', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: { min: 0, max: 100, step: 5 }, default: 5 },
       }],

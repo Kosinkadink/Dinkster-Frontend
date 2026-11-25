@@ -26,7 +26,7 @@ test('proves product select semantics across the five replacement sites', async 
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'audit-f2-proof', schemaWire: 1 },
+    dinkster: { version: 'audit-f2-proof', schemaWire: 2 },
     packs: {},
     nodes: {},
   } }))
@@ -44,13 +44,13 @@ test('proves product select semantics across the five replacement sites', async 
     const app = window.__dinksterTest!.app as any
     app.registerSchemas([{
       type: 'SelectProof', displayName: 'Select Proof', category: 'proof', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'choice', displayName: 'Choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: { widgetType: 'COMBO', options: { options: [[1, 'One'], [7, 'Seven'], [12, 'Twelve']] }, default: 1 },
       }],
     }, {
       type: 'SaveProof', displayName: 'Save Proof', category: 'proof', source: 'v3', isOutputNode: true,
-      items: [{
+      body: [{
         kind: 'input', id: 'mount', displayName: 'Mount', type: { kind: 'concrete', name: 'STRING' }, optional: true,
         widget: { widgetType: 'MOUNT', options: {}, default: null },
       }],

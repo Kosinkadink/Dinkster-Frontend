@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { effectiveWidgetDefault, t, type CompactState, type Json, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
+import { effectiveWidgetDefault, registerCatalog, type CompactState, type Json, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '../src/index.js'
+
+registerCatalog('en', { 'widgetSummary.lines': '{count} lines' })
 
 const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'cat.png', size: 12, mediaType: 'image/png', virtualPath: 'input/cat.png' }
 
@@ -21,7 +23,6 @@ const cases: Array<{
   { type: 'COMBO', options: { options: ['euler', 'ddim'] }, explicit: 'ddim', intrinsic: 'euler', invalid: 'unknown', invalidCode: 'widget.COMBO.unknownOption', view: 'core.select' },
   { type: 'MULTI_COMBO', options: { options: ['euler', 'ddim'] }, explicit: ['ddim', 'euler', 'ddim'], intrinsic: [], invalid: ['unknown'], invalidCode: 'widget.MULTI_COMBO.unknownOption', view: 'core.multiSelect' },
   { type: 'COLOR', options: {}, explicit: '#12345678', intrinsic: '#ffffff', invalid: 42, view: 'core.color' },
-  { type: 'COLORS', options: {}, explicit: ['#A1B2C3dd', '#f00', '#A1B2C3dd'], intrinsic: [], invalid: ['#fff', 3], view: 'core.colors' },
   { type: 'CURVE', options: {}, explicit: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, intrinsic: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, invalid: { points: [{ position: 1, value: 0 }, { position: 1, value: 1 }] }, view: 'core.curve' },
   { type: 'COMPOSITOR', options: {}, explicit: { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }] }, intrinsic: { version: 2, documentDigest: null, commands: [] }, invalid: { version: 2, documentDigest: 'bad', commands: [] }, view: 'core.compositor' },
   { type: 'ASSET', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, size: -1 }, view: 'core.asset' },
@@ -55,31 +56,6 @@ describe('registered widget disposition inventory', () => {
       { ...initial, mount: '/tmp' }, { ...initial, prefix: '/absolute' },
       { ...initial, prefix: 'a//b' }, { ...initial, prefix: 'a/../b' }, { ...initial, prefix: 'a\\b' },
     ]) expect(kind.valueSchema.validate(value)).toBe(false)
-  })
-
-  it('copies COLORS defaults without truncation or normalization and asks for every swatch in order', () => {
-    const defaults = ['#A1B2C3dd', '#f00', '#A1B2C3dd', '#ffffff', '#000000']
-    const spec: WidgetSpec = { widgetType: 'COLORS', options: {}, default: defaults }
-    const kind = registry.kind('COLORS')!
-    const copied = kind.defaultValue(spec) as string[]
-    expect(copied).toEqual(defaults)
-    expect(copied).not.toBe(defaults)
-    copied.reverse()
-    expect(defaults).toEqual(['#A1B2C3dd', '#f00', '#A1B2C3dd', '#ffffff', '#000000'])
-    expect(kind.defaultValue({ ...spec, default: ['#fff', 3] })).toEqual([])
-    expect(effectiveWidgetDefault({ ...spec, default: ['#fff', 3] })).toEqual([])
-    const rec = recordingBuilder()
-    const view = registry.viewsFor('COLORS')[0]!
-    view.drawCompact(rec.builder, defaults, spec, { focused: false, connected: false, readonly: false })
-    // The painter draws as many of the squares as fit; the text is for readers that draw no squares.
-    expect(rec.texts).toEqual([expect.objectContaining({
-      run: t('widgetSummary.colors', { count: 5 }),
-      style: expect.objectContaining({ swatches: defaults, count: t('widgetSummary.colors', { count: 5 }) }),
-    })])
-    expect(rec.actions).toEqual(['widget.edit'])
-    const readonly = recordingBuilder()
-    view.drawCompact(readonly.builder, defaults, spec, { focused: false, connected: true, readonly: true })
-    expect(readonly.actions).toEqual([])
   })
 
   it('validates list elements and keeps display and submission defaults aligned', () => {
@@ -193,12 +169,11 @@ describe('compact display through the real registered views', () => {
     ['core.number', 'INT', 7, {}, '7'],
     ['core.number', 'FLOAT', 1.25, {}, '1.3'],
     ['core.line', 'STRING', 'hello', {}, 'hello'],
-    ['core.markdown', 'MARKDOWN', '## Heading', {}, '## Heading'],
+    ['core.markdown', 'MARKDOWN', '## Heading\nsecond line', {}, '## Heading (2 lines)'],
     ['core.text', 'STRING', 'first\nsecond', {}, ['first', 'second']],
     ['core.toggle', 'BOOLEAN', true, {}, 'true'],
     ['core.toggle', 'BOOLEAN', true, { labelOn: 'Enabled' }, 'Enabled'],
     ['core.select', 'COMBO', 'euler', { options: ['euler', 'ddim'] }, 'euler'],
-    // Stored order and duplicates stay; the painter fits them and counts the rest.
     ['core.multiSelect', 'MULTI_COMBO', ['ddim', 'euler', 'ddim'], { options: ['euler', 'ddim'] }, 'ddim, euler, ddim'],
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer' }] }, {}, '1 document edit'],
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: null, commands: [] }, {}, 'Run to load layers'],
@@ -210,7 +185,7 @@ describe('compact display through the real registered views', () => {
     ['core.asset', 'ASSET', null, { accept: ['image/png', 'image/jpeg'] }, 'Choose image'],
     ['core.asset', 'ASSET', null, { accept: ['audio/wav'] }, 'Choose audio'],
     ['core.asset', 'ASSET', null, { accept: ['image/png', 'video/mp4'] }, 'Choose file'],
-    // Multi-select values (list-of-asset declarations): every name, which the painter fits.
+    // Multi-select values keep every name; the painter fits them in the row.
     ['core.asset', 'ASSET', [asset], {}, 'cat.png'],
     ['core.asset', 'ASSET', [asset, { ...asset, name: 'dog.png' }], {}, 'cat.png, dog.png'],
     ['core.asset', 'ASSET', [], { accept: ['video/mp4'] }, 'Choose video'],

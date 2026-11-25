@@ -6,15 +6,15 @@ const proofDir = '/tmp/app-view-queue-buttons'
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'app-view-queue-buttons', schemaWire: 1 },
+  dinkster: { version: 'app-view-queue-buttons', schemaWire: 2 },
   packs: { test: { displayName: 'Test' } },
   nodes: {
     'test.PartialOutput': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.PartialOutput',
       displayName: 'Partial output',
       category: 'test',
-      interface: [],
+      body: [],
       isOutputNode: true,
       signature: 'app-view-partial-output',
     },
@@ -67,7 +67,7 @@ test('authors multiple partial queue buttons, persists them, and reports executi
     }, 'Partial queue buttons')
   })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
 
   await expect(page.getByTestId('app-view-queue')).toBeVisible()
   await page.screenshot({ path: `${proofDir}/01-full-run-fallback.png`, animations: 'disabled' })
@@ -186,7 +186,7 @@ test('authors multiple partial queue buttons, persists them, and reports executi
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('test.PartialOutput') ?? false,
   )).toBe(true)
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.appLayout'])).toEqual(authored)
   await expect(page.getByTestId('app-layout-queue-button')).toHaveCount(2)
 })

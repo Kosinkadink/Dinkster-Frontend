@@ -3,6 +3,7 @@ import { onCleanup, type Component } from 'solid-js'
 import { videoEditContext } from '../video-edit-context.js'
 import { VideoEditEditor } from '../VideoEditEditor.js'
 import {
+  partRow,
   WidgetEditorController,
   withMaterializeFrames,
   type WidgetEditorImplementationProps,
@@ -11,23 +12,20 @@ import {
 
 const VideoEditImplementation: Component<WidgetEditorImplementationProps> = (props) => {
   const ed = props.editor.ed
+  const strictRow = partRow(ed.target, 'strict_duration')
   const context = ed.target.kind === 'input'
     ? videoEditContext(props.editor.app, ed.tab, ed.target.familyOwner?.graphId ?? ed.graphId,
-        ed.target.familyOwner?.nodeId ?? ed.target.nodeId, ed.instancePath)
+        ed.target.familyOwner?.nodeId ?? ed.target.nodeId, ed.instancePath, strictRow)
     : undefined
   const revision = ed.tab.store.revision
-  const initial = context?.initial ?? (ed.initial === undefined ? {} : ed.initial)
+  // The editor starts from the value stored on its own input.
+  const initial = ed.initial === undefined ? {} : ed.initial
   let live = true
   onCleanup(() => { live = false })
 
   const commit = (value: Json, strictDuration: boolean): void => {
-    if (!live || context?.editDisabledReason) return
+    if (!live) return
     if (ed.tab.execution || ed.tab.store.revision !== revision) { props.close(); return }
-    if (ed.target.kind === 'valueSource') {
-      if (jsonSameValue(value, initial)) props.close()
-      else props.commitValue(value)
-      return
-    }
     const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
     const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
     const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
@@ -35,10 +33,10 @@ const VideoEditImplementation: Component<WidgetEditorImplementationProps> = (pro
       command: 'node.setValue',
       params: { graphId, nodeId, inputId, value },
     }]
-    if (context?.strictDuration !== undefined && context.strictDisabledReason === undefined && strictDuration !== context.strictDuration) {
+    if (strictRow !== undefined && context?.strictDuration !== undefined && context.strictDisabledReason === undefined && strictDuration !== context.strictDuration) {
       invocations.push({
         command: 'node.setValue',
-        params: { graphId, nodeId, inputId: 'strict_duration', value: strictDuration },
+        params: { graphId, nodeId, inputId: strictRow, value: strictDuration },
       })
     }
     if (invocations.length === 0) { props.close(); return }

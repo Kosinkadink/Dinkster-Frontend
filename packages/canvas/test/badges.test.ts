@@ -127,10 +127,15 @@ describe('badge layout', () => {
   it('keeps only the subgraph mark in the title bar, at its right end, with its count after the icon', () => {
     const node = { ...original, x: 40, y: 100, layout: { ...original.layout, width: 300 } }
     const [mark] = layoutNodeBadges(node, [SUBGRAPH_BADGE, MUTED_BADGE], { tokens, measureLabel })
-    expect(mark).toMatchObject({ x: 340 - tokens.padX - 20, y: 100 + node.layout.headerHeight / 2 - 10, width: 20, height: 20 })
+    // The 26 px bar leaves 3 px above and below the 20 px mark, and 3 px to the node's right edge.
+    expect(node.layout.headerHeight).toBe(26)
+    expect(mark).toMatchObject({ x: 340 - 3 - 20, y: 100 + 3, width: 20, height: 20 })
     const [counted] = layoutNodeBadges(node, [subgraphBadge(12)], { tokens, measureLabel })
     // 3 px padding each side, the 14 px icon, a 3 px gap and "12".
-    expect(counted).toMatchObject({ x: 340 - tokens.padX - 33, width: 33 })
+    expect(counted).toMatchObject({ x: 340 - 3 - 33, width: 33 })
+    // A 30 px bar leaves 5 px on every side.
+    const [tall] = layoutNodeBadges({ ...node, layout: { ...node.layout, headerHeight: 30 } }, [SUBGRAPH_BADGE], { tokens, measureLabel })
+    expect(tall).toMatchObject({ x: 340 - 5 - 20, y: 100 + 5 })
   })
 
   it('keeps lanes bounded, retains every overflow entry and expands hovered strips on top', () => {

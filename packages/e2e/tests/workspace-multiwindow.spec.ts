@@ -9,7 +9,7 @@ async function waitForWorkspaceReady(page: Page): Promise<void> {
   await waitForCatalog(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas(
     ['TestNode', 'NewLocalNode'].map((type) => ({
-      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [],
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, body: [],
     })),
   ))
 }

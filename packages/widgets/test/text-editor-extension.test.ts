@@ -113,7 +113,6 @@ describe('SchemaTextCompletionProvider', () => {
   const provider = new SchemaTextCompletionProvider()
   const schemaContext: TextWidgetEditorContext = {
     ...context(false),
-    inputFamilyMembers: { values: ['a', 'b'] },
     spec: {
       widgetType: 'STRING',
       options: { multiline: false },
@@ -122,7 +121,6 @@ describe('SchemaTextCompletionProvider', () => {
           { value: 'sin', label: 'sin()', insertText: 'sin()', detail: 'Function', kind: 'identifier' },
           { value: '**', label: '**', insertText: '**', detail: 'Operator', kind: 'operator' },
         ],
-        inputFamilies: ['values'],
       },
     },
   }
@@ -142,7 +140,7 @@ describe('SchemaTextCompletionProvider', () => {
     }])
   })
 
-  it('filters operators by their token range and includes live family members', () => {
+  it('filters operators by their token range', () => {
     expect(provider.complete({
       ...schemaContext,
       text: 'a *+ b',
@@ -155,18 +153,6 @@ describe('SchemaTextCompletionProvider', () => {
       detail: 'Operator',
       replacement: { start: 2, end: 4, text: '**' },
     }])
-    expect(provider.complete({
-      ...schemaContext,
-      text: 'b',
-      caret: 1,
-      trigger: 'b',
-      signal: new AbortController().signal,
-    })).toContainEqual({
-      id: 'schema:identifier:b:3',
-      label: 'b',
-      detail: 'Input',
-      replacement: { start: 0, end: 1, text: 'b' },
-    })
   })
 
 })

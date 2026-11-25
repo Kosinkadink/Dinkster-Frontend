@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asPromptId, resolveImportedNodePacks, setLocale, type ComfyTranslation, type DinksterNodesPayload, type ExecutionRef, type NodeSchema } from '@dinkster/core'
+import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, resolveImportedNodePacks, setLocale, type ComfyTranslation, type DinksterNodesPayload, type ExecutionRef, type NodeSchema } from '@dinkster/core'
 import { buildDinksterRegistry, EngineNotReadyError, type DinksterJobRecord, type SchemaRegistry, type WorkerInfo } from '@dinkster/client'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
@@ -19,7 +19,29 @@ import { createWorkflowApp } from './fixtures/workflow-app.js'
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const nodesPayload = JSON.parse(readFileSync(join(root, 'fixtures/dinkster-nodes-comfy.json'), 'utf8')) as DinksterNodesPayload
+const INT = { kind: 'concrete', types: ['INT'] }
+const IMAGE = { kind: 'concrete', types: ['comfy.IMAGE'] }
+const nodesPayload: DinksterNodesPayload = {
+  schemaVersion: 1,
+  epoch: 2,
+  dinkster: { version: '0.0.1', schemaWire: DINKSTER_SCHEMA_WIRE_VERSION },
+  packs: { core: { displayName: 'Dinkster Core' }, comfy: { displayName: 'ComfyUI Compat', abbr: 'C1', color: '#4a7ab5' } },
+  nodes: {
+    'comfy.EmptyImage': {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'comfy.EmptyImage', version: 1, displayName: 'Empty Image',
+      category: 'comfy/image', description: '', idempotent: true, aliases: ['EmptyImage'], pack: 'comfy',
+      body: [
+        ...['width', 'height', 'batch_size', 'color'].map((id) => ({ kind: 'input', id, type: INT, required: false, default: id === 'batch_size' ? 1 : id === 'color' ? 0 : 512 })),
+        { kind: 'output', id: 'image', type: IMAGE },
+      ],
+    },
+    'comfy.PreviewImage': {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'comfy.PreviewImage', version: 1, displayName: 'Preview Image',
+      category: 'comfy/image', description: '', idempotent: false, aliases: ['PreviewImage'], outputNode: true, pack: 'comfy',
+      body: [{ kind: 'input', id: 'images', type: IMAGE, required: true }],
+    },
+  },
+}
 
 let app: AppState
 let basic: Tab
@@ -47,7 +69,7 @@ const choiceSchema = (options: readonly string[]): NodeSchema => ({
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [{
+  body: [{
     kind: 'input',
     id: 'choice',
     type: { kind: 'concrete', name: 'STRING' },
@@ -298,7 +320,7 @@ describe('addBackend / removeBackend', () => {
             rootChoice: { id: 'rootChoice', type: 'Choice', values: { choice: 'retained-root' } },
             subgraph: { id: 'subgraph', type: '#body', values: {} },
           },
-          links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, nextOrdinal: 2,
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
         },
         body: {
           id: 'body',
@@ -306,7 +328,7 @@ describe('addBackend / removeBackend', () => {
           nodes: {
             nestedChoice: { id: 'nestedChoice', type: 'Choice', values: { choice: 'retained-nested' } },
           },
-          links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
+          links: {}, nets: {}, reroutes: {},
           boundary: { inputs: [], outputs: [] },
           nextOrdinal: 1,
         },
@@ -360,9 +382,16 @@ describe('addBackend / removeBackend', () => {
       requests.push(url)
       if (url.includes('/api/nodes')) return new Response(JSON.stringify({
         schemaVersion: 1,
-        dinkster: { version: 'locale-test', schemaWire: 1 },
+        dinkster: { version: 'locale-test', schemaWire: 2 },
         packs: { demo: { displayName: 'Demo', locales: { en: digest('a'), de: digest('b') } } },
-        nodes: { 'demo.localized': { schemaVersion: 1, displayName: 'RAW pack node', pack: 'demo', interface: [] } },
+        nodes: {
+          'demo.localized': {
+            schemaVersion: 2,
+            displayName: 'RAW pack node',
+            pack: 'demo',
+            body: [],
+          },
+        },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       const localeDigest = decodeURIComponent(url.slice(url.lastIndexOf('/') + 1))
       if (localeDigest === digest('b')) {
@@ -585,7 +614,7 @@ describe('compile and registry routing', () => {
       displayName: 'Test Only',
       category: 'test',
       source: 'v3',
-      items: [],
+      body: [],
       isOutputNode: false,
     }
     app.registerSchemas([extra])

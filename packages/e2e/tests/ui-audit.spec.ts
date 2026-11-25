@@ -12,7 +12,7 @@
  * controls that Playwright can still click. Every new editor or overlay
  * surface needs an audited, screenshotted state here.
  */
-import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, selectProductOption, setShellRegion, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { auditLayout } from './ui-audit.js'
 
 const MOCK = 'http://ui-audit.test'
@@ -64,7 +64,7 @@ test.describe('plain widget editors', () => {
       })
       window.__dinksterTest!.app.registerSchemas([{
         type: 'UiAuditTest', displayName: 'UI Audit', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           widget('count', 'INT', 5, { min: 0, max: 100, step: 5 }),
           widget('amount', 'FLOAT', 1.5, { min: 0, max: 10 }),
           widget('title', 'STRING', 'old'),
@@ -122,10 +122,10 @@ test.describe('plain widget editors', () => {
 test.describe('asset and mount editors (mock dinkster backend)', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'ui-audit-fixture', schemaWire: 1 }, nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'ui-audit-fixture', schemaWire: 2 }, nodes: {},
     } }))
     await page.route(`${MOCK}/api/nodes*`, (route) => void route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: {},
     } }))
     await page.route('**/api/mounts**', async (route) => {
       const url = new URL(route.request().url())
@@ -159,7 +159,7 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     await page.evaluate(async () => {
       window.__dinksterTest!.app.registerSchemas([{
         type: 'UiAuditAsset', displayName: 'UI Audit Asset', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
             widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } },
           { kind: 'input', id: 'mount', type: { kind: 'concrete', name: 'STRING' }, optional: true,
@@ -179,7 +179,7 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
     await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
       type: 'UiAuditAsset', displayName: 'UI Audit Asset', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } },
         { kind: 'input', id: 'mount', type: { kind: 'concrete', name: 'STRING' }, optional: true,
@@ -217,7 +217,7 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     // At this width the Backends panel and right rail (opened by the
     // fixture) cover the whole canvas; close them to expose the node.
     await page.getByRole('button', { name: 'Close Primary dock panels' }).click()
-    await page.getByRole('button', { name: 'Toggle right rail' }).click()
+    await setShellRegion(page, 'right', false)
     await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
     await openEditor(page, 'image')
     const asset = page.getByTestId('asset-editor')

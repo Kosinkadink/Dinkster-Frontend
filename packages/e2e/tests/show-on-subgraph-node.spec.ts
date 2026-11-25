@@ -36,7 +36,7 @@ async function rowPoint(page: Page, nodeId: string, port: string, at: 'mark' | '
 test.beforeEach(async ({ page }) => {
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$))).*/, (route) => route.fulfill({ status: 503, json: {} }))
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'show-on-subgraph-node-fixture', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'show-on-subgraph-node-fixture', schemaWire: 2 }, nodes: {},
   } }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
@@ -46,7 +46,7 @@ test.beforeEach(async ({ page }) => {
     const image = { kind: 'concrete', name: 'IMAGE' } as const
     app.registerSchemas([{
       type: 'Blur', displayName: 'Blur', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'image', type: image, optional: false },
         { kind: 'input', id: 'radius', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 4 } },

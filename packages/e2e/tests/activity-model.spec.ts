@@ -39,7 +39,7 @@ async function installFixture(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'activity-proof', schemaWire: 1 },
+    dinkster: { version: 'activity-proof', schemaWire: 2 },
     packs: {},
     nodes: {},
   } }))

@@ -16,19 +16,9 @@
  * breaking changes require a formatVersion bump + migration step.
  */
 
-import { MAX_DYNAMIC_STATE_DEPTH } from './document.js'
-
 const extData = { type: 'object' } as const
 
-/**
- * Depth-bounded unrolling of the recursive dynamic-state shape. The runtime
- * validator enforces a hard nesting budget (MAX_DYNAMIC_STATE_DEPTH); JSON
- * Schema cannot count recursion depth through a self-referential $ref, so
- * the cap is expressed by chaining one $def per level. The deepest level
- * still allows empty memberState scaffolding (member entries with no
- * construct keys) - exactly what the runtime validator accepts.
- */
-const dynamicPortStateLevel = (nested: unknown): Record<string, unknown> => ({
+const dynamicPortState = {
   type: 'object',
   properties: {
     members: { type: 'array', items: { type: 'string', minLength: 1 } },
@@ -36,21 +26,8 @@ const dynamicPortStateLevel = (nested: unknown): Record<string, unknown> => ({
     selected: { type: 'string' },
     options: { type: 'array', items: { type: ['string', 'number', 'boolean'] } },
     seq: { type: 'integer', minimum: 0, maximum: 9007199254740991 },
-    memberState: {
-      type: 'object',
-      additionalProperties: { type: 'object', additionalProperties: nested },
-    },
   },
-})
-
-const dynamicPortStateDefs = Object.fromEntries(
-  Array.from({ length: MAX_DYNAMIC_STATE_DEPTH + 1 }, (_, level) => [
-    level === 0 ? 'dynamicPortState' : `dynamicPortState${level}`,
-    dynamicPortStateLevel(
-      level < MAX_DYNAMIC_STATE_DEPTH ? { $ref: `#/$defs/dynamicPortState${level + 1}` } : false,
-    ),
-  ]),
-)
+} as const
 
 const portRef = {
   type: 'object',
@@ -58,7 +35,6 @@ const portRef = {
   properties: {
     node: { type: 'string', minLength: 1 },
     port: { type: 'string', minLength: 1 },
-    members: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
   },
 } as const
 
@@ -67,24 +43,6 @@ const rerouteRef = {
   required: ['reroute'],
   properties: {
     reroute: { type: 'string', minLength: 1 },
-  },
-} as const
-
-const valueSourceRef = {
-  type: 'object',
-  required: ['valueSource'],
-  properties: {
-    valueSource: { type: 'string', minLength: 1 },
-  },
-} as const
-
-// {selector} = the selector's output; {selector, candidate} = one candidate input.
-const selectorRef = {
-  type: 'object',
-  required: ['selector'],
-  properties: {
-    selector: { type: 'string', minLength: 1 },
-    candidate: { type: 'string', minLength: 1 },
   },
 } as const
 
@@ -100,33 +58,30 @@ const widgetTapRef = {
 const boundaryBinding = {
   oneOf: [
     {
-      type: 'object', required: ['kind', 'valueSource', 'type'],
-      properties: { kind: { const: 'valueSource' }, valueSource: { type: 'string', minLength: 1 }, type: { $ref: '#/$defs/typeExpr' } },
-      not: { anyOf: ['node', 'port', 'tap', 'members', 'slots', 'viaReroute'].map((field) => ({ required: [field] })) },
-    },
-    {
       type: 'object', required: ['kind', 'type'],
       properties: { kind: { const: 'unbound' }, type: { $ref: '#/$defs/typeExpr' } },
-      not: { anyOf: ['node', 'port', 'tap', 'members', 'slots', 'viaReroute'].map((field) => ({ required: [field] })) },
+      not: { anyOf: ['node', 'port', 'tap', 'viaReroute'].map((field) => ({ required: [field] })) },
     },
     {
       type: 'object',
       required: ['kind', 'node', 'port'],
       properties: {
-        kind: { enum: ['port', 'family', 'slot', 'dynamicCombo'] },
+        kind: { const: 'port' },
         node: { type: 'string', minLength: 1 },
         port: { type: 'string', minLength: 1 },
         viaReroute: { type: 'string', minLength: 1 },
-        members: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
-        slots: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', minLength: 1, pattern: '^[^.]+(\\.[^.]+)*$' } },
       },
       not: { required: ['tap'] },
-      if: {
-        properties: { kind: { enum: ['port', 'slot', 'dynamicCombo'] } },
-        required: ['kind'],
+    },
+    {
+      type: 'object',
+      required: ['kind', 'node', 'port'],
+      properties: {
+        kind: { const: 'construct' },
+        node: { type: 'string', minLength: 1 },
+        port: { type: 'string', minLength: 1 },
       },
-      then: { not: { required: ['slots'] } },
-      allOf: [{ if: { required: ['viaReroute'] }, then: { properties: { kind: { const: 'port' } } } }],
+      not: { anyOf: [{ required: ['tap'] }, { required: ['viaReroute'] }] },
     },
     {
       type: 'object',
@@ -136,7 +91,7 @@ const boundaryBinding = {
         node: { type: 'string', minLength: 1 },
         tap: { type: 'string', minLength: 1 },
       },
-      not: { anyOf: [{ required: ['port'] }, { required: ['members'] }, { required: ['slots'] }, { required: ['viaReroute'] }] },
+      not: { anyOf: [{ required: ['port'] }, { required: ['viaReroute'] }] },
     },
   ],
 } as const
@@ -160,44 +115,13 @@ const boundaryItem = {
   allOf: [
     {
       if: {
-        properties: { binds: { type: 'object', properties: { kind: { const: 'valueSource' } }, required: ['kind'] } },
-        required: ['binds'],
-      },
-      then: { not: { required: ['alsoBinds'] } },
-    },
-    {
-      if: {
-        properties: { binds: { type: 'object', properties: { kind: { enum: ['widgetTap', 'slot', 'dynamicCombo', 'unbound'] } }, required: ['kind'] } },
+        properties: { binds: { type: 'object', properties: { kind: { enum: ['widgetTap', 'unbound'] } }, required: ['kind'] } },
         required: ['binds'],
       },
       then: {
         allOf: [
           { not: { required: ['alsoBinds'] } },
           { not: { required: ['promoted'] } },
-        ],
-      },
-    },
-    {
-      if: {
-        properties: { binds: { type: 'object', properties: { kind: { const: 'family' } }, required: ['kind'] } },
-        required: ['binds'],
-      },
-      then: {
-        allOf: [
-          // The forwarded family template carries its widgets, so promotion
-          // is invalid while homogeneous input family fan-out remains valid.
-          { not: { required: ['promoted'] } },
-          {
-            properties: {
-              alsoBinds: {
-                items: {
-                  $ref: '#/$defs/boundaryBinding',
-                  properties: { kind: { const: 'family' } },
-                  required: ['kind'],
-                },
-              },
-            },
-          },
         ],
       },
     },
@@ -212,6 +136,24 @@ const boundaryItem = {
             items: {
               $ref: '#/$defs/boundaryBinding',
               properties: { kind: { const: 'port' } },
+              required: ['kind'],
+            },
+          },
+        },
+      },
+    },
+    {
+      if: {
+        properties: { binds: { type: 'object', properties: { kind: { const: 'construct' } }, required: ['kind'] } },
+        required: ['binds'],
+      },
+      then: {
+        not: { required: ['promoted'] },
+        properties: {
+          alsoBinds: {
+            items: {
+              $ref: '#/$defs/boundaryBinding',
+              properties: { kind: { const: 'construct' } },
               required: ['kind'],
             },
           },
@@ -307,11 +249,9 @@ export const WORKFLOW_SCHEMA = {
     extData,
     portRef,
     rerouteRef,
-    valueSourceRef,
-    selectorRef,
     widgetTapRef,
-    // A link endpoint is a node port, a reroute junction, a value source, a
-    // selector endpoint, or (source side only) a widget tap. anyOf (not
+    // A link endpoint is a node port, a reroute junction, or (source side
+    // only) a widget tap. anyOf (not
     // oneOf): unknown extra properties are allowed everywhere
     // (additive-first), so an endpoint carrying a foreign key must not
     // double-match. Widget taps PRODUCE, never consume - the target def
@@ -320,8 +260,6 @@ export const WORKFLOW_SCHEMA = {
       anyOf: [
         { $ref: '#/$defs/portRef' },
         { $ref: '#/$defs/rerouteRef' },
-        { $ref: '#/$defs/valueSourceRef' },
-        { $ref: '#/$defs/selectorRef' },
         { $ref: '#/$defs/widgetTapRef' },
       ],
     },
@@ -329,8 +267,6 @@ export const WORKFLOW_SCHEMA = {
       anyOf: [
         { $ref: '#/$defs/portRef' },
         { $ref: '#/$defs/rerouteRef' },
-        { $ref: '#/$defs/valueSourceRef' },
-        { $ref: '#/$defs/selectorRef' },
       ],
     },
     occurrenceRef: {
@@ -361,7 +297,6 @@ export const WORKFLOW_SCHEMA = {
           required: ['port'],
           properties: {
             port: { type: 'string', minLength: 1 },
-            members: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
           },
         },
         route: {
@@ -487,15 +422,12 @@ export const WORKFLOW_SCHEMA = {
         { type: 'object', required: ['kind', 'templateId'], properties: { kind: { const: 'variable' }, templateId: { type: 'string', minLength: 1 }, allowedTypes: { type: 'array', items: { $ref: '#/$defs/typeExpr' } } } },
         { type: 'object', required: ['kind', 'element'], properties: { kind: { enum: ['list', 'asset', 'stream'] }, element: { $ref: '#/$defs/typeExpr' } } },
         { type: 'object', required: ['kind', 'elements'], properties: { kind: { const: 'tuple' }, elements: { type: 'array', items: { $ref: '#/$defs/typeExpr' } } } },
-        { type: 'object', required: ['kind', 'input'], properties: { kind: { const: 'family_tuple' }, input: { type: 'string', minLength: 1 } } },
         { type: 'object', required: ['kind', 'index'], properties: { kind: { const: 'tuple_element' }, input: { type: 'string' }, element: { $ref: '#/$defs/typeExpr' }, index: { type: ['string', 'number'] } } },
       ],
     },
     boundaryBinding,
     boundaryItem,
-    // Recursive: nested per-member dynamic state (memberState[memberId][construct])
-    // is itself a dynamicPortState, unrolled to the shared hard depth cap.
-    ...dynamicPortStateDefs,
+    dynamicPortState,
     nodeData: {
       type: 'object',
       required: ['id', 'type', 'values'],
@@ -592,59 +524,6 @@ export const WORKFLOW_SCHEMA = {
         ext: { $ref: '#/$defs/extData' },
       },
     },
-    declaredSpec: {
-      type: 'object',
-      properties: {
-        widgetType: { type: 'string', minLength: 1 },
-        options: { type: 'object' },
-        controller: { enum: ['after_generate', 'after_refresh'] },
-      },
-    },
-    valueSourceData: {
-      type: 'object',
-      // 'value' must be PRESENT but may be any JSON value including null.
-      required: ['id', 'value'],
-      properties: {
-        id: { type: 'string', minLength: 1 },
-        value: true,
-        spec: { $ref: '#/$defs/declaredSpec' },
-        controller: { enum: ['fixed', 'increment', 'decrement', 'randomize'] },
-        title: { type: 'string' },
-        ext: { $ref: '#/$defs/extData' },
-      },
-    },
-    selectorCandidateData: {
-      type: 'object',
-      required: ['id'],
-      properties: {
-        id: { type: 'string', minLength: 1 },
-        title: { type: 'string' },
-      },
-    },
-    selectorPolicy: {
-      type: 'object',
-      required: ['kind'],
-      properties: {
-        kind: { enum: ['fixed', 'random'] },
-        candidate: { type: 'string', minLength: 1 },
-      },
-      if: {
-        properties: { kind: { const: 'fixed' } },
-        required: ['kind'],
-      },
-      then: { required: ['candidate'] },
-    },
-    selectorData: {
-      type: 'object',
-      required: ['id', 'candidates', 'policy'],
-      properties: {
-        id: { type: 'string', minLength: 1 },
-        candidates: { type: 'array', items: { $ref: '#/$defs/selectorCandidateData' } },
-        policy: { $ref: '#/$defs/selectorPolicy' },
-        title: { type: 'string' },
-        ext: { $ref: '#/$defs/extData' },
-      },
-    },
     namedNetData: {
       type: 'object',
       required: ['id', 'name', 'source', 'sinks'],
@@ -666,8 +545,6 @@ export const WORKFLOW_SCHEMA = {
         links: { type: 'object', additionalProperties: { $ref: '#/$defs/linkData' } },
         nets: { type: 'object', additionalProperties: { $ref: '#/$defs/namedNetData' } },
         reroutes: { type: 'object', additionalProperties: { $ref: '#/$defs/rerouteData' } },
-        valueSources: { type: 'object', additionalProperties: { $ref: '#/$defs/valueSourceData' } },
-        selectors: { type: 'object', additionalProperties: { $ref: '#/$defs/selectorData' } },
         boundary: {
           type: 'object',
           required: ['inputs', 'outputs'],
@@ -701,7 +578,7 @@ export const WORKFLOW_SCHEMA = {
                   { not: { required: ['alsoBinds'] } },
                   { not: { required: ['wireHidden'] } },
                   { properties: { binds: { not: { required: ['viaReroute'] } } } },
-                  { properties: { binds: { properties: { kind: { enum: ['port', 'family', 'widgetTap', 'unbound'] } } } } },
+                  { properties: { binds: { properties: { kind: { enum: ['port', 'construct', 'widgetTap', 'unbound'] } } } } },
                 ],
               },
             },
@@ -757,10 +634,21 @@ export const WORKFLOW_SCHEMA = {
             properties: { collapsed: { type: 'boolean' } },
           },
         },
+        editors: { $ref: '#/$defs/editorFolds' },
+        pictureHeights: { $ref: '#/$defs/pictureHeights' },
         color: { type: 'string' },
         ext: { $ref: '#/$defs/extData' },
       },
     },
+    editorFolds: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        required: ['unfolded'],
+        properties: { unfolded: { type: 'boolean' } },
+      },
+    },
+    pictureHeights: { type: 'object', additionalProperties: { type: 'number' } },
     groupViewState: {
       type: 'object',
       required: ['id', 'title', 'bounds'],
@@ -789,23 +677,6 @@ export const WORKFLOW_SCHEMA = {
         ext: { $ref: '#/$defs/extData' },
       },
     },
-    valueSourceViewState: {
-      type: 'object',
-      required: ['position'],
-      properties: {
-        position: { $ref: '#/$defs/vec2' },
-        view: { type: 'string' },
-        ext: { $ref: '#/$defs/extData' },
-      },
-    },
-    selectorViewState: {
-      type: 'object',
-      required: ['position'],
-      properties: {
-        position: { $ref: '#/$defs/vec2' },
-        ext: { $ref: '#/$defs/extData' },
-      },
-    },
     boundaryNodeViewState: {
       type: 'object',
       required: ['position'],
@@ -822,8 +693,6 @@ export const WORKFLOW_SCHEMA = {
         groups: { type: 'object', additionalProperties: { $ref: '#/$defs/groupViewState' } },
         groupSeq: { type: 'integer', minimum: 0, maximum: 9007199254740991 },
         reroutes: { type: 'object', additionalProperties: { $ref: '#/$defs/rerouteViewState' } },
-        valueSources: { type: 'object', additionalProperties: { $ref: '#/$defs/valueSourceViewState' } },
-        selectors: { type: 'object', additionalProperties: { $ref: '#/$defs/selectorViewState' } },
         collapsedNets: { type: 'array', items: { type: 'string' } },
         guideNets: { type: 'array', items: { type: 'string' } },
         boundary: {
@@ -831,6 +700,14 @@ export const WORKFLOW_SCHEMA = {
           properties: {
             inputs: { $ref: '#/$defs/boundaryNodeViewState' },
             outputs: { $ref: '#/$defs/boundaryNodeViewState' },
+          },
+          additionalProperties: false,
+        },
+        inputsPanel: {
+          type: 'object',
+          properties: {
+            editors: { $ref: '#/$defs/editorFolds' },
+            pictureHeights: { $ref: '#/$defs/pictureHeights' },
           },
           additionalProperties: false,
         },

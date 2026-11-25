@@ -51,7 +51,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'match-type-e2e', schemaWire: 1 },
+    dinkster: { version: 'match-type-e2e', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
@@ -71,7 +71,7 @@ test.beforeEach(async ({ page }) => {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'MatchNodeE2E', displayName: 'Match Node', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'a', type: variable, optional: true },
           { kind: 'input', id: 'b', type: variable, optional: true },
           { kind: 'output', id: 'out', type: variable },
@@ -79,26 +79,26 @@ test.beforeEach(async ({ page }) => {
       },
       {
         type: 'ImageProducerE2E', displayName: 'Image Producer', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: concrete('IMAGE') }],
+        body: [{ kind: 'output', id: 'out', type: concrete('IMAGE') }],
       },
       {
         type: 'ImageListProducerE2E', displayName: 'Image List Producer', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'list', element: concrete('IMAGE') } }],
+        body: [{ kind: 'output', id: 'out', type: { kind: 'list', element: concrete('IMAGE') } }],
       },
       {
         type: 'ImageSinkE2E', displayName: 'Image Sink', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'in', type: concrete('IMAGE'), optional: false }],
+        body: [{ kind: 'input', id: 'in', type: concrete('IMAGE'), optional: false }],
       },
       {
         type: 'AnyNodeE2E', displayName: 'Any Node', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'in', type: { kind: 'wildcard' }, optional: false },
           { kind: 'output', id: 'out', type: { kind: 'wildcard' } },
         ],
       },
       {
         type: 'ResizeImageMaskE2E', displayName: 'Resize Image/Mask', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'input', type: imageOrMask, optional: false },
           { kind: 'input', id: 'reference', type: { kind: 'union', names: ['IMAGE', 'MASK'] }, optional: true },
           { kind: 'output', id: 'resized', type: imageOrMask },
@@ -106,14 +106,14 @@ test.beforeEach(async ({ page }) => {
       },
       {
         type: 'ValueConvertE2E', displayName: 'Value Convert', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'value', type: fourTypes, optional: false },
           { kind: 'output', id: 'value', type: fourTypes },
         ],
       },
       {
         type: 'FormatStringE2E', displayName: 'Format String', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'value', type: fourTypes, optional: false }],
+        body: [{ kind: 'input', id: 'value', type: fourTypes, optional: false }],
       },
     ])
     await window.__dinksterTest!.app.openDocument({
@@ -279,27 +279,25 @@ test('wildcard Any accepts independently without capturing or propagating a type
   }
 })
 
-test('drilled input-family MatchType resolves each occurrence independently and reverts on disconnect', async ({ page }) => {
+test('drilled group-member MatchType resolves each occurrence independently and reverts on disconnect', async ({ page }) => {
   await page.evaluate(async () => {
     const variable = { kind: 'variable', templateId: 'T' }
     window.__dinksterTest!.app.registerSchemas([
       {
-        type: 'InputFamilyMatchE2E', displayName: 'Input Family Match', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        type: 'GroupMatchE2E', displayName: 'Group Match', category: 'test', source: 'v3', isOutputNode: false,
+        body: [
           {
-            kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
-            dynamic: {
-              kind: 'autogrow',
-              template: [{ kind: 'input', id: 'value', type: variable, optional: false }],
-              naming: { kind: 'prefix', prefix: 'value', min: 1, max: 8 },
-            },
+            kind: 'group', id: 'items',
+            value: { kind: 'input', id: 'value', type: variable, optional: false },
+            keys: { kind: 'numbered', prefix: 'value', start: 1, pad: 0 },
+            grows: 'link', minMembers: 1, maxMembers: 8,
           },
           { kind: 'output', id: 'result', type: { kind: 'list', element: variable } },
         ],
       },
       {
         type: 'LatentProducerE2E', displayName: 'Latent Producer', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'LATENT' } }],
+        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'LATENT' } }],
       },
     ])
     await window.__dinksterTest!.app.openDocument({
@@ -312,12 +310,12 @@ test('drilled input-family MatchType resolves each occurrence independently and 
         }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 20 },
         sub: { id: 'sub', name: 'Wrapper', nodes: {
           match: {
-            id: 'match', type: 'InputFamilyMatchE2E', values: {},
-            dynamic: { items: { members: ['m0', 'm1'], seq: 2 } },
+            id: 'match', type: 'GroupMatchE2E', values: {},
+            dynamic: { items: { members: ['value1', 'value2'] } },
           },
         },
           links: {}, nets: {}, reroutes: {}, boundary: {
-            inputs: [{ id: 'in', binds: { kind: 'port', node: 'match', port: 'items.value', members: ['m0'] } }],
+            inputs: [{ id: 'in', binds: { kind: 'port', node: 'match', port: 'items.value1' } }],
             outputs: [{ id: 'out', binds: { kind: 'port', node: 'match', port: 'result' } }],
           }, nextOrdinal: 2 },
       },
@@ -341,7 +339,7 @@ test('drilled input-family MatchType resolves each occurrence independently and 
   })
 
   await drillInto(page, 'i1')
-  for (const port of ['items.value#m0', 'items.value#m1']) {
+  for (const port of ['items.value1', 'items.value2']) {
     expect(await type('match', port)).toEqual({ kind: 'variable', templateId: 'T' })
   }
   if (process.env['DINKSTER_MATCHTYPE_PROOF_DIR']) {
@@ -356,7 +354,7 @@ test('drilled input-family MatchType resolves each occurrence independently and 
   await expect.poll(() => type('i2', 'out')).toEqual(listOf('LATENT'))
 
   await drillInto(page, 'i1')
-  for (const port of ['items.value#m0', 'items.value#m1']) {
+  for (const port of ['items.value1', 'items.value2']) {
     await expect.poll(() => type('match', port)).toEqual({ kind: 'concrete', name: 'IMAGE' })
   }
   await expect.poll(() => type('match', 'result')).toEqual(listOf('IMAGE'))
@@ -375,10 +373,69 @@ test('drilled input-family MatchType resolves each occurrence independently and 
   expect(await type('i2', 'out')).toEqual(listOf('LATENT'))
 
   await drillInto(page, 'i1')
-  for (const port of ['items.value#m0', 'items.value#m1']) {
+  for (const port of ['items.value1', 'items.value2']) {
     await expect.poll(() => type('match', port)).toEqual({ kind: 'variable', templateId: 'T' })
   }
   await expect.poll(() => type('match', 'result')).toEqual({
     kind: 'list', element: { kind: 'variable', templateId: 'T' },
   })
+})
+
+test('a wire of another type is not accepted beside a matched input, on an ordinary node and a Switch', async ({ page }) => {
+  await page.evaluate(async () => {
+    const variable = { kind: 'variable', templateId: 'T' }
+    window.__dinksterTest!.app.registerSchemas([
+      {
+        type: 'StringProducerE2E', displayName: 'Text Producer', category: 'test', source: 'v3', isOutputNode: false,
+        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'STRING' } }],
+      },
+      {
+        type: 'SwitchE2E', displayName: 'Switch', category: 'test', source: 'v3', isOutputNode: false,
+        selector: { input: 'pick', group: 'branch' },
+        body: [
+          { kind: 'input', id: 'pick', type: { kind: 'union', names: ['INT', 'BOOLEAN'] }, optional: true },
+          {
+            kind: 'group', id: 'branch',
+            value: { kind: 'input', id: 'branch', type: variable, optional: true, lazy: true },
+            keys: { kind: 'numbered', prefix: 'branch', start: 1, pad: 0 },
+            grows: 'button', minMembers: 1, maxMembers: 8,
+          },
+          { kind: 'output', id: 'value', type: variable },
+        ],
+      },
+    ] as never)
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'match-type-refusal-e2e', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        image: { id: 'image', type: 'ImageProducerE2E', values: {} },
+        text: { id: 'text', type: 'StringProducerE2E', values: {} },
+        match: { id: 'match', type: 'MatchNodeE2E', values: {} },
+        sw: { id: 'sw', type: 'SwitchE2E', values: {}, dynamic: { branch: { members: ['branch1', 'branch2'] } } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 } },
+      view: { graphs: { g0: { nodes: {
+        image: { position: { x: 80, y: 100 } },
+        text: { position: { x: 80, y: 360 } },
+        match: { position: { x: 500, y: 100 } },
+        sw: { position: { x: 500, y: 360 } },
+      } } } },
+    }, 'Match Type Refusal E2E')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const linksInto = (nodeId: string) => page.evaluate((nodeId) =>
+    window.__dinksterTest!.renderer!.getScene().links
+      .filter((link) => link.to.kind === 'port' && link.to.node === nodeId)
+      .map((link) => link.to.kind === 'port' ? link.to.port : ''), nodeId)
+
+  for (const [nodeId, first, second] of [['match', 'a', 'b'], ['sw', 'branch.branch1', 'branch.branch2']] as const) {
+    await drag(page, await pinPoint(page, 'image', 'out'), await pinPoint(page, nodeId, first))
+    await expect.poll(() => linksInto(nodeId)).toEqual([first])
+    await expect.poll(() => pinPresentation(page, nodeId, second)).toMatchObject({ type: { kind: 'concrete', name: 'IMAGE' } })
+    await drag(page, await pinPoint(page, 'text', 'out'), await pinPoint(page, nodeId, second))
+    // The drop is not accepted: no wire reaches the other input.
+    await page.waitForTimeout(200)
+    expect(await linksInto(nodeId)).toEqual([first])
+  }
+  if (process.env['DINKSTER_MATCHTYPE_PROOF_DIR']) {
+    await page.screenshot({ path: `${process.env['DINKSTER_MATCHTYPE_PROOF_DIR']}/matchtype-wire-refused.png`, animations: 'disabled' })
+  }
 })

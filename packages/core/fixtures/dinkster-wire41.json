@@ -1,15 +1,15 @@
 [
   {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "nodeType": "test.stream_source",
     "version": 1,
     "displayName": "",
     "category": "",
     "description": "",
     "idempotent": true,
-    "interface": [
+    "body": [
       {
-        "role": "output",
+        "kind": "output",
         "id": "image",
         "type": {
           "kind": "stream",
@@ -24,16 +24,16 @@
     ]
   },
   {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "nodeType": "test.stream_sink",
     "version": 1,
     "displayName": "",
     "category": "",
     "description": "",
     "idempotent": true,
-    "interface": [
+    "body": [
       {
-        "role": "input",
+        "kind": "input",
         "id": "image",
         "type": {
           "kind": "concrete",
@@ -48,36 +48,13 @@
     ]
   },
   {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "nodeType": "test.chunk_map",
     "version": 1,
     "displayName": "",
     "category": "",
     "description": "",
     "idempotent": true,
-    "interface": [
-      {
-        "role": "input",
-        "id": "image",
-        "type": {
-          "kind": "concrete",
-          "types": [
-            "IMAGE"
-          ]
-        },
-        "required": true
-      },
-      {
-        "role": "output",
-        "id": "image",
-        "type": {
-          "kind": "concrete",
-          "types": [
-            "IMAGE"
-          ]
-        }
-      }
-    ],
     "chunkSafe": {
       "inputs": [
         "image"
@@ -85,19 +62,10 @@
       "outputs": [
         "image"
       ]
-    }
-  },
-  {
-    "schemaVersion": 1,
-    "nodeType": "test.scoped",
-    "version": 1,
-    "displayName": "",
-    "category": "",
-    "description": "",
-    "idempotent": true,
-    "interface": [
+    },
+    "body": [
       {
-        "role": "input",
+        "kind": "input",
         "id": "image",
         "type": {
           "kind": "concrete",
@@ -108,22 +76,7 @@
         "required": true
       },
       {
-        "role": "dynamicCombo",
-        "id": "operation",
-        "options": [
-          {
-            "key": "map",
-            "inputs": []
-          },
-          {
-            "key": "reverse",
-            "inputs": []
-          }
-        ],
-        "required": true
-      },
-      {
-        "role": "output",
+        "kind": "output",
         "id": "image",
         "type": {
           "kind": "concrete",
@@ -132,7 +85,16 @@
           ]
         }
       }
-    ],
+    ]
+  },
+  {
+    "schemaVersion": 2,
+    "nodeType": "test.scoped",
+    "version": 1,
+    "displayName": "",
+    "category": "",
+    "description": "",
+    "idempotent": true,
     "chunkSafe": {
       "inputs": [
         "image"
@@ -145,6 +107,44 @@
           "map"
         ]
       }
-    }
+    },
+    "body": [
+      {
+        "kind": "input",
+        "id": "image",
+        "type": {
+          "kind": "concrete",
+          "types": [
+            "IMAGE"
+          ]
+        },
+        "required": true
+      },
+      {
+        "kind": "choice",
+        "id": "operation",
+        "options": [
+          {
+            "key": "map",
+            "rows": []
+          },
+          {
+            "key": "reverse",
+            "rows": []
+          }
+        ],
+        "shared": []
+      },
+      {
+        "kind": "output",
+        "id": "image",
+        "type": {
+          "kind": "concrete",
+          "types": [
+            "IMAGE"
+          ]
+        }
+      }
+    ]
   }
 ]

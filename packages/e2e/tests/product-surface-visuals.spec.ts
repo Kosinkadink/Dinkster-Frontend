@@ -139,7 +139,10 @@ for (const theme of ['dark', 'light'] as const) {
     await header.evaluate((node) => { (node as HTMLElement).dataset['platform'] = 'win32' })
     await page.setViewportSize({ width: 390, height: 900 })
     await expect(trigger).toHaveAccessibleName('Dinkster')
-    expect((await trigger.boundingBox())!.width).toBe(44)
+    // The D symbol alone, filling the left bar's 48px column inside the bar's 12px padding.
+    expect((await trigger.boundingBox())!.width).toBe(24)
+    // The panel switches leave once the toolbar observes its new width.
+    await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
     for (const control of await header.locator('button:visible').all()) {
       const box = (await control.boundingBox())!
       expect(box.x).toBeGreaterThanOrEqual(12)
@@ -150,23 +153,22 @@ for (const theme of ['dark', 'light'] as const) {
       const app = window.__dinksterTest!.app
       app.reportProblems(app.activeTab()!.id, [{ severity: 'error', origin: 'runtime', code: 'toolbar.attention', message: 'Toolbar attention fixture.' }])
     })
-    const rail = page.getByTestId('rail-toggle')
-    const attention = rail.locator('.panel-indicator')
-    await expect(attention).toBeVisible()
-    await expect(attention).toHaveCSS('position', 'absolute')
-    // The keyed badge can be replaced by a problem-list publication between protocol calls.
-    const { railBox, iconBox, badgeBox } = await page.evaluate(() => {
-      const element = document.querySelector('[data-testid="rail-toggle"]')!
-      return {
-        railBox: element.getBoundingClientRect().toJSON(),
-        iconBox: element.querySelector('svg')!.getBoundingClientRect().toJSON(),
-        badgeBox: element.querySelector('.panel-indicator')!.getBoundingClientRect().toJSON(),
-      }
-    })
-    expect(iconBox.width).toBe(20)
-    expect(iconBox.height).toBe(18)
-    expect(badgeBox.y).toBeLessThan(railBox.y)
-    expect(badgeBox.x).toBeGreaterThan(iconBox.x)
+    // The narrow row keeps the right panel switch in the layout menu, so the layout button and
+    // its Right panel item carry the attention, and both names read it after the control's name.
+    await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
+    const layout = page.getByRole('button', { name: /^Customize layout, 1 problem/ })
+    const attention = layout.locator('.dinkster-attention')
+    await expect(attention).toHaveText('1')
+    await expect(attention).toHaveAttribute('data-tone', 'problem')
+    const layoutBox = (await layout.boundingBox())!
+    const badgeBox = (await attention.boundingBox())!
+    expect(badgeBox.y).toBeLessThan(layoutBox.y)
+    expect(badgeBox.x + badgeBox.width).toBeGreaterThan(layoutBox.x + layoutBox.width)
+    await layout.click()
+    const right = page.getByRole('menuitemcheckbox', { name: /^Right panel, 1 problem/ })
+    await expect(right.locator('.dinkster-attention')).toHaveText('1')
+    await page.keyboard.press('Escape')
+    await expect(layout).toBeFocused()
     await trigger.click()
     await expect(trigger).toHaveAttribute('aria-expanded', 'true')
     await page.keyboard.press('Escape')
@@ -212,7 +214,7 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
   if (path.endsWith('/api/nodes')) {
     await route.fulfill({ json: {
       schemaVersion: 1, epoch: 1,
-      dinkster: { version: 'visual-fixture', schemaWire: 1 },
+      dinkster: { version: 'visual-fixture', schemaWire: 2 },
       nodes: {},
     } })
   } else if (path.endsWith('/api/models/providers/huggingface')) {
@@ -357,7 +359,7 @@ test('App view validation and remote failures keep editable controls', async ({ 
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'AppNoticeVisual', displayName: 'App feedback', category: 'test', source: 'visual', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 5 } },
         { kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false, widget: { widgetType: 'COMBO', options: {}, default: 'old', remote: { route: '/api/choices/panel-state-visual', maxRetries: 0 } } },
       ],
@@ -370,7 +372,7 @@ test('App view validation and remote failures keep editable controls', async ({ 
     }, 'App feedback')
   })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await page.getByTestId('app-view-number').fill('invalid')
   await page.getByTestId('app-view-number').press('Enter')
   await expect(page.getByTestId('app-view-error')).toHaveText('Enter an exact integer from -9223372036854775808 to 18446744073709551615.')
@@ -387,56 +389,6 @@ test('App view validation and remote failures keep editable controls', async ({ 
   await page.getByTestId('app-view-number').press('Enter')
   await expect(page.getByTestId('app-view-error')).toHaveCount(0)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n!.values.count)).toBe(11)
-})
-
-test('Output descriptor invalid documents keep repair and probe feedback', async ({ page }) => {
-  await boot(page)
-  await closeGallery(page)
-  for (const profile of [false, true]) {
-    await page.evaluate(async (profile) => {
-      const componentPath = '/src/OutputDescriptorEditor.tsx'
-      const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
-      const { OutputDescriptorEditor } = await import(componentPath)
-      const { render } = await import(rendererPath)
-      const host = document.createElement('section')
-      host.style.cssText = 'position:absolute;top:64px;left:84px;right:24px;bottom:32px;max-width:520px;overflow:auto;z-index:20;background:var(--dinkster-surface-panel)'
-      document.querySelector('.canvas-pane')!.append(host)
-      const app = window.__dinksterTest!.app
-      const dispose = render(() => OutputDescriptorEditor({
-        spec: { input: 'entries', choices: [{ id: 'float', type: { kind: 'concrete', name: 'core.float' } }], minEntries: 0, maxEntries: 3, fixedIds: false,
-          ...(profile ? { probe: { input: 'asset', kind: 'model', revision: '1' } } : {}) },
-        initial: '{', asset: undefined, staleLinks: [], app, tab: app.activeTab()!, isCurrent: () => true,
-        onDisconnect: () => {}, onCommit: () => { host.dataset['committed'] = 'true' }, onClose: () => { host.dataset['closed'] = 'true' },
-      }), host)
-      ;(window as unknown as { disposeDescriptorVisual(): void }).disposeDescriptorVisual = () => { dispose(); host.remove() }
-    }, profile)
-    const editor = page.getByTestId('output-descriptor-editor')
-    await expect(editor.getByRole('status').first()).toBeVisible()
-    await expect(editor.getByTestId('output-descriptors-apply')).toBeDisabled()
-    await expect(editor.getByText(profile ? 'Probe the current asset to generate valid outputs.' : 'Use Stored JSON to repair invalid descriptors.', { exact: true })).toBeVisible()
-    if (profile) {
-      await editor.getByTestId('output-profile-probe').click()
-      await expect(editor.getByRole('alert')).toHaveText('Choose an asset before probing.')
-    }
-    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-      await page.setViewportSize({ width, height })
-      await editor.getByTestId('output-descriptors-apply').scrollIntoViewIfNeeded()
-      await page.mouse.move(0, 0)
-      await screenshot(page, `descriptor-invalid-${profile ? 'profile' : 'editable'}-${width}`)
-    }
-    if (!profile) {
-      await editor.getByRole('button', { name: 'Stored JSON', exact: true }).click()
-      await editor.getByRole('textbox', { name: 'Descriptor document', exact: true }).fill('{"entries":[]}')
-      await expect(editor.getByRole('status')).toHaveCount(0)
-      await expect(editor.getByTestId('output-descriptors-apply')).toBeEnabled()
-      await editor.getByTestId('output-descriptors-apply').click()
-      await expect(editor.locator('..')).toHaveAttribute('data-committed', 'true')
-    } else {
-      await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
-      await expect(editor.locator('..')).toHaveAttribute('data-closed', 'true')
-    }
-    await page.evaluate(() => (window as unknown as { disposeDescriptorVisual(): void }).disposeDescriptorVisual())
-  }
 })
 
 test('backend add error and Resources rows at desktop and compact widths', async ({ page }) => {
@@ -649,6 +601,328 @@ test('Library Assets and Runs use shared empty and loading states', async ({ pag
   }
 })
 
+test('A reopened workflow shows no missing node until the node definitions arrive without its type', async ({ page }) => {
+  let release!: () => void
+  const released = new Promise<void>((resolve) => { release = resolve })
+  await page.route('/api/nodes*', async (route) => {
+    await released
+    await route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'visual-fixture', schemaWire: 2 },
+      packs: { visual: { displayName: 'Visual' } },
+      nodes: {
+        'visual.Source': {
+          schemaVersion: 2, nodeType: 'visual.Source', displayName: 'Source', category: 'visual', pack: 'visual', signature: 'source',
+          body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+        },
+        'visual.Sink': {
+          schemaVersion: 2, nodeType: 'visual.Sink', displayName: 'Sink', category: 'visual', pack: 'visual', signature: 'sink',
+          body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+        },
+      },
+    } })
+  })
+  const document = {
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'definitions-pending', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'root', nodes: {
+      source: { id: 'source', type: 'visual.Source', values: {} },
+      sink: { id: 'sink', type: 'visual.Sink', values: {} },
+      absent: { id: 'absent', type: 'visual.Absent', values: {} },
+    }, links: {
+      l0: { id: 'l0', from: { node: 'source', port: 'image' }, to: { node: 'sink', port: 'image' } },
+      l1: { id: 'l1', from: { node: 'source', port: 'image' }, to: { node: 'absent', port: 'image' } },
+    }, nets: {}, reroutes: {}, nextOrdinal: 3 } },
+    view: { graphs: { g0: { nodes: {
+      source: { position: { x: 160, y: 200 } },
+      sink: { position: { x: 480, y: 120 } },
+      absent: { position: { x: 480, y: 300 } },
+    } } } },
+  }
+  await page.addInitScript((doc) => {
+    localStorage.setItem('dinkster.openTabs', JSON.stringify({
+      v: 1, active: doc.lineage, tabs: [{ title: 'Definitions pending', doc, documentRevision: 0 }],
+    }))
+  }, document)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  // The test bridge appears after startup begins, so read it optionally and let the poll retry.
+  const drawn = () => page.evaluate(() => ({
+    schemas: window.__dinksterTest?.app.backends.get()[0]?.schemaState.get().status,
+    nodes: Object.fromEntries((window.__dinksterTest?.renderer?.getScene().nodes ?? []).map((node) => [
+      node.id, node.unrecognized === true ? 'missing' : node.schemaPending === true ? 'pending' : 'resolved',
+    ])),
+    problems: window.__dinksterTest?.app.problems.get().filter((problem) => problem.code === 'schema.unresolvedType').length,
+  }))
+  await expect.poll(drawn, { timeout: 30_000 }).toEqual({
+    schemas: 'loading', nodes: { source: 'pending', sink: 'pending', absent: 'pending' }, problems: 0,
+  })
+  await expect(page.getByTestId('graph-canvas')).toHaveScreenshot('node-definitions-pending-1440.png', {
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.002,
+  })
+  release()
+  await expect.poll(drawn).toEqual({
+    schemas: 'ready', nodes: { source: 'resolved', sink: 'resolved', absent: 'missing' }, problems: 1,
+  })
+})
+
+test('A reopened workflow draws from the kept node definitions until the real ones arrive', async ({ page }) => {
+  const image = { kind: 'concrete', types: ['comfy.IMAGE'] }
+  const node = (nodeType: string, displayName: string, body: readonly unknown[]) => ({
+    schemaVersion: 2, nodeType, displayName, category: 'visual', pack: 'visual', signature: `${nodeType}:${body.length}`, body,
+  })
+  const table = (nodes: Record<string, unknown>) => ({
+    schemaVersion: 1, epoch: 7, dinkster: { version: 'visual-fixture', schemaWire: 2 }, packs: { visual: { displayName: 'Visual' } }, nodes,
+  })
+  const source = node('visual.Source', 'Source', [{ kind: 'output', id: 'image', type: image }])
+  // Pick is in no workflow: it is placed from search, and its choices come from the engine.
+  const pick = node('visual.Pick', 'Pick', [{
+    kind: 'input', id: 'model', required: true, type: { kind: 'concrete', types: ['COMBO'] }, default: 'kept.safetensors',
+    widget: { type: 'COMBO', options: [], remote: { route: '/api/choices/visual-models' } },
+  }])
+  // The kept copy: Sink has one input and Gone still exists; Late is unknown.
+  const kept = table({
+    'visual.Source': source,
+    'visual.Sink': node('visual.Sink', 'Sink', [{ kind: 'input', id: 'image', type: image }]),
+    'visual.Gone': node('visual.Gone', 'Gone', [{ kind: 'input', id: 'image', type: image }]),
+    'visual.Pick': pick,
+  })
+  // The real table: Sink gained a field row, Gone was removed and Late was added.
+  const real = table({
+    'visual.Source': source,
+    'visual.Sink': node('visual.Sink', 'Sink', [
+      { kind: 'input', id: 'strength', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
+      { kind: 'input', id: 'image', type: image },
+    ]),
+    'visual.Late': node('visual.Late', 'Late', [{ kind: 'input', id: 'image', type: image }]),
+    'visual.Pick': pick,
+  })
+  let answer: unknown = kept
+  let held: Promise<void> | undefined
+  let release!: () => void
+  await page.route('/api/nodes*', async (route) => {
+    if (held !== undefined) await held
+    await route.fulfill(answer === undefined ? { status: 500, body: 'engine error' } : { json: answer })
+  })
+  await page.route('**/api/choices/visual-models*', (route) => route.fulfill({ status: 503, body: 'engine not ready' }))
+  const link = (id: string, to: string) => ({ id, from: { node: 'source', port: 'image' }, to: { node: to, port: 'image' } })
+  const workflow = {
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'kept-definitions', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'root', nodes: {
+      source: { id: 'source', type: 'visual.Source', values: {} },
+      sink: { id: 'sink', type: 'visual.Sink', values: {} },
+      gone: { id: 'gone', type: 'visual.Gone', values: {} },
+      late: { id: 'late', type: 'visual.Late', values: {} },
+    }, links: { l0: link('l0', 'sink'), l1: link('l1', 'gone'), l2: link('l2', 'late') }, nets: {}, reroutes: {}, nextOrdinal: 4 } },
+    view: { graphs: { g0: { nodes: {
+      source: { position: { x: 160, y: 220 } },
+      sink: { position: { x: 480, y: 100 } },
+      gone: { position: { x: 480, y: 240 } },
+      late: { position: { x: 480, y: 380 } },
+    } } } },
+  }
+  await page.addInitScript((doc) => {
+    if (localStorage.getItem('dinkster.openTabs') !== null) return
+    localStorage.setItem('dinkster.openTabs', JSON.stringify({
+      v: 1, active: doc.lineage, tabs: [{ title: 'Kept definitions', doc, documentRevision: 0 }],
+    }))
+  }, workflow)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  const keptNodeTypes = () => page.evaluate(() => new Promise<readonly string[]>((resolve) => {
+    const request = indexedDB.open('dinkster-kept-schemas')
+    request.onsuccess = () => {
+      const database = request.result
+      if (!database.objectStoreNames.contains('tables')) { database.close(); return resolve([]) }
+      const all = database.transaction('tables').objectStore('tables').getAll()
+      all.onsuccess = () => {
+        database.close()
+        resolve(all.result.flatMap((payload: { nodes: Record<string, unknown> }) => Object.keys(payload.nodes)).sort())
+      }
+    }
+    request.onerror = () => resolve([])
+  }))
+  await expect.poll(keptNodeTypes).toEqual(['visual.Gone', 'visual.Pick', 'visual.Sink', 'visual.Source'])
+
+  answer = real
+  held = new Promise<void>((resolve) => { release = resolve })
+  await page.reload()
+  const drawn = () => page.evaluate(() => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    const backend = window.__dinksterTest!.app.backendForTab(tab)
+    return {
+      schemas: backend.schemaState.get().status,
+      registry: backend.registry.get() !== undefined,
+      run: (document.querySelector('[data-testid=queue-button]') as HTMLButtonElement | null)?.disabled,
+      nodes: Object.fromEntries((window.__dinksterTest?.renderer?.getScene().nodes ?? []).map((node) => [
+        node.id,
+        node.unrecognized === true ? 'missing' : node.schemaPending === true ? 'pending' : node.layout.title,
+      ])),
+      rows: (window.__dinksterTest?.renderer?.getScene().nodes ?? []).find((node) => node.id === 'sink')?.layout.rows.length,
+      problems: window.__dinksterTest!.app.problems.get().filter((problem) => problem.code === 'schema.unresolvedType').length,
+    }
+  })
+  // The first scene after the reload already draws from the kept copy.
+  await page.waitForFunction(() => (window.__dinksterTest?.renderer?.getScene().nodes.length ?? 0) === 4)
+  const first = await drawn()
+  expect(first.nodes).toEqual({ source: 'Source', sink: 'Sink', gone: 'Gone', late: 'pending' })
+  await expect.poll(drawn).toEqual({
+    schemas: 'loading', registry: false, run: true, problems: 0, rows: first.rows,
+    nodes: { source: 'Source', sink: 'Sink', gone: 'Gone', late: 'pending' },
+  })
+  await expect(page.getByTestId('graph-canvas')).toHaveScreenshot('node-definitions-kept-1440.png', {
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.002,
+  })
+  // Renaming starts from the copy's display name, not the type id.
+  const title = await (await page.waitForFunction(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const sink = renderer.getScene().nodes.find((node) => node.id === 'sink')!
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: rect.left + (sink.x + 40) * viewport.scale + viewport.x, y: rect.top + (sink.y + sink.layout.headerHeight / 2) * viewport.scale + viewport.y }
+  })).jsonValue() as { x: number; y: number }
+  await page.mouse.click(title.x, title.y, { button: 'right' })
+  await page.getByRole('menuitem', { name: /^Rename/ }).click()
+  await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.value)).toBe('Sink')
+  await page.keyboard.press('Escape')
+  // What waits for the engine says why on a plain hover.
+  const tooltip = page.getByTestId('app-tooltip')
+  await page.getByTestId('queue-button').hover()
+  await expect(tooltip).toHaveText('The engine is still starting')
+  await page.mouse.click(title.x, title.y, { button: 'right' })
+  const upTo = page.getByTestId('context-menu-item').filter({ hasText: 'Execute up to selection' })
+  await expect(upTo).toHaveAttribute('aria-disabled', 'true')
+  await upTo.hover()
+  await expect(tooltip).toHaveText('The engine is still starting')
+  await page.keyboard.press('Escape')
+  // Search lists the copy's types, and placing one adds it with the copy's defaults.
+  await page.getByTestId('topbar-search').click()
+  await page.getByTestId('universal-search-input').fill('@ Pick')
+  await page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]', { hasText: 'Pick' }).click()
+  const canvas = (await page.getByTestId('graph-canvas').boundingBox())!
+  await page.mouse.click(canvas.x + 900, canvas.y + 160)
+  const placed = () => page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes)
+    .filter((node) => node.type === 'visual.Pick').map((node) => ({ id: node.id, values: node.values })))
+  await expect.poll(placed).toEqual([{ id: expect.any(String), values: { model: 'kept.safetensors' } }])
+  const pickId = (await placed())[0]!.id
+  // A field whose choices come from the engine says why it has none and still offers the stored value.
+  const field = await (await page.waitForFunction((id) => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === id && candidate.schemaPending !== true)
+    const row = node?.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'model')
+    if (node === undefined || row === undefined) return undefined
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x, y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y }
+  }, pickId)).jsonValue() as { x: number; y: number }
+  await page.mouse.click(field.x, field.y)
+  const dropdown = page.getByTestId('combo-dropdown')
+  await expect(dropdown).toHaveAttribute('data-remote', 'unavailable')
+  await expect(dropdown.locator('.combo-status')).toHaveText('The engine is still starting')
+  await expect(dropdown.getByRole('option', { name: 'kept.safetensors' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  release()
+  await expect.poll(drawn).toEqual({
+    schemas: 'ready', registry: true, run: false, problems: 1, rows: first.rows! + 1,
+    nodes: { source: 'Source', sink: 'Sink', gone: 'missing', late: 'Late', [pickId]: 'Pick' },
+  })
+  await expect(page.getByTestId('queue-button')).toHaveAttribute('data-tooltip-label', 'Run workflow')
+
+  // After the engine fails to answer, the same places say so.
+  answer = undefined
+  held = undefined
+  await page.reload()
+  await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.schemaState.get().status === 'error')
+  await expect(page.getByTestId('queue-button')).toBeDisabled()
+  await page.getByTestId('queue-button').hover()
+  await expect(tooltip).toHaveText('The engine is not answering')
+})
+
+test('A reopened workflow draws from the engine\'s recorded node definitions unless the browser kept newer ones', async ({ page }) => {
+  const image = { kind: 'concrete', types: ['comfy.IMAGE'] }
+  const node = (nodeType: string, displayName: string, body: readonly unknown[]) => ({
+    schemaVersion: 2, nodeType, displayName, category: 'visual', pack: 'visual', signature: `${nodeType}:${body.length}`, body,
+  })
+  const header = { schemaVersion: 1, dinkster: { version: 'visual-fixture', schemaWire: 2 }, packs: { visual: { displayName: 'Visual' } } }
+  const source = node('visual.Source', 'Source', [{ kind: 'output', id: 'image', type: image }])
+  // The always-on process's record names the sink apart from the real table, which also gives it a field row.
+  const recorded = (recordedAt: number) => ({ ...header, provisional: true, recordedAt, nodes: {
+    'visual.Source': source, 'visual.Sink': node('visual.Sink', 'Recorded sink', [{ kind: 'input', id: 'image', type: image }]),
+  } })
+  const real = { ...header, epoch: 7, nodes: {
+    'visual.Source': source, 'visual.Sink': node('visual.Sink', 'Sink', [
+      { kind: 'input', id: 'strength', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
+      { kind: 'input', id: 'image', type: image },
+    ]),
+  } }
+  let record = recorded(Date.now())
+  let held: Promise<void> = Promise.resolve()
+  let release = () => {}
+  const hold = () => { held = new Promise<void>((resolve) => { release = resolve }) }
+  await page.route('/api/nodes/provisional*', (route) => route.fulfill({ json: record }))
+  await page.route('/api/nodes*', async (route) => {
+    await held
+    await route.fulfill({ json: real })
+  })
+  await page.addInitScript(() => {
+    if (localStorage.getItem('dinkster.openTabs') !== null) return
+    const doc = {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'recorded-definitions', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        source: { id: 'source', type: 'visual.Source', values: {} },
+        sink: { id: 'sink', type: 'visual.Sink', values: {} },
+      }, links: { l0: { id: 'l0', from: { node: 'source', port: 'image' }, to: { node: 'sink', port: 'image' } } },
+      nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { source: { position: { x: 160, y: 220 } }, sink: { position: { x: 480, y: 180 } } } } } },
+    }
+    localStorage.setItem('dinkster.openTabs', JSON.stringify({
+      v: 1, active: doc.lineage, tabs: [{ title: 'Recorded definitions', doc, documentRevision: 0 }],
+    }))
+  })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const drawn = () => page.evaluate(() => {
+    const app = window.__dinksterTest!.app, backend = app.backendForTab(app.activeTab()!)
+    const nodes = window.__dinksterTest?.renderer?.getScene().nodes ?? []
+    return {
+      registry: backend.registry.get() !== undefined,
+      run: (document.querySelector('[data-testid=queue-button]') as HTMLButtonElement | null)?.disabled,
+      nodes: Object.fromEntries(nodes.map((node) => [node.id, node.schemaPending === true ? 'pending' : node.layout.title])),
+      rows: nodes.find((node) => node.id === 'sink')?.layout.rows.length,
+    }
+  })
+  const firstScene = async () => {
+    await page.waitForFunction(() => (window.__dinksterTest?.renderer?.getScene().nodes.length ?? 0) === 2)
+    return drawn()
+  }
+
+  // No copy in this browser yet: the first frame draws every node from the record, and Run waits for the engine.
+  hold()
+  await page.goto('/')
+  const first = await firstScene()
+  expect(first.nodes).toEqual({ source: 'Source', sink: 'Recorded sink' })
+  await expect.poll(drawn).toEqual({ registry: false, run: true, nodes: { source: 'Source', sink: 'Recorded sink' }, rows: first.rows })
+  await page.screenshot({ path: test.info().outputPath('recorded-definitions-first-frame.png') })
+  release()
+  await expect.poll(drawn).toEqual({ registry: true, run: false, nodes: { source: 'Source', sink: 'Sink' }, rows: first.rows! + 1 })
+
+  // The browser has now kept the real table; a record from before it does not replace it.
+  record = recorded(1)
+  hold()
+  await page.reload()
+  expect((await firstScene()).nodes).toEqual({ source: 'Source', sink: 'Sink' })
+  release()
+
+  // A record made after the browser's copy is the one drawn.
+  record = recorded(Date.now() + 60_000)
+  hold()
+  await page.reload()
+  expect((await firstScene()).nodes).toEqual({ source: 'Source', sink: 'Recorded sink' })
+  expect((await drawn()).registry).toBe(false)
+  release()
+  await expect.poll(drawn).toEqual({ registry: true, run: false, nodes: { source: 'Source', sink: 'Sink' }, rows: first.rows! + 1 })
+})
+
 test('Storage settings distinguish accounting policy and permission failures', async ({ page }) => {
   let state: 'ready' | 'unavailable' | 'forbidden' = 'ready'
   await page.route('**/api/library/storage', (route) => state === 'forbidden'
@@ -801,7 +1075,7 @@ test('App view explains an empty flow and an empty arrangement group', async ({ 
     }, 'Empty app')
   })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await expect(page.getByTestId('app-view-empty')).toContainText('Nothing is exposed yet.')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
@@ -933,7 +1207,7 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
     bridge.app.registerSchemas([
       {
         type: 'EmptyImage', displayName: 'Empty Image', category: 'visual', source: 'visual', isOutputNode: false,
-        items: [
+        body: [
           ...['width', 'height', 'batch_size', 'color'].map((id) => ({
             kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'INT' }, optional: false,
             widget: { widgetType: 'INT', options: {} },
@@ -943,7 +1217,7 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       },
       {
         type: 'PreviewImage', displayName: 'Preview Image', category: 'visual', source: 'visual', isOutputNode: true,
-        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+        body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
       },
     ])
     const diagnostics = (await bridge.app.openDocument({
@@ -1007,89 +1281,10 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
   await page.evaluate(() => (window as unknown as { disposeBadgeVisual(): void }).disposeBadgeVisual())
 })
 
-test('Canvas badge popovers explain removed sources and selectors', async ({ page }) => {
-  await boot(page)
-  await closeGallery(page)
-  await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    const diagnostics = (await app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'missing-badge-visual', root: 'root',
-      graphs: { root: { id: 'root', name: 'Badge targets', nodes: {}, links: {}, nets: {}, reroutes: {},
-        valueSources: { source: { id: 'source', value: 12, spec: { widgetType: 'INT', options: {} } } },
-        selectors: { selector: { id: 'selector', title: 'Choice', candidates: [{ id: 'first' }, { id: 'second' }], policy: { kind: 'fixed', candidate: 'first' } } },
-        nextOrdinal: 4 } },
-      view: { graphs: { root: { nodes: {}, valueSources: { source: { position: { x: 48, y: 80 } } }, selectors: { selector: { position: { x: 48, y: 180 } } } } } },
-    }, 'Badge targets'))
-    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
-  const clickBadge = async (kind: 'valueSources' | 'selectors'): Promise<void> => {
-    await page.waitForFunction((kind) => window.__dinksterTest!.renderer!.getScene()[kind].length > 0, kind)
-    const point = await page.evaluate((kind) => {
-      const renderer = window.__dinksterTest!.renderer!
-      const scene = renderer.getScene()
-      const item = scene[kind][0]!
-      const viewport = renderer.getViewport()
-      const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-      const height = kind === 'selectors' ? scene.selectors[0]!.headerHeight : item.height
-      return { x: canvas.left + viewport.x + (item.x + item.width - 13) * viewport.scale,
-        y: canvas.top + viewport.y + (item.y + height / 2) * viewport.scale }
-    }, kind)
-    await page.mouse.click(point.x, point.y)
-  }
-  await clickBadge('valueSources')
-  const source = page.getByTestId('value-source-popover')
-  await expect(source).toContainText('Value Source:')
-  await expect(source).toBeFocused()
-  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
-    command: 'graph.deleteItems', params: { graphId: 'root', valueSourceIds: ['source'] },
-  }))
-  await expect(source).toHaveText('Value source missing.')
-  await expect(source).toBeFocused()
-  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-    await page.setViewportSize({ width, height })
-    await page.mouse.move(0, 0)
-    await screenshot(page, `canvas-source-missing-${width}`)
-  }
-  await page.getByTestId('rail-toggle').focus()
-  await expect(source).toBeHidden()
-  await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): { id: string }
-      tabs: { get(): { id: string }[]; set(tabs: unknown[]): void }
-    }
-    const id = app.activeTab().id
-    app.tabs.set(app.tabs.get().map((tab) => tab.id === id ? { ...tab, execution: { connection: 'visual', prompt: 'visual' } } : tab))
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
-  await clickBadge('selectors')
-  const selector = page.getByTestId('selector-exec-popover')
-  await expect(selector).toContainText('Selector: Choice')
-  await expect(selector).toBeFocused()
-  await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): { store: { dispatch(command: unknown): unknown } }
-      tabs: { get(): object[]; set(tabs: unknown[]): void }
-    }
-    app.activeTab().store.dispatch({ command: 'graph.deleteItems', params: { graphId: 'root', selectorIds: ['selector'] } })
-    app.tabs.set(app.tabs.get().map((tab) => ({ ...tab })))
-  })
-  await expect(selector).toHaveText('Selector missing.')
-  await expect(selector).toBeFocused()
-  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-    await page.setViewportSize({ width, height })
-    await page.mouse.move(0, 0)
-    await screenshot(page, `canvas-selector-missing-${width}`)
-  }
-  await page.getByTestId('rail-toggle').focus()
-  await expect(selector).toBeHidden()
-})
-
-test('Editor host and target fallbacks explain unavailable editors', async ({ page }) => {
+test('Editor host fallback explains an unavailable editor', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
   for (const [kind, text] of [
-    ['curve', 'No curve target is active.'],
     ['unregistered-editor', "No editor registered for kind 'unregistered-editor'"],
   ] as const) {
     await page.evaluate((kind) => {
@@ -1390,6 +1585,7 @@ test('Project rows preserve names, rename drafts and host actions', async ({ pag
       ['p-audio', { id: 'p-audio', name: 'Audio experiments', revision: 1 }],
     ])
     const connection = {
+      accountStatus: async () => ({ available: false }),
       listProjects: async () => ({ items: [...records.values()], cursor: null }),
       registerProject: async (id: string, name: string) => {
         const project = records.get(id) ?? { id, name, revision: 1 }
@@ -1461,7 +1657,7 @@ test('GLSL editor missing-data and refused-preview states preserve editing and d
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'GlslEmptyVisual', displayName: 'GLSL Shader', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'glsl',
-      items: [{ kind: 'input', id: 'fragment_shader', optional: true, type: { kind: 'concrete', name: 'core.string' },
+      body: [{ kind: 'input', id: 'fragment_shader', optional: true, type: { kind: 'concrete', name: 'core.string' },
         widget: { widgetType: 'STRING', options: { multiline: true }, default: '#version 300 es\ninvalid shader' } }],
     }])
     const diagnostics = (await app.openDocument({

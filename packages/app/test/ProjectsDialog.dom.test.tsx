@@ -2,12 +2,12 @@
 
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
-import type { DinksterConnection, LibraryProject } from '@dinkster/client'
+import type { LibraryProject } from '@dinkster/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectsDialog } from '../src/ProjectsDialog.js'
 import { PROJECTS_KEY } from '../src/projects.js'
 
-type ProjectClient = Pick<DinksterConnection, 'listProjects' | 'registerProject' | 'renameProject'>
+type ProjectClient = Parameters<typeof ProjectsDialog>[0]['connection']
 const row = (id: string, name: string, revision = 1): LibraryProject => ({ id, name, revision, created: '2026-11-18T12:34:56Z', deleted: false })
 const flush = async (): Promise<void> => { for (let i = 0; i < 12; i++) await Promise.resolve() }
 
@@ -15,6 +15,10 @@ function engine(): ProjectClient & { readonly records: Map<string, LibraryProjec
   const records = new Map([['default', row('default', 'Default')]])
   return {
     records,
+    accountStatus: async () => ({ available: false, canStartSignIn: false, signInUnavailableReason: 'account-unavailable', signedIn: false, profile: null, signIn: 'idle' }),
+    accountProjects: async () => ({ issuer: 'https://identity.test', projects: [] }),
+    getProject: async (id) => records.get(id)!,
+    setProjectAccountLink: async () => { throw new Error('Account unavailable') },
     listProjects: async () => ({ items: [...records.values()], cursor: null }),
     registerProject: async (id, name) => {
       const project = records.get(id) ?? row(id, name)
@@ -127,6 +131,58 @@ describe('ProjectsDialog', () => {
     await flush()
     expect([...bare.root.querySelectorAll('button')].some((b) => b.textContent === 'New window')).toBe(false)
     bare.unmount()
+  })
+
+  it.each(['choices', 'preflight', 'acknowledgment'] as const)('ignores retired account %s work after the engine changes', async (pendingStage) => {
+    const old = engine()
+    const accountId = '48bb018e-5b17-4e68-bd81-c6412c4bcd72'
+    const issuer = 'https://identity.test'
+    old.records.set('default', { ...row('default', 'Retired engine'), uid: '7b42c8d9-2f8b-4ce9-9d87-82fc78a31457', accountProject: null })
+    old.accountStatus = async () => ({ available: true, canStartSignIn: true, signInUnavailableReason: null, signedIn: true, profile: null, signIn: 'idle' })
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    old.accountProjects = async () => {
+      if (pendingStage === 'choices') await pending
+      return { issuer, projects: [{ id: accountId, displayName: 'Retired account choice' }] }
+    }
+    let preflight = false
+    old.getProject = async (id) => {
+      if (preflight && pendingStage === 'preflight') await pending
+      return old.records.get(id)!
+    }
+    old.setProjectAccountLink = async (id) => {
+      if (pendingStage === 'acknowledgment') await pending
+      const saved = { ...old.records.get(id)!, revision: 2, accountProject: { issuer, id: accountId } }
+      old.records.set(id, saved)
+      return saved
+    }
+    const mounted = mount({ connection: old })
+    await flush()
+    actionButton(rows(mounted.root)[0]!, 'Account link').click()
+    await flush()
+    if (pendingStage !== 'choices') {
+      const select = document.querySelector<HTMLSelectElement>('select')!
+      select.value = accountId
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      preflight = true
+      const save = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Save link')!
+      expect(save.disabled).toBe(false)
+      save.click()
+      await flush()
+    }
+    const current = engine()
+    current.records.set('default', row('default', 'Current engine', 9))
+    mounted.setClient(current)
+    await flush()
+    release()
+    await flush()
+    expect(rows(mounted.root).map((entry) => entry.textContent)).toEqual([expect.stringContaining('Current engine')])
+    expect(document.body.textContent).not.toContain('Retired account choice')
+    expect(document.body.textContent).not.toContain('Account link saved.')
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(current.records.get('default')).toEqual(row('default', 'Current engine', 9))
+    expect(old.records.get('default')?.accountProject).toEqual(pendingStage === 'acknowledgment' ? { issuer, id: accountId } : null)
+    mounted.unmount()
   })
 
   it('loads all pages, migrates browser names and ignores a retired connection response', async () => {

@@ -30,6 +30,25 @@ describe('explicit recorded download', () => {
     dispose()
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:download')
   })
+  it.each(['saved', 'closed'] as const)('saves owned bytes through Desktop without a browser download: %s', async (status) => {
+    const previous = window.dinksterDesktop
+    const saveFile = vi.fn(async (_bytes: Uint8Array, _name: string) => status === 'saved'
+      ? { status, name: 'renamed.wav' } : { status })
+    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }), chooseDirectory: async () => undefined, saveFile }
+    try {
+      click()
+      await vi.waitFor(() => expect(saveFile).toHaveBeenCalledOnce())
+      expect(new TextDecoder().decode(saveFile.mock.calls[0]![0])).toBe('recorded bytes')
+      expect(saveFile.mock.calls[0]![1]).toBe('recording.wav')
+      expect(URL.createObjectURL).not.toHaveBeenCalled()
+      expect(downloads).toEqual([])
+      expect(root.querySelector('[role="alert"]')).toBeNull()
+    } finally {
+      if (previous) window.dinksterDesktop = previous
+      else delete window.dinksterDesktop
+    }
+  })
+
   it('refuses late completion after unmount and cancels the request', async () => {
     let finish!: (blob: Blob) => void
     load.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))

@@ -24,7 +24,7 @@ import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
 const schema: NodeSchema = {
   type: 'Sampler', displayName: 'KSampler', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{ kind: 'input', id: 'model', displayName: 'Model input', type: { kind: 'concrete', name: 'MODEL' }, optional: false }],
+  body: [{ kind: 'input', id: 'model', displayName: 'Model input', type: { kind: 'concrete', name: 'MODEL' }, optional: false }],
 }
 
 const workflow: WorkflowDocument = {
@@ -101,8 +101,8 @@ describe('ProblemsPanel browser interactions', () => {
     const app = prepareWorkflowApp(new AppState())
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'notice-test', schemaWire: 1 }, packs: {},
-      nodes: { Current: { interface: [], replacements: [{
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'notice-test', schemaWire: 2 }, packs: {},
+      nodes: { Current: { body: [], replacements: [{
         from: 'Previous', cases: [{ to: 'Current' }],
       }] } },
     }))

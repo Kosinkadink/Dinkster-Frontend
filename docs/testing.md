@@ -160,7 +160,8 @@ reviewing a deliberate appearance change. Screenshot thresholds stay unchanged.
 Failed hosted browser lanes retain their actual,
 expected and diff images in `browser-failure-*` artifacts for seven days.
 
-`.github/workflows/full-validation.yml` runs on pushes to main, every two
+`.github/workflows/full-validation.yml` runs on pushes to main and to
+`feature/node-declaration` (each in its own concurrency group), every two
 hours from 06:00 through 22:00 Pacific, daily at 10:43 UTC, and on manual
 dispatch. The `on.schedule`
 cron list in that file is the single schedule definition; change its first
@@ -184,7 +185,7 @@ as one isolated job. Every E2E lane installs
 and checks the software Vulkan driver selected by `VK_DRIVER_FILES`, including
 browser WebGL and native headless rendering. Exact-version Vulkan package files
 are cached by distribution and architecture; jobs still install and verify them.
-One preceding job captures the pinned CPU generation for the browser shards and
+One preceding job captures the pinned CPU snapshot for the browser shards and
 CI/audit-assets. Its workflow artifact binds the engine pin and preparation
 recipe, including the pack pin. Tar preserves executable modes and interpreter
 links, and consumers require the same workspace path for contributor imports.

@@ -502,7 +502,7 @@ describe('NodePalette search surface', () => {
       ...paletteEntry('test.documented', 'Documented', 'testing'),
       schema: {
         type: 'test.documented', displayName: 'Documented', category: 'testing', pack: 'test-pack',
-        items: [], hasDocs: true,
+        body: [], hasDocs: true,
       },
     } as unknown as PaletteEntry
     const { root, dispose } = mountPalette([documented], { onCommit, onHelp })

@@ -77,7 +77,7 @@ const floatList = specOf('LIST', {}, { element: { widgetType: 'FLOAT', options: 
 const stringList = specOf('LIST', {}, { element: { widgetType: 'STRING', options: {} } })
 const videoEdit = specOf('VIDEO_EDIT', { features: ['trim', 'crop'] })
 
-describe('a closed row shows its stored value for each of the 16 kinds', () => {
+describe('a closed row shows its stored value for each retained kind', () => {
   it.each([
     ['MULTI_COMBO empty', specOf('MULTI_COMBO', { options: samplers }), [], 'No selections'],
     // Labels in stored order; a value no longer offered keeps its own text in place.
@@ -86,7 +86,6 @@ describe('a closed row shows its stored value for each of the 16 kinds', () => {
     // Written as stored, never rounded to the 0.1 step.
     ['LIST', floatList, [0.25, 0.30000000000000004], '0.25, 0.30000000000000004'],
     ['LIST of one empty string', stringList, [''], '""'],
-    ['COLORS empty', specOf('COLORS'), [], 'No colors'],
     ['MARKDOWN blank', specOf('MARKDOWN'), ' \n\t', 'Empty'],
     ['MARKDOWN one line', specOf('MARKDOWN'), '# Heading', '# Heading'],
     // CRLF is one break; the blank first and last lines count.
@@ -95,8 +94,8 @@ describe('a closed row shows its stored value for each of the 16 kinds', () => {
     ['ASSET empty', specOf('ASSET', { accept: ['image/png'] }), null, 'Choose image'],
     ['ASSET one', specOf('ASSET'), image('shot.png'), 'shot.png'],
     ['ASSET with repeated names', specOf('ASSET'), [image('shot.png'), image('shot.png', 'b')], 'shot.png, shot.png'],
-    ['AUDIO_RECORD empty', specOf('AUDIO_RECORD'), null, 'Record audio'],
-    ['WEBCAM empty', specOf('WEBCAM'), null, 'Capture frame'],
+    ['AUDIO_RECORD empty', specOf('AUDIO_RECORD'), null, 'No clip'],
+    ['WEBCAM empty', specOf('WEBCAM'), null, 'No frame'],
     ['MOUNT default', specOf('MOUNT'), null, 'Default output mount'],
     ['MOUNT', specOf('MOUNT'), 'renders', 'renders'],
     ['LOAD_3D', specOf('LOAD_3D'), { camera: { fov: 35 } }, 'Open 3D viewport'],
@@ -122,11 +121,7 @@ describe('a closed row shows its stored value for each of the 16 kinds', () => {
     expect(paintRow(spec, value as Json, 600).text).toBe(expected)
   })
 
-  it('draws a populated COLORS row as its squares in stored order and a COLOR with its square', () => {
-    const colors = ['#111111', '#222222', '#111111']
-    const painted = paintRow(specOf('COLORS'), colors, 600)
-    expect(painted.text).toBe('')
-    expect(painted.fills.filter((fill) => fill.startsWith('#1') || fill.startsWith('#2'))).toEqual(colors)
+  it('draws a COLOR with its square', () => {
     expect(paintRow(specOf('COLOR'), '#32e6c5', 600).fills).toContain('#32e6c5')
   })
 })
@@ -134,6 +129,23 @@ describe('a closed row shows its stored value for each of the 16 kinds', () => {
 describe('a value that does not fit gives way in order', () => {
   const widths = Array.from({ length: 80 }, (_, index) => 60 + index * 6)
   const formsOf = (spec: WidgetSpec, value: Json) => [...new Set(widths.map((width) => paintRow(spec, value, width).text))]
+
+  it.each([
+    ['LOAD_3D', {}],
+    ['IMAGECOMPARE', null],
+    ['CAMERA_ANGLE_VIEW', 'front'],
+  ] as const)('keeps the label before the empty %s opener and never paints a lone ellipsis', (kind, value) => {
+    for (const width of [180, 140, 120]) {
+      const { ctx, texts } = fakeCtx()
+      const spec = specOf(kind)
+      painter({
+        ctx, row: { ...rowOf(spec), label: 'populated' }, value, x: 0, y: 0,
+        width, rowHeight: 24, connected: false, tokens: defaultTokens,
+      })
+      expect(texts[0]?.text).toBe('populated')
+      expect(texts.some((call) => call.text === '...')).toBe(false)
+    }
+  })
 
   it('shows whole choices and the count of the rest, then the count alone', () => {
     const spec = specOf('MULTI_COMBO', { options: samplers })
@@ -235,7 +247,6 @@ describe('a value named beside the open row reads as the closed row would, in fu
     expect(valueText(specOf('BOUNDING_BOX'), { x: 0, y: 0, width: 1024, height: 768 })).toBe('x 0, y 0; 1024 x 768')
     expect(valueText(specOf('MULTI_COMBO', { options: samplers }), ['dpmpp_2m_sde', 'euler', 'gone'])).toBe('DPM++ 2M SDE, Euler, gone')
     expect(valueText(specOf('MULTI_COMBO', { options: samplers }), [])).toBe('No selections')
-    expect(valueText(specOf('COLORS'), ['#ff0000', '#00ff00'])).toBe('#ff0000, #00ff00')
     expect(valueText(specOf('MARKDOWN'), '\n# Heading\nbody')).toBe('# Heading (3 lines)')
   })
 

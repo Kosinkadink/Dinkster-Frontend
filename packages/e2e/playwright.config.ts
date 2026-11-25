@@ -44,9 +44,7 @@ const BACKEND_SERIAL_SPECS = [
   'reconnect.spec.ts',
   'reroutes.spec.ts',
   'seed-controller.spec.ts',
-  'selectors.spec.ts',
   'smoke.spec.ts',
-  'value-source.spec.ts',
   // Native (:8765) writers: library records, uploads, runs; run-history
   // clears the whole local scope.
   'workflow-library.spec.ts',

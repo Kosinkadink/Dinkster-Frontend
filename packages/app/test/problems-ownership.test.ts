@@ -4,19 +4,27 @@
  * workflow's diagnostics never bleed into another tab even when both
  * documents use the same graph ids.
  */
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, GLOBAL_PROBLEMS_OWNER, visibleProblems, type Backend, type Tab } from '../src/app-state.js'
-import { asNodeId, diag, type DinksterNodesPayload } from '@dinkster/core'
+import { asNodeId, diag, DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload } from '@dinkster/core'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
-const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const nodesPayload = JSON.parse(
-  readFileSync(join(coreRoot, 'fixtures/dinkster-nodes.json'), 'utf8'),
-) as DinksterNodesPayload
+const INT = { kind: 'concrete', types: ['INT'] }
+const nodesPayload: DinksterNodesPayload = {
+  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+  nodes: {
+    'std.math.add_ints': {
+      nodeType: 'std.math.add_ints', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Add Ints', category: 'math', description: '', idempotent: true,
+      body: [
+        { kind: 'input', id: 'a', required: true, type: INT },
+        { kind: 'input', id: 'b', required: true, default: 1, type: INT },
+        { kind: 'output', id: 'sum', type: INT },
+      ],
+    },
+  },
+}
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -385,6 +393,48 @@ describe('workflow asset presence', () => {
     expect(tab.store.revision).toBe(revision)
     expect(app.assetConsent.get()).toBeUndefined()
     app.dispose()
+  })
+
+  it('refreshes peer asset changes without replacing dirty documents or unrelated diagnostics', async () => {
+    const { backend } = await nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    const check = vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'missing' }, { digest: other.digest, status: 'missing' },
+    ])
+    vi.spyOn(backend.connection, 'fetchAssetLocations').mockResolvedValue(['/peer/portrait.png'])
+    await app.openDocument(document, 'Assets')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await app.dispatchTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'a', value: 37,
+    } })
+    await vi.waitFor(() => expect(shownCodes(tab.id)).toContain('asset.availability.missing'))
+    app.reportProblems(tab.id, [diag('info', 'command', 'unrelated.notice', 'Keep me')])
+    const before = JSON.stringify(tab.store.doc)
+    const revision = tab.store.revision
+    expect(app.dirtyTabs.get().has(tab.id)).toBe(true)
+
+    const unrelated = app.addBackend('http://other:8000', 'Other library', false, 'dinkster')!
+    if (unrelated.protocol !== 'dinkster') throw new Error('native backend required')
+    check.mockResolvedValue([
+      { digest: first.digest, status: 'available' }, { digest: other.digest, status: 'available' },
+    ])
+    unrelated.connection.ingest({ type: 'library_changed' })
+    expect(shownCodes(tab.id)).toContain('asset.availability.missing')
+    backend.connection.ingest({ type: 'library_changed' })
+    await vi.waitFor(() => expect(shownCodes(tab.id)).not.toContain('asset.availability.missing'))
+    expect(shownCodes(tab.id)).toContain('unrelated.notice')
+    expect(JSON.stringify(tab.store.doc)).toBe(before)
+    expect(tab.store.revision).toBe(revision)
+    expect(app.dirtyTabs.get().has(tab.id)).toBe(true)
+
+    check.mockResolvedValue([
+      { digest: first.digest, status: 'missing' }, { digest: other.digest, status: 'missing' },
+    ])
+    backend.connection.ingest({ type: 'library_changed' })
+    await vi.waitFor(() => expect(shownCodes(tab.id)).toContain('asset.availability.missing'))
+    expect(JSON.stringify(tab.store.doc)).toBe(before)
+    expect(tab.store.revision).toBe(revision)
   })
 
   it('does not interpret failed checks as missing or publish late responses after edits and close', async () => {

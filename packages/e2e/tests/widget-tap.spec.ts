@@ -17,14 +17,14 @@ test('widget tap drag creates a tap-sourced link and undo removes it', async ({ 
     bridge.app.registerSchemas([
       {
         type: 'TapWidget', displayName: 'Tap Widget', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{
+        body: [{
           kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
           widget: { widgetType: 'FLOAT', options: {}, default: 1 },
         }],
       },
       {
         type: 'TapSink', displayName: 'Tap Sink', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
+        body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
       },
     ])
     const failures = (await bridge.app.openDocument({

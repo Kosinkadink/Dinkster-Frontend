@@ -7,10 +7,11 @@ import { defaultTokens, typeColor } from '../src/tokens.js'
 
 const concrete = (name: string) => ({ kind: 'concrete' as const, name })
 
-function tapScene(options: { linked?: boolean; targetType?: string } = {}): Scene {
+function tapScene(options: { linked?: boolean; targetType?: string; kept?: string } = {}): Scene {
   const tap = {
     portId: 'amount', address: { port: 'amount' }, direction: 'out' as const,
     y: 32, type: concrete('FLOAT'), widgetTap: true as const,
+    ...(options.kept !== undefined ? { kept: options.kept, inactive: true as const } : {}),
   }
   const input = {
     portId: 'value', address: { port: 'value' }, direction: 'in' as const,
@@ -27,7 +28,7 @@ function tapScene(options: { linked?: boolean; targetType?: string } = {}): Scen
       to: { kind: 'port', node: 'sink', port: 'value' },
       x1: 110, y1: 42, x2: 200, y2: 42, typeName: 'FLOAT',
     }] : [],
-    reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [],
+    reroutes: [], netStubs: [], groups: [],
     boundaryNodes: [], diagnostics: [],
   } as unknown as Scene
 }
@@ -151,6 +152,21 @@ describe('widget tap interaction', () => {
     }))
   })
 
+  it("starts no wire from a kept row's pin and ends none on it", () => {
+    const kept = 'Not used while mode is ramp. Its wire gives nothing.'
+    const from = interactionHarness(tapScene({ kept }))
+    from.fire('pointermove', 50, 30)
+    from.fire('pointerdown', 110, 42)
+    from.fire('pointermove', 200, 42)
+    from.fire('pointerup', 200, 42)
+    expect(from.dispatched.filter((value) => value.command === 'link.connect')).toEqual([])
+    const into = interactionHarness(tapScene({ kept }))
+    into.fire('pointerdown', 200, 42)
+    into.fire('pointermove', 110, 42)
+    into.fire('pointerup', 110, 42)
+    expect(into.dispatched.filter((value) => value.command === 'link.connect')).toEqual([])
+  })
+
   it('holds a wire dragged from an input at the center of the field pin under the pointer', () => {
     const h = interactionHarness(tapScene())
     h.fire('pointerdown', 200, 42)
@@ -187,26 +203,24 @@ describe('widget tap interaction', () => {
 
 const widgetSchema: NodeSchema = {
   type: 'Widget', displayName: 'Widget', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{
+  body: [{
     kind: 'input', id: 'amount', type: concrete('FLOAT'), optional: true,
     widget: { widgetType: 'FLOAT', options: {}, default: 1 },
   }],
 }
 const sinkSchema: NodeSchema = {
   type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{ kind: 'input', id: 'value', type: concrete('FLOAT'), optional: false }],
+  body: [{ kind: 'input', id: 'value', type: concrete('FLOAT'), optional: false }],
 }
 const matchType = { kind: 'variable' as const, templateId: 'item_type' }
 const createListSchema: NodeSchema = {
   type: 'CreateList', displayName: 'Create List', category: 'test', source: 'v3', isOutputNode: false,
-  items: [
+  body: [
     {
-      kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: [{ kind: 'input', id: 'item', type: matchType, optional: false }],
-        naming: { kind: 'prefix', prefix: 'items', min: 1, max: 8 },
-      },
+      kind: 'group', id: 'items',
+      value: { kind: 'input', id: 'item', type: matchType, optional: false },
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+      grows: 'link', minMembers: 1, maxMembers: 8,
     },
     { kind: 'output', id: 'list', type: { kind: 'list', element: matchType } },
   ],
@@ -215,7 +229,7 @@ const createListSchema: NodeSchema = {
 function builtNumberScene(): Scene {
   const numberSchema: NodeSchema = {
     type: 'Number', displayName: 'Number', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{
+    body: [{
       kind: 'input', id: 'steps', type: concrete('INT'), optional: false,
       widget: { widgetType: 'INT', options: { min: 1, max: 100 }, default: 20 },
     }],
@@ -296,20 +310,20 @@ describe('widget tap scene links', () => {
     expect(scene.links.every((link) => link.typeName === 'FLOAT')).toBe(true)
   })
 
-  it('resolves a Create List family and output from a widget output', () => {
+  it('resolves a Create List group and output from a widget output', () => {
     const document = {
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'lin', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'g', nodes: {
         source: { id: 'source', type: 'Widget', values: { amount: 2 } },
         list: {
           id: 'list', type: 'CreateList', values: {},
-          dynamic: { items: { members: ['m0'], seq: 1 } },
+          dynamic: { items: { members: ['item0'], seq: 1 } },
         },
       }, links: {
         l1: {
           id: 'l1',
           from: { node: 'source', tap: 'amount' },
-          to: { node: 'list', port: 'items.item', members: ['m0'] },
+          to: { node: 'list', port: 'items.item0' },
         },
       }, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: {
@@ -330,9 +344,9 @@ describe('widget tap scene links', () => {
     })
     const list = scene.nodes.find((node) => node.id === 'list')!
     const connected = list.layout.pins.find((pin) =>
-      pin.direction === 'in' && pin.address.members?.[0] === 'm0')!
+      pin.direction === 'in' && pin.address.port === 'items.item0')!
     const offered = list.layout.pins.find((pin) =>
-      pin.direction === 'in' && pin.address.members?.[0] !== 'm0')!
+      pin.direction === 'in' && pin.address.port === 'items.item1')!
     const output = list.layout.pins.find((pin) => pin.direction === 'out')!
     expect(connected.type).toEqual(concrete('FLOAT'))
     expect(connected.ghost).not.toBe(true)
@@ -341,7 +355,7 @@ describe('widget tap scene links', () => {
     expect(output.type).toEqual({ kind: 'list', element: concrete('FLOAT') })
     expect(scene.links[0]).toMatchObject({
       from: { kind: 'widgetTap', node: 'source', input: 'amount' },
-      to: { kind: 'port', node: 'list', port: 'items.item', members: ['m0'] },
+      to: { kind: 'port', node: 'list', port: 'items.item0' },
       typeName: 'FLOAT',
     })
     expect(scene.links[0]?.mismatch).not.toBe(true)
@@ -355,24 +369,34 @@ describe('widget tap scene links', () => {
 describe('same-id widget tap vs real output', () => {
   const loadLikeSchema: NodeSchema = {
     type: 'LoadLike', displayName: 'LoadLike', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       {
-        kind: 'input', id: 'image', type: concrete('STRING'), optional: false,
-        widget: { widgetType: 'STRING', options: {}, default: 'a.png' },
-      },
-      {
-        kind: 'input', id: 'mount', type: concrete('STRING'), optional: true, adjacentTo: 'image',
-        widget: { widgetType: 'MOUNT', options: {}, default: null },
+        kind: 'row',
+        rows: [
+          {
+            kind: 'input', id: 'image', type: concrete('STRING'), optional: false,
+            widget: { widgetType: 'STRING', options: {}, default: 'a.png' },
+          },
+          {
+            kind: 'input', id: 'mount', type: concrete('STRING'), optional: true,
+            widget: { widgetType: 'MOUNT', options: {}, default: null },
+          },
+        ],
       },
       { kind: 'output', id: 'image', type: concrete('IMAGE') },
     ],
-  } as unknown as NodeSchema
+  }
   const imageSinkSchema: NodeSchema = {
     type: 'ImageSink', displayName: 'ImageSink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'pixels', type: concrete('IMAGE'), optional: false },
-      { kind: 'input', id: 'prefix', type: concrete('STRING'), optional: false, widget: { widgetType: 'STRING', options: {} } },
-      { kind: 'input', id: 'mount', type: concrete('STRING'), optional: true, adjacentTo: 'prefix', widget: { widgetType: 'MOUNT', options: {} } },
+      {
+        kind: 'row',
+        rows: [
+          { kind: 'input', id: 'prefix', type: concrete('STRING'), optional: false, widget: { widgetType: 'STRING', options: {} } },
+          { kind: 'input', id: 'mount', type: concrete('STRING'), optional: true, widget: { widgetType: 'MOUNT', options: {} } },
+        ],
+      },
     ],
   }
   const builtScene = (from: object, port = 'pixels'): Scene => {

@@ -51,13 +51,13 @@ const field = (
   optional: false,
   widget: { widgetType, options, default: value, ...extra },
 })
-const schema = (type: string, items: NodeSchema['items']): NodeSchema => ({
+const schema = (type: string, body: NodeSchema['body']): NodeSchema => ({
   type,
   displayName: type,
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body,
 })
 
 const asset = (name: string, mediaType = 'image/png', fill = 'a'): Json => ({
@@ -71,17 +71,6 @@ const portraits = [
   asset('portrait_final_2026.png'),
   asset('portrait_final_2026.png', 'image/png', 'b'),
   asset('beach.png', 'image/png', 'c'),
-]
-const nineColors = [
-  '#32e6c5',
-  '#ff7468',
-  '#ffd166',
-  '#3366cc',
-  '#cc66ff',
-  '#7d8792',
-  '#2ec4b6',
-  '#ff9f1c',
-  '#8a5cf6',
 ]
 const samplers = [
   { value: 'euler', label: 'Euler' },
@@ -124,13 +113,6 @@ const kindCases: readonly KindCase[] = [
     empty: [],
     populated: [0.30000000000000004, 0.25, 12.5],
     narrow: 166,
-  },
-  {
-    title: 'Colors',
-    widgetType: 'COLORS',
-    empty: [],
-    populated: nineColors,
-    narrow: 124,
   },
   {
     title: 'Markdown',
@@ -233,7 +215,6 @@ const kindCases: readonly KindCase[] = [
 
 const hardest = schema('Load images', [
   field('images', 'ASSET', null, imageAccept),
-  field('palette', 'COLORS', []),
 ])
 
 const invalid = schema('Saved values with problems', [
@@ -256,13 +237,12 @@ export const rowSummaryFocusSchema = schema('Crop image', [
 ])
 
 const specOf = (node: NodeSchema, id: string) =>
-  (node.items.find((item) => item.kind === 'input' && item.id === id) as InputSpec)
+  (node.body.find((item) => item.kind === 'input' && item.id === id) as InputSpec)
     .widget!
 
 /** Rows whose readout, what pointing at the row shows, the page lists under its cards. */
 export const rowSummaryReadouts: readonly RowSummaryReadout[] = [
   { label: 'images', spec: specOf(hardest, 'images'), value: portraits },
-  { label: 'palette', spec: specOf(hardest, 'palette'), value: nineColors },
   {
     label: 'selection',
     spec: specOf(invalid, 'selection'),
@@ -309,7 +289,7 @@ const CARD_GAP = 400
 const NODE_GAP = 108
 
 /**
- * Closed row summaries for the 16 kinds of field, painted from real
+ * Closed row summaries for the 15 kinds of field, painted from real
  * documents by the product's renderer: each kind empty or initial,
  * populated, and in a node too narrow for the whole value, then the hardest
  * case and the states every value row shares.
@@ -338,13 +318,13 @@ export function rowSummariesGallery(
     top += CARD_GAP
   }
 
-  card('The hardest case: long and repeated names and nine colors in little room', [
+  card('The hardest case: long and repeated names in little room', [
     {
       id: 'hardest',
       schema: hardest,
       x: 0,
       width: 240,
-      values: { images: portraits, palette: nineColors },
+      values: { images: portraits },
     },
   ])
 
@@ -369,21 +349,18 @@ export function rowSummariesGallery(
     )
   }
 
-  // A value that arrives down a wire is drawn with the same summary, in the
-  // incoming style: grey when known, green when estimated, teal and
-  // underlined when unproven. The stored values under it are not shown.
+  // A value that arrives down a wire is drawn with the same summary, grey
+  // when known and green when estimated. Stored values are not shown.
   const incoming = schema('Incoming values', [
     field('images', 'ASSET', null, imageAccept),
     field('selection', 'MULTI_COMBO', [], { options: samplers }),
-    field('palette', 'COLORS', []),
   ])
   const source = schema('Image source', [
     { kind: 'output', id: 'images', type: concrete('ASSET') },
     { kind: 'output', id: 'selection', type: concrete('MULTI_COMBO') },
-    { kind: 'output', id: 'palette', type: concrete('COLORS') },
   ])
   card(
-    'Known, estimated and unproven incoming values',
+    'Known and estimated incoming values',
     [
       { id: 'incoming source', schema: source, x: 0, width: SOURCE_WIDTH },
       {
@@ -394,13 +371,12 @@ export function rowSummariesGallery(
         values: {
           images: [portraits[2]!],
           selection: ['euler', 'ddim'],
-          palette: nineColors.slice(0, 2),
         },
       },
     ],
     [24, 0],
   )
-  for (const port of ['images', 'selection', 'palette'])
+  for (const port of ['images', 'selection'])
     wires.push({
       from: { node: 'incoming source', port } as LinkEndpoint,
       to: { node: 'incoming', port },
@@ -529,10 +505,9 @@ export function rowSummariesGallery(
       incoming: {
         images: { value: portraits, state: 'expected' },
         selection: { value: ['dpmpp_2m', 'euler', 'dpmpp_2m_sde'], state: 'estimate' },
-        palette: { value: nineColors, state: 'stale' },
       },
     },
-    rowMarks: { invalid: new Set(['selection', 'bounds', 'edit']) },
+    rowMarks: { invalid: { selection: 'error', bounds: 'error', edit: 'error' } },
     examples: cards.map((item) => ({
       caption: item.caption,
       nodes: item.nodes.map((node) => indexOf(node.id)),

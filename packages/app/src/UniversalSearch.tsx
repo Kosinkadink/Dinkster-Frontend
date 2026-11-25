@@ -14,7 +14,7 @@ type VisibleSearchRow =
   | { readonly kind: 'result'; readonly group: SearchGroup; readonly item: SearchResult }
   | { readonly kind: 'expand'; readonly group: SearchGroup }
 
-export function UniversalSearchTrigger(props: { readonly shortcut?: string | undefined; readonly onOpen: () => void }) {
+export function UniversalSearchTrigger(props: { readonly shortcut?: string | undefined; readonly open?: boolean; readonly onOpen: () => void }) {
   const message = useAppMessage()
   return (
     <ProductWindowAction
@@ -22,6 +22,8 @@ export function UniversalSearchTrigger(props: { readonly shortcut?: string | und
       icon={Search}
       shortcut={props.shortcut ?? ''}
       data-testid="topbar-search"
+      aria-haspopup="dialog"
+      aria-expanded={props.open ?? false}
       onClick={props.onOpen}
     />
   )

@@ -38,8 +38,10 @@ import {
 import {
   createRowEditingScene,
   createRowFocusScene,
+  createRowSpecialScene,
   rowEditingSchema,
   rowFocusSchema,
+  rowSpecialSchema,
 } from '../../canvas/gallery/fixtures.js'
 import {
   CanvasRowField,
@@ -67,6 +69,8 @@ export interface RowExample {
   /** The keyboard node's schema, when not the row-editing page's. */
   readonly schema?: NodeSchema
   readonly drag?: { readonly valueKey: string; readonly value: Json }
+  /** Shows the node whose number has a special value instead of the shared sample node. */
+  readonly special?: boolean
   /**
    * The canvas ends where the example does, so the side part keeps within
    * it. Otherwise the example grows to show the whole side part.
@@ -226,6 +230,28 @@ const groups: readonly {
     ],
   },
   {
+    title: 'A special value',
+    examples: [
+      {
+        id: 'special-closed',
+        caption:
+          'frame_load_cap allows 1 to 10000 and declares 0 as "no limit". Stored at 0, the row shows the label in place of the number.',
+        scale: 1,
+        width: MARGIN * 2 + NODE_WIDTH,
+        node: { x: MARGIN, y: MARGIN },
+        special: true,
+      },
+      {
+        ...besideRight(
+          'special-open',
+          'Clicked frame_load_cap: the field holds the number itself, 0, to type over or step. A step up goes to 1, the lowest value inside the limits, and a step down from 1 comes back to 0.',
+          'frame_load_cap',
+        ),
+        special: true,
+      },
+    ],
+  },
+  {
     title: 'Near the canvas edge',
     examples: [
       {
@@ -353,7 +379,9 @@ export function RowEditingExample(props: {
         }
         const width = example.nodeWidth ?? NODE_WIDTH
         const built =
-          example.focus === undefined
+          example.special === true
+            ? createRowSpecialScene(tokens, measure, widgetMeasure, example.node, width)
+            : example.focus === undefined
             ? createRowEditingScene(tokens, measure, widgetMeasure, example.node, width)
             : createRowFocusScene(tokens, measure, widgetMeasure, example.node, width, example.schema)
         const node = built.nodes[0]!
@@ -400,8 +428,12 @@ export function RowEditingExample(props: {
     if (!row) return undefined
     const schema =
       props.example.schema ??
-      (props.example.focus === undefined ? rowEditingSchema : rowFocusSchema)
-    const item = schema.items.find(
+      (props.example.special === true
+        ? rowSpecialSchema
+        : props.example.focus === undefined
+          ? rowEditingSchema
+          : rowFocusSchema)
+    const item = schema.body.find(
       (item) => item.kind === 'input' && item.id === row.inputId,
     )
     const help = item?.kind === 'input' ? item.tooltip : undefined

@@ -19,7 +19,7 @@ async function rowPoint(page: Page, nodeId: string, inputId: string, at = 0.5): 
  */
 async function openPaint(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'color-fixture', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'color-fixture', schemaWire: 2 }, nodes: {},
   } }))
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
@@ -34,7 +34,7 @@ async function openPaint(page: Page): Promise<void> {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'Paint', displayName: 'Paint', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         widget('fill', 'COLOR', '#336699', { tooltip: 'The fill color.' }),
         widget('tint', 'COLOR', '#ffffff', { alpha: true }),
         widget('code', 'INT', 0, { min: 0, max: 16777215, step: 1, display: 'color' }),
@@ -238,7 +238,7 @@ test('a wired color whose opacity the field drops: the row paints the color used
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ColorSource', displayName: 'Color source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'source', type: { kind: 'concrete', name: 'COLOR' }, optional: false, widget: { widgetType: 'COLOR', options: {}, default: '#000000' } },
         { kind: 'output', id: 'color', type: { kind: 'concrete', name: 'COLOR' }, knownValue: { input: 'source' } },
       ],
