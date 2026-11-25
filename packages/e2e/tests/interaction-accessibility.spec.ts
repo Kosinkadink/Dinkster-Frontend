@@ -64,7 +64,7 @@ async function installProofSurfaces(page: Page): Promise<void> {
       category: 'proof',
       source: 'v3',
       isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input',
         id: 'seed',
         type: { kind: 'concrete', name: 'INT' },

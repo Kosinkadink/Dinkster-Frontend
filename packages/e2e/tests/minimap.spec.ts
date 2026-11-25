@@ -124,7 +124,7 @@ test('wheel zoom centers on the pointed far-away minimap location exactly once',
     if (test.renderer!.getScene().nodes.length === 0) {
       test.app.registerSchemas([{
         type: 'MinimapE2E', displayName: 'Minimap E2E', category: 'test', source: 'v3', isOutputNode: false,
-        items: [],
+        body: [],
       }])
       await test.app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'minimap-e2e', root: 'root',

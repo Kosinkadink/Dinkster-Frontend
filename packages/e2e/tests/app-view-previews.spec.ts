@@ -107,7 +107,7 @@ test.beforeEach(async ({ page }) => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AppViewPreviewTest', displayName: 'Image Result', category: 'test', source: 'v3', isOutputNode: false,
       emitsPreviews: true,
-      items: [
+      body: [
         widget('count', 'INT', 5, { min: 0, max: 100, step: 1 }),
         widget('prompt', 'STRING', 'A multiline prompt', { multiline: true }),
       ],
