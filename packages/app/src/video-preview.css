@@ -6,7 +6,8 @@
 .video-preview-controls .product-slider { width: 100%; min-height: 16px; margin-bottom: 4px; }
 .app-preview-surface .video-preview-controls .product-slider { margin-bottom: 8px; }
 .video-preview-buttons, .video-preview-navigation { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; }
-.video-preview button { min-height: 20px; padding: 1px 5px; border: 1px solid var(--dinkster-border-strong); border-radius: 3px; color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); font: inherit; cursor: pointer; }
+.video-preview button { min-height: 20px; padding: 1px 5px; border: 1px solid var(--dinkster-border-subtle); border-radius: 3px; color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); font: inherit; cursor: pointer; }
+.video-preview button:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .video-preview button[aria-pressed="true"] { background: var(--dinkster-surface-selected); border-color: var(--dinkster-border-selected); }
 .video-preview button:disabled, .video-preview button[aria-disabled="true"] { opacity: 0.5; cursor: default; }
 .video-preview :focus-visible { outline: 2px solid var(--dinkster-border-focus); outline-offset: -2px; }
