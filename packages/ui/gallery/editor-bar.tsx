@@ -33,6 +33,7 @@ import {
   type ProductMenuItem,
   type ProductProject,
 } from '../src/index.js'
+import { WorkflowTabsGallery } from './workflow-tabs.js'
 
 const projectNames = [
   'Teapot product shots',
@@ -301,7 +302,7 @@ export function EditorBarGallery() {
       </div>
       <ProductPage
         title="Editor bar"
-        description="The editor's top bar with the project beside the Dinkster menu, and the account in the left bar above Settings."
+        description="The editor's top bar with the project beside the Dinkster menu, the account in the left bar above Settings, and the workflow tabs."
       >
         <ProductLink href="#window-toolbar">Window toolbar</ProductLink>
         <ProductField label="Platform">
@@ -391,6 +392,11 @@ export function EditorBarGallery() {
           onChange={(event) => setRunning(event.currentTarget.checked)}
         />
         <p role="status">{activity()}</p>
+        <h2 class="dinkster-heading">Workflow tabs</h2>
+        <p class="dinkster-description">
+          The first, middle and last tab active, in the dark and light themes.
+        </p>
+        <WorkflowTabsGallery />
       </ProductPage>
     </main>
   )
