@@ -196,18 +196,19 @@ describe('canvas view controls', () => {
 })
 
 describe('canvas corner controls', () => {
-  it('sets a typed zoom percentage, and each zoom menu choice acts once and closes the menu', () => {
+  it('sets a typed zoom percentage; Zoom in and out keep the menu open with the field following the zoom, and Reset closes it', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const [menu, setMenu] = createSignal<CanvasCornerMenu | undefined>('zoom')
+    const [zoom, setZoom] = createSignal(0.374)
     const zoomTo = vi.fn()
-    const zoomBy = vi.fn()
+    const zoomBy = vi.fn((factor: number) => setZoom((value) => value * factor))
     const dispose = render(() => (
       <CanvasCornerControls
         size="small"
         minimapVisible
         settings={{}}
-        zoom={0.374}
+        zoom={zoom()}
         menu={menu()}
         onToggleMinimap={() => {}}
         onToggleSetting={() => {}}
@@ -229,9 +230,11 @@ describe('canvas corner controls', () => {
 
     setMenu('zoom')
     click(root.querySelector('[data-testid="canvas-zoom-out"]')!)
-    expect(zoomBy).toHaveBeenCalledWith(1 / 1.2)
-    expect(menu()).toBeUndefined()
-    setMenu('zoom')
+    click(root.querySelector('[data-testid="canvas-zoom-out"]')!)
+    expect(zoomBy).toHaveBeenCalledTimes(2)
+    expect(zoomBy).toHaveBeenLastCalledWith(1 / 1.2)
+    expect(menu()).toBe('zoom')
+    expect(root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!.value).toBe('26')
     click(root.querySelector('[data-testid="canvas-zoom-reset"]')!)
     expect(zoomTo).toHaveBeenLastCalledWith(1)
     expect(menu()).toBeUndefined()

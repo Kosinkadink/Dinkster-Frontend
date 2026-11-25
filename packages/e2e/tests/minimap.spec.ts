@@ -57,9 +57,11 @@ test('minimap sizes persist with small as the default; the bar under it keeps it
     await expect(map).toHaveCSS('height', `${height}px`)
     const [mapBox, barBox] = await Promise.all([map.boundingBox(), bar.boundingBox()])
     expect(barBox!.width).toBeCloseTo(barWidth, 0)
+    expect(barBox!.height).toBe(36)
     expect(barBox!.x + barBox!.width).toBeCloseTo(mapBox!.x + mapBox!.width, 0)
     await expect(bar.locator('button:visible')).toHaveCount(4)
   }
+  expect((await page.locator('.canvas-view-controls').boundingBox())!.height).toBe(36)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.minimap.size', 'medium'))
   await page.reload()
   await expect(page.getByTestId('minimap')).toHaveCSS('width', '196px')

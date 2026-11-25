@@ -162,7 +162,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={route() === '#canvas' ? undefined : 'site'}
+      contentDensity={route() === '#canvas' || route() === '#canvas-chrome' ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -1416,11 +1416,12 @@ function GalleryRoot() {
   const [narrow, setNarrow] = createSignal(narrowQuery.matches)
   // The site pages use the site form throughout. The gallery uses the Canvas
   // page's frame, except that below the breakpoint its other pages keep the
-  // site form's narrow frame; their content always uses the site form.
+  // site form's narrow frame. Their content uses the site form, except the
+  // Canvas and canvas chrome pages, which show app controls at the app's size.
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : route() !== '#canvas' && route() !== '#window-toolbar' && narrow()
+      : route() !== '#canvas' && route() !== '#canvas-chrome' && route() !== '#window-toolbar' && narrow()
         ? 'site'
         : 'app'
   })

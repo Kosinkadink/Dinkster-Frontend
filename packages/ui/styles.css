@@ -684,7 +684,7 @@
 /* A gallery frame holding one open context menu. */
 .dinkster-context-menu-stage { width: 280px; height: 320px; }
 /* Canvas chrome: the view and lens bar at the canvas's top left, and the minimap with the bar under it at its bottom right. Both bars wear the subtle border and are as wide as their buttons; their menus are the panels below. */
-.canvas-view-controls, .canvas-corner-bar { display: flex; align-items: center; box-sizing: border-box; padding: 3px; border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-low); pointer-events: auto; }
+.canvas-view-controls, .canvas-corner-bar { display: flex; align-items: center; box-sizing: border-box; font-size: var(--dinkster-type-body-size); padding: 3px; border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-low); pointer-events: auto; }
 .canvas-view-control { position: relative; display: flex; }
 :is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button { display: inline-flex; align-items: center; justify-content: center; gap: 3px; box-sizing: border-box; min-width: 28px; min-height: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: transparent; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; user-select: none; }
 :is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button:hover:not(:disabled) { border-color: transparent; background: var(--dinkster-interaction-hover); }
@@ -712,7 +712,7 @@
 .canvas-corner-bar .canvas-corner-more { min-width: 14px; width: 14px; margin-left: -3px; }
 .canvas-corner-bar .canvas-zoom-level { padding: 0 4px 0 6px; }
 /* Menus of the canvas chrome. The corner's open straight above the bar under the minimap, over the minimap, their right edge on the bar's; the host caps their height to the stage. */
-.minimap-menu, .lens-menu, .canvas-zoom-menu { position: absolute; z-index: 8; display: flex; flex-direction: column; box-sizing: border-box; min-width: 210px; padding: var(--dinkster-space-12); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-card); box-shadow: var(--dinkster-elevation-high); }
+.minimap-menu, .lens-menu, .canvas-zoom-menu { position: absolute; font-size: var(--dinkster-type-body-size); z-index: 8; display: flex; flex-direction: column; box-sizing: border-box; min-width: 210px; padding: var(--dinkster-space-12); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-card); box-shadow: var(--dinkster-elevation-high); }
 .minimap-menu, .canvas-zoom-menu { right: 0; bottom: calc(100% + 6px); overflow-y: auto; pointer-events: auto; }
 .minimap-menu { width: max-content; gap: var(--dinkster-space-8); }
 :is(.minimap-menu, .lens-menu, .canvas-zoom-menu) button { display: flex; align-items: center; box-sizing: border-box; width: 100%; min-height: 28px; padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 1px solid transparent; border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: transparent; font: inherit; text-align: left; cursor: pointer; user-select: none; }
@@ -734,7 +734,7 @@
 .canvas-zoom-menu kbd { color: var(--dinkster-text-muted); font-family: inherit; font-size: var(--dinkster-type-metadata-size); white-space: nowrap; }
 .canvas-zoom-field { display: flex; align-items: center; gap: 3px; box-sizing: border-box; height: 28px; margin-bottom: 2px; padding: 0 var(--dinkster-space-8); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); color: var(--dinkster-text-muted); font-variant-numeric: tabular-nums; }
 .canvas-zoom-field:focus-within { border-color: var(--dinkster-border-focus); }
-.canvas-zoom-field input, .canvas-zoom-field input:focus-visible { flex: 1; min-width: 0; width: 100%; min-height: 0; height: 24px; padding: 0; border: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; text-align: right; outline: none; }
+.canvas-zoom-menu .canvas-zoom-field input, .canvas-zoom-menu .canvas-zoom-field input:focus-visible { flex: 1; min-width: 0; width: 100%; min-height: 0; height: 24px; padding: 0; border: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; text-align: right; outline: none; }
 .canvas-view-control > .lens-menu { top: calc(100% + 8px); left: -4px; }
 .lens-menu button { flex-direction: column; align-items: flex-start; }
 .lens-menu small { color: var(--dinkster-text-muted); }
@@ -744,6 +744,7 @@
 /* Run keeps its green outline; the runs list beside it takes the canvas bars' subtle outline, and the whole control is quiet when Run is off. */
 .workflow-queue-control {
   position: relative;
+  font-size: var(--dinkster-type-body-size);
   display: flex;
   flex-direction: column;
   align-items: stretch;

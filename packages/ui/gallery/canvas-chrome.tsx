@@ -1,4 +1,4 @@
-import { For, createEffect, createSignal, onMount } from 'solid-js'
+import { For, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
 import { registerCatalog } from '@dinkster/core'
 import {
   canvasColorsForTheme,
@@ -94,7 +94,6 @@ interface CornerExample {
   readonly visible: boolean
   readonly menu?: CanvasCornerMenu
   readonly switches?: Readonly<Record<string, boolean>>
-  readonly tall?: boolean
 }
 
 const corners: readonly CornerExample[] = [
@@ -102,10 +101,33 @@ const corners: readonly CornerExample[] = [
   { id: 'medium', size: 'medium', visible: true, caption: 'Medium: the bar keeps its width.' },
   { id: 'large', size: 'large', visible: true, caption: 'Large: the bar keeps its width.' },
   { id: 'hidden', size: 'large', visible: false, caption: 'Minimap hidden: the same bar, its switch off.' },
-  { id: 'settings', size: 'large', visible: true, menu: 'minimap', tall: true, caption: 'The minimap settings, opened by the arrow beside the minimap switch, straight above the bar and over the dimmed minimap. Link Colors is on by default.' },
+  { id: 'settings', size: 'large', visible: true, menu: 'minimap', caption: 'The minimap settings, opened by the arrow beside the minimap switch, straight above the bar and over the dimmed minimap. Link Colors is on by default.' },
   { id: 'quiet', size: 'large', visible: true, switches: { ...defaultSwitches, linkColors: false }, caption: 'Link Colors off: wires in one grey and no title lines.' },
   { id: 'zoom', size: 'large', visible: true, menu: 'zoom', caption: 'The zoom menu, opened by the percentage, above the bar: type a percentage, Zoom in, Zoom out, Reset to 100%.' },
 ]
+
+/**
+ * Closes a cell's open menu on Escape from inside the cell or a press outside
+ * the menu and the button that opened it, as the editor does.
+ */
+function dismissOnOutside(cell: () => HTMLElement | undefined, isOpen: () => boolean, inside: string, close: () => void): void {
+  createEffect(() => {
+    if (!isOpen()) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const within = (item: EventTarget): boolean => item instanceof Element && item.matches(inside) && cell()?.contains(item) === true
+      if (!event.composedPath().some(within)) close()
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && cell()?.contains(document.activeElement) === true) close()
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('keydown', onKeyDown)
+    onCleanup(() => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('keydown', onKeyDown)
+    })
+  })
+}
 
 function CornerExampleCard(props: { readonly example: CornerExample }) {
   const [switches, setSwitches] = createSignal(props.example.switches ?? defaultSwitches)
@@ -113,6 +135,8 @@ function CornerExampleCard(props: { readonly example: CornerExample }) {
   const [menu, setMenu] = createSignal(props.example.menu)
   const [zoom, setZoom] = createSignal(scene.viewport.scale)
   let minimap: HTMLCanvasElement | undefined
+  let figure: HTMLElement | undefined
+  dismissOnOutside(() => figure, () => menu() !== undefined, '.minimap-menu, .canvas-zoom-menu, [data-testid="minimap-settings"], [data-testid="canvas-zoom-level"]', () => setMenu(undefined))
   onMount(() => {
     createEffect(() => {
       const current = switches()
@@ -120,15 +144,15 @@ function CornerExampleCard(props: { readonly example: CornerExample }) {
     })
   })
   return (
-    <figure class="dinkster-canvas-example" data-testid={`canvas-chrome-corner-${props.example.id}`}>
-      <div class="dinkster-canvas-example-stage dinkster-canvas-chrome-stage" data-shape={props.example.tall ? 'tall' : undefined}>
+    <figure ref={figure} class="dinkster-canvas-example" data-testid={`canvas-chrome-corner-${props.example.id}`}>
+      <div class="dinkster-canvas-example-stage dinkster-canvas-chrome-stage" data-shape="tall">
         <CanvasCornerControls
           size={props.example.size}
           minimapVisible={visible()}
           settings={switches()}
           zoom={zoom()}
           menu={menu()}
-          shortcuts={{ zoomIn: 'Alt+=', zoomOut: 'Alt+-' }}
+          shortcuts={{ zoomIn: 'alt+=', zoomOut: 'alt+-' }}
           minimapRef={(element) => { minimap = element }}
           onToggleMinimap={() => setVisible((value) => !value)}
           onToggleSetting={(id) => setSwitches((value) => ({ ...value, [id]: !value[id] }))}
@@ -162,9 +186,11 @@ function ViewExampleCard(props: { readonly example: ViewExample }) {
   const [lens, setLens] = createSignal(props.example.lens)
   const [menu, setMenu] = createSignal(props.example.menu)
   const [view, setView] = createSignal(GRAPH_EDITOR_KIND)
+  let figure: HTMLElement | undefined
+  dismissOnOutside(() => figure, () => menu() !== undefined, '.canvas-view-controls', () => setMenu(undefined))
   const active = () => lenses.find((item) => item.id === lens()) ?? lenses[0]!
   return (
-    <figure class="dinkster-canvas-example" data-testid={`canvas-chrome-view-${props.example.id}`}>
+    <figure ref={figure} class="dinkster-canvas-example" data-testid={`canvas-chrome-view-${props.example.id}`}>
       <div class="dinkster-canvas-example-stage dinkster-canvas-chrome-stage" data-shape={props.example.menu === undefined ? 'bar' : 'top'}>
         <div class="dinkster-canvas-chrome-toolbar">
           <CanvasViewControls

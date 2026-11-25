@@ -765,6 +765,7 @@ test('the canvas corner bar keeps one width right-justified under the minimap, i
       const menu = box('.minimap-menu, .canvas-zoom-menu')
       return [figure.dataset['testid']!.replace('canvas-chrome-corner-', ''), {
         barWidth: Math.round(bar.width),
+        barHeight: Math.round(bar.height),
         barRightToMap: map.offsetParent === null ? null : Math.round(map.getBoundingClientRect().right - bar.right),
         menuGap: menu === undefined ? null : Math.round(bar.top - menu.bottom),
         menuRight: menu === undefined ? null : Math.round(bar.right - menu.right),
@@ -774,13 +775,13 @@ test('the canvas corner bar keeps one width right-justified under the minimap, i
   )
   const width = corners['small']!.barWidth
   expect(corners).toEqual({
-    small: { barWidth: width, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
-    medium: { barWidth: width, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
-    large: { barWidth: width, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
-    hidden: { barWidth: width, barRightToMap: null, menuGap: null, menuRight: null, mapOpacity: '1' },
-    settings: { barWidth: width, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
-    quiet: { barWidth: width, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
-    zoom: { barWidth: width, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
+    small: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    medium: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    large: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    hidden: { barWidth: width, barHeight: 36, barRightToMap: null, menuGap: null, menuRight: null, mapOpacity: '1' },
+    settings: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
+    quiet: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    zoom: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
   })
   const outlines = await page.evaluate(() => {
     const style = (selector: string) => getComputedStyle(document.querySelector(selector)!)
@@ -798,4 +799,18 @@ test('the canvas corner bar keeps one width right-justified under the minimap, i
   await expect(
     page.getByRole('heading', { name: 'Canvas corner, view bar and Run' }).locator('xpath=ancestor::section[1]'),
   ).toHaveScreenshot('canvas-chrome.png')
+
+  const zoomCell = page.getByTestId('canvas-chrome-corner-zoom')
+  await zoomCell.getByTestId('canvas-zoom-in').click()
+  await expect(zoomCell.getByTestId('canvas-zoom-menu')).toBeVisible()
+  await expect(zoomCell.getByTestId('canvas-zoom-input')).toHaveValue('45')
+  await page.keyboard.press('Escape')
+  await expect(zoomCell.getByTestId('canvas-zoom-menu')).toBeHidden()
+  const settingsCell = page.getByTestId('canvas-chrome-corner-settings')
+  await page.getByRole('heading', { name: 'Canvas corner, view bar and Run' }).click()
+  await expect(settingsCell.locator('.minimap-menu')).toBeHidden()
+  await page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-settings').click()
+  await expect(page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-toggle-nodes')).toBeInViewport()
+  await page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-toggle-nodes').click()
+  await expect(page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-toggle-nodes')).toHaveAttribute('aria-checked', 'false')
 })

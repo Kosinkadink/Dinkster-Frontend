@@ -76,7 +76,7 @@ export function CanvasViewControls(props: {
   return (
     <div class="canvas-view-controls" classList={{ drilled: props.drilled }}>
       <div class="canvas-view-control">
-        <ProductButton variant="ghost" size="compact"
+        <ProductButton variant="ghost"
           ref={viewTrigger}
           type="button"
           class="canvas-chrome-button"
@@ -92,24 +92,24 @@ export function CanvasViewControls(props: {
           <div class="lens-menu view-menu" role="menu" aria-busy={pending()}>
             <Show when={refusal()}>{(text) => <ProductNotice tone="error" testId="net-display-error">{text()}</ProductNotice>}</Show>
             <div class="lens-menu-heading">{message('canvas.viewControls.heading.views')}</div>
-            <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeView === GRAPH_EDITOR_KIND} onClick={() => props.onSelectView(GRAPH_EDITOR_KIND)}><strong>{message('canvas.viewControls.active.graph')}</strong></ProductButton>
+            <ProductButton variant="ghost" role="menuitemradio" aria-checked={props.activeView === GRAPH_EDITOR_KIND} onClick={() => props.onSelectView(GRAPH_EDITOR_KIND)}><strong>{message('canvas.viewControls.active.graph')}</strong></ProductButton>
             <Show when={props.appViewEnabled}>
-              <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={appActive()} onClick={() => props.onSelectView(APP_EDITOR_KIND)}><strong>{message('canvas.viewControls.view.app')}</strong></ProductButton>
+              <ProductButton variant="ghost" role="menuitemradio" aria-checked={appActive()} onClick={() => props.onSelectView(APP_EDITOR_KIND)}><strong>{message('canvas.viewControls.view.app')}</strong></ProductButton>
             </Show>
             <div class="lens-menu-heading">{message('canvas.viewControls.heading.namedNets')}</div>
-            <ProductButton variant="ghost" size="compact"
+            <ProductButton variant="ghost"
               role="menuitem"
               data-testid="net-display-all-noodle"
               disabled={pending()}
               onClick={() => { void setAllNetsDisplay('noodle') }}
             ><strong>{message('canvas.viewControls.namedNets.noodles.label')}</strong><small>{message('canvas.viewControls.namedNets.noodles.description')}</small></ProductButton>
-            <ProductButton variant="ghost" size="compact"
+            <ProductButton variant="ghost"
               role="menuitem"
               data-testid="net-display-all-tags"
               disabled={pending()}
               onClick={() => { void setAllNetsDisplay('tags') }}
             ><strong>{message('canvas.viewControls.namedNets.tags.label')}</strong><small>{message('canvas.viewControls.namedNets.tags.description')}</small></ProductButton>
-            <ProductButton variant="ghost" size="compact"
+            <ProductButton variant="ghost"
               role="menuitem"
               data-testid="net-display-all-guide"
               disabled={pending()}
@@ -120,7 +120,7 @@ export function CanvasViewControls(props: {
       </div>
       <span class="canvas-chrome-divider" aria-hidden="true" />
       <div class="canvas-view-control">
-        <ProductButton variant="ghost" size="compact"
+        <ProductButton variant="ghost"
           type="button"
           class="canvas-chrome-button canvas-lens-button"
           data-testid="lens-switcher"
@@ -134,7 +134,7 @@ export function CanvasViewControls(props: {
         <Show when={props.lensMenuOpen}>
           <div class="lens-menu" role="menu">
             <div class="lens-menu-heading">{message('canvas.viewControls.heading.lenses')}</div>
-            <For each={props.lenses}>{(lens) => <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeLens.id === lens.id} onClick={() => props.onSelectLens(lens.id)}><strong>{lens.label}</strong><small>{lens.description}</small></ProductButton>}</For>
+            <For each={props.lenses}>{(lens) => <ProductButton variant="ghost" role="menuitemradio" aria-checked={props.activeLens.id === lens.id} onClick={() => props.onSelectLens(lens.id)}><strong>{lens.label}</strong><small>{lens.description}</small></ProductButton>}</For>
           </div>
         </Show>
       </div>
@@ -204,10 +204,9 @@ export function CanvasCornerControls(props: {
       queueMicrotask(() => (previous === 'zoom' ? zoomTrigger : settingsTrigger)?.focus())
     }
   }, { defer: true }))
-  const choose = (action: () => void) => () => {
-    action()
-    props.onCloseMenu()
-  }
+  // Zoom in and Zoom out keep the menu open for further steps, and the
+  // field follows the zoom.
+  createEffect(on(() => props.zoom, () => { if (props.menu === 'zoom') setTyped(String(percent())) }, { defer: true }))
   const applyTyped = (): void => {
     const value = Number.parseFloat(typed().replace('%', '').trim())
     if (Number.isFinite(value) && value > 0) props.onZoomTo(value / 100)
@@ -236,13 +235,13 @@ export function CanvasCornerControls(props: {
       <div class="canvas-corner-anchor">
         <div class="canvas-corner-bar" role="group" aria-label={message('canvas.corner.label')}>
           <span class="canvas-corner-split" data-open={props.menu === 'minimap' ? 'true' : undefined}>
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button" data-testid="minimap-toggle"
+            <ProductButton variant="ghost" type="button" class="canvas-chrome-button" data-testid="minimap-toggle"
               data-tooltip-label={message(props.minimapVisible ? 'canvas.corner.hideMinimap' : 'canvas.corner.showMinimap')}
               aria-label={message(props.minimapVisible ? 'canvas.corner.hideMinimap' : 'canvas.corner.showMinimap')}
               aria-pressed={props.minimapVisible}
               onClick={props.onToggleMinimap}
             ><Icon icon={MapIcon} /></ProductButton>
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button canvas-corner-more" data-testid="minimap-settings"
+            <ProductButton variant="ghost" type="button" class="canvas-chrome-button canvas-corner-more" data-testid="minimap-settings"
               ref={settingsTrigger}
               data-tooltip-label={props.menu === 'minimap' ? undefined : message('canvas.corner.minimapSettings')}
               aria-label={message('canvas.corner.minimapSettings')}
@@ -251,12 +250,12 @@ export function CanvasCornerControls(props: {
             ><Icon icon={ChevronDown} /></ProductButton>
           </span>
           <span class="canvas-chrome-divider" aria-hidden="true" />
-          <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button" data-testid="canvas-fit-view"
+          <ProductButton variant="ghost" type="button" class="canvas-chrome-button" data-testid="canvas-fit-view"
             data-tooltip-label={message('canvas.corner.fit')}
             aria-label={message('canvas.corner.fitShortcut')}
             onClick={props.onFit}
           ><Icon icon={Maximize2} /></ProductButton>
-          <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button canvas-zoom-level" data-testid="canvas-zoom-level"
+          <ProductButton variant="ghost" type="button" class="canvas-chrome-button canvas-zoom-level" data-testid="canvas-zoom-level"
             ref={zoomTrigger}
             data-tooltip-label={props.menu === 'zoom' ? undefined : message('canvas.corner.zoomOptions')}
             aria-label={message('canvas.corner.zoomLabel', { percent: percent() })}
@@ -269,9 +268,9 @@ export function CanvasCornerControls(props: {
           <div ref={menuElement} class="minimap-menu">
             <For each={MINIMAP_SWITCHES}>{(item) => {
               const label = () => message(`canvas.corner.minimap.${item.id}`)
-              return <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid={`minimap-toggle-${item.id}`} aria-label={label()} aria-checked={props.settings[item.id] === true} onClick={() => props.onToggleSetting(item.id)}><Icon icon={item.icon} /><span>{label()}</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
+              return <ProductButton variant="ghost" type="button" role="switch" class="minimap-setting-row" data-testid={`minimap-toggle-${item.id}`} aria-label={label()} aria-checked={props.settings[item.id] === true} onClick={() => props.onToggleSetting(item.id)}><Icon icon={item.icon} /><span>{label()}</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
             }}</For>
-            <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid="minimap-marker-toggle"
+            <ProductButton variant="ghost" type="button" role="switch" class="minimap-setting-row" data-testid="minimap-marker-toggle"
               aria-checked={props.settings['bookmarks'] === true}
               data-tooltip-label={message('canvas.corner.minimap.bookmarks.tooltip')}
               aria-label={message('canvas.corner.minimap.bookmarks.label')}
@@ -297,9 +296,9 @@ export function CanvasCornerControls(props: {
               />
               <span aria-hidden="true">%</span>
             </label>
-            <ProductButton variant="ghost" size="compact" type="button" role="menuitem" data-testid="canvas-zoom-in" onClick={choose(() => props.onZoomBy(1.2))}><span>{message('canvas.corner.zoomIn')}</span><Show when={props.shortcuts?.zoomIn}>{(keys) => <kbd>{keys()}</kbd>}</Show></ProductButton>
-            <ProductButton variant="ghost" size="compact" type="button" role="menuitem" data-testid="canvas-zoom-out" onClick={choose(() => props.onZoomBy(1 / 1.2))}><span>{message('canvas.corner.zoomOut')}</span><Show when={props.shortcuts?.zoomOut}>{(keys) => <kbd>{keys()}</kbd>}</Show></ProductButton>
-            <ProductButton variant="ghost" size="compact" type="button" role="menuitem" data-testid="canvas-zoom-reset" onClick={choose(() => props.onZoomTo(1))}><span>{message('canvas.corner.zoomReset')}</span></ProductButton>
+            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-in" onClick={() => props.onZoomBy(1.2)}><span>{message('canvas.corner.zoomIn')}</span><Show when={props.shortcuts?.zoomIn}>{(keys) => <kbd>{keys()}</kbd>}</Show></ProductButton>
+            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-out" onClick={() => props.onZoomBy(1 / 1.2)}><span>{message('canvas.corner.zoomOut')}</span><Show when={props.shortcuts?.zoomOut}>{(keys) => <kbd>{keys()}</kbd>}</Show></ProductButton>
+            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-reset" onClick={() => { props.onZoomTo(1); props.onCloseMenu() }}><span>{message('canvas.corner.zoomReset')}</span></ProductButton>
           </div>
         </Show>
       </div>
