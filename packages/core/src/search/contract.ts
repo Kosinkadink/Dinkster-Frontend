@@ -15,7 +15,8 @@ export type SearchHostAction =
   | {
       readonly kind: 'host'
       readonly action: 'blueprint.armPlacement'
-      readonly params: { readonly packId: string; readonly id: string; readonly backendId: string }
+      /** `type` is the blueprint's entry type in the node search list, such as "blueprint:<pack>/<id>". */
+      readonly params: { readonly type: string; readonly backendId: string }
     }
   | { readonly kind: 'host'; readonly action: 'workflow.open'; readonly params: { readonly id: string; readonly backendId: string } }
 
@@ -238,12 +239,12 @@ export function decodeSearchHostAction(value: unknown): SearchHostAction | undef
     })
   }
   if (value['action'] === 'blueprint.armPlacement') {
-    const params = exactStringParams(value['params'], ['packId', 'id', 'backendId'])
+    const params = exactStringParams(value['params'], ['type', 'backendId'])
     if (params === undefined) return undefined
     return Object.freeze({
       kind: 'host',
       action: 'blueprint.armPlacement',
-      params: Object.freeze({ packId: params['packId']!, id: params['id']!, backendId: params['backendId']! }),
+      params: Object.freeze({ type: params['type']!, backendId: params['backendId']! }),
     })
   }
   if (value['action'] === 'workflow.open') {

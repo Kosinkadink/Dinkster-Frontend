@@ -6288,12 +6288,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (armed) queueMicrotask(() => canvasEl.focus())
         return armed
       },
-      armBlueprintPlacement: (packId, blueprintId, backendId) => {
+      blueprintEntries: () => paletteEntries().filter((entry) => entry.kind === 'blueprint'),
+      armBlueprintPlacement: (type, backendId) => {
         const tab = activeTab()
-        const entry = paletteEntries().find((candidate) =>
-          candidate.kind === 'blueprint' &&
-          candidate.blueprint?.packId === packId &&
-          candidate.blueprint.descriptor.id === blueprintId)
+        const entry = paletteEntries().find((candidate) => candidate.kind === 'blueprint' && candidate.type === type)
         if (!entry || !tab || props.app.backendForTab(tab).id !== backendId) {
           clearArmedPlacement()
           return false

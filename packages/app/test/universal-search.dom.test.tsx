@@ -210,7 +210,7 @@ describe('UniversalSearch', () => {
       title: `${id} title`,
       action: actionName === 'node.armPlacement'
         ? { kind: 'host', action: actionName, params: { type: id, schemaKey: 'key', backendId: 'backend' } }
-        : { kind: 'host', action: actionName, params: { packId: 'pack', id, backendId: 'backend' } },
+        : { kind: 'host', action: actionName, params: { type: `blueprint:pack/${id}`, backendId: 'backend' } },
       preview: { version: 1, title: `${id} title`, description: `What ${id} does.`, fields: [{ label: 'Where', value: `dev / image - ${id} pack` }] },
     })
     const { root, dispose } = fixture([

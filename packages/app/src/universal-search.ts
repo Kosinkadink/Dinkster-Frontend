@@ -78,20 +78,20 @@ export function registerCoreSearchProviders(app: AppState): readonly (() => void
     } },
     { id: 'core.blueprints', label: 'Blueprints', priority: 55, query: (q) => {
       const tab = app.activeTab()
-      const registry = tab && tab.execution === undefined && app.canvasBridge.get() ? app.registryForTab(tab) ?? app.keptRegistryForTab(tab) : undefined
-      if (tab === undefined || registry?.packs === undefined) return []
+      const bridge = tab && tab.execution === undefined ? app.canvasBridge.get() : undefined
+      if (tab === undefined || bridge?.blueprintEntries === undefined) return []
       const backendId = app.backendForTab(tab).id
-      return [...registry.packs].flatMap(([packId, info]) => (info.blueprints ?? []).flatMap((blueprint) => {
-        const match = result(q, `${packId}/${blueprint.id}`, blueprint.name, t('search.blueprint'), {
-          kind: 'host', action: 'blueprint.armPlacement', params: { packId, id: blueprint.id, backendId },
-        }, [...(blueprint.tags ?? []), ...(blueprint.description === undefined ? [] : [blueprint.description]), info.displayName])
+      return bridge.blueprintEntries().flatMap((entry) => {
+        const match = result(q, entry.type, entry.name, t('search.blueprint'), {
+          kind: 'host', action: 'blueprint.armPlacement', params: { type: entry.type, backendId },
+        }, entry.fields.map((field) => field.text))
         return match === undefined ? [] : [{ ...match, preview: {
           version: 1 as const,
-          title: blueprint.name,
-          ...(blueprint.description === undefined ? {} : { description: blueprint.description }),
-          fields: [{ label: 'Where', value: `${t('search.blueprint')} - ${info.displayName}` }],
+          title: entry.name,
+          ...(entry.description === undefined ? {} : { description: entry.description }),
+          fields: [{ label: 'Where', value: `${t('search.blueprint')} - ${entry.pack ?? entry.category}` }],
         } }]
-      }))
+      })
     } },
     { id: 'core.workflows', label: 'Workflows', priority: 20, async: true, query: async (q) => {
       const backend = app.libraryBackend()
@@ -203,7 +203,7 @@ export function runSearchAction(app: AppState, action: SearchAction): boolean | 
     }) ?? false
   }
   else if (decoded.action === 'blueprint.armPlacement') {
-    return app.canvasBridge.get()?.armBlueprintPlacement?.(decoded.params.packId, decoded.params.id, decoded.params.backendId) ?? false
+    return app.canvasBridge.get()?.armBlueprintPlacement?.(decoded.params.type, decoded.params.backendId) ?? false
   }
   else if (decoded.action === 'workflow.open') {
     return app.openFromLibrary(decoded.params.id, decoded.params.backendId)

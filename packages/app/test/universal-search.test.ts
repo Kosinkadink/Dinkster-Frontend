@@ -116,14 +116,27 @@ describe('universal search model', () => {
     expect(openFromLibrary).toHaveBeenCalledWith('wf-a', 'engine-1')
     dispose.forEach((fn) => fn())
   })
-  it('blueprint rows arm the blueprint on the canvas, not a node', () => {
+  it('blueprints provider lists the blueprints node search lists and arms the chosen one, not a node', () => {
     const app = prepareWorkflowApp(new AppState())
+    const entry = (type: string, name: string, pack: string) => ({
+      type, name, category: pack, pack, kind: 'blueprint' as const, fields: [{ text: name, weight: 3 }, { text: pack, weight: 1 }],
+    })
     const armBlueprintPlacement = vi.fn(() => true)
     const armNodePlacement = vi.fn(() => true)
-    app.canvasBridge.set({ armBlueprintPlacement, armNodePlacement } as never)
-    expect(runSearchAction(app, { kind: 'host', action: 'blueprint.armPlacement', params: { packId: 'dev', id: 'upscale-2x', backendId: 'engine-1' } })).toBe(true)
-    expect(armBlueprintPlacement).toHaveBeenCalledWith('dev', 'upscale-2x', 'engine-1')
+    app.canvasBridge.set({
+      blueprintEntries: () => [entry('blueprint:dev/upscale-2x', 'Upscale 2x', 'Dev'), entry('blueprint:saved/wf-9', 'Upscale and sharpen', 'This project')],
+      armBlueprintPlacement, armNodePlacement, selectedNodes: () => [],
+    } as never)
+    const dispose = registerCoreSearchProviders(app)
+    const provider = app.searchRegistry.list().find((item) => item.id === 'core.blueprints')!
+    const rows = provider.query('upscale', { selection: { nodes: [] }, signal: new AbortController().signal }) as readonly SearchResult[]
+    expect(rows.map((row) => row.title).sort()).toEqual(['Upscale 2x', 'Upscale and sharpen'])
+    const saved = rows.find((row) => row.title === 'Upscale and sharpen')!
+    expect(saved.preview?.fields).toEqual([{ label: 'Where', value: 'Blueprint - This project' }])
+    expect(runSearchAction(app, saved.action)).toBe(true)
+    expect(armBlueprintPlacement).toHaveBeenCalledWith('blueprint:saved/wf-9', app.backendForTab(app.activeTab()!).id)
     expect(armNodePlacement).not.toHaveBeenCalled()
+    dispose.forEach((fn) => fn())
   })
   it('closes a requested template gallery when workspaces change or reload', async () => {
     const app = prepareWorkflowApp(new AppState()); const before = app.createWorkflow(); const after = app.createWorkflow()
