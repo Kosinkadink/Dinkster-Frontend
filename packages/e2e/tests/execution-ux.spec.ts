@@ -18,6 +18,11 @@ async function identityViewport(page: Page): Promise<void> {
 
 type Part = { kind: 'header' } | { kind: 'widget'; inputId: string } | { kind: 'badge'; index: number }
 
+/** The run states the canvas is drawing, as {nodeId: state}. */
+const drawnStates = (page: Page) => page.evaluate(() => Object.fromEntries(
+  Object.entries((window.__dinksterTest!.renderer! as unknown as { nodeStates: Record<string, { state: string }> }).nodeStates)
+    .map(([id, progress]) => [id, progress.state])))
+
 const settlePaint = (page: Page): Promise<void> => page.evaluate(() =>
   new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 
@@ -138,15 +143,25 @@ test('execution row opens a frozen view pinned to that execution', async ({ page
   await expect(tabs).toHaveCount(3)
 })
 
-test('frozen snapshot survives live edits and both sides report divergence', async ({ page }) => {
+test('frozen snapshot survives live edits and reports the divergence', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(page.getByTestId('tab-bar').locator('.tab.frozen.active')).toHaveCount(1)
+  await expect(page.getByTestId('frozen-banner')).toHaveAttribute('data-sync', 'in-sync')
   const frozenTabId = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.id)
+  // The frozen view draws what the run did; the engine may serve it from cache.
+  await expect.poll(async () => {
+    const states = Object.values(await drawnStates(page))
+    return states.length > 0 && states.every((state) => state === 'done' || state === 'cached')
+  }).toBe(true)
 
-  // Back to live; the sync chip matches the execution before any edit.
+  // The live editor carries no execution chip once the run has finished,
+  // and leaves what ran, came from cache or was skipped to the frozen view.
   await page.getByTestId('frozen-go-live').click()
-  await expect(page.getByTestId('sync-chip')).toHaveAttribute('data-sync', 'in-sync')
+  await expect(page.getByTestId('tab-bar').locator('.tab.frozen.active')).toHaveCount(0)
+  await expect(page.getByTestId('sync-chip')).toHaveCount(0)
+  await settlePaint(page)
+  expect(Object.values(await drawnStates(page)).filter((state) => state !== 'error')).toEqual([])
 
   // Edit a semantic value on the live workflow.
   await identityViewport(page)
@@ -156,13 +171,12 @@ test('frozen snapshot survives live edits and both sides report divergence', asy
   await editor.fill('128')
   await editor.press('Enter')
 
-  await expect(page.getByTestId('sync-chip')).toHaveAttribute('data-sync', 'diverged')
   expect((await rootValues(page))['n0']!['width']).toBe(128)
   // The frozen document is the compile-time snapshot: untouched by the edit.
   expect((await rootValues(page, frozenTabId))['n0']!['width']).toBe(64)
 
-  // The chip links to the SAME frozen tab, now reporting divergence too.
-  await page.getByTestId('sync-chip-open').click()
+  // Reopening the run returns to the SAME frozen tab, now reporting divergence.
+  await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(3)
   await expect(page.getByTestId('frozen-banner')).toHaveAttribute('data-sync', 'diverged')
 

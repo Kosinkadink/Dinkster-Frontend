@@ -919,6 +919,21 @@ describe('deriveSceneOverlays', () => {
     expect(m.ownRuntimeIds!('n1')).toEqual(['n1'])
   })
 
+  it('draws a finished run\'s done, cached and skipped outlines only in the frozen view, and its errors live', () => {
+    const nodes = { n1: { state: 'done' }, n2: { state: 'cached' }, n3: { state: 'skipped' }, n4: { state: 'error' } }
+    const runScene = scene([{ id: 'n1' }, { id: 'n2' }, { id: 'n3' }, { id: 'n4' }, { id: 'n5' }])
+    const shown = (status: string, frozen: boolean) => Object.fromEntries(Object.entries(deriveSceneOverlays({
+      ...base, scene: runScene, frozen, exec: exec({ status, nodes, errors: [runError('n4')] }),
+    }).states).map(([id, progress]) => [id, progress.state]))
+    const all = { n1: 'done', n2: 'cached', n3: 'skipped', n4: 'error' }
+    for (const status of ['completed', 'error', 'interrupted', 'cancelled']) {
+      expect(shown(status, false)).toEqual({ n4: 'error' })
+      expect(shown(status, true)).toEqual(all)
+    }
+    // While the run is still going, the live editor shows its progress.
+    expect(shown('running', false)).toEqual(all)
+  })
+
   it('applies decorations in id order and rolls back a failing contribution', () => {
     const target = scene([{ id: 'proof' }, { id: 'other' }])
     const results: Array<readonly [string, unknown?]> = []
