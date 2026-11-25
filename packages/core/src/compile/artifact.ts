@@ -140,13 +140,18 @@ export interface CompileArtifact {
   readonly diagnostics: readonly Diagnostic[]
 }
 
-/** An automatic field's value copied into another node, and the node that got it. */
+/**
+ * An automatic field's value copied into another node, and the node that got
+ * it. A field on a node inside a region body is keyed by its occurrence,
+ * which is not how the run records it, so it is not compared.
+ */
 export interface AutomaticTap {
-  /** The runtime node that owns the field, as the run records it. */
+  /** The runtime node that owns the field, as the run records a node outside region bodies. */
   readonly runtimeNodeId: string
   readonly inputId: string
   readonly value: Json
-  /** The name of the node that got the value. */
+  /** The runtime node that got the value, and its name. */
+  readonly receiverRuntimeId: string
   readonly receiver: string
 }
 
@@ -172,6 +177,7 @@ export interface WorkspaceCompileArtifact {
   readonly partialTargets?: readonly string[]
   readonly provenance: WorkspaceProvenance
   readonly choices?: readonly SelectorChoice[]
+  readonly automaticTaps?: readonly AutomaticTap[]
   readonly diagnostics: readonly Diagnostic[]
 }
 
@@ -210,6 +216,15 @@ export function projectWorkspaceCompileArtifact(artifact: CompileArtifact): Work
         selector: choice.selector,
         policy: choice.policy,
         candidate: choice.candidate,
+      })),
+    }),
+    ...(artifact.automaticTaps === undefined ? {} : {
+      automaticTaps: artifact.automaticTaps.map((tap) => ({
+        runtimeNodeId: tap.runtimeNodeId,
+        inputId: tap.inputId,
+        value: tap.value,
+        receiverRuntimeId: tap.receiverRuntimeId,
+        receiver: tap.receiver,
       })),
     }),
     diagnostics: artifact.diagnostics,

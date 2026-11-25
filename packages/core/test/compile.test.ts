@@ -542,7 +542,7 @@ describe('value handling', () => {
       lookup === 'sizes.batch' && JSON.stringify(args) === '[24]' ? state : undefined
     const batchDefault = [['Could not work out batch_size. Retime 2 gets the default, 1.', { node: 'n0', port: 'batch_size' }]]
     // Every value passed on is kept with the run, keyed as the run records the field's own node.
-    const tapOf = (inputId: string, value: Json) => [{ runtimeNodeId: 'n0', inputId, value, receiver: 'Retime 2' }]
+    const tapOf = (inputId: string, value: Json) => [{ runtimeNodeId: 'n0', inputId, value, receiverRuntimeId: 'n2', receiver: 'Retime 2' }]
     expect(tapped('color')).toEqual({ width: 48, warnings: [], taps: tapOf('color', 48) })
     // A kept answer is what the row shows, fresh or not.
     expect(tapped('batch_size', answer({ state: 'ready', answer: 3 }))).toEqual({ width: 3, warnings: [], taps: tapOf('batch_size', 3) })

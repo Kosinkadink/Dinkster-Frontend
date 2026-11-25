@@ -1925,18 +1925,26 @@ describe('last run automatic warnings', () => {
         { runtimeNodeId: 'r1', inputId: 'fixed', value: 1, workedOut: true },
       ]),
     } as unknown as { artifact: Record<string, unknown> }
-    execution.artifact = { ...execution.artifact, automaticTaps: [
-      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, receiver: 'Retime 2' },
-      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 30, receiver: 'Retime 3' },
-      { runtimeNodeId: 'r1', inputId: 'delay', value: 2.0, receiver: 'Retime 2' },
-      { runtimeNodeId: 'r1', inputId: 'fixed', value: 7, receiver: 'Retime 2' },
-    ] }
+    const tap = (inputId: string, value: number, receiverRuntimeId: string, receiver: string) =>
+      ({ runtimeNodeId: 'r1', inputId, value, receiverRuntimeId, receiver })
+    const found = (taps: readonly unknown[]) => {
+      execution.artifact = { ...execution.artifact, automaticTaps: taps }
+      return lastRunAutomaticDiagnostics({ scene: view, execution: execution as unknown as ExecutionState, instancePath: [] })
+        .map((d) => [d.code, d.message, d.anchor?.port])
+    }
+    const frameRate = { node: 'a', port: 'frame_rate' }
 
-    const found = lastRunAutomaticDiagnostics({ scene: view, execution: execution as unknown as ExecutionState, instancePath: [] })
-
-    // One warning for the node that got another value; agreeing values and a field fixed since give none.
-    expect(found.map((d) => [d.code, d.message, d.anchor?.port])).toEqual([
-      ['automatic.lastRunTapDiffers', 'The last run used 30 for frame rate, but Retime 2 got 24.', { node: 'a', port: 'frame_rate' }],
+    // Agreeing values and a field fixed since give no warning.
+    expect(found([tap('frame_rate', 30, 'n2', 'Retime 2'), tap('delay', 2.0, 'n2', 'Retime 2'), tap('fixed', 7, 'n2', 'Retime 2')])).toEqual([])
+    expect(found([tap('frame_rate', 24, 'n2', 'Retime 2')])).toEqual([
+      ['automatic.lastRunTapDiffers', 'The last run used 30 for frame rate, but Retime 2 got 24.', frameRate],
+    ])
+    // One warning for the field, naming the nodes; a node fed through two inputs counts once.
+    expect(found([tap('frame_rate', 24, 'n2', 'Retime 2'), tap('frame_rate', 24, 'n3', 'Retime 3'), tap('frame_rate', 24, 'n3', 'Retime 3')])).toEqual([
+      ['automatic.lastRunTapDiffers', 'The last run used 30 for frame rate, but Retime 2 and Retime 3 got 24.', frameRate],
+    ])
+    expect(found([tap('frame_rate', 24, 'n2', 'Retime'), tap('frame_rate', 24, 'n3', 'Retime'), tap('frame_rate', 24, 'n4', 'Retime')])).toEqual([
+      ['automatic.lastRunTapDiffers', 'The last run used 30 for frame rate, but 3 nodes got 24.', frameRate],
     ])
   })
 

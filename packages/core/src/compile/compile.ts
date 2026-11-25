@@ -503,7 +503,7 @@ function compileImpl(
   const emitRegions = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_REGIONS) ?? false
   const diags: Diagnostic[] = []
   /** Automatic values copied into a node, by the node that receives each. */
-  const automaticTaps: (AutomaticTap & { readonly receiverRuntimeId: string })[] = []
+  const automaticTaps: AutomaticTap[] = []
   const elaborationDiagnosticOwners = new Map<Diagnostic, {
     readonly graphId: GraphDefId
     readonly nodeId: NodeId
@@ -3130,7 +3130,6 @@ function compileImpl(
     ...(selectorChoices.length > 0 ? { choices: deepFreeze(structuredClone(selectorChoices)) } : {}),
     ...(() => {
       const taps = automaticTaps.filter((tap) => included.has(tap.receiverRuntimeId))
-        .map(({ receiverRuntimeId: _, ...tap }): AutomaticTap => tap)
       return taps.length > 0 ? { automaticTaps: deepFreeze(structuredClone(taps)) } : {}
     })(),
     diagnostics: deepFreeze(structuredClone(diags)),

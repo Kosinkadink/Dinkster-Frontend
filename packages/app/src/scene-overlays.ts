@@ -234,9 +234,20 @@ export function lastRunAutomaticDiagnostics(args: {
   const differing = (record: RecordedAutomatic) => taps.filter((tap) =>
     tap.runtimeNodeId === record.runtimeNodeId && tap.inputId === record.inputId && !sameJson(tap.value, record.value))
   eachRecordedAutomaticRow(args.scene, args.execution, args.instancePath, (record) => differing(record).length > 0, (node, row, record) => {
+    // A compile passes one value on for a field, so the nodes that got it
+    // share one warning; a group per value keeps any other value apart.
+    const byValue = new Map<string, Map<string, string>>()
     for (const tap of differing(record)) {
+      const key = JSON.stringify(tap.value)
+      let receivers = byValue.get(key)
+      if (receivers === undefined) byValue.set(key, (receivers = new Map()))
+      receivers.set(tap.receiverRuntimeId, tap.receiver)
+    }
+    for (const [key, receivers] of byValue) {
+      const names = [...receivers.values()]
+      const who = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.length} nodes`
       out.push(diag('warning', 'runtime', 'automatic.lastRunTapDiffers',
-        `The last run used ${shownValue(record.value)} for ${row.label}, but ${tap.receiver} got ${shownValue(tap.value)}.`, {
+        `The last run used ${shownValue(record.value)} for ${row.label}, but ${who} got ${shownValue(JSON.parse(key) as Json)}.`, {
           anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
           data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
         }))
