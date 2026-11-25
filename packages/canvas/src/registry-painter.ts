@@ -475,7 +475,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               const before = marked ? wordReserve : 0
               const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + before
               const textY = centered ? chrome.y + chrome.height / 2 : y + (ty + 0.5) * rowHeight
-              ctx.fillText(text, textX, textY)
+              if (!(alignRight && paintValueParts(ctx, style['parts'], textX, textY, fitWidth, tokens))) ctx.fillText(text, textX, textY)
               if (centered) sketchValueWidth = measureWidth(ctx, text) + TEXT_PAD * 2
               if (modeIcon !== undefined && role === 'widgetValue' && alignRight) {
                 // Marks about a value come before it, so values line up at the right.
@@ -562,7 +562,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       },
       resolved,
       row.spec,
-      { focused: false, connected: args.connected, readonly: true },
+      { focused: false, connected: args.connected, readonly: true, ...(args.facts === undefined ? {} : { hostFacts: args.facts }) },
     )
     if (declaredSlider) paintLabel()
     const visibleHeight = Math.max(0, multilineBottom - multilineTop - multilinePadding * 2)
@@ -658,4 +658,71 @@ function paintCurveSketch(
     ctx.fill()
   }
   ctx.restore()
+}
+
+/**
+ * One piece of a value drawn in its own look, such as a save target's
+ * mounts: 'resolved' is a value the host worked out, drawn in italics;
+ * 'gone' is a stored value this machine lacks, struck through.
+ */
+interface ValuePart {
+  readonly text: string
+  readonly look?: 'resolved' | 'gone'
+}
+
+const valueParts = (value: unknown): readonly ValuePart[] | undefined =>
+  Array.isArray(value) && value.length > 0 && value.every((part) =>
+    typeof part === 'object' && part !== null && typeof (part as ValuePart).text === 'string'
+    && ((part as ValuePart).look === undefined || (part as ValuePart).look === 'resolved' || (part as ValuePart).look === 'gone'))
+    ? value as readonly ValuePart[]
+    : undefined
+
+/**
+ * Draws a value style's `parts` right-aligned at `right`, each in its look,
+ * within `fitWidth`, cutting a plain last part with an ellipsis when needed.
+ * Returns false, drawing nothing, when there are no parts or they do not
+ * fit that way, so the caller draws the plain text.
+ */
+function paintValueParts(
+  ctx: CanvasRenderingContext2D,
+  style: unknown,
+  right: number,
+  y: number,
+  fitWidth: number,
+  tokens: DesignTokens,
+): boolean {
+  const parts = valueParts(style)
+  if (parts === undefined) return false
+  const baseFont = ctx.font
+  const valueColor = ctx.fillStyle
+  const fontOf = (part: ValuePart): string => (part.look === 'resolved' ? `italic ${baseFont}` : baseFont)
+  const gap = measureWidth(ctx, ' ')
+  const widths = parts.map((part) => {
+    ctx.font = fontOf(part)
+    return measureWidth(ctx, part.text)
+  })
+  ctx.font = baseFont
+  const total = widths.reduce((sum, width) => sum + width, 0) + parts.filter((part) => part.look === 'gone').length * gap
+  const last = parts.length - 1
+  let tail = parts[last]!.text
+  if (total > fitWidth) {
+    // Only a plain last part is cut, and only while some of it stays.
+    if (parts[last]!.look !== undefined) return false
+    tail = fitText(ctx, tail, fitWidth - (total - widths[last]!))
+    if (tail.length <= 3) return false
+    widths[last] = measureWidth(ctx, tail)
+  }
+  let x = right
+  for (let index = last; index >= 0; index--) {
+    const part = parts[index]!
+    if (part.look === 'gone') x -= gap
+    ctx.font = fontOf(part)
+    ctx.fillStyle = part.look === 'gone' ? tokens.colors.label : valueColor
+    ctx.fillText(index === last ? tail : part.text, x, y)
+    if (part.look === 'gone') paintStaleValueStrikethrough(ctx, part.text, x, y, 'right', tokens.colors.label)
+    x -= widths[index]!
+  }
+  ctx.font = baseFont
+  ctx.fillStyle = valueColor
+  return true
 }
