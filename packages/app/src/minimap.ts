@@ -75,6 +75,7 @@ export function setupMinimap(deps: {
   let graphDirty = true
   let graphScene: ReturnType<CanvasRenderer['getScene']> | undefined
 
+  let hovered = false
   function paint(graphChanged = true): void {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
@@ -156,6 +157,7 @@ export function setupMinimap(deps: {
       remoteViewports: renderer.getPresence().flatMap((actor) =>
         actor.view === undefined ? [] : [{ ...actor.view, color: actor.color }]),
       markers: deps.markers(),
+      hovered,
       tokens: renderer.getTokens(),
     })
     ctx.restore()
@@ -191,6 +193,8 @@ export function setupMinimap(deps: {
     })
   }
   let dragging = false
+  const onPointerEnter = (): void => { hovered = true; schedule() }
+  const onPointerLeave = (): void => { hovered = false; schedule() }
   const onPointerDown = (e: PointerEvent): void => {
     e.preventDefault()
     e.stopPropagation()
@@ -226,6 +230,8 @@ export function setupMinimap(deps: {
       e.deltaY,
     ))
   }
+  canvas.addEventListener('pointerenter', onPointerEnter)
+  canvas.addEventListener('pointerleave', onPointerLeave)
   canvas.addEventListener('pointerdown', onPointerDown)
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerup', onPointerUp)
@@ -244,6 +250,8 @@ export function setupMinimap(deps: {
       if (frame) cancelAnimationFrame(frame)
       resizeObserver?.disconnect()
       unsubscribeViewport()
+      canvas.removeEventListener('pointerenter', onPointerEnter)
+      canvas.removeEventListener('pointerleave', onPointerLeave)
       canvas.removeEventListener('pointerdown', onPointerDown)
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('pointerup', onPointerUp)

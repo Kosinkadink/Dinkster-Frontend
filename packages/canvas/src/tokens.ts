@@ -648,7 +648,12 @@ export const canvasPaintTokens = {
     remoteOpacity: 0.8,
     /** The area outside the current view is dimmed by the canvas color at this opacity. */
     outsideViewOpacity: 0.34,
-    viewportStrokeOpacity: 0.72,
+    /** The view area: filled with its outline's color at this opacity, so it reads as a lit window. */
+    viewportFillOpacity: 0.06,
+    viewportStrokeOpacity: 0.4,
+    /** While the pointer is over the minimap the view's fill and outline are a little stronger, so the minimap reads as live. */
+    viewportFillHoverOpacity: 0.1,
+    viewportStrokeHoverOpacity: 0.6,
     viewportStroke: 1,
     viewportRadius: 3,
     markerRadius: 7,

@@ -255,6 +255,9 @@ and typed canvas tokens. There is no separate hand-maintained theme CSS.
 The dark frame is `#090D0D`; the light frame uses the existing raised shade,
 `#EDEFF2`. Node value fields have their own `bg.field` role, dark `#0B1111`
 and light `#F7F8FA`; an open field uses `bg.fieldOpen`, dark `#060A0A`. A
+quiet surface on a panel, such as the projects page's fact boxes, uses
+`bg.quiet`, half the step from the panel to raised: dark `#192223`, light
+`#F6F7F9`. A
 node's title rule uses `border.divider`, dark `#222E2F`, and a group's
 outline `border.group`, dark `#435557`; in light both keep `border.default`. The lines between a node's problems in its problem box use `border.faint`, dark `#1B2526` and light `#E9ECEE`, half the divider's contrast against the box. Queued and skipped node outlines have dedicated
 `border.pending` and `border.skipped` entries; their light values remain

@@ -159,7 +159,7 @@ describe('drawMinimap', () => {
   /** Node box fills: rectangles at full opacity after the background, excluding title lines. */
   const nodeFills = (calls: readonly PaintCall[]) =>
     calls.filter((c) => c.kind === 'fill' && c.alpha === 1 && c.style !== colors.valueMark).slice(1)
-  const isViewFrame = (c: PaintCall) => c.kind === 'stroke' && c.style === colors.title && c.alpha === 0.72
+  const isViewFrame = (c: PaintCall) => c.kind === 'stroke' && c.style === colors.title && (c.alpha === 0.4 || c.alpha === 0.6)
   const isOutsideDim = (c: PaintCall) => c.kind === 'fill' && c.rule === 'evenodd'
 
   it('paints distinct node identity colors with a theme-safe fallback', () => {
@@ -345,6 +345,35 @@ describe('drawMinimap', () => {
     // The even-odd pair: the whole panel, minus the frame.
     expect(dim[0]).toMatchObject({ x: 0, y: 0, w: 220, h: 150 })
     expect(dim[1]!.x).toBeCloseTo(frame.x)
+    // Inside the frame a quiet wash of the frame's own color, painted after the dimming and under the outline.
+    const inside = calls.findIndex((c) => c.kind === 'fill' && c.rule === undefined && c.style === colors.title && c.x === frame.x && c.w === frame.w)
+    expect(inside).toBeGreaterThan(calls.indexOf(dim[1]!))
+    expect(inside).toBeLessThan(calls.indexOf(frame))
+    expect(calls[inside]!.alpha).toBeGreaterThan(0)
+    expect(calls[inside]!.alpha).toBeLessThan(0.1)
+  })
+
+  it('strengthens only the view fill and outline while the minimap is hovered', () => {
+    const paintView = (hovered: boolean) => {
+      const { ctx, calls } = fakeCtx()
+      drawMinimap(ctx, {
+        ...base,
+        nodes: [box(0, 0, 1000, 1000)],
+        viewport: { x: -100, y: -200, scale: 2, canvasWidth: 800, canvasHeight: 600 },
+        hovered,
+      })
+      const frame = calls.find(isViewFrame)!
+      return {
+        fill: calls.find((c) => c.kind === 'fill' && c.rule === undefined && c.style === colors.title && c.x === frame.x)!.alpha,
+        stroke: frame.alpha,
+        dim: calls.filter(isOutsideDim).map((c) => c.alpha),
+      }
+    }
+    const rest = paintView(false)
+    const hovered = paintView(true)
+    expect(rest).toMatchObject({ fill: 0.06, stroke: 0.4 })
+    expect(hovered).toMatchObject({ fill: 0.1, stroke: 0.6 })
+    expect(hovered.dim).toEqual(rest.dim)
   })
 
   it('keeps the local viewport visible on the light canvas', () => {
@@ -356,7 +385,7 @@ describe('drawMinimap', () => {
       nodes: [box(0, 0, 1000, 1000)],
       viewport: { x: 0, y: 0, scale: 1, canvasWidth: 800, canvasHeight: 600 },
     })
-    expect(calls.find((c) => c.kind === 'stroke' && c.alpha === 0.72)?.style).toBe(light.title)
+    expect(calls.find((c) => c.kind === 'stroke' && c.alpha === 0.4)?.style).toBe(light.title)
     expect(calls.find(isOutsideDim)?.style).toBe(light.canvasBackground)
   })
 

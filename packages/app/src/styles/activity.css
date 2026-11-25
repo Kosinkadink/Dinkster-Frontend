@@ -112,10 +112,6 @@
 .execution-activity-card.compact .execution-activity-title strong { display: none; }
 .execution-activity-card.compact .execution-activity-actions { justify-content: flex-end; }
 
-.sync-chip[data-overlay-mode='pinned'] {
-  border-color: var(--dinkster-accent-border);
-}
-
 .outputs {
   display: grid;
   gap: var(--dinkster-space-8);

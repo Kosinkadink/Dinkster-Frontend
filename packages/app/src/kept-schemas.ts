@@ -50,7 +50,7 @@ async function transact<T>(mode: IDBTransactionMode, use: (tables: IDBObjectStor
 export async function keepSchemas(baseUrl: string, project: string | undefined, payload: DinksterNodesPayload): Promise<void> {
   await transact('readwrite', (tables, used) => {
     const key = keyOf(baseUrl, project)
-    tables.put(payload, key)
+    tables.put({ ...payload, recordedAt: Date.now() }, key)
     used.put(useStamp(), key)
     const backendUse: [string, number][] = []
     const cursor = used.openCursor()
@@ -80,6 +80,13 @@ export async function readKeptSchemas(baseUrl: string, project: string | undefin
     return () => request.result as unknown
   }).catch(() => undefined)
   return typeof kept === 'object' && kept !== null ? kept as DinksterNodesPayload : undefined
+}
+
+/** Of the browser's copy and the always-on process's record, the one recorded last. */
+export function newerKeptTable(a: DinksterNodesPayload | undefined, b: DinksterNodesPayload | undefined): DinksterNodesPayload | undefined {
+  const recordedAt = (table: DinksterNodesPayload | undefined): number =>
+    table === undefined ? -Infinity : typeof table.recordedAt === 'number' ? table.recordedAt : 0
+  return recordedAt(b) > recordedAt(a) ? b : a
 }
 
 /**
