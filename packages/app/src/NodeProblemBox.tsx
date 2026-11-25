@@ -25,6 +25,9 @@ export function NodeProblemBox(props: {
   const message = useAppMessage()
   const actionLabel = (action: ProblemBoxAction): string => action === 'edit-field'
     ? message('problemBox.editField')
+    : action === 'review-model' ? message('problems.action.reviewModel')
+    : action === 'model-management' ? message('problems.action.modelManagement')
+    : action === 'model-storage' ? message('problems.action.modelStorage')
     : message('problems.action.locateAsset')
   // A required input never given a value or a wire reads as the row's own sentence.
   const lineText = (line: ProblemBoxLine): string =>

@@ -159,6 +159,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
     const list = scene.nodes.find((node) => node.id === 'list')!
     const advancedRow = advanced.layout.rows.find((row) =>
       row.kind === 'section' && row.sectionId === 'advanced')!
+    const advancedBox = advanced.layout.boxes!.find((box) => box.id === 'advanced')!
     const caption = advanced.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'caption')!
     const advancedPins = advanced.layout.pins
       .filter((pin) => pin.portId === 'reference' || pin.portId === 'strength' && pin.widgetTap === true)
@@ -178,9 +179,9 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
       advancedY: advancedRow.y,
       advancedCollapsed: advancedRow.kind === 'section' && advancedRow.collapsed,
       ordinaryBeforeAdvanced: caption.y + caption.height <= advancedRow.y,
-      advancedHeaderY: advanced.y + advancedRow.y + advancedRow.height / 2,
+      advancedHeaderY: advanced.y + (advancedBox.y + advancedRow.y + advancedRow.height) / 2,
       advancedPins,
-      group: advanced.layout.advancedGroup,
+      box: advancedBox,
       listPins,
       widgetLink: scene.links.find((link) => link.id === 'widgetItem'),
       advancedLinks: scene.links
@@ -201,7 +202,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
   const collapsed = await presentation()
   expect(collapsed.advancedCollapsed).toBe(true)
   expect(collapsed.ordinaryBeforeAdvanced).toBe(true)
-  expect(collapsed.group).toBeUndefined()
+  expect(collapsed.box).toMatchObject({ kind: 'section', closed: true })
   expect(collapsed.advancedPins).toEqual([
     expect.objectContaining({ portId: 'reference', direction: 'in' }),
     expect.objectContaining({ portId: 'strength', direction: 'out', widgetTap: true }),
@@ -236,7 +237,8 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
   const expanded = await presentation()
   expect(expanded.advancedY).toBe(collapsed.advancedY)
   expect(expanded.ordinaryBeforeAdvanced).toBe(true)
-  expect(expanded.group).toBeDefined()
+  expect(expanded.box).toMatchObject({ kind: 'section' })
+  expect(expanded.box.closed).toBeUndefined()
   expect(expanded.advancedPins.every((pin) => pin.y !== expanded.advancedHeaderY)).toBe(true)
   expect(expanded.advancedLinks).not.toEqual(collapsed.advancedLinks)
   expect(expanded.graph).toBe(collapsed.graph)

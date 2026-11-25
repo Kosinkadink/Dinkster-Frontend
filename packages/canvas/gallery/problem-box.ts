@@ -473,6 +473,52 @@ export function problemBoxGallery(
       ],
       width: LEFT * 2 + BOX_MAX + GAP + WIDE,
     },
+    ...[
+      {
+        id: 'model-missing-review',
+        caption: 'A missing model with a download source to review. Review download opens consent for this model only; it does not queue the workflow. Locate or replace opens the field.',
+        message: 'sdxl_base.safetensors is not in a model folder this project uses on Local engine.',
+        actions: ['Review download', 'Locate or replace'],
+      },
+      {
+        id: 'model-missing-no-source',
+        caption: 'A missing model with no download source. Only Locate or replace is offered.',
+        message: 'sdxl_base.safetensors is not in a model folder this project uses on Local engine.',
+        actions: ['Locate or replace'],
+      },
+      {
+        id: 'model-hidden',
+        caption: 'A model hidden in this project. Open model management goes to the hidden models section; it does not unhide the model.',
+        message: 'sdxl_base.safetensors is hidden in this project.',
+        actions: ['Open model management', 'Locate or replace'],
+      },
+      {
+        id: 'model-folder-disabled',
+        caption: 'A model in folders this project does not use. The line names the first Storage folder and counts the others. Open Storage navigates without enabling a folder.',
+        message: 'sdxl_base.safetensors is in a folder this project does not use: Archive and 1 more.',
+        actions: ['Open Storage', 'Locate or replace'],
+      },
+      {
+        id: 'model-duplicate',
+        caption: 'Two model files have the same name in this project. The row is an error and offers Locate or replace, not a download.',
+        message: 'Two files named sdxl_base.safetensors are in this project\'s model folders.',
+        actions: ['Locate or replace'],
+      },
+      {
+        id: 'model-invalid',
+        caption: 'A model name that cannot be looked up. Locate or replace opens the field; no download is offered.',
+        message: '../sdxl_base.safetensors is not a plain file name, so the model cannot be looked up.',
+        actions: ['Locate or replace'],
+      },
+    ].map(({ id, caption, message, actions }): ProblemBoxGalleryCard => ({
+      id,
+      caption,
+      scene: scene([{ id: 'load', schema: loadModel, x: LEFT }]),
+      badges: { load: [errors(1)] },
+      rowMarks: { load: { model: 'error' } },
+      boxes: [{ nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', message, actions)] }],
+      width: BOXED,
+    })),
     {
       id: 'short-line',
       caption: 'A short line: the box is only as wide as its longest line needs, so under a wide node it is narrower than the node. Its left edge stays under the node\'s, it is never narrower than the node\'s row of tabs, and each line\'s action sits at the box\'s right end. When the canvas is narrow, the most the box takes is the canvas width less 16 px at each side.',

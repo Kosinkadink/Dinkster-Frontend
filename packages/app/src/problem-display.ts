@@ -108,16 +108,18 @@ function diagnosticNodeTargets(
   document: WorkflowDocument | undefined,
 ): readonly DiagnosticNodeTarget[] {
   const targets: DiagnosticNodeTarget[] = []
+  const occurrence = diagnostic.anchor?.occurrence
+  const resolved = occurrence === undefined || document === undefined ? undefined : resolveNodeOccurrence(document, occurrence)
   for (const ref of diagnostic.refs ?? []) {
     if (ref.nodeId !== undefined) targets.push({
       nodeId: ref.nodeId,
       ...(ref.graphId === undefined ? {} : { graphId: ref.graphId }),
+      ...(occurrence?.node === ref.nodeId && (document === undefined || resolved?.graphId === ref.graphId)
+        ? { instancePath: occurrence.instancePath } : {}),
       source: 'ref',
     })
   }
-  const occurrence = diagnostic.anchor?.occurrence
   if (occurrence !== undefined) {
-    const resolved = document === undefined ? undefined : resolveNodeOccurrence(document, occurrence)
     targets.push({
       nodeId: occurrence.node,
       ...(resolved === undefined ? {} : { graphId: resolved.graphId }),
@@ -193,7 +195,9 @@ export function deriveProblemProjection(args: {
       if (target.source === 'ref') {
         // Node ids are graph-local. A graph-less ref remains useful to
         // problemDisplay, but cannot soundly select a node in this view.
-        if (target.graphId === args.graphId) nodeIds.add(target.nodeId)
+        if (target.graphId === args.graphId && (target.instancePath === undefined ||
+          (args.instancePath !== undefined && target.instancePath.length === args.instancePath.length &&
+            target.instancePath.every((id, index) => id === args.instancePath![index])))) nodeIds.add(target.nodeId)
       } else if (target.source === 'occurrence' && args.instancePath !== undefined &&
         (args.document === undefined || target.graphId === args.graphId) &&
         target.instancePath?.length === args.instancePath.length &&
