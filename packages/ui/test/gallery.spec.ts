@@ -329,8 +329,16 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await page.keyboard.press('Shift+Tab')
   await expect(field).toBeFocused()
   await expect(field).toHaveCSS('outline-width', '2px')
+  await expect(field).toHaveCSS(
+    'border-top-color',
+    await token(page, '--dinkster-border-subtle'),
+  )
   await field.click()
   await expect(field).toHaveCSS('outline-width', '0px')
+  await expect(field).toHaveCSS(
+    'border-top-color',
+    await token(page, '--dinkster-border-focus'),
+  )
   await page.keyboard.press('Tab')
   await page.getByLabel('Unchecked option').focus()
   await page.keyboard.press('Space')
