@@ -33,6 +33,8 @@ import {
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
   elaborateInterface,
+  elabInputsOf,
+  elabOutputsOf,
   buildGraphConnectivity,
   documentNodeResolver,
   detectFormat,
@@ -5536,6 +5538,7 @@ export class AppState {
     const invocation = registry === undefined || items.length === 0 ? undefined : replacementInvocation(items, tab.store.doc, registry.resolve)
     if (registry === undefined || invocation === undefined) return
     const store = tab.store
+    const document = store.doc
     return Promise.resolve(this.dispatchTo(tab, invocation)).then((outcome) => {
       if (!outcome.ok || tab.store !== store) return
       // A shared definition has one line; it goes to its first reachable
@@ -5544,10 +5547,43 @@ export class AppState {
       this.reportAdjustments(tab, outcome, items.map((item): Adjustment => {
         const instancePath = paths.get(item.graphId)
         const node = tab.store.doc.graphs[item.graphId]?.nodes[item.nodeId]
+        const graph = document.graphs[item.graphId]!
+        const source = graph.nodes[item.nodeId]!
+        const schema = registry.resolve(source.type)
+        const elaborated = schema === undefined ? undefined : elaborateInterface(schema, source, buildGraphConnectivity(graph)(source.id))
+        const details = new Set<string>()
+        const sinkPorts = new Map<string, string>()
+        const wire = (side: 'input' | 'output', port: string, tap = false) => {
+          const row = elaborated === undefined ? undefined : (side === 'input' || tap ? elabInputsOf(elaborated) : elabOutputsOf(elaborated))
+            .find((row) => row.address.port === port)
+          details.add(t(side === 'input' ? 'fixesNotice.change.wireIntoRemoved' : 'fixesNotice.change.wireFromRemoved', {
+            row: row?.spec.displayName ?? port,
+          }))
+        }
+        for (const { plan } of item.hops) {
+          for (const id of plan.dropLinks) {
+            const link = graph.links[id]
+            if (link === undefined) continue
+            if ('node' in link.from && link.from.node === item.nodeId)
+              wire('output', 'port' in link.from ? link.from.port : link.from.tap, 'tap' in link.from)
+            if ('node' in link.to && link.to.node === item.nodeId && 'port' in link.to)
+              wire('input', link.to.port)
+          }
+          for (const id of plan.dropNets) {
+            const net = graph.nets[id]
+            if (net?.source.node === item.nodeId) wire('output', net.source.port)
+          }
+          for (const edit of plan.netSinkEdits ?? []) {
+            if (edit.from.node !== item.nodeId) continue
+            const port = sinkPorts.get(JSON.stringify([edit.net, edit.from.port])) ?? edit.from.port
+            if (edit.to === undefined) wire('input', port)
+            else sinkPorts.set(JSON.stringify([edit.net, edit.to.port]), port)
+          }
+        }
         return {
           kind: 'replaced', graphId: item.graphId, nodeId: item.nodeId, count: 1,
           node: node?.title ?? registry.resolve(item.terminalType)?.displayName ?? item.nodeId,
-          details: item.diagnostics.map((entry) => entry.message),
+          details: [...details],
           ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
         }
       }))

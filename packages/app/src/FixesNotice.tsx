@@ -1,4 +1,4 @@
-import { Show, createMemo } from 'solid-js'
+import { Show, createMemo, onCleanup, onMount } from 'solid-js'
 import {
   ProductFixesNotice,
   type FixesNoticeChange,
@@ -31,7 +31,7 @@ export function useFixesNoticeStrings(): () => FixesNoticeStrings {
 
 /**
  * The active workflow tab's notice of the changes the editor made by itself,
- * in the canvas's bottom right corner until it is dismissed, saved or closed.
+ * at the canvas's bottom centre until it is dismissed, saved or closed.
  */
 export function FixesNotice(props: { app: AppState; tab: Tab }) {
   const message = useAppMessage()
@@ -53,7 +53,7 @@ export function FixesNotice(props: { app: AppState; tab: Tab }) {
       text: [
         ...(adjustment.kind === 'replaced' ? [message('fixesNotice.change.replaced')] : []),
         ...adjustment.details,
-      ].join(' '),
+      ].join('\n'),
       count: adjustment.count,
     })),
   )
@@ -66,7 +66,27 @@ export function FixesNotice(props: { app: AppState; tab: Tab }) {
   return (
     <Show when={notice() !== undefined && !notice()!.dismissed && state()}>
       {(current) => (
-        <div class="canvas-fixes-notice" data-testid="fixes-notice">
+        <div class="canvas-fixes-notice" data-testid="fixes-notice" ref={(element) => onMount(() => {
+          const stage = element.closest<HTMLElement>('.canvas-stage')
+          const controls = stage?.querySelector<HTMLElement>('.canvas-corner-controls')
+          if (!stage || !controls) return
+          const place = () => {
+            const area = stage.getBoundingClientRect()
+            element.style.setProperty('--canvas-fixes-width', `${area.width - 20}px`)
+            const line = element.querySelector<HTMLElement>('.dinkster-fixes-line')!.getBoundingClientRect()
+            const review = element.querySelector<HTMLElement>('.dinkster-fixes-review')?.getBoundingClientRect()
+            const corner = controls.getBoundingClientRect()
+            const touches = Math.max(line.right, review?.right ?? line.right) + 8 > corner.left &&
+              Math.min(line.left, review?.left ?? line.left) - 8 < corner.right
+            element.style.bottom = `${touches ? area.bottom - corner.top + 6 : 10}px`
+          }
+          const observer = new ResizeObserver(place)
+          for (const target of [stage, controls, element]) observer.observe(target)
+          const review = new MutationObserver(place)
+          review.observe(element, { childList: true, subtree: true })
+          place()
+          onCleanup(() => { observer.disconnect(); review.disconnect() })
+        })}>
           <ProductFixesNotice
             changes={changes()}
             state={current()}

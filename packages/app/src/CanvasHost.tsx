@@ -7074,9 +7074,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         onFit={() => fitCanvas?.()}
         onZoomBy={(factor) => zoomCanvas?.(factor)}
         onZoomTo={(scale) => zoomCanvasTo?.(scale)}
-      >
-        <Show when={activeTab()} keyed>{(tab) => <FixesNotice app={props.app} tab={tab} />}</Show>
-      </CanvasCornerControls>
+      />
+
+      <Show when={activeTab()} keyed>{(tab) => <FixesNotice app={props.app} tab={tab} />}</Show>
 
       <Show when={frozenInfo()}>
         {(f) => (

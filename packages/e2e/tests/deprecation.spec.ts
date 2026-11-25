@@ -117,20 +117,23 @@ test('open-time lossy upgrades show one notice on the canvas that navigates and 
   await expect(page.getByTestId('badge-popover')).toHaveCount(0)
   const notice = page.getByTestId('fixes-notice')
   await expect(noticeTitle(page)).toHaveText('2 things were adjusted')
-  // The notice is in the canvas's bottom right corner.
-  expect(await page.evaluate(() => {
+  await expect.poll(() => page.evaluate(() => {
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const line = document.querySelector('[data-testid=fixes-notice] .dinkster-fixes-line')!.getBoundingClientRect()
-    return line.right <= canvas.right && line.right > canvas.right - 40 && line.bottom > canvas.top + canvas.height / 2
+    return Math.abs((line.left + line.right - canvas.left - canvas.right) / 2) < 1 && Math.abs(canvas.bottom - line.bottom - 10) < 1
   })).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('fixes-notice-line.png') })
   await openRailPanel(page, 'Problems')
   await expect(page.getByTestId('problems-panel')).not.toContainText('Workflow upgraded')
   await expect(page.getByTestId('problems-panel')).not.toContainText('Upgraded on open')
   await notice.getByRole('button', { name: 'Review', exact: true }).click()
   const rows = notice.locator('.dinkster-fixes-review-row')
   await expect(rows).toHaveCount(2)
-  await expect(notice).toContainText('replaced older node')
-  await expect(notice).toContainText('will be removed')
+  await expect(notice).toContainText('Replaced an older node.')
+  await expect(rows.first()).toContainText('Its wire from discarded was removed.')
+  await expect(rows.last()).toContainText('Its wire into unmapped was removed.')
+  await expect(notice).not.toContainText('replace:')
+  await expect(notice).not.toContainText('mapping')
   await rows.first().click()
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
   await expect.poll(() => page.evaluate(() => {
@@ -144,6 +147,17 @@ test('open-time lossy upgrades show one notice on the canvas that navigates and 
     )
   })).toBeLessThan(2)
   await page.screenshot({ path: testInfo.outputPath('fixes-notice-review.png') })
+  await page.setViewportSize({ width: 700, height: 900 })
+  await expect.poll(() => page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const line = document.querySelector('[data-testid=fixes-notice] .dinkster-fixes-line')!.getBoundingClientRect()
+    const review = document.querySelector('.dinkster-fixes-review')!.getBoundingClientRect()
+    const corner = document.querySelector('.canvas-corner-controls')!.getBoundingClientRect()
+    return Math.abs((line.left + line.right - canvas.left - canvas.right) / 2) < 1 &&
+      line.bottom < corner.top && review.left >= canvas.left && review.right <= canvas.right
+  })).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('fixes-notice-narrow.png') })
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.keyboard.press('Escape')
   await notice.getByRole('button', { name: 'Undo', exact: true }).click()
   await expect(noticeTitle(page)).toHaveText('Adjustments undone')
@@ -224,8 +238,8 @@ test('the notice dismisses to a status bar count that brings it back, clears on 
   expect(JSON.parse(uploaded).graphs.g0.nodes.first).toEqual({
     id: 'first', type: 'Current', values: { amount: 11, format: 'webm_av1' },
   })
-  expect(uploaded).not.toContain('replaced older node')
-  expect(uploaded).not.toContain('will be removed')
+  expect(uploaded).not.toContain('Replaced an older node.')
+  expect(uploaded).not.toContain('was removed.')
   expect(await page.evaluate(async (saved) => (await window.__dinksterTest!.app.openDocument(JSON.parse(saved), 'Saved migration')), uploaded)).toEqual([])
   await expect(notice).toHaveCount(0)
   await expect(count).toHaveCount(0)
@@ -275,7 +289,7 @@ test('deprecated resize imports its authored size and undoes from the notice', a
   const notice = page.getByTestId('fixes-notice')
   await notice.getByRole('button', { name: 'Review', exact: true }).click()
   await expect(notice).toContainText('Scale image to maximum dimension')
-  await expect(notice).toContainText('replaced older node')
+  await expect(notice).toContainText('Replaced an older node.')
   await page.screenshot({ path: testInfo.outputPath('resize-import-migrated.png') })
   await notice.getByRole('button', { name: 'Undo', exact: true }).click()
   await expect(noticeTitle(page)).toHaveText('Adjustments undone')
