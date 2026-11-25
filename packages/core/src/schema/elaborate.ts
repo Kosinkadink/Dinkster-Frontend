@@ -68,7 +68,7 @@ import type {
   WidgetSpec,
 } from './model.js'
 import { isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
-import { readWhenUnset, sentSpecOf } from './widget-defaults.js'
+import { readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
 import { normalizeComboOption } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
@@ -623,6 +623,21 @@ export const elabOutputsOf = (e: Pick<ElaboratedInterface, 'items'>): readonly E
  * flattened id. The one rule compile, the canvas and the app share.
  */
 export const valueKeyOf = (i: ElaboratedInput): string => i.address.port
+
+/**
+ * A run refuses this input when it has no stored value and no wire
+ * (`compile.input.missing`): it is required, reaches the run, and has no
+ * value to be sent in its place, such as an asset field or a choice whose
+ * options all come from the server.
+ */
+export function missingWhenUnset(i: ElaboratedInput): boolean {
+  const spec = i.spec
+  if (i.apiName === undefined || spec.optional) return false
+  if (i.origin.kind === 'member' && i.origin.ghost === true) return false
+  if (spec.hidden === true && i.hiddenByScope !== true) return false
+  if (spec.automatic !== undefined || spec.widget?.automatic === true) return false
+  return spec.widget === undefined || sentWhenUnset(sentSpecOf(spec, i.hiddenByScope)) === undefined
+}
 
 /**
  * A Switch's member inputs that take part in the run (not the offered add

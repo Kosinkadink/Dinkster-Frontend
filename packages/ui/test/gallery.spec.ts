@@ -110,6 +110,42 @@ const token = (page: Page, name: string) =>
     return color
   }, name)
 
+test('solid buttons keep readable text from the first enabled frame', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.goto('/#controls')
+  const luminance = (color: string) => {
+    const channels = color.match(/[\d.]+/g)!.slice(0, 3).map((channel) => {
+      const value = Number(channel) / 255
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+    })
+    return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+  }
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((value) => { document.documentElement.dataset.theme = value }, theme)
+    for (const role of ['Add', 'Remove', 'Neutral']) {
+      const button = page.getByRole('button', { name: `${role} solid disabled`, exact: true })
+      await expect(button).toBeDisabled()
+      const samples = await button.evaluate(async (element: HTMLButtonElement) => {
+        const samples: { color: string; background: string }[] = []
+        // Flush the disabled style before enabling, then include the same frame.
+        getComputedStyle(element).backgroundColor
+        element.disabled = false
+        for (let frame = 0; frame < 10; frame++) {
+          const style = getComputedStyle(element)
+          samples.push({ color: style.color, background: style.backgroundColor })
+          await new Promise(requestAnimationFrame)
+        }
+        element.disabled = true
+        return samples
+      })
+      for (const sample of samples) {
+        const colors = [luminance(sample.color), luminance(sample.background)]
+        expect((Math.max(...colors) + 0.05) / (Math.min(...colors) + 0.05), `${theme} ${role}: ${JSON.stringify(sample)}`).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  }
+})
+
 for (const width of [1280, 390]) {
   for (const section of [
     'controls',
@@ -316,8 +352,30 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
     page.getByRole('link', { name: 'link to another page' }),
   ).toHaveCSS('color', await token(page, '--dinkster-accent-foreground'))
   const field = page.getByLabel('Display name', { exact: true })
-  await field.focus()
+  await field.click()
+  await expect(field).toHaveCSS('border-top-width', '1px')
+  await expect(field).toHaveCSS(
+    'border-top-color',
+    await token(page, '--dinkster-border-focus'),
+  )
+  await expect(field).toHaveCSS('outline-width', '0px')
+  await field.press('a')
+  await expect(field).toHaveCSS('outline-width', '0px')
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(field).toBeFocused()
   await expect(field).toHaveCSS('outline-width', '2px')
+  await expect(field).toHaveCSS(
+    'border-top-color',
+    await token(page, '--dinkster-border-subtle'),
+  )
+  await field.click()
+  await expect(field).toHaveCSS('outline-width', '0px')
+  await expect(field).toHaveCSS(
+    'border-top-color',
+    await token(page, '--dinkster-border-focus'),
+  )
+  await page.keyboard.press('Tab')
   await page.getByLabel('Unchecked option').focus()
   await page.keyboard.press('Space')
   await expect(page.getByLabel('Unchecked option')).toBeChecked()
@@ -595,6 +653,52 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await opener.click()
   await expect(dialog).toBeVisible()
   await expect(page).toHaveScreenshot('dialog-open-390.png')
+})
+
+test('wide dialogs use their own width and preserve narrow margins and dismissal', async ({
+  page,
+}) => {
+  await page.goto('/#confirmations')
+  for (const width of [1280, 800, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.getByRole('button', { name: 'Review removal' }).click()
+    const regular = page.getByRole('dialog', { name: 'Remove item?' })
+    await expect(regular).toHaveAttribute('data-size', 'default')
+    const regularBounds = (await regular.boundingBox())!
+    if (width >= 800) expect(regularBounds.width).toBe(480)
+    else {
+      expect(regularBounds.x).toBeGreaterThanOrEqual(16)
+      expect(regularBounds.width).toBeGreaterThanOrEqual(width - 36)
+    }
+    await page.keyboard.press('Escape')
+    const opener = page.getByRole('button', { name: 'Open wide dialog' })
+    await opener.click()
+    const wide = page.getByRole('dialog', { name: 'Diagnostics' })
+    await expect(wide).toHaveAttribute('data-size', 'wide')
+    const bounds = (await wide.boundingBox())!
+    if (width === 1280) expect(bounds.width).toBe(960)
+    else expect(bounds.width).toBeGreaterThanOrEqual(width - 36)
+    expect(bounds.x).toBeGreaterThanOrEqual(16)
+    expect(width - bounds.x - bounds.width).toBeGreaterThanOrEqual(16)
+    expect(
+      await wide.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true)
+    await expect(wide.getByRole('button', { name: 'Close' })).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(wide.getByRole('button', { name: 'Close' })).toBeFocused()
+    await expectNoAxeViolations(page)
+    if (width !== 800)
+      await expect(page).toHaveScreenshot(`dialog-wide-${width}.png`)
+    await page.keyboard.press('Escape')
+    await expect(wide).toHaveCount(0)
+    await expect(opener).toBeFocused()
+    await opener.click()
+    await wide.getByRole('button', { name: 'Close' }).click()
+    await expect(wide).toHaveCount(0)
+    await expect(opener).toBeFocused()
+  }
 })
 
 test('a refused save and an open dialog have no accessibility violations', async ({
