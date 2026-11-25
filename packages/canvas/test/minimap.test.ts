@@ -159,7 +159,7 @@ describe('drawMinimap', () => {
   /** Node box fills: rectangles at full opacity after the background, excluding title lines. */
   const nodeFills = (calls: readonly PaintCall[]) =>
     calls.filter((c) => c.kind === 'fill' && c.alpha === 1 && c.style !== colors.valueMark).slice(1)
-  const isViewFrame = (c: PaintCall) => c.kind === 'stroke' && c.style === colors.title && c.alpha === 0.72
+  const isViewFrame = (c: PaintCall) => c.kind === 'stroke' && c.style === colors.title && (c.alpha === 0.4 || c.alpha === 0.6)
   const isOutsideDim = (c: PaintCall) => c.kind === 'fill' && c.rule === 'evenodd'
 
   it('paints distinct node identity colors with a theme-safe fallback', () => {
@@ -353,7 +353,7 @@ describe('drawMinimap', () => {
     expect(calls[inside]!.alpha).toBeLessThan(0.1)
   })
 
-  it('strengthens only the view fill while the minimap is hovered', () => {
+  it('strengthens only the view fill and outline while the minimap is hovered', () => {
     const paintView = (hovered: boolean) => {
       const { ctx, calls } = fakeCtx()
       drawMinimap(ctx, {
@@ -371,9 +371,8 @@ describe('drawMinimap', () => {
     }
     const rest = paintView(false)
     const hovered = paintView(true)
-    expect(hovered.fill).toBeGreaterThan(rest.fill)
-    expect(hovered.fill).toBeLessThan(0.2)
-    expect(hovered.stroke).toBe(rest.stroke)
+    expect(rest).toMatchObject({ fill: 0.06, stroke: 0.4 })
+    expect(hovered).toMatchObject({ fill: 0.1, stroke: 0.6 })
     expect(hovered.dim).toEqual(rest.dim)
   })
 
@@ -386,7 +385,7 @@ describe('drawMinimap', () => {
       nodes: [box(0, 0, 1000, 1000)],
       viewport: { x: 0, y: 0, scale: 1, canvasWidth: 800, canvasHeight: 600 },
     })
-    expect(calls.find((c) => c.kind === 'stroke' && c.alpha === 0.72)?.style).toBe(light.title)
+    expect(calls.find((c) => c.kind === 'stroke' && c.alpha === 0.4)?.style).toBe(light.title)
     expect(calls.find(isOutsideDim)?.style).toBe(light.canvasBackground)
   })
 

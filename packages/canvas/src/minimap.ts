@@ -425,7 +425,7 @@ export function drawMinimapOverlay(
       ctx.globalAlpha = input.hovered === true ? paint.viewportFillHoverOpacity : paint.viewportFillOpacity
       ctx.fill()
       ctx.strokeStyle = t.colors.title
-      ctx.globalAlpha = paint.viewportStrokeOpacity
+      ctx.globalAlpha = input.hovered === true ? paint.viewportStrokeHoverOpacity : paint.viewportStrokeOpacity
       ctx.lineWidth = paint.viewportStroke
       ctx.stroke()
       ctx.globalAlpha = 1

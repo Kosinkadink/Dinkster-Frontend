@@ -650,9 +650,10 @@ export const canvasPaintTokens = {
     outsideViewOpacity: 0.34,
     /** The view area: filled with its outline's color at this opacity, so it reads as a lit window. */
     viewportFillOpacity: 0.06,
-    /** The view area's fill while the pointer is over the minimap, a little stronger so the minimap reads as live. */
+    viewportStrokeOpacity: 0.4,
+    /** While the pointer is over the minimap the view's fill and outline are a little stronger, so the minimap reads as live. */
     viewportFillHoverOpacity: 0.1,
-    viewportStrokeOpacity: 0.72,
+    viewportStrokeHoverOpacity: 0.6,
     viewportStroke: 1,
     viewportRadius: 3,
     markerRadius: 7,
