@@ -70,10 +70,11 @@ export function problemBoxLines(
         key: JSON.stringify([problem.row ?? null, diagnostic.code, diagnostic.message]),
         kind: problem.kind,
         ...(problem.row === undefined ? {} : { row: problem.row, rowName: row?.name ?? rowName(problem.row) }),
+        ...(diagnostic.code === 'compile.input.missing' && typeof diagnostic.data?.['hiddenRequiredField'] === 'string'
+          ? { rowName: diagnostic.data['hiddenRequiredField'] } : {}),
         message: display(problem),
         actions,
         problem,
       }
     })
 }
-

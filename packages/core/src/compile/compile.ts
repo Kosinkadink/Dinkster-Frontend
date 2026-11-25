@@ -2651,12 +2651,16 @@ function compileImpl(
       if (missingInputValue(input, value)) {
         // Server-side validation is authoritative; surface early as a warning.
         const hidden = input.hiddenByDeclaration === true
-        const name = spec.displayName === undefined || spec.displayName === spec.id ? spec.id : `${spec.displayName} (${spec.id})`
+        const label = spec.displayName ?? spec.id
+        const duplicate = hidden && fn.elab.inputs.some((other) => other !== input && other.hiddenByDeclaration === true
+          && !other.spec.optional && (other.spec.displayName ?? other.spec.id) === label)
+        const name = duplicate ? `${label} (${spec.id})` : label
         const message = hidden
-          ? `The node's declaration hides required field '${name}', which has no value or connection.`
+          ? `${nameOf(fn.graphId, fn.node)} requires ${name} but hides it, so it cannot be set. The node's author has to fix this.`
           : `'${fn.node.type}' required input '${spec.id}' has no value or connection`
         diags.push(diag('warning', 'compile', 'compile.input.missing', message, {
           blocksExecution: true,
+          ...(hidden ? { data: { hiddenRequiredField: name } } : {}),
           anchor: { occurrence: fn.occ, ...(hidden ? {} : { port: { node: fn.occ.node, port: input.address.port } as PortRef }) },
         }))
       }

@@ -96,14 +96,14 @@ describe('a hidden row with a problem', () => {
   })
 
   it('explains a declaration-hidden required field at the node, but still reveals a visible-hidden field', () => {
-    for (const hidden of [true, false]) {
+    for (const [hidden, duplicate] of [[true, true], [true, false], [false, true], [false, false]]) {
       const parsed = parseDinksterSchema('HiddenImage', {
-        schemaVersion: 2, nodeType: 'HiddenImage', outputNode: true,
+        schemaVersion: 2, nodeType: 'HiddenImage', displayName: 'Describe image', outputNode: true,
         body: [{ kind: 'choice', id: 'source', required: true, ...(hidden ? { hidden: true } : { visible: { formula: '0 > 1' } }),
           options: [{ key: 'image', rows: [{ kind: 'section', id: 'details', rows: [
             { kind: 'input', id: 'image', label: 'Image', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
               widget: { type: 'ASSET', accept: ['image/png'] } },
-            { kind: 'input', id: 'mask', label: 'Image', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
+            { kind: 'input', id: 'mask', label: duplicate ? 'Image' : 'Mask', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
               widget: { type: 'ASSET', accept: ['image/png'] } },
           ] }] }],
         }],
@@ -134,10 +134,13 @@ describe('a hidden row with a problem', () => {
       const lines = problemBoxLines(projection.nodes['n']!, problemBoxRows(scene.nodes[0]!), (row) => row)
       expect(lines).toHaveLength(2)
       expect(lines.map((line) => line.actions)).toEqual(hidden ? [[], []] : [['edit-field'], ['edit-field']])
-      if (hidden) expect(lines.map((line) => line.message)).toEqual([
-        "The node's declaration hides required field 'Image (source.image)', which has no value or connection.",
-        "The node's declaration hides required field 'Image (source.mask)', which has no value or connection.",
-      ])
+      if (hidden) {
+        const names = duplicate ? ['Image (source.image)', 'Image (source.mask)'] : ['Image', 'Mask']
+        expect(lines.map((line) => line.rowName)).toEqual(names)
+        expect(lines.map((line) => line.row)).toEqual([undefined, undefined])
+        expect(lines.map((line) => line.message)).toEqual(names.map((name) =>
+          `Describe image requires ${name} but hides it, so it cannot be set. The node's author has to fix this.`))
+      }
     }
   })
 
