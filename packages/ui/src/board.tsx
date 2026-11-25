@@ -9,6 +9,8 @@ import {
 import {
   Maximize,
   MousePointer2,
+  Pause,
+  Play,
   Plus,
   Redo2,
   SquareDashed,
@@ -23,9 +25,14 @@ import {
   sectionMembers,
   type BoardAsset,
   type BoardItem,
+  type BoardMediaItem,
   type BoardStore,
 } from '@dinkster/core'
-import { clampScale, wheelNavigationViewport } from '@dinkster/canvas'
+import {
+  clampScale,
+  touchNavViewport,
+  wheelNavigationViewport,
+} from '@dinkster/canvas'
 import {
   ProductButton,
   ProductIcon,
@@ -44,6 +51,184 @@ export interface ProductBoardProps {
   ) => void
 }
 
+type BoardCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+
+function resizedRect(
+  item: BoardItem,
+  corner: BoardCorner,
+  dx: number,
+  dy: number,
+) {
+  const left = corner.endsWith('left')
+  const top = corner.startsWith('top')
+  let width = Math.max(BOARD_MIN_SIDE, item.rect.width + (left ? -dx : dx))
+  let height = Math.max(BOARD_MIN_SIDE, item.rect.height + (top ? -dy : dy))
+  if (item.kind === 'picture' || item.kind === 'video') {
+    const change =
+      Math.abs(dx / item.rect.width) >= Math.abs(dy / item.rect.height)
+        ? (left ? -dx : dx) / item.rect.width
+        : (top ? -dy : dy) / item.rect.height
+    const scale = Math.max(
+      BOARD_MIN_SIDE / item.rect.width,
+      BOARD_MIN_SIDE / item.rect.height,
+      1 + change,
+    )
+    width = item.rect.width * scale
+    height = item.rect.height * scale
+  }
+  return {
+    x: item.rect.x + (left ? item.rect.width - width : 0),
+    y: item.rect.y + (top ? item.rect.height - height : 0),
+    width,
+    height,
+  }
+}
+
+function BoardMedia(props: { item: BoardMediaItem; src: string }) {
+  const [playing, setPlaying] = createSignal(false)
+  const [duration, setDuration] = createSignal(props.item.asset.duration)
+  const [waveform, setWaveform] = createSignal('')
+  const [waveformFailed, setWaveformFailed] = createSignal(false)
+  const [playFailed, setPlayFailed] = createSignal(false)
+  let media!: HTMLMediaElement
+  createEffect(() => {
+    if (props.item.kind !== 'sound') return
+    const src = props.src
+    const controller = new AbortController()
+    const context = new OfflineAudioContext(1, 1, 44100)
+    let live = true
+    setWaveform('')
+    setWaveformFailed(false)
+    onCleanup(() => {
+      live = false
+      controller.abort()
+    })
+    void (async () => {
+      try {
+        const response = await fetch(src, { signal: controller.signal })
+        if (!response.ok) throw new Error('Audio preview could not be read')
+        const audio = await context.decodeAudioData(
+          await response.arrayBuffer(),
+        )
+        if (!live) return
+        const channels = Array.from(
+          { length: audio.numberOfChannels },
+          (_, channel) => audio.getChannelData(channel),
+        )
+        const peaks = Array.from({ length: 72 }, (_, index) => {
+          const from = Math.floor((index * audio.length) / 72)
+          const to = Math.floor(((index + 1) * audio.length) / 72)
+          let peak = 0
+          for (const channel of channels)
+            for (let sample = from; sample < to; sample += 1)
+              peak = Math.max(peak, Math.abs(channel[sample]!))
+          return peak
+        })
+        setWaveform(
+          peaks
+            .map(
+              (peak, index) =>
+                `M${index * 4 + 2} ${36 - peak * 32}v${Math.max(1, peak * 64)}`,
+            )
+            .join(' '),
+        )
+        setDuration(audio.duration)
+      } catch {
+        if (live) setWaveformFailed(true)
+      }
+    })()
+  })
+  onCleanup(() => media.pause())
+  const length = () => {
+    const value = duration()
+    if (value === undefined || !Number.isFinite(value)) return '--:--'
+    const seconds = Math.round(value)
+    return `${Math.floor(seconds / 60)}:${(seconds % 60)
+      .toString()
+      .padStart(2, '0')}`
+  }
+  const toggle = async () => {
+    setPlayFailed(false)
+    if (!media.paused) {
+      media.pause()
+      return
+    }
+    try {
+      await media.play()
+    } catch {
+      setPlayFailed(true)
+    }
+  }
+  const metadata = () => setDuration(media.duration)
+  return (
+    <div class="dinkster-board-media" data-kind={props.item.kind}>
+      <Show
+        when={props.item.kind === 'video'}
+        fallback={
+          <>
+            <audio
+              ref={(element) => {
+                media = element
+              }}
+              src={props.src}
+              preload="metadata"
+              onLoadedMetadata={metadata}
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onEnded={() => setPlaying(false)}
+            />
+            <svg
+              class="dinkster-board-waveform"
+              viewBox="0 0 288 72"
+              preserveAspectRatio="none"
+              role="img"
+              aria-label={`Waveform of ${props.item.asset.name}`}
+            >
+              <path d={waveform()} />
+            </svg>
+            <Show when={waveformFailed() && !playFailed()}>
+              <span class="dinkster-board-media-message">
+                Waveform unavailable
+              </span>
+            </Show>
+          </>
+        }
+      >
+        <video
+          class="dinkster-board-picture"
+          ref={(element) => {
+            media = element
+          }}
+          src={props.src}
+          preload="metadata"
+          onLoadedMetadata={metadata}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+        />
+      </Show>
+      <Show when={playFailed()}>
+        <span class="dinkster-board-media-message" role="status">
+          Playback unavailable
+        </span>
+      </Show>
+      <div
+        class="dinkster-board-media-control"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <ProductIconButton
+          label={`${playing() ? 'Pause' : 'Play'} ${props.item.asset.name}`}
+          icon={playing() ? Pause : Play}
+          onClick={() => {
+            void toggle()
+          }}
+        />
+        <span>{length()}</span>
+      </div>
+    </div>
+  )
+}
+
 /** A board owns its camera and selection; every document edit goes through its store. */
 export function ProductBoard(props: ProductBoardProps) {
   const [document, setDocument] = createSignal(props.store.doc)
@@ -53,6 +238,7 @@ export function ProductBoard(props: ProductBoardProps) {
   const [preview, setPreview] = createSignal<{
     id: string
     rect: BoardItem['rect']
+    moving: boolean
   }>()
   let surface!: HTMLDivElement
   createEffect(() => {
@@ -134,14 +320,17 @@ export function ProductBoard(props: ProductBoardProps) {
     target.addEventListener('pointerup', up)
     target.addEventListener('pointercancel', cancel)
   }
-  const beginItem = (event: PointerEvent, item: BoardItem, resize = false) => {
+  const beginItem = (
+    event: PointerEvent,
+    item: BoardItem,
+    resize?: BoardCorner,
+  ) => {
     if (event.button !== 0) return
     setSelected(item.id)
-    if ((event.target as Element).closest('input, textarea, audio, video'))
-      return
+    if ((event.target as Element).closest('input, textarea')) return
     event.stopPropagation()
     event.preventDefault()
-    surface.focus()
+    surface.focus({ preventScroll: true })
     const start = point(event.clientX, event.clientY)
     let rect = item.rect
     gesture(
@@ -150,27 +339,9 @@ export function ProductBoard(props: ProductBoardProps) {
         const at = point(next.clientX, next.clientY)
         const dx = at.x - start.x
         const dy = at.y - start.y
-        if (resize) {
-          const width = Math.max(
-            BOARD_MIN_SIDE,
-            item.kind === 'picture'
-              ? (BOARD_MIN_SIDE * item.rect.width) / item.rect.height
-              : BOARD_MIN_SIDE,
-            item.rect.width + dx,
-          )
-          rect = {
-            ...item.rect,
-            width,
-            height:
-              item.kind === 'picture'
-                ? Math.max(
-                    BOARD_MIN_SIDE,
-                    (width * item.rect.height) / item.rect.width,
-                  )
-                : Math.max(BOARD_MIN_SIDE, item.rect.height + dy),
-          }
-        } else rect = { ...item.rect, x: item.rect.x + dx, y: item.rect.y + dy }
-        setPreview({ id: item.id, rect })
+        if (resize) rect = resizedRect(item, resize, dx, dy)
+        else rect = { ...item.rect, x: item.rect.x + dx, y: item.rect.y + dy }
+        setPreview({ id: item.id, rect, moving: !resize })
       },
       (commit) => {
         setPreview(undefined)
@@ -198,7 +369,7 @@ export function ProductBoard(props: ProductBoardProps) {
       )
     )
       return
-    surface.focus()
+    surface.focus({ preventScroll: true })
     setSelected(undefined)
     if (tool() !== 'select' && event.button === 0) {
       const at = point(event.clientX, event.clientY)
@@ -244,6 +415,7 @@ export function ProductBoard(props: ProductBoardProps) {
     if (current.id === item.id) return current.rect
     const moving = document().items[current.id]
     if (
+      current.moving &&
       moving?.kind === 'section' &&
       sectionMembers(document(), moving.id).includes(item.id)
     ) {
@@ -255,6 +427,17 @@ export function ProductBoard(props: ProductBoardProps) {
     }
     return item.rect
   }
+  let touches:
+    | readonly [{ x: number; y: number }, { x: number; y: number }]
+    | undefined
+  const touchPoints = (event: TouchEvent) => {
+    if (event.touches.length !== 2) return undefined
+    const bounds = surface.getBoundingClientRect()
+    return [0, 1].map((index) => ({
+      x: event.touches[index]!.clientX - bounds.left,
+      y: event.touches[index]!.clientY - bounds.top,
+    })) as [{ x: number; y: number }, { x: number; y: number }]
+  }
   return (
     <div
       class="dinkster-board"
@@ -263,6 +446,30 @@ export function ProductBoard(props: ProductBoardProps) {
       role="region"
       aria-label="Board"
       onPointerDown={backgroundDown}
+      onTouchStart={(event) => {
+        touches = touchPoints(event)
+        if (touches) cancelGesture?.()
+      }}
+      onTouchMove={(event) => {
+        const next = touchPoints(event)
+        if (touches && next)
+          setCamera(
+            touchNavViewport(
+              camera(),
+              touches[0],
+              touches[1],
+              next[0],
+              next[1],
+            ),
+          )
+        touches = next
+      }}
+      onTouchEnd={() => {
+        touches = undefined
+      }}
+      onTouchCancel={() => {
+        touches = undefined
+      }}
       onDragOver={(event) => {
         if (props.onDropMedia) event.preventDefault()
       }}
@@ -359,23 +566,15 @@ export function ProductBoard(props: ProductBoardProps) {
                         />
                       )}
                     </Show>
-                    <Show when={item.kind === 'video' && item}>
+                    <Show
+                      when={
+                        (item.kind === 'video' || item.kind === 'sound') && item
+                      }
+                    >
                       {(media) => (
-                        <video
-                          class="dinkster-board-picture"
+                        <BoardMedia
+                          item={media()}
                           src={props.assetUrl(media().asset)}
-                          controls
-                          preload="metadata"
-                        />
-                      )}
-                    </Show>
-                    <Show when={item.kind === 'sound' && item}>
-                      {(media) => (
-                        <audio
-                          class="dinkster-board-audio"
-                          src={props.assetUrl(media().asset)}
-                          controls
-                          preload="metadata"
                         />
                       )}
                     </Show>
@@ -433,47 +632,64 @@ export function ProductBoard(props: ProductBoardProps) {
                           {Math.round(item.rect.height)}
                         </span>
                       </div>
-                      <div
-                        class="dinkster-board-resize"
-                        role="separator"
-                        aria-label="Resize item"
-                        aria-orientation="horizontal"
-                        tabindex={0}
-                        onPointerDown={(event) => beginItem(event, item, true)}
-                        onKeyDown={(event) => {
-                          const dx =
-                            event.key === 'ArrowRight'
-                              ? 10
-                              : event.key === 'ArrowLeft'
-                                ? -10
-                                : 0
-                          if (!dx) return
-                          event.preventDefault()
-                          const width = Math.max(
-                            BOARD_MIN_SIDE,
-                            item.kind === 'picture'
-                              ? (BOARD_MIN_SIDE * item.rect.width) /
-                                  item.rect.height
-                              : BOARD_MIN_SIDE,
-                            item.rect.width + dx,
-                          )
-                          props.store.dispatch({
-                            command: 'board.item.resize',
-                            params: {
-                              id: item.id,
-                              rect: {
-                                ...item.rect,
-                                width,
-                                height:
-                                  item.kind === 'picture'
-                                    ? (width * item.rect.height) /
-                                      item.rect.width
-                                    : item.rect.height,
-                              },
-                            },
-                          })
-                        }}
-                      />
+                      <For
+                        each={
+                          [
+                            'bottom-right',
+                            'top-left',
+                            'top-right',
+                            'bottom-left',
+                          ] as const
+                        }
+                      >
+                        {(corner) => (
+                          <div
+                            class="dinkster-board-resize"
+                            data-corner={corner}
+                            role="separator"
+                            aria-label={
+                              corner === 'bottom-right'
+                                ? 'Resize item'
+                                : `Resize ${corner.replace('-', ' ')}`
+                            }
+                            aria-orientation="horizontal"
+                            tabindex={0}
+                            onPointerDown={(event) =>
+                              beginItem(event, item, corner)
+                            }
+                            onKeyDown={(event) => {
+                              const dx =
+                                event.key === 'ArrowRight'
+                                  ? 10
+                                  : event.key === 'ArrowLeft'
+                                    ? -10
+                                    : 0
+                              const dy =
+                                event.key === 'ArrowDown'
+                                  ? 10
+                                  : event.key === 'ArrowUp'
+                                    ? -10
+                                    : 0
+                              if (!dx && !dy) return
+                              event.preventDefault()
+                              props.store.dispatch({
+                                command: 'board.item.resize',
+                                params: {
+                                  id: item.id,
+                                  rect: resizedRect(item, corner, dx, dy),
+                                },
+                              })
+                              queueMicrotask(() =>
+                                surface
+                                  .querySelector<HTMLElement>(
+                                    `[data-board-item="${item.id}"] [data-corner="${corner}"]`,
+                                  )
+                                  ?.focus({ preventScroll: true }),
+                              )
+                            }}
+                          />
+                        )}
+                      </For>
                     </Show>
                   </div>
                 </foreignObject>

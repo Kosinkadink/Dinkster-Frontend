@@ -1412,13 +1412,17 @@
 .dinkster-search-stage > .dinkster-search { width: 100%; }
 
 /* Board: a plain world surface, with controls outside the camera transform. */
-.dinkster-board { position: relative; width: 100%; height: 720px; min-height: 360px; overflow: hidden; touch-action: none; user-select: none; background: var(--dinkster-surface-canvas); border-radius: var(--dinkster-radius-card); outline: none; }
+.dinkster-board { position: relative; width: 100%; height: 800px; min-height: 360px; overflow: hidden; touch-action: none; user-select: none; background: var(--dinkster-surface-canvas); border-radius: var(--dinkster-radius-card); outline: none; }
 .dinkster-board:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; }
 .dinkster-board-world { position: absolute; inset: 0; transform-origin: 0 0; pointer-events: none; }
 .dinkster-board-item { position: absolute; pointer-events: auto; cursor: move; }
 .dinkster-board-item[data-selected='true'] { outline: var(--dinkster-border-width) solid var(--dinkster-text-primary); }
 .dinkster-board-picture { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: var(--dinkster-radius-small); }
-.dinkster-board-audio { width: 100%; height: 100%; }
+.dinkster-board-media { position: relative; width: 100%; height: 100%; border-radius: var(--dinkster-radius-small); }
+.dinkster-board-media[data-kind='sound'] { padding: var(--dinkster-space-8); background: var(--dinkster-surface-quiet); }
+.dinkster-board-waveform { display: block; width: 100%; height: 100%; fill: none; stroke: var(--dinkster-text-muted); stroke-width: 2; }
+.dinkster-board-media-control { position: absolute; right: var(--dinkster-space-4); bottom: var(--dinkster-space-4); display: flex; align-items: center; padding-right: var(--dinkster-space-8); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-frame); color: var(--dinkster-accent-foreground); font-size: var(--dinkster-type-metadata-size); font-variant-numeric: tabular-nums; }
+.dinkster-board-media-message { position: absolute; top: var(--dinkster-space-4); left: var(--dinkster-space-8); padding: var(--dinkster-space-4); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-panel); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
 .dinkster-board-item[data-kind='section'] { border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-quiet); }
 .dinkster-board-section-name { position: absolute; top: var(--dinkster-space-8); left: var(--dinkster-space-12); right: var(--dinkster-space-12); color: var(--dinkster-text-secondary); }
 .dinkster-board-item[data-kind='note'] { padding: var(--dinkster-space-12); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); }
@@ -1426,6 +1430,9 @@
 .dinkster-board-caption { position: absolute; top: calc(100% + var(--dinkster-space-4)); left: 0; right: 0; display: flex; justify-content: center; gap: var(--dinkster-space-8); white-space: nowrap; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-metadata-size); }
 .dinkster-board-caption > span { color: var(--dinkster-text-muted); }
 .dinkster-board-resize { position: absolute; right: -4px; bottom: -4px; width: 8px; height: 8px; cursor: nwse-resize; border: var(--dinkster-border-width) solid var(--dinkster-text-primary); background: var(--dinkster-surface-canvas); }
+.dinkster-board-resize[data-corner^='top'] { top: -4px; bottom: auto; }
+.dinkster-board-resize[data-corner$='left'] { left: -4px; right: auto; }
+.dinkster-board-resize:is([data-corner='top-right'], [data-corner='bottom-left']) { cursor: nesw-resize; }
 .dinkster-board-toolbar, .dinkster-board-corner { position: absolute; left: var(--dinkster-space-12); display: flex; align-items: center; gap: var(--dinkster-space-4); padding: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-low); }
 .dinkster-board-toolbar { top: var(--dinkster-space-12); }
 .dinkster-board-corner { bottom: var(--dinkster-space-12); }

@@ -3,9 +3,9 @@ import { ProductBoard, ProductSection } from '../src/index.js'
 
 export function BoardGallery() {
   const store = new BoardStore(emptyBoard())
-  const asset = (name: string): BoardAsset => ({
+  const asset = (name: string, mediaType = 'image/jpeg'): BoardAsset => ({
     digest: `blake3:${'0'.repeat(64)}`,
-    mediaType: 'image/jpeg',
+    mediaType,
     name,
   })
   store.dispatch({
@@ -37,16 +37,31 @@ export function BoardGallery() {
           rect: { x: 24, y: 394, width: 280, height: 175 },
         },
         {
+          id: 'video-1',
+          kind: 'video',
+          asset: asset('Rain on the window', 'video/webm'),
+          rect: { x: 350, y: 394, width: 280, height: 175 },
+        },
+        {
+          id: 'sound-1',
+          kind: 'sound',
+          asset: asset('Reference chimes', 'audio/wav'),
+          rect: { x: 350, y: 594, width: 300, height: 80 },
+        },
+        {
           id: 'note-1',
           kind: 'note',
           text: 'Reference for the light. Keep the rain on the window; try a wider shot next.',
-          rect: { x: 350, y: 410, width: 300, height: 120 },
+          rect: { x: 24, y: 594, width: 280, height: 100 },
         },
       ],
     },
   })
-  const url = (value: BoardAsset) =>
-    `/templates/${value.name === 'Diner at night' ? 'diner' : value.name === 'Mountain light' ? 'valley' : 'bookshop'}.jpg`
+  const url = (value: BoardAsset) => {
+    if (value.mediaType === 'video/webm') return '/board/window.webm'
+    if (value.mediaType === 'audio/wav') return '/board/chimes.wav'
+    return `/templates/${value.name === 'Diner at night' ? 'diner' : value.name === 'Mountain light' ? 'valley' : 'bookshop'}.jpg`
+  }
   return (
     <ProductSection title="Board">
       <p class="dinkster-metadata">
