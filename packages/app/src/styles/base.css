@@ -228,6 +228,14 @@ body,
   transition-delay: calc(var(--app-shell-stage-start) + 90ms);
 }
 
+/* A library slower than the arrival's wait swaps the named button in mid-arrival; it fades in too. */
+@starting-style {
+  .app-shell-layer[data-stage="arrive"][data-stage-scope="all"] .dinkster-window-toolbar-brand button:has(.dinkster-project-name) {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
 .app-shell-layer[data-stage="arrive"] .rail,
 .app-shell-layer[data-stage="arrive"][data-stage-scope="all"] .dinkster-window-toolbar-search ~ * {
   transition-delay: calc(var(--app-shell-stage-start) + 190ms);

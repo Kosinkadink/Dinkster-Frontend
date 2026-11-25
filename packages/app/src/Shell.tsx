@@ -162,7 +162,10 @@ export function Shell(props: {
     return () => heldHost.replaceChildren()
   }
 
-  /** The new top bar names its project once the library answers; the copy waits for that, a second at most. */
+  /**
+   * The new top bar names its project once the library answers. The arrival waits for that, a
+   * second at most, so the name arrives with the icons rather than appearing on its own.
+   */
   const projectNamed = async (): Promise<void> => {
     const until = performance.now() + 1000
     while (editorHost.querySelector('.dinkster-project-name') === null && performance.now() < until) {
@@ -284,7 +287,7 @@ export function Shell(props: {
     }
     try {
       await mount(projectId)
-      if (switching) await projectNamed()
+      await projectNamed()
     } catch (error) {
       if (run !== attempt) return
       push({ kind: 'projects', newProject: false })
