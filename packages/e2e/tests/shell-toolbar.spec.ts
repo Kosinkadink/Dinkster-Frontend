@@ -133,13 +133,14 @@ test('narrow shell preserves canvas space and keeps search clear of layout contr
 test('toolbar activity counts all workflows and excludes terminal history', async ({ page }) => {
   const reconciled = new Set<string>()
   let completed = false
+  let waiting = true
   await page.routeWebSocket('**/api/events?*', () => {})
   // Synthetic store entries need matching server records when schema refresh reconciles them.
   await page.route('/api/jobs/*/toolbar-*', (route) => {
     const jobId = new URL(route.request().url()).pathname.split('/').at(-1)!
     reconciled.add(jobId)
     return route.fulfill({ json: {
-      jobId, state: jobId === 'toolbar-waiting' ? 'queued' : completed ? 'completed' : 'running',
+      jobId, state: jobId === 'toolbar-waiting' ? waiting ? 'queued' : 'cancelled' : completed ? 'completed' : 'running',
       nodeStates: {}, outputs: {}, artifacts: [],
     } })
   })
@@ -192,6 +193,13 @@ test('toolbar activity counts all workflows and excludes terminal history', asyn
         app.store.apply({ kind: 'completed', execution: execution.ref, timestamp: 20 })
       }
     }
+  })
+  await expect(activity).toHaveAccessibleName('0 running, 1 queued')
+  waiting = false
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const execution = [...app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'toolbar-waiting')!
+    app.store.apply({ kind: 'cancelled', execution: execution.ref, timestamp: 21 })
   })
   await expect(activity).toHaveCount(0)
 })
