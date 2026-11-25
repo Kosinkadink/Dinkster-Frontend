@@ -371,7 +371,7 @@ test('App view validation and remote failures keep editable controls', async ({ 
     }, 'App feedback')
   })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await page.getByTestId('app-view-number').fill('invalid')
   await page.getByTestId('app-view-number').press('Enter')
   await expect(page.getByTestId('app-view-error')).toHaveText('Enter an exact integer from -9223372036854775808 to 18446744073709551615.')
@@ -936,7 +936,7 @@ test('App view explains an empty flow and an empty arrangement group', async ({ 
     }, 'Empty app')
   })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await expect(page.getByTestId('app-view-empty')).toContainText('Nothing is exposed yet.')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })

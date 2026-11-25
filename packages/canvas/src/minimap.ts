@@ -272,6 +272,8 @@ export function drawMinimapGraph(ctx: CanvasRenderingContext2D | OffscreenCanvas
     return { n, x: px(n.x), y: py(n.y), w, h, rounded: w >= paint.roundedMinSize && h >= paint.roundedMinSize }
   })
   const curved = nodes.filter((box) => box.rounded).length * 2 >= nodes.length
+  const nodeRadius = (box: { readonly w: number; readonly h: number }): number =>
+    Math.min(paint.nodeRadius, box.w * paint.nodeRadiusShare, box.h * paint.nodeRadiusShare)
 
   // One path per wire color keeps a large graph to a handful of strokes.
   const wires = new Map<string, MinimapLink[]>()
@@ -320,7 +322,7 @@ export function drawMinimapGraph(ctx: CanvasRenderingContext2D | OffscreenCanvas
     ctx.fillStyle = fill
     ctx.beginPath()
     for (const box of list) {
-      if (box.rounded) ctx.roundRect(box.x, box.y, box.w, box.h, Math.min(paint.nodeRadius, box.w / 4, box.h / 4))
+      if (box.rounded) ctx.roundRect(box.x, box.y, box.w, box.h, nodeRadius(box))
       else ctx.rect(box.x, box.y, box.w, box.h)
     }
     ctx.fill()
@@ -346,7 +348,7 @@ export function drawMinimapGraph(ctx: CanvasRenderingContext2D | OffscreenCanvas
     ctx.lineWidth = color === t.colors.nodeOutline ? paint.nodeStroke : paint.stateStroke
     ctx.beginPath()
     for (const box of list) {
-      if (box.rounded) ctx.roundRect(box.x, box.y, box.w, box.h, Math.min(paint.nodeRadius, box.w / 4, box.h / 4))
+      if (box.rounded) ctx.roundRect(box.x, box.y, box.w, box.h, nodeRadius(box))
       else ctx.rect(box.x, box.y, box.w, box.h)
     }
     ctx.stroke()

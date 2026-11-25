@@ -160,7 +160,7 @@ import { isNativeTextScopeTarget, shortcutSuppressed } from './settings.js'
 import { bookmarkJumpMode, bookmarkJumpPlan, bookmarkMarkerWorldPoint, bookmarkSaveMode, bookmarkViewFromViewport, bookmarkViewportForView, createCameraAnimator, viewportCenteredOnNode, type BookmarkJumpPlan } from './bookmark-camera.js'
 import { Icon } from './Icon.js'
 import { autoSpecialization } from './dynamic-slot.js'
-import { minimapMenuPlacement, setupMinimap, type MinimapMarker, type MinimapMenuPlacement } from './minimap.js'
+import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap.js'
 import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
 import { ContextMenu } from './ContextMenu.js'
@@ -1805,7 +1805,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [selVersion, setSelVersion] = createSolidSignal(0)
   const [stack, setStack] = createSolidSignal<readonly string[]>([])
   const [cornerMenu, setCornerMenu] = createSolidSignal<CanvasCornerMenu>()
-  const [cornerMenuPose, setCornerMenuPose] = createSolidSignal<MinimapMenuPlacement>({ above: false })
+  const [cornerMenuHeight, setCornerMenuHeight] = createSolidSignal<number>()
   let cornerControlsEl!: HTMLDivElement
   const measureCornerMenu = (): void => {
     const stageEl = cornerControlsEl.offsetParent
@@ -1814,7 +1814,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // top toolbar row when one is present.
     const toolbar = stageEl?.querySelector('.canvas-stage-toolbar')?.getBoundingClientRect()
     const top = Math.max(stage?.top ?? 0, toolbar?.bottom ?? 0)
-    setCornerMenuPose(minimapMenuPlacement(cornerControlsEl.getBoundingClientRect(), { left: stage?.left ?? 0, top }))
+    const bar = cornerControlsEl.querySelector('.canvas-corner-bar')?.getBoundingClientRect()
+    setCornerMenuHeight(bar === undefined ? undefined : cornerMenuMaxHeight(bar.top, top))
   }
   const openCornerMenu = (menu: CanvasCornerMenu): void => {
     measureCornerMenu()
@@ -7029,7 +7030,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         settings={minimapSwitches()}
         zoom={editorViewport().scale}
         menu={cornerMenu()}
-        menuPlacement={cornerMenuPose()}
+        menuMaxHeight={cornerMenuHeight()}
+        shortcuts={(settingsTick(), {
+          zoomIn: props.app.keybindings.combo('view.zoomIn'),
+          zoomOut: props.app.keybindings.combo('view.zoomOut'),
+        })}
         onToggleMinimap={toggleMinimap}
         onToggleSetting={(id) => {
           const setting = `canvas.minimap.${id}`

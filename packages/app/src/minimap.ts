@@ -29,32 +29,16 @@ import type { SettingsRegistry } from './settings.js'
 const MINIMAP_W = canvasPaintTokens.minimap.fallbackWidth
 const MINIMAP_H = canvasPaintTokens.minimap.fallbackHeight
 
-/** Where the minimap settings popover opens relative to the corner cluster. */
-export interface MinimapMenuPlacement {
-  readonly above: boolean
-  /** Height cap (CSS px) when the popover opens above the cluster. */
-  readonly maxHeight?: number
-}
-
 /**
- * The settings popover prefers the space beside (left of) the corner cluster
- * and opens above it when the stage leaves no room there - a narrow window
- * and an open side panel both shrink the stage the cluster floats in, so the
- * decision is measured, not keyed on viewport width. Above placement caps
- * the popover height to the space between the usable stage top and the
- * cluster so it never covers the minimap or escapes the stage's clipping
- * box. Coordinates are viewport CSS px; `stage.top` is the highest edge the
- * popover may reach (the caller lowers it below any floating top toolbar).
+ * Height cap (CSS px) for a menu that opens straight above the bar under the
+ * minimap, over the minimap: it reaches no higher than the usable stage top
+ * (the caller lowers it below any floating top toolbar), scrolling past that.
+ * Coordinates are viewport CSS px.
  */
-export function minimapMenuPlacement(
-  controls: { readonly left: number; readonly top: number },
-  stage: { readonly left: number; readonly top: number },
-): MinimapMenuPlacement {
-  const menuWidth = 210 // .minimap-menu border-box width
-  const gap = 8 // clearance between the popover and the cluster
+export function cornerMenuMaxHeight(barTop: number, stageTop: number): number {
+  const gap = 6 // between the bar and the menu
   const margin = 8 // minimum clearance from the stage edge
-  if (controls.left - stage.left >= menuWidth + gap + margin) return { above: false }
-  return { above: true, maxHeight: Math.max(120, controls.top - stage.top - gap - margin) }
+  return Math.max(120, barTop - stageTop - gap - margin)
 }
 
 /** Bookmark slot digit at a saved camera's world center. */

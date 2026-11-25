@@ -42,7 +42,7 @@ async function openJourneyDocument(page: Page): Promise<void> {
 async function selectAppView(page: Page): Promise<void> {
   if (await page.getByTestId('app-view').count()) return
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
 }
 
 async function canvasPoint(page: Page, target: 'prompt' | 'steps' | 'preview'): Promise<{ x: number; y: number }> {

@@ -750,3 +750,39 @@ test('context menus keep 12 px sides, one label column and a check column only w
     page.getByRole('heading', { name: 'Context menus' }).locator('xpath=ancestor::section[1]'),
   ).toHaveScreenshot('context-menus.png')
 })
+
+test('the canvas corner bar keeps one width right-justified under the minimap, and its menus open straight above it', async ({
+  page,
+}) => {
+  await page.goto('/#canvas-chrome')
+  await page.evaluate(() => document.fonts.ready)
+  await expect(page.getByTestId('canvas-chrome-gallery')).toHaveAttribute('data-ready', 'true')
+  const corners = await page.evaluate(() =>
+    Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-testid^="canvas-chrome-corner-"]')].map((figure) => {
+      const box = (selector: string) => figure.querySelector(selector)?.getBoundingClientRect()
+      const bar = box('.canvas-corner-bar')!
+      const map = figure.querySelector<HTMLElement>('.minimap')!
+      const menu = box('.minimap-menu, .canvas-zoom-menu')
+      return [figure.dataset['testid']!.replace('canvas-chrome-corner-', ''), {
+        barWidth: Math.round(bar.width),
+        barRightToMap: map.offsetParent === null ? null : Math.round(map.getBoundingClientRect().right - bar.right),
+        menuGap: menu === undefined ? null : Math.round(bar.top - menu.bottom),
+        menuRight: menu === undefined ? null : Math.round(bar.right - menu.right),
+        mapOpacity: getComputedStyle(map).opacity,
+      }]
+    })),
+  )
+  const width = corners['small']!.barWidth
+  expect(corners).toEqual({
+    small: { barWidth: width, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    medium: { barWidth: width, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    large: { barWidth: width, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    hidden: { barWidth: width, barRightToMap: null, menuGap: null, menuRight: null, mapOpacity: '1' },
+    settings: { barWidth: width, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
+    quiet: { barWidth: width, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
+    zoom: { barWidth: width, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
+  })
+  await expect(
+    page.getByRole('heading', { name: 'Canvas corner and view bar' }).locator('xpath=ancestor::section[1]'),
+  ).toHaveScreenshot('canvas-chrome.png')
+})

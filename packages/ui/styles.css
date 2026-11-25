@@ -697,8 +697,10 @@
 :is(.canvas-lens-button, .canvas-zoom-level, .canvas-corner-more) svg:last-child { width: 12px; height: 12px; color: var(--dinkster-text-muted); }
 .canvas-lens-button svg:first-child { width: 16px; height: 16px; }
 .canvas-corner-controls { position: absolute; right: 10px; bottom: 10px; z-index: 5; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; max-width: calc(100% - 20px); pointer-events: none; }
-/* An open settings popover paints over the stage's floating chrome (the top toolbar row sits at z-index 7 outside this stacking context). */
-.canvas-corner-controls:has(.minimap-menu, .canvas-zoom-menu) { z-index: 9; }
+/* An open menu paints over the stage's floating chrome (the top toolbar row sits at z-index 7 outside this stacking context), and over the minimap, which dims under it. */
+.canvas-corner-controls[data-menu-open='true'] { z-index: 9; }
+.canvas-corner-controls[data-menu-open='true'] .minimap { opacity: 0.4; }
+.canvas-corner-anchor { position: relative; display: flex; }
 .minimap { display: block; box-sizing: border-box; width: 160px; max-width: 100%; height: 96px; border: 0; border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-canvas); box-shadow: 0 0 0 1px var(--dinkster-border-subtle), var(--dinkster-elevation-high); cursor: pointer; touch-action: none; pointer-events: auto; }
 .canvas-corner-controls[data-minimap-size='medium'] .minimap { width: 196px; height: 118px; }
 .canvas-corner-controls[data-minimap-size='large'] .minimap { width: 256px; height: 150px; }
@@ -709,18 +711,17 @@
 .canvas-corner-bar .canvas-corner-split .canvas-chrome-button[aria-expanded='true'] { background: transparent; }
 .canvas-corner-bar .canvas-corner-more { min-width: 14px; width: 14px; margin-left: -3px; }
 .canvas-corner-bar .canvas-zoom-level { padding: 0 4px 0 6px; }
-/* Menus of the canvas chrome. The corner's open to the left of the cluster, bottom-aligned; with no room there (a narrow window or an open side panel; the host measures and applies the class) they open above it, never covering the minimap, and the host caps their height. */
-.minimap-menu, .lens-menu, .canvas-zoom-menu { position: absolute; z-index: 8; display: flex; flex-direction: column; box-sizing: border-box; min-width: 210px; padding: var(--dinkster-space-12); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-card); box-shadow: var(--dinkster-elevation-high); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
-.minimap-menu, .canvas-zoom-menu { right: calc(100% + 8px); bottom: 0; max-height: min(60vh, 420px); overflow-y: auto; pointer-events: auto; }
-:is(.minimap-menu, .canvas-zoom-menu).above { right: 0; bottom: calc(100% + 8px); }
-.minimap-menu { width: 210px; gap: var(--dinkster-space-8); }
+/* Menus of the canvas chrome. The corner's open straight above the bar under the minimap, over the minimap, their right edge on the bar's; the host caps their height to the stage. */
+.minimap-menu, .lens-menu, .canvas-zoom-menu { position: absolute; z-index: 8; display: flex; flex-direction: column; box-sizing: border-box; min-width: 210px; padding: var(--dinkster-space-12); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-card); box-shadow: var(--dinkster-elevation-high); }
+.minimap-menu, .canvas-zoom-menu { right: 0; bottom: calc(100% + 6px); overflow-y: auto; pointer-events: auto; }
+.minimap-menu { width: max-content; gap: var(--dinkster-space-8); }
 :is(.minimap-menu, .lens-menu, .canvas-zoom-menu) button { display: flex; align-items: center; box-sizing: border-box; width: 100%; min-height: 28px; padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 1px solid transparent; border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: transparent; font: inherit; text-align: left; cursor: pointer; user-select: none; }
 :is(.minimap-menu, .lens-menu, .canvas-zoom-menu) button:hover:not(:disabled) { border-color: transparent; background: var(--dinkster-interaction-hover); }
 :is(.minimap-menu, .lens-menu, .canvas-zoom-menu) button:active:not(:disabled) { background: var(--dinkster-interaction-pressed); }
 :is(.minimap-menu, .lens-menu, .canvas-zoom-menu) button:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .minimap-menu .minimap-setting-row { gap: var(--dinkster-space-8); min-height: 36px; }
 .minimap-setting-row > svg { width: 15px; height: 15px; flex: none; color: var(--dinkster-text-muted); }
-.minimap-setting-row > span { flex: 1; }
+.minimap-setting-row > span { flex: 1; white-space: nowrap; }
 .minimap-setting-row > .minimap-switch { position: relative; flex: none; box-sizing: border-box; width: 30px; height: 17px; border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-border-subtle); }
 .minimap-switch > span { position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-text-secondary); transition: transform var(--dinkster-motion-fast) var(--dinkster-motion-easing), background var(--dinkster-motion-fast) var(--dinkster-motion-easing); }
 .minimap-setting-row[aria-checked='true'] > .minimap-switch { border-color: var(--dinkster-accent-border); background: var(--dinkster-surface-selected); }
@@ -740,4 +741,8 @@
 .lens-menu-heading { margin-top: 5px; padding: 7px; color: var(--dinkster-text-disabled); border-top: 1px solid var(--dinkster-border-strong); font-size: var(--dinkster-type-metadata-size); text-transform: uppercase; }
 .lens-menu > .lens-menu-heading:first-child { margin-top: 0; border-top: 0; }
 /* A gallery frame holding the canvas chrome over a piece of canvas. */
-.dinkster-canvas-chrome-stage { position: relative; overflow: hidden; border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-canvas); }
+.dinkster-canvas-chrome-stage { width: 320px; height: 240px; }
+.dinkster-canvas-chrome-stage[data-shape='tall'] { width: 320px; height: 440px; }
+.dinkster-canvas-chrome-stage[data-shape='top'] { width: 380px; height: 420px; }
+.dinkster-canvas-chrome-stage[data-shape='bar'] { width: 380px; height: 120px; }
+.dinkster-canvas-chrome-toolbar { position: absolute; top: 8px; left: 8px; display: flex; }

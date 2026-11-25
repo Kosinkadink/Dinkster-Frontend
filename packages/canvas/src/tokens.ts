@@ -620,15 +620,16 @@ export const canvasPaintTokens = {
     linkStroke: 1,
     linkOpacity: 0.9,
     quietLinkOpacity: 0.55,
-    /** Node boxes: corner radius, outline width, and the outline of a run state. */
+    /** Node boxes: corner radius (at most this share of a small box's side), outline width, and the outline of a run state. */
     nodeRadius: 2,
+    nodeRadiusShare: 0.25,
     nodeStroke: 0.75,
     stateStroke: 1,
     /**
      * A box smaller than this on either side draws as a plain block with no
      * outline, and when most boxes are that small the wires draw straight.
      */
-    roundedMinSize: 4,
+    roundedMinSize: 3,
     /** The title line: drawn only on a box at least this large, inset, and this tall. */
     titleMinWidth: 9,
     titleMinHeight: 6,

@@ -18,7 +18,7 @@ import {
   dispatchAppCommandKey,
 } from '../src/App.js'
 import { ActivityBarButton, DockZoneHost, FloatingPanelHost, ShellResizeHandle } from '../src/ShellChrome.js'
-import { CanvasViewControls } from '../src/CanvasChrome.js'
+import { CanvasCornerControls, CanvasViewControls, type CanvasCornerMenu } from '../src/CanvasChrome.js'
 import { ContextMenu } from '../src/ContextMenu.js'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
 import { AppState, workflowExportFilename } from '../src/app-state.js'
@@ -69,7 +69,7 @@ function menuFixture(saveDisabled = false) {
   return { root, save, keybindings, dispose }
 }
 
-function canvasViewControlsFixture(appViewEnabled = true) {
+function canvasViewControlsFixture(appViewEnabled = true, lens = { id: 'standard', label: 'Standard' }) {
   const root = document.createElement('div')
   document.body.append(root)
   const [activeView, setActiveView] = createSignal<string>(GRAPH_EDITOR_KIND)
@@ -89,7 +89,7 @@ function canvasViewControlsFixture(appViewEnabled = true) {
       disabled={false}
       activeView={activeView()}
       appViewEnabled={appViewEnabled}
-      activeLens={{ id: 'standard', label: 'Standard' }}
+      activeLens={lens}
       lenses={[
         { id: 'standard', label: 'Standard', description: 'Default graph presentation.' },
         { id: 'types', label: 'Types', description: 'Show type details.' },
@@ -116,13 +116,25 @@ describe('canvas view controls', () => {
     dispose()
   })
 
-  it('shows the active view name and lists both views', () => {
+  it('names the active view on its icon button and lists both views', () => {
     const { root, setViewMenuOpen, dispose } = canvasViewControlsFixture()
-    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toContain('Graph')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toBe('')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('aria-label')).toBe('View: Graph')
     setViewMenuOpen(true)
     const items = [...root.querySelectorAll('.view-menu [role="menuitemradio"]')]
-    expect(items.map((item) => item.textContent?.trim())).toEqual(['Graph', 'App view'])
+    expect(items.map((item) => item.textContent?.trim())).toEqual(['Graph', 'App'])
     dispose()
+  })
+
+  it('shows the lens name on the lens button only while it is not Standard', () => {
+    const standard = canvasViewControlsFixture()
+    expect(standard.root.querySelector('[data-testid="lens-switcher"]')?.textContent).toBe('')
+    expect(standard.root.querySelector('[data-testid="lens-switcher"]')?.getAttribute('aria-label')).toBe('Lens: Standard')
+    standard.dispose()
+    const types = canvasViewControlsFixture(true, { id: 'types', label: 'Types' })
+    expect(types.root.querySelector('[data-testid="lens-switcher"]')?.textContent).toBe('Types')
+    expect(types.root.querySelector('[data-testid="lens-switcher"]')?.getAttribute('data-lens-named')).toBe('true')
+    types.dispose()
   })
 
   it('switches the editor kind and updates the active view name', () => {
@@ -130,7 +142,7 @@ describe('canvas view controls', () => {
     setViewMenuOpen(true)
     click([...root.querySelectorAll('.view-menu [role="menuitemradio"]')][1]!)
     expect(selectView).toHaveBeenCalledWith(APP_EDITOR_KIND)
-    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toContain('App')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('aria-label')).toBe('View: App')
     dispose()
   })
 
@@ -159,7 +171,7 @@ describe('canvas view controls', () => {
 
     setLocale('de-DE')
 
-    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toContain('[Diagrammansicht]')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('aria-label')).toContain('[Diagrammansicht]')
     expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('data-tooltip-label')).toBeNull()
     expect(root.querySelector('.view-menu')).toBe(viewMenu)
     expect(document.activeElement).toBe(graphItem)
@@ -180,6 +192,51 @@ describe('canvas view controls', () => {
     setLensMenuOpen(false)
     expect(root.querySelector('[data-testid="lens-switcher"]')?.getAttribute('data-tooltip-label')).toBe('[Diagrammdarstellung wahlen]')
     dispose()
+  })
+})
+
+describe('canvas corner controls', () => {
+  it('sets a typed zoom percentage, and each zoom menu choice acts once and closes the menu', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const [menu, setMenu] = createSignal<CanvasCornerMenu | undefined>('zoom')
+    const zoomTo = vi.fn()
+    const zoomBy = vi.fn()
+    const dispose = render(() => (
+      <CanvasCornerControls
+        size="small"
+        minimapVisible
+        settings={{}}
+        zoom={0.374}
+        menu={menu()}
+        onToggleMinimap={() => {}}
+        onToggleSetting={() => {}}
+        onOpenMenu={setMenu}
+        onCloseMenu={() => setMenu(undefined)}
+        onFit={() => {}}
+        onZoomBy={zoomBy}
+        onZoomTo={zoomTo}
+      />
+    ), root)
+    expect(root.querySelector('[data-testid="canvas-zoom-level"]')?.textContent).toBe('37%')
+    const field = root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!
+    expect(field.value).toBe('37')
+    field.value = '150'
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(zoomTo).toHaveBeenCalledWith(1.5)
+    expect(menu()).toBeUndefined()
+
+    setMenu('zoom')
+    click(root.querySelector('[data-testid="canvas-zoom-out"]')!)
+    expect(zoomBy).toHaveBeenCalledWith(1 / 1.2)
+    expect(menu()).toBeUndefined()
+    setMenu('zoom')
+    click(root.querySelector('[data-testid="canvas-zoom-reset"]')!)
+    expect(zoomTo).toHaveBeenLastCalledWith(1)
+    expect(menu()).toBeUndefined()
+    dispose()
+    root.remove()
   })
 })
 

@@ -253,7 +253,7 @@ test('a narrow App View pane renders mobile while its wide sibling stays desktop
 
   for (const group of [second, first]) {
     await group.getByTestId('views-switcher').click()
-    await page.getByRole('menuitemradio', { name: 'App view' }).click()
+    await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   }
   await expect(first.locator('[data-app-breakpoint]')).toHaveAttribute('data-app-breakpoint', 'desktop')
   await expect(second.locator('[data-app-breakpoint]')).toHaveAttribute('data-app-breakpoint', 'desktop')

@@ -86,6 +86,7 @@ import {
   selectCanvasPage,
 } from './canvas.js'
 import { ContextMenuGallery } from './context-menus.js'
+import { CanvasChromeGallery } from './canvas-chrome.js'
 import { SiteGallery } from './site.js'
 
 const navigation = [
@@ -310,6 +311,11 @@ function Gallery() {
             </Match>
             <Match when={route() === '#canvas'}>
               <CanvasGallery />
+            </Match>
+            <Match when={route() === '#canvas-chrome'}>
+              <Section title="Canvas corner and view bar" components="CanvasCornerControls, CanvasViewControls">
+                <CanvasChromeGallery />
+              </Section>
             </Match>
             <Match when={route() === '#context-menus'}>
               <Section title="Context menus" components="ContextMenu">

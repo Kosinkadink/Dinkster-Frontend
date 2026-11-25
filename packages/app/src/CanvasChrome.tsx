@@ -4,7 +4,6 @@ import { AppWindow, Bookmark, ChevronDown, CircleSlash2, Frame, Layers, Map as M
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from './editors.js'
 import { Icon } from './Icon.js'
 import { useAppMessage } from './locale.js'
-import type { MinimapMenuPlacement } from './minimap.js'
 import { ProductButton, ProductTextInput } from './ProductControls.js'
 import { ProductNotice } from './ProductForm.js'
 
@@ -160,8 +159,8 @@ export const MINIMAP_SWITCHES: readonly { readonly id: string; readonly icon: Lu
  * The minimap and the bar under it, right-justified in the canvas corner.
  * The bar is as wide as its buttons: the minimap switch with its settings
  * arrow, Fit to view, and the zoom percentage, which opens the zoom menu.
- * Both menus open to the left of the cluster, bottom-aligned, or above it
- * when the stage has no room there.
+ * Both menus open straight above the bar, over the minimap, which dims
+ * while one is open.
  */
 export function CanvasCornerControls(props: {
   readonly size: string
@@ -171,7 +170,10 @@ export function CanvasCornerControls(props: {
   /** The view's scale: 1 is 100%. */
   readonly zoom: number
   readonly menu: CanvasCornerMenu | undefined
-  readonly menuPlacement: MinimapMenuPlacement
+  /** Height cap (CSS px) that keeps an open menu inside the stage. */
+  readonly menuMaxHeight?: number | undefined
+  /** The keys bound to Zoom in and Zoom out, shown beside them. */
+  readonly shortcuts?: { readonly zoomIn?: string | undefined; readonly zoomOut?: string | undefined }
   readonly ref?: (element: HTMLDivElement) => void
   readonly minimapRef?: (element: HTMLCanvasElement) => void
   readonly onToggleMinimap: () => void
@@ -187,7 +189,7 @@ export function CanvasCornerControls(props: {
   let zoomTrigger: HTMLButtonElement | undefined
   let menuElement: HTMLDivElement | undefined
   const percent = () => Math.round(props.zoom * 100)
-  const [typed, setTyped] = createSignal('')
+  const [typed, setTyped] = createSignal(String(percent()))
   // Opening a menu puts the keyboard in it; closing returns it to the
   // button that opened it.
   createEffect(on(() => props.menu, (menu, previous) => {
@@ -211,9 +213,12 @@ export function CanvasCornerControls(props: {
     if (Number.isFinite(value) && value > 0) props.onZoomTo(value / 100)
     props.onCloseMenu()
   }
-  const menuStyle = () => props.menuPlacement.above ? { 'max-height': `${props.menuPlacement.maxHeight}px` } : undefined
+  createEffect(() => {
+    props.menu
+    if (menuElement) menuElement.style.maxHeight = props.menuMaxHeight === undefined ? '' : `${props.menuMaxHeight}px`
+  })
   return (
-    <div ref={props.ref} class="canvas-corner-controls" data-minimap-size={props.size}>
+    <div ref={props.ref} class="canvas-corner-controls" data-minimap-size={props.size} data-menu-open={props.menu === undefined ? undefined : 'true'}>
       <canvas
         ref={props.minimapRef}
         class="minimap"
@@ -228,74 +233,76 @@ export function CanvasCornerControls(props: {
         data-errors={props.settings['errors']}
         data-bookmarks={props.settings['bookmarks']}
       />
-      <div class="canvas-corner-bar" role="group" aria-label={message('canvas.corner.label')}>
-        <span class="canvas-corner-split" data-open={props.menu === 'minimap' ? 'true' : undefined}>
-          <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button" data-testid="minimap-toggle"
-            data-tooltip-label={message(props.minimapVisible ? 'canvas.corner.hideMinimap' : 'canvas.corner.showMinimap')}
-            aria-label={message(props.minimapVisible ? 'canvas.corner.hideMinimap' : 'canvas.corner.showMinimap')}
-            aria-pressed={props.minimapVisible}
-            onClick={props.onToggleMinimap}
-          ><Icon icon={MapIcon} /></ProductButton>
-          <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button canvas-corner-more" data-testid="minimap-settings"
-            ref={settingsTrigger}
-            data-tooltip-label={props.menu === 'minimap' ? undefined : message('canvas.corner.minimapSettings')}
-            aria-label={message('canvas.corner.minimapSettings')}
-            aria-expanded={props.menu === 'minimap'}
-            onClick={() => props.menu === 'minimap' ? props.onCloseMenu() : props.onOpenMenu('minimap')}
-          ><Icon icon={ChevronDown} /></ProductButton>
-        </span>
-        <span class="canvas-chrome-divider" aria-hidden="true" />
-        <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button" data-testid="canvas-fit-view"
-          data-tooltip-label={message('canvas.corner.fit')}
-          aria-label={message('canvas.corner.fitShortcut')}
-          onClick={props.onFit}
-        ><Icon icon={Maximize2} /></ProductButton>
-        <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button canvas-zoom-level" data-testid="canvas-zoom-level"
-          ref={zoomTrigger}
-          data-tooltip-label={props.menu === 'zoom' ? undefined : message('canvas.corner.zoomOptions')}
-          aria-label={message('canvas.corner.zoomLabel', { percent: percent() })}
-          aria-haspopup="menu"
-          aria-expanded={props.menu === 'zoom'}
-          onClick={() => props.menu === 'zoom' ? props.onCloseMenu() : props.onOpenMenu('zoom')}
-        ><span>{percent()}%</span><Icon icon={ChevronDown} /></ProductButton>
+      <div class="canvas-corner-anchor">
+        <div class="canvas-corner-bar" role="group" aria-label={message('canvas.corner.label')}>
+          <span class="canvas-corner-split" data-open={props.menu === 'minimap' ? 'true' : undefined}>
+            <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button" data-testid="minimap-toggle"
+              data-tooltip-label={message(props.minimapVisible ? 'canvas.corner.hideMinimap' : 'canvas.corner.showMinimap')}
+              aria-label={message(props.minimapVisible ? 'canvas.corner.hideMinimap' : 'canvas.corner.showMinimap')}
+              aria-pressed={props.minimapVisible}
+              onClick={props.onToggleMinimap}
+            ><Icon icon={MapIcon} /></ProductButton>
+            <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button canvas-corner-more" data-testid="minimap-settings"
+              ref={settingsTrigger}
+              data-tooltip-label={props.menu === 'minimap' ? undefined : message('canvas.corner.minimapSettings')}
+              aria-label={message('canvas.corner.minimapSettings')}
+              aria-expanded={props.menu === 'minimap'}
+              onClick={() => props.menu === 'minimap' ? props.onCloseMenu() : props.onOpenMenu('minimap')}
+            ><Icon icon={ChevronDown} /></ProductButton>
+          </span>
+          <span class="canvas-chrome-divider" aria-hidden="true" />
+          <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button" data-testid="canvas-fit-view"
+            data-tooltip-label={message('canvas.corner.fit')}
+            aria-label={message('canvas.corner.fitShortcut')}
+            onClick={props.onFit}
+          ><Icon icon={Maximize2} /></ProductButton>
+          <ProductButton variant="ghost" size="compact" type="button" class="canvas-chrome-button canvas-zoom-level" data-testid="canvas-zoom-level"
+            ref={zoomTrigger}
+            data-tooltip-label={props.menu === 'zoom' ? undefined : message('canvas.corner.zoomOptions')}
+            aria-label={message('canvas.corner.zoomLabel', { percent: percent() })}
+            aria-haspopup="menu"
+            aria-expanded={props.menu === 'zoom'}
+            onClick={() => props.menu === 'zoom' ? props.onCloseMenu() : props.onOpenMenu('zoom')}
+          ><span>{percent()}%</span><Icon icon={ChevronDown} /></ProductButton>
+        </div>
+        <Show when={props.menu === 'minimap'}>
+          <div ref={menuElement} class="minimap-menu">
+            <For each={MINIMAP_SWITCHES}>{(item) => {
+              const label = () => message(`canvas.corner.minimap.${item.id}`)
+              return <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid={`minimap-toggle-${item.id}`} aria-label={label()} aria-checked={props.settings[item.id] === true} onClick={() => props.onToggleSetting(item.id)}><Icon icon={item.icon} /><span>{label()}</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
+            }}</For>
+            <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid="minimap-marker-toggle"
+              aria-checked={props.settings['bookmarks'] === true}
+              data-tooltip-label={message('canvas.corner.minimap.bookmarks.tooltip')}
+              aria-label={message('canvas.corner.minimap.bookmarks.label')}
+              onClick={() => props.onToggleSetting('bookmarks')}
+            ><Icon icon={Bookmark} /><span>{message('canvas.corner.minimap.bookmarks')}</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
+          </div>
+        </Show>
+        <Show when={props.menu === 'zoom'}>
+          <div ref={menuElement} class="canvas-zoom-menu" role="menu" aria-label={message('canvas.corner.zoomOptions')} data-testid="canvas-zoom-menu">
+            <label class="canvas-zoom-field">
+              <ProductTextInput
+                inputMode="decimal"
+                data-testid="canvas-zoom-input"
+                aria-label={message('canvas.corner.zoomField')}
+                value={typed()}
+                onInput={(event) => setTyped(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    applyTyped()
+                  }
+                }}
+              />
+              <span aria-hidden="true">%</span>
+            </label>
+            <ProductButton variant="ghost" size="compact" type="button" role="menuitem" data-testid="canvas-zoom-in" onClick={choose(() => props.onZoomBy(1.2))}><span>{message('canvas.corner.zoomIn')}</span><Show when={props.shortcuts?.zoomIn}>{(keys) => <kbd>{keys()}</kbd>}</Show></ProductButton>
+            <ProductButton variant="ghost" size="compact" type="button" role="menuitem" data-testid="canvas-zoom-out" onClick={choose(() => props.onZoomBy(1 / 1.2))}><span>{message('canvas.corner.zoomOut')}</span><Show when={props.shortcuts?.zoomOut}>{(keys) => <kbd>{keys()}</kbd>}</Show></ProductButton>
+            <ProductButton variant="ghost" size="compact" type="button" role="menuitem" data-testid="canvas-zoom-reset" onClick={choose(() => props.onZoomTo(1))}><span>{message('canvas.corner.zoomReset')}</span></ProductButton>
+          </div>
+        </Show>
       </div>
-      <Show when={props.menu === 'minimap'}>
-        <div ref={menuElement} classList={{ 'minimap-menu': true, above: props.menuPlacement.above }} style={menuStyle()}>
-          <For each={MINIMAP_SWITCHES}>{(item) => {
-            const label = () => message(`canvas.corner.minimap.${item.id}`)
-            return <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid={`minimap-toggle-${item.id}`} aria-label={label()} aria-checked={props.settings[item.id] === true} onClick={() => props.onToggleSetting(item.id)}><Icon icon={item.icon} /><span>{label()}</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
-          }}</For>
-          <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid="minimap-marker-toggle"
-            aria-checked={props.settings['bookmarks'] === true}
-            data-tooltip-label={message('canvas.corner.minimap.bookmarks.tooltip')}
-            aria-label={message('canvas.corner.minimap.bookmarks.label')}
-            onClick={() => props.onToggleSetting('bookmarks')}
-          ><Icon icon={Bookmark} /><span>{message('canvas.corner.minimap.bookmarks')}</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
-        </div>
-      </Show>
-      <Show when={props.menu === 'zoom'}>
-        <div ref={menuElement} classList={{ 'canvas-zoom-menu': true, above: props.menuPlacement.above }} style={menuStyle()} role="menu" aria-label={message('canvas.corner.zoomOptions')} data-testid="canvas-zoom-menu">
-          <label class="canvas-zoom-field">
-            <ProductTextInput
-              inputMode="decimal"
-              data-testid="canvas-zoom-input"
-              aria-label={message('canvas.corner.zoomField')}
-              value={typed()}
-              onInput={(event) => setTyped(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  applyTyped()
-                }
-              }}
-            />
-            <span aria-hidden="true">%</span>
-          </label>
-          <ProductButton variant="ghost" size="compact" type="button" role="menuitem" data-testid="canvas-zoom-in" onClick={choose(() => props.onZoomBy(1.2))}><span>{message('canvas.corner.zoomIn')}</span><kbd>Alt+=</kbd></ProductButton>
-          <ProductButton variant="ghost" size="compact" type="button" role="menuitem" data-testid="canvas-zoom-out" onClick={choose(() => props.onZoomBy(1 / 1.2))}><span>{message('canvas.corner.zoomOut')}</span><kbd>Alt+-</kbd></ProductButton>
-          <ProductButton variant="ghost" size="compact" type="button" role="menuitem" data-testid="canvas-zoom-reset" onClick={choose(() => props.onZoomTo(1))}><span>{message('canvas.corner.zoomReset')}</span></ProductButton>
-        </div>
-      </Show>
     </div>
   )
 }
