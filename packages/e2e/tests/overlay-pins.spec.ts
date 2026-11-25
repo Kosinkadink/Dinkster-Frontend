@@ -27,6 +27,13 @@ const pinsSnapshot = (page: Page) =>
     ),
   )
 
+/** Whether the active live tab's overlay follows the newest run or a pin. */
+const overlayMode = (page: Page) =>
+  page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    return app.overlayPins.get().has(app.activeTab()!.id) ? 'pinned' : 'latest'
+  })
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
@@ -43,8 +50,7 @@ test('pin holds an older run through new submissions; follow-latest releases it'
   // Unpinned: the newest row is what the live tab's overlay shows.
   await expect(await executionDetails(rows.nth(0))).toHaveAttribute('data-overlay', 'latest')
   await expect(await executionDetails(rows.nth(1))).not.toHaveAttribute('data-overlay')
-  const chip = page.getByTestId('sync-chip')
-  await expect(chip).toHaveAttribute('data-overlay-mode', 'latest')
+  await expect.poll(() => overlayMode(page)).toBe('latest')
 
   // Pin the OLDER run. The pin control must not open a frozen view.
   const tabCount = await page.getByTestId('tab-bar').locator('.tab').count()
@@ -52,19 +58,18 @@ test('pin holds an older run through new submissions; follow-latest releases it'
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(tabCount)
   await expect(await executionDetails(rows.nth(1))).toHaveAttribute('data-overlay', 'pinned')
   await expect(await executionDetails(rows.nth(0))).not.toHaveAttribute('data-overlay')
-  await expect(chip).toHaveAttribute('data-overlay-mode', 'pinned')
-  await expect(chip).toContainText('pinned:')
+  await expect.poll(() => overlayMode(page)).toBe('pinned')
 
   // A NEW run must not steal the overlay from the pin.
   await queueAndComplete(page)
   await expect(rows).toHaveCount(3)
   await expect(await executionDetails(rows.nth(2))).toHaveAttribute('data-overlay', 'pinned')
   await expect(await executionDetails(rows.nth(0))).not.toHaveAttribute('data-overlay')
-  await expect(chip).toHaveAttribute('data-overlay-mode', 'pinned')
+  await expect.poll(() => overlayMode(page)).toBe('pinned')
 
   // Follow latest: the newest run overlays again.
-  await page.getByTestId('sync-chip-follow-latest').click()
-  await expect(chip).toHaveAttribute('data-overlay-mode', 'latest')
+  await (await executionDetails(rows.nth(2))).getByTestId('execution-pin').click()
+  await expect.poll(() => overlayMode(page)).toBe('latest')
   await expect(await executionDetails(rows.nth(0))).toHaveAttribute('data-overlay', 'latest')
   await expect(await executionDetails(rows.nth(2))).not.toHaveAttribute('data-overlay')
   expect(await pinsSnapshot(page)).toEqual({})
@@ -95,11 +100,11 @@ test('pins are per tab, keyed to the run lineage, and survive tab switches', asy
   // The Subgraph tab still follows ITS latest, unaffected.
   await switchTab(page, 'Subgraph')
   await expect((await executionDetails(rows.first())).locator('.execution-tab')).toHaveText('Subgraph')
-  await expect(page.getByTestId('sync-chip')).toHaveAttribute('data-overlay-mode', 'latest')
+  await expect.poll(() => overlayMode(page)).toBe('latest')
 
-  // Switching to Basic shows the pinned chip; the pin persisted.
+  // Switching back to Basic finds the pin still held.
   await switchTab(page, 'Basic')
-  await expect(page.getByTestId('sync-chip')).toHaveAttribute('data-overlay-mode', 'pinned')
+  await expect.poll(() => overlayMode(page)).toBe('pinned')
 
   // The explicit Open action opens the frozen view without changing the pin.
   await rows.first().locator('.execution-open').click()

@@ -25,7 +25,8 @@ export function WorkflowQueueControl(props: {
   readonly canQueue: boolean
   /** Why Run is off, shown as its tooltip in place of the action and shortcut. */
   readonly blockedReason?: string | undefined
-  readonly onQueue: () => void
+  /** Absent on a frozen tab, which has no Run button: only its run list and progress. */
+  readonly onQueue?: (() => void) | undefined
   readonly onOpenExecution: (ref: ExecutionRef) => void
 }) {
   const message = useAppMessage()
@@ -82,7 +83,7 @@ export function WorkflowQueueControl(props: {
       data-owner={props.owner.id}
     >
       <div class="workflow-queue-buttons">
-        <button
+        <Show when={props.onQueue}>{(onQueue) => <button
           type="button"
           class="workflow-queue-submit"
           data-testid="queue-button"
@@ -90,10 +91,10 @@ export function WorkflowQueueControl(props: {
           data-tooltip-label={props.blockedReason ?? message('command.workflow.queue')}
           data-tooltip-detail={props.blockedReason === undefined ? 'Ctrl+Enter' : undefined}
           disabled={!props.canQueue}
-          onClick={props.onQueue}
+          onClick={() => onQueue()()}
         >
           <Icon icon={Play} /> {message('appView.queue')}
-        </button>
+        </button>}</Show>
         <button
           ref={toggle}
           type="button"

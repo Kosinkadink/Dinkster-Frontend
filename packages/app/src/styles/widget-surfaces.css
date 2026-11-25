@@ -453,62 +453,63 @@
   overflow-y: auto;
 }
 
-.frozen-banner,
-.sync-chip {
+/* The frozen line: one canvas bar centred on the row of the view and lens
+   controls, or on the next row when it would touch them (data-row, set by
+   CanvasHost). Its look comes from the canvas bar rules in the ui styles. */
+.frozen-banner {
   position: absolute;
-  top: calc(var(--canvas-toolbar-bottom, 0px) + var(--dinkster-space-8) + var(--canvas-breadcrumb-height, 0px) + var(--canvas-breadcrumb-gap, 0px));
-  left: var(--dinkster-space-8);
-  right: var(--dinkster-space-8);
-  width: fit-content;
-  max-width: calc(100% - 2 * var(--dinkster-space-8));
-  box-sizing: border-box;
+  top: var(--dinkster-space-8);
+  left: 50%;
   z-index: 6;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--dinkster-space-8);
-  padding: var(--dinkster-space-4) var(--dinkster-space-12);
-  font: var(--dinkster-type-metadata-size)/var(--dinkster-type-metadata-line) var(--dinkster-font-family);
-  color: var(--dinkster-text-secondary);
-  background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-subtle);
-  border-radius: var(--dinkster-radius-control);
-  overflow-wrap: anywhere;
+  max-width: calc(100% - 2 * var(--dinkster-space-8));
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.frozen-banner[data-row='below'] {
+  top: calc(var(--canvas-toolbar-bottom, 0px) + var(--dinkster-space-8) + var(--canvas-breadcrumb-height, 0px) + var(--canvas-breadcrumb-gap, 0px));
 }
 
 .canvas-stage:has(.breadcrumb) {
   --canvas-breadcrumb-gap: var(--dinkster-space-8);
 }
 
-.frozen-banner {
-  flex-wrap: nowrap;
+.frozen-words {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--dinkster-space-8);
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 var(--dinkster-space-8);
+  color: var(--dinkster-text-secondary);
 }
 
-.frozen-banner > svg,
-.frozen-banner .frozen-label,
-.frozen-banner .banner-button {
+.frozen-words > svg {
   flex: none;
-  white-space: nowrap;
+  width: 16px;
+  height: 16px;
 }
 
 .frozen-label {
-  font-weight: var(--dinkster-weight-regular);
+  flex: none;
   color: var(--dinkster-text-primary);
 }
 
-.frozen-banner .frozen-sync {
+.frozen-sync,
+.frozen-schema-warning {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.frozen-banner .frozen-action {
+  flex: none;
+  padding: 0 var(--dinkster-space-8);
 }
 
 .frozen-schema-warning {
-  color: var(--dinkster-warning-foreground);
-}
-
-.sync-chip[data-sync='diverged'] {
-  border-color: var(--dinkster-warning-border);
   color: var(--dinkster-warning-foreground);
 }
 
