@@ -532,6 +532,22 @@ describe('call answers', () => {
 })
 
 describe('lists, forms and lookups', () => {
+  it('accepts an integer lookup answer through the plain JSON contract', async () => {
+    addSchema('test.typed_lookup', [
+      { kind: 'input', id: 'first', type: { kind: 'concrete', types: ['STRING'] }, required: true, default: '' },
+      { kind: 'input', id: 'second', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 1 },
+      { kind: 'button', id: 'read', label: 'Read', steps: [
+        { step: 'set', field: 'first', value: { value: 'staged' } },
+        { step: 'set', field: 'second', value: { lookup: 'test.mod.count', args: [] } },
+      ] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.typed_lookup', values: { first: 'old', second: 1 } } }))
+    const outcome = await runPress(session, at('read'), hostOf({ lookup: async () => ({ state: 'ready', value: 2 }) }))
+    expect(outcome.kind).toBe('done')
+    expect(valuesOf(session)).toEqual({ first: 'staged', second: 2 })
+    expect(session.canUndo).toBe(true)
+  })
+
   it('Pick offers a stale list and passes its choice to later steps, which store a looked-up value', async () => {
     const session = sessionOf(documentOf({ n1: { type: 'dev.buttons.lora_preset' } }))
     const asked: unknown[] = []

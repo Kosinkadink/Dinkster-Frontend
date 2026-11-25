@@ -247,10 +247,10 @@ function literalOf(raw: unknown): Value {
   return refuse('A step holds a value the editor cannot store.')
 }
 
-/** An answer's value as steps read it: integral JSON numbers are whole numbers. */
-function answerOf(raw: unknown): unknown {
+/** Lookup answers still arrive as plain JSON numbers. */
+function lookupValue(raw: unknown): unknown {
   if (typeof raw === 'number') return Number.isInteger(raw) ? BigInt(raw) : raw
-  if (Array.isArray(raw)) return raw.map(answerOf)
+  if (Array.isArray(raw)) return raw.map(lookupValue)
   return raw
 }
 
@@ -652,7 +652,7 @@ class Press {
     const { result } = await this.lookup(value.function, value.args, 'value', context)
     if (result.state === 'paused') return refuse(PAUSED_MESSAGE)
     if (result.state !== 'ready') return refuse(LOOKUP_FAILED_MESSAGE)
-    return answerOf(result.value)
+    return lookupValue(result.value)
   }
 
   // -- writing ---------------------------------------------------------------
@@ -1001,7 +1001,7 @@ class Press {
         if (typeof entries === 'string') return refuse(`The pack's answer for ${key} does not fit: ${entries}.`)
         actions.push({ kind: 'value', path, value: raw as string })
       } else {
-        actions.push(...this.write(key, answerOf(raw)))
+        actions.push(...this.write(key, raw))
       }
     }
     this.stage(actions)
