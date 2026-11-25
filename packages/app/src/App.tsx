@@ -1350,12 +1350,23 @@ export function App(props: {
     />
     </BackendMetadataState>
   )
-  const [storageFocus, setStorageFocus] = createSolidSignal<{ readonly id: string }>()
+  const [storageFocus, setStorageFocus] = createSolidSignal<{ readonly id: string; readonly hiddenModels?: boolean }>()
   const openStorage = (backend = activeBackend()): void => {
     setStorageFocus({ id: backend.id })
     app.modalPanel.set('')
     setPanelOpen(app.panels, app.dock, 'storage', 'left', true)
   }
+  const storageRequest = useSignal(app.storageOpenRequest)
+  createEffect(() => {
+    const request = storageRequest()
+    if (request === undefined) return
+    const backend = backends().find((backend) => backend.id === request.id)
+    if (backend !== undefined) {
+      openStorage(backend)
+      setStorageFocus(request)
+    }
+    app.storageOpenRequest.set(undefined)
+  })
   const openBackendSettings = (backend: Backend): void => {
     app.settingsOpenRequest.set({ category: `backend:${backend.id}`, id: '' })
     app.modalPanel.set('settings')
@@ -2084,8 +2095,9 @@ export function App(props: {
       const style = getComputedStyle(bodyElement)
       const gap = Number.parseFloat(style.columnGap) || 0
       const sidebarWidth = sidebar.getBoundingClientRect().width
+      const sidebarShare = sidebarWidth > 0 ? sidebarWidth + gap + Number.parseFloat(getComputedStyle(sidebar).marginRight) : 0
       const available = bodyElement.clientWidth - Number.parseFloat(style.paddingLeft)
-        - Number.parseFloat(style.paddingRight) - sidebarWidth - (sidebarWidth > 0 ? gap : 0) - 320
+        - Number.parseFloat(style.paddingRight) - sidebarShare - 320
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
         : { single: Math.max(0, available - gap), both: Math.max(0, available - 2 * gap) })

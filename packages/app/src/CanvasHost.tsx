@@ -428,6 +428,8 @@ export function storedValueProblems(
   if (value === undefined) return []
   const where = `${row.nodeId}.${row.valueKey}`
   if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
+    // Model names are valid bindings; the backend presence read owns their availability.
+    if (row.spec.kind?.startsWith('model/')) return []
     return [unresolvedAssetImportDiagnostic({
       graphId,
       nodeId: row.nodeId,
@@ -7272,6 +7274,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, data!['input'] as string,
                         typeof data?.['digest'] === 'string' ? data['digest'] : undefined)
+                    } else {
+                      const tab = activeTab()
+                      if (tab === undefined) return
+                      closeProblemBox()
+                      if (action === 'review-model') props.app.reviewModelDownload(tab, line.problem.diagnostic)
+                      else props.app.openModelStorage(tab, line.problem.diagnostic)
                     }
                   }}
                 />
