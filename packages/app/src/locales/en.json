@@ -1737,7 +1737,7 @@
   "projects.unreadable": "Could not read the projects.",
   "projects.workflows.unreadable": "Could not read this project's workflows.",
   "projects.outputs.unreadable": "Could not read this project's latest outputs.",
-  "projects.status.running": "Running on {installation}",
+  "projects.status.ready": "{installation} is ready",
   "projects.facts.outputsFolder": "Outputs",
   "projects.facts.showInFolder": "Show in folder",
   "projects.facts.folderFailed": "The folder could not be opened on this computer."

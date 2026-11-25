@@ -306,7 +306,7 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
           </span>
           <span class="status-item" data-testid="projects-engine-status">
             {engine().state === 'ready' && engine().open
-              ? message('projects.status.running', { installation: engine().open!.name })
+              ? message('projects.status.ready', { installation: engine().open!.name })
               : message(ENGINE_WORDS[engine().state ?? 'stopped'])}
           </span>
           <Show when={count() !== undefined}>
