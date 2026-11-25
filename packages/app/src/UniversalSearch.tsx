@@ -297,7 +297,11 @@ export function UniversalSearch(props: { app: AppState }) {
           label={message('command.search.open')}
           placeholder={message('command.search.open')}
           query={query()}
-          onQuery={(text) => { setQuery(text); setCurrent(undefined) }}
+          onQuery={(text) => {
+            if (props.app.searchRegistry.list().some((provider) => provider.prefix === text.charAt(0))) setKind('all')
+            setQuery(text)
+            setCurrent(undefined)
+          }}
           kinds={kinds()}
           kind={kind()}
           onKind={(id) => { setKind(id); setCurrent(undefined) }}

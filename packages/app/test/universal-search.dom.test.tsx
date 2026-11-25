@@ -179,6 +179,27 @@ describe('UniversalSearch', () => {
     dispose()
   })
 
+  it('shows prefix-routed kinds instead of the previously selected kind', async () => {
+    const { root, dispose } = fixture([
+      { id: 'commands', label: 'Commands', prefix: '>', priority: 20, query: () => [row('Open settings', 1)] },
+      { id: 'settings', label: 'Settings', prefix: '#', priority: 10, query: () => [row('Demo flag', 1)] },
+      { id: 'extension', label: 'Extension', prefix: '>', priority: 5, query: () => [row('Open extension', 1)] },
+    ])
+    await settle()
+    root.querySelectorAll<HTMLElement>('[role="tab"]')[2]!.click()
+    type(input(root), 'flag')
+    expect(titles(root)).toEqual(['Demo flag'])
+    type(input(root), '? flag')
+    expect(titles(root)).toEqual(['Demo flag'])
+    type(input(root), '> Open')
+    expect(titles(root)).toEqual(['Open settings', 'Open extension'])
+    expect(root.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('All')
+    root.querySelectorAll<HTMLElement>('[role="tab"]')[1]!.click()
+    type(input(root), '# flag')
+    expect(titles(root)).toEqual(['Demo flag'])
+    dispose()
+  })
+
   it('flips a setting that is a switch in its row and shows a command shortcut as keys', async () => {
     const app = new AppState()
     app.settings.register({ id: 'demo.flag', name: 'Demo flag', category: 'demo', type: 'boolean', defaultValue: false })
