@@ -1,8 +1,9 @@
 import { createEffect, createSignal, onCleanup, onMount } from 'solid-js'
 import { createSearchSession, decodeSearchHostAction, type SearchGroup, type SearchHostAction, type SearchResult } from '@dinkster/core'
 import Search from 'lucide-solid/icons/search'
-import { AppWindow, Box, Download, PanelTop, SlidersHorizontal, SquareTerminal, Workflow, type LucideIcon } from 'lucide-solid'
+import { AppWindow, Download, PanelTop, SlidersHorizontal, SquareTerminal, Workflow, type LucideIcon } from 'lucide-solid'
 import {
+  BlueprintIcon,
   ProductSearch,
   ProductSearchNodePreview,
   ProductWindowAction,
@@ -21,7 +22,7 @@ const RECENT_SHOWN = 5
 
 const KIND_ICONS: Readonly<Record<string, LucideIcon>> = {
   'core.nodes': PanelTop,
-  'core.blueprints': Box,
+  'core.blueprints': BlueprintIcon,
   'core.commands': SquareTerminal,
   'core.settings': SlidersHorizontal,
   'core.workflows': Workflow,
