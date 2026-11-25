@@ -495,7 +495,11 @@ interface Locals {
 
 function evaluateIn(context: FormulaContext, locals: Locals, text: string): FormulaOutcome {
   const scope = { ...context.scope, names: new Map([...context.scope.names, ...locals.kinds]) }
-  const values = { ...context.values, values: new Map([...(context.values.values ?? []), ...locals.values]) }
+  const values = { ...context.values, values: new class extends Map<string, FormulaValue | typeof UNKNOWN> {
+    override get(name: string): FormulaValue | typeof UNKNOWN | undefined {
+      return locals.values.has(name) ? locals.values.get(name) : context.values.values?.get(name)
+    }
+  }() }
   try {
     return Formula.parse(text, scope).evaluate(values)
   } catch (error) {
@@ -509,7 +513,7 @@ function unknownWired(context: FormulaContext, locals: Locals, text: string): st
   try {
     const scope = { ...context.scope, names: new Map([...context.scope.names, ...locals.kinds]) }
     const formula = Formula.parse(text, scope)
-    if (formula.evaluate({ ...context.values, values: new Map([...(context.values.values ?? []), ...locals.values]) }).kind !== 'unknown') return []
+    if (evaluateIn(context, locals, text).kind !== 'unknown') return []
     return [...formula.uses().names].filter((name) => context.values.linked?.get(name) === true)
   } catch {
     return []
