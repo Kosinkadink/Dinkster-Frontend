@@ -1761,8 +1761,13 @@ export function buildScene(input: BuildSceneInput): Scene {
     const outsideSpaces = new Map<string, NonNullable<BoundarySlotInfo['editorSpaces']>>()
     const panelView = graphView?.inputsPanel
     if (derived !== undefined && fieldOwners.size > 0) {
-      // The entered node's chosen views, so a field drawn as a slider there
-      // is a slider here too.
+      // A nested promotion can own its value and chosen view farther out
+      // than the immediately entered node.
+      const fieldRepresentations: Record<string, string> = {}
+      for (const [id, owner] of fieldOwners) {
+        const chosen = input.document.view.graphs[owner.graphId]?.nodes[owner.nodeId]?.views?.[owner.valueKey]
+        if (chosen !== undefined) fieldRepresentations[id] = chosen
+      }
       const ownerView = ownerNode !== undefined && ownerGraph !== undefined
         ? input.document.view.graphs[ownerGraph.id]?.nodes[ownerNode.id]
         : undefined
@@ -1773,7 +1778,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         : resolveNode(def.id, fieldNode)) ?? derived
       const outside = layoutNode(fieldSchema, fieldNode, input.tokens, measure, input.widgetMeasure, {
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
-        ...(ownerView?.views !== undefined ? { widgetRepresentations: ownerView.views } : {}),
+        widgetRepresentations: fieldRepresentations,
         ...(ownerView?.textLines !== undefined ? { textBoxLines: ownerView.textLines } : {}),
         // The panel's own folds, not the subgraph node's outside; each starts folded.
         editorsStartFolded: true,

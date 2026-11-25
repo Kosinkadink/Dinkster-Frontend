@@ -34,6 +34,7 @@ interface DinksterBridgeSceneNode {
       address?: { port: string; members?: readonly string[] }
       /** Field rows shown on the subgraph node without a wire. */
       subgraphMark?: { item: string; label: string }
+      familyOwner?: { graphId: string; nodeId: string; valueKey?: string }
       input?: { portId: string }
       output?: { portId: string }
       sectionId?: string
@@ -667,6 +668,7 @@ interface DinksterTestBridge {
         side: 'inputs' | 'outputs'
         x: number
         y: number
+        fields?: { node: { values: Readonly<Record<string, unknown>> } }
         layout: {
           width: number
           height: number

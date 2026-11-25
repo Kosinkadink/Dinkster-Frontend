@@ -179,6 +179,113 @@ for (const known of [false, true]) test(`a ${known ? 'known' : 'unknown'} wire o
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.outer!.values.steps)).toBe(20)
 })
 
+test('promoted representations and Inputs edits stay with the entered instance through a nested boundary', async ({ page }, testInfo) => {
+  await openSampler(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const sampler = app.activeTab()!.store.doc.graphs.g0!.nodes.n1!
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'nested-row-views', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'root', nodes: {
+          first: { id: 'first', type: '#sub', values: { radius: 12 } },
+          second: { id: 'second', type: '#sub', values: { radius: 24 } },
+        }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 },
+        sub: { id: 'sub', name: 'Outer', nodes: { nested: { id: 'nested', type: '#leaf', values: { radius: 6 } } },
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+          boundary: { inputs: [{ id: 'radius', binds: { kind: 'port', node: 'nested', port: 'radius' }, promoted: true, wireHidden: true }], outputs: [] } },
+        leaf: { id: 'leaf', name: 'Inner', nodes: { n1: sampler }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+          boundary: { inputs: [{ id: 'radius', binds: { kind: 'port', node: 'n1', port: 'cfg' }, promoted: true, wireHidden: true }], outputs: [] } },
+      },
+      view: { graphs: {
+        g0: { nodes: { first: { position: { x: 100, y: 100 } }, second: { position: { x: 550, y: 100 } } } },
+        sub: { nodes: { nested: { position: { x: 450, y: 150 } } } },
+        leaf: { nodes: { n1: { position: { x: 450, y: 150 } } } },
+      } },
+    } as never, 'Nested row views')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const enter = async (node: string) => {
+    const mark = await subgraphMarkPoint(page, node)
+    await page.mouse.dblclick(mark.x, mark.y)
+    await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 250, y: 150, scale: 1 }))
+  }
+  const panelRow = () => page.evaluate(() => {
+    const panel = window.__dinksterTest!.renderer!.getScene().boundaryNodes.find((node) => node.side === 'inputs')!
+    const row = panel.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'radius')!
+    return { value: panel.fields!.node.values.radius, view: row.viewId, owner: row.familyOwner }
+  })
+  const openPanel = async () => {
+    const point = await page.evaluate(() => {
+      const renderer = window.__dinksterTest!.renderer!
+      const panel = renderer.getScene().boundaryNodes.find((node) => node.side === 'inputs')!
+      const row = panel.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'radius')!
+      const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      const viewport = renderer.getViewport()
+      return { x: rect.left + panel.x + panel.layout.width / 2 + viewport.x, y: rect.top + panel.y + row.y + row.height / 2 + viewport.y }
+    })
+    await page.mouse.click(point.x, point.y)
+  }
+  await enter('first')
+  await expect.poll(panelRow).toMatchObject({ value: 12, view: 'core.number', owner: { graphId: 'g0', nodeId: 'first', valueKey: 'radius' } })
+  await openPanel()
+  await page.getByRole('button', { name: 'Representation Number', exact: true }).click()
+  await page.getByRole('option', { name: 'Slider', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await expect.poll(panelRow).toMatchObject({ value: 12, view: 'core.slider' })
+  await enter('nested')
+  await expect.poll(panelRow).toMatchObject({ value: 12, view: 'core.slider', owner: { graphId: 'g0', nodeId: 'first', valueKey: 'radius' } })
+  await page.screenshot({ path: testInfo.outputPath('nested-instance-slider.png') })
+  const inner = await rowPoint(page, 'n1', 'cfg')
+  await page.mouse.click(inner.x, inner.y)
+  await expect(field(page)).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await openPanel()
+  await page.getByRole('button', { name: 'Representation Slider', exact: true }).click()
+  await page.getByRole('option', { name: 'Number', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await openPanel()
+  await field(page).fill('18')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Escape')
+  await page.screenshot({ path: testInfo.outputPath('nested-instance-inputs.png') })
+  await page.getByTestId('graph-breadcrumb').getByRole('button').first().click()
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+  await enter('second')
+  await expect.poll(panelRow).toMatchObject({ value: 24, view: 'core.number', owner: { graphId: 'g0', nodeId: 'second' } })
+  await expect.poll(() => page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return { first: doc.graphs.g0!.nodes.first!.values.radius, second: doc.graphs.g0!.nodes.second!.values.radius,
+      default: doc.graphs.sub!.nodes.nested!.values.radius, inner: doc.graphs.leaf!.nodes.n1!.values.cfg,
+      firstView: doc.view.graphs.g0!.nodes.first!.views, secondView: doc.view.graphs.g0!.nodes.second!.views }
+  })).toEqual({ first: 18, second: 24, default: 6, inner: 7, firstView: { radius: 'number' } })
+  await openPanel()
+  await page.getByRole('button', { name: 'Representation Number', exact: true }).click()
+  await page.getByRole('option', { name: 'Slider', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    await app.openDocument(JSON.parse(JSON.stringify(app.exportDocument(app.activeTab()!.id)!)), 'Reopened nested row views')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const outside = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.map((node) => ({
+    id: node.id, rows: node.layout.rows.flatMap((row) => row.kind === 'widget'
+      ? [{ view: row.viewId, marked: row.subgraphMark !== undefined }] : []),
+  })))
+  expect(outside).toEqual([
+    { id: 'first', rows: [{ view: 'core.number', marked: false }] },
+    { id: 'second', rows: [{ view: 'core.slider', marked: false }] },
+  ])
+  await enter('second')
+  await enter('nested')
+  await expect.poll(panelRow).toMatchObject({ value: 24, view: 'core.slider', owner: { graphId: 'g0', nodeId: 'second' } })
+  await page.getByTestId('graph-breadcrumb').getByRole('button').first().click()
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+  await enter('first')
+  await enter('nested')
+  await expect.poll(panelRow).toMatchObject({ value: 18, view: 'core.number', owner: { graphId: 'g0', nodeId: 'first' } })
+})
+
 for (const access of ['readOnly', 'disabled'] as const) {
   test(`a ${access} flag discards the draft and explains the row without preventing non-UI writes`, async ({ page }, testInfo) => {
     await openSampler(page, access)
@@ -796,6 +903,7 @@ for (const reason of ['unknown', 'wired'] as const) test(`a host-disabled Button
 
 test('a keyboard-started Ask Button gives its form the keyboard and applies one undoable edit', async ({ page }) => {
   await openMixed(page, true)
+  await page.evaluate(() => window.__dinksterTest!.app.enableWorkspaceAuthority())
   const steps = await rowPoint(page, 'n1', 'steps')
   await page.mouse.click(steps.x, steps.y)
   await page.keyboard.press('Shift+Tab')
