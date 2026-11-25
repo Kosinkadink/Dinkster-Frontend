@@ -25,6 +25,8 @@ import {
   representationSchema,
   tintSchema,
   rowStateExamples,
+  createSameLineScene,
+  sameLineSchema,
   type RowStateExample,
 } from '../../canvas/gallery/row-states.js'
 import { CanvasRowFocus, CanvasRowList, CanvasSidePart, ProductSection } from '../src/index.js'
@@ -218,6 +220,18 @@ const representationExample = (
   },
 })
 
+const sameLineExamples: readonly RowExample[] = [
+  { id: 'middle-field', field: 'y', caption: 'Middle field open. Only y is outlined; its side part is a separate bordered box below the node, never a bridge across z.' },
+  { id: 'last-field', field: 'z', caption: 'Last field open. Its side part joins the exposed right edge when there is room; x and y stay untouched.' },
+  { id: 'first-field', field: 'x', caption: 'First field open. Its side part joins the exposed left edge when there is room; y and z stay untouched.' },
+].map((example) => ({
+  id: example.id, caption: example.caption, scale: 1,
+  width: MARGIN + 600 + SIDE_ROOM, nodeWidth: 600,
+  node: { x: example.field === 'x' ? SIDE_ROOM : MARGIN, y: MARGIN },
+  open: example.field,
+  build: { scene: createSameLineScene, schema: sameLineSchema },
+}))
+
 const representationExamples: readonly RowExample[] = [
   representationExample(
     'representation-closed',
@@ -296,6 +310,11 @@ export function RowStatesGallery(props: { theme: Theme }) {
     <>
       <ProductSection title="Gives nothing, and a skipped node">{cards(examples().nothing)}</ProductSection>
       <ProductSection title="Promoted fields inside and outside">{cards(examples().promoted)}</ProductSection>
+      <ProductSection title="Opening a field on a shared line">
+        <div class="dinkster-canvas-examples">
+          <For each={sameLineExamples}>{(example) => <RowEditingExample example={example} theme={props.theme} registry={registry} look={tokens()} testIdPrefix="row-states" />}</For>
+        </div>
+      </ProductSection>
       <ProductSection title="Button keyboard focus">{cards(examples().buttons.filter((example) => example.focus !== undefined))}</ProductSection>
       <ProductSection title="Button results, Pick lists and Ask forms">{cards(examples().buttons.filter((example) => example.focus === undefined))}</ProductSection>
       <ProductSection title="Representation control at the end of the side part">

@@ -217,12 +217,12 @@ export const InRowColorImplementation: Component<WidgetEditorImplementationProps
   const [panelHeight, setPanelHeight] = createSignal(0)
   const placement = createMemo(() => {
     const row = rowPlacement(
-      { rect: ed.rect, look: inRow.look, nodeTop: inRow.nodeTop, nodeBottom: inRow.nodeBottom },
+      { ...inRow, rect: ed.rect },
       host.viewport(),
       bounds(),
       sideSize(),
     )
-    return { ...row, ...canvasColorLayout(row.screen, bounds(), panelHeight(), sideSize(), row.scale) }
+    return { ...row, ...canvasColorLayout(row.screen, bounds(), panelHeight(), sideSize(), row.scale, row.sideEdges) }
   })
   createEffect(() => placeRow(frame, placement()))
 

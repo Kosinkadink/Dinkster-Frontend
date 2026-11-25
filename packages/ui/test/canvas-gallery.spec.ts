@@ -95,6 +95,23 @@ test('Controls inside an open row use ordinary borders and a brighter keyboard b
   await expect(trigger).toHaveCSS('border-color', await tokenColor('--dinkster-border-hover'))
 })
 
+test('Shared-line fields join exposed ends and keep the middle side part detached', async ({ page }) => {
+  await openPage(page, 'row-states')
+  for (const [id, place, value] of [['middle-field', 'below-node', '12'], ['last-field', 'right', '24'], ['first-field', 'left', '8']]) {
+    const card = page.getByTestId(`row-states-${id}`).locator('..')
+    const side = card.locator('.dinkster-canvas-field-side')
+    await expect(side).toHaveAttribute('data-place', place!)
+    await expect(card.locator('input')).toHaveValue(value!)
+    const fieldBox = await card.locator('.dinkster-canvas-field').boundingBox()
+    const sideBox = await side.boundingBox()
+    expect(fieldBox).not.toBeNull()
+    expect(sideBox).not.toBeNull()
+    if (place === 'below-node') expect(sideBox!.y).toBeGreaterThan(fieldBox!.y + fieldBox!.height)
+    else if (place === 'right') expect(sideBox!.x).toBeGreaterThanOrEqual(fieldBox!.x + fieldBox!.width - 1)
+    else expect(sideBox!.x + sideBox!.width).toBeLessThanOrEqual(fieldBox!.x + 1)
+  }
+})
+
 test('Representation filters declared looks and dismisses without changing the field', async ({ page }) => {
   await openPage(page, 'row-states')
   const labels = page.locator('.dinkster-canvas-side-representation-line .dinkster-canvas-field-label')

@@ -67,6 +67,8 @@ export interface CanvasSideSize {
  * `nodeBelow` and `nodeAbove` are the distances, at normal size, from the
  * field's top down to where the side part starts under the node and up to
  * where it ends over the node.
+ * `edges` marks the ends of the horizontal line: a cell may join a side part only
+ * at an exposed edge, never through another cell on its line.
  */
 export function canvasSideLayout(
   row: CanvasBox,
@@ -75,6 +77,7 @@ export function canvasSideLayout(
   scale: number,
   nodeBelow: number,
   nodeAbove: number,
+  edges?: { readonly left: boolean; readonly right: boolean },
 ): CanvasSideLayout {
   // Zoomed in, the field and its side part scale with the canvas.
   const zoom = Math.max(1, scale)
@@ -85,9 +88,9 @@ export function canvasSideLayout(
   const beside: CanvasSidePlace | undefined =
     scale < 1 || side.height > bottom - top
       ? undefined
-      : row.x + row.width + sideWidth <= bounds.x + bounds.width
+      : edges?.right !== false && row.x + row.width + sideWidth <= bounds.x + bounds.width
         ? 'right'
-        : row.x - sideWidth >= bounds.x
+        : edges?.left !== false && row.x - sideWidth >= bounds.x
           ? 'left'
           : undefined
   if (beside !== undefined) {

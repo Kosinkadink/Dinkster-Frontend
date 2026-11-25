@@ -393,7 +393,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   const [listSize, setListSize] = createSignal(0)
   const placement = createMemo(() => {
     const row = rowPlacement(
-      { rect: ed.rect, look: inRow.look, nodeTop: inRow.nodeTop, nodeBottom: inRow.nodeBottom },
+      { ...inRow, rect: ed.rect },
       host.viewport(),
       bounds(),
       sideSize(),
@@ -404,7 +404,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
       ...row,
       ...canvasListLayout(row.screen, bounds(), listSize(), sideSize(), row.scale,
         (inRow.nodeBottom - ed.rect.y) * local + grow,
-        (ed.rect.y - inRow.nodeTop) * local - grow),
+        (ed.rect.y - inRow.nodeTop) * local - grow, row.sideEdges),
     }
   })
   createEffect(() => { if (!authoring()) placeRow(frame, placement()) })

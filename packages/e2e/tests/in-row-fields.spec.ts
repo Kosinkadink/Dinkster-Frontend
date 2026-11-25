@@ -606,6 +606,50 @@ test('a click on each other row stores the open field and opens that row', async
   await expect(field(page)).toHaveCount(0)
 })
 
+test('opening cells on a shared line never joins a side part across another cell', async ({ page }, testInfo) => {
+  await openSampler(page)
+  await page.setViewportSize({ width: 1800, height: 900 })
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'Offset', displayName: 'Offset', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: ['x', 'y', 'z'].map((id, index) => ({
+        kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: false,
+        tooltip: `${id} offset`, widget: { widgetType: 'INT', options: {}, default: [8, 12, 24][index] },
+      })) }],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'shared-line', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'Offset', values: { x: 8, y: 12, z: 24 } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 400, y: 100 }, width: 420 } } } } },
+    } as never, 'Shared line')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 80, scale: 1 })
+  })
+  for (const [id, place, stored] of [['y', 'below-node', 12], ['z', 'right', 24], ['x', 'left', 8]] as const) {
+    const point = await page.evaluate((id) => {
+      const renderer = window.__dinksterTest!.renderer!
+      const node = renderer.getScene().nodes.find((item) => item.id === 'n1')!
+      const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === id)! as
+        { inset: number; width?: number; y: number; height: number }
+      const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      const viewport = renderer.getViewport()
+      return {
+        x: canvas.left + (node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2) / 2) * viewport.scale + viewport.x,
+        y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
+      }
+    }, id)
+    await page.mouse.click(point.x, point.y)
+    await expect(page.getByTestId('canvas-row-field')).toHaveAttribute('data-place', place)
+    await expect(field(page)).toHaveValue(String(stored))
+    await page.screenshot({ path: testInfo.outputPath(`shared-line-${id}.png`) })
+    await page.keyboard.press('Escape')
+    await expect(field(page)).toHaveCount(0)
+    await expect.poll(() => value(page, id)).toBe(stored)
+  }
+})
+
 test('past a limit the side part says what Enter stores; the field follows the canvas and flips its side part at the right edge', async ({ page }) => {
   await openSampler(page)
   const steps = await rowPoint(page, 'n1', 'steps')

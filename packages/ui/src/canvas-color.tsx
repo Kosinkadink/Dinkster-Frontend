@@ -602,6 +602,7 @@ export function canvasColorLayout(
   panelHeight: number,
   side: CanvasSideSize,
   scale: number,
+  edges?: { readonly left: boolean; readonly right: boolean },
 ): CanvasSideLayout & {
   readonly panelPlace: CanvasPanelPlace
   readonly panelMaxHeight?: number
@@ -623,6 +624,6 @@ export function canvasColorLayout(
   return {
     panelPlace,
     ...(shown < panel ? { panelMaxHeight: shown / zoom } : {}),
-    ...canvasSideLayout(column, bounds, side, scale, Infinity, Infinity),
+    ...canvasSideLayout(column, bounds, side, scale, Infinity, Infinity, edges),
   }
 }

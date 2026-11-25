@@ -86,6 +86,7 @@ export function canvasListLayout(
   scale: number,
   nodeBelow: number,
   nodeAbove: number,
+  edges?: { readonly left: boolean; readonly right: boolean },
 ): CanvasListLayout {
   const zoom = Math.max(1, scale)
   const fieldHeight = row.height / zoom
@@ -97,7 +98,7 @@ export function canvasListLayout(
   const fits = list <= room ? {} : { listMaxHeight: room }
   // The side part's top is measured from the column of row and list.
   const offset = listPlace === 'above' ? listHeight : 0
-  const beside = canvasSideLayout(row, bounds, side, scale, nodeBelow, nodeAbove)
+  const beside = canvasSideLayout(row, bounds, side, scale, nodeBelow, nodeAbove, edges)
   if (beside.place === 'right' || beside.place === 'left')
     return { ...beside, sideTop: beside.sideTop + offset, sideMaxWidth: bounds.width / zoom, listPlace, ...fits }
   // Under or over: the side part goes past the list.
@@ -114,6 +115,7 @@ export function canvasListLayout(
     scale,
     Math.max(nodeBelow + offset, fieldHeight + listHeight),
     Math.max(nodeAbove - offset, 0),
+    edges,
   )
   const sideMaxWidth = bounds.width / zoom
   const sideLeft = Math.max(

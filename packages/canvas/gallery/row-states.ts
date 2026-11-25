@@ -76,6 +76,22 @@ const soften = schema('Soften', [
   field('mix', 'FLOAT', 0.65, { min: 0, max: 1, step: 0.01 }),
 ])
 
+export const sameLineSchema = schema('Offset', [{ kind: 'row', rows: [
+  { ...field('x', 'INT', 8), tooltip: 'Horizontal offset.' },
+  { ...field('y', 'INT', 12), tooltip: 'Vertical offset.' },
+  { ...field('z', 'INT', 24), tooltip: 'Depth offset.' },
+] }])
+
+export function createSameLineScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  position: { readonly x: number; readonly y: number },
+  width: number,
+): Scene {
+  return sceneOf([{ id: 'offset', schema: sameLineSchema, ...position, width }], [], tokens, measure, widgetMeasure)
+}
+
 /** Look sets for the representation examples: locked, and a slider whose range is not known. */
 const mixLooks = (userSwitchable: boolean, range: boolean, initial: 'number' | 'slider'): WidgetRepresentationsSpec => {
   const options = (display: string): Record<string, Json> => ({ ...(range ? { min: 0, max: 1 } : {}), step: 0.01, display })

@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
-import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { layoutNode, rowSideEdges, TITLE_START, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
@@ -131,6 +131,13 @@ describe('pairing', () => {
         : row.kind === 'widget' ? `widget:${row.inputId}` : row.kind)
     expect(kinds).toEqual(['note:intro:Plain text', 'widget:w', 'note:size:pending:unknown', 'button:swap:Swap', 'widget:after', 'widget:mode', 'note:mode.shown:under a'])
     const [intro, w, size, swap, after] = layout.rows
+    expect(rowSideEdges(layout.rows, w!)).toEqual({ left: true, right: false })
+    expect(rowSideEdges(layout.rows, size!)).toEqual({ left: false, right: false })
+    expect(rowSideEdges(layout.rows, swap!)).toEqual({ left: false, right: true })
+    expect(rowSideEdges(layout.rows, after!)).toEqual({ left: true, right: true })
+    if (w?.kind !== 'widget') throw new Error('Expected the first shared cell to be a widget')
+    const indented = { ...w, inset: 80 }
+    expect(rowSideEdges([indented], indented)).toEqual({ left: true, right: true })
     expect(w!.y).toBe(intro!.y + intro!.height)
     expect(size!.y).toBe(w!.y)
     expect(swap!.y).toBe(w!.y)

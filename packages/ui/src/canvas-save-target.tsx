@@ -23,6 +23,7 @@ export function canvasTargetLayout(
   box: number,
   side: CanvasSideSize,
   scale: number,
+  edges?: { readonly left: boolean; readonly right: boolean },
 ): CanvasSideLayout & { readonly panelPlace: CanvasPanelPlace } {
   const height = box * Math.max(1, scale)
   const below = bounds.y + bounds.height - (row.y + row.height)
@@ -37,7 +38,7 @@ export function canvasTargetLayout(
   }
   return {
     panelPlace,
-    ...canvasSideLayout(column, bounds, side, scale, Infinity, Infinity),
+    ...canvasSideLayout(column, bounds, side, scale, Infinity, Infinity, edges),
   }
 }
 

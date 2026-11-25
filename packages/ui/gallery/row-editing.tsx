@@ -23,6 +23,7 @@ import {
   canvasTypePaintForTheme,
   createRegistryPainter,
   defaultTokens,
+  rowSideEdges,
   type DesignTokens,
   type LayoutRow,
   type Scene,
@@ -564,6 +565,7 @@ export function RowEditingExample(props: {
       scale,
       ((node.y + node.layout.height) * scale - screen.y) / zoom + MARGIN / 2,
       (screen.y - node.y * scale) / zoom + MARGIN / 2,
+      rowSideEdges(node.layout.rows, row),
     )
     const value = node.node.values[row.valueKey]
     return { row, numeric, screen, width, value, help, facts, ...layout }

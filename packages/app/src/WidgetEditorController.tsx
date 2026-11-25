@@ -161,6 +161,7 @@ export interface WidgetEditorState {
     readonly look: 'original' | 'flat-title'
     readonly nodeTop: number
     readonly nodeBottom: number
+    readonly sideEdges?: { readonly left: boolean; readonly right: boolean }
     readonly help?: string
     /** The raw stored value when the field opened (null when none was stored). */
     readonly storedAtOpen: Json

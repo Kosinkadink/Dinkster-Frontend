@@ -649,6 +649,15 @@ export function memberRemovalAt(layout: NodeLayout, y: number): MemberRemoval | 
   return best?.remove
 }
 
+/** Ends of a field's horizontal line that have no neighboring cell to cross. */
+export function rowSideEdges(rows: readonly LayoutRow[], row: LayoutRow): { readonly left: boolean; readonly right: boolean } {
+  const peers = rows.filter((other) => other.y === row.y && 'inset' in other)
+  return {
+    left: !peers.some((other) => 'inset' in other && 'inset' in row && other.inset < row.inset),
+    right: !peers.some((other) => 'inset' in other && 'inset' in row && other.inset > row.inset),
+  }
+}
+
 /** Shared visible bounds for registry widget chrome and its overlay states. */
 export function widgetChromeRect(x: number, rowY: number, width: number, rowHeight: number, insetY: number): {
   readonly x: number

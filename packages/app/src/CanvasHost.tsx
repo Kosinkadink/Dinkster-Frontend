@@ -33,6 +33,7 @@ import {
   updateSceneNodeValues,
   memberAt,
   memberRemovalAt,
+  rowSideEdges,
   IN_NODE_EDITORS,
   type Hit,
   type GhostLink,
@@ -1795,7 +1796,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           spec: request.spec,
           multiline: false,
           rect,
-          ...(box === undefined ? {} : { inRow: { look: box.look, nodeTop: box.nodeTop, nodeBottom: box.nodeBottom, storedAtOpen: request.initial ?? null } }),
+          ...(box === undefined ? {} : { inRow: { ...box, storedAtOpen: request.initial ?? null } }),
           initial: request.initial,
           ...(request.stagedFile ? { stagedFile: request.stagedFile } : {}),
         })
@@ -4363,6 +4364,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         look: tokens.nodeLook,
         nodeTop: node.y,
         nodeBottom: node.y + node.layout.height,
+        ...(row === undefined ? {} : { sideEdges: rowSideEdges(node.layout.rows, row) }),
       }
     }
     function refreshButtonPaint(tab: Tab | undefined): void {
@@ -5560,6 +5562,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           look: tokens.nodeLook,
           nodeTop: hit.node.y,
           nodeBottom: hit.node.y + hit.node.layout.height,
+          sideEdges: rowSideEdges(hit.node.layout.rows, hit.row),
           storedAtOpen: stored ?? null,
           handOff: () => setRowHandedOff(untrack(editor)),
           ...(help === undefined ? {} : { help }),
@@ -5748,6 +5751,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         look: tokens.nodeLook,
         nodeTop: node.y,
         nodeBottom: node.y + node.layout.height,
+        sideEdges: rowSideEdges(node.layout.rows, row),
         ...(declared === undefined ? {} : { defaultText: formatWidgetValue(declared, row.spec) }),
         ...(help === undefined ? {} : { help }),
         ...(arriving === undefined ? {} : { arriving }),
