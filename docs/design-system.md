@@ -37,7 +37,8 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 ## Source of truth
 
 The dark palette uses cyan-tinted greys: canvas `#0E1414`, panel `#141C1D`,
-raised `#1E292A`, hover `#283537`, and subtle border `#324143`. The frame role
+raised `#1E292A`, hover `#283537`, pressed `#324143`, and subtle border `#324143`
+(the light theme's pressed is `#D3D9DE`, one step past its hover `#E4E8EC`). The frame role
 is `#090D0D`, exposed as `surface.frame` and `--dinkster-surface-frame`.
 The active workflow tab's top tint, `rgba(120, 205, 210, 0.08)` in both
 themes, is the translucent `interaction.activeTabTint`
@@ -183,6 +184,12 @@ every core tab once.
   before its text. A notification can be dismissed at once and otherwise
   leaves after five seconds, counted from when the pointer and keyboard focus
   have both left it.
+  Every message kind (error, warning, information, success) has one look:
+  its text and icon in the meaning's colour, over that colour at 7% inside a
+  1 px outline of it at 38% (the `quiet-background` and `quiet-border`
+  tokens). A link inside a message stays primary and its close button
+  secondary, so the strip is not one colour. The toast puts the message on
+  the raised surface because it floats over other content.
 - `ProductConfirmation` orders the title, consequence, solid action and Cancel.
   Sites use it as page content. Inside `ProductDialog`, omit the confirmation's
   duplicate title and let the dialog provide it. `ProductDialog` provides native modal inertness,
@@ -533,7 +540,7 @@ not grow. This inventory is a migration queue, not a second component system.
 | Surface     | canvas, panel, inset, raised, selected                                                          |
 | Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
 | Border      | subtle, hover, strong, focus, selected                                                          |
-| Meaning     | accent, success, warning, danger, info; each has foreground, background, and border             |
+| Meaning     | accent, success, warning, danger, info; each has foreground, background, border, quiet border, quiet background, wash and pressed wash |
 | Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only   |
 | Interaction | 32 px compact control, 40 px primary input, 24 px canvas input, 2 px focus ring, hover, pressed, selected, disabled |
 | Motion      | fast, standard, reduced-motion duration, one product easing curve                               |
@@ -543,6 +550,16 @@ Canvas code receives space, relevant type roles, surfaces, text, borders,
 meaning, shapes, and bounded interaction state. It does not receive DOM
 elevation or motion tokens. DOM surfaces consume the generated
 `--dinkster-*` variables.
+
+A control's fill gets stronger at each step: at rest, under the pointer
+(`interaction-hover`), then pressed (`interaction-pressed`, one step past
+hover). No pressed fill is weaker than its hover. A neutral outline follows
+the same order: subtle at rest, the hover outline under the pointer and
+strong only while pressed or open. A control whose outline is a meaning
+colour (an add or remove outline button, Run, an outlined danger action)
+keeps its text and outline colour and fills with a quiet wash of that colour:
+12% under the pointer (`wash`) and 20% while pressed (`wash-pressed`). Plain
+controls keep the neutral hover grey, and solid buttons keep their own fill.
 
 Every scrolling surface in the app, the gallery and the site uses one scrollbar
 from the shared stylesheet: `scrollbar-size` (8 px) with no track or arrows, so
