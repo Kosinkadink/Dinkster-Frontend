@@ -1,4 +1,4 @@
-import { For, Show, createSignal, type ComponentProps } from 'solid-js'
+import { For, createSignal, type ComponentProps } from 'solid-js'
 import type { LineageId } from '@dinkster/core'
 import { EngineRunControl } from '../../app/src/EngineRunControl.js'
 import { WorkflowQueueControl } from '../../app/src/WorkflowQueueControl.js'
@@ -17,18 +17,12 @@ function EngineStateExample(props: { readonly state: typeof states[number] }) {
     <figure class="engine-state-gallery-example" data-testid={`engine-state-${props.state}`}>
       <figcaption>{props.state === 'ready' ? 'Ready' : props.state === 'starting' ? 'Starting' : props.state === 'stopped' ? 'Stopped' : 'Failed'}</figcaption>
       <div class="engine-state-gallery-stage">
-        <div class="engine-state-gallery-bar">
-          <Show when={status().state !== 'ready'} fallback={
-            <WorkflowQueueControl owner={owner} executions={[]} canQueue onQueue={() => undefined} onOpenExecution={() => undefined} />
-          }>
-            <EngineRunControl status={status()} baseUrl="" onRestart={async () => {
+          <WorkflowQueueControl owner={owner} executions={[]} canQueue={status().state === 'ready'}
+            onQueue={() => undefined} onOpenExecution={() => undefined}
+            hideRunList={status().state === 'failed'}
+            runControl={status().state !== 'ready' ? <EngineRunControl status={status()} baseUrl="" onRestart={async () => {
               setStatus({ protocol: 1, state: 'starting', progress: { done: 0, total: 8 } })
-            }} />
-            <Show when={status().state !== 'failed'}>
-              <WorkflowQueueControl owner={owner} executions={[]} canQueue={false} onOpenExecution={() => undefined} />
-            </Show>
-          </Show>
-        </div>
+            }} /> : undefined} />
       </div>
     </figure>
   )
