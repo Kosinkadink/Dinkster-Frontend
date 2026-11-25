@@ -54,8 +54,6 @@ export interface SemanticDesignTokens {
     readonly inset: string
     readonly raised: string
     readonly selected: string
-    /** The active workflow tab's tint at its top, fading into the canvas below. */
-    readonly activeTabTint: string
   }
   readonly text: {
     readonly primary: string
@@ -101,6 +99,8 @@ export interface SemanticDesignTokens {
     readonly hoverOverlay: string
     readonly pressedOverlay: string
     readonly selectedOverlay: string
+    /** The active workflow tab's translucent tint at its top, fading into the canvas below. */
+    readonly activeTabTint: string
     readonly disabledOpacity: number
     readonly unfocusedOpacity: number
   }
@@ -136,7 +136,6 @@ export const semanticTokensForTheme = (
       inset: colors.bg.canvas,
       raised: colors.bg.raised,
       selected: colors.bg.hover,
-      activeTabTint: colors.bg.activeTabTint,
     },
     text: {
       primary: colors.text.primary,
@@ -173,6 +172,7 @@ export const semanticTokensForTheme = (
       hoverOverlay: colors.bg.hover,
       pressedOverlay: colors.bg.raised,
       selectedOverlay: colors.bg.hover,
+      activeTabTint: colors.bg.activeTabTint,
     },
     motion: components.motion,
     elevation: components.elevation,
@@ -288,8 +288,6 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-surface-inset': semanticDesignTokens.surface.inset,
     '--dinkster-surface-raised': semanticDesignTokens.surface.raised,
     '--dinkster-surface-selected': semanticDesignTokens.surface.selected,
-    '--dinkster-surface-active-tab-tint':
-      semanticDesignTokens.surface.activeTabTint,
     '--dinkster-text-primary': semanticDesignTokens.text.primary,
     '--dinkster-text-secondary': semanticDesignTokens.text.secondary,
     '--dinkster-text-muted': semanticDesignTokens.text.muted,
@@ -346,6 +344,8 @@ export const semanticCssVariablesForTheme = (
       semanticDesignTokens.interaction.pressedOverlay,
     '--dinkster-interaction-selected':
       semanticDesignTokens.interaction.selectedOverlay,
+    '--dinkster-interaction-active-tab-tint':
+      semanticDesignTokens.interaction.activeTabTint,
     '--dinkster-interaction-disabled-opacity': String(
       semanticDesignTokens.interaction.disabledOpacity,
     ),

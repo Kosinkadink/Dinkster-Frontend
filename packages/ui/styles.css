@@ -339,7 +339,7 @@
   z-index: 1;
   color: var(--dinkster-text-primary);
   background-color: var(--dinkster-surface-canvas);
-  background-image: linear-gradient(var(--dinkster-surface-active-tab-tint), transparent 66%);
+  background-image: linear-gradient(var(--dinkster-interaction-active-tab-tint), transparent 66%);
 }
 
 .tab.active::after {
