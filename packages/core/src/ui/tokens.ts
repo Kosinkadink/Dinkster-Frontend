@@ -11,6 +11,8 @@ export interface MeaningToken {
   readonly foreground: string
   readonly background: string
   readonly border: string
+  /** A coloured outline button's outline at rest: the foreground at 55%. */
+  readonly restBorder: string
   /** A message's outline: the foreground at 38%. */
   readonly quietBorder: string
   /** A message's fill over the surface behind it: the foreground at 7%. */
@@ -168,6 +170,7 @@ export const semanticTokensForTheme = (
     foreground,
     background: colors.bg.surface,
     border: foreground,
+    restBorder: withAlpha(foreground, 0.55),
     quietBorder: withAlpha(foreground, 0.38),
     quietBackground: withAlpha(foreground, 0.07),
     wash: withAlpha(foreground, 0.12),
@@ -380,6 +383,8 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-accent-background':
       semanticDesignTokens.meaning.accent.background,
     '--dinkster-accent-border': semanticDesignTokens.meaning.accent.border,
+    '--dinkster-accent-rest-border':
+      semanticDesignTokens.meaning.accent.restBorder,
     '--dinkster-accent-quiet-border':
       semanticDesignTokens.meaning.accent.quietBorder,
     '--dinkster-accent-quiet-background':
@@ -393,6 +398,8 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-success-background':
       semanticDesignTokens.meaning.success.background,
     '--dinkster-success-border': semanticDesignTokens.meaning.success.border,
+    '--dinkster-success-rest-border':
+      semanticDesignTokens.meaning.success.restBorder,
     '--dinkster-success-quiet-border':
       semanticDesignTokens.meaning.success.quietBorder,
     '--dinkster-success-quiet-background':
@@ -406,6 +413,8 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-warning-background':
       semanticDesignTokens.meaning.warning.background,
     '--dinkster-warning-border': semanticDesignTokens.meaning.warning.border,
+    '--dinkster-warning-rest-border':
+      semanticDesignTokens.meaning.warning.restBorder,
     '--dinkster-warning-quiet-border':
       semanticDesignTokens.meaning.warning.quietBorder,
     '--dinkster-warning-quiet-background':
@@ -419,6 +428,8 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-danger-background':
       semanticDesignTokens.meaning.danger.background,
     '--dinkster-danger-border': semanticDesignTokens.meaning.danger.border,
+    '--dinkster-danger-rest-border':
+      semanticDesignTokens.meaning.danger.restBorder,
     '--dinkster-danger-quiet-border':
       semanticDesignTokens.meaning.danger.quietBorder,
     '--dinkster-danger-quiet-background':
@@ -430,6 +441,8 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-info-foreground': semanticDesignTokens.meaning.info.foreground,
     '--dinkster-info-background': semanticDesignTokens.meaning.info.background,
     '--dinkster-info-border': semanticDesignTokens.meaning.info.border,
+    '--dinkster-info-rest-border':
+      semanticDesignTokens.meaning.info.restBorder,
     '--dinkster-info-quiet-border':
       semanticDesignTokens.meaning.info.quietBorder,
     '--dinkster-info-quiet-background':
