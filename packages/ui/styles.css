@@ -439,12 +439,10 @@
 .dinkster-projects-list { gap: var(--dinkster-space-12); padding: var(--dinkster-space-24) var(--dinkster-space-12); }
 .dinkster-projects-list-header { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); padding-inline: var(--dinkster-space-12) 0; }
 .dinkster-projects-rows { display: grid; align-content: start; gap: 2px; margin: 0; padding: 0; list-style: none; }
-/* Rows draw like the icon bar: only text at rest, a faint fill under the pointer, and the selected row raised with the bar's mark on the panel's edge. */
+/* Rows draw like the icon bar: only text at rest, raised under the pointer and when selected, and the selected row carries the bar's mark on its own left edge. */
 .dinkster-project-row { position: relative; display: grid; gap: 0; padding: var(--dinkster-space-8) var(--dinkster-space-12); border-radius: var(--dinkster-radius-control); cursor: pointer; user-select: none; }
-.dinkster-project-row:hover { background: var(--dinkster-interaction-quiet-hover); }
-.dinkster-project-row[aria-selected='true'] { background: var(--dinkster-surface-raised); }
-/* The mark sits on the list panel's left edge, out past the list's inline padding. */
-.dinkster-project-row[aria-selected='true']::before { content: ''; position: absolute; top: 9px; bottom: 9px; left: calc(-1 * var(--dinkster-space-12)); width: 3px; border-radius: 0 var(--dinkster-radius-small) var(--dinkster-radius-small) 0; background: var(--dinkster-accent-foreground); }
+.dinkster-project-row:is(:hover, [aria-selected='true']) { background: var(--dinkster-surface-raised); }
+.dinkster-project-row[aria-selected='true']::before { content: ''; position: absolute; top: 9px; bottom: 9px; left: 0; width: 3px; border-radius: 0 var(--dinkster-radius-small) var(--dinkster-radius-small) 0; background: var(--dinkster-accent-foreground); }
 .dinkster-root .dinkster-project-row:focus-visible { outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
 .dinkster-project-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--dinkster-weight-bold); }
 .dinkster-project-row[data-state='draft'] .dinkster-project-row-name { color: var(--dinkster-accent-foreground); }
