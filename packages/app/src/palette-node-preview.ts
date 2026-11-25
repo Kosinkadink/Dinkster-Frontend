@@ -15,6 +15,7 @@ import {
   createRegistryPainter,
   defaultTokens,
   layoutNode,
+  searchNodePreviewViewport,
   type DesignTokens,
   type NodeLayout,
   type TextMeasurer,
@@ -51,7 +52,7 @@ export function palettePreviewLayout(
 }
 
 /** The same renderer and widget views paint both installed and registry previews. */
-export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema, widgets: WidgetRegistry, isSubgraph = false): void {
+export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema, widgets: WidgetRegistry, isSubgraph = false, maximize = false): void {
   canvas.removeAttribute('data-preview-ready')
   const theme = document.documentElement.dataset['theme'] === 'light' ? 'light' : 'dark'
   const tokens = { ...defaultTokens, colors: canvasColorsForTheme(theme), ...canvasTypePaintForTheme(theme) }
@@ -74,8 +75,15 @@ export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema
   const paint = canvasPaintTokens.preview.palette
   const availableWidth = Math.max(1, (canvas.parentElement?.clientWidth ?? layout.width + paint.availableWidthPadding) - paint.availableWidthPadding)
   const scale = Math.min(1, availableWidth / layout.width, paint.maxHeight / layout.height)
-  canvas.style.width = `${Math.max(1, Math.ceil(layout.width * scale + paint.inset * 2))}px`
-  canvas.style.height = `${Math.max(1, Math.ceil(layout.height * scale + paint.inset * 2))}px`
+  const view = maximize
+    ? searchNodePreviewViewport(layout, canvas.parentElement?.clientWidth ?? layout.width)
+    : {
+      width: Math.max(1, Math.ceil(layout.width * scale + paint.inset * 2)),
+      height: Math.max(1, Math.ceil(layout.height * scale + paint.inset * 2)),
+      x: paint.inset, y: paint.inset, scale,
+    }
+  canvas.style.width = `${view.width}px`
+  canvas.style.height = `${view.height}px`
   const renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(widgets))
   try {
     renderer.setGridVisible(false)
@@ -84,7 +92,7 @@ export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema
       nodes: [{ id: node.id, x: 0, y: 0, node, layout, isSubgraph }],
       links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
     })
-    renderer.setViewport({ x: paint.inset, y: paint.inset, scale })
+    renderer.setViewport(view)
     renderer.renderNow()
     canvas.dataset.previewReady = schema.type
   } finally { renderer.dispose() }

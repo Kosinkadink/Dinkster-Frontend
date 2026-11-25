@@ -188,19 +188,36 @@ export const resolutionKind: WidgetKind<null> = {
 }
 
 type SaveTarget = { mount: string; prefix: string }
+/**
+ * A target on Project default: it names no mount, so each project saves it
+ * to its own default output mount. The mount key is left out; there is no
+ * other way to write it.
+ */
+type ProjectDefaultTarget = { prefix: string }
+
+const usablePrefix = (prefix: unknown): prefix is string =>
+  typeof prefix === 'string' && prefix !== '' && !prefix.includes('\\')
+  && prefix.split('/').every((segment) => !['', '.', '..'].includes(segment))
 
 export const isSaveTarget = (value: unknown): value is SaveTarget => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const target = value as Record<string, unknown>
   return Object.keys(target).length === 2 && typeof target['mount'] === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(target['mount'])
-    && typeof target['prefix'] === 'string' && target['prefix'] !== '' && !target['prefix'].includes('\\')
-    && target['prefix'].split('/').every((segment) => !['', '.', '..'].includes(segment))
+    && usablePrefix(target['prefix'])
 }
 
-export const saveTargetKind: WidgetKind<SaveTarget | null> = {
+export const isProjectDefaultTarget = (value: unknown): value is ProjectDefaultTarget =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+  && Object.keys(value).length === 1 && usablePrefix((value as Record<string, unknown>)['prefix'])
+
+export const saveTargetKind: WidgetKind<SaveTarget | ProjectDefaultTarget | null> = {
   type: 'SAVE_TARGET',
-  valueSchema: { version: 1, validate: (value): value is SaveTarget | null => value === null || isSaveTarget(value) },
-  defaultValue: (spec) => isSaveTarget(spec.default) ? { ...spec.default } : null,
+  valueSchema: {
+    version: 1,
+    validate: (value): value is SaveTarget | ProjectDefaultTarget | null =>
+      value === null || isSaveTarget(value) || isProjectDefaultTarget(value),
+  },
+  defaultValue: (spec) => isSaveTarget(spec.default) || isProjectDefaultTarget(spec.default) ? { ...spec.default } : null,
   validate: () => [],
   defaultView: () => 'core.saveTarget',
 }
@@ -1011,11 +1028,57 @@ export const resolutionView: WidgetView<null> = {
       t('resolutionWidget.title'), state, 'widget.edit')
   },
 }
-export const saveTargetView: WidgetView<SaveTarget | null> = {
-  ...makeCompactView<SaveTarget | null>('core.saveTarget', 'SAVE_TARGET'),
+/**
+ * What the host tells a closed save target row about this machine's
+ * mounts, under the SAVE_TARGET key of the row's host facts: the project's
+ * default output mount and the ready writable mounts.
+ */
+export interface SaveTargetFacts {
+  readonly projectMount?: string
+  readonly ready: readonly string[]
+}
+
+const saveTargetFacts = (facts: Readonly<Record<string, Json>> | undefined): SaveTargetFacts | undefined => {
+  const entry = facts?.['SAVE_TARGET']
+  if (!isJsonObject(entry)) return undefined
+  const ready = entry['ready']
+  if (!Array.isArray(ready) || !ready.every((id) => typeof id === 'string')) return undefined
+  const projectMount = entry['projectMount']
+  return { ready: ready as string[], ...(typeof projectMount === 'string' ? { projectMount } : {}) }
+}
+
+/**
+ * The closed save target row. A target on Project default names the mount
+ * it means here in italics, "Project default" while that is not known, or
+ * "no output mount" when the project has none; a stored mount this machine
+ * lacks is struck through, followed by the mount the run uses in italics,
+ * if there is one. An empty target reads as Project default with the
+ * input's default name when it declares one.
+ */
+export const saveTargetView: WidgetView<SaveTarget | ProjectDefaultTarget | null> = {
+  ...makeCompactView<SaveTarget | ProjectDefaultTarget | null>('core.saveTarget', 'SAVE_TARGET'),
   drawCompact(ctx, value, spec, state) {
-    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      value === null ? t('saveTargetWidget.default') : `${value.mount}/${value.prefix}`, state, 'widget.edit', value === null)
+    const label = (spec.options['display_name'] as string | undefined) ?? ''
+    const facts = saveTargetFacts(state.hostFacts)
+    const projectMount = facts?.projectMount ?? t(facts === undefined ? 'saveTargetWidget.projectDefault' : 'saveTargetWidget.noOutputMount')
+    const declared = isSaveTarget(spec.default) || isProjectDefaultTarget(spec.default) ? spec.default : undefined
+    const shown: SaveTarget | ProjectDefaultTarget | null = value === null && declared !== undefined ? { prefix: declared.prefix } : value
+    if (shown === null) {
+      compactRow(ctx, label, t('saveTargetWidget.default'), state, 'widget.edit', true)
+      return
+    }
+    const named = isSaveTarget(shown) ? shown : undefined
+    if (named !== undefined && (facts === undefined || facts.ready.includes(named.mount))) {
+      compactRow(ctx, label, `${named.mount}/${named.prefix}`, state, 'widget.edit')
+      return
+    }
+    compactRow(ctx, label, named !== undefined ? `${named.mount}/${named.prefix}` : `${projectMount}/${shown.prefix}`, state, 'widget.edit', false, {
+      parts: [
+        ...(named !== undefined ? [{ text: named.mount, look: 'gone' }] : []),
+        ...(named !== undefined && facts?.projectMount === undefined ? [] : [{ text: projectMount, look: 'resolved' }]),
+        { text: `/${shown.prefix}` },
+      ],
+    })
   },
 }
 export const videoEditView: WidgetView<Json> = {

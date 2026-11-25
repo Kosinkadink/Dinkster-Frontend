@@ -436,6 +436,7 @@ export const canvasPaintTokens = {
   },
   preview: {
     palette: { availableWidthPadding: 16, maxHeight: 240, inset: 6 },
+    search: { inset: 16, maxScale: 1.5 },
     appWidgetFallbackWidth: 320,
     unknownPlacement: { width: 180, height: 88 },
     stroke: 1,

@@ -213,6 +213,7 @@ export function explicitPrimitiveDefault(
 export interface FedField {
   readonly name: string
   readonly input: InputSpec
+  readonly storedValue?: Json
 }
 
 export interface EffectivePrimitiveSpec {
@@ -227,21 +228,21 @@ export interface EffectivePrimitiveSpec {
 
 /**
  * The value a primitive holds while nothing is stored in it, which is also
- * where Reset takes it: its own Default, else the default of the first field
- * it feeds (the field its widget comes from), else its declared default. A
- * default it does not hold itself must suit every fed field: a number is
+ * where Reset takes it: its own Default, else the stored value or default of
+ * the first field it feeds (the field its widget comes from), else its
+ * declared default. A value it does not hold itself must suit every fed field: a number is
  * moved into the effective range, and a choice the fields do not all offer
  * gives way to the widget's first option. The value field shows it, the
  * fields it feeds show it, and a run sends it.
  */
 function emptyPrimitiveValue(
   explicitDefault: Json | undefined,
-  first: WidgetSpec | undefined,
+  first: FedField | undefined,
   declared: WidgetSpec | undefined,
   options: Readonly<Record<string, unknown>>,
 ): unknown {
   if (explicitDefault !== undefined) return explicitDefault
-  const value = first?.default ?? declared?.default
+  const value = first?.storedValue !== undefined ? first.storedValue : first?.input.widget?.default ?? declared?.default
   const offered = options['options']
   if (Array.isArray(offered) && !offered.some((option) => normalizeComboOption(option)?.value === value)) return undefined
   if (typeof value !== 'number') return value
@@ -266,13 +267,13 @@ export function effectivePrimitiveSpec(
   const diagnostics: Diagnostic[] = []
   const data = { node: nodeId }
   const declared = shape.value.widget
-  const fedWidgets = fed.flatMap(({ name, input }) => input.widget === undefined ? [] : [{ name, widget: input.widget, type: input.type }])
+  const fedWidgets = fed.flatMap((field) => field.input.widget === undefined ? [] : [{ ...field, widget: field.input.widget, type: field.input.type }])
   const labels = new Set(fed.map(({ input }) => input.displayName ?? input.id))
   const label = labels.size === 1 ? [...labels][0] : undefined
 
   const widgetType = declared?.widgetType ?? fedWidgets[0]?.widget.widgetType
   // The first fed field of the primitive's own kind, in the order `fed` is given.
-  const first = fedWidgets.find(({ widget }) => widget.widgetType === widgetType)?.widget
+  const first = fedWidgets.find(({ widget }) => widget.widgetType === widgetType)
   if (widgetType === undefined) {
     // A choice that feeds no field with options is typed in as text.
     const typed = shape.value.type.kind === 'concrete' && shape.value.type.name === 'COMBO'
