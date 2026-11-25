@@ -23,8 +23,8 @@ export function WorkflowQueueControl(props: {
   readonly owner: WorkflowQueueOwner
   readonly executions: readonly ExecutionState[]
   readonly canQueue: boolean
-  /** Replaces the shortcut in the tooltip while Run is off for this reason. */
-  readonly blockedDetail?: string | undefined
+  /** Why Run is off, shown as its tooltip in place of the action and shortcut. */
+  readonly blockedReason?: string | undefined
   readonly onQueue: () => void
   readonly onOpenExecution: (ref: ExecutionRef) => void
 }) {
@@ -87,8 +87,8 @@ export function WorkflowQueueControl(props: {
           class="workflow-queue-submit"
           data-testid="queue-button"
           aria-label={`Run ${props.owner.title}`}
-          data-tooltip-label={message('command.workflow.queue')}
-          data-tooltip-detail={props.blockedDetail ?? 'Ctrl+Enter'}
+          data-tooltip-label={props.blockedReason ?? message('command.workflow.queue')}
+          data-tooltip-detail={props.blockedReason === undefined ? 'Ctrl+Enter' : undefined}
           disabled={!props.canQueue}
           onClick={props.onQueue}
         >

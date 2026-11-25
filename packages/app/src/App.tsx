@@ -2735,7 +2735,7 @@ export function App(props: {
                       owner={{ id: tab().id, title: tab().title, lineage: tab().store.doc.lineage }}
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), tab().execution === undefined && app.registryForTab(tab()) !== undefined)}
-                      blockedDetail={noEngineOpen(supervisorOf(app.backendForTab(tab()))) ? message('shell.engine.notRunning') : undefined}
+                      blockedReason={noEngineOpen(supervisorOf(app.backendForTab(tab()))) ? message('shell.engine.notRunning') : undefined}
                       onQueue={() => { void app.queue(tab()) }}
                       onOpenExecution={(ref) => { void app.openExecutionView(ref) }}
                     />
