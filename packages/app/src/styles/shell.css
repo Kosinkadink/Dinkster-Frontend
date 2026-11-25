@@ -67,9 +67,13 @@
 
 .shell-region-icon-panel[data-active='true'] { fill: currentColor; }
 
+/* The bar is the whole frame strip left of the first panel: it takes the row's
+   6px gap into itself, so its buttons and the logo above it are centred in
+   that strip. */
 .left-sidebar {
-  width: 48px;
-  flex: 0 0 48px;
+  width: var(--dinkster-icon-bar-width);
+  flex: 0 0 var(--dinkster-icon-bar-width);
+  margin-right: -6px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -90,7 +94,7 @@
 }
 
 .sidebar-toggle-stack::-webkit-scrollbar { display: none; }
-.sidebar-toggle-group { display: flex; flex-direction: column; gap: var(--dinkster-space-4); width: 100%; }
+.sidebar-toggle-group { display: flex; flex-direction: column; align-items: center; gap: var(--dinkster-space-4); width: 100%; }
 
 .sidebar-button {
   position: relative;
@@ -636,11 +640,11 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
     bottom: 0;
     z-index: 20;
     min-width: 0;
-    width: calc(100vw - var(--dinkster-space-32) - var(--dinkster-space-16)) !important;
-    max-width: calc(100vw - var(--dinkster-space-32) - var(--dinkster-space-16));
+    width: calc(100vw - var(--dinkster-icon-bar-width)) !important;
+    max-width: calc(100vw - var(--dinkster-icon-bar-width));
     box-shadow: var(--dinkster-elevation-high);
   }
-  .dock-panel { left: calc(var(--dinkster-space-32) + var(--dinkster-space-16)); }
+  .dock-panel { left: var(--dinkster-icon-bar-width); }
   .rail { right: 0; }
   /* Overlaid dock/rail surfaces cover the editors, but each group's tab
      strip must stay visible and reachable. Hide only the stages and

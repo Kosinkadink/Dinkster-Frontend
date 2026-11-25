@@ -184,9 +184,21 @@ test('left bar uses square icon-only actions and each toggle activates or closes
     app.dock.setOpen('left', false)
   })
   await expect(page.locator('.left-sidebar').getByRole('button', { name: 'Extensions', exact: true })).toBeVisible()
+  // The bar's buttons, their selected fill and the logo above them are centred
+  // between the window's edge and whatever the row shows next.
+  const expectCentredInStrip = async () => {
+    const stripEnd = await page.locator('.body').evaluate((body) => Math.min(...[...body.children]
+      .filter((child) => !child.matches('.left-sidebar') && child.getClientRects().length > 0)
+      .map((child) => child.getBoundingClientRect().left)))
+    const centres = [page.getByTestId('dinkster-menu-button'), ...await page.locator('.left-sidebar .sidebar-button').all()]
+    for (const item of centres) {
+      const box = (await item.boundingBox())!
+      expect(box.x + box.width / 2).toBeCloseTo(stripEnd / 2, 0)
+    }
+  }
   for (const width of [1440, 900, 769, 768, 480]) {
     await page.setViewportSize({ width, height: 800 })
-    expect((await page.locator('.left-sidebar').boundingBox())!.width).toBe(48)
+    await expectCentredInStrip()
     for (const button of await page.locator('.left-sidebar .sidebar-button').all()) {
       await expect(button).not.toHaveAccessibleName('')
       await expect(button).toHaveText('')
@@ -212,6 +224,10 @@ test('left bar uses square icon-only actions and each toggle activates or closes
   await expect(zone.getByRole('heading', { name: 'Library', exact: true })).toBeVisible()
   await expect(zone.getByRole('tablist')).not.toBeVisible()
   await expect(zone.getByTestId('dock-zone-overflow-button')).toHaveCount(0)
+  await expectCentredInStrip()
+  await page.setViewportSize({ width: 480, height: 800 })
+  await expectCentredInStrip()
+  await page.setViewportSize({ width: 1440, height: 900 })
 
   // The left bar switches the active panel while its inactive body stays mounted.
   await page.getByTestId('backends-sidebar-toggle').click()
