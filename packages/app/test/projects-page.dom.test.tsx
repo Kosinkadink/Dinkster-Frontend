@@ -83,6 +83,82 @@ const projects = [
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 const rows = () => [...document.querySelectorAll('[role="option"]')].map((row) => row.textContent)
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+it.each(['projects', 'installations'] as const)('waits for both deciding reads when %s answers first, without a fast loading flash', async (first) => {
+  const projectsRead = deferred<readonly LibraryProject[]>()
+  const installationsRead = deferred<Awaited<ReturnType<ProjectsSource['installations']>>>()
+  const counted = vi.fn()
+  render(() => <ProjectsView shell={shell()} onCount={counted} source={{
+    ...source([]), listProjects: () => projectsRead.promise, installations: () => installationsRead.promise,
+  }} />, document.body)
+  expect(document.body.textContent).toBe('')
+  if (first === 'projects') projectsRead.resolve([])
+  else installationsRead.resolve({ all: [] })
+  await settle()
+  expect(document.body.textContent).toBe('')
+  expect(counted).not.toHaveBeenCalled()
+  projectsRead.resolve([])
+  installationsRead.resolve({ all: [] })
+  await settle()
+  expect(document.querySelector('[data-testid="projects-first-run"]')).not.toBeNull()
+  expect(document.querySelector('[data-testid="projects-loading"]')).toBeNull()
+  const firstPaint = document.body.textContent
+  await settle()
+  expect(document.body.textContent).toBe(firstPaint)
+})
+
+it('shows slow loading at 200 ms and retains it for at least 300 ms', async () => {
+  vi.useFakeTimers({ now: NOW })
+  const read = deferred<readonly LibraryProject[]>()
+  render(() => <ProjectsView shell={shell()} source={{ ...source([]), listProjects: () => read.promise, installations: async () => ({ all: [] }) }} />, document.body)
+  await vi.advanceTimersByTimeAsync(199)
+  expect(document.body.textContent).toBe('')
+  await vi.advanceTimersByTimeAsync(1)
+  expect(document.querySelector('[data-testid="projects-loading"]')?.textContent).toBe('Loading projects')
+  read.resolve([])
+  await vi.advanceTimersByTimeAsync(299)
+  expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
+  expect(document.querySelector('[data-testid="projects-loading"]')).not.toBeNull()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(document.querySelector('[data-testid="projects-first-run"]')).not.toBeNull()
+  expect(document.querySelector('[data-testid="projects-loading"]')).toBeNull()
+})
+
+it('keeps the first painted elements unchanged as detail arrives, and keeps old detail until a project switch settles', async () => {
+  const film = deferred<readonly never[]>()
+  const valley = deferred<readonly never[]>()
+  render(() => <ProjectsView shell={shell()} source={{
+    ...source(projects), listWorkflows: (id) => id === 'p-film' ? film.promise : valley.promise,
+  }} />, document.body)
+  await settle()
+  expect(document.querySelector('.dinkster-skeleton')).toBeNull()
+  expect(document.body.textContent).not.toContain('No workflows yet.')
+  const painted = [...document.querySelectorAll('*')].filter((element) => !element.children.length && element.textContent?.trim()).map((element) => [element, element.textContent] as const)
+  expect(painted.length).toBeGreaterThan(0)
+  film.resolve([])
+  await settle()
+  for (const [element, text] of painted) {
+    expect(element.isConnected).toBe(true)
+    expect(element.textContent).toBe(text)
+  }
+  const detail = document.querySelector('[data-testid="projects-detail"]')!
+  const original = detail.textContent
+  const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) => entry.textContent?.startsWith('Valley'))!
+  row.click()
+  await settle()
+  expect(detail.isConnected).toBe(true)
+  expect(detail.textContent).toBe(original)
+  valley.resolve([])
+  await settle()
+  expect(document.querySelector('h2')?.textContent).toBe('Valley matte paintings')
+  expect(document.querySelector('[aria-label="valley.png"]')).not.toBeNull()
+})
+
 it('lists projects newest first by their last run, or their creation when they never ran', async () => {
   vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
   render(() => <ProjectsView shell={shell()} source={source(projects)} />, document.body)
@@ -217,7 +293,8 @@ it('does not open a project when the process cannot say which installation it ru
   expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
   const open = document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')!
   expect(open.getAttribute('aria-disabled')).toBe('true')
-  expect(open.getAttribute('data-tooltip-label')).toBe('No installation yet')
+  expect(open.getAttribute('data-tooltip-label')).toBe('Could not read installations')
+  expect(document.body.textContent).not.toContain('No installation')
   open.click()
   expect(navigation.openProject).not.toHaveBeenCalled()
 })

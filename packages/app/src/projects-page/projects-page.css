@@ -6,3 +6,8 @@
 [data-testid='topbar-search'][aria-disabled='true'] { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 /* First run: the setup command, as wide as the round one setup form. */
 .projects-page-setup { width: min(100%, 560px); }
+.projects-page-content { height: 100%; }
+.projects-page-loading { display: grid; place-content: center; height: 100%; }
+.projects-page-detail { display: flex; flex-direction: column; gap: var(--dinkster-space-24); }
+.projects-page-arrival { animation: projects-page-arrival 200ms var(--dinkster-motion-easing); }
+@keyframes projects-page-arrival { from { opacity: 0; } to { opacity: 1; } }

@@ -1702,6 +1702,7 @@
   "projects.facts.runsOn": "运行于",
   "projects.facts.thisComputer": "本机",
   "projects.facts.noInstallation": "没有安装",
+  "projects.facts.unknownInstallation": "无法读取安装",
   "projects.facts.change": "更改",
   "projects.facts.size": "大小",
   "projects.facts.outputs": "{count} 个输出",

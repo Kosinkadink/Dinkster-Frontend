@@ -5,7 +5,7 @@
  * running. Opening a project goes through the shell, which writes the opening
  * line and the failure the page draws.
  */
-import { createEffect, createMemo, createResource, createSignal, For, Index, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
+import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch, type Resource } from 'solid-js'
 import { AudioLines, BookOpen, Database, Ellipsis, Eye, EyeOff, LayoutGrid, Search, Server, Workflow } from 'lucide-solid'
 import { activeLocale, asConnectionId, loadDocument, type SchemaResolver, type WorkflowDocument } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
@@ -26,13 +26,13 @@ import {
   ProductErrorBanner,
   ProductField,
   ProductIcon,
+  ProductLoading,
   ProductMenu,
   ProductProjectFacts,
   ProductProjectHeader,
   ProductProjectList,
   ProductProjectSection,
   ProductProjectsView,
-  ProductSkeleton,
   ProductTextButton,
   ProductTextInput,
   ProductTile,
@@ -104,6 +104,36 @@ export interface ProjectsPageShell {
 }
 
 const OUTPUT_LIMIT = 6
+
+/** Keep settled content during rereads, and never flash a brief loading sign. */
+function createArrival<T>(resource: Resource<T>) {
+  const [value, setValue] = createSignal<T>()
+  const [loading, setLoading] = createSignal(false)
+  let hasValue = false
+  let loadingAt: number | undefined
+  createEffect(() => {
+    const latest = resource.latest
+    const pending = resource.loading
+    let timer: ReturnType<typeof setTimeout> | undefined
+    if (!pending && latest !== undefined) {
+      const reveal = () => {
+        hasValue = true
+        setValue(() => latest)
+        setLoading(false)
+      }
+      const remaining = loadingAt === undefined ? 0 : Math.max(0, 300 - (Date.now() - loadingAt))
+      if (remaining) timer = setTimeout(reveal, remaining)
+      else reveal()
+    } else if (pending && !hasValue) {
+      timer = setTimeout(() => {
+        loadingAt = Date.now()
+        setLoading(true)
+      }, 200)
+    }
+    onCleanup(() => clearTimeout(timer))
+  })
+  return { value, loading }
+}
 
 /** Per-project page choices live under the project's own storage prefix, beside its editor settings. */
 function pageKey(project: string, name: string): string {
@@ -326,11 +356,11 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
             <span class="status-connection-dot" aria-hidden="true" />
             <span class="status-connection-name">{message('projects.status.local')}</span>
           </span>
-          <span class="status-item" data-testid="projects-engine-status">
+          <Show when={engine().state}><span class="status-item" data-testid="projects-engine-status">
             {engine().state === 'ready' && engine().open
               ? message('projects.status.ready', { installation: engine().open!.name })
               : message(ENGINE_WORDS[engine().state ?? 'stopped'])}
-          </span>
+          </span></Show>
           <Show when={count() !== undefined}>
             <span class="status-item projects-page-count">{message('projects.status.count', { count: count()! })}</span>
           </Show>
@@ -352,17 +382,24 @@ export function ProjectsView(props: {
   const message = useAppMessage()
   const locale = useSignal(activeLocale)
   // A read that fails resolves to null, so one missing route leaves the rest of the page working.
-  const [projects, { mutate: setProjects }] = createResource(() =>
-    props.source.listProjects().then(byProjectTime, () => null),
-  )
-  const [installations, { refetch: rereadInstallations }] = createResource(() =>
-    props.source.installations().catch(() => null),
-  )
+  const [page, { mutate: setPage, refetch: rereadPage }] = createResource(async () => {
+    const [projects, installations] = await Promise.all([
+      props.source.listProjects().then(byProjectTime, () => null),
+      props.source.installations().catch(() => null),
+    ])
+    return { projects, installations }
+  })
+  const arrival = createArrival(page)
+  const projects = () => arrival.value()?.projects
+  const installations = () => arrival.value()?.installations
+  const setProjects = (update: (list: LibraryProject[] | null) => LibraryProject[] | null | undefined) =>
+    setPage((current) => current && { ...current, projects: update(current.projects) ?? null })
+  const painted = () => arrival.value() !== undefined
   // Set up runs in a terminal, so the page reads the list again when the user comes back to it.
   const firstRun = () => installations()?.all.length === 0
   onMount(() => {
     const reread = () => {
-      if (firstRun()) void rereadInstallations()
+      void rereadPage()
     }
     globalThis.addEventListener('focus', reread)
     onCleanup(() => globalThis.removeEventListener('focus', reread))
@@ -376,11 +413,11 @@ export function ProjectsView(props: {
       .sort((a, b) => deletedAt(b) - deletedAt(a))
   createEffect(() => {
     const list = live()
-    if (list && !installations.loading && !setupOnly()) props.onCount?.(list.length)
+    if (painted() && list && !setupOnly()) props.onCount?.(list.length)
   })
   createEffect(() => {
     const found = installations()
-    if (found) props.onEngine?.({ ...(found.engine ? { state: found.engine } : {}), ...(found.open ? { open: found.open } : {}) })
+    if (painted() && found) props.onEngine?.({ ...(found.engine ? { state: found.engine } : {}), ...(found.open ? { open: found.open } : {}) })
   })
   const [chosen, setChosen] = createSignal<string>()
   const [bannerShown, setBannerShown] = createSignal(true)
@@ -392,10 +429,19 @@ export function ProjectsView(props: {
   const selectedId = (): string | undefined =>
     chosen() ?? props.shell.selectedProjectId() ?? live()?.[0]?.id
   const selected = createMemo(() => live()?.find((project) => project.id === selectedId()))
-  const [workflows] = createResource(selectedId, (id) => props.source.listWorkflows(id).catch(() => null))
-  const [outputs] = createResource(selectedId, (id) => props.source.listOutputs(id, OUTPUT_LIMIT).catch(() => null))
-  const [usage] = createResource(selectedId, (id) => props.source.usage(id).catch(() => undefined))
-  const [definitions] = createResource(selectedId, (id) => props.source.definitions(id).catch(() => undefined))
+  const [projectDetail] = createResource(selected, async (project) => {
+    const [workflows, outputs, usage, definitions] = await Promise.all([
+      props.source.listWorkflows(project.id).catch(() => null),
+      props.source.listOutputs(project.id, OUTPUT_LIMIT).catch(() => null),
+      props.source.usage(project.id).catch(() => undefined),
+      props.source.definitions(project.id).catch(() => undefined),
+    ])
+    const documents = new Map(await Promise.all((workflows ?? []).map(async (workflow) =>
+      [workflow.digest, await props.source.workflowDocument(workflow.digest).catch(() => undefined)] as const,
+    )))
+    return { project, workflows, outputs, usage, definitions, documents }
+  })
+  const detailArrival = createArrival(projectDetail)
 
   const when = (at: number) => {
     locale()
@@ -496,12 +542,18 @@ export function ProjectsView(props: {
     setHiddenChange((n) => n + 1)
   }
 
-  const detail = (project: LibraryProject) => {
+  const detail = (data: NonNullable<ReturnType<typeof projectDetail>>) => {
+    const { project } = data
+    const workflows = () => data.workflows
+    const outputs = () => data.outputs
+    const usage = () => data.usage
+    const definitions = () => data.definitions
     const time = projectTime(project)
     const here = () => opening()?.projectId === project.id ? opening() : undefined
     const installation = () => runsOn(project.id)
+    const unavailable = () => message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.open.noInstallation')
     return (
-      <>
+      <div class="projects-page-arrival projects-page-detail" data-testid="projects-detail">
         <ProductProjectHeader
           title={project.name}
           subtitle={message(time.kind === 'ran' ? 'projects.time.lastRun' : 'projects.time.created', {
@@ -540,7 +592,7 @@ export function ProjectsView(props: {
                   <ProductButton
                     fill="solid"
                     aria-disabled={installation() ? undefined : 'true'}
-                    data-tooltip-label={installation() ? undefined : message('projects.open.noInstallation')}
+                    data-tooltip-label={installation() ? undefined : unavailable()}
                     data-testid="projects-open"
                     onClick={() => {
                       if (installation()) open(project)
@@ -602,7 +654,7 @@ export function ProjectsView(props: {
                 : []),
               {
                 label: message('projects.facts.runsOn'),
-                value: installation()?.name ?? message('projects.facts.noInstallation'),
+                value: installation()?.name ?? message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.facts.noInstallation'),
                 detail: installation() ? message('projects.facts.thisComputer') : undefined,
                 action: (
                   <Show when={(installations()?.all.length ?? 0) > 1}>
@@ -635,14 +687,6 @@ export function ProjectsView(props: {
           title={message('projects.workflows.title')}
           aside={<span class="dinkster-metadata">{workflows()?.length ?? ''}</span>}
         >
-          <Show
-            when={!workflows.loading}
-            fallback={
-              <ProductTileGrid size="wide">
-                <Index each={[0, 1, 2, 3]}>{() => <ProductSkeleton shape="tile" />}</Index>
-              </ProductTileGrid>
-            }
-          >
             <Show
               when={(workflows()?.length ?? 0) > 0}
               fallback={
@@ -654,16 +698,14 @@ export function ProjectsView(props: {
               <ProductTileGrid size="wide">
                 <For each={workflows()}>
                   {(workflow) => {
-                    // The workflow is drawn as the minimap draws it once its document is read; the icon stands in until then, or when it cannot be.
-                    const [document] = createResource(() =>
-                      props.source.workflowDocument(workflow.digest).catch(() => undefined),
-                    )
+                    // Draw saved documents as the minimap does; unreadable documents keep the icon.
+                    const document = () => data.documents.get(workflow.digest)
                     return (
                       <ProductTile
                         label={workflow.name}
                         caption={workflow.name}
                         disabled={!installation()}
-                        tooltip={installation() ? undefined : message('projects.open.noInstallation')}
+                        tooltip={installation() ? undefined : unavailable()}
                         // Library records carry seconds.
                         detail={when(workflow.modified * 1000)}
                         picture={
@@ -679,7 +721,6 @@ export function ProjectsView(props: {
                 </For>
               </ProductTileGrid>
             </Show>
-          </Show>
         </ProductProjectSection>
         <ProductProjectSection
           title={message('projects.outputs.title')}
@@ -708,7 +749,7 @@ export function ProjectsView(props: {
           }
         >
           <Show
-            when={(outputs()?.length ?? 0) > 0 || outputs.loading}
+            when={(outputs()?.length ?? 0) > 0}
             fallback={
               <ProductEmptyState
                 message={message(outputs() === null ? 'projects.outputs.unreadable' : 'projects.outputs.empty')}
@@ -722,7 +763,7 @@ export function ProjectsView(props: {
                     <ProductTile
                       label={output.asset.name}
                       disabled={!installation()}
-                      tooltip={installation() ? undefined : message('projects.open.noInstallation')}
+                      tooltip={installation() ? undefined : unavailable()}
                       empty={
                         <>
                           <ProductIcon icon={AudioLines} />
@@ -785,7 +826,7 @@ export function ProjectsView(props: {
             />
           </ProductDialog>
         </Show>
-      </>
+      </div>
     )
   }
 
@@ -851,6 +892,14 @@ export function ProjectsView(props: {
   )
 
   return (
+    <Show when={painted()} fallback={
+      <Show when={arrival.loading()}>
+        <div class="projects-page-loading projects-page-arrival" data-testid="projects-loading">
+          <ProductLoading label={message('projects.loading')} />
+        </div>
+      </Show>
+    }>
+    <div class="projects-page-arrival projects-page-content" data-testid="projects-content">
     <Show when={!setupOnly()} fallback={setup()}>
       <ProductProjectsView
         list={
@@ -858,7 +907,7 @@ export function ProjectsView(props: {
             title={message('projects.title')}
             newLabel={message('projects.action.new')}
             onNew={() => props.shell.showProjects({ newProject: true })}
-            projects={entries()}
+            projects={entries() ?? []}
             selected={newProject() ? undefined : selectedId()}
             onSelect={(id) => {
               setChosen(id)
@@ -885,26 +934,25 @@ export function ProjectsView(props: {
       >
         <Show when={!newProject()} fallback={newProjectForm()}>
           <Show
-            when={selected()}
+            when={selected() && detailArrival.value()}
             keyed
             fallback={
-              <Show
-                when={projects.loading}
-                fallback={
+              <>
+              <Show when={!selected()}>
                   <ProductEmptyState message={message(projects() === null ? 'projects.unreadable' : 'projects.empty')} />
-                }
-              >
-                <div class="dinkster-stack" role="status" aria-label={message('projects.loading')}>
-                  <ProductSkeleton shape="title" />
-                  <ProductSkeleton shape="line" />
-                </div>
               </Show>
+              <Show when={selected() && detailArrival.loading()}>
+                <div class="projects-page-arrival"><ProductLoading label={message('projects.loading')} /></div>
+              </Show>
+              </>
             }
           >
-            {(project) => detail(project)}
+            {(data) => detail(data)}
           </Show>
         </Show>
       </ProductProjectsView>
+    </Show>
+    </div>
     </Show>
   )
 }

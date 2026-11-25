@@ -1702,6 +1702,7 @@
   "projects.facts.runsOn": "Runs on",
   "projects.facts.thisComputer": "this computer",
   "projects.facts.noInstallation": "No installation",
+  "projects.facts.unknownInstallation": "Could not read installations",
   "projects.facts.change": "Change",
   "projects.facts.size": "Size",
   "projects.facts.outputs": "{count, plural, one {# output} other {# outputs}}",
