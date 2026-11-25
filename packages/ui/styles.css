@@ -457,7 +457,6 @@
 .dinkster-project-header-copy > .dinkster-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dinkster-project-header .dinkster-actions { flex: none; flex-wrap: nowrap; }
 .dinkster-project-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--dinkster-space-12) var(--dinkster-space-32); margin: 0; }
-@media (min-width: 1600px) { .dinkster-project-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .dinkster-project-fact { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: baseline; gap: var(--dinkster-space-12); min-width: 0; }
 .dinkster-project-fact dt { color: var(--dinkster-text-secondary); white-space: nowrap; }
 .dinkster-project-fact dd { display: flex; align-items: baseline; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; margin: 0; }
