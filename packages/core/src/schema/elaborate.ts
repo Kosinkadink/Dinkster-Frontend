@@ -625,16 +625,17 @@ export const elabOutputsOf = (e: Pick<ElaboratedInterface, 'items'>): readonly E
 export const valueKeyOf = (i: ElaboratedInput): string => i.address.port
 
 /**
- * A run refuses this input when it has no stored value and no wire
+ * A run refuses this input when it has no usable value and no wire
  * (`compile.input.missing`): it is required, reaches the run, and has no
  * value to be sent in its place, such as an asset field or a choice whose
- * options all come from the server.
+ * options all come from the server. A cleared asset stores null, not a file.
  */
-export function missingWhenUnset(i: ElaboratedInput): boolean {
+export function missingInputValue(i: ElaboratedInput, value: unknown): boolean {
   const spec = i.spec
   if (i.apiName === undefined || spec.optional) return false
   if (i.origin.kind === 'member' && i.origin.ghost === true) return false
   if (spec.hidden === true && i.hiddenByScope !== true) return false
+  if (value !== undefined) return value === null && spec.widget?.widgetType === 'ASSET' && spec.widget.selection !== true
   if (spec.automatic !== undefined || spec.widget?.automatic === true) return false
   return spec.widget === undefined || sentWhenUnset(sentSpecOf(spec, i.hiddenByScope)) === undefined
 }
