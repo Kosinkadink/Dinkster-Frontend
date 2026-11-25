@@ -1,7 +1,8 @@
 .output-compare-controls { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 8px; padding: 8px; }
 .output-compare-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .output-compare-selection .product-number { width: 88px; }
-.app-image-controls button { min-height: 36px; color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); }
+.app-image-controls button { min-height: 36px; color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
+.app-image-controls button:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .app-image-controls button:disabled { color: var(--dinkster-text-disabled); }
 .output-compare-range { display: flex; align-items: center; gap: 12px; padding: 8px 16px; }
 .output-compare-range .product-slider { flex: 1; min-width: 0; }
