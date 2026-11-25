@@ -1345,6 +1345,13 @@
 
 .engine-run-control { position: relative; display: inline-flex; align-items: stretch; }
 .engine-run-control > .dinkster-button, .engine-run-starting { min-height: calc(var(--dinkster-space-32) + var(--dinkster-space-4)); }
+.engine-run-control > .dinkster-button { background: var(--dinkster-surface-raised); }
+.engine-run-control[data-state='stopped'] > .dinkster-button { color: var(--dinkster-success-foreground); border-color: var(--dinkster-success-rest-border); background: var(--dinkster-success-background); }
+.engine-run-control[data-state='stopped'] > .dinkster-button:hover:not(:disabled) { border-color: var(--dinkster-success-border); background: var(--dinkster-success-wash); }
+.engine-run-control[data-state='stopped'] > .dinkster-button:active:not(:disabled) { border-color: var(--dinkster-success-border); background: var(--dinkster-success-wash-pressed); }
+.engine-run-control > .dinkster-button[data-role='remove'] { background: var(--dinkster-danger-background); }
+.engine-run-control > .dinkster-button[data-role='remove']:hover:not(:disabled) { background: var(--dinkster-danger-wash); }
+.engine-run-control > .dinkster-button[data-role='remove']:active:not(:disabled) { background: var(--dinkster-danger-wash-pressed); }
 .engine-run-starting { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); box-sizing: border-box; padding: var(--dinkster-space-4) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-secondary); background: transparent; white-space: nowrap; }
 .engine-run-control[data-state='stopped'] > .dinkster-button, .engine-run-starting { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .engine-run-control[data-state='failed'] > .dinkster-button:first-of-type { border-top-right-radius: 0; border-bottom-right-radius: 0; }
