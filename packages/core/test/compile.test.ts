@@ -1041,7 +1041,7 @@ const dynCompile = (doc: WorkflowDocument, scope: ExecutionScope = { kind: 'full
   compile({ ...compileInput(doc, scope), resolve: dynResolve })
 
 describe('dynamic interfaces', () => {
-  it('keeps blocked-field wires and execution identity when representation choices are saved and reopened', () => {
+  it('keeps blocked-field wires and promoted execution identity when representation choices are saved and reopened', () => {
     const source = dynSchemaOf('ValueSource', [
       dynInput('value', { type: INT, widget: { widgetType: 'INT', options: {} } }),
       { kind: 'output', id: 'value', type: INT },
@@ -1059,7 +1059,17 @@ describe('dynamic interfaces', () => {
       source: { type: source.type, values: { value: 24 } },
       first: { type: target.type, values: { locked: 12, disabled: 12, gain: 0.65, text: 'first' } },
       sibling: { type: target.type, values: { locked: 7, disabled: 9, gain: 0.35, text: 'sibling' } },
-    }, links: [[['source', 'value'], ['first', 'locked']], [['source', 'value'], ['first', 'disabled']]] })
+      promoted: { type: '#sub', values: { amount: 0.65, caption: 'entered first' } },
+      other: { type: '#sub', values: { amount: 0.35, caption: 'entered sibling' } },
+    }, links: [[['source', 'value'], ['first', 'locked']], [['source', 'value'], ['first', 'disabled']]],
+      subgraphs: { sub: {
+        nodes: { inner: { type: target.type, values: { locked: 3, disabled: 5, gain: 0.1, text: 'definition' } } },
+        boundary: { inputs: [
+          { id: 'amount', promoted: true, wireHidden: true, binds: { kind: 'port', node: 'inner', port: 'gain' } },
+          { id: 'caption', promoted: true, wireHidden: true, binds: { kind: 'port', node: 'inner', port: 'text' } },
+        ] },
+      } },
+    })
     const artifactOf = (document: WorkflowDocument) => {
       const result = compile({ ...compileInput(document, { kind: 'full' }, resolve), graphFeatures: ['regions'] })
       if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
@@ -1070,16 +1080,25 @@ describe('dynamic interfaces', () => {
       locked: { $link: { node: 'source', output: 'value' } },
       disabled: { $link: { node: 'source', output: 'value' } }, gain: 0.65, text: 'first',
     } })
+    expect(before.dinksterGraph?.nodes['promoted.inner']?.inputs).toEqual({ locked: 3, disabled: 5, gain: 0.65, text: 'entered first' })
+    expect(before.dinksterGraph?.nodes['other.inner']?.inputs).toEqual({ locked: 3, disabled: 5, gain: 0.35, text: 'entered sibling' })
     const store = new DocumentStore(initial, coreCommandRegistry())
     for (const [inputId, representation] of [['gain', 'slider'], ['text', 'multiline']] as const) {
       expect(store.dispatch({ command: 'view.setWidgetRepresentation', params: {
         graphId: 'g0', nodeId: 'first', inputId, representation,
       } }).ok).toBe(true)
     }
+    for (const [inputId, representation] of [['amount', 'slider'], ['caption', 'multiline']] as const) {
+      expect(store.dispatch({ command: 'view.setWidgetRepresentation', params: {
+        graphId: 'g0', nodeId: 'promoted', inputId, representation,
+      } }).ok).toBe(true)
+    }
     const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
     expect(reopened).toBeDefined()
     expect(reopened.view.graphs.g0!.nodes.first!.views).toEqual({ gain: 'slider', text: 'multiline' })
     expect(reopened.view.graphs.g0!.nodes.sibling?.views).toBeUndefined()
+    expect(reopened.view.graphs.g0!.nodes.promoted!.views).toEqual({ amount: 'slider', caption: 'multiline' })
+    expect(reopened.view.graphs.g0!.nodes.other?.views).toBeUndefined()
     expect(reopened.graphs).toEqual(initial.graphs)
     const after = artifactOf(reopened)
     expect(after.dinksterGraph).toEqual(before.dinksterGraph)
