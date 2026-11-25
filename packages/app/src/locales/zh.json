@@ -1724,5 +1724,14 @@
   "projects.status.local": "本地",
   "projects.status.count": "{count} 个项目",
   "projects.unavailable.search": "此页面暂不支持搜索。",
-  "projects.unavailable.settings": "此页面暂不支持设置。"
+  "projects.unavailable.settings": "此页面暂不支持设置。",
+  "projects.menu.label": "项目操作",
+  "projects.menu.rename": "重命名",
+  "projects.menu.delete": "删除",
+  "projects.rename.title": "重命名项目",
+  "projects.rename.save": "保存",
+  "projects.delete.title": "删除 {project}？",
+  "projects.delete.consequence": "它的工作流和输出将从项目列表中移除。其文件夹中的文件保留在磁盘上。",
+  "projects.delete.action": "删除项目",
+  "projects.open.noInstallation": "此项目没有可运行的安装。"
 }

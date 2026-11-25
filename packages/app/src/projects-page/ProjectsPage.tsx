@@ -6,7 +6,7 @@
  * line and the failure the page draws.
  */
 import { createEffect, createMemo, createResource, createSignal, For, Index, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
-import { AudioLines, BookOpen, Database, Eye, EyeOff, LayoutGrid, Search, Server, Workflow } from 'lucide-solid'
+import { AudioLines, BookOpen, Database, Ellipsis, Eye, EyeOff, LayoutGrid, Search, Server, Workflow } from 'lucide-solid'
 import { activeLocale, asConnectionId } from '@dinkster/core'
 import {
   DinksterConnection,
@@ -17,8 +17,11 @@ import {
 import {
   ProductBrandMark,
   ProductButton,
+  ProductConfirmation,
+  ProductDialog,
   ProductEmptyState,
   ProductErrorBanner,
+  ProductField,
   ProductIcon,
   ProductMenu,
   ProductProjectFacts,
@@ -56,6 +59,8 @@ export interface PageInstallation {
 export interface ProjectsSource {
   listProjects(): Promise<readonly LibraryProject[]>
   registerProject(id: string, name: string): Promise<LibraryProject>
+  renameProject(project: LibraryProject, name: string): Promise<LibraryProject>
+  deleteProject(project: LibraryProject): Promise<LibraryProject>
   listWorkflows(project: string): Promise<readonly LibraryRecord[]>
   listOutputs(project: string, limit: number): Promise<readonly LocalAssetCatalogEntry[]>
   /** Stored bytes and output count; undefined while the process cannot tell. */
@@ -132,6 +137,8 @@ export function processSource(connection: DinksterConnection = processConnection
       return projects.filter((project) => !project.deleted)
     },
     registerProject: (id, name) => connection.registerProject(id, name),
+    renameProject: (project, name) => connection.renameProject(project.id, name, project.revision),
+    deleteProject: (project) => connection.deleteProject(project.id, project.revision),
     async listWorkflows(project) {
       const page = await connection.listLibrary({ scope: 'local', label: 'workflow', project, limit: 200 })
       return page.records
@@ -347,6 +354,38 @@ export function ProjectsView(props: {
     })
   }
 
+  const [dialog, setDialog] = createSignal<'rename' | 'delete'>()
+  const [dialogError, setDialogError] = createSignal<string>()
+  const [busy, setBusy] = createSignal(false)
+  const [newName, setNewName] = createSignal('')
+  const closeDialog = () => {
+    setDialog(undefined)
+    setDialogError(undefined)
+  }
+  const act = async (work: () => Promise<void>) => {
+    setBusy(true)
+    setDialogError(undefined)
+    try {
+      await work()
+      closeDialog()
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const rename = (project: LibraryProject) =>
+    act(async () => {
+      const renamed = await props.source.renameProject(project, newName().trim())
+      setProjects((list) => list?.map((entry) => (entry.id === renamed.id ? renamed : entry)))
+    })
+  const remove = (project: LibraryProject) =>
+    act(async () => {
+      await props.source.deleteProject(project)
+      setProjects((list) => list?.filter((entry) => entry.id !== project.id))
+      setChosen(undefined)
+    })
+
   const open = (project: LibraryProject) => {
     setBannerShown(true)
     props.shell.openProject(project.id, runsOn(project.id))
@@ -376,9 +415,44 @@ export function ProjectsView(props: {
             <Show
               when={here() && here()!.failed === undefined}
               fallback={
-                <ProductButton fill="solid" onClick={() => open(project)}>
-                  {here()?.failed !== undefined ? message('projects.action.tryAgain') : message('projects.action.open')}
-                </ProductButton>
+                <>
+                  <ProductMenu
+                    label={message('projects.menu.label')}
+                    icon={Ellipsis}
+                    iconOnly
+                    items={[
+                      {
+                        label: message('projects.menu.rename'),
+                        onSelect: () => {
+                          setNewName(project.name)
+                          setDialog('rename')
+                        },
+                      },
+                      // The default project cannot be deleted, so it has no Delete.
+                      ...(project.id === DEFAULT_PROJECT_ID
+                        ? []
+                        : [
+                            'separator' as const,
+                            {
+                              label: message('projects.menu.delete'),
+                              intent: 'remove' as const,
+                              onSelect: () => setDialog('delete'),
+                            },
+                          ]),
+                    ]}
+                  />
+                  <ProductButton
+                    fill="solid"
+                    aria-disabled={installation() ? undefined : 'true'}
+                    data-tooltip-label={installation() ? undefined : message('projects.open.noInstallation')}
+                    data-testid="projects-open"
+                    onClick={() => {
+                      if (installation()) open(project)
+                    }}
+                  >
+                    {here()?.failed !== undefined ? message('projects.action.tryAgain') : message('projects.action.open')}
+                  </ProductButton>
+                </>
               }
             >
               <ProductButton onClick={() => props.shell.cancelOpening()}>{message('projects.action.cancel')}</ProductButton>
@@ -511,6 +585,53 @@ export function ProjectsView(props: {
             </Show>
           </Show>
         </ProductProjectSection>
+        <Show when={dialog() === 'rename'}>
+          <ProductDialog title={message('projects.rename.title')} onDismiss={closeDialog} pending={busy()}>
+            <form
+              class="dinkster-stack"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (newName().trim() !== '') void rename(project)
+              }}
+            >
+              <ProductField
+                label={message('projects.new.name')}
+                {...(dialogError() === undefined ? {} : { error: dialogError()! })}
+              >
+                {(attributes) => (
+                  <ProductTextInput
+                    {...attributes}
+                    value={newName()}
+                    autofocus
+                    onInput={(event) => setNewName(event.currentTarget.value)}
+                  />
+                )}
+              </ProductField>
+              <div class="dinkster-actions">
+                <ProductButton type="submit" fill="solid" disabled={newName().trim() === '' || busy()}>
+                  {message('projects.rename.save')}
+                </ProductButton>
+                <ProductButton onClick={closeDialog}>{message('projects.action.cancel')}</ProductButton>
+              </div>
+            </form>
+          </ProductDialog>
+        </Show>
+        <Show when={dialog() === 'delete'}>
+          <ProductDialog
+            title={message('projects.delete.title', { project: project.name })}
+            onDismiss={closeDialog}
+            pending={busy()}
+          >
+            <ProductConfirmation
+              consequence={dialogError() ?? message('projects.delete.consequence')}
+              actionLabel={message('projects.delete.action')}
+              intent="remove"
+              pending={busy()}
+              onConfirm={() => void remove(project)}
+              onCancel={closeDialog}
+            />
+          </ProductDialog>
+        </Show>
       </>
     )
   }

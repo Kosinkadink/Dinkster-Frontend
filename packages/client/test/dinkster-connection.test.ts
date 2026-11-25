@@ -3569,6 +3569,19 @@ describe('workflow library wire', () => {
     expect(queries[1]!.has('project')).toBe(false)
   })
 
+  it('deleteProject sends the revision it read and refuses an answer that is not deleted', async () => {
+    const deleted = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 4, deleted: true }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { project: deleted }))
+    expect((await conn.deleteProject('p-film', 3)).deleted).toBe(true)
+    expect(requests[0]!.init?.method).toBe('DELETE')
+    expect(requests[0]!.url).toBe('http://test/api/projects/p-film')
+    expect(JSON.parse(String(requests[0]!.init?.body))).toEqual({ revision: 3 })
+    const { conn: kept } = submitHarness(() => jsonResponse(200, { project: { ...deleted, deleted: false } }))
+    await expect(kept.deleteProject('p-film', 3)).rejects.toThrow('did not delete')
+    const { conn: stale } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
+    await expect(stale.deleteProject('p-film', 2)).rejects.toThrow('changed elsewhere')
+  })
+
   it('listLibrary throws on a rejected cursor (restart from page one)', async () => {
     const { conn } = submitHarness(() => jsonResponse(400, { error: 'cursor-query-mismatch' }))
     await expect(conn.listLibrary({ scope: 'local', cursor: 'stale' })).rejects.toThrow('400')

@@ -4240,6 +4240,20 @@ export class DinksterConnection {
     return this.patchProject(id, revision, { name }, signal)
   }
 
+  /** Marks the project deleted at `revision`; the library keeps its files, and refuses the default project. */
+  async deleteProject(id: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision }), ...(signal === undefined ? {} : { signal }),
+    })
+    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before deleting.')
+    if (!res.ok) throw new Error(`DELETE /api/projects failed: ${res.status}`)
+    const payload = await res.json() as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id || !project.deleted) throw new Error('Library did not delete the project')
+    return project
+  }
+
   setProjectExtraPacks(id: string, extra: readonly string[], revision: number, signal?: AbortSignal): Promise<LibraryProject> {
     return this.patchProject(id, revision, { packs: { extra } }, signal)
   }

@@ -1724,5 +1724,14 @@
   "projects.status.local": "Local",
   "projects.status.count": "{count, plural, one {# project} other {# projects}}",
   "projects.unavailable.search": "Search is not available on this page yet.",
-  "projects.unavailable.settings": "Settings are not available on this page yet."
+  "projects.unavailable.settings": "Settings are not available on this page yet.",
+  "projects.menu.label": "Project actions",
+  "projects.menu.rename": "Rename",
+  "projects.menu.delete": "Delete",
+  "projects.rename.title": "Rename project",
+  "projects.rename.save": "Save",
+  "projects.delete.title": "Delete {project}?",
+  "projects.delete.consequence": "Its workflows and outputs leave the project list. Files in its folder stay on disk.",
+  "projects.delete.action": "Delete project",
+  "projects.open.noInstallation": "This project has no installation to run on."
 }

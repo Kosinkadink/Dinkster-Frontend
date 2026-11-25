@@ -41,6 +41,8 @@ function source(projects: readonly LibraryProject[]): ProjectsSource {
   return {
     listProjects: async () => projects,
     registerProject: async (id, name) => project(id, name, new Date(NOW).toISOString()),
+    renameProject: async (entry, name) => ({ ...entry, name, revision: entry.revision + 1 }),
+    deleteProject: async (entry) => ({ ...entry, deleted: true, revision: entry.revision + 1 }),
     listWorkflows: async () => [],
     listOutputs: async (id) =>
       id === 'p-valley'
@@ -136,4 +138,53 @@ it('keeps outputs hidden for one project only, across page loads', async () => {
   await settle()
   expect(document.body.textContent).toContain('Hidden on this page')
   expect(localStorage.getItem('dinkster.p.p-film.projectsPage.outputsHidden')).toBeNull()
+})
+
+const button = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent === label)
+const menuItem = (label: string) =>
+  [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === label) as HTMLElement | undefined
+
+it('renames and deletes the selected project at the revision it read, and never offers to delete the default', async () => {
+  vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+  const data = source([...projects, project('default', 'Default', hoursAgo(24 * 60))])
+  const renamed = vi.spyOn(data, 'renameProject')
+  const deleted = vi.spyOn(data, 'deleteProject')
+  render(() => <ProjectsView shell={shell()} source={data} />, document.body)
+  await settle()
+  document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
+  menuItem('Rename')!.click()
+  await settle()
+  const input = document.querySelector<HTMLInputElement>('dialog input')!
+  input.value = 'Film grain'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  button('Save')!.click()
+  await settle()
+  expect(renamed).toHaveBeenCalledWith(expect.objectContaining({ id: 'p-film', revision: 1 }), 'Film grain')
+  expect(rows()).toContain('Film grain' + 'Ran 2 hours ago')
+  // The renamed record (revision 2) is the one a delete must send.
+  document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
+  menuItem('Delete')!.click()
+  await settle()
+  button('Delete project')!.click()
+  await settle()
+  expect(deleted).toHaveBeenCalledWith(expect.objectContaining({ id: 'p-film', revision: 2 }))
+  expect(rows().some((row) => row?.startsWith('Film'))).toBe(false)
+  ;[...document.querySelectorAll('[role="option"]')].find((row) => row.textContent?.startsWith('Default'))!
+    .dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await settle()
+  document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
+  expect(menuItem('Rename')).not.toBeUndefined()
+  expect(menuItem('Delete')).toBeUndefined()
+})
+
+it('does not open a project when there is no installation to run it on', async () => {
+  const navigation = shell()
+  const data = { ...source(projects), installations: async () => ({ all: [] }) }
+  render(() => <ProjectsView shell={navigation} source={data} />, document.body)
+  await settle()
+  const open = document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')!
+  expect(open.getAttribute('aria-disabled')).toBe('true')
+  expect(open.getAttribute('data-tooltip-label')).toBe('This project has no installation to run on.')
+  open.click()
+  expect(navigation.openProject).not.toHaveBeenCalled()
 })
