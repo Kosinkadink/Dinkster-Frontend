@@ -141,7 +141,7 @@ export function StatusBar(props: {
     if (frozen !== undefined && !busy()) {
       return frozen.status === 'completed' && frozen.startedAt !== undefined && frozen.endedAt !== undefined
         ? message('shell.status.completedIn', { seconds: Math.round((frozen.endedAt - frozen.startedAt) / 1000) })
-        : executionStatusLabel(frozen.status)
+        : executionStatusLabel(frozen.status).toLocaleLowerCase()
     }
     const progress = run().leading === undefined ? undefined : executionProgress(run().leading!)
     return progress === undefined ? '' : `${Math.round(progress.value * 100)}%`

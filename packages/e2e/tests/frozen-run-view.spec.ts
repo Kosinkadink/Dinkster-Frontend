@@ -88,7 +88,7 @@ test('frozen layout is temporary, edits are refused, and copies keep the arrange
   // A frozen tab has no Run button; its run list stays.
   await expect(page.getByTestId('queue-button')).toHaveCount(0)
   await expect(page.getByTestId('workflow-queue-toggle')).toBeVisible()
-  await expect(page.getByTestId('status-run')).toContainText('Frozen:')
+  await expect(page.getByTestId('status-run')).toHaveText(/^Frozen:\s*completed$/)
   await expect(page.getByTestId('frozen-banner').locator('.frozen-sync')).toHaveText(`Ran ${clock(new Date(queuedAt))}. Matches the live workflow.`)
   const originalGraph = await graph(page)
   await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.renderer!.getInactiveNodes() ?? []])).toEqual(['n2'])
