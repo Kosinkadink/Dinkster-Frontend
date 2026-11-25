@@ -80,7 +80,7 @@ export function CanvasViewControls(props: {
         <ProductButton variant="ghost"
           ref={viewTrigger}
           type="button"
-          class="canvas-chrome-button"
+          class="canvas-chrome-button canvas-view-button"
           data-testid="views-switcher"
           data-tooltip-label={props.viewMenuOpen ? undefined : message('canvas.viewControls.view.tooltip')}
           aria-label={message('canvas.viewControls.view.label', { view: viewLabel() })}

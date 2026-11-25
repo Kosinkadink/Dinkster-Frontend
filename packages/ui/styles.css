@@ -722,6 +722,8 @@
 :is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button.product-button:focus-visible { outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
 .canvas-chrome-button svg { width: 16px; height: 16px; flex: none; }
 .canvas-chrome-divider { flex: none; width: 1px; height: 18px; margin: 0 3px; background: var(--dinkster-border-subtle); }
+/* The active workflow tab shows the same icon just above, so the view button's icon stays quiet; secondary, not muted, because it is live. */
+.canvas-view-controls .canvas-view-button { color: var(--dinkster-text-secondary); }
 .canvas-view-controls .canvas-lens-button { gap: 5px; padding: 0 5px 0 6px; }
 .canvas-view-controls .canvas-lens-button[data-lens-named='true'] { color: var(--dinkster-accent-foreground); }
 :is(.canvas-lens-button, .canvas-zoom-level, .canvas-corner-more) svg:last-child { width: 12px; height: 12px; }
