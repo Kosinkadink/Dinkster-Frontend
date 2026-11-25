@@ -2076,8 +2076,9 @@ export function App(props: {
       const style = getComputedStyle(bodyElement)
       const gap = Number.parseFloat(style.columnGap) || 0
       const sidebarWidth = sidebar.getBoundingClientRect().width
+      const sidebarShare = sidebarWidth > 0 ? sidebarWidth + gap + Number.parseFloat(getComputedStyle(sidebar).marginRight) : 0
       const available = bodyElement.clientWidth - Number.parseFloat(style.paddingLeft)
-        - Number.parseFloat(style.paddingRight) - sidebarWidth - (sidebarWidth > 0 ? gap : 0) - 320
+        - Number.parseFloat(style.paddingRight) - sidebarShare - 320
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
         : { single: Math.max(0, available - gap), both: Math.max(0, available - 2 * gap) })

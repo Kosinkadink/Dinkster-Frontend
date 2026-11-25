@@ -137,6 +137,7 @@ function Gallery() {
   const [nameTaken, setNameTaken] = createSignal(false)
   const [activity, setActivity] = createSignal('No action yet')
   const [loading, setLoading] = createSignal(false)
+  const [quietType, setQuietType] = createSignal('Any type')
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
@@ -893,6 +894,15 @@ function Gallery() {
                     name="Alex Morgan"
                     email="alex@example.test"
                     onSignOut={() => complete('Signed out')}
+                  />
+                  <ProductMenu
+                    label={`Type: ${quietType().toLowerCase()}`}
+                    fill="quiet"
+                    items={['Any type', 'Image', 'String'].map((type) => ({
+                      label: type,
+                      checked: type === quietType(),
+                      onSelect: () => setQuietType(type),
+                    }))}
                   />
                 </div>
               </Section>

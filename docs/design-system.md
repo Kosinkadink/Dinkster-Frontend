@@ -159,7 +159,7 @@ every core tab once.
   messages are off; field problems are shown by `ProductField`.
   Changing to another record mounts a new form.
 - `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
-  keyboard item movement and opener focus restoration. Items keep their buttons
+  keyboard item movement and opener focus restoration; `fill="quiet"` gives its text trigger the shared borderless quiet fill and retains its hover fill while open, while absent preserves the outlined trigger. Items keep their buttons
   by position, so a host that passes new item objects while the menu is open
   (a count arriving) does not move focus or close it. Disabled items are
   skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
@@ -1112,9 +1112,10 @@ capped at the 480px `toolbarSearchMaxWidth`, and centers on the window when the
 surrounding controls leave room; otherwise it stays within its available grid
 slot. The app-menu button uses the D symbol alone at every width, with no
 chevron, not a wordmark or a three-line menu icon. Its accessible name is
-unchanged. Off macOS it is centred over the 48px `iconBarWidth` column of the
-editor's left icon bar, and the next control in the brand slot starts at that
-column's edge, where the panels start. On macOS the editor moves it to the top
+unchanged. Off macOS it is centred over the 54px `iconBarWidth` column of the
+editor's left icon bar, which spans the frame strip up to the first panel, and
+the next control in the brand slot starts at that column's edge, where the
+panels start. On macOS the editor moves it to the top
 of the left icon bar, below the bar's row, and the project follows the window
 buttons; while the left bar is hidden it returns to the bar after the window
 buttons. The editor reads the platform from the bar's `data-platform`, which
