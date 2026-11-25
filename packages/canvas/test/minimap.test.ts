@@ -353,6 +353,30 @@ describe('drawMinimap', () => {
     expect(calls[inside]!.alpha).toBeLessThan(0.1)
   })
 
+  it('strengthens only the view fill while the minimap is hovered', () => {
+    const paintView = (hovered: boolean) => {
+      const { ctx, calls } = fakeCtx()
+      drawMinimap(ctx, {
+        ...base,
+        nodes: [box(0, 0, 1000, 1000)],
+        viewport: { x: -100, y: -200, scale: 2, canvasWidth: 800, canvasHeight: 600 },
+        hovered,
+      })
+      const frame = calls.find(isViewFrame)!
+      return {
+        fill: calls.find((c) => c.kind === 'fill' && c.rule === undefined && c.style === colors.title && c.x === frame.x)!.alpha,
+        stroke: frame.alpha,
+        dim: calls.filter(isOutsideDim).map((c) => c.alpha),
+      }
+    }
+    const rest = paintView(false)
+    const hovered = paintView(true)
+    expect(hovered.fill).toBeGreaterThan(rest.fill)
+    expect(hovered.fill).toBeLessThan(0.2)
+    expect(hovered.stroke).toBe(rest.stroke)
+    expect(hovered.dim).toEqual(rest.dim)
+  })
+
   it('keeps the local viewport visible on the light canvas', () => {
     const { ctx, calls } = fakeCtx()
     const light = canvasColorsForTheme('light')

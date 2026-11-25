@@ -105,6 +105,8 @@ export interface MinimapInput {
    * into the panel so an off-content bookmark stays visible at the edge.
    */
   readonly markers?: readonly MinimapMarker[]
+  /** The pointer is over the minimap: the view area's fill is a little stronger. */
+  readonly hovered?: boolean
   /**
    * Remote participants' visible world rectangles (shared sessions): each
    * paints a thin colored frame in that actor's presence color, underneath
@@ -390,7 +392,7 @@ export function drawMinimapGraph(ctx: CanvasRenderingContext2D | OffscreenCanvas
 export function drawMinimapOverlay(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   tf: MinimapTransform,
-  input: Pick<MinimapInput, 'tokens' | 'width' | 'height' | 'viewport' | 'remoteViewports' | 'markers'>,
+  input: Pick<MinimapInput, 'tokens' | 'width' | 'height' | 'viewport' | 'remoteViewports' | 'markers' | 'hovered'>,
 ): void {
   const t = input.tokens
   const { width, height } = input
@@ -420,7 +422,7 @@ export function drawMinimapOverlay(
       ctx.beginPath()
       ctx.roundRect(rect.x, rect.y, rect.width, rect.height, paint.viewportRadius)
       ctx.fillStyle = t.colors.title
-      ctx.globalAlpha = paint.viewportFillOpacity
+      ctx.globalAlpha = input.hovered === true ? paint.viewportFillHoverOpacity : paint.viewportFillOpacity
       ctx.fill()
       ctx.strokeStyle = t.colors.title
       ctx.globalAlpha = paint.viewportStrokeOpacity
