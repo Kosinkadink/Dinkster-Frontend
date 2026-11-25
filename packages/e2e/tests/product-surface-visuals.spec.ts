@@ -108,8 +108,8 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(trigger).toHaveAccessibleName('Dinkster')
     await expect(trigger.locator('img:visible')).toHaveAttribute('src', /dinkster-symbol-color\.svg/)
     await expect(trigger.locator('.dinkster-wordmark')).toHaveCount(0)
-    const expectedCanvas = theme === 'dark' ? 'rgb(14, 20, 20)' : 'rgb(247, 248, 250)'
-    await expect(page.locator('body')).toHaveCSS('background-color', expectedCanvas)
+    const expectedFrame = theme === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)'
+    await expect(page.locator('body')).toHaveCSS('background-color', expectedFrame)
     const manifest = await (await page.request.get('/manifest.webmanifest')).json()
     expect(manifest.name).toBe('Dinkster')
     for (const icon of manifest.icons) {
@@ -132,7 +132,7 @@ for (const theme of ['dark', 'light'] as const) {
     await page.evaluate((selected) => {
       window.__dinksterTest!.app.settings.set('dinkster.theme', selected === 'dark' ? 'light' : 'dark')
     }, theme)
-    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(247, 248, 250)' : 'rgb(14, 20, 20)')
+    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(237, 239, 242)' : 'rgb(9, 13, 13)')
     await expect(trigger.locator('img:visible')).toHaveAttribute('src', /dinkster-symbol-color\.svg/)
     await page.addStyleTag({ content: '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }' })
     const header = page.locator('.dinkster-window-toolbar-host')
