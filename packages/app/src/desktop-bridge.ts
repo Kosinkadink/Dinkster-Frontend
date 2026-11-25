@@ -42,7 +42,12 @@ export interface DesktopConnectionCredentials {
   readonly profiles: readonly string[]
 }
 
+export type DesktopSaveResult =
+  | { readonly status: 'saved'; readonly name: string }
+  | { readonly status: 'closed' }
+
 export interface DinksterDesktopBridge {
+  saveFile?(bytes: Uint8Array, suggestedName: string): Promise<DesktopSaveResult>
   locale(): Promise<string>
   status(): Promise<DesktopLifecycleStatus>
   retry(): Promise<void>
@@ -92,7 +97,12 @@ declare global {
   }
 }
 
-export type DesktopFileBridge = Pick<DinksterDesktopBridge, 'fileCapabilities' | 'chooseDirectory' | 'revealFile' | 'revealModelLocation' | 'resolveDroppedFile'>
+export type DesktopFileBridge = Pick<DinksterDesktopBridge, 'saveFile' | 'fileCapabilities' | 'chooseDirectory' | 'revealFile' | 'revealModelLocation' | 'resolveDroppedFile'>
+
+export function desktopSaveBridge(): { saveFile(bytes: Uint8Array, suggestedName: string): Promise<DesktopSaveResult> } | undefined {
+  const saveFile = window.dinksterDesktop?.saveFile
+  return typeof saveFile === 'function' ? { saveFile } : undefined
+}
 
 export function desktopBridge(): DinksterDesktopBridge | undefined {
   const bridge = window.dinksterDesktop
@@ -103,6 +113,12 @@ export function desktopBridge(): DinksterDesktopBridge | undefined {
 export function desktopFileBridge(): DesktopFileBridge | undefined {
   const bridge = window.dinksterDesktop
   return typeof bridge?.fileCapabilities === 'function' ? bridge : undefined
+}
+
+export function isNativeProjectBackend(baseUrl: string, projectId: string): boolean {
+  return desktopFileBridge() !== undefined &&
+    new URL(window.location.href).searchParams.get('dinksterProject') === projectId &&
+    new URL(baseUrl || '/', window.location.href).origin === window.location.origin
 }
 
 /** Only an explicit refusal permits the caller to offer byte upload. */

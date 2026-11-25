@@ -16,20 +16,15 @@ import {
   asLinkId,
   asNodeId,
   asPortId,
-  asRerouteId,
-  asValueSourceId,
   type CompileArtifact,
   type GraphDef,
   type NodeSchema,
   type NodeProgress,
-  type ValueSourceData,
 } from '@dinkster/core'
 import { deriveCompanions, liveExactnessFor } from '../src/companion-display.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 const tap = (node: string, inputId: string) => ({ node: asNodeId(node), tap: asPortId(inputId) })
-const rr = (id: string) => ({ reroute: asRerouteId(id) })
-const vsrc = (id: string) => ({ valueSource: asValueSourceId(id) })
 const node = (id: string) => ({ id: asNodeId(id), type: 'T', values: { steps: 20 } })
 const link = (id: string, from: object, to: object) =>
   ({ id: asLinkId(id), from, to }) as GraphDef['links'][string]
@@ -47,18 +42,6 @@ function graph(partial: Omit<Partial<GraphDef>, 'id'> & { id: string }): GraphDe
   }
 }
 
-/** Value-source -> reroute -> consumer.steps literal chain. */
-const literalGraph = graph({
-  id: 'root',
-  nodes: { consumer: node('consumer') },
-  reroutes: { r1: { id: asRerouteId('r1') } },
-  valueSources: { v1: { id: asValueSourceId('v1'), value: 7 } as ValueSourceData },
-  links: {
-    l1: link('l1', vsrc('v1'), rr('r1')),
-    l2: link('l2', rr('r1'), port('consumer', 'steps')),
-  },
-})
-
 /** producer.out -> consumer.steps runtime chain. */
 const producerGraph = graph({
   id: 'root',
@@ -72,14 +55,6 @@ const done = (outputs?: NodeProgress['outputs']): NodeProgress => ({
 })
 
 describe('deriveCompanions: literals', () => {
-  it('a value-source chain displays its literal, exact, with no execution', () => {
-    const { companions } = deriveCompanions({
-      def: literalGraph,
-      frozen: false,
-      runtimeIdsOf: (id) => [id],
-    })
-    expect(companions['consumer']?.['steps']).toEqual({ value: 7 })
-  })
 
   it.each([[0, 7], ['', 'changed']] as const)('keeps an unstored tap default %j and a later stored value in companion presentation', (fallback, stored) => {
     const def = graph({
@@ -269,26 +244,6 @@ describe('liveExactnessFor: comparability gates', () => {
   }
   const artifact = (over?: Partial<CompileArtifact>): CompileArtifact =>
     ({ schemaHash: 'h1', prompt, ...over }) as unknown as CompileArtifact
-  const random = { graph: 'root', selector: 's', policy: 'random', candidate: 'a' } as const
-
-  it('invalidates only the transitive cone downstream of a random selector', () => {
-    const withRandomCone = artifact({
-      choices: [random],
-      provenance: {
-        toSource: {}, fromSource: {}, randomSelectorInputs: { consumer: ['steps'] },
-      },
-    })
-    const independent = artifact({
-      choices: [random],
-      prompt: { ...prompt, lone: { class_type: 'Int', inputs: { value: 1 } } },
-      provenance: {
-        toSource: {}, fromSource: {}, randomSelectorInputs: { consumer: ['steps'] },
-      },
-    })
-    const oracle = liveExactnessFor(independent, withRandomCone)
-    expect(oracle?.('consumer')).toBe(false)
-    expect(oracle?.('producer')).toBe(true)
-  })
 
   it('past the gates, verdicts follow upstream recipe comparison per node', () => {
     const edited = {

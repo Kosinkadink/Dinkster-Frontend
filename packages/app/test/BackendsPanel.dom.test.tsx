@@ -7,16 +7,20 @@ import { registerCatalog, setLocale, type Signal } from '@dinkster/core'
 import { AppState } from '../src/app-state.js'
 import { BackendsPanel } from '../src/BackendsPanel.js'
 
+const disposers: (() => void)[] = []
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
+const button = (root: Element, text: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((row) => row.textContent === text)!
 
 function mount(app = new AppState()) {
   const root = document.createElement('div')
   document.body.append(root)
   const unmount = render(() => <BackendsPanel app={app} />, root)
-  return { app, root, unmount }
+  disposers.push(() => { unmount(); app.dispose() })
+  return { app, root }
 }
 
 afterEach(() => {
+  for (const dispose of disposers.splice(0)) dispose()
   setLocale('en')
   document.body.replaceChildren()
   localStorage.clear()
@@ -24,62 +28,48 @@ afterEach(() => {
 })
 
 describe('BackendsPanel', () => {
-
-  it('presents isolated backend identity, default ownership, long content, and backend-specific actions', async () => {
+  it('keeps each server in one disclosure without folders and confirms removal of a non-default server', async () => {
     const { app, root } = mount()
-    const label = 'A backend with a deliberately very long name that must wrap without covering its actions'
-    const extra = app.addBackend('http://example.test/a/very/long/backend/path/that/must/wrap', label, false, 'dinkster')!
+    const label = 'A backend with a deliberately long descriptive name'
+    const extra = app.addBackend('http://example.test/a/long/backend/path', label, false, 'dinkster')!
+    ;(extra.connection.status as Signal<ConnectionStatus>).set('reconnecting')
     extra.schemaState.set({ status: 'error', message: 'catalog decode refused at node 418' })
     extra.supervisor.set({ protocol: 1, state: 'failed', detail: 'worker exited', engine: { exitCode: 2 } })
 
     expect(root.querySelectorAll('[data-testid="backend-row"]')).toHaveLength(2)
-    expect(root.querySelector('[data-connection="local"]')?.textContent).toContain('Default')
-    expect(root.querySelector('[data-connection="local"] [data-testid="backend-remove"]')).toBeNull()
+    const local = root.querySelector('[data-connection="local"]')!
+    expect(local.querySelector('[aria-haspopup="menu"]')).toBeNull()
+    expect(local.querySelector('[data-testid="connection-profiles"]')).toBeNull()
     const card = root.querySelector(`[data-connection="${extra.id}"]`)!
-    expect(card.textContent).toContain(label)
-    expect(card.textContent).toContain('catalog decode refused at node 418')
-    expect(card.querySelector('code.backend-address')?.textContent).toBe('http://example.test/a/very/long/backend/path/that/must/wrap')
-    expect(root.querySelector('[data-connection="local"] code.backend-address')?.textContent).toBe('Same origin')
-    expect(card.querySelector('.backend-engine')?.getAttribute('aria-label')).toBe(`${label} engine`)
-    expect(card.querySelectorAll('[title]')).toHaveLength(0)
-    expect(card.querySelector('[aria-label="Restart A backend with a deliberately very long name that must wrap without covering its actions engine"]')).not.toBeNull()
-    expect(card.querySelector('[aria-label="Retry schemas for A backend with a deliberately very long name that must wrap without covering its actions"]')).not.toBeNull()
-    expect(card.querySelector('[aria-label="Remove A backend with a deliberately very long name that must wrap without covering its actions"]')).not.toBeNull()
-    expect(card.querySelector('[aria-label$="runtime settings"]')).not.toBeNull()
-    expect(root.querySelector('[data-connection="local"]')?.textContent).toContain('Not loaded')
+    expect(card.querySelector('summary')?.textContent).toContain(`Reconnecting - ${label} - Dinkster`)
+    expect(card.querySelector('details')?.open).toBe(false)
+    expect(card.querySelector('code.backend-address')?.textContent).toBe(extra.baseUrl)
+    expect(root.querySelector('[data-testid="model-settings"]')).toBeNull()
+    expect(root.querySelector('[data-testid="output-mount-settings"]')).toBeNull()
+    expect(button(card, 'Storage')).toBeDefined()
+    expect(button(card, 'Resources')).toBeDefined()
+    expect(button(card, 'Settings')).toBeDefined()
+    expect(root.querySelector('[data-testid="backend-url-input"]')).toBeNull()
 
-    card.querySelector<HTMLButtonElement>('[data-testid="backend-remove"]')!.click()
-    await flush()
-    expect(app.backendFor(extra.id)).toBeUndefined()
+    card.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
+    button(card, 'Remove backend').click()
+    expect(app.backendFor(extra.id)).toBeDefined()
+    button(card, 'Cancel').click()
+    expect(app.backendFor(extra.id)).toBeDefined()
+    card.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
+    button(card, 'Remove backend').click()
+    button(card, 'Remove backend').click()
+    await vi.waitFor(() => expect(app.backendFor(extra.id)).toBeUndefined())
   })
 
-  it('renders reconnect and server-authoritative composition progress', () => {
-    const { app, root } = mount()
-    const backend = app.backends.get()[0]!
-    ;(backend.connection.status as Signal<ConnectionStatus>).set('reconnecting')
-    backend.supervisor.set({ protocol: 1, state: 'ready', detail: 'engine healthy', progress: { done: 3, total: 8, phase: 'Loading packs' } })
-
-    expect(root.textContent).toContain('reconnecting automatically')
-    const progress = root.querySelector<HTMLProgressElement>('[aria-label="Local composition progress"]')!
-    expect(progress.value).toBe(3)
-    expect(progress.max).toBe(8)
-    expect(root.textContent).toContain('Composing')
-    expect(root.textContent).toContain('Loading packs')
-    expect(root.textContent).toContain('3 of 8')
-  })
-
-  it('relabels mounted chrome without translating backend facts or resetting in-flight actions', async () => {
+  it('relabels mounted chrome without translating server facts or resetting a pending restart', async () => {
     registerCatalog('de-DE', {
       'backendsPanel.action.restarting': '[RESTARTING]',
       'backendsPanel.action.restart': '[RESTART ENGINE]',
-      'backendsPanel.action.retrying': '[RETRYING]',
-      'backendsPanel.action.retrySchemas': '[RETRY SCHEMAS]',
       'backendsPanel.connection.reconnecting': '[RECONNECTING]',
       'backendsPanel.notice.schemaFailed': '[SCHEMA FAILED: {message}]',
       'backendsPanel.title': '[BACKEND CONNECTIONS]',
-      'http://raw.example.test:9000/path': '[TRANSLATED URL]',
       'raw.engine.detail': '[TRANSLATED ENGINE DETAIL]',
-      'raw.schema.failure': '[TRANSLATED SCHEMA FAILURE]',
       'Raw backend label': '[TRANSLATED BACKEND LABEL]',
     })
     const app = new AppState()
@@ -87,91 +77,86 @@ describe('BackendsPanel', () => {
     ;(backend.connection.status as Signal<ConnectionStatus>).set('reconnecting')
     backend.schemaState.set({ status: 'error', message: 'raw.schema.failure' })
     backend.supervisor.set({ protocol: 1, state: 'failed', detail: 'raw.engine.detail', engine: { exitCode: 2 } })
-    let finishRetry!: () => void
-    let finishRestart!: () => void
-    const retry = vi.spyOn(app, 'refreshBackendSchemas').mockImplementation(() => new Promise((resolve) => { finishRetry = resolve }))
-    const restart = vi.spyOn(app, 'restartEngine').mockImplementation(() => new Promise((resolve) => { finishRestart = resolve }))
-    const add = vi.spyOn(app, 'addBackendByUrl')
+    let finish!: () => void
+    vi.spyOn(app, 'restartEngine').mockImplementation(() => new Promise((resolve) => { finish = resolve }))
     const { root } = mount(app)
-    const panel = root.querySelector<HTMLElement>('[data-testid="backends-panel"]')!
-    const card = root.querySelector<HTMLElement>(`[data-connection="${backend.id}"]`)!
+    button(root, 'Add backend').click()
     const input = root.querySelector<HTMLInputElement>('[data-testid="backend-url-input"]')!
-    const retryButton = card.querySelector<HTMLButtonElement>('[data-testid="backend-schema-retry"]')!
-    const restartButton = card.querySelector<HTMLButtonElement>('[data-testid="backend-engine-restart"]')!
     input.value = 'http://entered.example.test:7000/raw'
     input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     input.focus()
-    retryButton.click()
-    restartButton.click()
-    expect(retryButton.disabled).toBe(true)
-    expect(restartButton.disabled).toBe(true)
-
+    const card = root.querySelector(`[data-connection="${backend.id}"]`)!
+    const restart = card.querySelector<HTMLButtonElement>('[data-testid="backend-engine-restart"]')!
+    restart.click()
+    expect(restart.disabled).toBe(true)
     setLocale('de-DE')
     await flush()
-
-    expect(root.querySelector('[data-testid="backends-panel"]')).toBe(panel)
     expect(root.querySelector(`[data-connection="${backend.id}"]`)).toBe(card)
-    expect(card.querySelector('[data-testid="backend-schema-retry"]')).toBe(retryButton)
-    expect(card.querySelector('[data-testid="backend-engine-restart"]')).toBe(restartButton)
     expect(document.activeElement).toBe(input)
     expect(input.value).toBe('http://entered.example.test:7000/raw')
-    expect(panel.getAttribute('aria-label')).toBe('[BACKEND CONNECTIONS]')
-    expect(panel.querySelector('h2')?.textContent).toBe('[BACKEND CONNECTIONS]')
     expect(card.textContent).toContain('[RECONNECTING]')
     expect(card.textContent).toContain('[SCHEMA FAILED: raw.schema.failure]')
     expect(card.textContent).toContain('raw.engine.detail')
     expect(card.textContent).toContain('Raw backend label')
-    expect(card.textContent).toContain('http://raw.example.test:9000/path')
     expect(card.textContent).not.toContain('[TRANSLATED ENGINE DETAIL]')
-    expect(card.textContent).not.toContain('[TRANSLATED SCHEMA FAILURE]')
     expect(card.textContent).not.toContain('[TRANSLATED BACKEND LABEL]')
-    expect(card.textContent).not.toContain('[TRANSLATED URL]')
-    expect(retryButton.textContent).toBe('[RETRYING]')
-    expect(restartButton.textContent).toBe('[RESTARTING]')
-    expect(retry).toHaveBeenCalledTimes(1)
-    expect(restart).toHaveBeenCalledTimes(1)
-    expect(add).not.toHaveBeenCalled()
-
-    finishRetry()
-    finishRestart()
+    expect(restart.textContent).toBe('[RESTARTING]')
+    finish()
     await flush()
-    expect(retryButton.textContent).toBe('[RETRY SCHEMAS]')
-    expect(restartButton.textContent).toBe('[RESTART ENGINE]')
-    card.querySelector<HTMLButtonElement>('[data-testid="backend-remove"]')!.click()
-    expect(app.backendFor(backend.id)).toBeUndefined()
+    expect(restart.textContent).toBe('[RESTART ENGINE]')
   })
 
-  it('shows discovery while pending and refuses a duplicate before probing', async () => {
+  it('disconnects without forgetting the server, then reconnects the same line', async () => {
+    const { app, root } = mount()
+    const backend = app.addBackend('https://studio.test', 'Studio', false, 'dinkster')!
+    ;(backend.connection.status as Signal<ConnectionStatus>).set('connected')
+    const row = root.querySelector('[data-connection="https://studio.test"]')!
+    button(row, 'Disconnect').click()
+    expect(row.getAttribute('data-status')).toBe('disconnected')
+    expect(app.backendFor(backend.id)).toBe(backend)
+    vi.spyOn(AppState.prototype, 'startBackend').mockResolvedValue(undefined)
+    const restored = new AppState()
+    expect(restored.backends.get().some((saved) => saved.baseUrl === backend.baseUrl)).toBe(true)
+    restored.dispose()
+    vi.spyOn(app, 'startBackend').mockImplementation(async () => { (backend.connection.status as Signal<ConnectionStatus>).set('connected') })
+    button(row, 'Connect').click()
+    await flush()
+    expect(row.getAttribute('data-status')).toBe('connected')
+    expect(root.querySelector('[data-connection="https://studio.test"]')).toBe(row)
+  })
+
+  it('opens the address form explicitly, reports discovery and refuses duplicate addresses', async () => {
     const { app, root } = mount()
     let finish!: () => void
-    const discover = vi.spyOn(app, 'addBackendByUrl').mockImplementation(() => new Promise((resolve) => {
-      finish = () => resolve(undefined)
-    }))
+    const discover = vi.spyOn(app, 'addBackendByUrl').mockImplementation(() => new Promise((resolve) => { finish = () => resolve(undefined) }))
+    expect(root.querySelector('[data-testid="backend-url-input"]')).toBeNull()
+    button(root, 'Add backend').click()
     const input = root.querySelector<HTMLInputElement>('[data-testid="backend-url-input"]')!
-    input.value = '/'
-    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    root.querySelector<HTMLFormElement>('.backend-add-surface form')!.requestSubmit()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('That backend is already connected.')
+    const enter = (value: string) => { input.value = value; input.dispatchEvent(new InputEvent('input', { bubbles: true })) }
+    enter('/')
+    input.closest('form')!.requestSubmit()
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('already connected')
     expect(discover).not.toHaveBeenCalled()
-
-    input.value = 'http://new.test:9000'
-    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    root.querySelector<HTMLFormElement>('.backend-add-surface form')!.requestSubmit()
-    expect(root.textContent).toContain('Discovering http://new.test:9000')
-    expect(root.querySelector<HTMLButtonElement>('[data-testid="backend-add"]')!.disabled).toBe(true)
+    enter('http://new.test:9000')
+    input.closest('form')!.requestSubmit()
+    expect(root.querySelector('[data-testid="backend-add"]')?.getAttribute('aria-disabled')).toBe('true')
+    input.closest('form')!.requestSubmit()
+    expect(discover).toHaveBeenCalledTimes(1)
+    expect(root.textContent).toContain('Connecting...')
     finish()
     await flush()
     expect(root.textContent).toContain('could not be added')
-
-    input.value = 'http://new.test:9000'
-    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     discover.mockImplementationOnce(async () => app.addBackend('http://new.test:9000', 'New', false, 'dinkster'))
-    root.querySelector<HTMLFormElement>('.backend-add-surface form')!.requestSubmit()
+    enter('http://new.test:9000')
+    input.closest('form')!.requestSubmit()
     await flush()
-    input.value = 'http://new.test:9000/'
-    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    root.querySelector<HTMLFormElement>('.backend-add-surface form')!.requestSubmit()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('That backend is already connected.')
+    expect(root.querySelector('[data-testid="backend-url-input"]')).toBeNull()
+    button(root, 'Add backend').click()
+    const next = root.querySelector<HTMLInputElement>('[data-testid="backend-url-input"]')!
+    next.value = 'http://new.test:9000/'
+    next.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    next.closest('form')!.requestSubmit()
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('already connected')
     expect(discover).toHaveBeenCalledTimes(2)
   })
 })

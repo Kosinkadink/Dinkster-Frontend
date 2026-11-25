@@ -5,11 +5,12 @@
  * each side gives up space in proportion to its natural width (label biased
  * to give up more), clamped to readability floors so neither zone vanishes.
  */
-import type { WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
+import { registerCatalog, setLocale, type WidgetKind, type WidgetRegistry, type WidgetView } from '@dinkster/core'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createRegistryPainter } from '../src/registry-painter.js'
+import { createRegistryPainter, subgraphMarkRect } from '../src/registry-painter.js'
+import { fitItems } from '../src/renderer.js'
 import type { WidgetPaintArgs } from '../src/renderer.js'
-import { defaultTokens } from '../src/tokens.js'
+import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import { widgetChromeRect, type LayoutRow } from '../src/layout.js'
 
 beforeAll(() => {
@@ -24,7 +25,11 @@ function fakeCtx(charWidth = 6) {
   const fills: { x: number; y: number; width: number; height: number; fillStyle: string }[] = []
   const roundedFills: { x: number; y: number; width: number; height: number; radius: number; fillStyle: string }[] = []
   const strokes: Array<{ points: Array<{ x: number; y: number }>; strokeStyle: string }> = []
+  const transforms: Array<{ method: 'translate' | 'scale'; x: number; y: number }> = []
+  const images: Array<{ image: unknown; x: number; y: number; width: number; height: number }> = []
   let pendingRect: { x: number; y: number; width: number; height: number; radius: number } | undefined
+  const arcs: Array<{ x: number; y: number; fillStyle: string }> = []
+  let pendingArc: { x: number; y: number } | undefined
   let pendingPoints: Array<{ x: number; y: number }> = []
   const ctx = {
     fillStyle: '',
@@ -33,12 +38,12 @@ function fakeCtx(charWidth = 6) {
     font: '12px system-ui',
     globalAlpha: 1,
     textAlign: 'left',
-    beginPath: () => { pendingPoints = []; pendingRect = undefined },
+    beginPath: () => { pendingPoints = []; pendingRect = undefined; pendingArc = undefined },
     save: () => {},
     restore: () => {},
-    translate: () => {},
-    scale: () => {},
-    arc: () => {},
+    translate: (x: number, y: number) => { transforms.push({ method: 'translate', x, y }) },
+    scale: (x: number, y: number) => { transforms.push({ method: 'scale', x, y }) },
+    arc: (x: number, y: number) => { pendingArc = { x, y } },
     moveTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
     lineTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
     stroke() { strokes.push({ points: [...pendingPoints], strokeStyle: String(this.strokeStyle) }) },
@@ -47,17 +52,19 @@ function fakeCtx(charWidth = 6) {
     roundRect: (x: number, y: number, width: number, height: number, radius: number) => { pendingRect = { x, y, width, height, radius } },
     fill() {
       if (pendingRect) roundedFills.push({ ...pendingRect, fillStyle: String(this.fillStyle) })
+      if (pendingArc) arcs.push({ ...pendingArc, fillStyle: String(this.fillStyle) })
     },
     fillRect(x: number, y: number, width: number, height: number) {
       fills.push({ x, y, width, height, fillStyle: String(this.fillStyle) })
     },
     measureText: (t: string) => ({ width: t.length * charWidth }),
+    drawImage: (image: unknown, x: number, y: number, width: number, height: number) => { images.push({ image, x, y, width, height }) },
     fillText(text: string, x: number, y: number) {
       texts.push(text)
       textCalls.push({ text, x, y, align: this.textAlign as CanvasTextAlign, fill: String(this.fillStyle), font: this.font })
     },
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes, arcs, transforms, images }
 }
 
 const LABEL = 'control_after_generate'
@@ -281,8 +288,8 @@ describe('registry painter label/value split', () => {
       }, value: 75, x: 10, y: 20,
       width: 150, rowHeight: 24, connected: false, tokens: defaultTokens,
     })
-    const fill = painted.fills.find((candidate) => candidate.fillStyle === defaultTokens.colors.widgetRangeFill)!
-    const chrome = widgetChromeRect(10, 20, 150, 24)
+    const fill = painted.fills.find((candidate) => candidate.fillStyle === defaultTokens.colors.widgetRangeFillAccent)!
+    const chrome = widgetChromeRect(10, 20, 150, 24, defaultTokens.rowGeometry.fieldInsetY)
     const clip = painted.clips.find((candidate) => candidate.y === chrome.y && candidate.height === chrome.height)!
     expect(clip).toMatchObject(chrome)
     expect(fill).toMatchObject({ x: chrome.x, y: chrome.y, height: chrome.height })
@@ -308,24 +315,41 @@ describe('registry painter label/value split', () => {
     expect(painted.fills.some((candidate) => candidate.fillStyle === defaultTokens.colors.widgetRangeFill)).toBe(false)
   })
 
-  it('reserves a permanent multiline scrollbar gutter and paints a slim thumb only for hovered overflow', () => {
+  it('reserves a permanent multiline scrollbar gutter and paints a slim thumb only for overflow', () => {
+    const fits = paintMultilineDetails(74, 160, 'one\ntwo')
     const idle = paintMultilineDetails(74, 160)
-    const hovered = paintMultilineDetails(74, 160, 'one\ntwo\nthree\nfour\nfive', true)
-    const scrollbar = hovered.roundedFills.find((fill) =>
+    const scrollbar = idle.roundedFills.find((fill) =>
       fill.fillStyle === defaultTokens.colors.widgetAffordance && fill.width === defaultTokens.multilineText.scrollbarWidth,
     )
 
-    expect(idle.textCalls.find((call) => call.text === 'one')).toMatchObject({ x: 6 })
+    // The text starts at the x of the label over it.
+    const label = idle.textCalls.find((call) => call.text === 'text' && call.y < 24)!
+    expect(label.x).toBe(6)
+    expect(idle.textCalls.find((call) => call.text === 'one')).toMatchObject({ x: label.x })
     expect(idle.clips.filter((clip) => clip.x === 0).map((clip) => clip.width)).toContain(152)
-    expect(idle.roundedFills.some((fill) => fill.fillStyle === defaultTokens.colors.widgetAffordance)).toBe(false)
-    expect(scrollbar).toMatchObject({ x: 152, y: 20, width: 6, radius: 3 })
+    expect(fits.roundedFills.some((fill) => fill.fillStyle === defaultTokens.colors.widgetAffordance)).toBe(false)
+    expect(scrollbar).toMatchObject({ x: 152, y: 19, width: 6, radius: 3 })
     expect(scrollbar!.y + scrollbar!.height).toBeLessThanOrEqual(72)
+  })
+
+  it('draws the subgraph icon before a field\'s name across its whole 14 px box', () => {
+    const painted = fakeCtx()
+    const row = { ...rowWith(5), subgraphMark: { item: 'ctrl', label: LABEL } }
+    createRegistryPainter(registry)({
+      ctx: painted.ctx, row, value: 5, x: 10, y: 20, width: 200, rowHeight: 24, connected: false, tokens: defaultTokens,
+    })
+    const mark = subgraphMarkRect(row, 200, 24, defaultTokens, false, true)
+    expect(mark.size).toBe(14)
+    const at = painted.transforms.findIndex((call) =>
+      call.method === 'translate' && call.x === 10 + mark.x && call.y === 20 + mark.y)
+    // Lucide's 24-unit box drawn at 14 px, starting at the box's corner.
+    expect(painted.transforms[at + 1]).toEqual({ method: 'scale', x: 14 / 24, y: 14 / 24 })
   })
 
   it('paints an empty multiline placeholder in muted italic type', () => {
     const painted = paintMultilineDetails(76, 160, '')
     const placeholder = painted.textCalls.find((call) => call.text === 'text' && call.y > 24)!
-    expect(placeholder).toMatchObject({ x: 6, y: 36, fill: defaultTokens.colors.label })
+    expect(placeholder).toMatchObject({ x: 6, y: 35, fill: defaultTokens.colors.label })
     expect(placeholder.font).toBe('italic 14px "Noto Sans", sans-serif')
   })
 
@@ -359,9 +383,9 @@ describe('registry painter label/value split', () => {
     })
     expect(fills).toHaveLength(1)
     expect(fills[0]!.fillStyle).toBe(color)
-    expect(fills[0]!.width).toBeCloseTo(10.4)
-    expect(fills[0]!.height).toBeCloseTo(10.4)
-    expect(fills[0]!.y).toBeCloseTo(6.8)
+    expect(fills[0]!.width).toBeCloseTo(12.4)
+    expect(fills[0]!.height).toBeCloseTo(12.4)
+    expect(fills[0]!.y).toBeCloseTo(5.8)
     expect(fills[0]!.x).toBeGreaterThanOrEqual(0)
     expect(fills[0]!.x + fills[0]!.width).toBeLessThanOrEqual(160)
   })
@@ -381,18 +405,18 @@ describe('registry painter label/value split', () => {
     expect(texts).toContain('20') // value survives at its minimum reserve
   })
 
+  // At 7 px a character, the 166 px row is the image row of the narrow node
+  // that showed "Im..." beside the whole "Choose image".
   it.each([
-    { look: 'inset' as const, width: 112 },
-    { look: 'inset-raised' as const, width: 121 },
-    { look: 'inset-raised' as const, width: 160 },
-  ])('keeps a short ASSET placeholder whole with $look controls and a long label', ({ look, width }) => {
-    const tokens = { ...defaultTokens, widgetRowLook: look }
+    { label: 'Image', empty: 'Choose image' },
+    { label: 'ckpt_name', empty: 'Choose model' },
+  ])('keeps the $label label whole on an empty row and cuts "$empty" first', ({ label, empty }) => {
     const assetKind: WidgetKind = {
       ...stubKind, type: 'ASSET', defaultValue: () => null, defaultView: () => 'core.asset',
     }
     const assetView: WidgetView = {
       ...stubView, id: 'core.asset', kind: 'ASSET',
-      drawCompact: (scene) => scene.text(1, 0, 'no asset', {
+      drawCompact: (scene) => scene.text(1, 0, empty, {
         role: 'widgetValue', align: 'right', width: 1, placeholder: true,
       }),
     }
@@ -401,31 +425,109 @@ describe('registry painter label/value split', () => {
       kind: (type) => type === 'ASSET' ? assetKind : undefined,
       viewsFor: (type) => type === 'ASSET' ? [assetView] : [],
     }
-    const painted = fakeCtx(width === 121 ? 6.05 : 6)
-    createRegistryPainter(assetRegistry)({
+    const paintAt = (width: number) => {
+      const painted = fakeCtx(7)
+      createRegistryPainter(assetRegistry)({
+        ctx: painted.ctx,
+        row: { ...rowWith(null), label, viewId: 'core.asset', spec: { widgetType: 'ASSET', options: {}, default: null } },
+        value: null, x: 0, y: 0, width, rowHeight: 24, connected: false, tokens: defaultTokens,
+      })
+      const italic = painted.textCalls.filter((call) => call.font.includes('italic'))
+      const plain = painted.textCalls.filter((call) => !call.font.includes('italic'))
+      return { label: plain[0]?.text ?? '', empty: italic[0]?.text ?? '' }
+    }
+    // Wide: both whole. The empty text keeps its muted italic look.
+    expect(paintAt(260)).toEqual({ label, empty })
+    // Narrower: the label stays whole and the empty text is cut, down to
+    // nothing once the label's own width is all the field has.
+    const whole = 44 + 7 * label.length + 12
+    const cuts = [...[166, 150, 130, 115].filter((width) => width > whole), whole].map(paintAt)
+    for (const cut of cuts) {
+      expect(cut.label).toBe(label)
+      expect(cut.empty === '' || cut.empty === empty || cut.empty.endsWith('...')).toBe(true)
+      // A cut empty text keeps at least three letters before its ellipsis, or is not drawn.
+      if (cut.empty.endsWith('...')) {
+        expect(empty.startsWith(cut.empty.slice(0, -3))).toBe(true)
+        expect(cut.empty.slice(0, -3).replace(/\s/g, '').length).toBeGreaterThanOrEqual(3)
+      }
+    }
+    expect(cuts.some((cut) => cut.empty.endsWith('...'))).toBe(true)
+    expect(cuts[0]!.empty).not.toBe(empty)
+    expect(cuts.at(-1)!.empty).toBe('')
+    // Only a row too narrow for the label alone cuts the label.
+    const tight = paintAt(44 + 7 * label.length)
+    expect(tight.label).not.toBe(label)
+    expect(tight.label.endsWith('...')).toBe(true)
+    expect(tight.empty).toBe('')
+  })
+
+  it('still shares a stored asset name with its label the ordinary way', () => {
+    const assetKind: WidgetKind = {
+      ...stubKind, type: 'ASSET', defaultValue: () => null, defaultView: () => 'core.asset',
+    }
+    const assetView: WidgetView = {
+      ...stubView, id: 'core.asset', kind: 'ASSET',
+      drawCompact: (scene) => scene.text(1, 0, 'cat.png', { role: 'widgetValue', align: 'right', width: 1 }),
+    }
+    const painted = fakeCtx(7)
+    createRegistryPainter({
+      ...registry,
+      kind: (type) => type === 'ASSET' ? assetKind : undefined,
+      viewsFor: (type) => type === 'ASSET' ? [assetView] : [],
+    })({
       ctx: painted.ctx,
-      row: {
-        ...rowWith(null), label: 'checkpoint model name', viewId: 'core.asset',
-        spec: { widgetType: 'ASSET', options: {}, default: null },
-      },
-      value: null, x: 0, y: 0, width, rowHeight: 24, connected: false, tokens,
+      row: { ...rowWith(null), label: 'reference image', viewId: 'core.asset', spec: { widgetType: 'ASSET', options: {}, default: null } },
+      value: { name: 'cat.png' }, x: 0, y: 0, width: 166, rowHeight: 24, connected: false, tokens: defaultTokens,
     })
-    expect(painted.texts).toContain('no asset')
-    if (width !== 121) expect(painted.texts[0]).toMatch(/\.\.\.$/)
-    const placeholder = painted.textCalls.find((call) => call.text === 'no asset')!
+    // A short stored value stays whole and the label is cut first.
+    expect(painted.texts).toContain('cat.png')
+    expect(painted.texts[0]).toMatch(/^ref.*\.\.\.$/)
+  })
+
+  it('paints the host summary of a folded editor row in place of the view text, an empty one whole', () => {
+    const editorKind: WidgetKind = {
+      ...stubKind, type: 'LOAD_3D', defaultValue: () => null, defaultView: () => 'core.load3d',
+    }
+    const editorView: WidgetView = {
+      ...stubView, id: 'core.load3d', kind: 'LOAD_3D',
+      drawCompact: (scene) => scene.text(1, 0, '3D viewport', { role: 'widgetValue', align: 'right', width: 1 }),
+    }
+    const editorRegistry: WidgetRegistry = {
+      ...registry,
+      kind: (type) => type === 'LOAD_3D' ? editorKind : undefined,
+      viewsFor: (type) => type === 'LOAD_3D' ? [editorView] : [],
+    }
+    const paintSummary = (editorSummary: WidgetPaintArgs['editorSummary']) => {
+      const painted = fakeCtx()
+      createRegistryPainter(editorRegistry)({
+        ctx: painted.ctx,
+        row: {
+          ...rowWith(null), label: 'camera', viewId: 'core.load3d',
+          spec: { widgetType: 'LOAD_3D', options: {}, default: null },
+        },
+        value: { camera: 'state' }, x: 0, y: 0, width: 160, rowHeight: 24, connected: false,
+        tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' },
+        ...(editorSummary === undefined ? {} : { editorSummary }),
+      })
+      return painted
+    }
+    const empty = paintSummary({ text: 'No model', placeholder: true })
+    expect(empty.texts).not.toContain('3D viewport')
+    const placeholder = empty.textCalls.find((call) => call.text === 'No model')!
     expect(placeholder.fill).toBe(defaultTokens.colors.label)
     expect(placeholder.font).toContain('italic')
-
-    const malformed = fakeCtx()
-    createRegistryPainter(assetRegistry)({
-      ctx: malformed.ctx,
-      row: {
-        ...rowWith(null), label: 'checkpoint model name', viewId: 'core.asset',
-        spec: { widgetType: 'ASSET', options: {}, default: null },
-      },
-      value: { bad: true }, x: 0, y: 0, width, rowHeight: 24, connected: false, tokens,
-    })
-    expect(malformed.texts).toContain('no asset')
+    // A named value shares the row with its label like any value.
+    const named = paintSummary({ text: 'chair.glb' }).textCalls.find((call) => call.text.startsWith('cha'))!
+    expect(named.fill).toBe(defaultTokens.colors.value)
+    expect(named.font).not.toContain('italic')
+    expect(paintSummary(undefined).texts.some((text) => text.startsWith('3D'))).toBe(true)
+    // A thumbnail is drawn just before the text, at its token size.
+    const thumbnail = {} as CanvasImageSource
+    const withPicture = paintSummary({ text: 'No model', thumbnail })
+    const call = withPicture.textCalls.find((text) => text.text.startsWith('No'))!
+    const { size, gap } = canvasPaintTokens.widget.valueThumbnail
+    expect(withPicture.images).toEqual([{ image: thumbnail, x: Math.round(call.x - call.text.length * 6 - gap - size), y: Math.round(call.y - size / 2), width: size, height: size }])
+    expect(paintSummary({ text: 'No model', placeholder: true }).images).toEqual([])
   })
 
   it('measures a custom BOOLEAN label from the text the view paints', () => {
@@ -459,7 +561,7 @@ describe('registry painter label/value split', () => {
   })
 
   it('a value too long to fit beside the label floor falls back to proportional sharing', () => {
-    const texts = paint(1.2345678901234568e+23, 200)
+    const texts = paint(1.2345678901234568e+23, 220)
     const label = texts.find((t) => t.startsWith(LABEL.slice(0, 3)))
     expect(label).toBeDefined()
     expect(label!.replace(/\.\.\.$/, '').length).toBeGreaterThan(6)
@@ -508,11 +610,11 @@ describe('registry painter label/value split', () => {
       const painted = paintMultilineDetails(height, width)
       expect(painted.texts).toEqual(['text', ...['one', 'two', 'three', 'four', 'five'].slice(0, textRows)])
       expect(painted.fills).toHaveLength(rectRows)
-      expect(painted.textCalls[0]).toMatchObject({ text: 'text', y: 11, align: 'left' })
+      expect(painted.textCalls[0]).toMatchObject({ text: 'text', y: 10, align: 'left' })
       expect(painted.textCalls.slice(1).every((call) => call.x >= 0 && call.x <= width)).toBe(true)
       expect(painted.clips.every((clip) => clip.y >= 0 && clip.y + clip.height <= height)).toBe(true)
       if (height === 88) {
-        expect(painted.clips.some((clip) => clip.y === 66 && clip.height === 14)).toBe(true)
+        expect(painted.clips.some((clip) => clip.y === 65 && clip.height === 16)).toBe(true)
       }
     }
   })
@@ -525,9 +627,9 @@ describe('registry painter label/value split', () => {
     expect(painted.texts).toContain('epsilon')
     expect(painted.texts).toContain('second canonical')
     const values = painted.textCalls.filter((call) => call.text.includes('alpha') || call.text.includes('epsilon') || call.text === 'second canonical')
-    expect(values.map((call) => call.y)).toEqual([36, 56, 76])
+    expect(values.map((call) => call.y)).toEqual([35, 55, 75])
     const label = painted.textCalls.find((call) => call.text === 'text')!
-    const valueClip = painted.clips.find((clip) => clip.y === 26 && clip.x === 0)!
+    const valueClip = painted.clips.find((clip) => clip.y === 25 && clip.x === 0)!
     expect(valueClip).toMatchObject({ x: 0, width: 152 })
     expect(valueClip.x).toBeLessThan(label.x)
   })
@@ -536,8 +638,89 @@ describe('registry painter label/value split', () => {
     const painted = paintMultilineDetails(76, 160, `alpha${' '.repeat(30)}\nsecond canonical`)
     const values = painted.textCalls.filter((call) => call.text.trimEnd() === 'alpha' || call.text === 'second canonical')
     expect(values.map((call) => ({ text: call.text.trimEnd(), y: call.y }))).toEqual([
-      { text: 'alpha', y: 36 },
-      { text: 'second canonical', y: 56 },
+      { text: 'alpha', y: 35 },
+      { text: 'second canonical', y: 55 },
     ])
+  })
+})
+
+describe('an automatic value', () => {
+  beforeAll(() => {
+    registerCatalog('en', { 'automaticField.auto': 'auto' })
+    registerCatalog('zh', { 'automaticField.auto': 'zidong' })
+  })
+  const paintAutomatic = (value: number | undefined, automatic: NonNullable<Extract<LayoutRow, { kind: 'widget' }>['automatic']>, kept?: string) => {
+    const { ctx, textCalls, arcs } = fakeCtx()
+    createRegistryPainter(registry)({
+      ctx,
+      row: { ...rowWith(24), label: 'frame_rate', automatic, ...(kept === undefined ? {} : { kept }) },
+      value,
+      x: 0,
+      y: 0,
+      width: 280,
+      rowHeight: 24,
+      connected: false,
+      tokens: defaultTokens,
+    })
+    const shown = String(value ?? automatic.value)
+    const word = textCalls.find((call) => call.text !== 'frame_rate' && call.text !== shown)
+    return { value: textCalls.find((call) => call.text === shown)!, word, arcs }
+  }
+  const gap = canvasPaintTokens.widget.valueWordGap
+
+  it('shows the word auto, a gap, then the worked-out value, dimmed, with no dot', () => {
+    const { value, word, arcs } = paintAutomatic(undefined, { value: 30, state: 'worked-out' })
+    expect(value.text).toBe('30')
+    expect(value.fill).toBe(defaultTokens.colors.label)
+    expect(word).toMatchObject({ align: 'right', fill: defaultTokens.colors.label })
+    // Right-aligned at 6 px a character: the word ends one gap before the value starts.
+    expect(gap).toBeGreaterThanOrEqual(8)
+    expect(value.x - 2 * 6 - word!.x).toBe(gap)
+    expect(arcs).toEqual([])
+  })
+
+  it('puts a warning dot before auto when the default is used', () => {
+    const { value, word, arcs } = paintAutomatic(undefined, { value: 24, state: 'default', reason: 'failed' })
+    expect([word?.text, value.text]).toEqual(['auto', '24'])
+    expect(arcs).toHaveLength(1)
+    expect(arcs[0]!.fillStyle).toBe(defaultTokens.colors.warningMark)
+    // Right-aligned value: the dot sits left of the word.
+    expect(arcs[0]!.x).toBeLessThan(word!.x - 4 * 6)
+  })
+
+  it('draws the word in the current language, as the open field does', () => {
+    setLocale('zh')
+    try {
+      expect(paintAutomatic(undefined, { value: 30, state: 'worked-out' }).word?.text).toBe('zidong')
+    } finally {
+      setLocale('en')
+    }
+  })
+
+  it('reads the kept word only, with no auto and no dot, on a row kept for its wire', () => {
+    const { value, word, arcs } = paintAutomatic(undefined, { value: 24, state: 'default', reason: 'failed' }, 'Kept for the wire on its output.')
+    expect(word?.text).not.toBe('auto')
+    expect(value.text).toBe('24')
+    expect(value.x - 2 * 6 - word!.x).toBe(gap)
+    expect(arcs).toEqual([])
+  })
+
+  it('shows a stored value as any value', () => {
+    const { value, arcs } = paintAutomatic(25, { value: 24, state: 'worked-out' })
+    expect(value.text).toBe('25')
+    expect(value.fill).toBe(defaultTokens.colors.value)
+    expect(arcs).toEqual([])
+  })
+})
+
+describe('a row of items shows as many as fit and counts the rest', () => {
+  it('lists every item when all fit, else the ones that fit and +N, cutting the first only when it alone is too wide', () => {
+    const { ctx } = fakeCtx()
+    expect(fitItems(ctx, ['1', '0.5', '0.25', '12'], 200)).toBe('1, 0.5, 0.25, 12')
+    // '1, 0.5 +2' is 54 px and '1, 0.5, 0.25 +1' is 90 px.
+    expect(fitItems(ctx, ['1', '0.5', '0.25', '12'], 60)).toBe('1, 0.5 +2')
+    const cut = fitItems(ctx, ['checkpoint-name', 'x'], 60)
+    expect(cut.endsWith('... +1')).toBe(true)
+    expect(cut.length * 6).toBeLessThanOrEqual(60)
   })
 })

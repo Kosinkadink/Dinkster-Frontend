@@ -97,8 +97,6 @@ afterEach(() => {
 async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab }> {
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
-  vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
   expect((await app.openDocument(CHAIN_DOC, 'Chain'))).toEqual([])
   const tab = app.activeTab()!
@@ -221,6 +219,32 @@ describe('saveWorkflow', () => {
       digest: DIGEST2,
     })
     expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a rename during Save dirty and writes it only on the next Save', async () => {
+    const { backend, tab } = await nativeSetup()
+    let release!: (digest: string) => void
+    const upload = vi.spyOn(backend.connection, 'uploadAsset')
+      .mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+      .mockResolvedValue(DIGEST2)
+    const create = vi.spyOn(backend.connection, 'createLibraryRecord').mockResolvedValue(record())
+    const patch = vi.spyOn(backend.connection, 'patchLibraryRecord')
+      .mockResolvedValue({ ok: true, record: record({ name: 'New name', revision: 2 }) })
+    const saving = app.saveWorkflow(tab.id)
+    await uploadStarted(upload)
+    app.renameTab(tab.id, '  New name  ')
+    expect(app.activeTab()?.title).toBe('New name')
+    expect(app.activeTab()?.store).toBe(tab.store)
+    expect(patch).not.toHaveBeenCalled()
+    release(DIGEST)
+    expect(await saving).toBe(true)
+    expect(app.isTabDirty(tab.id)).toBe(true)
+    expect(await app.saveWorkflow(tab.id)).toBe(true)
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(patch).toHaveBeenCalledWith('r1', {
+      scope: LIBRARY_SCOPE, revision: 1, digest: DIGEST2, name: 'New name',
+    })
+    expect(app.isTabDirty(tab.id)).toBe(false)
   })
 
   it('a stale-revision conflict re-reads and retries exactly once', async () => {
@@ -525,7 +549,7 @@ describe('sourceDocument stamp on queue', () => {
     expect(upload).toHaveBeenCalledTimes(2)
   })
 
-  it.each(['known', 'opaque', 'edited'] as const)('retains the uploaded source snapshot and its full typed inventory: %s', async (scenario) => {
+  it.each(['known', 'opaque', 'edited'] as const)('submits the uploaded source snapshot with typed or opaque file values: %s', async (scenario) => {
     const { backend } = await nativeSetup()
     const registry = backend.registry.get()!
     const source: NodeSchema = { type: 'SourceAsset', displayName: 'Source asset', category: 'test',
@@ -554,11 +578,8 @@ describe('sourceDocument stamp on queue', () => {
     finish(DIGEST)
     await pending
     expect(submit.mock.calls[0]?.[1]?.sourceDocument).toBe(DIGEST)
-    const intents = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
-      .filter((key) => key.includes('dinkster.workflow-retentions.'))
-      .map((key) => JSON.parse(localStorage.getItem(key)!))
-    expect(intents.filter((intent) => intent.owner.ownerKind === 'document' && intent.digests.includes(DIGEST)))
-      .toEqual([expect.objectContaining({ complete: scenario !== 'opaque', digests: [DIGEST, DIGEST2], acknowledgedRevision: 1 })])
+    expect(upload).toHaveBeenCalledTimes(1)
+    expect(submit).toHaveBeenCalledTimes(1)
   })
 
   it('does not reuse a retained source stamp on another backend with the same schemas', async () => {
@@ -573,8 +594,6 @@ describe('sourceDocument stamp on queue', () => {
     expect(registry.hash).toBe(backend.registry.get()!.hash)
     other.registry.set(registry)
     const upload = vi.spyOn(other.connection, 'uploadAsset').mockResolvedValue(DIGEST2)
-    vi.spyOn(other.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
     const submit = vi.spyOn(other.connection, 'submit').mockResolvedValue({
       ok: true, execution: { connection: other.id, prompt: asPromptId('second-stamp') },
     })

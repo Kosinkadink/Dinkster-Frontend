@@ -1,4 +1,4 @@
-import { expect, appViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, appViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const selectTab = (page: Page, title: string) =>
   page.getByTestId('tab-bar').locator('.tab-select', { hasText: title })
@@ -42,7 +42,7 @@ test('refresh restores each graph tab viewport and the active tab', async ({ pag
 
 test('camera writes coalesce until a pause and flush before page persistence', async ({ page }) => {
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
   await setViewport(page, { x: 0, y: 0, scale: 1 })
   await expect.poll(() => page.evaluate(() => {
@@ -82,7 +82,7 @@ test('camera writes coalesce until a pause and flush before page persistence', a
 
 test('refresh restores App View scroll position', async ({ page }) => {
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const items = Array.from({ length: 32 }, (_, index) => ({
       id: `text-${index}`,

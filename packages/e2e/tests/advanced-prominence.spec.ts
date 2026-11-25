@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, nativeTest as test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_385_SOCKET_PROOF_DIR']
 
@@ -36,7 +36,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
 
   await page.evaluate(async () => {
     const concrete = (name: string) => ({ kind: 'concrete', name })

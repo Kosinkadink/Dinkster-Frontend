@@ -28,9 +28,6 @@ import type {
   PortId,
   PortRef,
   RerouteId,
-  SelectorCandidateId,
-  SelectorId,
-  ValueSourceId,
 } from '../ids.js'
 import type { TypeExpr } from '../schema/model.js'
 
@@ -324,79 +321,6 @@ export interface RerouteData {
 }
 
 /**
- * Declared (serialized) partial widget spec on a value source: the fields the
- * user pinned. Authoritative - the effective spec takes declared fields
- * verbatim and derives ONLY the rest from consumers (hazard P1). Plain JSON
- * by construction; never contains derived data.
- */
-export interface DeclaredSpec {
-  /** WidgetKind type ('int', 'float', 'combo', ...). */
-  readonly widgetType?: string
-  /** Kind-specific options (min/max/step/precision, options list, ...). */
-  readonly options?: JsonObject
-  /** Controller slot declared independent of consumers. */
-  readonly controller?: 'after_generate' | 'after_refresh'
-}
-
-/**
- * Value source: a literal producer - the principled replacement for the
- * legacy frontend PrimitiveNode (architecture section 5b, hazards P1-P5).
- * A structural construct: real topology (links leave it via
- * `{valueSource}` endpoints; it never consumes), compiled away by baking
- * `value` into every consumer input it reaches. The document stores value +
- * optional declared spec + controller state; the effective widget spec is
- * DERIVED (declared fields verbatim, the rest unified from consumers) and
- * never stored. Scoped to one graph definition like all structural
- * constructs. Geometry lives in view state.
- */
-export interface ValueSourceData {
-  readonly id: ValueSourceId
-  readonly value: Json
-  readonly spec?: DeclaredSpec
-  /** Controller state (advances only when a consumer is in the executed closure). */
-  readonly controller?: ControllerMode
-  /** Title override (semantic: appears in exports/diagnostics). */
-  readonly title?: string
-  readonly ext?: ExtData
-}
-
-/**
- * Selector policy: how the compiler picks ONE candidate branch. `fixed`
- * names a candidate id (never an index - reordering candidates must not
- * silently change the pick); `random` picks uniformly at compile time and
- * the exact resolution is recorded in the CompileArtifact, never written
- * back into the document.
- */
-export type SelectorPolicy =
-  | { readonly kind: 'fixed'; readonly candidate: SelectorCandidateId }
-  | { readonly kind: 'random' }
-
-/** One selectable branch input of a selector. Order is display + random-resolution order. */
-export interface SelectorCandidateData {
-  readonly id: SelectorCandidateId
-  /** Optional user label ('high quality', 'draft', ...). */
-  readonly title?: string
-}
-
-/**
- * Selector: a structural junction with N candidate inputs and ONE output;
- * the compiler resolves it to exactly one candidate per compile (policy
- * above) and traces through it like a reroute. Unchosen branches never
- * reach the prompt, so partial-execution closure and controller advancement
- * exclude them by construction. Type-agnostic like reroutes: the effective
- * type is derived by tracing, never stored.
- */
-export interface SelectorData {
-  readonly id: SelectorId
-  /** Ordered candidates (ids stable; order is semantic for random resolution). */
-  readonly candidates: readonly SelectorCandidateData[]
-  readonly policy: SelectorPolicy
-  /** Title override (semantic: appears in exports/diagnostics). */
-  readonly title?: string
-  readonly ext?: ExtData
-}
-
-/**
  * Named net: one source output feeding N sink inputs, addressed by name
  * instead of drawn point-to-point. Compiles to direct links. Scoped to its
  * graph definition; never crosses subgraph boundaries.
@@ -421,6 +345,11 @@ export interface NamedNetData {
  *
  * - 'port': a concrete endpoint. `port` is the inner row's flattened id -
  *   exactly PortRef semantics.
+ * - 'construct': a whole group, choice, type choice or described row, named
+ *   by its flattened id. The instance carries the whole construct: a group's
+ *   member template and growth rule (each instance owns the members it adds
+ *   after the definition's own), every option of a choice (each instance
+ *   picks), a type choice's variants, a described row's description.
  * - 'widgetTap': an output endpoint backed by one static inner widget input.
  *   `tap` is the input id. This remains distinct from a node output port so
  *   compilation can preserve linked-input and stored-value tap semantics.
@@ -432,6 +361,14 @@ export interface PortBoundaryBinding {
   readonly tap?: never
   /** Input-only junction attachment; node/port remains the schema authority. */
   readonly viaReroute?: RerouteId
+}
+
+export interface ConstructBoundaryBinding {
+  readonly kind: 'construct'
+  readonly node: NodeId
+  readonly port: PortId
+  readonly tap?: never
+  readonly viaReroute?: never
 }
 
 export interface WidgetTapBoundaryBinding {
@@ -452,24 +389,20 @@ export interface UnboundBoundaryBinding {
   readonly viaReroute?: never
 }
 
-/** A literal producer exposed without introducing a runtime node. */
-export interface ValueSourceBoundaryBinding {
-  readonly kind: 'valueSource'
-  readonly valueSource: ValueSourceId
-  readonly type: TypeExpr
-  readonly node?: never
-  readonly port?: never
-  readonly tap?: never
-  readonly viaReroute?: never
-}
+export type BoundaryBinding = PortBoundaryBinding | ConstructBoundaryBinding | WidgetTapBoundaryBinding | UnboundBoundaryBinding
 
-export type BoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding | ValueSourceBoundaryBinding | UnboundBoundaryBinding
+export type NodeBoundaryBinding = PortBoundaryBinding | ConstructBoundaryBinding | WidgetTapBoundaryBinding
 
-export type NodeBoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding
+/** A binding that names an inner row by its flattened id: a port or a whole construct. */
+export type RouteBoundaryBinding = PortBoundaryBinding | ConstructBoundaryBinding
 
 /** Whether a boundary endpoint is addressed by node identity. */
 export const isNodeBoundaryBinding = (binding: BoundaryBinding): binding is NodeBoundaryBinding =>
-  binding.kind === 'port' || binding.kind === 'widgetTap'
+  binding.kind === 'port' || binding.kind === 'construct' || binding.kind === 'widgetTap'
+
+/** Whether a binding names an inner row by its flattened id. */
+export const isRouteBoundaryBinding = (binding: BoundaryBinding): binding is RouteBoundaryBinding =>
+  binding.kind === 'port' || binding.kind === 'construct'
 
 /**
  * A subgraph definition's boundary: the ordered interface it exposes.
@@ -484,8 +417,9 @@ export interface BoundaryItem {
   readonly binds: BoundaryBinding
   /**
    * Fan-out: ADDITIONAL inner inputs this boundary input also drives.
-   * Input-side only, and only when the primary `binds` is a 'port' binding;
-   * every entry must itself be kind 'port'. The PRIMARY binding stays
+   * Input-side only, and only when the primary `binds` is a 'port' or a
+   * 'construct' binding; every entry has the primary's kind, and a forwarded
+   * construct drives only constructs of the same shape. The PRIMARY binding stays
    * authoritative for the derived type/widget; additional targets receive
    * the same connection or promoted value at compile. Canonical form: omit
    * when empty (never `[]`), and no target may repeat the primary or
@@ -498,6 +432,14 @@ export interface BoundaryItem {
    * widget). Only meaningful for 'port' bindings.
    */
   readonly promoted?: boolean
+  /**
+   * Presentation only: the input still drives its bound fields exactly as a
+   * wired one does, but no wire is drawn from the Inputs panel and the panel
+   * row has no pin. Valid only on an input the instance shows as a field (a
+   * promoted 'port' binding). Never semantic:
+   * compile and the cache key ignore it.
+   */
+  readonly wireHidden?: true
   readonly ext?: ExtData
 }
 
@@ -570,8 +512,6 @@ export interface OccurrenceTopology {
 const boundaryBindingIdentity = (binding: BoundaryBinding): readonly Json[] =>
   binding.kind === 'unbound'
     ? [binding.kind, binding.type as unknown as Json]
-    : binding.kind === 'valueSource'
-    ? [binding.kind, binding.valueSource, binding.type as unknown as Json]
     : binding.kind === 'widgetTap'
     ? [binding.kind, binding.node, binding.tap]
     : [
@@ -612,10 +552,6 @@ export interface GraphDef {
   readonly links: Readonly<Record<string, LinkData>>
   readonly nets: Readonly<Record<string, NamedNetData>>
   readonly reroutes: Readonly<Record<string, RerouteData>>
-  /** Optional (absent = none) to keep existing v1 documents valid unchanged. */
-  readonly valueSources?: Readonly<Record<string, ValueSourceData>>
-  /** Optional (absent = none) to keep existing v1 documents valid unchanged. */
-  readonly selectors?: Readonly<Record<string, SelectorData>>
   /** Present only on subgraph definitions (absent on the root graph). */
   readonly boundary?: {
     readonly inputs: readonly BoundaryItem[]
@@ -668,11 +604,34 @@ export interface NodeViewState {
   /** Chosen schema widget representation id per input/value key. */
   readonly views?: Readonly<Record<string, string>>
   /**
+   * Height in whole lines of each multiline text box the user resized, by
+   * input/value key. Absent = the height the widget declares.
+   */
+  readonly textLines?: Readonly<Record<string, number>>
+  /** The open node's preview is folded to its caption row. */
+  readonly previewFolded?: boolean
+  /**
+   * A minimized node's preview was opened by its caption. Minimized nodes
+   * start folded; minimizing or restoring clears this.
+   */
+  readonly minimizedPreviewOpen?: boolean
+  /**
    * Per-section collapse OVERRIDES by section id. Absent = the schema's
    * collapsedByDefault. An override record (not a plain collapsed list) so a
    * default-collapsed section can also be explicitly expanded.
    */
   readonly sections?: Readonly<Record<string, { readonly collapsed: boolean }>>
+  /**
+   * Per-editor fold OVERRIDES by value key, for editors shown in the node.
+   * Absent = the declaration's starting state (folded unless it declares
+   * `unfolded`; a growing group's members always start folded).
+   */
+  readonly editors?: Readonly<Record<string, { readonly unfolded: boolean }>>
+  /**
+   * Height in canvas units of each unfolded editor's picture the user
+   * dragged, by value key. Absent = the editor's own picture height.
+   */
+  readonly pictureHeights?: Readonly<Record<string, number>>
   readonly color?: string
   readonly ext?: ExtData
 }
@@ -692,20 +651,6 @@ export interface GroupViewState {
 
 /** Geometry of one reroute junction (topology lives in GraphDef.reroutes). */
 export interface RerouteViewState {
-  readonly position: Vec2
-  readonly ext?: ExtData
-}
-
-/** Geometry/presentation of one value source (semantics live in GraphDef.valueSources). */
-export interface ValueSourceViewState {
-  readonly position: Vec2
-  /** Chosen WidgetView (only when diverging from the effective spec's default). */
-  readonly view?: string
-  readonly ext?: ExtData
-}
-
-/** Geometry of one selector (semantics live in GraphDef.selectors). */
-export interface SelectorViewState {
   readonly position: Vec2
   readonly ext?: ExtData
 }
@@ -731,10 +676,6 @@ export interface GraphViewState {
   readonly nodes: Readonly<Record<string, NodeViewState>>
   /** Key: reroute id. */
   readonly reroutes?: Readonly<Record<string, RerouteViewState>>
-  /** Key: value source id. */
-  readonly valueSources?: Readonly<Record<string, ValueSourceViewState>>
-  /** Key: selector id. */
-  readonly selectors?: Readonly<Record<string, SelectorViewState>>
   /** Key: group id. */
   readonly groups?: Readonly<Record<string, GroupViewState>>
   /**
@@ -753,6 +694,17 @@ export interface GraphViewState {
   readonly guideNets?: readonly string[]
   /** Boundary pseudo-node positions (subgraph definitions only). */
   readonly boundary?: Readonly<Partial<Record<BoundarySide, BoundaryNodeViewState>>>
+  /**
+   * The Inputs panel's editors shown in the panel (subgraph definitions
+   * only), by field value key: which are folded out and the picture heights
+   * the user dragged. Kept apart from the panel's position, which older
+   * documents store only with their first edit, and not shared with the
+   * subgraph node outside. Absent = folded, at the editor's own height.
+   */
+  readonly inputsPanel?: {
+    readonly editors?: Readonly<Record<string, { readonly unfolded: boolean }>>
+    readonly pictureHeights?: Readonly<Record<string, number>>
+  }
   readonly ext?: ExtData
 }
 

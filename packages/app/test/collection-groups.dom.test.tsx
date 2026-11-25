@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CollectionSource } from '@dinkster/core'
@@ -10,6 +11,31 @@ const flush = async (): Promise<void> => { await Promise.resolve(); await Promis
 afterEach(() => document.body.replaceChildren())
 
 describe('CollectionPanel grouped rows', () => {
+  it('keeps row disclosures across refreshes but not across backend owners', async () => {
+    const [tick, setTick] = createSignal(0)
+    let owner = 'backend-a'
+    let title = 'Original result'
+    const source: CollectionSource = {
+      id: 'runs', label: 'Runs',
+      page: async () => ({ items: [{ id: 'same-run', owner, title }] }),
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    render(() => <CollectionPanel sources={[source]} refreshTick={tick}
+      entryContent={(entry) => <details><summary>{entry().title}</summary>Result details</details>} />, root)
+    await flush()
+    root.querySelector('details')!.open = true
+    title = 'Updated result'
+    setTick(1)
+    await flush()
+    expect(root.querySelector('summary')!.textContent).toBe('Updated result')
+    expect(root.querySelector('details')!.open).toBe(true)
+    owner = 'backend-b'
+    setTick(2)
+    await flush()
+    expect(root.querySelector('details')!.open).toBe(false)
+  })
+
   it('renders a collapsed count row and expands individual runs in order', async () => {
     const activate = vi.fn()
     const source: CollectionSource = {

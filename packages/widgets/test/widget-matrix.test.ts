@@ -21,7 +21,6 @@ const cases: Array<{
   { type: 'COMBO', options: { options: ['euler', 'ddim'] }, explicit: 'ddim', intrinsic: 'euler', invalid: 'unknown', invalidCode: 'widget.COMBO.unknownOption', view: 'core.select' },
   { type: 'MULTI_COMBO', options: { options: ['euler', 'ddim'] }, explicit: ['ddim', 'euler', 'ddim'], intrinsic: [], invalid: ['unknown'], invalidCode: 'widget.MULTI_COMBO.unknownOption', view: 'core.multiSelect' },
   { type: 'COLOR', options: {}, explicit: '#12345678', intrinsic: '#ffffff', invalid: 42, view: 'core.color' },
-  { type: 'COLORS', options: {}, explicit: ['#A1B2C3dd', '#f00', '#A1B2C3dd'], intrinsic: [], invalid: ['#fff', 3], view: 'core.colors' },
   { type: 'CURVE', options: {}, explicit: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, intrinsic: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, invalid: { points: [{ position: 1, value: 0 }, { position: 1, value: 1 }] }, view: 'core.curve' },
   { type: 'COMPOSITOR', options: {}, explicit: { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }] }, intrinsic: { version: 2, documentDigest: null, commands: [] }, invalid: { version: 2, documentDigest: 'bad', commands: [] }, view: 'core.compositor' },
   { type: 'ASSET', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, size: -1 }, view: 'core.asset' },
@@ -55,28 +54,6 @@ describe('registered widget disposition inventory', () => {
       { ...initial, mount: '/tmp' }, { ...initial, prefix: '/absolute' },
       { ...initial, prefix: 'a//b' }, { ...initial, prefix: 'a/../b' }, { ...initial, prefix: 'a\\b' },
     ]) expect(kind.valueSchema.validate(value)).toBe(false)
-  })
-
-  it('copies COLORS defaults without truncation or normalization and draws ordered compact swatches', () => {
-    const defaults = ['#A1B2C3dd', '#f00', '#A1B2C3dd', '#ffffff', '#000000']
-    const spec: WidgetSpec = { widgetType: 'COLORS', options: {}, default: defaults }
-    const kind = registry.kind('COLORS')!
-    const copied = kind.defaultValue(spec) as string[]
-    expect(copied).toEqual(defaults)
-    expect(copied).not.toBe(defaults)
-    copied.reverse()
-    expect(defaults).toEqual(['#A1B2C3dd', '#f00', '#A1B2C3dd', '#ffffff', '#000000'])
-    expect(kind.defaultValue({ ...spec, default: ['#fff', 3] })).toEqual([])
-    expect(effectiveWidgetDefault({ ...spec, default: ['#fff', 3] })).toEqual([])
-    const rec = recordingBuilder()
-    const view = registry.viewsFor('COLORS')[0]!
-    view.drawCompact(rec.builder, defaults, spec, { focused: false, connected: false, readonly: false })
-    expect(rec.rects.filter((rect) => rect.style['fill'] !== undefined).map((rect) => rect.style['fill'])).toEqual(defaults.slice(0, 4))
-    expect(rec.texts.map((text) => text.run)).toContain('5 colors')
-    expect(rec.actions).toEqual(['widget.edit'])
-    const readonly = recordingBuilder()
-    view.drawCompact(readonly.builder, defaults, spec, { focused: false, connected: true, readonly: true })
-    expect(readonly.actions).toEqual([])
   })
 
   it('validates list elements and keeps display and submission defaults aligned', () => {
@@ -198,25 +175,47 @@ describe('compact display through the real registered views', () => {
     ['core.multiSelect', 'MULTI_COMBO', ['ddim', 'euler', 'ddim'], { options: ['euler', 'ddim'] }, '3 selected'],
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer' }] }, {}, '1 document edit'],
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: null, commands: [] }, {}, 'Run to load layers'],
+    ['core.list', 'LIST', [1, 'two', { three: 3 }], {}, '1, two, {"three":3}'],
+    ['core.list', 'LIST', [], {}, 'Empty'],
     ['core.asset', 'ASSET', asset, {}, 'cat.png'],
-    ['core.asset', 'ASSET', null, {}, 'no asset'],
+    // An empty asset asks for what its accepted media are; mixed or undeclared media ask for a file.
+    ['core.asset', 'ASSET', null, {}, 'Choose file'],
+    ['core.asset', 'ASSET', null, { accept: ['image/png', 'image/jpeg'] }, 'Choose image'],
+    ['core.asset', 'ASSET', null, { accept: ['audio/wav'] }, 'Choose audio'],
+    ['core.asset', 'ASSET', null, { accept: ['image/png', 'video/mp4'] }, 'Choose file'],
     // Multi-select values (list-of-asset declarations): one name, else a count.
     ['core.asset', 'ASSET', [asset], {}, 'cat.png'],
     ['core.asset', 'ASSET', [asset, { ...asset, name: 'dog.png' }], {}, '2 assets'],
-    ['core.asset', 'ASSET', [], {}, 'no asset'],
+    ['core.asset', 'ASSET', [], { accept: ['video/mp4'] }, 'Choose video'],
   ] as const)('%s (%s) displays %j as %j', (viewId, widgetType, value, options, expected) => {
     const rec = draw(viewId, widgetType, value as Json, options as Record<string, unknown>)
     expect(displayed(rec.texts)).toEqual(Array.isArray(expected) ? expected : [expected])
     expect(rec.actions).toEqual(viewId === 'core.compositor' ? [] : ['widget.edit'])
   })
 
+  it('writes a list of numbers as stored, not rounded to the element step', () => {
+    const view = registry.viewsFor('LIST').find((candidate) => candidate.id === 'core.list')!
+    const rec = recordingBuilder()
+    view.drawCompact(rec.builder, [0.125, 1, 0.1 + 0.2], {
+      widgetType: 'LIST', options: {}, element: { widgetType: 'FLOAT', options: { step: 0.1 } },
+    }, editable)
+    expect(displayed(rec.texts)).toEqual(['0.125, 1, 0.30000000000000004'])
+  })
+
   it('marks only the empty ASSET compact value as a placeholder', () => {
     const empty = draw('core.asset', 'ASSET', null)
-    expect(empty.texts.find((text) => text.run === 'no asset')?.style['placeholder']).toBe(true)
+    expect(empty.texts.find((text) => text.run === 'Choose file')?.style['placeholder']).toBe(true)
     const populated = draw('core.asset', 'ASSET', asset)
     expect(populated.texts.find((text) => text.run === 'cat.png')?.style['placeholder']).toBeUndefined()
-    const sameName = draw('core.asset', 'ASSET', { ...asset, name: 'no asset' })
-    expect(sameName.texts.find((text) => text.run === 'no asset')?.style['placeholder']).toBeUndefined()
+    const sameName = draw('core.asset', 'ASSET', { ...asset, name: 'Choose file' })
+    expect(sameName.texts.find((text) => text.run === 'Choose file')?.style['placeholder']).toBeUndefined()
+  })
+
+  it('an empty model asset asks for a model, whatever it accepts', () => {
+    const view = registry.viewsFor('ASSET').find((candidate) => candidate.id === 'core.asset')!
+    const rec = recordingBuilder()
+    view.drawCompact(rec.builder, null, { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['image/png'] } }, editable)
+    expect(displayed(rec.texts)).toEqual(['Choose model'])
   })
 
   it('marks an empty multiline STRING display name as a placeholder without changing populated lines', () => {

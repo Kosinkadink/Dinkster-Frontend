@@ -1,9 +1,10 @@
 # Backend connections and runtime settings
 
-Open **Backends** to discover a server by URL and add it as an isolated
-connection, schema registry, and scoped client. Duplicate addresses and
-incompatible servers are refused. Each backend card reports the
-server-authoritative connection, schema, engine, and composition state. Failed
+Open **Backends**, then **Add backend**, to discover a server by URL and add
+it as an isolated connection, schema registry, and scoped client. Duplicate
+addresses and incompatible servers are refused. Each backend has a compact
+server row; expand it for the address, connection state, recovery actions,
+and links to Storage, Resources and server Settings. Failed
 schema requests can be retried, failed or stopped supervised engines can be
 restarted, and non-default backends can be removed. The default backend cannot
 be removed. Unexpected connection loss remains visible while automatic
@@ -14,6 +15,23 @@ and actions follow the active application locale without reconnecting or
 resetting an in-flight action. Backend labels and URLs, schema errors,
 supervisor details, composition phases, protocol identifiers, process IDs, and
 progress values remain server or runtime facts and are displayed verbatim.
+
+## Folder setup
+
+Open **Storage** from the left bar, Assets, Settings, universal search, or a
+backend row. The backend picker changes only the panel's connection, not the
+workflow execution target. Models are grouped by configured root folder;
+expand a root to see the kinds and file counts reported by the server.
+Missing counts and sizes are not treated as zero. Other project folders show
+their access mode, scan state and default-save or import marks.
+
+Folder menus enable or stop using a configured folder in the current project,
+change ordering, retry scans and select the save or model-download destination.
+Stopping use requires confirmation and does not delete files or the shared
+folder definition. Stopping use of the current save folder requires selecting
+a replacement. Folders not used by this project remain in one collapsed list.
+Use Add to configure a models root or another folder; model providers and hidden
+models remain available in the model editor.
 
 ## Produced asset storage
 
@@ -31,55 +49,34 @@ lost responses are not automatically replayed. Switching backend discards the
 old form and ignores its outstanding callbacks. Refresh reads status without
 enabling deletion. Clear is enabled only when the backend reports collection
 eligibility with no blocking reasons; saving a limit cannot enable cleanup.
-Blocked ownership is explained in plain words, and other backend reasons remain
-visible with their identifiers expanded into words. Clear sends one request,
+Backend blocking reasons are explained in plain words, with their identifiers
+expanded into words. Clear sends one request,
 shows indeterminate progress while it runs, and reports the backend's reclaimed
 byte and file totals, not an estimate. A refusal keeps Clear blocked until a
 successful explicit refresh reports eligibility. Errors remain visible and can
 be retried explicitly; a lost or failed response is never automatically replayed.
-Native discovery, HTTP, event streams and collaboration share a backend-scoped,
-server-issued retention generation. A saved generation is reopened from its
-current server revision; disconnect does not release retained owners. Browser
-pop-outs ignore a generation copied from their opener and enroll independently;
-reloading the child reopens its own generation without rotating the parent's.
-New owners record immutable holder membership with their durable intent: workflow
-literals, undo/compile history and restored/shared documents; typed editor resources;
-shown results and persisted history; live previews; or pending reads and caches.
-A shared receipt declares all lifetimes it protects. Exact releases carry that
-same set, while legacy owner journals never acquire membership retroactively.
-Startup and incoming-tab admissions that acknowledge ownership but cannot publish
-remain protected until admission settles and complete live and durable recovery
-inventories no longer name their roots. Disconnect or application disposal does
-not authorize releasing these receipts. Storage
-Refresh and Clear temporarily suspend event and collaboration reconnects, close
-those streams, settle reads and acknowledge the exact server census before
-requesting evaluated eligibility or cleanup. Streams resume afterward and
-invalidate that acknowledgment. This planned suspension preserves the logical
-connection and already admitted readers; an unexpected transport loss still
-invalidates them and reports reconnection. Other clients, incomplete or unclassified
-owners, and legacy observations still block collection; individual complete
-owner receipts and a saved size limit cannot enable vault cleanup. Installed
-immutable frontend modules keep their native HTTP import URLs: selected,
-digest-verified code GET/HEAD requests are outside retention admission. This
-exception does not cover executable pack routes, asset reads or value reads.
-Output-profile probes and asset previews use the owning backend's enrolled
-connection, including cancellation. Browser image, audio, video and model
-consumers receive owned blob URLs rather than making headerless vault requests;
-preview disposal revokes those URLs.
+The frontend does not record cleanup file lists, enroll windows in a cleanup
+census or suspend streams before Refresh or Clear. These actions call the
+backend directly and use its response. Workflow actions, previews, uploads and
+collaboration do not wait for cleanup checks.
+
+Output-profile probes and asset previews use the selected backend connection,
+including cancellation. Browser image, audio, video and model consumers use
+Blob URLs that are revoked when their preview is disposed.
 
 ## Runtime controls
 
-Native Dinkster backends expose their effective memory and process controls in
-the same card. Expand **Runtime settings** under a native backend. Settings
-belong to that server; each backend has an independent section. The section
-fetches when opened and can be updated with **Refresh**. It does not poll, and
-a refresh leaves previously loaded values visible if the new request fails.
+Open a native backend's **Settings** jump for its process controls and Agent
+permissions. Settings belong to that server; each backend has an independent
+category. Memory budgets, memory headroom and Aimdo policy belong to Resources
+Limits. Runtime sections fetch when opened and can be updated with **Refresh**.
+They do not poll, and a refresh leaves previously loaded values visible if the
+new request fails.
 
-Native backend cards also provide **Saved image location**. Choose any
-read-write library mount to change where Save Image writes when its target is
-not set. Applying the selection persists it in the backend's `mounts.toml`.
-Execution output details show the mounted path immediately after a save. The
-Desktop app can reveal that path in the operating system's file browser.
+Storage provides the default save folder. Choose any read-write project folder
+to change where Save Image writes when its target is not set. Execution output
+details show the mounted path immediately after a save. The Desktop app can
+reveal that path in the operating system's file browser.
 
 Every category displays its effective JSON value, source, and server-reported
 mutability. `on-worker-restart` means an edit applies to workers started after

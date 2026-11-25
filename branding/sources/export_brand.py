@@ -35,16 +35,12 @@ def main():
         ("mono", 0),
         ("dark", 1000),
         ("light", 2000),
-        ("heavier-dark", 4000),
-        ("heavier-light", 5000),
         ("color-dark", 8000),
         ("color-light", 9000),
     ):
         if args.small_icons_only:
             continue
-        if args.regular_wordmark_only and variant.startswith("heavier"):
-            continue
-        width = 1024 if variant.startswith("heavier") else 1000
+        width = 1000
         options = (
             f"--export-id=wordmark-{variant}",
             "--export-id-only",

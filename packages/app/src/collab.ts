@@ -15,7 +15,6 @@ import {
   createCollabSession,
   getCollabSession,
   listCollabSessions,
-  type RetentionClient,
   type FetchLike,
 } from '@dinkster/client'
 import { isValidActorId, type CollabConnection, type CollabSessionDescriptor } from '@dinkster/core'
@@ -86,15 +85,14 @@ export interface CollabTransport {
   connect(config: { readonly baseUrl: string; readonly sessionId: string; readonly actorId: string }): CollabConnection
 }
 
-/** Collaboration shares the native connection's admitted backend identity. */
-export function httpCollabTransport(clientFor: (baseUrl: string) => RetentionClient): CollabTransport {
+export function httpCollabTransport(): CollabTransport {
   return {
-    bindActor: (baseUrl, sessionId, actorId) => bindBrowserActor(baseUrl, sessionId, actorId, clientFor(baseUrl).fetch),
-    create: (baseUrl, args) => createCollabSession(baseUrl, args, clientFor(baseUrl).fetch),
-    list: (baseUrl, scope) => listCollabSessions(baseUrl, scope, clientFor(baseUrl).fetch),
-    get: (baseUrl, sessionId) => getCollabSession(baseUrl, sessionId, clientFor(baseUrl).fetch),
-    end: (baseUrl, sessionId) => closeCollabSession(baseUrl, sessionId, clientFor(baseUrl).fetch),
-    connect: (config) => new CollabHttpConnection({ ...config, retentionClient: clientFor(config.baseUrl) }),
+    bindActor: bindBrowserActor,
+    create: createCollabSession,
+    list: listCollabSessions,
+    get: getCollabSession,
+    end: closeCollabSession,
+    connect: (config) => new CollabHttpConnection(config),
   }
 }
 

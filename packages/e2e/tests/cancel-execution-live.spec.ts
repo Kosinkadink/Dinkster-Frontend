@@ -1,11 +1,10 @@
-import { expect, nativeAppViewTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForWorkspaceReady } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 test('cancels a running and a queued job while later jobs continue, including App View', async ({ page }, testInfo) => {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('dev.execution.sleep'))).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const diagnostics = await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'cancel-live', root: 'root',
@@ -50,7 +49,7 @@ test('cancels a running and a queued job while later jobs continue, including Ap
 
   await page.getByTestId('workflow-queue-toggle').click()
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const placement = page.getByTestId('app-layout-queue')
   await expect(placement.getByRole('button', { name: 'Cancel run' })).toBeVisible()
   await placement.getByRole('button', { name: 'Cancel run' }).click()

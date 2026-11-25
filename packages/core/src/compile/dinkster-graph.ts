@@ -1,9 +1,8 @@
 /**
  * Native Dinkster graph wire (POST /api/jobs `graph`) with first-class regions.
  *
- * Grounded in Dinkster source (commit 6822752 "M6: add explicit graph regions",
- * node-id grammar closed at 95106fd). This module is the ONE place the
- * native graph wire shape is understood on our side - the same quarantine
+ * This module is the ONE place the native graph wire shape is understood
+ * on our side - the same quarantine
  * rule as schema/dinkster-wire.ts for the schema wire. It owns:
  *
  * - The wire TYPES: a graph is {nodes: {id: entry}} where an entry is either
@@ -62,12 +61,11 @@ export interface DinksterLinkWire {
 
 /**
  * A typed-literal input value: {$typed: {type, value}} - the second reserved
- * input marker beside $link (Dinkster ea6eca7). The stamp names the concrete
+ * input marker beside $link. The stamp names the concrete
  * runtime type id (same vocabulary workers wrap with: 'INT',
  * 'list<INT>', ...) the engine wraps "value" with, so a literal can
  * feed a destination whose declared type does not resolve to a runtime id.
- * EMISSION RULE (joint contract, pinned 6382cf1; AMENDED 2026-07-26 for
- * typed assets): emit into non-concrete destinations, AND into concrete
+ * EMISSION RULE: emit into non-concrete destinations, AND into concrete
  * destinations exactly when the value's runtime type is an asset source
  * (asset<T> / list<asset<T>>) that DIFFERS from the declared type - the
  * stamp is what routes the literal through the backend's coercion planner
@@ -103,6 +101,20 @@ export const parseTypedLiteralWire = (v: Json): { readonly type: string; readonl
  * lowering (feature detection is additive, no schema wire bump).
  */
 export const DINKSTER_GRAPH_FEATURE_TYPED_LITERAL = 'typedLiteral'
+
+/**
+ * The /api/nodes graph feature advertising the `{"$absent": {"reason"}}`
+ * input marker: a wire that gives nothing, which the receiving input's
+ * on_absent policy then decides. Absent flag = leave the input out instead.
+ */
+export const DINKSTER_GRAPH_FEATURE_ABSENT_INPUT = 'absentInput'
+
+/** Build the `$absent` input marker (the ONE constructor). */
+export const absentInputWire = (reason: string): Json => ({ $absent: { reason } })
+
+/** True when `v` is an `$absent` marker: not a literal, so it needs no runtime type. */
+export const isAbsentInputWire = (v: Json): boolean =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length === 1 && '$absent' in v
 
 /** The /api/nodes graph feature advertising lossless unsafe INT literals. */
 export const DINKSTER_GRAPH_FEATURE_DECIMAL_INT = 'decimalInt'
@@ -484,7 +496,7 @@ function validateScope(
     const inputs = isDinksterRegionEntry(entry) ? entry.region.inputs : entry.inputs
     for (const [inputId, value] of Object.entries(inputs)) {
       const expected = nodeContext?.inputTypes[inputId]
-      if (expected === undefined || asDinksterLink(value) !== undefined ||
+      if (expected === undefined || asDinksterLink(value) !== undefined || isAbsentInputWire(value as Json) ||
           parseTypedLiteralWire(value as Json) !== undefined || parseDecimalIntegerWire(value as Json) !== undefined) continue
       if (canonicalTypeIdOf(expected) === undefined) {
         out.push(diag(

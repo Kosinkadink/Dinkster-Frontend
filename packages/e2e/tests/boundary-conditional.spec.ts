@@ -1,5 +1,5 @@
 /** Browser coverage for region occurrence state and a type choice's revealed rows. */
-import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function identityViewport(page: Page): Promise<void> {
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
@@ -109,12 +109,8 @@ async function openConditionalWorkflow(page: Page): Promise<void> {
 }
 
 async function drillIntoSub(page: Page): Promise<void> {
-  const header = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'i0')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'i0')
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   await identityViewport(page)
@@ -136,7 +132,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/history*', (route) => route.fulfill({ json: {} }))
   await page.routeWebSocket('/ws*', () => {})
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await openConditionalWorkflow(page)
 })
 

@@ -7,19 +7,13 @@ let pendingText: string | undefined
 export function writeClipboardText(
   writeText: (text: string) => Promise<void>,
   text: string,
-  ownership?: Promise<boolean>,
 ): Promise<void> {
   pendingText = text
-  const permitted = ownership?.catch(() => false)
-  const write = (): Promise<void> => permitted === undefined ? writeText(text)
-    : permitted.then(async (accepted) => { if (accepted) await writeText(text) })
+  const write = (): Promise<void> => writeText(text)
   pendingWrite = pendingWrite
     .then(write, write)
     .catch(() => {})
   const pending = pendingWrite
-  void permitted?.then((accepted) => {
-    if (!accepted && pendingWrite === pending) pendingText = undefined
-  })
   void pending.then(() => {
     if (pendingWrite === pending) pendingText = undefined
   })

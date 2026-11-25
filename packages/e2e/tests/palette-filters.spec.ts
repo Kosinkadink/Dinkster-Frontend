@@ -4,11 +4,11 @@
  * type structure (subgraphs via their boundary-derived schema); residual
  * text still ranks through the shared scorer.
  */
-import { expect, nativeTest, test, type Page } from './fixtures.js'
+import { expect, nativeTest, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
 })
 
 const openPalette = async (page: Page): Promise<void> => {

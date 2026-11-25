@@ -83,7 +83,7 @@ for (const [width, heading, message] of [
       expect(rendering).toEqual({
         fonts: ['loaded', 'loaded'],
         wordmark: true,
-        card: 'rgb(28, 31, 35)',
+        card: 'rgb(20, 28, 29)',
         scripts: 0,
         fits: true,
       })

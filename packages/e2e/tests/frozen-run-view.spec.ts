@@ -1,0 +1,259 @@
+import { executionDetails, expect, nativeTest as test, selectProductOption, type Page } from './fixtures.js'
+
+const pointOn = (page: Page, nodeId: string, part: 'header' | 'section' | 'widget' | 'input' | 'output') =>
+  page.evaluate(({ nodeId, part }) => {
+    const renderer = window.__dinksterTest!.renderer!, viewport = renderer.getViewport()
+    const node = renderer.getScene().nodes.find((item) => item.id === nodeId)!
+    const rect = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    let x = node.x + node.layout.width / 2, y = node.y + node.layout.headerHeight / 2
+    if (part === 'section' || part === 'widget') {
+      const row = node.layout.rows.find((item) => item.kind === part)!
+      y = node.y + row.y + row.height / 2
+    } else if (part === 'input' || part === 'output') {
+      const pin = node.layout.pins.find((item) => !item.widgetTap && item.direction === (part === 'input' ? 'in' : 'out'))!
+      x = node.x + (part === 'input' ? 0 : node.layout.width); y = node.y + pin.y
+    }
+    return { x: rect.left + x * viewport.scale + viewport.x, y: rect.top + y * viewport.scale + viewport.y }
+  }, { nodeId, part })
+
+const arrangement = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.view.graphs.g0!.nodes.n0!)
+const graph = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0)
+const identityViewport = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+const frozenTab = (page: Page) => page.getByTestId('tab-bar').locator('.tab.frozen')
+const liveTab = (page: Page) => page.getByTestId('tab-bar').locator('.tab:not(.frozen)').getByRole('tab', { name: /^Portrait,/ })
+const openRun = async (page: Page) => {
+  await page.getByTestId('execution-row').first().locator('.execution-open').click()
+  await expect(page.getByTestId('frozen-banner')).toBeVisible()
+  await identityViewport(page)
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 503, json: {} }))
+  await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'frozen-view', schemaWire: 2 }, nodes: {},
+  } }))
+  await page.route('**/api/history?*', (route) => route.fulfill({ json: { records: [
+    { runId: 'frozen-retained-run', jobRef: 'frozen-retained-run', scope: 'local', clientId: 'frozen-client',
+      jobId: 'frozen-portrait-run', state: 'completed', priority: 0, submittedAt: 1, finishedAt: 2, executed: 2, cached: 0, skipped: 0 },
+    { runId: 'remote-retained-run', jobRef: 'remote-retained-run', scope: 'local', clientId: 'another-client',
+      jobId: 'remote-portrait-run', state: 'completed', priority: 0, submittedAt: 3, finishedAt: 4, executed: 1, cached: 0, skipped: 0 },
+  ] } }))
+  await page.routeWebSocket('**/api/events?*', () => {})
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([
+      { type: 'ImageSettings', displayName: 'Image settings', category: 'test', source: 'v3', isOutputNode: false, body: [
+        { kind: 'section', id: 'settings', displayName: 'Settings', rows: [
+          { kind: 'input', id: 'width', type: { kind: 'concrete', name: 'INT' }, optional: false,
+            widget: { widgetType: 'INT', options: { min: 1, max: 4096 }, default: 512 } },
+        ] },
+        { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
+      ] },
+      { type: 'ImageOutput', displayName: 'Image output', category: 'test', source: 'v3', isOutputNode: true, body: [
+        { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+      ] },
+    ])
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'frozen-portrait', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Root', nodes: {
+        n0: { id: 'n0', type: 'ImageSettings', values: { width: 512 } },
+        n1: { id: 'n1', type: 'ImageOutput', values: {} },
+        n2: { id: 'n2', type: 'ImageSettings', title: 'Unused image settings', values: { width: 1024 } },
+      }, links: { l0: { id: 'l0', from: { node: 'n0', port: 'image' }, to: { node: 'n1', port: 'image' } } },
+      nets: {}, reroutes: {}, nextOrdinal: 3 } },
+      view: { graphs: { g0: { nodes: {
+        n0: { position: { x: 100, y: 150 } }, n1: { position: { x: 450, y: 190 } }, n2: { position: { x: 100, y: 390 } },
+      } } } },
+    }, 'Portrait')
+    const tab = app.activeTab()!, result = app.compileTab(tab)
+    if (!result?.ok) throw new Error(`Compile failed: ${JSON.stringify(result)}`)
+    app.registerRun(tab, { connection: result.artifact.connection, prompt: 'frozen-portrait-run' }, result.artifact)
+  })
+  await expect(page.getByTestId('execution-row')).toHaveCount(1)
+})
+
+test('frozen layout is temporary, edits are refused, and copies keep the arrangement', async ({ page }, info) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app, run = [...app.store.executions.get().values()][0]!
+    app.store.apply({ kind: 'completed', execution: run.ref, timestamp: Date.now() })
+  })
+  await openRun(page)
+  await expect(frozenTab(page).locator('svg.lucide-snowflake')).toBeVisible()
+  // Named by the workflow and the time the run was queued; the job id and state are in the tooltip.
+  const queuedAt = await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()][0]!.queuedAt)
+  const clock = (at: Date) => `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  await expect(frozenTab(page).locator('.tab-title')).toHaveText(`Portrait, ${clock(new Date(queuedAt))}`)
+  await expect(frozenTab(page).getByRole('tab')).toHaveAttribute('data-tooltip-label', 'Frozen run frozen-p, completed')
+  // A frozen tab has no Run button; its run list stays.
+  await expect(page.getByTestId('queue-button')).toHaveCount(0)
+  await expect(page.getByTestId('workflow-queue-toggle')).toBeVisible()
+  await expect(page.getByTestId('status-run')).toHaveText(/^Frozen:\s*completed$/)
+  await expect(page.getByTestId('frozen-banner').locator('.frozen-sync')).toHaveText(`Ran ${clock(new Date(queuedAt))}. Matches the live workflow.`)
+  const originalGraph = await graph(page)
+  await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.renderer!.getInactiveNodes() ?? []])).toEqual(['n2'])
+  await page.screenshot({ path: info.outputPath('frozen-idle.png') })
+
+  const header = await pointOn(page, 'n0', 'header')
+  await page.mouse.move(header.x, header.y)
+  await page.mouse.down()
+  await page.mouse.move(header.x + 70, header.y + 40, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(() => arrangement(page)).toMatchObject({ position: { x: 170, y: 190 } })
+  const section = await pointOn(page, 'n0', 'section')
+  await page.mouse.click(section.x, section.y)
+  await expect.poll(() => arrangement(page)).toMatchObject({ sections: { settings: { collapsed: true } } })
+  await page.mouse.click(section.x, section.y)
+  await expect.poll(() => arrangement(page)).toMatchObject({ sections: { settings: { collapsed: false } } })
+  expect(await graph(page)).toEqual(originalGraph)
+
+  const widget = await pointOn(page, 'n0', 'widget')
+  await page.mouse.move(widget.x, widget.y)
+  expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().hoveredWidget)).toBeUndefined()
+  await page.clock.install()
+  await page.clock.pauseAt(new Date(Date.now() + 100))
+  await page.mouse.click(widget.x, widget.y)
+  const toast = page.getByTestId('gesture-refusal-toast')
+  await expect(toast).toHaveText('Frozen. Open as copy to edit.')
+  await expect(page.getByTestId('widget-editor')).not.toBeVisible()
+  await page.screenshot({ path: info.outputPath('frozen-toast.png') })
+  await toast.getByRole('button', { name: 'Dismiss refusal message' }).click()
+  await expect(toast).toBeHidden()
+  await page.clock.resume()
+
+  const output = await pointOn(page, 'n2', 'output'), input = await pointOn(page, 'n1', 'input')
+  await page.mouse.move(output.x, output.y)
+  expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().hoveredPin)).toBeUndefined()
+  await page.mouse.down()
+  await page.mouse.move(input.x, input.y, { steps: 5 })
+  await page.mouse.up()
+  await expect(toast).toHaveText('Frozen. Open as copy to edit.')
+  expect(await graph(page)).toEqual(originalGraph)
+  await page.keyboard.press('Delete')
+  expect(await graph(page)).toEqual(originalGraph)
+
+  const arranged = await arrangement(page)
+  const copyHeader = await pointOn(page, 'n0', 'header')
+  await page.mouse.click(copyHeader.x, copyHeader.y)
+  const viewport = await page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
+  const tabCount = await page.getByTestId('tab-bar').getByRole('tab').count()
+  await page.getByTestId('frozen-open-copy').click()
+  await expect(page.getByTestId('frozen-banner')).not.toBeVisible()
+  await expect(page.getByRole('tab', { name: /^Portrait copy,/ })).toBeVisible()
+  expect(await arrangement(page)).toEqual(arranged)
+  await expect(frozenTab(page)).toHaveCount(0)
+  await expect(page.getByTestId('tab-bar').getByRole('tab')).toHaveCount(tabCount)
+  expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())).toEqual(viewport)
+  expect(await page.evaluate(() => [...window.__dinksterTest!.controller!.getSelection()])).toEqual(['n0'])
+  await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.renderer!.getInactiveNodes() ?? []])).toEqual([])
+  await identityViewport(page)
+  const copiedWidget = await pointOn(page, 'n0', 'widget')
+  await page.mouse.click(copiedWidget.x, copiedWidget.y)
+  const editor = page.getByTestId('widget-editor').locator('input').first()
+  await expect(editor).toBeVisible()
+  await editor.fill('768')
+  await editor.press('Enter')
+  expect((await graph(page))!.nodes.n0!.values.width).toBe(768)
+  await page.screenshot({ path: info.outputPath('frozen-open-as-copy.png') })
+
+  await liveTab(page).click()
+  await openRun(page)
+  await expect.poll(() => arrangement(page)).toEqual({ position: { x: 100, y: 150 } })
+  await page.evaluate(() => {
+    window.__dinksterTest!.renderer!.setViewport({ x: 83, y: 41, scale: 0.8 })
+    window.__dinksterTest!.controller!.setSelection(['n2'])
+  })
+  await page.getByTestId('tab-bar').getByRole('tab', { name: /^Portrait copy,/ }).click()
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())).toEqual({ x: 0, y: 0, scale: 1 })
+  expect(await page.evaluate(() => [...window.__dinksterTest!.controller!.getSelection()])).not.toContain('n2')
+  await liveTab(page).click()
+  await openRun(page)
+  await page.getByTestId('frozen-open-copy').click()
+  await expect(page.getByRole('tab', { name: /^Portrait copy 2,/ })).toBeVisible()
+  await liveTab(page).click()
+  await openRun(page)
+  await expect.poll(() => arrangement(page)).toEqual({ position: { x: 100, y: 150 } })
+  expect(await graph(page)).toEqual(originalGraph)
+  await expect(frozenTab(page).locator('.tab-dirty')).toHaveCount(0)
+})
+
+test('the frozen line sits centred on the row of the canvas controls and drops a row only when it would touch them', async ({ page }) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app, run = [...app.store.executions.get().values()][0]!
+    app.store.apply({ kind: 'completed', execution: run.ref, timestamp: Date.now() })
+  })
+  await openRun(page)
+  const line = page.getByTestId('frozen-banner')
+  for (const [width, row] of [[1440, 'top'], [640, 'below'], [1440, 'top']] as const) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect(line).toHaveAttribute('data-row', row)
+    const stage = (await page.locator('.canvas-stage').boundingBox())!
+    const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
+    const box = (await line.boundingBox())!
+    expect(Math.abs(box.x + box.width / 2 - (stage.x + stage.width / 2))).toBeLessThanOrEqual(1)
+    expect(box.x).toBeGreaterThanOrEqual(stage.x)
+    expect(box.x + box.width).toBeLessThanOrEqual(stage.x + stage.width)
+    if (row === 'top') {
+      expect(Math.abs(box.y - toolbar.y)).toBeLessThanOrEqual(1)
+      for (const control of await page.locator('.canvas-stage-toolbar button').all()) {
+        const other = (await control.boundingBox())!
+        expect(other.x + other.width <= box.x || other.x >= box.x + box.width).toBe(true)
+      }
+    } else {
+      expect(box.y - (toolbar.y + toolbar.height)).toBeGreaterThanOrEqual(8)
+    }
+    await page.screenshot({ path: test.info().outputPath(`frozen-line-${width}-${row}.png`) })
+  }
+})
+
+test('run rows expose one snowflake and retained runs keep their snapshot availability', async ({ page }, info) => {
+  const row = page.getByTestId('execution-row').first()
+  await expect(row.locator('.runs-row-heading .execution-open')).toBeEnabled()
+  const details = await executionDetails(row)
+  await expect(details.locator('.execution-open')).toHaveCount(0)
+  await expect(row.locator('.execution-open')).toHaveCount(1)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app, tab = app.activeTab()!, result = app.compileTab(tab)
+    if (!result?.ok) throw new Error('Compile failed')
+    const ref = [...app.store.executions.get().values()][0]!.ref
+    app.store.register(ref, result.artifact, 0, { jobRef: 'frozen-retained-run' })
+    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+  })
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
+  const stored = page.locator('.runs-stored-row').filter({ hasText: 'frozen-portrait-run' })
+  const remote = page.locator('.runs-stored-row').filter({ hasText: 'remote-portrait-run' })
+  await expect(stored.locator('.execution-open')).toHaveCount(1)
+  await expect(remote).toBeVisible()
+  await expect(remote.locator('.execution-open')).toHaveCount(0)
+  await page.screenshot({ path: info.outputPath('frozen-stored-row.png') })
+  await stored.locator('.execution-open').click()
+  await expect(page.getByTestId('frozen-banner')).toBeVisible()
+  await expect(frozenTab(page)).toHaveCount(1)
+})
+
+test('queued and running jobs open frozen and follow only their submitted snapshot', async ({ page }, info) => {
+  await openRun(page)
+  await expect(page.getByTestId('frozen-banner')).toContainText('Queued.')
+  await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.renderer!.getInactiveNodes() ?? []])).toEqual(['n2'])
+  await page.screenshot({ path: info.outputPath('frozen-queued.png') })
+  await page.getByTestId('frozen-go-live').click()
+  await identityViewport(page)
+  const widget = await pointOn(page, 'n0', 'widget')
+  await page.mouse.click(widget.x, widget.y)
+  const editor = page.getByTestId('widget-editor').locator('input').first()
+  await editor.fill('256')
+  await editor.press('Enter')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app, run = [...app.store.executions.get().values()][0]!
+    app.store.apply({ kind: 'started', execution: run.ref, timestamp: Date.now() })
+    app.store.apply({ kind: 'nodeStates', execution: run.ref, timestamp: Date.now(),
+      nodes: { n0: { state: 'running', value: 0.42 } },
+    })
+  })
+  await openRun(page)
+  await expect(page.getByTestId('frozen-banner')).toContainText('Running 21%. Live workflow has changed.')
+  expect((await graph(page))!.nodes.n0!.values.width).toBe(512)
+  // The next scheduled node is not dimmed just because it has not started.
+  await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.renderer!.getInactiveNodes() ?? []])).toEqual(['n2'])
+  await page.screenshot({ path: info.outputPath('frozen-running.png') })
+})

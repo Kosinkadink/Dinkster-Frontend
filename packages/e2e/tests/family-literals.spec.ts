@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 async function nodePoint(
   page: Page,
@@ -55,7 +55,7 @@ test('typing into the spare member of a named group adds it and offers the next 
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([
@@ -125,7 +125,7 @@ test('typing into the spare member of a named group adds it and offers the next 
 
   const ghostWidget = await nodePoint(page, 'math', { kind: 'widget', inputId: 'values.b' })
   await page.mouse.click(ghostWidget.x, ghostWidget.y)
-  const editor = page.locator('#widget-editor-value')
+  const editor = page.locator('[data-editor-surface="in-row"] input')
   await expect(editor).toBeVisible()
   await editor.fill('2.5')
   await editor.press('Enter')

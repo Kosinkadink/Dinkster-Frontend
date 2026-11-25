@@ -778,7 +778,7 @@ describe('mount listing decode', () => {
 
   it('keeps operator configured and active locations distinct across pending changes', async () => {
     const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'ready' }
-    const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates' }], activeMounts: [active], importMount: 'plates' }
+    const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates', mode: 'read', state: 'restart-required', source: 'config', kind: 'image', entryCount: 17 }], activeMounts: [active], importMount: 'plates' }
     const { conn } = submitHarness(() => jsonResponse(200, payload))
     expect(await conn.fetchMountLocations()).toEqual(payload)
     const unconfigured = submitHarness(() => jsonResponse(200, { ...payload, importMount: null })).conn
@@ -1386,24 +1386,23 @@ describe('library storage accounting', () => {
   })
 })
 
-describe('retained asset ownership', () => {
+describe('result asset offers', () => {
   const a = `blake3:${'a'.repeat(64)}`
   const b = `blake3:${'b'.repeat(64)}`
-  const owner = { scope: 'team/one', ownerKind: 'document' as const, ownerId: 'window/tab generation' }
-  const manifest = { ...owner, revision: 8, digests: [a, b], complete: true }
+  const request = { scope: 'team/one' }
 
-  it('reads sealed terminal authority with exact client, job, attempt and publication identities', async () => {
-    const output = { token: 'a'.repeat(32), scope: owner.scope, jobRef: 'job/ref', attemptId: 2,
+  it('reads sealed terminal offers with exact client, job, attempt and publication identities', async () => {
+    const output = { token: 'a'.repeat(32), scope: request.scope, jobRef: 'job/ref', attemptId: 2,
       nodeId: 'loop[3]', outputId: 'images', publication: 7, digests: [a, b], complete: true }
     const artifact = { ...output, token: 'b'.repeat(32), outputId: undefined,
       artifact: { nodeId: output.nodeId, index: 0, digest: b, name: 'saved.png',
         size: 19, mediaType: 'image/png', virtualPath: 'outputs/saved.png' }, digests: [b] }
-    const wire = { scope: owner.scope, jobRef: output.jobRef, attemptId: 2, state: 'completed', complete: true,
+    const wire = { scope: request.scope, jobRef: output.jobRef, attemptId: 2, state: 'completed', complete: true,
       identity: { clientId: 'cid', jobId: 'j1' }, resultOffers: { [output.nodeId]: { images: output } }, artifacts: [artifact] }
     const { conn, requests } = submitHarness(() => jsonResponse(200, wire))
-    expect(await conn.fetchTerminalResultAssets(output.jobRef, 'j1', owner.scope)).toEqual({
-      scope: owner.scope, jobRef: output.jobRef, attemptId: 2, state: 'completed', complete: true,
-      offers: [output, { token: artifact.token, scope: owner.scope, jobRef: output.jobRef, attemptId: 2,
+    expect(await conn.fetchTerminalResultAssets(output.jobRef, 'j1', request.scope)).toEqual({
+      scope: request.scope, jobRef: output.jobRef, attemptId: 2, state: 'completed', complete: true,
+      offers: [output, { token: artifact.token, scope: request.scope, jobRef: output.jobRef, attemptId: 2,
         nodeId: output.nodeId, publication: 7, digests: [b], complete: true, artifact: artifact.artifact }],
     })
     expect(requests[0]!.url).toBe('http://test/api/library/terminal-results/job%2Fref?scope=team%2Fone')
@@ -1417,19 +1416,19 @@ describe('retained asset ownership', () => {
       { artifacts: null }, { artifacts: undefined }, { complete: undefined }, { state: 'failed' },
     ]) {
       const { conn: invalid } = submitHarness(() => jsonResponse(200, { ...wire, ...mismatch }))
-      await expect(invalid.fetchTerminalResultAssets(output.jobRef, 'j1', owner.scope)).rejects.toThrow('Terminal result assets')
+      await expect(invalid.fetchTerminalResultAssets(output.jobRef, 'j1', request.scope)).rejects.toThrow('Terminal result assets')
     }
     const { conn: partial } = submitHarness(() => jsonResponse(200, { ...wire, complete: false, state: 'failed', artifacts: null }))
-    expect(await partial.fetchTerminalResultAssets(output.jobRef, 'j1', owner.scope)).toMatchObject({ complete: false, offers: [output] })
+    expect(await partial.fetchTerminalResultAssets(output.jobRef, 'j1', request.scope)).toMatchObject({ complete: false, offers: [output] })
     const { conn: missing } = submitHarness(() => jsonResponse(404, { available: false }))
-    expect(await missing.fetchTerminalResultAssets(output.jobRef, 'j1', owner.scope)).toBeUndefined()
+    expect(await missing.fetchTerminalResultAssets(output.jobRef, 'j1', request.scope)).toBeUndefined()
     const { conn: unavailable } = submitHarness(() => jsonResponse(503, {}))
-    await expect(unavailable.fetchTerminalResultAssets(output.jobRef, 'j1', owner.scope)).rejects.toThrow('failed: 503')
+    await expect(unavailable.fetchTerminalResultAssets(output.jobRef, 'j1', request.scope)).rejects.toThrow('failed: 503')
   })
 
   it('reads exact immutable output and artifact offers without substituting missing or malformed roots', async () => {
     const token = '0123456789abcdef'.repeat(2)
-    const base = { token, scope: owner.scope, jobRef: 'original-job', attemptId: 2, nodeId: 'loop[3]/saved',
+    const base = { token, scope: request.scope, jobRef: 'original-job', attemptId: 2, nodeId: 'loop[3]/saved',
       publication: 7, digests: [a, b], complete: true }
     const output = { ...base, outputId: 'images' }
     const artifact = { ...base, artifact: { nodeId: base.nodeId, index: 3, digest: a, name: 'saved.png',
@@ -1437,7 +1436,7 @@ describe('retained asset ownership', () => {
       preview: { digest: b, name: 'poster.png', size: 5, mediaType: 'image/png', virtualPath: `previews/${b.slice(7)}/poster.png` } } }
     for (const offer of [output, artifact, { ...output, complete: false }]) {
       const { conn, requests } = submitHarness(() => jsonResponse(200, offer))
-      expect(await conn.fetchResultAssetOffer(owner.scope, token)).toEqual(offer)
+      expect(await conn.fetchResultAssetOffer(request.scope, token)).toEqual(offer)
       expect(requests[0]!.url).toBe(`http://test/api/library/result-offers/${token}?scope=team%2Fone`)
       expect(requests[0]!.init?.cache).toBe('no-store')
     }
@@ -1450,146 +1449,12 @@ describe('retained asset ownership', () => {
       { ...artifact, artifact: { ...artifact.artifact, nodeId: 'foreign' } },
     ]) {
       const { conn } = submitHarness(() => jsonResponse(200, offer))
-      await expect(conn.fetchResultAssetOffer(owner.scope, token)).rejects.toThrow('Result asset offer')
+      await expect(conn.fetchResultAssetOffer(request.scope, token)).rejects.toThrow('Result asset offer')
     }
     const { conn: missing } = submitHarness(() => jsonResponse(404, {}))
-    expect(await missing.fetchResultAssetOffer(owner.scope, token)).toBeUndefined()
+    expect(await missing.fetchResultAssetOffer(request.scope, token)).toBeUndefined()
     const { conn: unavailable } = submitHarness(() => jsonResponse(503, {}))
-    await expect(unavailable.fetchResultAssetOffer(owner.scope, token)).rejects.toThrow('failed: 503')
-  })
-
-  it('acknowledges canonical sets at the exact scoped owner and revision', async () => {
-    const { conn, requests } = submitHarness(() => jsonResponse(200, manifest))
-    expect(await conn.retainAssets(owner, { revision: 7, digests: [b, a, b], complete: true }))
-      .toEqual(manifest)
-    expect(requests[0]!.url).toBe('http://test/api/library/retentions/document/window%2Ftab%20generation?scope=team%2Fone')
-    expect(JSON.parse(requests[0]!.init!.body as string)).toEqual({
-      revision: 7, digests: [a, b], complete: true,
-    })
-    expect(requests[0]!.init!.method).toBe('PUT')
-    expect(await conn.fetchRetainedAssets(owner)).toEqual(manifest)
-    expect(requests[1]!.init?.method).toBe('GET')
-    expect(requests[1]!.init?.cache).toBe('no-store')
-  })
-
-  it('preserves explicit multi-class membership across writes, source claims and exact release', async () => {
-    const admitted = { ...owner, holderClasses: [3, 1] as const }
-    let response = manifest
-    const { conn, requests } = submitHarness(() => jsonResponse(200, { ...response, holderClasses: [8] }))
-    const receipt = await conn.retainAssets(admitted, { revision: 7, digests: [a, b], complete: true })
-    expect(receipt.holderClasses).toEqual([3, 1])
-    expect(Object.isFrozen(receipt.holderClasses)).toBe(true)
-    response = { ...manifest, revision: 9, digests: [] }
-    await conn.releaseRetainedAssets(receipt, 8)
-    expect(requests.map(({ init }) => new Headers(init?.headers).get('X-Dinkster-Retention-Holder')))
-      .toEqual(['1,3', '1,3'])
-    const sourceToken = 'a'.repeat(32)
-    const resultOwner = { ...admitted, ownerKind: 'shown-result' as const, holderClasses: [6, 5] as const }
-    const claimed = { ...resultOwner, revision: 1, digests: [a], complete: true, sourceToken }
-    const source = submitHarness(() => jsonResponse(200, claimed))
-    expect((await source.conn.claimResultAssets(resultOwner, sourceToken)).holderClasses).toEqual([6, 5])
-    expect(new Headers(source.requests[0]!.init?.headers).get('X-Dinkster-Retention-Holder')).toBe('5,6')
-    // Wire fields cannot supply authority absent from the caller's admitted lifetime.
-    const legacy = submitHarness(() => jsonResponse(200, { ...manifest, holderClasses: [1, 3] }))
-    expect((await legacy.conn.fetchRetainedAssets(owner))?.holderClasses).toBeUndefined()
-    expect((await legacy.conn.retainAssets(owner, { revision: 7, digests: [a, b], complete: true })).holderClasses).toBeUndefined()
-    expect(new Headers(legacy.requests[1]!.init?.headers).has('X-Dinkster-Retention-Holder')).toBe(false)
-  })
-
-  it('refuses empty, duplicate and invalid holder membership before sending a mutation', async () => {
-    const { conn, requests } = submitHarness(() => jsonResponse(200, manifest))
-    for (const holderClasses of [[], [1, 1], [0], [9], [1.5]]) {
-      const invalid = { ...owner, holderClasses } as Parameters<typeof conn.retainAssets>[0]
-      await expect(conn.retainAssets(invalid, { revision: 7, digests: [a, b], complete: true })).rejects.toThrow('holder classes')
-      await expect(conn.releaseRetainedAssets(invalid, 8)).rejects.toThrow('holder classes')
-      await expect(conn.claimResultAssets({ ...invalid, ownerKind: 'shown-result' }, 'a'.repeat(32))).rejects.toThrow('holder classes')
-    }
-    expect(requests).toHaveLength(0)
-  })
-
-  it('does not accept a different owner, set, completeness or mutation revision', async () => {
-    for (const mismatch of [
-      { scope: 'other' }, { ownerKind: 'preview' }, { ownerId: 'another generation' },
-      { revision: 7 }, { revision: 9 }, { digests: [a] }, { digests: [b, a] },
-      { digests: [a, a] }, { complete: false }, { complete: undefined },
-    ]) {
-      const { conn } = submitHarness(() => jsonResponse(200, { ...manifest, ...mismatch }))
-      await expect(conn.retainAssets(owner, { revision: 7, digests: [a, b], complete: true }))
-        .rejects.toThrow('acknowledgment')
-    }
-  })
-
-  it('distinguishes a missing owner from conflicts and unavailable state without retrying writes', async () => {
-    const { conn: missing } = submitHarness(() => jsonResponse(404, {}))
-    expect(await missing.fetchRetainedAssets(owner)).toBeUndefined()
-    for (const status of [404, 409, 503]) {
-      const { conn, requests } = submitHarness(() => jsonResponse(status, {}))
-      await expect(conn.retainAssets(owner, { revision: 0, digests: [], complete: false }))
-        .rejects.toThrow(`failed: ${status}`)
-      expect(requests).toHaveLength(1)
-    }
-    const { conn: unavailable } = submitHarness(() => jsonResponse(503, {}))
-    await expect(unavailable.fetchRetainedAssets(owner)).rejects.toThrow('failed: 503')
-    const { conn: lost, requests } = submitHarness((_url, init) => {
-      if (init?.method === 'PUT') throw new TypeError('response lost after commit')
-      return jsonResponse(200, manifest)
-    })
-    await expect(lost.retainAssets(owner, { revision: 7, digests: [a, b], complete: true }))
-      .rejects.toThrow('response lost after commit')
-    expect(requests).toHaveLength(1)
-    expect(await lost.fetchRetainedAssets(owner)).toEqual(manifest)
-    expect(requests.map((request) => request.init?.method)).toEqual(['PUT', 'GET'])
-  })
-
-  it('rejects missing, foreign, malformed or reused source acknowledgments', async () => {
-    const sourceToken = '0123456789abcdef'.repeat(2)
-    const resultOwner = { ...owner, ownerKind: 'shown-result' as const }
-    const claimed = { ...resultOwner, revision: 1, digests: [a], complete: true, sourceToken }
-    for (const mismatch of [
-      { sourceToken: undefined }, { sourceToken: 'f'.repeat(32) }, { sourceToken: null },
-      { sourceToken: 'bad-token' }, { revision: 2 }, { scope: 'other' },
-      { digests: [b, a] }, { complete: undefined },
-    ]) {
-      const { conn } = submitHarness(() => jsonResponse(200, { ...claimed, ...mismatch }))
-      await expect(conn.claimResultAssets(resultOwner, sourceToken)).rejects.toThrow('acknowledgment')
-    }
-    const { conn, requests } = submitHarness(() => jsonResponse(200, claimed))
-    await expect(conn.claimResultAssets(owner, sourceToken)).rejects.toThrow('Invalid result asset claim')
-    await expect(conn.claimResultAssets(resultOwner, sourceToken.toUpperCase())).rejects.toThrow('Invalid result asset claim')
-    await expect(conn.claimResultAssets(resultOwner, `${sourceToken}\n`)).rejects.toThrow('Invalid result asset claim')
-    expect(requests).toHaveLength(0)
-  })
-
-  it('uses response metadata when releasing and rereading a source-bound receipt', async () => {
-    const resultOwner = { ...owner, ownerKind: 'shown-result' as const }
-    const sourceToken = '0123456789abcdef'.repeat(2)
-    const claimed = { ...resultOwner, revision: 1, digests: [a], complete: true, sourceToken }
-    const released = { ...resultOwner, revision: 2, digests: [], complete: true }
-    let response = claimed as typeof claimed | typeof released
-    const { conn } = submitHarness(() => jsonResponse(200, response))
-    const receipt = await conn.claimResultAssets(resultOwner, sourceToken)
-    expect(receipt).toEqual(claimed)
-    expect(await conn.fetchRetainedAssets(receipt)).toEqual(claimed)
-    response = released
-    expect(await conn.releaseRetainedAssets(receipt, receipt.revision)).toEqual(released)
-    expect(await conn.fetchRetainedAssets(receipt)).toEqual(released)
-    response = { ...claimed, sourceToken: 'f'.repeat(32) }
-    expect(await conn.fetchRetainedAssets(receipt)).toEqual(response)
-  })
-
-  it('preserves incomplete ownership and requires an empty next-revision release acknowledgment', async () => {
-    const incomplete = { ...owner, revision: 1, digests: [b], complete: false }
-    const { conn } = submitHarness(() => jsonResponse(200, incomplete))
-    expect(await conn.retainAssets(owner, { revision: 0, digests: [b], complete: false })).toEqual(incomplete)
-    const released = { ...owner, revision: 2, digests: [], complete: true }
-    const { conn: releasing, requests } = submitHarness(() => jsonResponse(200, released))
-    expect(await releasing.releaseRetainedAssets(owner, 1)).toEqual(released)
-    expect(requests[0]!.url).toContain('?scope=team%2Fone&revision=1')
-    expect(requests[0]!.init!.method).toBe('DELETE')
-    for (const mismatch of [{ digests: [a] }, { complete: false }, { revision: 1 }, { sourceToken: 'a'.repeat(32) }]) {
-      const { conn: invalid } = submitHarness(() => jsonResponse(200, { ...released, ...mismatch }))
-      await expect(invalid.releaseRetainedAssets(owner, 1)).rejects.toThrow('acknowledgment')
-    }
+    await expect(unavailable.fetchResultAssetOffer(request.scope, token)).rejects.toThrow('failed: 503')
   })
 
 })
@@ -2626,7 +2491,7 @@ describe('reconcileDinksterExecutions', () => {
       const pass = reconcileDinksterExecutions(conn, store, () => async () => {
         requested()
         await new Promise<void>((resolve, reject) => {
-          acknowledge = () => scenario === 'failed' ? reject(new Error('retention unavailable')) : resolve()
+          acknowledge = () => scenario === 'failed' ? reject(new Error('result read unavailable')) : resolve()
         })
         return scenario === 'accepted'
       })
@@ -2655,12 +2520,14 @@ describe('reconcileDinksterExecutions', () => {
     const outputs = { save: { images: {
       typeId: 'IMAGE', fingerprint: 'saved-image', meta: { shape: [2, 48, 64, 3] },
     } } }
-    Object.assign(job, { state: 'completed', outputs, artifacts: [] })
+    Object.assign(job, { state: 'completed', outputs, artifacts: [],
+      automaticValues: [{ nodeId: 'save', inputId: 'fps', value: 24, source: 'default' }] })
     conn.ingest({ type: 'job_state', jobId: 'j1', state: 'completed' })
     expect(store.get(ref('j1'))!.status).toBe('completed')
     await hydrateDinksterCompletedExecution(conn, store, ref('j1'))
     expect(store.get(ref('j1'))!.outputs).toEqual(outputs)
     expect(store.get(ref('j1'))!.artifactsHydrated).toBe(true)
+    expect(store.get(ref('j1'))!.automaticValues).toEqual([{ runtimeNodeId: 'save', inputId: 'fps', value: 24, workedOut: false }])
   })
 
   it('completes a run whose terminal event was missed, hydrating output descriptors', async () => {
@@ -2680,6 +2547,10 @@ describe('reconcileDinksterExecutions', () => {
         outputs,
         artifacts,
         submittedBy: { principalId: 'queue-agent', kind: 'agent' },
+        automaticValues: [
+          { nodeId: 'n1', inputId: 'b', value: 24, source: 'default', reason: 'lookup-timeout' },
+          { nodeId: 'n1', inputId: 'a', value: 3, source: 'worked-out' },
+        ],
       },
     })
     seedRunning('j1')
@@ -2690,6 +2561,10 @@ describe('reconcileDinksterExecutions', () => {
     expect(state.artifacts).toEqual(artifacts)
     expect(state.artifactsHydrated).toBe(true)
     expect(state.submittedBy).toEqual({ principalId: 'queue-agent', kind: 'agent' })
+    expect(state.automaticValues).toEqual([
+      { runtimeNodeId: 'n1', inputId: 'b', value: 24, workedOut: false },
+      { runtimeNodeId: 'n1', inputId: 'a', value: 3, workedOut: true },
+    ])
   })
 
   it('hydrates a completed run when reconnect lands after run_finished but before job_state', async () => {
@@ -3219,17 +3094,22 @@ describe('websocket', () => {
     expect(events[0]).toMatchObject({ kind: 'schemaChanged', connection: C0, epoch: 4 })
   })
 
-  it('invalidates folder snapshots on mount pings without emitting asset or execution data', () => {
+  it.each(['mounts_changed', 'library_changed'])('invalidates snapshots on %s without emitting asset or execution data', (type) => {
     const { conn, ws, events } = connected()
-    let changes = 0
-    const unsubscribe = conn.onMountsChanged(() => { changes++ })
+    let mounts = 0
+    let library = 0
+    const unsubscribeMounts = conn.onMountsChanged(() => { mounts++ })
+    const unsubscribeLibrary = conn.onLibraryChanged(() => { library++ })
     ws.onopen?.({})
-    ws.onmessage?.({ data: JSON.stringify({ type: 'mounts_changed' }) })
-    expect(changes).toBe(1)
+    ws.onmessage?.({ data: JSON.stringify({ type }) })
+    expect(mounts).toBe(1)
+    expect(library).toBe(type === 'library_changed' ? 1 : 0)
     expect(events).toEqual([])
-    unsubscribe()
-    ws.onmessage?.({ data: JSON.stringify({ type: 'mounts_changed' }) })
-    expect(changes).toBe(1)
+    unsubscribeMounts()
+    unsubscribeLibrary()
+    ws.onmessage?.({ data: JSON.stringify({ type }) })
+    expect(mounts).toBe(1)
+    expect(library).toBe(type === 'library_changed' ? 1 : 0)
     conn.disconnect()
   })
 
@@ -3541,6 +3421,60 @@ describe('workflow library wire', () => {
     await expect(stale.renameProject('p-film', 'Other', 6)).rejects.toThrow('changed elsewhere')
   })
 
+  it('reads sanitized account choices and links or unlinks only the revision-selected local project', async () => {
+    const accountId = '48bb018e-5b17-4e68-bd81-c6412c4bcd72'
+    const issuer = 'https://identity.example.test'
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 8, deleted: false }
+    const { conn, requests } = submitHarness((_url, init) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string) as { accountProject: string | null }
+        return jsonResponse(200, { project: { ...project, accountProject: body.accountProject === null ? null : { issuer, id: accountId, privateField: 'not-public' } } })
+      }
+      return jsonResponse(200, { issuer, privateField: 'not-public', projects: [{ id: accountId, displayName: 'Film cloud', privateField: 'not-public' }, { id: 'ffffffff-ffff-4fff-bfff-ffffffffffff', displayName: null }] })
+    })
+    const controller = new AbortController()
+    expect(await conn.accountProjects(controller.signal)).toEqual({ issuer, projects: [{ id: accountId, displayName: 'Film cloud' }, { id: 'ffffffff-ffff-4fff-bfff-ffffffffffff', displayName: null }] })
+    expect(requests[0]).toEqual({ url: 'http://test/api/account/projects', init: { method: 'GET', cache: 'no-store', signal: controller.signal } })
+    expect(await conn.setProjectAccountLink('p-film', accountId, 7, controller.signal)).toEqual({ ...project, accountProject: { issuer, id: accountId } })
+    expect(requests[1]?.url).toBe('http://test/api/account/projects/p-film')
+    expect(requests[1]?.init).toEqual({ method: 'PUT', cache: 'no-store', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: 7, accountProject: accountId }) })
+    expect(await conn.setProjectAccountLink('p-film', null, 8)).toEqual({ ...project, accountProject: null })
+    expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 8, accountProject: null })
+    for (const [status, error] of [[409, 'project-changed'], [403, 'operator-required'], [503, 'account-projects-unavailable']] as const) {
+      const { conn: refused, requests: attempts } = submitHarness(() => jsonResponse(status, { error }))
+      await expect(refused.setProjectAccountLink('p-film', accountId, 7)).rejects.toThrow(error)
+      expect(attempts).toHaveLength(1)
+    }
+    const { conn: wrongProject } = submitHarness(() => jsonResponse(200, { project: { ...project, id: 'other', accountProject: null } }))
+    await expect(wrongProject.setProjectAccountLink('p-film', null, 8)).rejects.toThrow('another project')
+    for (const accountProject of [undefined, null, { issuer, id: 'ffffffff-ffff-4fff-bfff-ffffffffffff' }]) {
+      const { conn: wrongLink } = submitHarness(() => jsonResponse(200, { project: { ...project, accountProject } }))
+      await expect(wrongLink.setProjectAccountLink('p-film', accountId, 7)).rejects.toThrow('another account link')
+    }
+    const { conn: empty } = submitHarness(() => jsonResponse(200, { issuer, projects: [] }))
+    expect(await empty.accountProjects()).toEqual({ issuer, projects: [] })
+  })
+
+  it.each([
+    {}, { issuer: '', projects: [] }, { issuer: 'https://identity.test', projects: null },
+    { issuer: 'https://identity.test', projects: [{ id: 'not-a-uuid', displayName: 'Film' }] },
+    { issuer: 'https://identity.test', projects: [{ id: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', displayName: 1 }] },
+  ])('refuses malformed account choices rather than offering an invalid link', async (body) => {
+    const { conn } = submitHarness(() => jsonResponse(200, body))
+    await expect(conn.accountProjects()).rejects.toThrow('Malformed account project choices')
+  })
+
+  it.each([undefined, null, { issuer: 'https://identity.test', id: '48bb018e-5b17-4e68-bd81-c6412c4bcd72' }])('preserves explicit account links and older missing fields in project reads (%j)', async (accountProject) => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false, ...(accountProject === undefined ? {} : { accountProject }) }
+    const { conn } = submitHarness(() => jsonResponse(200, { project }))
+    expect(await conn.getProject('p-film')).toEqual(project)
+  })
+
+  it.each([[], 'not-a-link', { issuer: 'https://identity.test', id: 'bad-id' }, { issuer: '', id: '48bb018e-5b17-4e68-bd81-c6412c4bcd72' }])('rejects malformed saved account links instead of treating them as unlinked', async (accountProject) => {
+    const { conn } = submitHarness(() => jsonResponse(200, { project: { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false, accountProject } }))
+    await expect(conn.getProject('p-film')).rejects.toThrow('Malformed library project account link')
+  })
+
   it('reads project needs without dropping unknown workflows and enables only the revision-reviewed project', async () => {
     const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
     const needs = { packs: [{ pack: 'tools-a', version: '1.2.3' }, { pack: 'tools-b', version: null }], installed: [{ pack: 'tools-a', version: '1.0.0' }, { pack: 'tools-c', version: null }], extra: ['extra-c'], unknown: [{ scope: 'local', id: 'unreadable' }] }
@@ -3779,6 +3713,20 @@ describe('persistent history wire', () => {
     expect(records[0]?.error?.['phase']).toBe('running')
   })
 
+  it('keeps valid image/video thumbnails and omits malformed optional media without losing history', async () => {
+    const image = { digest: DIGEST, name: '', size: 0, mediaType: 'image/png', virtualPath: '' }
+    const video = { ...image, digest: 'blake3:' + 'c'.repeat(64), mediaType: 'video/webm' }
+    const thumbnails = [image, video, undefined, null, { ...image, digest: 'https://foreign/image' },
+      { ...image, size: -1 }, { ...image, mediaType: 'audio/wav' }, { ...image, virtualPath: 42 }]
+    const { conn } = submitHarness(() => jsonResponse(200, {
+      records: thumbnails.map((thumbnail, index) => ({ ...run, runId: `run-${index}`, thumbnail })),
+    }))
+    const records = (await conn.listHistory({ scope: 'local' })).records
+    expect(records).toHaveLength(thumbnails.length)
+    expect(records.map((record) => record.thumbnail)).toEqual([image, video, ...Array(6).fill(undefined)])
+    expect(records.slice(2).every((record) => !('thumbnail' in record))).toBe(true)
+  })
+
   it('listHistory throws on a rejected cursor (restart from page one)', async () => {
     const { conn } = submitHarness(() => jsonResponse(400, { error: 'cursor-query-mismatch' }))
     await expect(conn.listHistory({ scope: 'local', cursor: 'stale' })).rejects.toThrow('400')
@@ -3792,6 +3740,26 @@ describe('persistent history wire', () => {
     expect(requests[0]?.url).toBe('http://test/api/history/run-1?scope=local')
     const { conn: missing } = submitHarness(() => jsonResponse(404, {}))
     expect(await missing.getHistoryRun('run-1', 'local')).toBeUndefined()
+  })
+
+  it('inspects a stored job using its original client and global run identities', async () => {
+    const history = { ...run, clientId: 'another-browser', state: 'completed' as const }
+    const job = { state: 'completed', clientId: history.clientId, jobId: run.jobId,
+      jobRef: run.runId, sourceDocument: run.sourceDocument, outputs: { image: { text: 'result' } } }
+    let response = job
+    const { conn, requests } = submitHarness(() => jsonResponse(200, response))
+    expect((await conn.fetchHistoryJob(history))?.outputs).toEqual(job.outputs)
+    expect(requests[0]?.url).toBe('http://test/api/jobs/by-ref/run-1')
+    for (const mismatch of [
+      { clientId: 'other-client' }, { jobId: 'other-job' }, { jobRef: 'other-run' }, { sourceDocument: 'other-document' },
+    ]) {
+      response = { ...job, ...mismatch }
+      await expect(conn.fetchHistoryJob(history)).rejects.toThrow(/identity|clientId/)
+    }
+    response = job
+    await expect(conn.fetchJob(run.jobId)).rejects.toThrow('clientId mismatch')
+    const { conn: missing } = submitHarness(() => jsonResponse(404, {}))
+    expect(await missing.fetchHistoryJob(history)).toBeUndefined()
   })
 
   it('deleteHistoryRun: true on 204, false on 404, throws otherwise', async () => {

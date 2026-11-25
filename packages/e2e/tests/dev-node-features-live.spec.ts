@@ -2,7 +2,6 @@ import { join } from 'node:path'
 import type { Diagnostic } from '@dinkster/core'
 import { expect, nativeTest as test, type Page } from './fixtures.js'
 
-test.use({ retentionApi: false })
 const proofDir = process.env['DINKSTER_FEATURE_PROOF_DIR']
 
 async function pinPoint(page: Page, nodeId: string, portId: string, direction: 'in' | 'out') {
@@ -47,8 +46,8 @@ test('required served slot can be cleared, reselected and execute a connected va
     const app = window.__dinksterTest!.app
     return { shared: await app.shareActiveTab(), saved: await app.saveWorkflow(app.activeTab()!.id) }
   })).toEqual({
-    shared: 'Workflow dynamic identities are invalid. Publication and sharing remain unavailable.',
-    saved: false,
+    shared: undefined,
+    saved: true,
   })
   await test.info().attach('required-slot-cleared.png', {
     body: await page.screenshot({ ...(proofDir === undefined ? {} : { path: join(proofDir, 'required-slot-cleared.png') }) }),

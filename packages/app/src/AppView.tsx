@@ -85,6 +85,7 @@ import {
   type NodePreviewSurface,
 } from './node-previews.js'
 import { parseAppViewText } from './app-view-text.js'
+import { lookupAnswersOf } from './lookup-demand.js'
 import { useAppMessage } from './locale.js'
 import ArrowDown from 'lucide-solid/icons/arrow-down'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -348,24 +349,12 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   const [outputPages, setOutputPages] = createSolidSignal<ReadonlyMap<string, number>>(new Map())
   createEffect(() => { activeTabId(); setOutputPages(new Map()) })
   const previewLoader = createPreviewLoader({
-    readAssetForExecution: (ref, digest, signal) => props.app.readAssetForExecution(ref, digest, signal),
-    inputAssetBytes: (digest) => {
-      const tab = activeTab()
-      if (tab === undefined) return undefined
-      const connection = props.app.backendForTab(tab).connection
-      return (signal) => connection.fetchAssetBytes(digest, signal)
-    },
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     assetUrlForInput: (digest) => {
       const tab = activeTab()
       if (tab === undefined) return undefined
       const backend = props.app.backendForTab(tab)
       return backend.protocol === 'dinkster' ? backend.connection.assetUrl(digest) : undefined
-    },
-    inputAssetReader: (digest, holder) => {
-      const tab = activeTab()
-      return tab === undefined ? undefined : props.app.workflowAssetReader(tab, digest, holder)
     },
     onDecoded: () => setPreviewTick((value) => value + 1),
     validateMediaRendition: validateBrowserMediaRendition,
@@ -475,6 +464,15 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     previousArrangeScope = scope
   })
 
+  const [lookupTick, setLookupTick] = createSolidSignal(0)
+  createEffect(() => {
+    backendsTick()
+    const tab = activeTab()
+    if (tab === undefined) return
+    const unsubscribe = props.app.backendForTab(tab).lookupGeneration.subscribe(() => setLookupTick((tick) => tick + 1))
+    onCleanup(unsubscribe)
+  })
+
   const rows = createMemo((): readonly ParamRow[] => {
     docTick()
     extensionsTick()
@@ -482,7 +480,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     if (!tab) return []
     const reg = registry()
     const resolve = reg ? (type: string) => reg.resolve(type) : undefined
-    return buildParamRows(tab.store.doc, resolve)
+    // An automatic lookup field shows the answer the canvas holds; a frozen
+    // view of a run calls no lookups.
+    lookupTick()
+    const backend = props.app.backendForTab(tab)
+    return buildParamRows(tab.store.doc, resolve, tab.execution === undefined ? lookupAnswersOf(backend.lookups) : undefined)
   })
 
   const previewCandidates = createMemo((): readonly PreviewRow[] => {
@@ -546,8 +548,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         running: runtimeIds.some((runtimeId) => exec?.nodes[runtimeId]?.state === 'running'),
         frozen: tab.execution !== undefined,
         exactProducer,
-        ...(retained === undefined ? {} : { retainedRuntimeIds: retained.retainedRuntimeIds,
-          ...(retained.executionOwners === undefined ? {} : { executionOwners: retained.executionOwners }) }),
+        ...(retained === undefined ? {} : { retainedRuntimeIds: retained.retainedRuntimeIds }),
         companionSources: companionSourcesOf(def, undefined, (nodeId, inputId) => {
           const node = def.nodes[nodeId]
           const schema = node === undefined ? undefined : resolveSchema?.(node.type)
@@ -1265,7 +1266,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     if (!tab || !editable(row)) return
     setVideoEditor({
       tab, graphId: row.entry.graphId, label: row.label,
-      target: { kind: 'input', nodeId: row.entry.nodeId, valueKey: row.valueKey },
+      target: { kind: 'input', nodeId: row.entry.nodeId, valueKey: row.valueKey, ...(row.item.parts !== undefined ? { parts: row.item.parts } : {}) },
       spec: row.spec!, initial: row.value, multiline: false,
       rect: { x: 0, y: 0, width: 0, height: 0 },
     })

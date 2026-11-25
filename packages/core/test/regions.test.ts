@@ -547,6 +547,34 @@ describe('region compile lowering', () => {
     }
   })
 
+  it('runs a Primitive inside the body, so each element gets its own value', () => {
+    const primitiveSchema: NodeSchema = {
+      type: 'Primitive', displayName: 'Primitive', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'value', type: TYPE, optional: false, widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
+        { kind: 'output', id: 'FLOAT', type: TYPE, knownValue: { input: 'value' } },
+      ],
+    }
+    const document = structuredClone(documentWith({ kind: 'map', elementPorts: ['item'] })) as WorkflowDocument
+    ;(document.graphs as Record<string, GraphDef>).body = {
+      ...body(),
+      nodes: {
+        p: { id: 'p' as never, type: 'Primitive', values: { value: 42 } },
+        save: { id: 'save' as never, type: 'Sink', values: {} },
+      },
+      links: { l0: { id: 'l0' as never, from: { node: 'p' as never, port: 'FLOAT' as never }, to: { node: 'save' as never, port: 'in' as never } } },
+      boundary: { inputs: [{ id: 'item' as never, binds: { kind: 'port', node: 'p' as never, port: 'value' as never } }], outputs: [] },
+    }
+    ;(document.graphs.root!.nodes.n0 as { values: Record<string, Json> }).values = { item: [3, 11] }
+    const schema = (type: string) => type === 'Sink' ? sinkSchema : type === 'Primitive' ? primitiveSchema : resolve(type)
+    const result = compile({ document, revision: 1, resolve: schema, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test', graphFeatures: ['regions'] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    const nodes = (result.artifact.dinksterGraph!.nodes.n0 as { region: { body: { nodes: Record<string, { inputs: Record<string, unknown> }> } } }).region.body.nodes
+    expect(nodes.p!.inputs.value).toEqual({ $link: { node: '$region', output: 'item' } })
+    expect(nodes.save!.inputs.in).toEqual({ $link: { node: 'p', output: 'FLOAT' } })
+  })
+
   it('authors the implicit immediate iteration index without a boundary port', () => {
     const document = documentWith({ kind: 'map', elementPorts: ['item'] })
     ;(document.graphs.body!.nodes as Record<string, unknown>).indexSink = { id: 'indexSink', type: 'IndexSink', values: {} }

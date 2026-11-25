@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_ACTIVITY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -30,7 +30,7 @@ async function installFixture(page: Page): Promise<void> {
 
 async function setEntries(page: Page, value: readonly ProofLogEntry[]): Promise<void> {
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate((next) => {
     const app = window.__dinksterTest!.app as unknown as {
       connection: { disconnect(): void }
@@ -40,7 +40,7 @@ async function setEntries(page: Page, value: readonly ProofLogEntry[]): Promise<
     app.registerSchemas([
       {
         type: 'EmptyImage', displayName: 'Empty Image', category: 'e2e', source: 'e2e', isOutputNode: false,
-        items: [
+        body: [
           ...['width', 'height', 'batch_size', 'color'].map((id) => ({
             kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: false,
           })),
@@ -49,7 +49,7 @@ async function setEntries(page: Page, value: readonly ProofLogEntry[]): Promise<
       },
       {
         type: 'PreviewImage', displayName: 'Preview Image', category: 'e2e', source: 'e2e', isOutputNode: true,
-        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+        body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
       },
     ])
     app.connection.disconnect()
@@ -84,7 +84,7 @@ test('semantic rows and guarded Clear preserve exact activity facts', async ({ p
   await page.goto('/')
   const seeded = entries(3)
   await setEntries(page, seeded)
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
 
   const log = page.getByRole('log', { name: 'Activity events' })
   const rows = log.locator('.activity-log-row')
@@ -130,7 +130,7 @@ test('overflow, reader position, long content, narrow layout, and zoom remain co
   await page.goto('/')
   const seeded = entries(45)
   await setEntries(page, seeded)
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
 
   const log = page.getByRole('log', { name: 'Activity events' })
   const rows = log.locator('.activity-log-row')

@@ -100,7 +100,6 @@ test('applies-scoped filter mirrors estimate covered operations and abstain outs
           },
           nets: {},
           reroutes: {},
-          valueSources: {},
           nextOrdinal: 10,
         },
       },

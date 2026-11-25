@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+from palette import PALETTE
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from scipy import ndimage
@@ -33,12 +35,12 @@ def connectivity(image):
 
 def main():
     font = ImageFont.truetype("DejaVuSans.ttf", 17)
-    sheet = Image.new("RGB", (1440, 2350), "#E4E8EC")
+    sheet = Image.new("RGB", (1440, 2350), PALETTE["light"]["bg"]["hover"])
     draw = ImageDraw.Draw(sheet)
     draw.text(
         (20, 16),
         "EXACT SOURCE vs OPTICAL - native and 12x nearest-neighbor; full-size master unchanged",
-        fill="#1F242A",
+        fill=PALETTE["light"]["text"]["primary"],
         font=font,
     )
     report = {}
@@ -46,8 +48,18 @@ def main():
         x = column * 720
         report[str(size)] = {}
         for theme, background, foreground, y in (
-            ("dark", "#111316", "#F2F4F5", 60),
-            ("light", "#F7F8FA", "#1F242A", 1200),
+            (
+                "dark",
+                PALETTE["dark"]["bg"]["canvas"],
+                PALETTE["dark"]["text"]["primary"],
+                60,
+            ),
+            (
+                "light",
+                PALETTE["light"]["bg"]["canvas"],
+                PALETTE["light"]["text"]["primary"],
+                1200,
+            ),
         ):
             draw.rectangle((x + 10, y, x + 709, y + 1120), fill=background)
             draw.text(
@@ -68,7 +80,13 @@ def main():
                     ink = Image.new(
                         "RGBA",
                         before.size,
-                        "#32E6C5" if variant == "cyan" else foreground,
+                        PALETTE["brand"][
+                            "cyan"
+                            if variant == "cyan"
+                            else "offWhite"
+                            if theme == "dark"
+                            else "ink"
+                        ]["$value"],
                     )
                     ink.putalpha(before.getchannel("A"))
                     before = ink

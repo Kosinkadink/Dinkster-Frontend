@@ -1,4 +1,6 @@
 import { Show } from 'solid-js'
+import { ProductWindowAction } from '@dinkster/ui'
+import Square from 'lucide-solid/icons/square'
 import { executionKey } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import type { AppState } from './app-state.js'
@@ -13,6 +15,7 @@ function canCancelExecution(execution: ExecutionState | undefined): boolean {
 export function CancelExecutionButton(props: {
   readonly app: AppState
   readonly execution: ExecutionState | undefined
+  readonly toolbar?: boolean
 }) {
   const message = useAppMessage()
   const pending = useSignal(props.app.cancellingExecutions)
@@ -21,7 +24,7 @@ export function CancelExecutionButton(props: {
   }
   return (
     <Show when={canCancelExecution(props.execution)}>
-      <ProductButton
+      <Show when={props.toolbar} fallback={<ProductButton
         type="button"
         variant="danger"
         size="compact"
@@ -29,7 +32,16 @@ export function CancelExecutionButton(props: {
         aria-label={message('execution.cancel.action')}
         loading={cancelling()}
         onClick={() => { if (props.execution) void props.app.cancelExecution(props.execution.ref) }}
-      >{message(cancelling() ? 'execution.cancel.pending' : 'execution.cancel.action')}</ProductButton>
+      >{message(cancelling() ? 'execution.cancel.pending' : 'execution.cancel.action')}</ProductButton>}>
+        <ProductWindowAction
+          label={message('execution.cancel.action')}
+          icon={Square}
+          intent="remove"
+          pending={cancelling()}
+          data-testid="cancel-execution"
+          onClick={() => { if (props.execution) void props.app.cancelExecution(props.execution.ref) }}
+        />
+      </Show>
     </Show>
   )
 }

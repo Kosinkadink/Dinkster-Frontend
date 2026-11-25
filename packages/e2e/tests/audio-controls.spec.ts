@@ -17,7 +17,7 @@ function wav(): Buffer {
   return out
 }
 test.beforeEach(async ({ page }) => {
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'Not part of this isolated fixture' } }))
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 404, json: { error: 'Not part of this isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated test' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audio-test', schemaWire: 2 }, nodes: {} } }))
@@ -72,14 +72,14 @@ test('recorded audio downloads only on click in Canvas and App View', async ({ p
   for (const appView of [false, true]) {
     if (appView) {
       await page.getByTestId('views-switcher').click()
-      await page.getByRole('menuitemradio', { name: 'App view' }).click()
+      await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
     }
     const link = appView ? page.getByTestId('app-preview-download') : page.locator('.node-media-overlay .node-output-download')
     await expect(link).toBeVisible()
     expect(requests).toBe(appView ? 1 : 0)
     if (!appView) {
       await link.click()
-      await expect(page.getByRole('alert')).toHaveText('Download failed: Recorded output is unavailable')
+      await expect(page.getByRole('alert')).toHaveText('Download failed: Recorded output request failed (404)')
       await page.locator('.node-media-overlay').screenshot({ path: info.outputPath('audio-download-refusal.png') })
       refuse = false
     }
@@ -137,7 +137,7 @@ test('waveform, window scrub, batch, local loop/gain and App playback', async ({
   expect(requests.filter((url) => url.searchParams.has('waveform')).every((url) => url.searchParams.get('waveform') === '512x128')).toBe(true)
   expect(requests.some((url) => url.searchParams.get('rendition') === 'original')).toBe(false)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-  await page.getByTestId('views-switcher').click(); await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByTestId('views-switcher').click(); await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const appPreview = page.getByTestId('app-preview-surface')
   await expect(appPreview.getByRole('img', { name: 'Server audio waveform' })).toBeVisible()
   await appPreview.screenshot({ path: info.outputPath('audio-app-preview.png') })

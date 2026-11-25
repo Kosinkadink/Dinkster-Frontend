@@ -1,14 +1,14 @@
 import { mkdirSync } from 'node:fs'
-import { expect, appViewTest as test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/app-view-preview-promotion'
 const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XxW8WQAAAABJRU5ErkJggg==', 'base64')
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
 
-async function selectView(page: Page, name: 'Graph' | 'App view'): Promise<void> {
+async function selectView(page: Page, name: 'Graph' | 'App'): Promise<void> {
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name }).click()
+  await page.getByRole('menuitemradio', { name, exact: true }).click()
 }
 
 async function canvasPoint(page: Page, target: 'count' | 'preview', nodeId = 'widgets'): Promise<{ x: number; y: number }> {
@@ -94,7 +94,7 @@ async function injectLiveFrame(page: Page, width: number, height: number, label:
 test.beforeEach(async ({ page }) => {
   mkdirSync(proofDir, { recursive: true })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
@@ -107,7 +107,7 @@ test.beforeEach(async ({ page }) => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AppViewPreviewTest', displayName: 'Image Result', category: 'test', source: 'v3', isOutputNode: false,
       emitsPreviews: true,
-      items: [
+      body: [
         widget('count', 'INT', 5, { min: 0, max: 100, step: 1 }),
         widget('prompt', 'STRING', 'A multiline prompt', { multiline: true }),
       ],
@@ -154,9 +154,12 @@ test('a compact pre-execution surface promotes to App View', async ({ page }) =>
   }
   const compact = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'other')!
-    return { compact: node.layout.preview?.compact, height: node.layout.preview?.height }
+    // Before a picture the preview is exactly its caption row.
+    const renderer = window.__dinksterTest!.renderer! as unknown as { getDesignTokens(): { previewCaptionHeight: number } }
+    const captionHeight = renderer.getDesignTokens().previewCaptionHeight
+    return { compact: node.layout.preview?.compact, height: node.layout.preview?.height, captionHeight }
   })
-  expect(compact).toEqual({ compact: true, height: 24 })
+  expect(compact).toEqual({ compact: true, height: compact.captionHeight, captionHeight: compact.captionHeight })
   await screenshotGraph('00-pre-execution-compact.png')
 
   const widgetPoint = await canvasPoint(page, 'count', 'other')
@@ -169,7 +172,7 @@ test('a compact pre-execution surface promotes to App View', async ({ page }) =>
   await expect(page.locator('[data-item-id="core.node.preview.expose.toggle"]')).toContainText('Promote to app view')
   await screenshotGraph('00-pre-execution-promotion.png')
   await page.locator('[data-item-id="core.node.preview.expose.toggle"]').click()
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await expect(page.getByTestId('app-preview-status')).toContainText('Preview appears after execution.')
   await page.screenshot({ path: `${proofDir}/00-pre-execution-app-view.png`, animations: 'disabled' })
 })
@@ -209,7 +212,7 @@ test('promoted preview follows input rows, updates live, and keeps authoring too
     { graphId: 'g0', nodeId: 'widgets' },
   ])
 
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   const orderedRows = page.locator('[data-testid="app-view-row"], [data-testid="app-preview-row"]')
   await expect(orderedRows).toHaveCount(2)
   await expect(orderedRows.nth(0)).toHaveAttribute('data-testid', 'app-view-row')
@@ -247,7 +250,7 @@ test('promoted preview follows input rows, updates live, and keeps authoring too
 
 test('an uncommitted text draft survives a live preview tick', async ({ page }) => {
   await exposePreview(page)
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await page.getByTestId('app-view-arrange-toggle').click()
   await page.getByTestId('app-layout-add-text').click()
   const editor = page.getByTestId('app-layout-text-input')
@@ -267,7 +270,7 @@ test('an uncommitted text draft survives a live preview tick', async ({ page }) 
 
 test('a promoted preview whose node was deleted stays visible and removable', async ({ page }) => {
   await exposePreview(page)
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await page.getByTestId('app-view-arrange-toggle').click()
   await page.evaluate(() => {
     window.__dinksterTest!.app.activeTab()!.store.dispatch({
@@ -284,7 +287,7 @@ test('a promoted preview whose node was deleted stays visible and removable', as
 test('a promoted preview retains its resolved output after a disjoint partial run', async ({ page }) => {
   await page.route('**/api/assets/*', (route) => route.fulfill({ contentType: 'image/png', body: pixel }))
   await exposePreview(page)
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
 
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app

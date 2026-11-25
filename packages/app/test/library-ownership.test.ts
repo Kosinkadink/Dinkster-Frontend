@@ -106,8 +106,6 @@ async function twoBackends(): Promise<{
   b.templatesEnabled.set(true)
   a.registry.set(buildDinksterRegistry(a.id, nodesPayload))
   b.registry.set(buildDinksterRegistry(b.id, nodesPayload))
-  for (const backend of [a, b]) vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   expect((await app.openDocument(DOC, 'Doc'))).toEqual([])
   const tab = app.activeTab()!
   app.setTabTarget(tab.id, a.id)
@@ -172,28 +170,18 @@ describe('owned collection pages', () => {
 
 describe('owned entry actions', () => {
 
-  it.each(['library', 'run'] as const)('admits %s payloads before reading and refuses obsolete publication', async (source) => {
+  it.each(['library', 'run'] as const)('reads %s payloads directly and refuses obsolete publication', async (source) => {
     const { a, tab } = (await twoBackends())
     vi.spyOn(a.connection, 'getLibraryRecord').mockResolvedValue(record())
     vi.spyOn(a.connection, 'getHistoryRun').mockResolvedValue(run())
-    let admit!: () => void
-    const admission = new Promise<void>((resolve) => { admit = resolve })
     let finish!: () => void
     const body = new Promise<string>((resolve) => { finish = () => resolve(JSON.stringify({ ...DOC, lineage: 'payload-opened' })) })
-    const retain = vi.spyOn(a.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      if (owner.ownerKind === 'preview') await admission
-      return { ...owner, ...declaration, revision: declaration.revision + 1 }
-    })
     const fetch = vi.spyOn(a.connection, 'fetchAssetText').mockReturnValue(body)
     let settled = false
     const opening = (source === 'library' ? app.openFromLibrary('r1', a.id) : app.openRunWorkflow('run-1', a.id))
       .finally(() => { settled = true })
-    await vi.waitFor(() => expect(retain).toHaveBeenCalled())
-    expect(fetch).not.toHaveBeenCalled()
-    expect(retain.mock.calls[0]).toMatchObject([{ ownerKind: 'preview' }, { complete: false, digests: [DIGEST] }])
-    expect(app.activeTab()).toBe(tab)
-    admit()
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(DIGEST))
+    expect(app.activeTab()).toBe(tab)
     await app.openDocument({ ...DOC, lineage: 'newer-open' }, 'Newer document')
     const newer = app.activeTab()
     await Promise.resolve()

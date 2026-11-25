@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
 
@@ -75,7 +75,7 @@ async function setStrength(page: Page, value: string): Promise<void> {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await page.waitForFunction(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]
     return backend?.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
@@ -90,7 +90,7 @@ test.beforeEach(async ({ page }) => {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'DynamicSlotE2E', displayName: 'Dynamic Slot', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{
+        body: [{
           kind: 'input', id: 'slot', type: wildcard, optional: true,
           dynamic: {
             kind: 'dynamicSlot', slotType: wildcard, inputs: [],
@@ -103,11 +103,11 @@ test.beforeEach(async ({ page }) => {
       },
       {
         type: 'ImageProducerE2E', displayName: 'Image Producer', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: concrete('IMAGE') }],
+        body: [{ kind: 'output', id: 'out', type: concrete('IMAGE') }],
       },
       {
         type: 'GenericProducerE2E', displayName: 'Generic Producer', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: wildcard }],
+        body: [{ kind: 'output', id: 'out', type: wildcard }],
       },
     ])
     await window.__dinksterTest!.app.openDocument({

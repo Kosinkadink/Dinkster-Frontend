@@ -7,7 +7,7 @@
  */
 
 import type { Hit } from '@dinkster/canvas'
-import { outputsOf, supportsExpressionMirror, supportsGlslMirror, supportsOutputRepresentation, widgetRepresentationsOf, type MenuContext, type MenuItem, type MenuRegistry, type MenuTarget, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { constructsOf, outputsOf, supportsExpressionMirror, supportsGlslMirror, supportsOutputRepresentation, widgetRepresentationsOf, type BoundaryBinding, type CommandInvocation, type Json, type LinkEndpoint, type MenuContext, type MenuItem, type MenuRegistry, type MenuTarget, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 
 /** Where and on what the menu opened; anchored in canvas-pane CSS px. */
 export interface MenuAnchor {
@@ -16,6 +16,49 @@ export interface MenuAnchor {
   readonly worldX: number
   readonly worldY: number
   readonly groups: readonly ResolvedMenuGroup[]
+}
+
+/** Direct removal takes the member's wires with it; pack steps deliberately do not. */
+export function memberRemovalInvocation(
+  doc: WorkflowDocument,
+  schema: NodeSchema,
+  graphId: string,
+  nodeId: string,
+  construct: string,
+  member: string,
+): CommandInvocation | undefined {
+  const graph = doc.graphs[graphId]
+  if (graph === undefined) return undefined
+  const node = graph.nodes[nodeId]
+  if (node === undefined) return undefined
+  const spec = constructsOf(schema, node.dynamic).get(construct)
+  const members = node.dynamic?.[construct]?.members ?? []
+  if (spec?.kind !== 'group' || typeof spec.grows !== 'string' || !members.includes(member) || members.length <= spec.minMembers) return undefined
+  const prefix = `${construct}.${member}`
+  const touches = (end: LinkEndpoint | BoundaryBinding): boolean => {
+    if (!('node' in end) || end.node !== nodeId) return false
+    const port = 'tap' in end ? end.tap : 'port' in end ? end.port : undefined
+    return typeof port === 'string' && (port === prefix || port.startsWith(`${prefix}.`))
+  }
+  const invocations: CommandInvocation[] = []
+  for (const [linkId, link] of Object.entries(graph.links)) {
+    if (touches(link.from) || touches(link.to)) invocations.push({ command: 'link.disconnect', params: { graphId, linkId } })
+  }
+  for (const [netId, net] of Object.entries(graph.nets)) {
+    if (touches(net.source)) invocations.push({ command: 'net.remove', params: { graphId, netId } })
+    else for (const sink of net.sinks) {
+      if (touches(sink)) invocations.push({ command: 'net.disconnectInput', params: { graphId, to: { ...sink } } })
+    }
+  }
+  for (const side of ['inputs', 'outputs'] as const) {
+    for (const item of graph.boundary?.[side] ?? []) {
+      for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+        if (touches(binding)) invocations.push({ command: 'boundary.unbind', params: { graphId, side, itemId: item.id, ...binding } })
+      }
+    }
+  }
+  invocations.push({ command: 'dynamic.removeMember', params: { graphId, nodeId, construct, member } })
+  return { command: 'batch', params: { invocations } as unknown as Json }
 }
 
 /** Flat item list (for keyboard nav); sep marks the first item of a later group. */
@@ -33,14 +76,16 @@ export function resolveNodeMenuGroups(
   ctx: MenuContext,
   queueUpToAvailable: boolean,
   createSubgraphAvailable = true,
+  queueUpToReason?: string,
 ): readonly ResolvedMenuGroup[] {
   return registry.resolve(ctx).map((group) => ({
     ...group,
     items: group.items.map((item) =>
-      (item.id === 'core.node.queueSelection' && !queueUpToAvailable) ||
-      ((item.id === 'core.canvas.createSubgraph' || item.id.startsWith('core.canvas.create') && item.id.endsWith('Region')) && !createSubgraphAvailable)
-        ? { ...item, disabled: true }
-        : item),
+      item.id === 'core.node.queueSelection' && !queueUpToAvailable
+        ? { ...item, disabled: true, ...(queueUpToReason === undefined ? {} : { disabledReason: queueUpToReason }) }
+        : (item.id === 'core.canvas.createSubgraph' || item.id.startsWith('core.canvas.create') && item.id.endsWith('Region')) && !createSubgraphAvailable
+          ? { ...item, disabled: true }
+          : item),
   }))
 }
 
@@ -53,8 +98,6 @@ export function selectionLifecycleMenuGroups(
     case 'node':
     case 'group':
     case 'reroute':
-    case 'valueSource':
-    case 'selector':
       return [group]
     default:
       return []
@@ -169,6 +212,8 @@ export function canvasMenuContext(input: {
   readonly previewCapable?: (nodeType: string) => boolean
   /** Mirror-estimate capability by node type; omitted = unknown (menu hidden). */
   readonly mirrorCapable?: (nodeType: string) => boolean
+  /** Node schemas by type, for items that read a node's rows. */
+  readonly resolve?: (nodeType: string) => NodeSchema | undefined
   readonly shortcuts?: Readonly<Record<string, string>>
 }): MenuContext {
   return {
@@ -178,6 +223,7 @@ export function canvasMenuContext(input: {
     ...(input.nodeHasDocs !== undefined ? { nodeHasDocs: input.nodeHasDocs } : {}),
     ...(input.previewCapable !== undefined ? { previewCapable: input.previewCapable } : {}),
     ...(input.mirrorCapable !== undefined ? { mirrorCapable: input.mirrorCapable } : {}),
+    ...(input.resolve !== undefined ? { resolve: input.resolve } : {}),
     ...(input.shortcuts !== undefined ? { shortcuts: input.shortcuts } : {}),
     graphId: input.graphId,
     target: input.target,
@@ -207,8 +253,10 @@ export function widgetMenuTarget(
     kind: 'widget',
     nodeId,
     inputId: row.inputId,
+    address: { port: row.address.port },
     ...owner,
     ...(synthetic ? { synthetic: true as const } : {}),
+    ...(row.selector !== undefined || row.dynamicSlot !== undefined ? { construct: true as const } : {}),
   }
 }
 
@@ -230,26 +278,15 @@ export function menuTargetOf(hit: Hit): MenuTarget {
               }
             : hit.link.to.kind === 'reroute'
               ? { reroute: hit.link.to.reroute }
-              : hit.link.to.kind === 'selector' && hit.link.to.candidate !== undefined
-                ? { selector: hit.link.to.selector, candidate: hit.link.to.candidate }
-                : // 'boundary' ends are unreachable: boundary noodles are
-                  // excluded from link hit-testing.
-                  { reroute: '' },
+              : // 'boundary' ends are unreachable: boundary noodles are
+                // excluded from link hit-testing.
+                { reroute: '' },
       }
     case 'reroute':
     // Ghost sockets never reach the context menu (its hitTest does not
     // reveal them), but the junction menu is the right fallback anyway.
     case 'rerouteSocket':
       return { kind: 'reroute', rerouteId: hit.reroute.id }
-    case 'valueSource':
-    case 'valueSourceOut':
-    case 'valueSourceBadge':
-      return { kind: 'valueSource', valueSourceId: hit.valueSource.id }
-    case 'selector':
-    case 'selectorIn':
-    case 'selectorOut':
-    case 'selectorBadge':
-      return { kind: 'selector', selectorId: hit.selector.id }
     case 'pin':
       // Structural identity (address), not the elab view key: menu items
       // build command endpoints from this.
@@ -271,7 +308,13 @@ export function menuTargetOf(hit: Hit): MenuTarget {
           : {}),
       }
     case 'widget':
-      return widgetMenuTarget(hit.node.id, hit.row)
+      // A field on a subgraph's Inputs panel belongs to the panel, which has
+      // no menu of its own. An editor row stores nothing of its own: it opens
+      // the node's menu.
+      if (hit.bnode !== undefined) return { kind: 'canvas' }
+      return hit.row.editor === true ? { kind: 'node', nodeId: hit.node.id } : widgetMenuTarget(hit.node.id, hit.row)
+    case 'growth':
+      return { kind: 'growth', nodeId: hit.node.id, construct: hit.row.construct }
     case 'section':
       return {
         kind: 'section',

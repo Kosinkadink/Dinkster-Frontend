@@ -1,6 +1,6 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
-import { diag, syntheticWorkflow } from '@dinkster/core'
+import { syntheticWorkflow } from '@dinkster/core'
 import { App } from './App.js'
 import { AppState } from './app-state.js'
 import { createBootIndicatorElement, startBootIndicator } from './boot-indicator.js'
@@ -111,34 +111,22 @@ async function bootstrap(): Promise<void> {
     ? { context: await desktop.windowContext(), layout: await desktop.windowLayout() }
     : undefined
   for (const line of desktopLogs.slice(-500)) app.recordHostLog('info', 'Local engine', line)
-  const started = app.start()
-
+  // Browser tests reach the app as soon as it exists; they wait for
+  // readiness through it, not for the kept node tables below.
   if (import.meta.env.MODE === 'test') {
     window.__dinksterTest = { app, semanticDerivations: 0, syntheticWorkflow }
   }
+  // Restored tabs draw from the kept node tables on their first frame. The
+  // browser store is a cache, so a slow one only costs that, never startup.
+  await Promise.race([app.loadKeptSchemas(), new Promise((resolve) => setTimeout(resolve, 1000))])
+  const started = app.start()
+
   render(() => <App
     app={app}
     {...(desktopWindow ? { desktopWindow } : {})}
   />, root)
-  // Ownership and shared promotion keep their admission checks, but an older
-  // or unavailable retention service must not prevent registry loading/render.
-  const state = app
-  const ownershipProblemsOwner = Symbol('startup-ownership')
-  state.replaceProblems(ownershipProblemsOwner, [diag(
-    'warning', 'validation', 'workflow.startup.ownershipUnconfirmed',
-    'Workflow ownership unconfirmed.',
-    { data: { reason: 'Waiting for the backend.', effect: 'Asset publication still requires confirmation.' } },
-  )])
-  void started.then(() => state.confirmStartupOwnership()).then(async () => {
-    await state.enableWorkspaceAuthority()
-    state.clearProblems(ownershipProblemsOwner)
-  }).catch((error: unknown) => {
-    state.replaceProblems(ownershipProblemsOwner, [diag(
-      'warning', 'validation', 'workflow.startup.ownershipUnconfirmed',
-      'Workflow ownership unconfirmed.',
-      { data: { reason: error instanceof Error ? error.message : String(error),
-        effect: 'Asset publication still requires confirmation.' } },
-    )])
+  void started.then(() => app.enableWorkspaceAuthority()).catch((error: unknown) => {
+    console.warn('Shared editing could not start', error)
   })
 }
 

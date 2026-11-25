@@ -7,6 +7,58 @@ import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ExecutionLogPanel, executionLogRows } from '../src/ExecutionLogPanel.js'
+import { LogPanel } from '../src/LogPanel.js'
+
+describe('Log scope', () => {
+  it('defaults to App without a run and switches to the requested run from a node badge', async () => {
+    const [active, setActive] = createSignal<ExecutionState>()
+    const [appRequest, setAppRequest] = createSignal<number>()
+    const [request, setRequest] = createSignal<{ runtimeNodeIds: readonly string[]; token: number }>()
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <LogPanel
+      active={active}
+      appScopeRequest={appRequest}
+      executions={() => active() ? [active()!] : []}
+      nodeTitle={(_run, id) => id}
+      filterRequest={request}
+      entries={() => [{ timestamp: 1_000, severity: 'info', source: 'App', message: 'Connected to backend' }]}
+      clearArmed={() => false}
+      onClear={() => undefined}
+    />, root)
+    await flush()
+    expect(root.textContent).toContain('Connected to backend')
+    expect(productSelect(root, 'log-scope').dataset['selectedId']).toBe('app')
+    setActive(populated())
+    setRequest({ runtimeNodeIds: ['sampler'], token: 1 })
+    await flush()
+    expect(productSelect(root, 'log-scope').dataset['selectedId']).toBe('run')
+    expect(rowsOf(root).map((row) => row.querySelector('.execution-log-message')?.textContent))
+      .toEqual(['loading checkpoint', 'CUDA out of memory'])
+    expect(root.querySelector('[data-testid="logs-panel"]')?.parentElement?.hidden).toBe(true)
+    setAppRequest(1)
+    await flush()
+    expect(productSelect(root, 'log-scope').dataset['selectedId']).toBe('app')
+    expect(root.querySelector('[data-testid="logs-panel"]')?.parentElement?.hidden).toBe(false)
+    expect(root.querySelector('[data-testid="execution-log-panel"]')?.parentElement?.hidden).toBe(true)
+    await chooseProductOption(root, 'log-scope', 'run')
+    expect(rowsOf(root).map((row) => row.querySelector('.execution-log-message')?.textContent))
+      .toEqual(['loading checkpoint', 'CUDA out of memory'])
+    setAppRequest(2)
+    await flush()
+    expect(productSelect(root, 'log-scope').dataset['selectedId']).toBe('app')
+    setActive({ ...populated(), logs: [...populated().logs] })
+    await flush()
+    expect(productSelect(root, 'log-scope').dataset['selectedId']).toBe('app')
+    setActive(entry({ key: 'c0:run-2', ref: { connection: asConnectionId('c0'), prompt: asPromptId('run-2') },
+      logs: [{ level: 'info', message: 'second run selected in Runs', timestamp: 6_000, seq: 1 }] }))
+    await flush()
+    expect(productSelect(root, 'log-scope').dataset['selectedId']).toBe('run')
+    expect(rowsOf(root).map((row) => row.querySelector('.execution-log-message')?.textContent))
+      .toEqual(['second run selected in Runs'])
+    dispose()
+  })
+})
 
 const entry = (over: Partial<ExecutionState> = {}): ExecutionState => ({
   ref: { connection: asConnectionId('c0'), prompt: asPromptId('run-1') },

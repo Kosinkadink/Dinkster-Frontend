@@ -18,7 +18,8 @@ State carries a value to the next iteration.
 The node palette, universal search and canvas menu offer no entries to create
 Map, Fold or While regions. Saved regions still load, render, copy, edit and
 run. Double click an existing occurrence to drill into its body through the
-ordinary subgraph path. See [Rework queue](rework-queue.md#regions-rework) for
+ordinary subgraph path. See
+[Regions rework](https://github.com/Kosinkadink/comfy-vibe-station/issues/1198) for
 the parked creation entries and their return condition.
 
 ## Edit roles and configuration
@@ -89,12 +90,12 @@ no exported output: a map executes its sink once per input element, and zero
 times for an empty list. A region with neither an exported output nor a
 declared output node is invalid.
 
-The Queue card creates one row per fixed map/fold item as soon as expansion is
+Run details creates one row per fixed map/fold item as soon as expansion is
 known. Rows move from waiting to running to completed from explicit backend
-iteration lifecycle events; while rows appear as occurrences start. The
-Outputs panel groups retained images under their actual runtime region item,
-including nested runtime paths, instead of presenting loop results as one
-unattributed workflow list.
+iteration lifecycle events; while rows appear as occurrences start. Runs
+retains each image's actual runtime region item, including nested paths, in
+its Details and viewer. Under This workflow, selecting a loop box exposes
+Iterations for the selected run when that run has an iteration inventory.
 
 ![Per-item loop progress](assets/loop-primitives/queue-progress.png)
 

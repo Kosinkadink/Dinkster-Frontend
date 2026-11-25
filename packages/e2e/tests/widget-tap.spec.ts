@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
   await page.mouse.move(from.x, from.y)
@@ -10,21 +10,21 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
 
 test('widget tap drag creates a tap-sourced link and undo removes it', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
 
   const points = await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([
       {
         type: 'TapWidget', displayName: 'Tap Widget', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{
+        body: [{
           kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
           widget: { widgetType: 'FLOAT', options: {}, default: 1 },
         }],
       },
       {
         type: 'TapSink', displayName: 'Tap Sink', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
+        body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
       },
     ])
     const failures = (await bridge.app.openDocument({

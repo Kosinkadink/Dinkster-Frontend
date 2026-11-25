@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { TestInfo } from "@playwright/test";
 import { requireBackendTemplates } from "./required-nodes.js";
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from "./fixtures.js";
+import { expect, openRailPanel, test, waitForWorkspaceReady, type Page } from "./fixtures.js";
 
 const NATIVE_BACKEND =
   process.env["DINKSTER_NATIVE_BACKEND"] ?? "http://127.0.0.1:8765";
@@ -59,7 +59,7 @@ async function connectNativeFrontend(page: Page): Promise<string> {
       ),
     )
     .toBeDefined();
-  await waitForStartupOwnership(page);
+  await waitForWorkspaceReady(page);
   return page.evaluate(() => {
     const backend = window
       .__dinksterTest!.app.backends.get()

@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SUBGRAPH_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -53,8 +53,7 @@ test.beforeEach(async ({ context, page }) => {
   )
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await openFixture(page)
   await page.waitForFunction(() => {
     const tab = window.__dinksterTest!.app.activeTab()
@@ -319,20 +318,15 @@ test('subgraph copy across tabs carries nested definitions and undoes atomically
   expect(pasted.innerId).not.toBe('')
   if (proofDir) await page.screenshot({ path: join(proofDir, 'cross-tab-subgraph-paste.png'), animations: 'disabled', fullPage: true })
 
-  const point = await page.evaluate((nodeId) => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === nodeId)!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
-  }, pasted.nodeId)
+  const point = await subgraphMarkPoint(page, pasted.nodeId)
   await page.mouse.dblclick(point.x, point.y)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().at(-1))).toBe(pasted.outerId)
 
-  const nestedPoint = await page.evaluate(() => {
+  const nestedId = await page.evaluate(() => {
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-    const node = window.__dinksterTest!.renderer!.getScene().nodes[0]!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
+    return window.__dinksterTest!.renderer!.getScene().nodes[0]!.id
   })
+  const nestedPoint = await subgraphMarkPoint(page, nestedId)
   await page.mouse.dblclick(nestedPoint.x, nestedPoint.y)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().at(-1))).toBe(pasted.innerId)
   if (proofDir) await page.screenshot({ path: join(proofDir, 'cross-tab-nested-definition.png'), animations: 'disabled', fullPage: true })

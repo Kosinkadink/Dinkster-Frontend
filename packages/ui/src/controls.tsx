@@ -1,4 +1,5 @@
 import {
+  For,
   Show,
   createComputed,
   createSignal,
@@ -6,7 +7,8 @@ import {
   splitProps,
   type JSX,
 } from 'solid-js'
-import { ChevronDown, CircleAlert, type LucideIcon } from 'lucide-solid'
+import { ChevronDown, CircleAlert, Clock, LoaderCircle, type LucideIcon } from 'lucide-solid'
+import { Dynamic } from 'solid-js/web'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
 import githubMark from '../../../branding/providers/github-mark.svg?url'
@@ -20,8 +22,50 @@ type ButtonAttributes = Omit<
   'style' | 'class' | 'role'
 >
 
+/** Follows `icon`, so a control can swap its icon with its state, as Record becomes Stop. */
 export function ProductIcon(props: { icon: LucideIcon }) {
-  return <props.icon class="dinkster-icon" aria-hidden="true" />
+  return <Dynamic component={props.icon} class="dinkster-icon" aria-hidden="true" />
+}
+
+export function ProductRunActivity(props: {
+  readonly running: number
+  readonly waiting: number
+  readonly label: string
+}) {
+  return (
+    <span class="dinkster-run-activity" role="img" aria-label={props.label}>
+      <Show when={props.running > 0}>
+        <span class="dinkster-run-activity-running" aria-hidden="true">
+          <ProductIcon icon={LoaderCircle} />
+          <span>{props.running}</span>
+        </span>
+      </Show>
+      <Show when={props.waiting > 0}>
+        <span class="dinkster-run-activity-waiting" aria-hidden="true">
+          <ProductIcon icon={Clock} /><span>{props.waiting}</span>
+        </span>
+      </Show>
+    </span>
+  )
+}
+
+export function ProductRunIcon(props: {
+  readonly icon: LucideIcon
+  readonly running?: boolean | undefined
+  readonly queued?: boolean | undefined
+  readonly result?: 'finished' | 'failed' | undefined
+}) {
+  return (
+    <span
+      class="dinkster-run-icon"
+      data-running={props.running ? '' : undefined}
+      data-queued={props.queued ? '' : undefined}
+      data-result={props.running || props.queued ? undefined : props.result}
+      aria-hidden="true"
+    >
+      <ProductIcon icon={props.icon} />
+    </span>
+  )
 }
 
 function Button(
@@ -109,6 +153,7 @@ export function ProductButton(
 export function ProductWindowAction(
   props: Omit<ButtonAttributes, 'children' | 'aria-label' | 'title'> & {
     label: string
+    labelContent?: JSX.Element
     icon: LucideIcon
     shortcut?: string
     intent?: ProductRole
@@ -117,6 +162,7 @@ export function ProductWindowAction(
 ) {
   const [local, button] = splitProps(props, [
     'label',
+    'labelContent',
     'icon',
     'shortcut',
     'intent',
@@ -136,7 +182,9 @@ export function ProductWindowAction(
         <span class="dinkster-window-action-icon" aria-hidden="true">
           <ProductIcon icon={local.icon} />
         </span>
-        <span class="dinkster-window-action-label">{local.label}</span>
+        <span class="dinkster-window-action-label">
+          {local.labelContent ?? local.label}
+        </span>
         <Show when={local.shortcut}>
           {(shortcut) => (
             <kbd class="dinkster-window-action-shortcut">{shortcut()}</kbd>
@@ -173,6 +221,7 @@ export function ProductIconButton(
     label: string
     icon: LucideIcon
     intent?: ProductRole
+    'data-tooltip-label'?: string
   },
 ) {
   const [local, button] = splitProps(props, ['label', 'icon', 'intent'])
@@ -183,10 +232,100 @@ export function ProductIconButton(
       fill="quiet"
       iconOnly
       aria-label={local.label}
-      title={local.label}
+      title={button['data-tooltip-label'] ? undefined : local.label}
     >
       <ProductIcon icon={local.icon} />
     </Button>
+  )
+}
+
+/** A secondary action drawn as underlined text beside the value it acts on. */
+export function ProductTextButton(
+  props: Omit<ButtonAttributes, 'children'> & {
+    label: string
+    icon?: LucideIcon
+    intent?: ProductRole
+  },
+) {
+  const [local, button] = splitProps(props, ['label', 'icon', 'intent'])
+  return (
+    <button
+      {...button}
+      type="button"
+      class="dinkster-text-button"
+      data-role={local.intent ?? 'neutral'}
+    >
+      <Show when={local.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
+      {local.label}
+    </button>
+  )
+}
+
+/** One choice of a few, shown side by side. */
+export function ProductSegmented(props: {
+  label: string
+  value: string
+  options: readonly { value: string; label: string }[]
+  onChange: (value: string) => void
+}) {
+  const name = createUniqueId()
+  return (
+    <div class="dinkster-segmented" role="radiogroup" aria-label={props.label}>
+      <For each={props.options}>
+        {(option) => (
+          <label class="dinkster-segment">
+            <input
+              type="radio"
+              class="dinkster-visually-hidden"
+              name={name}
+              value={option.value}
+              checked={props.value === option.value}
+              onChange={() => props.onChange(option.value)}
+            />
+            <span>{option.label}</span>
+          </label>
+        )}
+      </For>
+    </div>
+  )
+}
+
+/**
+ * A picture with a caption that opens what it shows, such as a workflow or
+ * an output. Without a picture the tile keeps its size and shows `empty`.
+ */
+export function ProductTile(props: {
+  label: string
+  caption?: string
+  detail?: string
+  picture?: JSX.Element
+  empty?: JSX.Element
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      class="dinkster-tile"
+      aria-label={props.caption ? undefined : props.label}
+      onClick={() => props.onClick()}
+    >
+      <span class="dinkster-tile-picture">
+        <Show
+          when={props.picture}
+          fallback={<span class="dinkster-tile-empty">{props.empty}</span>}
+        >
+          {props.picture}
+        </Show>
+      </span>
+      <Show when={props.caption}>
+        <span class="dinkster-tile-caption">
+          <span class="dinkster-tile-name">{props.caption}</span>
+          <Show when={props.detail}>
+            <span class="dinkster-tile-detail">{props.detail}</span>
+          </Show>
+        </span>
+      </Show>
+    </button>
   )
 }
 

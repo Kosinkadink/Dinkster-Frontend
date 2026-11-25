@@ -1,3 +1,4 @@
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { ProductWindowChrome, ProductWindowIdentity } from '@dinkster/ui'
 
@@ -7,6 +8,8 @@ export interface DesktopChromeOptions {
   readonly theme: 'dark' | 'light'
   readonly qa?: boolean
   readonly development?: boolean
+  /** Full screen hides the window buttons, so the bar reserves no room for them. */
+  readonly fullScreen?: boolean
 }
 
 let dispose: (() => void) | undefined
@@ -17,10 +20,13 @@ export function install(options: DesktopChromeOptions): void {
   let bar: HTMLElement | undefined
   let mounted: HTMLDivElement | undefined
   let clear: (() => void) | undefined
+  const [service, setService] = createSignal<'qa' | 'custom'>()
   function reconcile(): void {
     const existing = document.querySelector<HTMLElement>(
       '.dinkster-window-toolbar-host, .topbar, .dinkster-topbar, body > header',
     )
+    const kind = existing?.dataset.serviceKind
+    setService(kind === 'qa' || kind === 'custom' ? kind : undefined)
     if (
       bar?.isConnected &&
       mounted?.isConnected &&
@@ -40,6 +46,7 @@ export function install(options: DesktopChromeOptions): void {
           <ProductWindowIdentity
             qa={options.qa ?? false}
             development={options.development ?? false}
+            service={service()}
           />
         ),
         mount,
@@ -55,10 +62,13 @@ export function install(options: DesktopChromeOptions): void {
       desktopChrome: current.getAttribute('data-desktop-chrome'),
       platform: current.getAttribute('data-platform'),
       theme: current.getAttribute('data-theme'),
+      fullScreen: current.getAttribute('data-full-screen'),
     }
     current.dataset.desktopChrome = ''
     current.dataset.platform = options.platform
     current.dataset.theme = options.theme
+    if (options.fullScreen) current.dataset.fullScreen = ''
+    else delete current.dataset.fullScreen
     clear = () => {
       unmount()
       mount.remove()
@@ -70,7 +80,12 @@ export function install(options: DesktopChromeOptions): void {
   }
   reconcile()
   const observer = new MutationObserver(reconcile)
-  observer.observe(document.body, { childList: true, subtree: true })
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['data-service-kind'],
+  })
   dispose = () => {
     observer.disconnect()
     clear?.()

@@ -9,7 +9,7 @@
  *   without it while the sourceDocument asset bytes survive;
  * - a delete transport failure lands in Problems (history.deleteFailed)
  *   and the record stays;
- * - 'Clear all' arms to 'Confirm clear' and wipes the scope only on the
+ * - 'Clear finished' arms to 'Confirm clear' and wipes the scope only on the
  *   second click.
  *
  * The clear test wipes the ENTIRE local history scope of the target server
@@ -18,14 +18,15 @@
  * lives in the gated dev pack and a plain dinkster-serve does not compose it.
  * Skips loudly when no backend answers. Missing required dev nodes fail.
  */
-import { expect, nativeTest, productOption, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest, openRailPanel, productOption, selectProductOption, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
 /** Register the native server as a second backend (no tab targeting yet). */
 async function addNativeBackend(page: Page): Promise<void> {
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(NATIVE_BACKEND)
   await page.getByTestId('backend-add').click()
   await expect(page.getByTestId('tab-target')).toBeVisible()
@@ -37,7 +38,6 @@ async function addNativeBackend(page: Page): Promise<void> {
  * resolve through the ACTIVE tab's target).
  */
 async function openGradientDoc(page: Page): Promise<void> {
-  await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'run-history-e2e', root: 'g0',
@@ -125,14 +125,10 @@ async function durableRecords(): Promise<readonly {
   }[] }).records
 }
 
-/** Open the library overlay on the Runs source. */
+/** Open backend history in the right-side Runs panel. */
 async function openRuns(page: Page): Promise<void> {
-  await page.getByTestId('library-toggle').click()
-  const library = page.getByTestId('library-overlay')
-  await expect(library).toBeVisible()
-  const runsTab = library.locator('[data-testid=collection-source][data-source=runs]')
-  if (await runsTab.isVisible()) await runsTab.click()
-  else await selectProductOption(page, library.getByTestId('library-source-select'), 'runs')
+  await openRailPanel(page, 'Runs')
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
 }
 
 /** The runs entry whose subtitle is the run's jobId prefix. */
@@ -153,7 +149,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)
   requireBackendNodes(served!, ['dev.image.gradient'], testInfo)
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await addNativeBackend(page)
   await openGradientDoc(page)
 })
@@ -169,8 +165,9 @@ test('a durable stamped record: click selects, the open action reopens the produ
   // Click selects and inspects - it must NOT open anything or close the
   // panel (that would make the delete affordance unreachable).
   await entry.click()
-  await expect(page.getByTestId('library-overlay')).toBeVisible()
-  await expect(entry.getByTestId('collection-details')).toContainText('source document')
+  await expect(page.getByTestId('runs-panel')).toBeVisible()
+  await entry.locator('.runs-details > summary').click()
+  await expect(entry.locator('.output-facts').first()).toContainText('source document')
 
   // Diverge the live document, then reopen the run: the open action must
   // restore the EXACT producing document. Tab identity is the document
@@ -183,7 +180,7 @@ test('a durable stamped record: click selects, the open action reopens the produ
   })
   const tabsBefore = await page.evaluate(() => window.__dinksterTest!.app.tabs.get().length)
   await entry.locator('[data-testid=collection-action][data-action=open]').click()
-  await expect(page.getByTestId('library-overlay')).not.toBeVisible()
+  await expect(page.getByTestId('runs-panel')).toBeVisible()
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes['grad']!.values['width'],
   )).toBe(8)
@@ -245,7 +242,8 @@ test('delete removes the record only: the collection re-pages and asset bytes su
   const entry = entryFor(page, jobId)
   await expect(entry).toHaveCount(1)
   await entry.click()
-  const sourceDoc = await entry.getByTestId('collection-details').locator('dd')
+  await entry.locator('.runs-details > summary').click()
+  const sourceDoc = await entry.locator('.output-facts').first().locator('dd')
     .filter({ hasText: /^blake3:/ }).first().textContent()
   expect(sourceDoc).toMatch(/^blake3:[0-9a-f]{64}$/)
 
@@ -263,6 +261,8 @@ test('delete removes the record only: the collection re-pages and asset bytes su
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=100`)).json() as
     { records: { jobId: string }[] }
   expect(listing.records.some((r) => r.jobId === jobId)).toBe(false)
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await expect(page.getByTestId('runs-panel').getByTestId('execution-row')).toHaveCount(0)
 })
 
 test('a delete failure lands in Problems and keeps the record', async ({ page }) => {
@@ -280,6 +280,8 @@ test('a delete failure lands in Problems and keeps the record', async ({ page })
   await remove.click()
   await expect(page.getByTestId('problems-panel')).toContainText('history.deleteFailed')
   await expect(entry).toHaveCount(1)
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await expect(page.getByTestId('runs-panel').getByTestId('execution-row')).toHaveCount(1)
 })
 
 test('runs lingering through a backend switch can never clear the incoming backend', async ({ page }) => {
@@ -327,7 +329,7 @@ test('runs lingering through a backend switch can never clear the incoming backe
   // impatient clicks cannot route a wipe to the incoming backend.
   const clear = page.getByTestId('collection-source-action')
   await expect(clear).toBeDisabled()
-  await expect(clear).toHaveText('Clear all') // never armed
+  await expect(clear).toHaveText('Clear finished') // never armed
   await expect(entryFor(page, jobId)).toHaveCount(1)
   expect(clearCalls).toEqual([])
 
@@ -348,19 +350,24 @@ nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ p
   await assets.getByTestId('collection-search').fill('run-history-clear-empty-state')
   await expect(assets.getByTestId('collection-empty')).toBeVisible()
   await openRuns(page)
-  await expect(assets).toBeHidden()
-  await expect(page.getByTestId('collection-entry').first()).toBeVisible()
+  await expect(assets).toBeVisible()
+  const runs = page.getByTestId('runs-panel')
+  await expect(runs.getByTestId('collection-entry').first()).toBeVisible()
 
-  const clear = page.getByTestId('collection-source-action')
-  await expect(clear).toHaveText('Clear all')
+  const clear = runs.getByTestId('collection-source-action')
+  await expect(clear).toHaveText('Clear finished')
   await clear.click()
   // Armed, not executed: entries survive the first click.
   await expect(clear).toHaveText('Confirm clear')
-  await expect(page.getByTestId('collection-entry').first()).toBeVisible()
+  await expect(runs.getByTestId('runs-clear-confirmation')).toHaveText('Removes every finished run on this backend, for all workflows. Saved files stay.')
+  await expect(runs.getByTestId('collection-entry').first()).toBeVisible()
 
   await clear.click()
-  await expect(page.getByTestId('library-overlay').getByTestId('collection-empty')).toBeVisible({ timeout: 10_000 })
+  await expect(runs.getByTestId('collection-empty')).toBeVisible({ timeout: 10_000 })
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=10`)).json() as
     { records: unknown[] }
   expect(listing.records).toHaveLength(0)
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await expect(runs.getByTestId('execution-row')).toHaveCount(0)
+  await expect(runs).toContainText('No runs for this workflow')
 })

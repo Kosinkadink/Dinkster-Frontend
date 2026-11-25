@@ -27,9 +27,8 @@ interface DirectedGraph {
 }
 
 /**
- * Collapse reroutes, selectors, widget taps, and named nets into directed
- * real-node edges. Selectors expand through every defined candidate: this is
- * authored topology, independent of the policy chosen by a later compile.
+ * Collapse reroutes, widget taps, and named nets into directed real-node
+ * edges. This is authored topology, independent of any later compile.
  */
 function directedGraph(def: GraphDef): DirectedGraph {
   const ids = Object.keys(def.nodes).sort()

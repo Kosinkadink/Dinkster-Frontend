@@ -158,7 +158,7 @@ export function packsSource(app: AppState): CollectionSource {
           ],
           ...(info.icon !== undefined && backend !== undefined
             ? { thumbRender: async (signal?: AbortSignal) => {
-                if (signal === undefined) throw new Error('Pack preview ownership unavailable')
+                if (signal === undefined) throw new Error('Pack preview request unavailable')
                 const blob = await backend.connection.fetchPackIcon(packId, signal)
                 signal.throwIfAborted()
                 const url = URL.createObjectURL(blob)
@@ -286,7 +286,7 @@ export function templatesSource(app: AppState): CollectionSource {
             ...(thumbUrl === undefined ? {} : { thumbUrl }),
             ...(remoteTemplate === undefined && template.thumbnail !== undefined ? {
               thumbRender: async (signal?: AbortSignal) => {
-                if (signal === undefined) throw new Error('Template preview ownership unavailable')
+                if (signal === undefined) throw new Error('Template preview request unavailable')
                 const blob = await backend.connection.fetchTemplateThumbnail(template.pack, template.id, signal)
                 signal.throwIfAborted()
                 const url = URL.createObjectURL(blob)
@@ -421,7 +421,7 @@ const interruptedPhaseText = (r: HistoryRunRecord): string =>
 /** Text-first display of one durable run record. */
 const runEntry = (r: HistoryRunRecord, owner: string): CollectionEntry => ({
   id: r.runId,
-  ref: r.runId,
+  ref: r,
   owner,
   title: `${titleCase(r.state)} run`,
   subtitle: `${timeText(r.finishedAt)} - ${r.jobId}`,
@@ -475,9 +475,14 @@ export interface RunHistoryRow {
   readonly id: string
 }
 
+/** The durable record stays attached to grouped rows without loading job outputs. */
+export const historyRunOfEntry = (entry: CollectionEntry): HistoryRunRecord | undefined =>
+  typeof entry.ref === 'object' && entry.ref !== null && 'runId' in entry.ref
+    ? entry.ref as HistoryRunRecord : undefined
+
 /** Resolve the durable run id carried through a synthetic grouped row. */
 export const runIdOfEntry = (entry: CollectionEntry): string =>
-  typeof entry.ref === 'string' ? entry.ref : entry.id
+  historyRunOfEntry(entry)?.runId ?? entry.id
 
 const noOpIdentity = (record: HistoryRunRecord): string | undefined =>
   record.state === 'completed' && record.executed === 0 && record.cached > 0

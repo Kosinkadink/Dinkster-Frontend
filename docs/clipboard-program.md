@@ -5,9 +5,8 @@ documented in [clipboard.md](clipboard.md). It covers Cut, cross-instance graph
 paste, ComfyUI node paste, and a media clipboard inspired by ComfyUI clipspace.
 It does not promise implementation or a mask editor.
 
-Research was performed against the local ComfyUI frontend and backend source
-and against the running Dinkster frontend on `:5199` and native backend on
-`:8765` on 2026-07-28. No server was restarted.
+The ComfyUI findings below were collected from frontend and backend source
+on 2026-07-28.
 
 ## 1. What ComfyUI clipspace actually is
 
@@ -133,34 +132,6 @@ the editor design rather than a ready integration contract.
 
 ## 2. Dinkster cross-instance graph paste today
 
-### Empirical result
-
-An inline headless Playwright run opened Chromium on the running `:5199`
-frontend with clipboard permission and exercised the keyboard-shortcut copy
-path. Synthetic unknown-node fixtures carried an AssetRef-shaped value, a
-remote-combo-like string, and a `#g1` subgraph instance. Reading the system
-clipboard returned version 1 `dinkster-clipboard` JSON in `text/plain`, including
-the full shaped value and string but only the `#g1` instance, not its
-definition. A representative payload fragment was:
-
-```json
-{"format":"dinkster-clipboard","version":1,"nodes":[{"data":{"type":"UnknownAssetNode","values":{"image":{"digest":"blake3:...","mediaType":"image/png","virtualPath":"images/source.png"}}}},{"data":{"type":"UnknownRemoteCombo","values":{"model":"remote-choice.safetensors"}}},{"data":{"type":"#g1","values":{"prompt":"preserved override"}}}]}
-```
-
-This proves shortcut-path JSON serialization of those synthetic values only.
-It does not prove AssetWidget behavior, asset-byte availability,
-remote-option resolution, executable schema availability, or target paste.
-
-Attempts to drive the corresponding paste into a separate empty browser
-context were inconclusive: isolated browser contexts did not reliably share
-the host clipboard, and synthetic canvas keyboard input did not provide an
-independent proof of the target transaction. The survival and rejection rules
-below therefore combine the directly observed system payload with the cited
-serializer, validator, and paste-planner source. They are not reported as an
-empirically completed cross-context paste. Existing E2E coverage independently
-proves a same-origin cross-document system-clipboard paste for ordinary nodes.
-No server was restarted or mutated during this research.
-
 ### Exact envelope and survival rules
 
 Copy writes JSON with:
@@ -194,8 +165,8 @@ What survives across processes:
   rejects the whole paste. Worse, an unrelated target definition with the same
   ID can capture the instance reference. Numeric definition IDs are
   document-local, not portable identities.
-- Named nets, surfaces, selectors, value sources, boundary bindings, and links
-  crossing outside the selection do not survive.
+- Named nets, surfaces, boundary bindings, and links crossing outside the
+  selection do not survive.
 
 The in-memory fallback is per page JavaScript realm. It helps a denied read
 after a copy in the same page, but cannot rescue another tab or process. True
@@ -297,8 +268,7 @@ Recommended converter pipeline:
    source node, link, value, geometry, or semantic construct was dropped or
    unresolved blocks commit.
 6. Preflight the imported result against what `DinksterClipboardEnvelope` can
-   represent. The first slice must reject PrimitiveNode-derived value sources,
-   Set/Get-derived named nets, notes, and any other root constructs the native
+   represent. The first slice must reject Set/Get-derived named nets, notes, and any other root constructs the native
    envelope cannot carry. For the ordinary-node subset, convert the imported
    root graph to an envelope and use the existing one-command paste planner for
    fresh IDs, positioning, undo, shared-session allocation, and ownership
@@ -326,7 +296,7 @@ Cut should compose the existing serializer, clipboard writer, and deletion
 commands rather than introduce a second envelope. Version 1 must be limited to
 entity kinds the envelope actually represents. Today CanvasHost copy supplies
 nodes and reroutes, while selection deletion can also remove standalone links,
-net sinks, boundary bindings, value sources, and selectors. Deleting the live
+net sinks, and boundary bindings. Deleting the live
 selection after serializing only part of it would lose uncopied content.
 
 Recommended contract:
@@ -335,8 +305,8 @@ Recommended contract:
    dry-run the exact delete command to derive its complete deletion and
    modification closure. Refuse Cut when the selection or closure contains
    anything the payload does not represent: unsupported selected kinds,
-   boundary-crossing links, named nets or sinks, boundary bindings, value
-   sources, selectors, surviving dynamic-node compaction, or any other
+   boundary-crossing links, named nets or sinks, boundary bindings, surviving
+   dynamic-node compaction, or any other
    cascading record change. Internal links are allowed because the
    self-contained payload represents them. Groups can join only when the UI
    actually supplies them to both serializer and deletion path.
@@ -406,7 +376,7 @@ image/mask editor and bundle semantics.
 10. Should v1 refuse every Cut with boundary-crossing links (recommended), or
     does the product require a reconnect-stub representation before Cut ships?
 11. Is v1 Cut limited to nodes and reroutes, or must standalone links, groups,
-    value sources, selectors, nets, and boundary bindings become portable too?
+    nets, and boundary bindings become portable too?
     Should a mixed supported/unsupported selection block the whole Cut
     (recommended)?
 12. Must any document revision change cancel Cut, including an unrelated

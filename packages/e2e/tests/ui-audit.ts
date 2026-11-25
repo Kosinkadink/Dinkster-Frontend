@@ -3,11 +3,6 @@
  * surfaces (editor cards, dialogs, panels), so visual wreckage cannot hide
  * behind behaviorally green tests.
  *
- * Born from the 2026-07-25 asset editor field failure: every behavioral
- * assertion passed while the real editor rendered a 30px item sliver, a
- * 220x184px Choose button overlapping it, 68px-tall toolbar selects, and an
- * 18px search input. Each of those states violates an invariant below.
- *
  * The audit returns human-readable findings; specs assert the list is
  * empty, so a failure prints exactly what is visually wrong and where.
  */

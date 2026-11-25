@@ -117,6 +117,7 @@ export function ProductConfirmation(props: {
   actionLabel: string
   intent: ProductRole
   pending?: boolean
+  disabled?: boolean
   onConfirm: () => void
   onCancel: () => void
 }) {
@@ -131,6 +132,7 @@ export function ProductConfirmation(props: {
         <ProductButton
           fill="solid"
           intent={props.intent}
+          disabled={props.disabled === true}
           pending={props.pending === true}
           onClick={props.onConfirm}
         >

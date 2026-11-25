@@ -133,6 +133,7 @@ export interface CanvasLayerNode {
 
 export interface CanvasLayerContext {
   readonly context: CanvasRenderingContext2D
+  readonly colors?: Readonly<{ canvasBackground: string; gridDot: string }>
   readonly viewport: Readonly<{ x: number; y: number; width: number; height: number; scale: number }>
   readonly nodes: readonly CanvasLayerNode[]
 }
@@ -158,9 +159,12 @@ export interface NodeDecorationBadge {
   readonly fallbackGlyph?: string
   readonly variant?: 'label'
   readonly appearance?: 'policy'
+  /** A tab above the node (the default) or below it. */
   readonly placement?: 'above' | 'below'
   readonly interactive?: false
   readonly color: string
+  /** Name of an icon the canvas paints, such as 'info', shown before the words. */
+  readonly icon?: string
 }
 
 export interface NodeDecoration {

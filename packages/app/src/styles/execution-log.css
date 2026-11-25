@@ -3,6 +3,23 @@
  * log's visual language (row grid, severity accents) with its own controls
  * row and tail-follow resume affordance.
  */
+.combined-log-feed {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.combined-log-feed[hidden] {
+  display: none;
+}
+
+.combined-log {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .execution-log {
   position: relative;
   flex: 1;
@@ -17,15 +34,15 @@
 /* Panel hosts scroll their whole panel by default; the execution log needs
    its LIST to be the scroll container so tail-follow can track the newest
    row without the controls scrolling out of view. */
-.dock-zone-tabs .product-tabpanel:has(> .execution-log),
-.floating-panel-content:has(> .execution-log),
-.native-panel-window-content:has(> .execution-log) {
+.dock-zone-tabs .product-tabpanel:has(> .execution-log, > .combined-log),
+.floating-panel-content:has(> .execution-log, > .combined-log),
+.native-panel-window-content:has(> .execution-log, > .combined-log) {
   display: flex;
   flex-direction: column;
   padding: 0;
   overflow: hidden;
 }
-.dock-zone-tabs .product-tabpanel[hidden]:has(> .execution-log) { display: none; }
+.dock-zone-tabs .product-tabpanel[hidden]:has(> .execution-log, > .combined-log) { display: none; }
 
 .execution-log-controls {
   flex: none;

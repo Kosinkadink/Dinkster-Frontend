@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, nativeAppViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const mp4 = readFileSync(new URL('../fixtures/media-overlay/with_metadata.mp4', import.meta.url))
 const png = readFileSync(new URL('../fixtures/media-overlay/with_metadata.png', import.meta.url))
@@ -18,7 +18,7 @@ async function install(
 ) {
   const requests: URL[] = []
   let strip = png
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'isolated video fixture' } }))
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 404, json: { error: 'isolated video fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'video-test', schemaWire: 2 }, nodes: {} } }))
@@ -55,7 +55,7 @@ async function install(
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined,
   ), { timeout: 15_000 }).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   strip = Buffer.from(await page.evaluate(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 640; canvas.height = 45
@@ -107,7 +107,7 @@ for (const appView of [false, true]) test(`VIDEO scrub, frames, outputs and pers
   const requests = await install(page)
   if (appView) {
     await page.getByTestId('views-switcher').click()
-    await page.getByRole('menuitemradio', { name: 'App view' }).click()
+    await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   }
   const controls = page.getByRole('group', { name: 'Video preview controls', exact: true })
   await expect(controls).toBeVisible()
@@ -236,7 +236,7 @@ for (const appView of [false, true]) for (const unknown of [false, true]) test(`
     : { duration: [1, 1], fps: [24, 1], frame_count: 1, frame_count_kind: 'estimated' } })
   if (appView) {
     await page.getByTestId('views-switcher').click()
-    await page.getByRole('menuitemradio', { name: 'App view' }).click()
+    await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   }
   const controls = page.getByRole('group', { name: 'Video preview controls', exact: true })
   const readout = controls.getByTestId('video-timing')
@@ -318,7 +318,7 @@ test('unshipped bounded renditions stay unavailable without original or disassem
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews().video?.statusMessage))
     .toBe('Video unavailable: No bounded video preview or poster is advertised')
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await expect(page.getByTestId('app-preview-status')).toHaveText('Video unavailable: No bounded video preview or poster is advertised')
   expect(requests.every((url) => !url.searchParams.has('rendition'))).toBe(true)
 })
@@ -338,7 +338,7 @@ test('keeps complete video rendition refusals visible in Canvas and App View', a
     .toContain('poster decoder unavailable (406, unavailable-rendition)')
   await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('video-rendition-refusal-canvas.png') })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await expect(page.getByTestId('app-preview-status')).toContainText('poster decoder unavailable (406, unavailable-rendition)')
   await page.getByTestId('app-preview-row').screenshot({ path: testInfo.outputPath('video-rendition-refusal-app.png') })
   expect(requests.some((url) => url.searchParams.get('rendition') === 'original')).toBe(false)
@@ -375,7 +375,7 @@ test('selected cloud-only VIDEO input explicitly waits for a bounded route in Ca
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews().input?.statusMessage)).toBe('Video input preview pending server route')
   await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('video-input-unavailable-canvas.png') })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await expect(page.getByTestId('app-preview-status')).toHaveText('Video input preview pending server route')
   await page.getByTestId('app-preview-row').screenshot({ path: testInfo.outputPath('video-input-unavailable-app.png') })
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before)

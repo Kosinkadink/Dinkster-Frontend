@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, mockProjectPacks, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as test, setShellRegion, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_PALETTE_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -91,7 +91,7 @@ async function installPaletteFixture(page: Page): Promise<void> {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined)).toBe(true)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async (fixtureSchemas) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas(fixtureSchemas)
@@ -133,7 +133,7 @@ test('palette insertion awaits acceptance without stealing newer selection or na
     app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
       ;(window as any).__completePalette = (accepted: boolean) => resolve(accepted
         ? dispatch(tab, invocation)
-        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Palette insertion refused for test' }] })
+        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.rejected', message: 'Palette insertion refused for test' }] })
     })
   })
   const state = () => page.evaluate(() => ({
@@ -311,8 +311,7 @@ test('result hierarchy, preview, scrolling, and popovers remain contained at des
   ]) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
     if (viewport.width === 360) {
-      const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
-      if (await railToggle.getAttribute('aria-pressed') === 'true') await railToggle.click()
+      await setShellRegion(page, 'right', false)
     }
     await openPalette(page, true)
     const palette = page.getByTestId('node-palette')

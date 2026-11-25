@@ -15,10 +15,6 @@ export const LOOKUP_ANSWER_MAX_BYTES = 1024 * 1024
 /** Guards against a connection that never answers; the host bounds the call itself. */
 const LOOKUP_NETWORK_LIMIT_MS = 120_000
 
-export type LookupScalar = bigint | number | boolean | string
-/** A typed argument: a value, a list of values, or an asset's wire object. */
-export type LookupArg = LookupScalar | readonly LookupScalar[] | Readonly<Record<string, unknown>>
-
 export interface LookupCall {
   /** A node type that declares the lookup; the host checks it does. */
   readonly nodeType: string
@@ -26,7 +22,8 @@ export interface LookupCall {
   readonly node: string
   /** The lookup's wire name, as declared. */
   readonly function: string
-  readonly args: readonly LookupArg[]
+  /** Typed arguments as JSON values (a whole number past 2^53 may be a bigint). */
+  readonly args: readonly unknown[]
 }
 
 export type LookupFailure =
@@ -52,7 +49,8 @@ export type LookupResult =
 
 export interface LookupPartition {
   readonly backend: string
-  readonly epoch: number
+  /** The host's schema epoch the editor holds; undefined until it holds one. */
+  readonly epoch: number | undefined
   readonly principal: number
 }
 
@@ -65,6 +63,11 @@ export interface LookupRequestOptions {
   readonly refresh?: boolean
   /** Default `edit`. A call already under way is shared whoever asked for it. */
   readonly askedBy?: LookupAsker
+  /**
+   * Whether an answer fits where it is used. One that does not is a wrong
+   * shape: the answer kept for these arguments stays, marked stale.
+   */
+  readonly accept?: (answer: unknown) => boolean
 }
 
 export interface LookupClient {
@@ -84,6 +87,16 @@ export interface LookupClient {
   subscribe(listener: () => void): () => void
   /** Make the kept answers of these functions (all when absent) old. */
   invalidate(functions?: readonly string[]): void
+  /**
+   * The host's files changed, so a file a call waited to have checked may be
+   * checked now: those calls are asked again when next shown.
+   */
+  filesChanged(): void
+  /**
+   * A run got `value` from these arguments. When the kept answer differs,
+   * that one call is old and is asked again when next shown.
+   */
+  answerRecorded(call: Pick<LookupCall, 'function' | 'args'>, value: unknown): void
   /** A different backend, catalog or user: drop every answer and call. */
   setPartition(partition: LookupPartition): void
   dispose(): void
@@ -156,7 +169,7 @@ const aborted = (): DOMException => new DOMException('lookup request aborted', '
 
 export function createLookupClient(config: LookupClientConfig): LookupClient {
   const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
-  let partition: LookupPartition = { backend: config.baseUrl, epoch: 0, principal: 0 }
+  let partition: LookupPartition = { backend: config.baseUrl, epoch: undefined, principal: 0 }
   let kept = new Map<string, Kept>()
   const nodeQueues = new Map<string, Promise<unknown>>()
   const listeners = new Set<() => void>()
@@ -180,7 +193,10 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
         method: 'POST',
         redirect: 'error',
         signal: both,
-        headers: { 'content-type': 'application/json', 'if-match': String(partition.epoch) },
+        headers: {
+          'content-type': 'application/json',
+          ...(partition.epoch === undefined ? {} : { 'if-match': String(partition.epoch) }),
+        },
         body: lookupArgsJson({
           nodeType: call.nodeType,
           function: call.function,
@@ -210,7 +226,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     return (body as { answer: unknown }).answer
   }
 
-  const start = (key: string, entry: Kept, call: LookupCall, askedBy: LookupAsker): Inflight => {
+  const start = (entry: Kept, call: LookupCall, askedBy: LookupAsker, accept?: (answer: unknown) => boolean): Inflight => {
     const controller = new AbortController()
     const owner = kept
     const before = entry.answer || entry.state.state !== 'loading' ? entry.state : undefined
@@ -222,6 +238,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       try {
         const answer = await ask(call, askedBy, controller.signal)
         if (kept !== owner) throw aborted()
+        if (accept !== undefined && !accept(answer)) throw new LookupFault('wrong-shape')
         entry.answer = { value: answer }
         entry.old = false
         return settle(entry, { state: 'ready', answer })
@@ -230,10 +247,9 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
         if (error instanceof Paused) {
           return settle(entry, entry.answer ? { state: 'paused', answer: entry.answer.value } : { state: 'paused' })
         }
-        if (error instanceof Superseded) {
-          owner.delete(key)
-          return settle(entry, { state: 'unavailable', reason: 'unknown' })
-        }
+        // The host moved to a newer catalog: wait, without asking again, for
+        // the editor to fetch it, which starts a new partition.
+        if (error instanceof Superseded) return settle(entry, { state: 'loading' })
         const reason = error instanceof LookupFault ? error.reason : 'failed'
         return settle(
           entry,
@@ -292,6 +308,22 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     }
   }
 
+  /** Kept answers that match become old; a failure with no answer is dropped, so showing it asks again. */
+  const makeOld = (matches: (key: readonly [string, ...unknown[]], entry: Kept) => boolean): void => {
+    let changed = false
+    for (const [key, entry] of kept) {
+      if (!matches(JSON.parse(key) as [string, ...unknown[]], entry)) continue
+      if (entry.answer) {
+        entry.old = true
+        changed = true
+      } else if (!entry.inflight) {
+        kept.delete(key)
+        changed = true
+      }
+    }
+    if (changed) notify()
+  }
+
   const request = (call: LookupCall, options: LookupRequestOptions = {}): Promise<LookupEntry> => {
     const key = keyOf(call)
     let entry = kept.get(key)
@@ -302,7 +334,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       entry = { state: { state: 'loading' }, old: false }
       kept.set(key, entry)
     }
-    if (!entry.inflight) entry.inflight = start(key, entry, call, options.askedBy ?? 'edit')
+    if (!entry.inflight) entry.inflight = start(entry, call, options.askedBy ?? 'edit', options.accept)
     return join(key, entry, entry.inflight, options.signal)
   }
 
@@ -331,19 +363,16 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     },
     invalidate(functions) {
       const names = functions ? new Set(functions) : undefined
-      let changed = false
-      for (const [key, entry] of kept) {
-        const name = (JSON.parse(key) as [string])[0]
-        if (names && !names.has(name)) continue
-        if (entry.answer) {
-          entry.old = true
-          changed = true
-        } else if (!entry.inflight) {
-          kept.delete(key)
-          changed = true
-        }
-      }
-      if (changed) notify()
+      makeOld(([name]) => names === undefined || names.has(name))
+    },
+    filesChanged() {
+      makeOld((_key, entry) => 'reason' in entry.state && entry.state.reason === 'file-unchecked')
+    },
+    answerRecorded(call, value) {
+      const entry = kept.get(keyOf(call))
+      if (entry?.answer === undefined || entry.old || lookupArgsJson(entry.answer.value) === lookupArgsJson(value)) return
+      entry.old = true
+      notify()
     },
     setPartition(next) {
       if (

@@ -23,23 +23,34 @@
   },
   "dark": {
     "bg": {
-      "canvas": "#111316",
-      "surface": "#1C1F23",
-      "raised": "#282C31",
-      "hover": "#343940"
+      "frame": "#090D0D",
+      "field": "#0B1111",
+      "fieldOpen": "#060A0A",
+      "canvas": "#0E1414",
+      "surface": "#141C1D",
+      "raised": "#1E292A",
+      "quiet": "#192223",
+      "hover": "#283537",
+      "pressed": "#324143",
+      "activeTabTint": "rgba(120, 205, 210, 0.08)"
     },
     "border": {
-      "default": "#3B4148",
-      "hover": "#5B636C"
+      "default": "#324143",
+      "hover": "#4F6265",
+      "pending": "#4F6265",
+      "skipped": "#74888B",
+      "divider": "#222E2F",
+      "faint": "#1B2526",
+      "group": "#435557"
     },
     "text": {
-      "primary": "#F2F4F5",
-      "secondary": "#AAB3BC",
-      "muted": "#7D8792"
+      "primary": "#F0F5F5",
+      "secondary": "#A4B5B7",
+      "muted": "#74888B"
     },
     "action": {
       "primaryBg": "#32E6C5",
-      "primaryText": "#111316"
+      "primaryText": "#0E1414"
     },
     "status": {
       "success": "#32E6A5",
@@ -50,14 +61,25 @@
   },
   "light": {
     "bg": {
+      "frame": "#EDEFF2",
+      "field": "#F7F8FA",
+      "fieldOpen": "#F7F8FA",
       "canvas": "#F7F8FA",
       "surface": "#FFFFFF",
       "raised": "#EDEFF2",
-      "hover": "#E4E8EC"
+      "quiet": "#F6F7F9",
+      "hover": "#E4E8EC",
+      "pressed": "#D3D9DE",
+      "activeTabTint": "rgba(120, 205, 210, 0.08)"
     },
     "border": {
       "default": "#D3D9DE",
-      "hover": "#9EA6AE"
+      "hover": "#9EA6AE",
+      "pending": "#5C5C5C",
+      "skipped": "#7D8792",
+      "divider": "#D3D9DE",
+      "faint": "#E9ECEE",
+      "group": "#D3D9DE"
     },
     "text": {
       "primary": "#20252A",

@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, selectProductOption, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CANVAS_WHEEL_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -48,8 +48,8 @@ test('smooth wheel zoom accumulates input, yields to manual navigation and persi
   await page.route('/supervisor/**', (route) => route.fulfill({ status: 404 }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('connected')
-  await waitForStartupOwnership(page)
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
+  await waitForWorkspaceReady(page)
   await page.clock.install()
   await page.clock.pauseAt(new Date(Date.now() + 100))
   const start = { x: 20, y: -10, scale: 1.25 }
@@ -124,11 +124,11 @@ test('smooth wheel zoom accumulates input, yields to manual navigation and persi
   await setViewport(page, start)
   await wheel(page, { ...point, deltaX: 0, deltaY: -120 })
   expect((await viewport(page)).scale).toBeCloseTo(start.scale * Math.exp(120 * 0.0012), 10)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.reload()
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.settings.get('canvas.smoothWheelZoom'))).toBe(false)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.smoothWheelZoom', true))
-  await page.emulateMedia({ reducedMotion: 'reduce' })
   await setViewport(page, start)
   await wheel(page, { ...point, deltaX: 0, deltaY: -120 })
   expect((await viewport(page)).scale).toBeCloseTo(start.scale * Math.exp(120 * 0.0012), 10)
@@ -137,8 +137,8 @@ test('smooth wheel zoom accumulates input, yields to manual navigation and persi
 test('canvas wheel policy preserves default zoom and adds persisted two-axis pan', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
-  await expect(page.getByTestId('status-bar')).toContainText('connected')
-  await waitForStartupOwnership(page)
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
+  await waitForWorkspaceReady(page)
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const documentBefore = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
   const point = { screenX: 320, screenY: 240 }

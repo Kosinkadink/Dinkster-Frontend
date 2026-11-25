@@ -7,10 +7,9 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildDinksterRegistry, type RetainedAssets } from '@dinkster/client'
+import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
 import { asPromptId, diag, type DinksterNodesPayload } from '@dinkster/core'
-import { retainExecutionAssets } from '../src/workflow-asset-retention.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
@@ -62,8 +61,6 @@ const CHAIN_DOC = {
 async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab }> {
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
-  vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
   expect((await app.openDocument(CHAIN_DOC, 'Chain'))).toEqual([])
   const tab = app.activeTab()!
@@ -72,205 +69,6 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 }
 
 describe('live preview policy on submit', () => {
-  it.each(['direct', 'consent', 'rejected', 'disconnected', 'reconnected-before-ack'] as const)(
-    'keeps cached source receipts until their own result replaces them: %s', async (route) => {
-      const { backend, tab } = await nativeSetup()
-      const digest = `blake3:${'a'.repeat(64)}`
-      vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(digest)
-      const receipts = new Map<string, RetainedAssets>()
-      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
-        const receipt = { ...owner, revision: revision + 1, complete: true, digests: [] }
-        receipts.set(owner.ownerId, receipt)
-        return receipt
-      })
-      let sequence = 0
-      vi.spyOn(backend.connection, 'submit').mockImplementation(async () => {
-        if (route === 'rejected') return { ok: false, diagnostics: [] }
-        if (route === 'reconnected-before-ack') {
-          ;(backend.connection.status as unknown as { set(value: string): void })
-            .set(sequence === 0 ? 'reconnecting' : 'disconnected')
-        }
-        const accepted = { ok: true as const,
-          execution: { connection: backend.id, prompt: asPromptId(`source-${++sequence}`) } }
-        return route === 'consent' ? { ok: false as const, diagnostics: [],
-          assetsMissing: { error: 'assets-missing' as const,
-            assets: [{ digest, name: 'Source', status: 'missing' as const, sources: [], fetchable: false }] },
-          retryWithAssets: async () => accepted } : accepted
-      })
-      const sources = () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
-        .filter((key) => key.includes('workflow-retentions.'))
-        .map((key) => ({ key, value: JSON.parse(localStorage.getItem(key)!) }))
-        .filter(({ value }) => value.owner.ownerKind === 'document' && value.digests.includes(digest))
-      for (let index = 0; index < 2; index++) {
-        await app.queue(tab)
-        if (route === 'consent') await app.assetConsent.get()!.retry([digest])
-      }
-      const captured = sources()
-      expect(captured).toHaveLength(2)
-      expect(captured.every(({ value }) => value.acknowledgedRevision === 1 && value.releaseRevision === undefined)).toBe(true)
-      const executions = [...app.store.executions.get().values()]
-      if (route === 'rejected') {
-        expect(executions).toHaveLength(0)
-        return
-      }
-      expect(executions).toHaveLength(2)
-      expect(executions.map((state) => state.sourceDocument)).toEqual([digest, digest])
-      if (route === 'disconnected') {
-        ;(backend.connection.status as unknown as { set(value: string): void }).set('reconnecting')
-      }
-      const first = executions[0]!.ref
-      const uncovered = await retainExecutionAssets(backend.connection, first, { complete: true, digests: [] })
-      app.store.recordAssetRetentions(first, [uncovered])
-      expect(sources().every(({ value }) => value.releaseRevision === undefined)).toBe(true)
-      const incomplete = await retainExecutionAssets(backend.connection, first, { complete: false, digests: [digest] })
-      app.store.recordAssetRetentions(first, [incomplete])
-      expect(sources().every(({ value }) => value.releaseRevision === undefined)).toBe(true)
-      const complete = await retainExecutionAssets(backend.connection, first, { complete: true, digests: [digest] })
-      app.store.recordAssetRetentions(first, [complete])
-      if (route === 'disconnected' || route === 'reconnected-before-ack') {
-        expect(sources().every(({ value }) => value.releaseRevision === undefined)).toBe(true)
-      } else {
-        await vi.waitFor(() => {
-          expect(localStorage.getItem(captured[0]!.key)).toBeNull()
-          expect(receipts.get(captured[0]!.value.owner.ownerId)).toEqual({ ...captured[0]!.value.owner,
-            revision: captured[0]!.value.acknowledgedRevision + 1, complete: true, digests: [] })
-        })
-        expect(JSON.parse(localStorage.getItem(captured[1]!.key)!).releaseRevision).toBeUndefined()
-        const second = executions[1]!.ref
-        const replacement = await retainExecutionAssets(backend.connection, second, { complete: true, digests: [digest] })
-        app.store.recordAssetRetentions(second, [replacement])
-        await vi.waitFor(() => {
-          expect(localStorage.getItem(captured[1]!.key)).toBeNull()
-          expect(receipts.get(captured[1]!.value.owner.ownerId)).toEqual({ ...captured[1]!.value.owner,
-            revision: captured[1]!.value.acknowledgedRevision + 1, complete: true, digests: [] })
-        })
-      }
-    },
-  )
-
-  it('queues a full workflow with transient placement for selected root nodes', async () => {
-    const { backend, tab } = (await nativeSetup())
-    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
-    backend.registry.set({ ...backend.registry.get()!, graphFeatures: ['placement'] })
-    backend.workerCatalog.set({
-      status: 'ready',
-      workers: [{
-        name: 'render-box',
-        status: 'connected',
-        routedNodeTypes: ['std.math.add_ints'],
-        deviceQualifiers: ['@render-box'],
-      }],
-    })
-    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
-    const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
-      ok: false,
-      diagnostics: [diag('error', 'validation', 'submit.expected', 'stop after POST')],
-    })
-
-    await app.queueOnWorker(tab, ['n0'], 'render-box')
-
-    expect(submit).toHaveBeenCalledTimes(1)
-    expect(submit.mock.calls[0]![0].scope).toEqual({ kind: 'full' })
-    expect(submit.mock.calls[0]![1]).toMatchObject({ placement: { n0: 'render-box' } })
-  })
-
-  it('refuses placement when the worker catalog changes during the source-document upload', async () => {
-    const { backend, tab } = (await nativeSetup())
-    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
-    backend.registry.set({ ...backend.registry.get()!, graphFeatures: ['placement'] })
-    backend.workerCatalog.set({
-      status: 'ready',
-      workers: [{ name: 'render-box', status: 'connected', routedNodeTypes: ['std.math.add_ints'], deviceQualifiers: [] }],
-    })
-    let resolveUpload!: (digest: string) => void
-    const upload = vi.spyOn(backend.connection, 'uploadAsset').mockImplementation(
-      () => new Promise((resolve) => { resolveUpload = resolve }),
-    )
-    const submit = vi.spyOn(backend.connection, 'submit')
-
-    const queue = app.queueOnWorker(tab, ['n0'], 'render-box')
-    await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(1))
-    backend.workerCatalog.set({
-      status: 'ready',
-      workers: [{ name: 'render-box', status: 'connected', routedNodeTypes: [], deviceQualifiers: [] }],
-    })
-    resolveUpload('blake3:' + 'a'.repeat(64))
-    await queue
-
-    expect(submit).not.toHaveBeenCalled()
-    expect(app.problems.get().some((problem) => problem.code === 'submit.workerUnavailable')).toBe(true)
-  })
-
-  it('refuses placement when the connection changes during the source-document upload', async () => {
-    const { backend, tab } = (await nativeSetup())
-    let connectionStatus = 'connected' as 'connected' | 'reconnecting'
-    vi.spyOn(backend.connection.status, 'get').mockImplementation(() => connectionStatus)
-    backend.registry.set({ ...backend.registry.get()!, graphFeatures: ['placement'] })
-    backend.workerCatalog.set({
-      status: 'ready',
-      workers: [{ name: 'render-box', status: 'connected', routedNodeTypes: ['std.math.add_ints'], deviceQualifiers: [] }],
-    })
-    let resolveUpload!: (digest: string) => void
-    const upload = vi.spyOn(backend.connection, 'uploadAsset').mockImplementation(
-      () => new Promise((resolve) => { resolveUpload = resolve }),
-    )
-    const submit = vi.spyOn(backend.connection, 'submit')
-
-    const queue = app.queueOnWorker(tab, ['n0'], 'render-box')
-    await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(1))
-    connectionStatus = 'reconnecting'
-    resolveUpload('blake3:' + 'a'.repeat(64))
-    await queue
-
-    expect(submit).not.toHaveBeenCalled()
-    expect(app.problems.get().some((problem) => problem.code === 'submit.workerUnavailable')).toBe(true)
-  })
-
-  it('refuses an asset-consent retry after its selected worker becomes unavailable', async () => {
-    const { backend, tab } = (await nativeSetup())
-    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
-    backend.registry.set({ ...backend.registry.get()!, graphFeatures: ['placement'] })
-    backend.workerCatalog.set({
-      status: 'ready',
-      workers: [{ name: 'render-box', status: 'connected', routedNodeTypes: ['std.math.add_ints'], deviceQualifiers: [] }],
-    })
-    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
-    const retryWithAssets = vi.fn()
-    vi.spyOn(backend.connection, 'submit').mockResolvedValue({
-      ok: false,
-      diagnostics: [],
-      assetsMissing: {
-        error: 'assets-missing',
-        assets: [{ digest: 'blake3:model', name: 'Model', status: 'missing', sources: [], fetchable: false }],
-      },
-      retryWithAssets,
-    })
-
-    await app.queueOnWorker(tab, ['n0'], 'render-box')
-    const consent = app.assetConsent.get()
-    expect(consent).toBeDefined()
-    backend.workerCatalog.set({ status: 'ready', workers: [] })
-    await consent!.retry(['blake3:model'])
-
-    expect(retryWithAssets).not.toHaveBeenCalled()
-    expect(app.assetConsent.get()).toBeUndefined()
-    expect(app.problems.get().some((problem) => problem.code === 'submit.workerUnavailable')).toBe(true)
-  })
-
-  it('refuses a disconnected worker before compiling or submitting', async () => {
-    const { backend, tab } = (await nativeSetup())
-    backend.workerCatalog.set({
-      status: 'ready',
-      workers: [{ name: 'render-box', status: 'disconnected', routedNodeTypes: ['std.math.add_ints'], deviceQualifiers: [] }],
-    })
-    const submit = vi.spyOn(backend.connection, 'submit')
-
-    await app.queueOnWorker(tab, ['n0'], 'render-box')
-
-    expect(submit).not.toHaveBeenCalled()
-    expect(app.problems.get().some((problem) => problem.code === 'submit.workerUnavailable')).toBe(true)
-  })
-
   it('sends the execution.previews setting as the previews mode', async () => {
     const { backend, tab } = (await nativeSetup())
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))

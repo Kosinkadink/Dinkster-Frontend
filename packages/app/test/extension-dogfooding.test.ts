@@ -25,7 +25,7 @@ describe('core extension door dogfooding', () => {
     expect(app.settingsOpenRequest.get()).toBeUndefined()
     expect(app.modalPanel.get()).toBe('settings')
     app.commands.get('layout.customize')!.run()
-    expect(app.modalPanel.get()).toBe('customize-layout')
+    expect(app.layoutMenuRequests.get()).toBe(1)
   })
 
   it('cancels window work through a bindable command even without an active workflow', async () => {
@@ -68,10 +68,10 @@ describe('core extension door dogfooding', () => {
     const node = { documentId: 'doc', graphId: 'g0', id: 'n0', type: 'X', title: 'Example' }
     expect(mode.decorate({ ...node, mode: 'active' })).toBeUndefined()
     expect(mode.decorate({ ...node, mode: 'muted' })?.badges).toEqual([
-      expect.objectContaining({ id: 'core.mode.muted', glyph: 'Muted', variant: 'label', interactive: false }),
+      expect.objectContaining({ id: 'core.mode.muted', glyph: 'Muted', placement: 'above', icon: 'volume-x', interactive: false }),
     ])
     expect(mode.decorate({ ...node, mode: 'bypassed' })?.badges).toEqual([
-      expect.objectContaining({ id: 'core.mode.bypassed', glyph: 'Bypassed', variant: 'label', interactive: false }),
+      expect.objectContaining({ id: 'core.mode.bypassed', glyph: 'Bypassed', placement: 'above', icon: 'forward', interactive: false }),
     ])
   })
 })

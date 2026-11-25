@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+from palette import PALETTE
+
 from compare_small_optical import connectivity
 from PIL import Image, ImageDraw, ImageFont
 
@@ -21,12 +23,12 @@ CHANNEL_PIXELS = {
 
 def main():
     font = ImageFont.truetype("DejaVuSans.ttf", 17)
-    sheet = Image.new("RGB", (2100, 2380), "#E4E8EC")
+    sheet = Image.new("RGB", (2100, 2380), PALETTE["light"]["bg"]["hover"])
     draw = ImageDraw.Draw(sheet)
     draw.text(
         (20, 16),
         "EXACT SOURCE / VETOED WIDE CUTS / MINIMAL PIXEL PROPOSAL - native and 12x; full-size D frozen",
-        fill="#1F242A",
+        fill=PALETTE["light"]["text"]["primary"],
         font=font,
     )
     output = ROOT / "previews/small-minimal"
@@ -52,8 +54,18 @@ def main():
                     image.putpixel(point, (r, g, b, 0))
             image.save(output / f"{variant}-{size}.png")
         for theme, background, foreground, y in (
-            ("dark", "#111316", "#F2F4F5", 60),
-            ("light", "#F7F8FA", "#1F242A", 1210),
+            (
+                "dark",
+                PALETTE["dark"]["bg"]["canvas"],
+                PALETTE["dark"]["text"]["primary"],
+                60,
+            ),
+            (
+                "light",
+                PALETTE["light"]["bg"]["canvas"],
+                PALETTE["light"]["text"]["primary"],
+                1210,
+            ),
         ):
             draw.rectangle((x + 10, y, x + 1039, y + 1130), fill=background)
             draw.text(
@@ -87,7 +99,13 @@ def main():
                         ink = Image.new(
                             "RGBA",
                             image.size,
-                            "#32E6C5" if variant == "cyan" else foreground,
+                            PALETTE["brand"][
+                                "cyan"
+                                if variant == "cyan"
+                                else "offWhite"
+                                if theme == "dark"
+                                else "ink"
+                            ]["$value"],
                         )
                         ink.putalpha(image.getchannel("A"))
                         image = ink

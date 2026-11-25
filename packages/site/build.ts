@@ -46,6 +46,10 @@ await writeFile(
   new URL('desktop-library.html', dist),
   `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'"><link rel="stylesheet" href="./assets/${styles[0]}">${modulePreloads('src/desktop-library.tsx', './')}<title>Projects | Dinkster Desktop</title></head><body class="dinkster-root" data-theme="dark"><div id="desktop-library-root"></div><script type="module" src="./desktop-library.js"></script></body></html>\n`,
 )
+await writeFile(
+  new URL('desktop-environments.html', dist),
+  `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'"><link rel="stylesheet" href="./assets/${styles[0]}">${modulePreloads('src/desktop-environments.tsx', './')}<title>Environments | Dinkster Desktop</title></head><body class="dinkster-root" data-theme="dark"><div id="desktop-environments-root"></div><script type="module" src="./desktop-environments.js"></script></body></html>\n`,
+)
 const { callbackTemplate } = await import(
   new URL('.callback/callback.js', dist).href
 )
@@ -139,13 +143,18 @@ await writeFile(
       installer: 'desktop-chrome.js',
       css: chromeCss.toString(),
       native: {
+        minimumWidth: {
+          linux: components.layout.toolbarMinimumWidthLinux,
+          darwin: components.layout.toolbarMinimumWidthMac,
+          win32: components.layout.toolbarMinimumWidthWindows,
+        },
         overlay: Object.fromEntries(
           (['dark', 'light'] as const).map((theme) => {
             const tokens = semanticTokensForTheme(theme)
             return [
               theme,
               {
-                color: tokens.surface.panel,
+                color: tokens.surface.frame,
                 symbolColor: tokens.text.primary,
                 height: components.layout.topBarHeight,
               },

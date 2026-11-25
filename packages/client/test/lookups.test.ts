@@ -60,6 +60,50 @@ describe('lookup client', () => {
     expect(host.seen).toHaveLength(2)
   })
 
+  it('asks again for a file the host had not checked when its files change, and only for that', async () => {
+    const host = fakeHost()
+    const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })
+    const unchecked = client.request(call('n0', 'local'))
+    await host.answer(409, { error: 'lookup-file-unchecked' })
+    expect(await unchecked).toEqual({ state: 'unavailable', reason: 'file-unchecked' })
+    const failed = client.request(call('n1', 'broken'))
+    await host.answer(500, { error: 'lookup-failed' })
+    expect(await failed).toEqual({ state: 'unavailable', reason: 'failed' })
+    client.filesChanged()
+    // The failure that is not about a file stays until Try again.
+    expect(client.entry(call('n1', 'broken'))).toEqual({ state: 'unavailable', reason: 'failed' })
+    expect(client.entry(call('n0', 'local'))).toBeUndefined()
+    const again = client.request(call('n0', 'local'))
+    await host.answer(200, { answer: ['checked'] })
+    expect(await again).toEqual({ state: 'ready', answer: ['checked'] })
+    expect(host.seen.map((seen) => seen.args)).toEqual([['local'], ['broken'], ['local']])
+  })
+
+  it('asks again only for the call a run got another answer from', async () => {
+    const host = fakeHost()
+    const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })
+    const sd = client.request(call('n0', 'sd'))
+    await host.answer(200, { answer: 99 })
+    await sd
+    const sdxl = client.request(call('n1', 'sdxl'))
+    await host.answer(200, { answer: 30 })
+    await sdxl
+    // A run that got the kept answer changes nothing; nor does a call never asked.
+    client.answerRecorded(call('n0', 'sd'), 99)
+    client.answerRecorded(call('n2', 'sd15'), 12)
+    expect(await client.request(call('n0', 'sd'))).toEqual({ state: 'ready', answer: 99 })
+    expect(client.entry(call('n2', 'sd15'))).toBeUndefined()
+    expect(host.seen).toHaveLength(2)
+    // A run that got another answer makes that one call old; the other call of the function keeps its answer.
+    client.answerRecorded(call('n0', 'sd'), 25)
+    expect([client.isOld(call('n0', 'sd')), client.isOld(call('n1', 'sdxl'))]).toEqual([true, false])
+    const again = client.request(call('n0', 'sd'))
+    await host.answer(200, { answer: 25 })
+    expect(await again).toEqual({ state: 'ready', answer: 25 })
+    expect(await client.request(call('n1', 'sdxl'))).toEqual({ state: 'ready', answer: 30 })
+    expect(host.seen.map((seen) => seen.args)).toEqual([['sd'], ['sdxl'], ['sd']])
+  })
+
   it('never shows an answer for other arguments, and a failed refresh is stale only for the same ones', async () => {
     const host = fakeHost()
     const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })
@@ -77,6 +121,29 @@ describe('lookup client', () => {
     // A failure stays until a trigger; showing it does not ask again.
     expect(await client.request(call('a', 'sdxl'))).toEqual({ state: 'unavailable', reason: 'failed' })
     expect(host.seen).toHaveLength(3)
+    // An answer that does not fit where it is used keeps the earlier one, stale.
+    const misfit = client.request(call('a', 'sd'), { refresh: true, accept: (answer) => Array.isArray(answer) })
+    await host.answer(200, { answer: 7 })
+    expect(await misfit).toEqual({ state: 'stale', answer: ['sd/x'], reason: 'wrong-shape' })
+  })
+
+  it('keeps no answer that arrives after the host moved to another pack catalog', async () => {
+    const host = fakeHost()
+    const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })
+    client.setPartition({ backend: '', epoch: 3, principal: 0 })
+    const flight = client.request(call('a', 'sd'))
+    for (let i = 0; i < 20 && host.seen.length === 0; i += 1) await Promise.resolve()
+    expect(host.seen).toHaveLength(1)
+    // A pack reload replaces the catalog while the call is under way.
+    client.setPartition({ backend: '', epoch: 4, principal: 0 })
+    await expect(flight).rejects.toThrow('aborted')
+    expect(client.entry(call('a', 'sd'))).toBeUndefined()
+    // The old request's late answer reaches nobody.
+    host.waiting.shift()!(new Response(JSON.stringify({ answer: ['sd/old'] }), { status: 200 }))
+    const fresh = client.request(call('a', 'sd'))
+    await host.answer(200, { answer: ['sd/new'] })
+    expect(await fresh).toEqual({ state: 'ready', answer: ['sd/new'] })
+    expect(host.seen).toHaveLength(2)
   })
 
   it('cancels a shared call only when its last waiter leaves', async () => {

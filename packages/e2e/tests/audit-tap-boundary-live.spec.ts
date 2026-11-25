@@ -10,7 +10,7 @@
  * canvas/test/interaction.test.ts ("modifier parity across link endpoint
  * kinds").
  */
-import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-live-proof'
 const ADD_SLOT = '__add__'
@@ -20,14 +20,14 @@ async function openFixture(page: Page): Promise<void> {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([{
       type: 'TapWidget', displayName: 'Tap Widget', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
+      body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
         widget: { widgetType: 'FLOAT', options: {}, default: 1 } }],
     }, {
       type: 'FloatSource', displayName: 'Float Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
+      body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
     }, {
       type: 'FloatSink', displayName: 'Float Sink', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
+      body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
     }])
     const failures = (await bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-live-proof', root: 'g0',
@@ -61,16 +61,8 @@ async function openFixture(page: Page): Promise<void> {
 }
 
 async function drillIntoSub(page: Page): Promise<void> {
-  const header = await page.evaluate(() => {
-    const r = window.__dinksterTest!.renderer!
-    const node = r.getScene().nodes.find((n) => n.id === 'i0')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return {
-      x: rect.left + node.x + node.layout.width / 2,
-      y: rect.top + node.y + node.layout.headerHeight / 2,
-    }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'i0')
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   await page.evaluate(() => {

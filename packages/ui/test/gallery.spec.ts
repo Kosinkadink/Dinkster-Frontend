@@ -18,6 +18,28 @@ const expectNoAxeViolations = async (page: Page) => {
     ),
   ).toEqual([])
 }
+test('run activity distinguishes concurrent running jobs from queued jobs and respects reduced motion', async ({ page }) => {
+  await page.goto('/#controls')
+  const one = page.getByRole('img', { name: '1 running', exact: true })
+  const many = page.getByRole('img', { name: '3 running', exact: true })
+  const queued = page.getByRole('img', { name: '2 queued', exact: true })
+  const mixed = page.getByRole('img', { name: '3 running, 1 queued', exact: true })
+  await expect(one).toBeVisible()
+  await expect(one).toHaveText('1')
+  await expect(many).toHaveText('3')
+  await expect(queued).toHaveText('2')
+  await expect(mixed).toHaveText('31')
+  const ring = one.locator('svg')
+  const clock = queued.locator('svg')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await expect.poll(() => ring.evaluate((element) => getComputedStyle(element).animationName)).toBe('dinkster-spin')
+  expect(await clock.evaluate((element) => getComputedStyle(element).animationName)).toBe('none')
+  expect(await ring.evaluate((element) => getComputedStyle(element).color))
+    .not.toBe(await clock.evaluate((element) => getComputedStyle(element).color))
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect.poll(() => ring.evaluate((element) => getComputedStyle(element).animationName)).toBe('none')
+})
+
 test('portable site geometry follows the site scale without changing app density', async ({
   page,
 }) => {
@@ -105,6 +127,20 @@ for (const width of [1280, 390]) {
       await page.goto(`/#${section}`)
       await page.evaluate(() => document.fonts.ready)
       await expect(page.getByRole('main')).toBeVisible()
+      if (section === 'lists') {
+        const heading = page.locator('.storage-folder-heading').first()
+        const name = await heading.locator('strong').boundingBox()
+        const actions = await heading.getByRole('button', { name: 'Folder actions' }).boundingBox()
+        expect(name!.x + name!.width).toBeLessThan(actions!.x)
+        expect(actions!.width).toBeLessThanOrEqual(40)
+        await expect(page.locator('.dinkster-empty img')).toHaveCount(0)
+        await expect(
+          page.getByText('No API keys yet.', { exact: true }),
+        ).toBeVisible()
+        await expect(
+          page.getByRole('button', { name: 'Create key', exact: true }),
+        ).toBeEnabled()
+      }
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -159,7 +195,7 @@ test('account values copy exactly, history expands by keyboard and signed-out sh
   await expect(
     page.getByRole('button', { name: 'Toggle navigation' }),
   ).toHaveCount(0)
-  const frame = (await page.locator('.dinkster-shell-body').boundingBox())!
+  const frame = (await page.locator('.dinkster-shell').boundingBox())!
   const content = (await page.getByRole('main').boundingBox())!
   expect(content.x).toBe(frame.x)
   expect(content.width).toBe(frame.width)
@@ -232,6 +268,9 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   page,
 }) => {
   await page.goto('/#controls')
+  await expect(
+    page.getByRole('button', { name: 'Add item', exact: true }),
+  ).toHaveAttribute('title', 'Add item')
   const samples = page.getByRole('region', {
     name: 'Button roles and fills',
     exact: true,
@@ -669,4 +708,126 @@ test('mobile navigation selects immediately and closes; desktop selection does n
   expect(
     await lists.evaluate((element) => getComputedStyle(element).fontWeight),
   ).toBe(weight)
+})
+
+test('context menus keep 12 px sides, one label column and a check column only where an item can be checked', async ({
+  page,
+}) => {
+  await page.goto('/#context-menus')
+  await page.evaluate(() => document.fonts.ready)
+  const menus = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid^="context-menu-example-"]')].map((figure) => {
+      const panel = figure.querySelector<HTMLElement>('[data-testid="context-menu"]')!
+      const inner = panel.getBoundingClientRect()
+      const border = parseFloat(getComputedStyle(panel).borderLeftWidth)
+      const left = inner.left + border
+      const right = inner.right - border
+      const rows = [...panel.querySelectorAll<HTMLElement>('[data-testid="context-menu-item"]')]
+      return {
+        id: figure.dataset['testid']!.replace('context-menu-example-', ''),
+        starts: [...new Set(rows.map((row) => row.firstElementChild!.getBoundingClientRect().left - left))],
+        labels: [...new Set(rows.map((row) => row.querySelector('.menu-label')!.getBoundingClientRect().left - left))],
+        // Rows that end in a shortcut or a submenu arrow reach the right side.
+        ends: [...new Set(rows
+          .filter((row) => row.querySelector('.menu-shortcut, .menu-submenu-caret'))
+          .map((row) => right - row.lastElementChild!.getBoundingClientRect().right))],
+        checks: panel.querySelectorAll('.menu-check').length,
+        // Separators line up with the content on both sides.
+        separators: [...new Set([...panel.querySelectorAll<HTMLElement>('.menu-separator')].flatMap((line) => {
+          const box = line.getBoundingClientRect()
+          return [box.left - left, right - box.right]
+        }))],
+      }
+    }),
+  )
+  expect(menus).toEqual([
+    { id: 'icons', starts: [12], labels: [34], ends: [12], checks: 0, separators: [12] },
+    { id: 'no-icons', starts: [12], labels: [12], ends: [12], checks: 0, separators: [12] },
+    { id: 'mixed', starts: [12], labels: [34], ends: [12], checks: 0, separators: [12] },
+    { id: 'checkable', starts: [12], labels: [26], ends: [], checks: 5, separators: [] },
+  ])
+  await expect(
+    page.getByRole('heading', { name: 'Context menus' }).locator('xpath=ancestor::section[1]'),
+  ).toHaveScreenshot('context-menus.png')
+})
+
+test('the canvas corner bar keeps one width right-justified under the minimap, its menus open straight above it, and the runs list beside Run takes the outline of the bars', async ({
+  page,
+}) => {
+  await page.goto('/#canvas-chrome')
+  await page.evaluate(() => document.fonts.ready)
+  await expect(page.getByTestId('canvas-chrome-gallery')).toHaveAttribute('data-ready', 'true')
+  const corners = await page.evaluate(() =>
+    Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-testid^="canvas-chrome-corner-"]')].map((figure) => {
+      const box = (selector: string) => figure.querySelector(selector)?.getBoundingClientRect()
+      const bar = box('.canvas-corner-bar')!
+      const map = figure.querySelector<HTMLElement>('.minimap')!
+      const menu = box('.minimap-menu, .canvas-zoom-menu')
+      return [figure.dataset['testid']!.replace('canvas-chrome-corner-', ''), {
+        barWidth: Math.round(bar.width),
+        barHeight: Math.round(bar.height),
+        barRightToMap: map.offsetParent === null ? null : Math.round(map.getBoundingClientRect().right - bar.right),
+        menuGap: menu === undefined ? null : Math.round(bar.top - menu.bottom),
+        menuRight: menu === undefined ? null : Math.round(bar.right - menu.right),
+        mapOpacity: getComputedStyle(map).opacity,
+      }]
+    })),
+  )
+  const width = corners['small']!.barWidth
+  expect(corners).toEqual({
+    small: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    medium: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    large: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    hidden: { barWidth: width, barHeight: 36, barRightToMap: null, menuGap: null, menuRight: null, mapOpacity: '1' },
+    settings: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
+    quiet: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    zoom: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
+  })
+  const outlines = await page.evaluate(() => {
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!)
+    const run = (id: string) => ({
+      run: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-submit`).borderTopColor,
+      list: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-toggle`).borderTopColor,
+      runBackground: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-submit`).backgroundColor,
+      listBackground: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-toggle`).backgroundColor,
+    })
+    return {
+      bar: style('[data-testid="canvas-chrome-corner-small"] .canvas-corner-bar').borderTopColor,
+      menu: style('[data-testid="canvas-chrome-corner-settings"] .minimap-menu').borderTopColor,
+      fitColor: style('[data-testid="canvas-chrome-corner-small"] [data-testid="canvas-fit-view"]').color,
+      listColor: style('[data-testid="canvas-chrome-run-ready"] .workflow-queue-toggle').color,
+      ready: run('ready'),
+      off: run('off'),
+    }
+  })
+  expect(outlines.ready.list).toBe(outlines.bar)
+  expect(outlines.menu).toBe(outlines.bar)
+  expect(outlines.listColor).toBe(outlines.fitColor)
+  expect(outlines.ready.run).not.toBe(outlines.bar)
+  expect(outlines.off.list).toBe(outlines.ready.list)
+  expect(outlines.off.listBackground).toBe(outlines.ready.listBackground)
+  expect(outlines.off.run).toBe(outlines.bar)
+  expect(outlines.off.runBackground).toBe('rgba(0, 0, 0, 0)')
+  expect(Math.round((await page.getByTestId('canvas-chrome-run-off').locator('.workflow-queue-buttons').boundingBox())!.height)).toBe(36)
+  await expect(
+    page.getByRole('heading', { name: 'Canvas corner, view bar and Run' }).locator('xpath=ancestor::section[1]'),
+  ).toHaveScreenshot('canvas-chrome.png')
+
+  const zoomCell = page.getByTestId('canvas-chrome-corner-zoom')
+  const zoomMenu = zoomCell.getByTestId('canvas-zoom-menu')
+  await zoomMenu.getByRole('button', { name: 'Zoom in' }).click()
+  await expect(zoomMenu).toBeVisible()
+  await expect(zoomCell.getByTestId('canvas-zoom-level')).toHaveText('45%')
+  await zoomMenu.getByRole('button', { name: 'Zoom: 45%' }).click()
+  await expect(zoomCell.getByTestId('canvas-zoom-input')).toBeFocused()
+  await expect(zoomCell.getByTestId('canvas-zoom-input')).toHaveValue('45')
+  await page.keyboard.press('Escape')
+  await expect(zoomCell.getByTestId('canvas-zoom-menu')).toBeHidden()
+  const settingsCell = page.getByTestId('canvas-chrome-corner-settings')
+  await page.getByRole('heading', { name: 'Canvas corner, view bar and Run' }).click()
+  await expect(settingsCell.locator('.minimap-menu')).toBeHidden()
+  await page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-settings').click()
+  await expect(page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-toggle-nodes')).toBeInViewport()
+  await page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-toggle-nodes').click()
+  await expect(page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-toggle-nodes')).toHaveAttribute('aria-checked', 'false')
 })

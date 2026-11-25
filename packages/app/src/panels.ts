@@ -17,6 +17,9 @@ export type PanelPlacement = 'dock' | 'rail' | 'bottom' | 'modal' | 'floating' |
 
 /** Placements the shell can actually host today. */
 export const HOSTED_PLACEMENTS: readonly PanelPlacement[] = ['dock', 'rail', 'bottom', 'modal', 'floating', 'window']
+
+/** Removed core panels are dropped; extension-owned ids remain restorable. */
+export const REMOVED_CORE_PANEL_IDS: ReadonlySet<string> = new Set(['queue', 'outputs', 'context', 'execution-log'])
 // Floating placement is shell layout, so it is scoped to the active project.
 const floatingPanelsKey = (): string => scopedStorageKey('dinkster.floatingPanels')
 
@@ -27,7 +30,7 @@ function browserStorage(): Storage | undefined {
 function storedFloatingPanels(storage: Storage | undefined): Set<string> {
   try {
     const value = JSON.parse(storage?.getItem(floatingPanelsKey()) ?? '[]')
-    return new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [])
+    return new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && !REMOVED_CORE_PANEL_IDS.has(id)) : [])
   } catch {
     return new Set()
   }

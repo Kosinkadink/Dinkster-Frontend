@@ -4,7 +4,7 @@ import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { registerCatalog, setLocale } from '@dinkster/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { WorkflowTabs } from '../src/WorkflowTabs.js'
+import { WorkflowTabs, type TabRunState } from '../src/WorkflowTabs.js'
 
 interface TestTab {
   readonly id: string
@@ -51,7 +51,9 @@ function fixture(previews?: {
   const root = document.createElement('div')
   document.body.append(root)
   const [activeId, setActiveId] = createSignal('one')
+  const [runState, setRunState] = createSignal<TabRunState>('idle')
   const close = vi.fn()
+  const rename = vi.fn()
   const pointerDown = vi.fn()
   const create = vi.fn()
   const share = vi.fn()
@@ -60,12 +62,14 @@ function fixture(previews?: {
     <WorkflowTabs
       tabs={tabs}
       activeId={activeId()}
+      runState={(tab) => tab.id === 'one' ? runState() : 'idle'}
       isDirty={(tab) => tab.id === 'one'}
       isFrozen={(tab) => tab.id === 'two'}
       isShared={(tab) => tab.id === 'three'}
       setRoot={(element) => { tabRoot = element }}
       onActivate={(_event, tab) => setActiveId(tab.id)}
       onClose={close}
+      onRename={rename}
       onPointerDown={pointerDown}
       onNew={create}
       canShare={(tab) => tab.id !== 'two'}
@@ -74,10 +78,70 @@ function fixture(previews?: {
       onSetPreviews={previews?.set}
     />
   ), root)
-  return { root, activeId, close, pointerDown, create, share, get tabRoot() { return tabRoot }, dispose }
+  return { root, activeId, setRunState, close, rename, pointerDown, create, share, get tabRoot() { return tabRoot }, dispose }
 }
 
 describe('workflow tabs', () => {
+  it('renames inline on Enter or blur, cancels Escape and blank names, and refuses frozen tabs', async () => {
+    const view = fixture()
+    const start = async (): Promise<HTMLInputElement> => {
+      view.root.querySelector('[data-tab-id="one"] .tab-title')!
+        .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+      await Promise.resolve()
+      return view.root.querySelector<HTMLInputElement>('input')!
+    }
+    view.setRunState('running')
+    let input = await start()
+    expect(view.root.querySelector('.dinkster-run-icon[data-running]')).not.toBeNull()
+    expect(document.activeElement).toBe(input)
+    expect(input.selectionStart).toBe(0)
+    expect(input.selectionEnd).toBe(3)
+    input.value = '  Renamed  '
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(view.rename).toHaveBeenLastCalledWith(tabs[0], 'Renamed')
+    input = await start()
+    input.value = 'By blur'
+    input.blur()
+    expect(view.rename).toHaveBeenLastCalledWith(tabs[0], 'By blur')
+    input = await start()
+    input.value = 'Cancelled'
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    input = await start()
+    input.value = '   '
+    input.blur()
+    expect(view.rename).toHaveBeenCalledTimes(2)
+    expect(view.root.querySelector('input')).toBeNull()
+    view.root.querySelector('[data-tab-id="two"] .tab-title')!
+      .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    expect(view.root.querySelector('input')).toBeNull()
+    view.root.querySelector('[data-tab-id="one"] svg')!
+      .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    expect(view.root.querySelector('input')).toBeNull()
+    view.dispose()
+  })
+
+  it('keeps the kind icon and unsaved mark while running and announces result changes', () => {
+    const view = fixture()
+    const first = view.root.querySelector<HTMLElement>('[data-tab-id="one"]')!
+    const glyph = first.querySelector('svg')
+    const trigger = first.querySelector('[role="tab"]')!
+    view.setRunState('running')
+    expect(first.querySelector('svg')).toBe(glyph)
+    expect(first.querySelector('.dinkster-run-icon[data-running]')).not.toBeNull()
+    expect(first.querySelector('.tab-dirty')).not.toBeNull()
+    expect(trigger.getAttribute('aria-label')).toBe('One, running, unsaved changes')
+    view.setRunState('failed')
+    expect(first.querySelector('.dinkster-run-icon[data-running]')).toBeNull()
+    expect(first.querySelector('[data-result="failed"]')).not.toBeNull()
+    expect(trigger.getAttribute('aria-label')).toBe('One, failed, unsaved changes')
+    view.setRunState('finished')
+    expect(first.querySelector('[data-result="finished"]')).not.toBeNull()
+    expect(trigger.getAttribute('aria-label')).toBe('One, completed, unsaved changes')
+    view.setRunState('idle')
+    expect(first.querySelector('[data-result]')).toBeNull()
+    view.dispose()
+  })
+
   it('exposes workflow-specific tab semantics and document state', () => {
     registerGermanCatalog()
     const view = fixture()

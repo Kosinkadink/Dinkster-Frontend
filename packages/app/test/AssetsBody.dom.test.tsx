@@ -3,7 +3,7 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DinksterConnection, type RetainedAssetOwner, type RetainedAssetDeclaration } from '@dinkster/client'
+import { DinksterConnection } from '@dinkster/client'
 import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
 import { AssetsBody } from '../src/AssetsBody.js'
 import { AssetEntrySelection } from '../src/asset-browser/rail.js'
@@ -23,8 +23,6 @@ afterEach(() => {
 const stubConnection = <T extends object>(members: T): DinksterConnection => ({
   id: 'native',
   status: { subscribe: () => () => undefined },
-  retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => ({ ...owner, ...declaration, revision: 1 }),
-  fetchRetainedAssets: async () => undefined,
   fetchAssetBytes: async () => new Uint8Array([1, 7, 3]).buffer,
   onEvent: vi.fn(() => () => undefined),
   onMountsChanged: vi.fn(() => () => undefined),
@@ -91,25 +89,17 @@ describe('Assets dock body', () => {
     } finally { dispose() }
   })
 
-  it.each(['accepted', 'refused', 'closed', 'late-body', 'stale-connection'])(
-    'owns card and detail image bodies and refuses late local URLs: %s', async (scenario) => {
+  it.each(['accepted', 'closed', 'late-body', 'stale-connection'])(
+    'loads card and detail image bodies without publishing stale local URLs: %s', async (scenario) => {
       const digest = `blake3:${'a'.repeat(64)}`
-      let admit!: () => void
       let finish!: () => void
-      const admission = new Promise<void>((resolve) => { admit = resolve })
       const body = new Promise<ArrayBuffer>((resolve) => { finish = () => resolve(new Uint8Array([17, 31, 7]).buffer) })
-      const listeners = new Set<() => void>()
       const createUrl = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:image-${createUrl.mock.calls.length}`)
       const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
-      const retainAssets = vi.fn(async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
-        await admission
-        if (scenario === 'refused') throw new Error('refused')
-        return { ...owner, ...declaration, revision: 1 }
-      })
-      const fetchAssetBytes = vi.fn(() => body)
+      const fetchAsset = vi.fn(async () => new Response(await body, { headers: { 'content-type': 'image/png' } }))
+      vi.stubGlobal('fetch', fetchAsset)
       const connection = stubConnection({
-        assetUrl: (digest: string) => `/api/assets/${digest}`, retainAssets, fetchAssetBytes,
-        status: { subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } },
+        assetUrl: (digest: string) => `/api/assets/${digest}`,
         listMounts: async () => [{ id: 'input', mode: 'read', state: 'ready' }],
         listMountEntries: async () => ({ entries: [{ virtualPath: 'a.png', name: 'a.png', digest, size: 3, mediaType: 'image/png', kind: 'media/image' }] }),
       })
@@ -118,25 +108,17 @@ describe('Assets dock body', () => {
       const dispose = render(() => <AssetsBody connection={selected()} backendId="native" />, root)
       let closed = false
       try {
-        await vi.waitFor(() => expect(retainAssets).toHaveBeenCalledTimes(1))
+        await vi.waitFor(() => expect(fetchAsset).toHaveBeenCalledTimes(1))
         root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
-        await vi.waitFor(() => expect(retainAssets).toHaveBeenCalledTimes(2))
+        await vi.waitFor(() => expect(fetchAsset).toHaveBeenCalledTimes(2))
         expect(root.querySelectorAll('img')).toHaveLength(0)
-        expect(fetchAssetBytes).not.toHaveBeenCalled()
         if (scenario === 'closed') { dispose(); closed = true }
-        admit()
-        if (scenario === 'refused' || scenario === 'closed') {
-          await vi.waitFor(() => expect(listeners.size).toBe(0))
-          expect(fetchAssetBytes).not.toHaveBeenCalled()
+        if (scenario === 'closed') {
         } else {
-          await vi.waitFor(() => expect(fetchAssetBytes).toHaveBeenCalledTimes(2))
-          expect(listeners.size).toBe(2)
           if (scenario === 'late-body') { dispose(); closed = true }
           if (scenario === 'stale-connection') setSelected(stubConnection({ assetUrl: () => '/other', listMounts: async () => [] }))
           expect(createUrl).not.toHaveBeenCalled()
-          await vi.waitFor(() => expect(listeners.size).toBe(2))
           finish()
-          await vi.waitFor(() => expect(listeners.size).toBe(0))
           if (scenario === 'accepted') {
             await vi.waitFor(() => expect(root.querySelectorAll('img')).toHaveLength(2))
             for (const image of root.querySelectorAll('img')) expect(image.getAttribute('src')).toMatch(/^blob:image-/)
@@ -150,7 +132,7 @@ describe('Assets dock body', () => {
         }
         if (scenario !== 'accepted') expect(createUrl).not.toHaveBeenCalled()
         expect(root.querySelectorAll('img.collection-thumb, img.asset-preview')).toHaveLength(0)
-      } finally { admit(); finish(); if (!closed) dispose() }
+      } finally { finish(); if (!closed) dispose() }
     },
   )
 
@@ -206,7 +188,8 @@ describe('Assets dock body', () => {
     })
     const root = document.createElement('div')
     document.body.append(root)
-    const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
+    let storageOpened = false
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" onOpenStorage={() => { storageOpened = true }} />, root)
     try {
       await vi.waitFor(() => expect(root.textContent).toContain('No output mount configured'))
       expect(root.querySelector('[data-testid="assets-error"]')).toBeNull()
@@ -214,9 +197,9 @@ describe('Assets dock body', () => {
       select.click()
       expect(document.querySelector('[data-option-id="mount:inputs"]')).not.toBeNull()
       root.querySelector<HTMLButtonElement>('[data-testid="assets-output-unconfigured"] button')!.click()
-      await vi.waitFor(() => expect(root.querySelector('[data-testid="output-mount-settings"]')).not.toBeNull())
-      expect(root.querySelector<HTMLDetailsElement>('.asset-project-folders')?.open).toBe(true)
-      await vi.waitFor(() => expect(root.textContent).not.toContain('Loading output mount'))
+      expect(storageOpened).toBe(true)
+      expect(root.querySelector('[data-testid="output-mount-settings"]')).toBeNull()
+      expect(root.querySelector('.asset-project-folders')).toBeNull()
     } finally { dispose() }
   })
 
@@ -406,6 +389,7 @@ describe('Assets dock body', () => {
       assetUrl: (digest: string) => `/api/assets/${digest}`,
       fetchAssetMetadata: vi.fn(),
     })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1, 7, 3]), { headers: { 'content-type': 'image/png' } })))
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)

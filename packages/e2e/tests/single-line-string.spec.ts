@@ -1,4 +1,4 @@
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
   await page.routeWebSocket('**/api/events?*', () => {})
@@ -22,10 +22,7 @@ test.beforeEach(async ({ page }) => {
     }),
   )
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(
-    /\d+ node schemas/,
-    { timeout: 15_000 },
-  )
+  await waitForWorkspaceReady(page)
   await page.addStyleTag({
     content:
       '*, *::before, *::after { animation: none !important; transition: none !important; }',
@@ -313,4 +310,85 @@ test.describe('single-line STRING device-pixel layout', () => {
       )
       .toBe(long)
   })
+})
+
+test('opening a text and leaving it without typing stores nothing, whatever line breaks the field cannot show', async ({ page }) => {
+  // A text box gives back "\n" for "\r\n", so the text the field shows
+  // differs from the stored one.
+  const windows = 'one\r\ntwo\r\nthree'
+  await page.evaluate(async ({ windows }) => {
+    const string = { kind: 'concrete', name: 'STRING' }
+    window.__dinksterTest!.app.registerSchemas([{
+      type: 'TextLeaveProof', displayName: 'Text', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'text', type: string, optional: false, widget: { widgetType: 'STRING', options: { multiline: true }, default: '' } },
+        { kind: 'input', id: 'other', type: string, optional: false, widget: { widgetType: 'STRING', options: {}, default: '' } },
+      ],
+    }])
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'text-leave-proof', root: 'g0',
+      graphs: { g0: {
+        id: 'g0', name: 'root',
+        nodes: { n1: { id: 'n1', type: 'TextLeaveProof', values: { text: windows, other: 'x' } } },
+        links: {}, nets: {}, reroutes: {},
+        nextOrdinal: 2,
+      } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 420, y: 120 } } } } } },
+    }, 'Text Leave Proof')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    const app = window.__dinksterTest!.app as unknown as { queue: () => Promise<void> }
+    app.queue = async () => {}
+  }, { windows })
+
+  const state = () => page.evaluate(() => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    const graph = tab.store.doc.graphs.g0!
+    return { revision: tab.store.revision, text: graph.nodes.n1!.values.text }
+  })
+  const point = () => page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const viewport = renderer.getViewport()
+    const node = renderer.getScene().nodes.find((item) => item.id === 'n1')!
+    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'text')!
+    const world = { x: node.x + node.layout.width / 2, y: node.y + row.y + row.height / 2 }
+    return { x: rect.left + world.x * viewport.scale + viewport.x, y: rect.top + world.y * viewport.scale + viewport.y }
+  })
+  const editor = page.getByTestId('widget-editor')
+  const open = async () => {
+    const at = await point()
+    await page.mouse.click(at.x, at.y)
+    await expect(editor.locator('textarea')).toBeFocused()
+  }
+  const clickAway = () => page.mouse.click(1200, 760)
+  const before = await state()
+  expect(before).toMatchObject({ text: windows })
+
+  const leaves: ReadonlyArray<readonly [string, () => Promise<void>]> = [
+    ['click away', clickAway],
+    ['Tab', () => page.keyboard.press('Tab')],
+    ['Ctrl+Enter', () => page.keyboard.press('Control+Enter')],
+  ]
+  for (const [how, leave] of leaves) {
+    const start = await state()
+    await open()
+    await leave()
+    if (how === 'Tab') {
+      await expect(page.locator('.widget-in-row-field input')).toBeFocused()
+      await page.keyboard.press('Escape')
+    }
+    await expect(editor).toHaveCount(0)
+    const after = await state()
+    expect.soft(after, `text left by ${how}`).toEqual(start)
+    // Put a lost text back so each way of leaving is judged on its own.
+    if (after.revision !== start.revision) await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  }
+  expect((await state()).text).toBe(windows)
+
+  // A typed change is still stored.
+  await open()
+  await page.keyboard.press('Control+End')
+  await page.keyboard.type('!')
+  await clickAway()
+  await expect.poll(async () => (await state()).text).toBe('one\ntwo\nthree!')
 })

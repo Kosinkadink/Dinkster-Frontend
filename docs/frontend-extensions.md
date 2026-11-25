@@ -90,8 +90,9 @@ transactional registration and cleanup rules as other contributions. See
 
 Packs with `graph-editor-canvas` privilege can register an ordered background
 or foreground painter with `canvasLayer(id, layer)`. The draw callback receives
-the host's world-transformed 2D context, visible world viewport, scale, and a
-frozen projection of scene node identity and geometry. The host saves and
+the host's world-transformed 2D context, current canvas background and grid
+colors, visible world viewport, scale, and a frozen projection of scene node
+identity and geometry. The host saves and
 restores canvas state around every callback, isolates failures, and reports a
 failed layer once without stopping core rendering. A background layer is the
 bounded equivalent of ComfyUI's `beforeDrawGraph`; a foreground layer is the
@@ -108,7 +109,10 @@ and semantic mode. It can return host-rendered badges, a node color, a title
 suffix, and a short status, or return nothing. It receives no document store,
 renderer, Canvas context, DOM, CSS, theme object, or callback capability.
 
-The host validates and copies every result before rendering. Badge and visible
+A badge is a tab above the node unless it asks for `placement: 'below'`; only
+core puts a mark in the title bar. A badge may name an `icon` from the set the
+canvas paints (Lucide names such as `info`), shown before its words. The host
+validates and copies every result before rendering. Badge and visible
 string counts and lengths are bounded, colors use `#RRGGBB` or `#RRGGBBAA`,
 unknown fields and non-plain objects fail closed, and extension badges cannot
 intercept pointer input. Contributions run in id order. Badges append in that

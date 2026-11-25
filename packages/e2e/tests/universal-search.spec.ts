@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SEARCH_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -42,10 +42,9 @@ test('Ctrl+K opens from the canvas but remains suppressed while typing', async (
 test('node search ghost appears at the selection cursor with zero movement and Escape clears placement affordances', async ({ page }) => {
   await page.goto('/')
   // Placement needs the app bridge and node schemas; wait for readiness.
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
-    type: 'KSampler', displayName: 'KSampler', category: 'sampling', source: 'e2e', isOutputNode: false, items: [],
+    type: 'KSampler', displayName: 'KSampler', category: 'sampling', source: 'e2e', isOutputNode: false, body: [],
   }]))
   const nodeCount = () => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes).length)
   const ghost = () => page.evaluate(() => (window.__dinksterTest!.renderer!.getOverlay() as { placementGhost?: { x: number; y: number } }).placementGhost)
@@ -361,12 +360,11 @@ test('manifest-gated extension providers use host groups, previews, actions, and
 
 test('Search Dinkster keeps the node title center under the placement click at every canvas zoom', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'auditSearchPlacementTest', displayName: 'audit Search Node', category: 'test', source: 'v3', isOutputNode: false,
-      items: [],
+      body: [],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-search-placement', root: 'g0',

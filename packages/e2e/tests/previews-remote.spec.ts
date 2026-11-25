@@ -11,7 +11,6 @@
  */
 import { expect, test, type Page } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -173,7 +172,7 @@ async function openRemoteWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [remoteCombo('model'), { kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
+        body: [remoteCombo('model'), { kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
       {
         type: 'StaticComboTest',
@@ -181,7 +180,7 @@ async function openRemoteWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [
+        body: [
           {
             kind: 'input',
             id: 'mode',

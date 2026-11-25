@@ -1,4 +1,4 @@
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function nodePoint(page: Page, nodeId: string): Promise<{ x: number; y: number }> {
   return page.evaluate((id) => {
@@ -18,8 +18,7 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
@@ -82,16 +81,15 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(3)
 
   const linked = await page.evaluate(() => (window.__dinksterTest!.renderer!.getBadges().first?.[0] as any))
-  expect(linked).toMatchObject({ id: 'core.subgraph', glyph: '2', icon: 'boxes', variant: 'label' })
+  expect(linked).toMatchObject({ id: 'core.subgraph', icon: 'subgraph', placement: 'title', count: 2 })
 
   await page.mouse.click(...Object.values(await nodePoint(page, 'first')) as [number, number])
   const toolbox = await page.evaluate(() => window.__dinksterTest!.renderer!.getToolboxLayout()!.buttons
     .filter((entry) => ['core.openSubgraph', 'core.extractSubgraph', 'core.flattenSubgraph'].includes(entry.button.id))
     .map((entry) => ({ id: entry.button.id, icon: entry.button.icon, name: entry.button.label })))
   expect(toolbox).toEqual([
-    { id: 'core.openSubgraph', icon: 'folder-open', name: 'Open subgraph' },
-    { id: 'core.extractSubgraph', icon: 'group', name: 'Extract as subgraph' },
-    { id: 'core.flattenSubgraph', icon: 'ungroup', name: 'Flatten subgraph one level' },
+    { id: 'core.openSubgraph', icon: 'group', name: 'Open subgraph' },
+    { id: 'core.flattenSubgraph', icon: 'ungroup', name: 'Flatten subgraph' },
   ])
 
   await page.mouse.click(...Object.values(await nodePoint(page, 'first')) as [number, number], { button: 'right' })
@@ -104,13 +102,14 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
 
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.nodes.first!.type))
     .not.toBe('#shared')
-  expect(await page.evaluate(() => (window.__dinksterTest!.renderer!.getBadges().first?.[0] as any)))
-    .toMatchObject({ id: 'core.subgraph', glyph: 'S', icon: 'boxes' })
+  const unlinked = await page.evaluate(() => (window.__dinksterTest!.renderer!.getBadges().first?.[0] as any))
+  expect(unlinked).toMatchObject({ id: 'core.subgraph', icon: 'subgraph', placement: 'title' })
+  expect(unlinked.count).toBeUndefined()
   await page.keyboard.press('Control+z')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.nodes.first!.type))
     .toBe('#shared')
   expect(await page.evaluate(() => (window.__dinksterTest!.renderer!.getBadges().first?.[0] as any)))
-    .toMatchObject({ id: 'core.subgraph', glyph: '2', icon: 'boxes', variant: 'label' })
+    .toMatchObject({ id: 'core.subgraph', icon: 'subgraph', placement: 'title', count: 2 })
 
   const loop = await nodePoint(page, 'loop')
   await page.mouse.move(loop.x, loop.y)

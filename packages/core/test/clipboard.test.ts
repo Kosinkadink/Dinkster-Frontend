@@ -567,6 +567,26 @@ describe('Dinkster clipboard', () => {
       'node' in link.to && link.to.node === pasted)).toBe(true)
   })
 
+  it("connected paste keeps a wire from a member field's output while the member is there", () => {
+    const withMember = (members: string[]) => {
+      const source = connectedDocument()
+      ;(source.graphs.g0!.nodes.upstream as unknown as Record<string, unknown>).dynamic = { items: { members, seq: 2 } }
+      ;(source.graphs.g0!.links.incomingA as unknown as { from: unknown }).from = { node: 'upstream', tap: 'items.item1.amount' }
+      return source
+    }
+    const envelope = serializeSelection(withMember(['item0', 'item1']), 'g0', { nodes: ['a'], reroutes: [] })!
+    expect(envelope.externalIncoming).toContainEqual(expect.objectContaining({
+      source: expect.objectContaining({ node: 'upstream', tap: 'items.item1.amount' }),
+    }))
+    const tapsInto = (store: DocumentStore, pasted: string) => Object.values(store.doc.graphs.g0!.links).some((link) =>
+      'tap' in link.from && link.from.tap === 'items.item1.amount' && 'node' in link.to && link.to.node === pasted)
+    const kept = connectedPaste(withMember(['item0', 'item1']), 'g0', envelope)
+    expect(tapsInto(kept.store, kept.plan.nodeIds[0]!)).toBe(true)
+    // The member was removed after the copy: the wire is not recreated.
+    const gone = connectedPaste(withMember(['item0']), 'g0', envelope)
+    expect(tapsInto(gone.store, gone.plan.nodeIds[0]!)).toBe(false)
+  })
+
   it('connected paste preserves mixed internal and external links for a multi-node selection', () => {
     const source = connectedDocument()
     const envelope = serializeSelection(source, 'g0', { nodes: ['a', 'b'], reroutes: [] })!

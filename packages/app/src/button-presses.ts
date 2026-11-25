@@ -22,9 +22,10 @@ import {
   type WidgetSpec,
   type WorkflowDocument,
 } from '@dinkster/core'
-import type { LookupArg, LookupCall, LookupEntry } from '@dinkster/client'
+import type { LookupCall, LookupEntry } from '@dinkster/client'
 import type { AppState, Tab } from './app-state.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
+import { desktopSaveBridge } from './desktop-bridge.js'
 
 /** The box under a button's line: a note or skip (circled i), or a failure (warning triangle). */
 export interface ButtonBox {
@@ -111,16 +112,11 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     nodeType: request.nodeType,
     node: request.node,
     function: request.function,
-    args: request.args as readonly LookupArg[],
+    args: request.args,
   })
 
-  /** The backend's lookup client, partitioned by the schema epoch the tab resolves against. */
-  const lookupsOf = (tab: Tab) => {
-    const backend = app.backendForTab(tab)
-    const lookups = backend.connection.lookups
-    lookups.setPartition({ backend: String(backend.id), epoch: app.registryForTab(tab)?.epoch ?? 0, principal: 0 })
-    return lookups
-  }
+  /** The backend's one lookup client; it follows the schema epoch the backend holds. */
+  const lookupsOf = (tab: Tab) => app.backendForTab(tab).lookups
 
   /** What `buttonAvailability` reads; cheap enough for every repaint and hover. */
   const lookOf = (place: ButtonPlace): Pick<ActionHost, 'schemaOf' | 'editorFor'> => {
@@ -180,7 +176,12 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
       },
       copy: (text) => navigator.clipboard.writeText(text),
       async download(filename, content) {
-        // A browser saves it as an ordinary download; Desktop shows its Save As dialog.
+        // Desktop shows its own Save As dialog and says whether it was closed; a browser saves an ordinary download.
+        const native = desktopSaveBridge()
+        if (native !== undefined) {
+          const result = await native.saveFile(typeof content === 'string' ? new TextEncoder().encode(content) : content, filename)
+          return result.status
+        }
         const blob = new Blob([typeof content === 'string' ? content : content.slice()], {
           type: typeof content === 'string' ? 'text/plain;charset=utf-8' : 'application/octet-stream',
         })
@@ -195,6 +196,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         } finally {
           setTimeout(() => URL.revokeObjectURL(url), 60_000)
         }
+        return 'saved'
       },
       async queue(toHere) {
         app.queueRefusal.set(undefined)

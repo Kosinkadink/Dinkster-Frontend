@@ -33,6 +33,7 @@ describe('semantic design tokens', () => {
       expect(contrast(tokens.action.removeText, tokens.meaning.danger.foreground)).toBeGreaterThanOrEqual(4.5)
       expect(contrast(tokens.text.onSelected, tokens.surface.selected)).toBeGreaterThanOrEqual(4.5)
       expect(contrast(tokens.border.focus, tokens.surface.panel)).toBeGreaterThanOrEqual(3)
+      expect(contrast(tokens.text.muted, tokens.surface.panel)).toBeGreaterThanOrEqual(4.5)
     }
   })
 

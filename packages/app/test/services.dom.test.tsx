@@ -37,11 +37,11 @@ it.each(['primary', 'workflow', 'panel', 'missing-panel'] as const)(
         ...(name === undefined ? {} : { services: { name } }),
       } }))
       await vi.waitFor(() => {
-        const badge = host.querySelector('[data-testid="services-badge"]')
+        const badge = host.querySelector('.dinkster-window-toolbar-service, [data-testid="services-badge"]')
         if (label === undefined) expect(badge).toBeNull()
         else {
           expect(badge?.textContent).toBe(label)
-          expect(badge?.parentElement?.querySelector('.brand-wordmark, .brand-symbol')).not.toBeNull()
+          expect(badge?.closest('header')?.querySelector('.brand-wordmark, .brand-symbol, [data-testid="dinkster-menu-button"]')).not.toBeNull()
           expect(badge?.closest('footer')).toBeNull()
         }
       })

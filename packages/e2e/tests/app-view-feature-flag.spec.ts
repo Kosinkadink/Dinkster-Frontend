@@ -1,4 +1,4 @@
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 import { mkdirSync } from 'node:fs'
 import { evidenceGroupDir, evidencePath } from './evidence-output.js'
 
@@ -14,7 +14,7 @@ const workflow = {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'app-view-flag-test', schemaWire: 2 }, packs: {}, nodes: {},
   } }))
@@ -31,7 +31,7 @@ test.beforeEach(async ({ page }) => {
   }, { workflow })
   await page.goto('/')
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'FlagInput', displayName: 'Flag input', category: 'test', source: 'v3', isOutputNode: false,
@@ -53,7 +53,7 @@ test('default-off restores app tabs as Graph and hides every App View entry poin
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
   await expect(page.getByTestId('app-view')).toHaveCount(0)
   await page.getByTestId('views-switcher').click()
-  await expect(page.getByRole('menuitemradio', { name: 'App view' })).toHaveCount(0)
+  await expect(page.getByRole('menuitemradio', { name: 'App', exact: true })).toHaveCount(0)
   await expect(page.getByRole('menuitemradio', { name: 'Graph', exact: true })).toBeVisible()
   mkdirSync(evidenceGroupDir('app-view-feature-flag'), { recursive: true })
   await page.screenshot({ path: evidencePath('app-view-feature-flag', 'default-off.png') })
@@ -65,7 +65,7 @@ test('default-off restores app tabs as Graph and hides every App View entry poin
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const context = { doc: tab.store.doc as import('@dinkster/core').WorkflowDocument, graphId: 'root',
-      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0 }
+      selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0 }
     return [
       ...app.menuRegistry.resolve({ ...context, target: { kind: 'widget', nodeId: 'input', inputId: 'steps' } }),
       ...app.menuRegistry.resolve({ ...context, target: { kind: 'node', nodeId: 'input', previewSurface: true } }),
@@ -92,10 +92,10 @@ test('opting in restores authored controls and disabling returns to Graph withou
   await page.screenshot({ path: evidencePath('app-view-feature-flag', 'settings-on.png') })
   await settings.getByRole('button', { name: 'Close settings' }).click()
   await page.getByTestId('views-switcher').click()
-  await expect(page.getByRole('menuitemradio', { name: 'App view' })).toBeVisible()
+  await expect(page.getByRole('menuitemradio', { name: 'App', exact: true })).toBeVisible()
   mkdirSync(evidenceGroupDir('app-view-feature-flag'), { recursive: true })
   await page.screenshot({ path: evidencePath('app-view-feature-flag', 'enabled.png') })
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await expect(page.getByTestId('app-view')).toBeVisible()
   await expect(page.getByTestId('app-view-row')).toHaveCount(1)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('features.appView.enabled', false))

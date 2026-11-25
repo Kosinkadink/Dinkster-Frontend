@@ -10,10 +10,10 @@
  */
 import { expect, selectProductOption, test, type Page } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 const secondBackend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!secondBackend) throw new Error('DINKSTER_E2E_NATIVE_FRONTEND must identify the second native frontend')
+const secondBackendLabel = new URL(secondBackend).host
 
 /** Queue the active tab and wait until a new row reaches 'completed'. */
 async function queueAndComplete(page: Page, expectedRows: number): Promise<void> {
@@ -28,12 +28,13 @@ async function queueAndComplete(page: Page, expectedRows: number): Promise<void>
 
 /** Add the second origin through the panel UI and wait for schemas. */
 async function addSecondBackend(page: Page): Promise<void> {
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(secondBackend!)
   await page.getByTestId('backend-add').click()
   const rows = page.getByTestId('backend-row')
   await expect(rows).toHaveCount(2)
-  await expect(rows.nth(1)).toContainText(/Schemas\d+ available/, { timeout: 15_000 })
+  await expect(rows.nth(1)).toContainText(/\d+ available/, { timeout: 15_000 })
   await expect(rows.nth(1)).toContainText('Connected', { timeout: 15_000 })
 }
 
@@ -47,12 +48,12 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
 })
 
-test('single backend shows none of the multi-backend chrome', async ({ page }) => {
+test('single backend omits targeting and execution groups but keeps its connection item', async ({ page }) => {
   await expect(page.getByTestId('tab-target')).toHaveCount(0)
-  await expect(page.getByTestId('statusbar-backend')).toHaveCount(0)
+  await expect(page.getByTestId('status-connection')).toContainText('Local')
   await expect(page.getByTestId('backend-group')).toHaveCount(0)
   // The panel still opens and shows the one (unremovable) default backend.
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
   await expect(page.getByTestId('backend-row')).toHaveCount(1)
   await expect(page.getByTestId('backend-remove')).toHaveCount(0)
 })
@@ -61,10 +62,11 @@ test('adding a backend connects it and reveals per-tab targeting', async ({ page
   await addSecondBackend(page)
   const rows = page.getByTestId('backend-row')
   await expect(rows.nth(1)).toContainText('Connected', { timeout: 15_000 })
-  // Multi-backend chrome appears: topbar selector + statusbar label.
+  // Targeting appears while the connection item keeps the active backend label.
   await expect(page.getByTestId('tab-target')).toBeVisible()
-  await expect(page.getByTestId('statusbar-backend')).toHaveText('Local')
+  await expect(page.getByTestId('status-connection').locator('.status-connection-name')).toHaveText('Local')
   // Duplicate registration is rejected (still 2 rows).
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(`${secondBackend}/`)
   await page.getByTestId('backend-add').click()
   await expect(rows).toHaveCount(2)
@@ -79,7 +81,7 @@ test('tab targets are per tab; runs group by backend with distinct connections',
   await selectProductOption(page, page.getByTestId('tab-target'), secondBackend!)
   const targets = await page.evaluate(() => [...window.__dinksterTest!.app.tabTargets.get().values()])
   expect(targets).toEqual([secondBackend])
-  await expect(page.getByTestId('statusbar-backend')).toHaveText(secondBackend!)
+  await expect(page.getByTestId('status-connection').locator('.status-connection-name')).toHaveText(secondBackendLabel)
 
   // Queue on the second origin, then retarget back to default and queue again.
   await queueAndComplete(page, 1)
@@ -94,7 +96,7 @@ test('tab targets are per tab; runs group by backend with distinct connections',
   // backend-wide queue depth as though it belonged to this workflow.
   const groups = page.getByTestId('backend-group')
   await expect(groups).toHaveCount(2)
-  await expect(page.getByTestId('queue-rail').locator('.queue-remaining')).toHaveCount(0)
+  await expect(page.getByTestId('runs-panel').locator('.queue-remaining')).toHaveCount(0)
 })
 
 test('frozen views route outputs through the run backend, surviving removal', async ({ page }) => {
@@ -110,10 +112,11 @@ test('frozen views route outputs through the run backend, surviving removal', as
   expect(run.connection).toBe(secondBackend)
 
   // Open the frozen view of the second-origin run.
+  await page.getByTestId('execution-row').first().locator('.runs-details > summary').click()
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
-  await expect(page.getByTestId('status-bar')).toContainText(secondBackend!)
-  await page.getByRole('tab', { name: 'Outputs' }).click()
-  const image = page.getByTestId('outputs-panel').locator('.output-thumbnail img').first()
+  await expect(page.getByTestId('status-connection').locator('.status-connection-name')).toHaveText(secondBackendLabel)
+  await page.getByRole('tab', { name: 'Runs', exact: true }).click()
+  const image = page.getByTestId('runs-panel').locator('.output-thumbnail img').first()
   await expect.poll(() => image.evaluate((element) => ({
     width: (element as HTMLImageElement).naturalWidth, height: (element as HTMLImageElement).naturalHeight,
   })), { timeout: 15_000 }).toEqual({ width: 64, height: 64 })
@@ -122,7 +125,10 @@ test('frozen views route outputs through the run backend, surviving removal', as
   expect(renditionUrls.length).toBeGreaterThan(0)
 
   // Removing the second origin keeps the history row and frozen image route.
-  await page.getByTestId('backend-remove').click()
+  if (!await page.getByTestId('backends-panel').isVisible()) await page.getByTestId('status-connection').click()
+  await page.getByTestId('backend-row').filter({ hasText: secondBackend! }).getByRole('button', { name: `Actions for ${secondBackendLabel}` }).click()
+  await page.getByRole('menuitem', { name: 'Remove backend', exact: true }).click()
+  await page.getByRole('button', { name: 'Remove backend', exact: true }).click()
   await expect(page.getByTestId('backend-row')).toHaveCount(1)
   await expect(page.getByTestId('tab-target')).toHaveCount(0) // single-backend again
   await expect(page.getByTestId('execution-row')).toHaveCount(1)

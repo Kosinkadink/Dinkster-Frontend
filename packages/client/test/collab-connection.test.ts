@@ -371,6 +371,16 @@ describe('postOp status mapping', () => {
     ).toEqual({ kind: 'snapshot-required' })
   })
 
+  it('maps 422 to a refusal carrying the server reason', async () => {
+    const message = 'Sampler: steps = 12000 refused. Allowed: 1 to 10000. Nothing stored.'
+    const { connection } = harness({
+      fetchFn: async () => jsonResponse(422, { error: 'value-outside-limits', message, problems: [] }),
+    })
+    expect(
+      await connection.postOp({ protocolVersion: 1, opId: 'o', actorId: 'a', baseRevision: 3, patch: [] }),
+    ).toEqual({ kind: 'refused', code: 'value-outside-limits', message })
+  })
+
   it('maps 406 to protocol-unsupported with the supported list (malformed list = empty)', async () => {
     const { connection } = harness({
       fetchFn: async () =>
@@ -481,7 +491,7 @@ describe('WS frame shaping', () => {
     // The WS connects in the constructor, so the descriptor frame and any
     // replayed ops can land while the joiner is still awaiting the HTTP
     // snapshot. They must reach the (later) first subscriber or a rejoin
-    // never catches up past the snapshot revision (found live 2026-07-27).
+    // never catches up past the snapshot revision.
     const sockets: FakeWS[] = []
     const connection = new CollabHttpConnection({
       baseUrl: 'http://test:8765',

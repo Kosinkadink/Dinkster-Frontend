@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GraphDef } from '../src/format/document.js'
 import { asNodeId } from '../src/ids.js'
-import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from '../src/schema/elaborate.js'
+import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, inGoneMember, lookupSitesOf, type Connectivity, type LookupAnswerState } from '../src/schema/elaborate.js'
 import { checkBody, initialDynamicStateOf } from '../src/schema/body.js'
 import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeChoiceSpec } from '../src/schema/model.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
@@ -167,6 +167,40 @@ describe('static schemas', () => {
     expect(elabInputsOf(stored).map((input) => input.spec.id)).toEqual(expect.arrayContaining(['mode.file', 'mode.other']))
     expect(elabInputsOf(stored).find((input) => input.spec.id === 'mode.other')!.apiName).toBeUndefined()
     expect(elaborateInterface(schema, node)).toEqual(active)
+  })
+
+  it('reads a shared choice key an unchosen option leaves out as that option\'s start key, and reports an undeclared key once', () => {
+    // Save Video's shape: webm offers only auto and av1 of the shared codec.
+    const schema = schemaOf([choiceOf('format', [
+      { key: 'mp4', rows: [{ kind: 'use', id: 'codec' }] },
+      { key: 'webm', rows: [{ kind: 'use', id: 'codec', only: ['auto', 'av1'] }] },
+    ], { shared: [choiceOf('codec', [
+      { key: 'auto', rows: [] },
+      { key: 'h264', rows: [intInput('crf')] },
+      { key: 'av1', rows: [intInput('cq')] },
+    ], { default: 'h264' })] })])
+    const census = (format: string, codec: string) => elaborateInterface(schema,
+      { values: {}, dynamic: { format: { selected: format }, 'format.codec': { selected: codec } } },
+      EMPTY_CONNECTIVITY, { includeDormant: true })
+
+    const stored = census('mp4', 'h264')
+    expect(stored.diagnostics).toEqual([])
+    expect(stored.choices).toEqual({ format: 'mp4', 'format.codec': 'h264' })
+    expect(stored.unstoredChoices).toBeUndefined()
+    // The census still reaches the rows of every codec option.
+    expect(elabInputsOf(stored).map((input) => input.spec.id)).toEqual(expect.arrayContaining(['format.codec.crf', 'format.codec.cq']))
+    const selectors = elabInputsOf(stored).filter((input) => input.spec.id === 'format.codec')
+    expect(selectors.map((input) => input.derivedValue)).toEqual(['h264', 'auto'])
+
+    // The chosen option that leaves the key out treats it as a removed
+    // option and goes to its own start key.
+    const removed = (format: string, codec: string) => census(format, codec).diagnostics
+      .map((diagnostic) => [diagnostic.code, diagnostic.severity, diagnostic.data])
+    expect(removed('webm', 'h264')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto' }]])
+    // A key no option declares is reported once, not once per place, with
+    // the chosen place's start key whichever place is read first.
+    expect(removed('mp4', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'h264' }]])
+    expect(removed('webm', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto' }]])
   })
 })
 
@@ -356,6 +390,7 @@ describe('groups of records', () => {
           side: 'input',
           label: 'items',
           frames: [{ construct: 'items', members: ['item0'], seq: 1 }],
+          boxes: ['group:items'],
         },
       ])
     })
@@ -430,6 +465,7 @@ describe('groups of records', () => {
         side: 'input',
         label: 'sub',
         frames: [{ construct: 'items.item0.sub', members: ['sub0'], seq: 1 }],
+        boxes: ['group:items', 'group:items.item0.sub'],
       })
     })
   })
@@ -503,10 +539,18 @@ describe('choices', () => {
     }
   })
 
-  it('an unknown stored option is refused, never replaced', () => {
-    const e = elaborateInterface(schemaOf([modes]), { values: {}, dynamic: { mode: { selected: 'gone' } } })
-    expect(e.diagnostics.map((d) => d.code)).toEqual(['prompt.bad_dynamic_choice'])
-    expect(elabInputsOf(e)).toEqual([])
+  it('a stored option the pack no longer has is no pick: a required choice shows its start option', () => {
+    const e = elaborateInterface(schemaOf([modes]), { values: { 'mode.mask': 4 }, dynamic: { mode: { selected: 'gone' } } })
+    expect(e.diagnostics.map((d) => [d.code, d.severity, d.data])).toEqual([
+      ['elab.combo.removedOption', 'warning', { construct: 'mode', selected: 'simple' }],
+    ])
+    expect(elabInputsOf(e).map((input) => input.address.port)).toEqual(['mode', 'mode.strength'])
+    expect(e.choices).toEqual({ mode: 'simple' })
+    const optional = choiceOf('mode', [{ key: 'on', rows: [intInput('value')] }], { required: false })
+    const none = elaborateInterface(schemaOf([optional]), { values: {}, dynamic: { mode: { selected: 'gone' } } })
+    expect(none.diagnostics.map((d) => [d.code, d.data])).toEqual([['elab.combo.removedOption', { construct: 'mode', selected: null }]])
+    expect(none.diagnostics[0]!.message).toContain("option 'gone' of 'mode' is no longer in the pack. It is now none.")
+    expect(elabInputsOf(none).map((input) => input.address.port)).toEqual(['mode'])
   })
 
   it('shows the declared start option for a required choice with nothing stored; a run refuses it', () => {
@@ -683,10 +727,13 @@ describe('type choices', () => {
     expect(elabInputsOf(e)[2]!.spec.widget).toEqual({ widgetType: 'FLOAT', options: { min: 0 }, default: 0.5 })
   })
 
-  it('refuses an unknown stored variant', () => {
+  it('a stored variant the pack no longer has is no pick', () => {
     const e = elaborateInterface(schemaOf([specialized()]), { values: {}, dynamic: { model: { selected: 'gone' } } }, connectedInputs('model'))
-    expect(e.diagnostics.map((d) => d.code)).toEqual(['prompt.bad_dynamic_choice'])
-    expect(elabInputsOf(e)).toEqual([])
+    expect(e.diagnostics.map((d) => [d.code, d.severity, d.data])).toEqual([
+      ['elab.slot.removedVariant', 'warning', { construct: 'model', selected: null }],
+    ])
+    expect(e.choices?.model).toBeUndefined()
+    expect(elabInputsOf(e).map((input) => input.address.port)).not.toContain('model.weight')
   })
 
   it('reads a member type choice from state at its flattened id', () => {
@@ -985,10 +1032,424 @@ describe('formulas', () => {
       EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics.map((diagnostic) => diagnostic.message)
     const start = { 'g.1.c': { selected: 'x' }, 'g.2.c': { selected: 'x' } }
     expect(census({ ...start, 'g.4.c': { selected: 'y' } })).toEqual([])
-    expect(census({ ...start, 'g.5.c': { selected: 'y' } })).toEqual(["Shrunk: unknown stored dynamic state 'g.5.c'"])
-    expect(census({ ...start, 'g.z.c': { selected: 'y' } })).toEqual(["Shrunk: unknown stored dynamic state 'g.z.c'"])
+    expect(census({ ...start, 'g.5.c': { selected: 'y' } })).toEqual(["Shrunk: 'g.5.c' is no longer part of this node. What was stored for it is kept in the file."])
+    expect(census({ ...start, 'g.z.c': { selected: 'y' } })).toEqual(["Shrunk: 'g.z.c' is no longer part of this node. What was stored for it is kept in the file."])
     const active = elaborateInterface(schema!, { values: { n: 2 }, dynamic: { ...start, 'g.4.c': { selected: 'y' } } } as never)
     expect(elabInputsOf(active).map((input) => input.spec.id)).toEqual(['n', 'g.1.c', 'g.2.c'])
+  })
+})
+
+describe('automatic values', () => {
+  const rate = intInput('rate', { widget: { widgetType: 'INT', options: {}, default: 48 } })
+  const fps = intInput('fps', {
+    automatic: { lookup: 'video.rate_of', args: ['rate'] },
+    widget: { widgetType: 'INT', options: {}, default: 24 },
+  })
+  const automaticOf = (lookupAnswers?: (lookup: string, args: readonly unknown[]) => unknown, values: Record<string, unknown> = { rate: 50 }) => {
+    const elaborated = elaborateInterface(schemaOf([rate, fps]), { values: values as never }, EMPTY_CONNECTIVITY,
+      lookupAnswers === undefined ? {} : { lookupAnswers: lookupAnswers as never })
+    return {
+      automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+      warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+      sites: lookupSitesOf(elaborated.items),
+      openSites: lookupSitesOf(elaborated.items, 'fps'),
+    }
+  }
+
+  it('asks for the lookup with arguments worked out from the values and waits on it with the default', () => {
+    const asked: unknown[] = []
+    const { automatic, warned, sites } = automaticOf((lookup, args) => { asked.push([lookup, args]); return undefined })
+    expect(asked).toContainEqual(['video.rate_of', [50]])
+    expect(automatic).toEqual({ value: 24, state: 'loading', call: { lookup: 'video.rate_of', args: [50] } })
+    expect(warned).toBe(false)
+    // The node on screen asks for the call; an answer of any kind arrives,
+    // so one that is not a value of the field warns as the run does.
+    expect(sites.map((site) => site.call)).toEqual([{ lookup: 'video.rate_of', args: [50] }])
+    expect(sites[0]!.accepts('not a rate')).toBe(true)
+    // A typed value asks, for what emptying the field would give, only while its field is open.
+    const typed = automaticOf(() => undefined, { rate: 50, fps: 30 })
+    expect(typed.sites).toEqual([])
+    expect(typed.openSites.map((site) => site.call)).toEqual([{ lookup: 'video.rate_of', args: [50] }])
+  })
+
+  it('uses an answer and a kept answer, and refuses a decimal that is not whole for a whole-number field', () => {
+    expect(automaticOf(() => ({ state: 'ready', answer: 25 })).automatic).toEqual({ value: 25, state: 'worked-out', call: { lookup: 'video.rate_of', args: [50] } })
+    expect(automaticOf(() => ({ state: 'loading', answer: 26 })).automatic).not.toHaveProperty('kept')
+    expect(automaticOf(() => ({ state: 'stale', answer: 30, reason: 'failed' }))).toMatchObject({ automatic: { value: 30, state: 'worked-out', kept: 'stale' }, warned: false })
+    expect(automaticOf(() => ({ state: 'paused', answer: 31 }))).toMatchObject({ automatic: { value: 31, state: 'worked-out', kept: 'paused' }, warned: false })
+    // Paused with nothing kept, or waiting for a file to be checked: the default, not loading, and no warning.
+    expect(automaticOf(() => ({ state: 'paused' }))).toMatchObject({ automatic: { value: 24, state: 'not-known', reason: 'paused' }, warned: false })
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'file-unchecked' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'file-unchecked' }, warned: false,
+    })
+    expect(automaticOf(() => ({ state: 'ready', answer: 25.5 })).automatic).toMatchObject({ value: 24, state: 'default', reason: 'wrong-type' })
+  })
+
+  it('uses the default with a warning when the lookup fails or runs out of time, and without one offline', () => {
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'timeout' }))).toMatchObject({
+      automatic: { value: 24, state: 'default', reason: 'lookup-timeout' }, warned: true,
+    })
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'wrong-shape' })).automatic?.reason).toBe('lookup-failed')
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'offline' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'offline' }, warned: false,
+    })
+  })
+
+  it('waits without a warning while an argument reads an automatic field still waiting, and warns for one never known', () => {
+    const base = intInput('base', {
+      automatic: { lookup: 'video.base_of', args: ['rate'] },
+      widget: { widgetType: 'INT', options: {}, default: 10 },
+    })
+    const reads = intInput('reads', {
+      automatic: { lookup: 'video.rate_of', args: ['base'] },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const doubled = intInput('doubled', {
+      automatic: { formula: 'base * 2' },
+      widget: { widgetType: 'INT', options: {}, default: 0 },
+    })
+    const elaborate = (answers: (lookup: string) => unknown, connectivity: Connectivity = EMPTY_CONNECTIVITY) => {
+      const elaborated = elaborateInterface(schemaOf([rate, base, reads, doubled]), { values: { rate: 50 } }, connectivity, { lookupAnswers: answers as never })
+      return {
+        automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'reads')!.automatic,
+        doubled: elabInputsOf(elaborated).find((input) => input.spec.id === 'doubled')!.automatic?.state,
+        warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default' && d.message.includes('reads')),
+      }
+    }
+    expect(elaborate(() => undefined)).toMatchObject({ automatic: { value: 24, state: 'not-known', reason: 'argument-unknown' }, warned: false })
+    // A paused field with nothing kept is still waiting: what reads it does not read its default.
+    expect(elaborate((lookup) => lookup === 'video.base_of' ? { state: 'paused' } : { state: 'ready', answer: 30 }))
+      .toMatchObject({ automatic: { value: 24, state: 'not-known', reason: 'argument-unknown' }, doubled: 'default', warned: false })
+    expect(elaborate((lookup) => lookup === 'video.base_of' ? { state: 'ready', answer: 12 } : { state: 'ready', answer: 30 }))
+      .toMatchObject({ automatic: { value: 30, state: 'worked-out', call: { lookup: 'video.rate_of', args: [12] } }, doubled: 'worked-out', warned: false })
+    // A wired argument is never known in the editor; the run gives the default, so the field warns.
+    const wired: Connectivity = { isInputConnected: (port) => port === 'rate', isOutputConnected: () => false }
+    const elaborated = elaborateInterface(schemaOf([rate, base]), { values: {} }, wired, { lookupAnswers: (() => ({ state: 'ready', answer: 12 })) as never })
+    expect(elabInputsOf(elaborated).find((input) => input.spec.id === 'base')!.automatic)
+      .toEqual({ value: 10, state: 'default', reason: 'argument-unknown' })
+    expect(elaborated.diagnostics.some((d) => d.code === 'automatic.default')).toBe(true)
+  })
+
+  it('waits quietly for an argument field left empty, and warns for a stored value that does not fit', () => {
+    const video = intInput('video', { type: { kind: 'concrete', name: 'STRING' }, displayName: 'Video', optional: true, widget: { widgetType: 'STRING', options: {} } })
+    const delay = intInput('delay', { widget: { widgetType: 'INT', options: {}, default: 0 } })
+    const lookupRate = (args: readonly (string | { readonly formula: string })[]) => intInput('fps', {
+      automatic: { lookup: 'video.rate_of', args: args as never },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const elaborate = (args: readonly (string | { readonly formula: string })[], values: Record<string, unknown>) => {
+      const asked: unknown[] = []
+      const elaborated = elaborateInterface(schemaOf([video, delay, lookupRate(args)]), { values: values as never }, EMPTY_CONNECTIVITY,
+        { lookupAnswers: ((lookup: string, called: unknown) => { asked.push([lookup, called]); return { state: 'ready', answer: 30 } }) as never })
+      return {
+        automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+        warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+        asked,
+      }
+    }
+    // A new node stores nothing; clearing a file field stores null. Both wait for the field by its label.
+    for (const values of [{}, { video: null }]) {
+      expect(elaborate(['video'], values)).toEqual({
+        automatic: { value: 24, state: 'not-known', reason: 'argument-empty', waitingFor: 'Video' }, warned: false, asked: [],
+      })
+    }
+    // An argument that is not one plain field waits for a value.
+    expect(elaborate([{ formula: 'video if delay == 0 else video' }], {}).automatic)
+      .toEqual({ value: 24, state: 'not-known', reason: 'argument-empty' })
+    // A field with a default that stores null holds a value that does not fit: the default, with the warning.
+    expect(elaborate(['delay'], { delay: null })).toEqual({
+      automatic: { value: 24, state: 'default', reason: 'argument-unknown' }, warned: true, asked: [],
+    })
+    expect(elaborate(['video'], { video: 'clip.mp4' }).automatic).toMatchObject({ value: 30, state: 'worked-out' })
+  })
+
+  it('hands a lookup argument that names a file field the picked file as stored, and waits quietly for one', () => {
+    const video = socketInput('video', 'ASSET', { displayName: 'Video', optional: true })
+    const fpsOf = intInput('fps', {
+      automatic: { lookup: 'video.rate_of', args: ['video'] },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const picked = { digest: `blake3:${'a'.repeat(64)}`, name: 'clip_25fps.mp4', size: 12, mediaType: 'video/mp4', virtualPath: '' }
+    const local = { verification: 'unverified', localBinding: 'b1', name: 'clip.mp4', size: 12, virtualPath: 'mounts/m/clip.mp4' }
+    const elaborate = (values: Record<string, unknown>, held: (args: readonly unknown[]) => unknown, connectivity = EMPTY_CONNECTIVITY) => {
+      const asked: unknown[] = []
+      const elaborated = elaborateInterface(schemaOf([video, fpsOf]), { values: values as never }, connectivity,
+        { lookupAnswers: ((_lookup: string, args: readonly unknown[]) => { asked.push(args); return held(args) }) as never })
+      return {
+        automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+        warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+        asked: [...new Set(asked.map((args) => JSON.stringify(args)))].map((args) => JSON.parse(args) as unknown),
+      }
+    }
+    const answered = () => ({ state: 'ready', answer: 25 })
+    // Nothing picked, or cleared: wait for the file field by its label, without a call or a warning.
+    for (const values of [{}, { video: null }]) {
+      expect(elaborate(values, answered)).toEqual({
+        automatic: { value: 24, state: 'not-known', reason: 'argument-empty', waitingFor: 'Video' }, warned: false, asked: [],
+      })
+    }
+    // A picked file is sent as the node stores it, the same value a run sends.
+    expect(elaborate({ video: picked }, answered)).toEqual({
+      automatic: { value: 25, state: 'worked-out', call: { lookup: 'video.rate_of', args: [picked] } }, warned: false, asked: [[picked]],
+    })
+    // A local file the host has not checked yet waits for it, still without a warning.
+    expect(elaborate({ video: local }, () => ({ state: 'unavailable', reason: 'file-unchecked' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'file-unchecked', call: { args: [local] } }, warned: false,
+    })
+    // A wired file is never known in the editor; the run gives the default, so the field warns.
+    const wired: Connectivity = { isInputConnected: (port) => port === 'video', isOutputConnected: () => false }
+    expect(elaborate({ video: picked }, answered, wired)).toEqual({
+      automatic: { value: 24, state: 'default', reason: 'argument-unknown' }, warned: true, asked: [],
+    })
+  })
+
+  it('works out a fixed field only for its open field, without a warning, while the fixed value stays in use', () => {
+    const doubled = intInput('doubled', {
+      automatic: { formula: 'rate * 2' },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const reads = intInput('reads', {
+      automatic: { formula: 'doubled + 1' },
+      widget: { widgetType: 'INT', options: {}, default: 0 },
+    })
+    const elaborated = elaborateInterface(schemaOf([rate, doubled, reads]), { values: { rate: 50, doubled: 7 } }, EMPTY_CONNECTIVITY)
+    const inputs = elabInputsOf(elaborated)
+    const fixed = inputs.find((input) => input.spec.id === 'doubled')!
+    expect(fixed.automatic).toBeUndefined()
+    expect(fixed.automaticIfEmptied).toEqual({ value: 100, state: 'worked-out' })
+    expect(inputs.find((input) => input.spec.id === 'reads')!.automatic).toEqual({ value: 8, state: 'worked-out' })
+    expect(elaborated.diagnostics.some((d) => d.code === 'automatic.default')).toBe(false)
+  })
+})
+
+describe('formula properties', () => {
+  const int = { kind: 'concrete', types: ['INT'] }
+  const field = (id: string, extra: Record<string, unknown> = {}) =>
+    ({ kind: 'input', id, type: int, default: 3, widget: { type: 'INT' }, ...extra })
+  const wired = (inputs: string[] = [], outputs: string[] = []): Connectivity => ({
+    isInputConnected: (port) => inputs.includes(port),
+    isOutputConnected: (port) => outputs.includes(port),
+    inputPorts: () => inputs,
+    outputPorts: () => outputs,
+  })
+  const elaborate = (body: unknown[], values: Record<string, unknown> = {}, connectivity = EMPTY_CONNECTIVITY, dynamic: Record<string, unknown> = { pick: { selected: 'a' } }) => {
+    const { schema, diagnostics } = parseDinksterSchema('Formulas', { body } as never)
+    expect(diagnostics).toEqual([])
+    const elaborated = elaborateInterface(schema!, { values, dynamic } as never, connectivity, { promoteGhosts: false })
+    expect(elaborated.diagnostics).toEqual([])
+    return elaborated
+  }
+  const hiddenInputs = (elaborated: ReturnType<typeof elaborate>) =>
+    elabInputsOf(elaborated).filter((input) => input.spec.hidden === true).map((input) => input.spec.id)
+  // `pick` holds `under` only while option a is chosen, so a formula outside reads it as unknown under b.
+  const pick = { kind: 'choice', id: 'pick', options: [{ key: 'a', rows: [field('under')] }, { key: 'b', rows: [] }] }
+
+  it('hides a row whose visible is false, still sends it to the run, and shows it while unknown, failed or wired', () => {
+    const body = (visible: string) => [field('w'), pick, field('extra', { visible: { formula: visible } })]
+    expect(hiddenInputs(elaborate(body('w > 5'), { w: 3 }))).toEqual(['extra'])
+    expect(elabInputsOf(elaborate(body('w > 5'), { w: 3 })).find((input) => input.spec.id === 'extra')!.apiName).toBe('extra')
+    expect(hiddenInputs(elaborate(body('w > 5'), { w: 7 }))).toEqual([])
+    // Unknown: `pick.under` exists only under option a; b is chosen.
+    expect(hiddenInputs(elaborate(body('pick.under > 5'), {}, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } }))).toEqual([])
+    expect(hiddenInputs(elaborate(body('pick.under > 5'), {}, EMPTY_CONNECTIVITY, { pick: { selected: 'a' } }))).toEqual(['extra'])
+    // Failed.
+    expect(hiddenInputs(elaborate(body('1 // 0 > 5'), { w: 3 }))).toEqual([])
+    // A wire into the row, or out of its field, shows it.
+    expect(hiddenInputs(elaborate(body('w > 5'), { w: 3 }, wired(['extra'])))).toEqual([])
+    expect(hiddenInputs(elaborate(body('w > 5'), { w: 3 }, wired([], ['extra'])))).toEqual([])
+  })
+
+  it('works out lookup fields and notes for their own arguments and uses only an answer for exactly them', () => {
+    const type = (name: string) => ({ kind: 'concrete', types: [name] })
+    const lookup = (name: string, ...args: string[]) => ({ lookup: `pack.${name}`, args })
+    const { schema } = parseDinksterSchema('Picker', { body: [
+      { kind: 'input', id: 'category', type: type('COMBO'), pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl'] } },
+      { kind: 'input', id: 'lora', type: type('COMBO'), widget: { type: 'COMBO', options: lookup('loras', 'category') } },
+      { kind: 'input', id: 'frames', type: int, widget: { type: 'NUMBER', min: 0, max: lookup('most', 'category'), step: 4, offset: lookup('start', 'category') } },
+      { kind: 'input', id: 'trigger', type: type('STRING'), widget: { type: 'STRING', completions: lookup('words', 'lora') } },
+      { kind: 'note', id: 'count', text: lookup('count', 'category'), unknown: 'Counting...' },
+    ] } as never)
+    const run = (category: string, held: Record<string, LookupAnswerState> = {}, connectivity = EMPTY_CONNECTIVITY) => {
+      const elaborated = elaborateInterface(schema!, { values: { category, lora: 'a.safetensors', frames: 6 } }, connectivity,
+        { lookupAnswers: (name, args) => held[JSON.stringify([name, args])] })
+      const input = (id: string) => elabInputsOf(elaborated).find((item) => item.spec.id === id)!
+      return { input, note: elaborated.items.find((item) => item.kind === 'note')! }
+    }
+    const key = (name: string, ...args: unknown[]) => JSON.stringify([`pack.${name}`, args])
+
+    // Nothing held yet: each site is loading for its own call, with no list, no max and no step grid.
+    const first = run('sd')
+    expect(first.input('lora').looked).toEqual({ options: { state: 'loading', call: { lookup: 'pack.loras', args: ['sd'] } } })
+    expect(first.input('lora').spec.widget!.options).not.toHaveProperty('options')
+    expect(first.input('frames').spec.widget!.options).toEqual({ min: 0, step: 4, offsetUnknown: true })
+    expect(first.note).toMatchObject({ text: 'Counting...', unknown: true, lookup: { state: 'loading' } })
+    expect(first.input('trigger').looked).toEqual({ completions: { state: 'loading', call: { lookup: 'pack.words', args: ['a.safetensors'] } } })
+
+    // Answers for sd are never shown for sdxl.
+    const forSd = { [key('loras', 'sd')]: { state: 'ready', answer: ['old.safetensors'] }, [key('count', 'sd')]: { state: 'ready', answer: '3 LoRAs' } } as const
+    const changed = run('sdxl', forSd)
+    expect(changed.input('lora').looked!.options).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+    expect(changed.note).toMatchObject({ text: 'Counting...', unknown: true })
+
+    // Ready answers replace the fields.
+    const ready = run('sdxl', {
+      [key('loras', 'sdxl')]: { state: 'ready', answer: ['x.safetensors', { value: 'y.safetensors', label: 'Y', folder: 'styles' }] },
+      [key('most', 'sdxl')]: { state: 'ready', answer: 40 },
+      [key('start', 'sdxl')]: { state: 'ready', answer: 2 },
+      [key('count', 'sdxl')]: { state: 'stale', answer: '2 LoRAs', reason: 'timeout' },
+      [key('words', 'a.safetensors')]: { state: 'loading', answer: ['glow', { value: 'mist', info: 'soft' }] },
+    })
+    expect(ready.input('lora').spec.widget!.options['options']).toEqual(['x.safetensors', { value: 'y.safetensors', label: 'Y', folder: 'styles' }])
+    expect(ready.input('frames').spec.widget!.options).toEqual({ min: 0, max: 40, step: 4, offset: 2 })
+    expect(ready.note).toEqual(expect.objectContaining({ text: '2 LoRAs', lookup: { state: 'stale', call: { lookup: 'pack.count', args: ['sdxl'] }, reason: 'timeout' } }))
+    expect(ready.note).not.toHaveProperty('unknown')
+    expect(ready.input('trigger').looked!.completions).toMatchObject({ state: 'ready', refreshing: true })
+    expect(ready.input('trigger').spec.widget!.textCompletions!.items.map((item) => [item.value, item.label, item.detail]))
+      .toEqual([['glow', 'glow', ''], ['mist', 'mist', 'soft']])
+
+    // A max below min, a whole-number field given a fraction, or a note given a number is a wrong shape, never repaired.
+    const wrong = run('sdxl', {
+      [key('most', 'sdxl')]: { state: 'ready', answer: -4 },
+      [key('start', 'sdxl')]: { state: 'ready', answer: 2.5 },
+      [key('count', 'sdxl')]: { state: 'ready', answer: 7 },
+    })
+    expect(wrong.input('frames').looked).toMatchObject({ max: { state: 'unavailable', reason: 'wrong-shape' }, offset: { state: 'unavailable', reason: 'wrong-shape' } })
+    expect(wrong.input('frames').spec.widget!.options).toEqual({ min: 0, step: 4, offsetUnknown: true })
+    expect(wrong.note).toMatchObject({ text: 'Counting...', unknown: true, lookup: { state: 'unavailable', reason: 'wrong-shape' } })
+    // None means no limit, and no offset: the step counts from min.
+    const none = run('sdxl', { [key('most', 'sdxl')]: { state: 'ready', answer: null }, [key('start', 'sdxl')]: { state: 'ready', answer: null } })
+    expect(none.input('frames').spec.widget!.options).toEqual({ min: 0, step: 4 })
+
+    // A wired argument is not known: nothing is called, and the row names the input it waits for.
+    const wired = run('sd', {}, { ...EMPTY_CONNECTIVITY, isInputConnected: (port: string) => port === 'lora' })
+    expect(wired.input('trigger').looked).toEqual({ completions: { state: 'waiting', input: 'lora' } })
+    // Without lookup answers (search, registry previews) lookups are off.
+    const off = elaborateInterface(schema!, { values: { category: 'sd' } })
+    expect(elabInputsOf(off).find((item) => item.spec.id === 'lora')!.looked).toEqual({ options: { state: 'off' } })
+  })
+
+  it('hides a box with everything in it, unless a row inside has a wire', () => {
+    const body = [field('w'), { kind: 'section', id: 'more', label: 'More', visible: { formula: 'w > 5' }, rows: [
+      field('a'), { kind: 'output', id: 'o', type: int }, { kind: 'note', id: 'n', text: 'hi' },
+      { kind: 'group', id: 'g', grows: 'button', keys: { numbered: { prefix: 'g', start: 0, pad: 0 } }, value: { kind: 'input', id: 'v', type: int } },
+    ] }]
+    const members = { g: { members: ['g0'], seq: 1 } }
+    const hidden = elaborate(body, { w: 3 }, EMPTY_CONNECTIVITY, members)
+    expect(hidden.items.map((item) => item.kind === 'input' || item.kind === 'output' ? `${item.kind}:${item.spec.id}:${item.spec.hidden === true}` : item.kind))
+      .toEqual(['input:w:false', 'input:a:true', 'output:o:true', 'input:g.g0:true'])
+    // A wire into a member inside: the box shows as if it were visible.
+    const shown = elaborate(body, { w: 7 }, wired(['g.g0']), members)
+    expect(elaborate(body, { w: 3 }, wired(['g.g0']), members).items).toEqual(shown.items)
+    expect(shown.items.map((item) => item.kind)).toContain('section')
+    expect(hiddenInputs(shown)).toEqual([])
+  })
+
+  it('shows a hidden row, and every box holding it, while the row has a problem', () => {
+    const parse = (body: unknown[]) => {
+      const { schema, diagnostics } = parseDinksterSchema('Formulas', { body } as never)
+      expect(diagnostics).toEqual([])
+      return schema!
+    }
+    const hiddenWith = (body: unknown[], values: Record<string, unknown>, dynamic: Record<string, unknown>, problemRows?: string[]) =>
+      hiddenInputs(elaborateInterface(parse(body), { values, dynamic } as never, EMPTY_CONNECTIVITY,
+        { promoteGhosts: false, ...(problemRows !== undefined ? { problemRows: new Set(problemRows) } : {}) }))
+    const row = [field('w'), field('extra', { visible: { formula: 'w > 5' } })]
+    expect(hiddenWith(row, { w: 3 }, {})).toEqual(['extra'])
+    expect(hiddenWith(row, { w: 3 }, {}, ['extra'])).toEqual([])
+    expect(hiddenWith(row, { w: 3 }, {}, ['w'])).toEqual(['extra'])
+    // A box shows whole while a row it holds at any depth has a problem.
+    const box = [field('w'), { kind: 'section', id: 'more', label: 'More', visible: { formula: 'w > 5' }, rows: [
+      field('a'), { kind: 'section', id: 'deeper', label: 'Deeper', rows: [field('b')] },
+    ] }]
+    expect(hiddenWith(box, { w: 3 }, {})).toEqual(['a', 'b'])
+    expect(hiddenWith(box, { w: 3 }, {}, ['b'])).toEqual([])
+    // A problem elaboration finds itself: a stored option the choice no longer offers.
+    const choice = [field('w'), { kind: 'choice', id: 'mode', required: true, visible: { formula: 'w > 5' },
+      options: [{ key: 'fit', rows: [field('m')] }, { key: 'fill', rows: [] }] }]
+    expect(hiddenWith(choice, { w: 3 }, { mode: { selected: 'fit' } })).toEqual(['mode', 'mode.m'])
+    expect(hiddenWith(choice, { w: 3 }, { mode: { selected: 'gone' } })).not.toContain('mode')
+    // A failed rule that reads one hidden field is that field's problem.
+    const ruled = (w: number) => {
+      const { schema } = parseDinksterSchema('Formulas', { body: row, validate: [{ check: { formula: 'extra < 5' }, message: 'Too big', fix: [] }] } as never)
+      return hiddenInputs(elaborateInterface(schema!, { values: { w, extra: 9 } } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false }))
+    }
+    expect(ruled(3)).toEqual([])
+  })
+
+  it('labels a row by its formula, and by its id while the formula is unknown or fails', () => {
+    const body = (label: string) => [field('w'), pick, field('size', { label: { formula: label } }), { kind: 'output', id: 'o', type: int, label: { formula: label } }]
+    const labels = (elaborated: ReturnType<typeof elaborate>) => elaborated.items
+      .filter((item) => item.kind === 'input' || item.kind === 'output')
+      .filter((item) => item.spec.id === 'size' || item.spec.id === 'o').map((item) => item.spec.displayName)
+    expect(labels(elaborate(body('"Size " + str(w)'), { w: 4 }))).toEqual(['Size 4', 'Size 4'])
+    expect(labels(elaborate(body('"Size " + str(pick.under)'), {}, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } }))).toEqual(['size', 'o'])
+    expect(labels(elaborate(body('"Size " + str(1 // 0)'), { w: 4 }))).toEqual(['size', 'o'])
+  })
+
+  it("shows a note's formula text, and its unknown text while the formula is unknown or fails", () => {
+    const body = (text: string) => [field('w'), pick, { kind: 'note', id: 'n', text: { formula: text }, unknown: 'working it out' }]
+    const note = (elaborated: ReturnType<typeof elaborate>) => elaborated.items.find((item) => item.kind === 'note')
+    expect(note(elaborate(body('str(w * 2) + " px"'), { w: 4 }))).toEqual({ kind: 'note', id: 'n', text: '8 px' })
+    expect(note(elaborate(body('str(pick.under)'), {}, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } })))
+      .toEqual({ kind: 'note', id: 'n', text: 'working it out', unknown: true })
+    expect(note(elaborate(body('str(1 // 0)'), { w: 4 }))).toEqual({ kind: 'note', id: 'n', text: 'working it out', unknown: true })
+  })
+
+  it('reports a failed rule of the node, an error without a fix and a warning with one, naming the fields it reads, and passes it while unknown or failed', () => {
+    const sizes = { kind: 'group', id: 'g', member: [field('s')], keys: { numbered: { prefix: 'item', start: 0 } }, grows: 'link', minMembers: 2 }
+    const rules = (check: string, fix: unknown[] = []) => {
+      const { schema, diagnostics } = parseDinksterSchema('Formulas', { body: [field('w'), field('h'), pick, sizes], validate: [
+        { check: { formula: check }, message: 'Too big', fix },
+      ] } as never)
+      expect(diagnostics).toEqual([])
+      return (values: Record<string, unknown>, dynamic: Record<string, unknown> = { pick: { selected: 'a' } }) =>
+        elaborateInterface(schema!, { values, dynamic: { g: { members: ['item0', 'item1'] }, ...dynamic } } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false, nodeId: 'n' as never })
+          .diagnostics.map((diagnostic) => [diagnostic.severity, diagnostic.code, diagnostic.message, diagnostic.data, diagnostic.anchor?.port?.port])
+    }
+    expect(rules('w % 2 == 0')({ w: 3 })).toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: ['w'] }, 'w']])
+    expect(rules('w % 2 == 0')({ w: 4 })).toEqual([])
+    expect(rules('w % 2 == 0', [{ step: 'Set', row: 'w', value: { value: 4 } }])({ w: 3 }))
+      .toEqual([['warning', 'node.rule.failed', 'Too big', { rule: 0, hasFix: true, fields: ['w'] }, 'w']])
+    // Two fields, or none: a problem of the whole node, with no row anchor.
+    expect(rules('w + h < 6')({ w: 3, h: 4 })).toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: ['w', 'h'] }, undefined]])
+    expect(rules('len(g) < 2')({})).toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: [] }, undefined]])
+    // A column of a group's members reads each member's field.
+    expect(rules('sum(g.s) < 5')({ 'g.item0.s': 3, 'g.item1.s': 4 }))
+      .toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: ['g.item0.s', 'g.item1.s'] }, undefined]])
+    expect(rules('pick.under > 5')({}, { pick: { selected: 'b' } })).toEqual([])
+    expect(rules('1 // 0 > 5')({ w: 3 })).toEqual([])
+  })
+
+  it('works out the title suffix: at most 64 characters, a line break read as a space, and none while unknown, failed or empty', () => {
+    const suffix = (titleSuffix: unknown, values: Record<string, unknown> = { w: 4 }, dynamic: Record<string, unknown> = { pick: { selected: 'a' } }) => {
+      const { schema, diagnostics } = parseDinksterSchema('Formulas', { body: [field('w'), pick], titleSuffix } as never)
+      expect(diagnostics).toEqual([])
+      return elaborateInterface(schema!, { values, dynamic } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false }).titleSuffix
+    }
+    expect(suffix('fast')).toBe('fast')
+    expect(suffix({ formula: 'str(w) + " steps"' })).toBe('4 steps')
+    expect(suffix({ formula: '"two\\nlines"' })).toBe('two lines')
+    expect(suffix('x'.repeat(70))).toBe('x'.repeat(64))
+    expect(suffix({ formula: '""' })).toBeUndefined()
+    expect(suffix({ formula: 'str(pick.under)' }, {}, { pick: { selected: 'b' } })).toBeUndefined()
+    expect(suffix({ formula: 'str(1 // 0)' })).toBeUndefined()
+  })
+
+  it("works out a button's enabled, reason and tooltip, and leaves it enabled while unknown or failed", () => {
+    const body = (enabled: string) => [field('w'), pick, { kind: 'button', id: 'go', label: 'Go', steps: [],
+      enabled: { formula: enabled }, disabledReason: { formula: '"needs " + str(w) + " more"' }, tooltip: { formula: '"Go " + str(w)' } }]
+    // What elaboration works out; the declaration it carries is the body's own.
+    const button = (elaborated: ReturnType<typeof elaborate>) => {
+      const found = elaborated.items.find((item) => item.kind === 'button')
+      if (found?.kind !== 'button') return found
+      const { spec: _spec, ...rest } = found
+      return rest
+    }
+    expect(button(elaborate(body('w > 5'), { w: 2 }))).toEqual({ kind: 'button', id: 'go', label: 'Go', enabled: false, disabledReason: 'needs 2 more', tooltip: 'Go 2' })
+    expect(button(elaborate(body('w > 5'), { w: 9 }))).toEqual({ kind: 'button', id: 'go', label: 'Go', tooltip: 'Go 9' })
+    expect(button(elaborate(body('pick.under > 5'), { w: 2 }, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } })))
+      .toEqual({ kind: 'button', id: 'go', label: 'Go', tooltip: 'Go 2' })
+    expect(button(elaborate(body('1 // 0 > 5'), { w: 2 }))).toEqual({ kind: 'button', id: 'go', label: 'Go', tooltip: 'Go 2' })
   })
 })
 
@@ -1018,4 +1479,117 @@ describe('buildGraphConnectivity', () => {
     expect(facts(asNodeId('a')).isOutputConnected('out0')).toBe(true)
   })
 
+})
+
+describe('boxes around rows', () => {
+  const body: BodyRow[] = [{
+    kind: 'section',
+    id: 'sampling',
+    rows: [
+      recordGroup('loras', { min: 1 }),
+      choiceOf('resize', [
+        { key: 'scale', rows: [intInput('factor')] },
+        { key: 'keep', rows: [] },
+      ]),
+    ],
+  }]
+  const chains = (state: { dynamic?: Record<string, { selected?: string }> } = {}) =>
+    elaborateInterface(schemaOf(body), { values: {}, ...state }).items.map((item) => [
+      item.kind === 'input' || item.kind === 'output' ? item.address.port
+        : item.kind === 'box' ? item.id : item.kind === 'section' ? item.spec.id : item.kind,
+      item.boxes ?? [],
+    ])
+
+  it('names every box around a row, outermost first, without changing its id', () => {
+    expect(chains()).toEqual([
+      ['sampling', []],
+      ['group:loras', ['sampling']],
+      ['member:loras.item0', ['sampling', 'group:loras']],
+      ['loras.item0.image', ['sampling', 'group:loras', 'member:loras.item0']],
+      ['loras.item0.mask', ['sampling', 'group:loras', 'member:loras.item0']],
+      ['resize', ['sampling']],
+      ['option:resize', ['sampling']],
+      ['resize.factor', ['sampling', 'option:resize']],
+    ])
+  })
+
+  it('draws no box for an option with no rows', () => {
+    expect(chains({ dynamic: { resize: { selected: 'keep' } } }).map(([id]) => id)).toEqual([
+      'sampling', 'group:loras', 'member:loras.item0', 'loras.item0.image', 'loras.item0.mask', 'resize',
+    ])
+  })
+})
+
+describe('rows kept for a wire on their output', () => {
+  const taps = (...ports: string[]): Connectivity => ({
+    isInputConnected: () => false,
+    isOutputConnected: (port) => ports.includes(port),
+    outputPorts: () => ports,
+  })
+  const shown = (schema: NodeSchema, node: object, connectivity: Connectivity) =>
+    elabInputsOf(elaborateInterface(schema, node as never, connectivity))
+      .map((input) => [input.spec.id, input.kept, input.apiName !== undefined] as const)
+
+  it('keeps a wired row of an option not chosen after the chosen rows, and only that row', () => {
+    const schema = schemaOf([{
+      kind: 'choice', id: 'mode', displayName: 'Mode', required: true, shared: [],
+      options: [
+        { key: 'fast', label: 'Fast', rows: [intInput('steps')] },
+        { key: 'fine', label: 'Fine', rows: [intInput('detail'), intInput('passes')] },
+      ],
+    }])
+    const node = { values: {}, dynamic: { mode: { selected: 'fast' } } }
+    expect(shown(schema, node, taps('mode.passes'))).toEqual([
+      ['mode', undefined, false],
+      ['mode.steps', undefined, true],
+      ['mode.passes', 'Not used while Mode is Fast. Its wire gives nothing.', false],
+    ])
+    // Chosen again, it is an ordinary row; with no wire, it is not drawn.
+    expect(shown(schema, { ...node, dynamic: { mode: { selected: 'fine' } } }, taps('mode.passes')).map(([id, kept]) => [id, kept]))
+      .toEqual([['mode', undefined], ['mode.detail', undefined], ['mode.passes', undefined]])
+    expect(shown(schema, node, taps()).map(([id]) => id)).toEqual(['mode', 'mode.steps'])
+    // The run's view has no kept rows.
+    expect(elabInputsOf(elaborateInterface(schema, node as never, taps('mode.passes'), { promoteGhosts: false }))
+      .some((input) => input.kept !== undefined)).toBe(false)
+  })
+
+  it('keeps a wired row of another type under its type-led pin', () => {
+    const schema = schemaOf([{
+      kind: 'typeChoice', id: 'model', displayName: 'Model', required: false, rows: [],
+      variants: [
+        { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, rows: [intInput('width')] },
+        { key: 'latent', type: { kind: 'concrete', name: 'LATENT' }, rows: [intInput('scale')] },
+      ],
+    }])
+    expect(shown(schema, { values: {}, dynamic: { model: { selected: 'image' } } }, taps('model.scale'))).toEqual([
+      ['model', undefined, true],
+      ['model.width', undefined, true],
+      ['model.scale', 'Not used while Model is image. Its wire gives nothing.', false],
+    ])
+  })
+
+  it('draws no member the group does not store, even with a wire on its field', () => {
+    const schema = schemaOf([{
+      kind: 'group', id: 'items', displayName: 'Items', member: [intInput('amount'), intInput('weight')],
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'button', minMembers: 0, maxMembers: 8,
+    }])
+    const node = { values: {}, dynamic: { items: { members: ['item0', 'item2'], seq: 3 } } }
+    expect(shown(schema, node, taps('items.item1.weight'))).toEqual([
+      ['items.item0.amount', undefined, true],
+      ['items.item0.weight', undefined, true],
+      ['items.item2.amount', undefined, true],
+      ['items.item2.weight', undefined, true],
+    ])
+    expect(inGoneMember(elaborateInterface(schema, node as never, taps('items.item1.weight')), 'items.item1.weight')).toBe(true)
+    expect(inGoneMember(elaborateInterface(schema, node as never, taps()), 'items.item2.weight')).toBe(false)
+    // The spare offered under the same key is not a member the node has.
+    const valued = schemaOf([{
+      kind: 'group', id: 'weights', value: intInput('weight', { optional: true }),
+      keys: { kind: 'numbered', prefix: 'weight', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 8,
+    }])
+    const spare = elaborateInterface(valued, { values: { 'weights.weight0': 2 }, dynamic: { weights: { members: ['weight0'] } } } as never, taps('weights.weight1'))
+    expect(elabInputsOf(spare).map((input) => input.address.port)).toEqual(['weights.weight0', 'weights.weight1'])
+    expect(inGoneMember(spare, 'weights.weight1')).toBe(true)
+    expect(inGoneMember(spare, 'weights.weight0')).toBe(false)
+  })
 })

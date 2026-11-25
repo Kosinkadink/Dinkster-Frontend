@@ -109,7 +109,7 @@ describe('SettingsDialog search', () => {
     unmount()
   })
 
-  it('shows cleanup progress, server byte totals, explicit retry and changed ownership refusal', async () => {
+  it('shows cleanup progress, server byte totals, explicit retry and backend refusal', async () => {
     let enabled = true
     let finish!: () => void
     let fail = true
@@ -144,7 +144,7 @@ describe('SettingsDialog search', () => {
     await vi.waitFor(() => expect(clear.disabled).toBe(false))
     enabled = false
     clear.click()
-    await vi.waitFor(() => expect(root.textContent).toContain('The backend cannot confirm complete ownership for all clients.'))
+    await vi.waitFor(() => expect(root.textContent).toContain('The backend cannot confirm which files are in use.'))
     expect(clear.disabled).toBe(true)
     expect(root.textContent).not.toContain('Clearing eligible assets...')
     expect(root.textContent).not.toContain('owner_completeness_unknown')

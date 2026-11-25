@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page, type Route } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page, type Route } from './fixtures.js'
 
 const proofDir = process.env.DINKSTER_MEDIA_PROOF_DIR ?? '/tmp/dinkster-media-proof'
 const fixtureDir = resolve(import.meta.dirname, '../fixtures/media-overlay')
@@ -115,8 +115,8 @@ async function serveValue(route: Route): Promise<void> {
   } })
 }
 
-async function installGraph(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+async function installGraph(page: Page, associatedImage = false): Promise<void> {
+  await page.evaluate(async (associatedImage) => {
     const concrete = (name: string) => ({ kind: 'concrete', name } as const)
     const schema = (type: string, output: string, valueType: ReturnType<typeof concrete>, preview = true) => ({
       type,
@@ -187,7 +187,12 @@ async function installGraph(page: Page): Promise<void> {
         text: { state: 'done', outputs: { text: { ...descriptor('STRING', 'proof-text'), value: 'Recorded text wins' } } },
       },
     })
-    store.hydrateArtifacts(ref, [{
+    store.hydrateArtifacts(ref, associatedImage ? [{
+      nodeId: 'saved', digest: `blake3:${'a'.repeat(64)}`, name: 'original.exr',
+      size: 2 ** 30 + 1, mediaType: 'image/x-exr', virtualPath: 'output/original.exr',
+      preview: { digest: `blake3:${'b'.repeat(64)}`, name: 'preview.png', size: 128,
+        mediaType: 'image/png', virtualPath: `previews/${'b'.repeat(64)}/preview.png` },
+    }] : [{
       nodeId: 'saved',
       digest: `blake3:${'a'.repeat(64)}`,
       name: 'saved-result.mp4',
@@ -204,7 +209,7 @@ async function installGraph(page: Page): Promise<void> {
     }])
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
+  }, associatedImage)
 }
 
 test.beforeEach(async ({ page }) => {
@@ -215,7 +220,7 @@ test.beforeEach(async ({ page }) => {
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined,
   )).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 async function installMediaProof(page: Page): Promise<void> {
@@ -237,20 +242,8 @@ test(`saved files retain original downloads with ${previewAvailable ? 'available
       await route.fulfill({ contentType: 'image/x-exr', body: 'original EXR bytes' })
     }
   })
-  await installGraph(page)
+  await installGraph(page, true)
   await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    const store = app.store as unknown as {
-      executions: { get(): Map<string, { ref: unknown }> }
-      hydrateArtifacts(ref: unknown, artifacts: unknown[]): void
-    }
-    const execution = [...store.executions.get().values()][0]!
-    store.hydrateArtifacts(execution.ref, [{
-      nodeId: 'saved', digest: `blake3:${'a'.repeat(64)}`, name: 'original.exr',
-      size: 2 ** 30 + 1, mediaType: 'image/x-exr', virtualPath: 'output/original.exr',
-      preview: { digest: `blake3:${'b'.repeat(64)}`, name: 'preview.png', size: 128,
-        mediaType: 'image/png', virtualPath: `previews/${'b'.repeat(64)}/preview.png` },
-    }])
     window.__dinksterTest!.renderer!.setViewport({ x: -300, y: -300, scale: 1 })
   })
   await expect.poll(() => page.evaluate((available) => {
@@ -346,11 +339,11 @@ test('real media, controls, zoom transitions, forwarding, clipping, and cleanup'
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="graph-canvas"]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()
     return {
-      overlayBottom: overlay.getBoundingClientRect().bottom,
-      captionTop: canvas.top + (node.y + preview.y + preview.height - captionHeight) * viewport.scale + viewport.y,
+      overlayTop: overlay.getBoundingClientRect().top,
+      captionBottom: canvas.top + (node.y + preview.y + captionHeight) * viewport.scale + viewport.y,
     }
   }, previewCaptionHeight)
-  expect(captionBoundary.overlayBottom).toBeCloseTo(captionBoundary.captionTop, 1)
+  expect(captionBoundary.overlayTop).toBeCloseTo(captionBoundary.captionBottom, 1)
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.renderer!.getNodePreviews()['failed']?.status,
   )).toBe('unavailable')

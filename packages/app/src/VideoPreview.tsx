@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup } from 'solid-js'
 import type { NodePreview } from '@dinkster/canvas'
 import { ProductSlider } from './ProductSlider.js'
+import { PreviewDownload } from './PreviewDownload.js'
 import { DEFAULT_VIDEO_PREFERENCES, videoInspectionOf, type VideoInspection, type VideoPreferences } from './video-preview.js'
 import './video-preview.css'
 
@@ -289,8 +290,8 @@ export function VideoPreview(props: {
         <Show when={busy()}><span role="status">Loading video...</span></Show>
       </div>
       <Show when={props.media.download && src()}>
-        <a class="app-preview-download" data-testid={props.appView ? 'app-preview-download' : undefined}
-          href={frame() ?? src()} download={`preview.${frame() || !canPlay() ? 'png' : mime() === 'video/webm' ? 'webm' : 'mp4'}`}>Download preview</a>
+        <PreviewDownload class="app-preview-download" {...(props.appView ? { testId: 'app-preview-download' } : {})}
+          download={{ src: frame() ?? src()!, name: `preview.${frame() || !canPlay() ? 'png' : mime() === 'video/webm' ? 'webm' : 'mp4'}` }} label="Download preview" />
       </Show>
     </div>
   )

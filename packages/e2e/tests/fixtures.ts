@@ -1,4 +1,4 @@
-/** Shared browser settings and isolated ownership acknowledgments. */
+/** Shared browser settings and startup readiness checks. */
 import {
   test as base,
   expect,
@@ -9,6 +9,7 @@ import {
 } from '../visual.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json' with { type: 'json' }
+import components from '../../../branding/tokens/dinkster-components.json' with { type: 'json' }
 
 const nativeCatalogBackend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 let nativeCatalogAvailable: Promise<boolean> | undefined
@@ -27,12 +28,14 @@ export async function mockProjectPacks(page: Page, packs: readonly string[] = []
   } }))
 }
 
-export async function waitForStartupOwnership(page: Page): Promise<void> {
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined &&
-    window.__dinksterTest.app.backends.get()[0]?.registry.get() !== undefined &&
-    window.__dinksterTest.app.tabs.get().every((tab) => tab.execution !== undefined || 'status' in tab.store) &&
-    !window.__dinksterTest.app.problems.get().some((problem) =>
-      problem.code === 'workflow.startup.ownershipUnconfirmed'))).toBe(true)
+export async function waitForWorkspaceReady(page: Page, expectedSchemaCount?: number): Promise<void> {
+  await expect.poll(() => page.evaluate((expectedCount) => {
+    const app = window.__dinksterTest?.app
+    const registry = app?.backends.get()[0]?.registry.get()
+    return app !== undefined && registry !== undefined &&
+      (expectedCount === undefined || registry.schemas.size === expectedCount) &&
+      app.tabs.get().every((tab) => tab.execution !== undefined || 'status' in tab.store)
+  }, expectedSchemaCount), { timeout: 30_000 }).toBe(true)
 }
 
 export async function skipWithoutNativeCatalog(request: APIRequestContext, testInfo: TestInfo): Promise<void> {
@@ -59,11 +62,88 @@ export async function selectProductOption(page: Page, control: Locator, optionId
   await expect(control).toHaveAttribute('data-selected-id', selectedId)
 }
 
+/** Page point at the middle of a subgraph node's title-bar mark; a double-click there enters the subgraph. */
+export async function subgraphMarkPoint(page: Page, nodeId: string): Promise<{ x: number; y: number }> {
+  const point = await page.waitForFunction((nodeId) => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+    const mark = node === undefined ? undefined : renderer.getNodeBadgeLayout(node).find((entry) => entry.badge.id === 'core.subgraph')
+    if (mark === undefined) return undefined
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return {
+      x: rect.left + (mark.x + mark.width / 2) * viewport.scale + viewport.x,
+      y: rect.top + (mark.y + mark.height / 2) * viewport.scale + viewport.y,
+    }
+  }, nodeId)
+  return await point.jsonValue() as { x: number; y: number }
+}
+
+/**
+ * Clicks the row of an editor shown in the node, which folds the editor out
+ * under it, and returns the editor's controls laid over its space.
+ */
+export async function unfoldNodeEditor(page: Page, nodeId: string, inputId: string): Promise<Locator> {
+  const point = await page.waitForFunction(({ nodeId, inputId }) => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((entry) => entry.id === nodeId)
+    const row = node?.layout.rows.find((entry) => entry.kind === 'widget' && entry.inputId === inputId)
+    if (node === undefined || row === undefined) return undefined
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return {
+      x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+      y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
+    }
+  }, { nodeId, inputId })
+  const { x, y } = await point.jsonValue() as { x: number; y: number }
+  await page.mouse.click(x, y)
+  const editor = page.locator(`.node-editor-space-overlay[data-node-id="${nodeId}"][data-value-key="${inputId}"]`)
+  await expect(editor).toBeVisible()
+  return editor
+}
+
+export async function executionDetails(row: Locator): Promise<Locator> {
+  const details = row.locator('details.runs-details')
+  if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) {
+    await details.locator('summary').click()
+  }
+  return details.getByTestId('run-details')
+}
+
+const regionSwitches = {
+  left: { testId: 'left-panel-toggle', item: 'Left panel' },
+  bottom: { testId: 'bottom-panel-toggle', item: 'Bottom panel' },
+  right: { testId: 'rail-toggle', item: 'Right panel' },
+} as const
+
+/**
+ * Opens or closes a shell region with its switch in the top bar, or with its item in the
+ * layout menu when the bar is in its narrow row.
+ */
+export async function setShellRegion(page: Page, region: keyof typeof regionSwitches, open: boolean): Promise<void> {
+  const { testId, item } = regionSwitches[region]
+  // Waits until the bar shows the row its current width calls for.
+  await expect.poll(() => page.locator('.dinkster-window-toolbar-host').evaluate((host, [id, width]) => {
+    const style = getComputedStyle(host)
+    const content = host.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    return (content < width) === (host.querySelector(`[data-testid="${id}"]`) === null)
+  }, [testId, components.layout.toolbarFullRowWidth] as const)).toBe(true)
+  const button = page.getByTestId(testId)
+  if (await button.count() > 0) {
+    if ((await button.getAttribute('aria-pressed') === 'true') !== open) await button.click()
+    await expect(button).toHaveAttribute('aria-pressed', String(open))
+    return
+  }
+  const menuItem = page.getByRole('menu', { name: 'Customize layout' }).getByRole('menuitemcheckbox', { name: item })
+  await page.getByRole('button', { name: 'Customize layout' }).click()
+  if ((await menuItem.getAttribute('aria-checked') === 'true') !== open) await menuItem.click()
+  else await page.keyboard.press('Escape')
+}
+
 export async function openRailPanel(page: Page, title: string): Promise<void> {
   const rail = page.getByTestId('dock-zone-right')
-  if (!await rail.isVisible()) {
-    await page.getByRole('button', { name: /^Toggle right rail/ }).click()
-  }
+  if (!await rail.isVisible()) await setShellRegion(page, 'right', true)
   await expect(rail).toBeVisible()
 
   const tab = rail.locator('[role="tab"]').filter({ hasText: title })
@@ -94,7 +174,7 @@ export async function openRailPanel(page: Page, title: string): Promise<void> {
   await expect(tab).toHaveAttribute('aria-selected', 'true')
 }
 
-export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean; seedWorkflows: boolean }>({
+export const nativeTest = base.extend<{ appView: boolean; seedWorkflows: boolean }>({
   appView: [false, { option: true }],
   seedWorkflows: [false, { option: true }],
   page: async ({ page, seedWorkflows }, use) => {
@@ -114,54 +194,11 @@ export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean;
     }
     await use(page)
   },
-  // Live retention proofs opt out; ordinary browser fixtures model document
-  // declarations while source-bound result claims use the live backend.
-  retentionApi: [true, { option: true }],
-  context: async ({ context, appView, retentionApi }, use) => {
+  context: async ({ context, appView }, use) => {
     // Historical-schema fixtures do not import identities from the live pack
     // directory. Import integration tests override this with explicit metadata.
     await context.route('**/replacements/index.json', (route) =>
       route.fulfill({ json: { schemaVersion: 1, items: [] } }))
-    if (retentionApi) {
-      // Per-owner fixture receipts do not implement a server-owned client census.
-      await context.route('**/api/library/retention-clients', (route) =>
-        route.fulfill({ status: 404 }))
-      const owners = new Map<string, { scope: string; ownerKind: string; ownerId: string;
-        revision: number; complete: boolean; digests: string[] }>()
-      const sourceOwners = new Set<string>()
-      await context.route('**/api/library/retentions/*/*?scope=*', async (route) => {
-        const request = route.request()
-        const url = new URL(request.url())
-        const parts = url.pathname.split('/')
-        const scope = url.searchParams.get('scope')!
-        const ownerKind = parts.at(-2)!
-        const ownerId = decodeURIComponent(parts.at(-1)!)
-        const key = JSON.stringify([url.origin, scope, ownerKind, ownerId])
-        // Claims and later reads/releases share the server's sealed source roots.
-        if (sourceOwners.has(key) || (request.method() === 'PUT' &&
-          typeof request.postDataJSON()?.sourceToken === 'string')) {
-          sourceOwners.add(key)
-          return route.fallback()
-        }
-        const previous = owners.get(key)
-        if (request.method() === 'GET') {
-          return route.fulfill(previous === undefined ? { status: 404 } : { json: previous })
-        }
-        if (request.method() !== 'PUT' && request.method() !== 'DELETE') return route.fulfill({ status: 405 })
-        const declaration = request.method() === 'PUT' ? request.postDataJSON()
-          : { revision: Number(url.searchParams.get('revision')), complete: true, digests: [] }
-        if (declaration.revision !== (previous?.revision ?? 0)) return route.fulfill({ status: 409 })
-        if (typeof declaration.complete !== 'boolean' || !Array.isArray(declaration.digests) ||
-          declaration.digests.length > 4096 || !declaration.digests.every((digest: unknown) =>
-            typeof digest === 'string' && /^blake3:[0-9a-f]{64}$/.test(digest))) {
-          return route.fulfill({ status: 422 })
-        }
-        const acknowledged = { scope, ownerKind, ownerId, revision: declaration.revision + 1,
-          complete: declaration.complete, digests: [...new Set<string>(declaration.digests)].sort() }
-        owners.set(key, acknowledged)
-        return route.fulfill({ json: acknowledged })
-      })
-    }
     if (appView) await context.addInitScript(() => {
       const stored = JSON.parse(localStorage.getItem('dinkster.settings') ?? 'null')
       localStorage.setItem('dinkster.settings', JSON.stringify({

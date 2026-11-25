@@ -358,6 +358,34 @@ describe('wire-28 dynamic replacement targets', () => {
     }))
   })
 
+  it('declares a shared choice key that an option not chosen leaves out of its only list', () => {
+    // Save Video's shape: webm offers only auto and av1 of the shared codec.
+    const { schemas } = parseDinksterNodes({ schemaVersion: 2, nodes: { 'fixture.save-video': {
+      schemaVersion: 2, nodeType: 'fixture.save-video', displayName: 'Save Video', category: 'fixture',
+      body: [{ kind: 'choice', id: 'format', options: [
+        { key: 'mp4', rows: [{ kind: 'use', id: 'codec' }] },
+        { key: 'webm', rows: [{ kind: 'use', id: 'codec', only: ['auto', 'av1'] }] },
+      ], shared: [{ kind: 'choice', id: 'codec', options: [
+        { key: 'auto', rows: [] }, { key: 'h264', rows: [] }, { key: 'av1', rows: [] },
+      ] }] }],
+    } as DinksterWireSchema } })
+    const before = sourceDocument()
+    const planned = (codec: string) => planReplacement({
+      ...before,
+      graphs: { ...before.graphs, g0: { ...before.graphs.g0!, nodes: { ...before.graphs.g0!.nodes, old: {
+        ...before.graphs.g0!.nodes.old!, type: 'fixture.save-video', values: {}, controllers: {},
+        dynamic: { format: { selected: 'mp4' }, 'format.codec': { selected: codec } },
+      } } } },
+    }, 'g0', 'old', { from: 'fixture.save-video', cases: [{ to: 'fixture.dynamic-legacy' }] },
+    (type) => schemas.get(type) ?? resolve(type))
+    const sourceInvalid = (codec: string) => planned(codec).diagnostics.filter((diagnostic) => diagnostic.code === 'replace.source.invalid')
+
+    expect(sourceInvalid('h264')).toEqual([])
+    expect(sourceInvalid('vp9')).toEqual([expect.objectContaining({
+      message: expect.stringContaining("stored dynamic choice 'vp9' is not declared"),
+    })])
+  })
+
   it('does not copy a controller onto an ordinary widget without a controller slot', () => {
     const legacy = resolve('fixture.dynamic-legacy')!
     const before = sourceDocument()

@@ -7,6 +7,8 @@ import subprocess
 import xml.etree.ElementTree as ET
 from copy import deepcopy
 
+from palette import PALETTE
+
 import build_d as geometry
 from build_brand import ROOT, SVG, node, symbol_path, write
 from PIL import Image, ImageDraw, ImageFont
@@ -64,7 +66,9 @@ def counter_options(inkscape, nose_options=False):
     font = ImageFont.truetype("DejaVuSans.ttf", 23)
     options = (None, 0.70, 0.62, 0.55) if nose_options else (0, 0, 10, 20, 30)
     sheet = Image.new(
-        "RGB", (8 + len(options) * 1048, 4560 if nose_options else 4350), "#E4E8EC"
+        "RGB",
+        (8 + len(options) * 1048, 4560 if nose_options else 4350),
+        PALETTE["light"]["bg"]["hover"],
     )
     draw = ImageDraw.Draw(sheet)
     for column, option in enumerate(options):
@@ -160,7 +164,7 @@ def counter_options(inkscape, nose_options=False):
             if not reduction
             else f"RESHAPED / AREA -{reduction}% / PARTIAL R24"
         )
-        draw.text((x, 12), title, font=font, fill="#1F242A")
+        draw.text((x, 12), title, font=font, fill=PALETTE["light"]["text"]["primary"])
         if nose_options:
             nose_y = max(reshaped, key=lambda point: point[0])[1]
             alpha = Image.open(output / f"{name}-mono.png").getchannel("A")
@@ -181,25 +185,45 @@ def counter_options(inkscape, nose_options=False):
                 (x, 38),
                 f"Nose {(nose_y - 157) / 112:.2%}, y={nose_y:.2f}; x338 top/bottom {top_stroke:.2f}/{bottom_stroke:.2f} source units",
                 font=ImageFont.truetype("DejaVuSans.ttf", 18),
-                fill="#1F242A",
+                fill=PALETTE["light"]["text"]["primary"],
             )
             draw.text(
                 (x, 62),
                 "Flat-reference top/bottom strokes: 89/91 source units; partial R24 retained",
                 font=ImageFont.truetype("DejaVuSans.ttf", 18),
-                fill="#1F242A",
+                fill=PALETTE["light"]["text"]["primary"],
             )
         for row, (variant, background, foreground) in enumerate(
             (
-                ("mono", "#111316", "#F2F4F5"),
-                ("color", "#111316", "#F2F4F5"),
-                ("mono", "#F7F8FA", "#1F242A"),
-                ("color", "#F7F8FA", "#1F242A"),
+                (
+                    "mono",
+                    PALETTE["dark"]["bg"]["canvas"],
+                    PALETTE["dark"]["text"]["primary"],
+                ),
+                (
+                    "color",
+                    PALETTE["dark"]["bg"]["canvas"],
+                    PALETTE["dark"]["text"]["primary"],
+                ),
+                (
+                    "mono",
+                    PALETTE["light"]["bg"]["canvas"],
+                    PALETTE["light"]["text"]["primary"],
+                ),
+                (
+                    "color",
+                    PALETTE["light"]["bg"]["canvas"],
+                    PALETTE["light"]["text"]["primary"],
+                ),
             )
         ):
             icon = Image.open(output / f"{name}-{variant}.png").convert("RGBA")
             if variant == "mono":
-                ink = Image.new("RGBA", icon.size, foreground)
+                ink = Image.new(
+                    "RGBA",
+                    icon.size,
+                    PALETTE["brand"]["offWhite" if row < 2 else "ink"]["$value"],
+                )
                 ink.putalpha(icon.getchannel("A"))
                 icon = ink
             panel = Image.new("RGBA", icon.size, background)
@@ -207,12 +231,19 @@ def counter_options(inkscape, nose_options=False):
             y = (90 if nose_options else 60) + row * 1060
             sheet.paste(panel.convert("RGB"), (x, y))
             draw.text(
-                (x, y + 1026), f"{variant} - native 1024 px", font=font, fill="#1F242A"
+                (x, y + 1026),
+                f"{variant} - native 1024 px",
+                font=font,
+                fill=PALETTE["light"]["text"]["primary"],
             )
             if nose_options:
                 small = Image.open(output / f"{name}-{variant}-64.png").convert("RGBA")
                 if variant == "mono":
-                    ink = Image.new("RGBA", small.size, foreground)
+                    ink = Image.new(
+                        "RGBA",
+                        small.size,
+                        PALETTE["brand"]["offWhite" if row < 2 else "ink"]["$value"],
+                    )
                     ink.putalpha(small.getchannel("A"))
                     small = ink
                 tile = Image.new("RGBA", (240, 140), background)
@@ -229,7 +260,7 @@ def counter_options(inkscape, nose_options=False):
                 (x, 4350),
                 "NATIVE 64 PX - same geometry, no optical substitution",
                 font=font,
-                fill="#1F242A",
+                fill=PALETTE["light"]["text"]["primary"],
             )
         print(
             f"{name}: horizontal profile factor={factor if column or nose_options else 1:.9f}; "
@@ -308,7 +339,7 @@ def main():
         "\n".join(commands) + "\n", encoding="ascii"
     )
     font = ImageFont.truetype("DejaVuSans.ttf", 24)
-    sheet = Image.new("RGB", (3152, 4312), "#E4E8EC")
+    sheet = Image.new("RGB", (3152, 4312), PALETTE["light"]["bg"]["hover"])
     draw = ImageDraw.Draw(sheet)
     for column, (option, title) in enumerate(
         (
@@ -318,26 +349,49 @@ def main():
         )
     ):
         x = 16 + column * 1048
-        draw.text((x, 12), title, font=font, fill="#1F242A")
+        draw.text((x, 12), title, font=font, fill=PALETTE["light"]["text"]["primary"])
         for row, (variant, background, foreground) in enumerate(
             (
-                ("mono", "#111316", "#F2F4F5"),
-                ("color", "#111316", "#F2F4F5"),
-                ("mono", "#F7F8FA", "#1F242A"),
-                ("color", "#F7F8FA", "#1F242A"),
+                (
+                    "mono",
+                    PALETTE["dark"]["bg"]["canvas"],
+                    PALETTE["dark"]["text"]["primary"],
+                ),
+                (
+                    "color",
+                    PALETTE["dark"]["bg"]["canvas"],
+                    PALETTE["dark"]["text"]["primary"],
+                ),
+                (
+                    "mono",
+                    PALETTE["light"]["bg"]["canvas"],
+                    PALETTE["light"]["text"]["primary"],
+                ),
+                (
+                    "color",
+                    PALETTE["light"]["bg"]["canvas"],
+                    PALETTE["light"]["text"]["primary"],
+                ),
             )
         ):
             y = 60 + row * 1060
             panel = Image.new("RGBA", (1024, 1024), background)
             icon = Image.open(output / f"{option}-{variant}.png").convert("RGBA")
             if variant == "mono":
-                ink = Image.new("RGBA", icon.size, foreground)
+                ink = Image.new(
+                    "RGBA",
+                    icon.size,
+                    PALETTE["brand"]["offWhite" if row < 2 else "ink"]["$value"],
+                )
                 ink.putalpha(icon.getchannel("A"))
                 icon = ink
             panel.alpha_composite(icon)
             sheet.paste(panel.convert("RGB"), (x, y))
             draw.text(
-                (x, y + 1028), f"{variant} - native 1024 px", font=font, fill="#1F242A"
+                (x, y + 1028),
+                f"{variant} - native 1024 px",
+                font=font,
+                fill=PALETTE["light"]["text"]["primary"],
             )
     sheet.save(ROOT / "previews/bottom-left-options.png")
 

@@ -17,8 +17,8 @@ import {
   DinksterAppMenu,
   dispatchAppCommandKey,
 } from '../src/App.js'
-import { DockZoneHost, FloatingPanelHost, ShellResizeHandle } from '../src/ShellChrome.js'
-import { CanvasViewControls } from '../src/CanvasHost.js'
+import { ActivityBarButton, DockZoneHost, FloatingPanelHost, IconBar, ShellResizeHandle } from '../src/ShellChrome.js'
+import { CanvasCornerControls, CanvasViewControls, type CanvasCornerMenu } from '../src/CanvasChrome.js'
 import { ContextMenu } from '../src/ContextMenu.js'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
 import { AppState, workflowExportFilename } from '../src/app-state.js'
@@ -69,7 +69,7 @@ function menuFixture(saveDisabled = false) {
   return { root, save, keybindings, dispose }
 }
 
-function canvasViewControlsFixture(appViewEnabled = true) {
+function canvasViewControlsFixture(appViewEnabled = true, lens = { id: 'standard', label: 'Standard' }) {
   const root = document.createElement('div')
   document.body.append(root)
   const [activeView, setActiveView] = createSignal<string>(GRAPH_EDITOR_KIND)
@@ -89,7 +89,7 @@ function canvasViewControlsFixture(appViewEnabled = true) {
       disabled={false}
       activeView={activeView()}
       appViewEnabled={appViewEnabled}
-      activeLens={{ id: 'standard', label: 'Standard' }}
+      activeLens={lens}
       lenses={[
         { id: 'standard', label: 'Standard', description: 'Default graph presentation.' },
         { id: 'types', label: 'Types', description: 'Show type details.' },
@@ -107,6 +107,43 @@ function canvasViewControlsFixture(appViewEnabled = true) {
   return { root, selectView, selectLens, setAllNetsDisplay, setViewMenuOpen, setLensMenuOpen, dispose }
 }
 
+describe('icon bar', () => {
+  it('keeps the left bar hooks the editor and its tests rely on, and draws the logo only when given', () => {
+    const [hidden, setHidden] = createSignal(false)
+    const [logo, setLogo] = createSignal(false)
+    const settings = vi.fn()
+    const place = vi.fn()
+    render(() => (
+      <IconBar
+        hidden={hidden()}
+        logo={logo() ? () => <button type="button">Dinkster</button> : undefined}
+        account={<span data-testid="account" />}
+        onSettings={settings}
+      >
+        <ActivityBarButton label="Projects" accessibleName="Projects" tooltip="Projects" pressed={true} testId="place" onActivate={place} />
+      </IconBar>
+    ), document.body)
+    const bar = document.querySelector<HTMLElement>('nav.left-sidebar')!
+    expect(bar.getAttribute('aria-label')).toBe('Primary navigation')
+    expect(bar.dataset['tooltipSession']).toBe('left-rail')
+    expect(bar.querySelector('.sidebar-logo')).toBeNull()
+    expect(bar.querySelector('.sidebar-toggle-stack > [data-testid="dock-toggle-group"] [data-testid="place"]')).not.toBeNull()
+    expect(bar.querySelector('.sidebar-account > [data-testid="account"]')).not.toBeNull()
+    const settingsButton = bar.querySelector<HTMLButtonElement>('[data-testid="settings-button"]')!
+    expect(settingsButton.classList.contains('sidebar-settings-button')).toBe(true)
+    expect(settingsButton.dataset['tooltipDetail']).toBe('Ctrl+,')
+    click(settingsButton)
+    expect(settings).toHaveBeenCalledTimes(1)
+    expect(place).not.toHaveBeenCalled()
+
+    setLogo(true)
+    expect(bar.firstElementChild?.matches('.sidebar-logo')).toBe(true)
+    expect(bar.querySelector('.sidebar-logo')?.textContent).toBe('Dinkster')
+    setHidden(true)
+    expect(bar.hidden).toBe(true)
+  })
+})
+
 describe('canvas view controls', () => {
   it('omits App View when its feature is disabled without hiding graph controls', () => {
     const { root, setViewMenuOpen, dispose } = canvasViewControlsFixture(false)
@@ -116,13 +153,25 @@ describe('canvas view controls', () => {
     dispose()
   })
 
-  it('shows the active view name and lists both views', () => {
+  it('names the active view on its icon button and lists both views', () => {
     const { root, setViewMenuOpen, dispose } = canvasViewControlsFixture()
-    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toContain('Graph')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toBe('')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('aria-label')).toBe('View: Graph')
     setViewMenuOpen(true)
     const items = [...root.querySelectorAll('.view-menu [role="menuitemradio"]')]
-    expect(items.map((item) => item.textContent?.trim())).toEqual(['Graph', 'App view'])
+    expect(items.map((item) => item.textContent?.trim())).toEqual(['Graph', 'App'])
     dispose()
+  })
+
+  it('shows the lens name on the lens button only while it is not Standard', () => {
+    const standard = canvasViewControlsFixture()
+    expect(standard.root.querySelector('[data-testid="lens-switcher"]')?.textContent).toBe('')
+    expect(standard.root.querySelector('[data-testid="lens-switcher"]')?.getAttribute('aria-label')).toBe('Lens: Standard')
+    standard.dispose()
+    const types = canvasViewControlsFixture(true, { id: 'types', label: 'Types' })
+    expect(types.root.querySelector('[data-testid="lens-switcher"]')?.textContent).toBe('Types')
+    expect(types.root.querySelector('[data-testid="lens-switcher"]')?.getAttribute('data-lens-named')).toBe('true')
+    types.dispose()
   })
 
   it('switches the editor kind and updates the active view name', () => {
@@ -130,7 +179,7 @@ describe('canvas view controls', () => {
     setViewMenuOpen(true)
     click([...root.querySelectorAll('.view-menu [role="menuitemradio"]')][1]!)
     expect(selectView).toHaveBeenCalledWith(APP_EDITOR_KIND)
-    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toContain('App')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('aria-label')).toBe('View: App')
     dispose()
   })
 
@@ -159,7 +208,7 @@ describe('canvas view controls', () => {
 
     setLocale('de-DE')
 
-    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toContain('[Diagrammansicht]')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('aria-label')).toContain('[Diagrammansicht]')
     expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('data-tooltip-label')).toBeNull()
     expect(root.querySelector('.view-menu')).toBe(viewMenu)
     expect(document.activeElement).toBe(graphItem)
@@ -180,6 +229,76 @@ describe('canvas view controls', () => {
     setLensMenuOpen(false)
     expect(root.querySelector('[data-testid="lens-switcher"]')?.getAttribute('data-tooltip-label')).toBe('[Diagrammdarstellung wahlen]')
     dispose()
+  })
+})
+
+describe('canvas corner controls', () => {
+  it('steps the zoom with minus and plus or the Zoom in and Zoom out rows, leaving the menu open; types a percentage over the number; Reset closes it', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const [menu, setMenu] = createSignal<CanvasCornerMenu | undefined>('zoom')
+    const [zoom, setZoom] = createSignal(0.374)
+    const zoomTo = vi.fn()
+    const zoomBy = vi.fn((factor: number) => setZoom((value) => value * factor))
+    const dispose = render(() => (
+      <CanvasCornerControls
+        size="small"
+        minimapVisible
+        settings={{}}
+        zoom={zoom()}
+        menu={menu()}
+        shortcuts={{ zoomIn: 'alt+=', zoomOut: 'alt+-' }}
+        onToggleMinimap={() => {}}
+        onToggleSetting={() => {}}
+        onOpenMenu={setMenu}
+        onCloseMenu={() => setMenu(undefined)}
+        onFit={() => {}}
+        onZoomBy={zoomBy}
+        onZoomTo={zoomTo}
+      />
+    ), root)
+    const row = () => root.querySelector('[data-testid="canvas-zoom-row"]')!
+    const zoomOut = row().querySelector<HTMLButtonElement>('[aria-label="Zoom out"]')!
+    expect(zoomOut.dataset['tooltipDetail']).toBe('alt+-')
+    click(zoomOut)
+    click(row().querySelector('[aria-label="Zoom out"]')!)
+    expect(zoomBy).toHaveBeenCalledTimes(2)
+    expect(zoomBy).toHaveBeenLastCalledWith(1 / 1.2)
+    expect(menu()).toBe('zoom')
+    expect(row().querySelector('.dinkster-canvas-closed-row-value')?.textContent).toBe('26%')
+    const zoomInRow = root.querySelector('[data-testid="canvas-zoom-in"]')!
+    expect(zoomInRow.querySelector('.menu-shortcut')?.textContent).toBe('alt+=')
+    click(zoomInRow)
+    expect(zoomBy).toHaveBeenLastCalledWith(1.2)
+    expect(menu()).toBe('zoom')
+    expect(row().querySelector('.dinkster-canvas-closed-row-value')?.textContent).toBe('31%')
+    expect(row().querySelector('.dinkster-canvas-closed-row-open')?.getAttribute('aria-label')).toBe('Zoom: 31%')
+    zoomInRow.dispatchEvent(new KeyboardEvent('keydown', { key: '6', bubbles: true }))
+    expect(root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!.value).toBe('6')
+    setMenu(undefined)
+    setMenu('zoom')
+    expect(root.querySelector('[data-testid="canvas-zoom-input"]')).toBeNull()
+
+    click(row().querySelector('.dinkster-canvas-closed-row-open')!)
+    const field = root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!
+    expect(field.value).toBe('31')
+    field.value = '150'
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(zoomTo).toHaveBeenCalledWith(1.5)
+    expect(menu()).toBeUndefined()
+
+    setMenu('zoom')
+    expect(root.querySelector('[data-testid="canvas-zoom-input"]')).toBeNull()
+    row().querySelector('.dinkster-canvas-closed-row-open')!.dispatchEvent(new KeyboardEvent('keydown', { key: '8', bubbles: true }))
+    expect(root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!.value).toBe('8')
+    setMenu(undefined)
+    setMenu('zoom')
+    click(root.querySelector('[data-testid="canvas-zoom-reset"]')!)
+    expect(zoomTo).toHaveBeenLastCalledWith(1)
+    expect(menu()).toBeUndefined()
+    dispose()
+    root.remove()
   })
 })
 
@@ -374,7 +493,7 @@ describe('canvas context menu availability', () => {
       namedNets: true,
       graphId: 'g0',
       target: { kind: 'canvas' },
-      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] },
+      selection: { nodes: [], links: [], reroutes: [] },
       worldX: 10,
       worldY: 20,
     }), false, false)
@@ -683,6 +802,32 @@ describe('workflow file commands', () => {
     expect(JSON.parse(text)).toEqual(expected)
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(revokeUrl).toHaveBeenCalledWith('blob:workflow-export')
+  })
+
+  it.each(['saved', 'closed', 'failed'] as const)('uses the Desktop save result: %s', async (outcome) => {
+    const app = prepareWorkflowApp(new AppState())
+    const tab = app.activeTab()!
+    const expected = app.exportDocument(tab.id)
+    const saveFile = vi.fn(async (_bytes: Uint8Array, _name: string) => {
+      if (outcome === 'failed') throw new Error('disk full')
+      return outcome === 'saved' ? { status: 'saved' as const, name: 'chosen.json' } : { status: 'closed' as const }
+    })
+    const previous = window.dinksterDesktop
+    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }), chooseDirectory: async () => undefined, saveFile }
+    const createUrl = vi.spyOn(URL, 'createObjectURL')
+    try {
+      expect(await app.exportWorkflow(tab.id)).toBe(outcome === 'saved')
+      const [bytes, name] = saveFile.mock.calls[0]!
+      expect(name).toBe(workflowExportFilename(tab.title))
+      expect(new TextDecoder().decode(bytes)).toBe(`${JSON.stringify(expected, null, 2)}\n`)
+      expect(createUrl).not.toHaveBeenCalled()
+      expect(app.transientStatus.get()).toContain(outcome === 'saved' ? 'Saved: chosen.json' : outcome === 'closed' ? 'Save closed:' : 'disk full')
+      expect(app.problems.get().some((problem) => problem.code === 'workflow.exportFailed')).toBe(outcome === 'failed')
+    } finally {
+      if (previous) window.dinksterDesktop = previous
+      else delete window.dinksterDesktop
+      app.dispose()
+    }
   })
 
   it('reports a snapshot failure without rejecting the download command', async () => {
@@ -1129,6 +1274,34 @@ describe('DockZoneHost', () => {
     expect(bodyOf('one').hasAttribute('hidden')).toBe(true)
     expect(bodyOf('two').hasAttribute('hidden')).toBe(false)
     expect(root.querySelector('[data-testid="zone-body-one"]')).not.toBeNull()
+    dispose()
+  })
+
+  it('left dock titles follow selection and retain panel state and placement actions', () => {
+    const panels = [
+      zonePanel('one', {
+        allowedPlacements: ['dock', 'floating'],
+        component: () => <input aria-label="Panel draft" />,
+      }),
+      zonePanel('two', { allowedPlacements: ['dock', 'floating'] }),
+    ]
+    const { root, setActiveId, onRequestClose, dispose } = renderZone({ zone: 'left', titleOnly: true, panels, onFloat: () => {} })
+    const title = () => root.querySelector<HTMLElement>('[data-panel-title]')!
+    expect(title().textContent).toBe('Panel one')
+    const draft = root.querySelector<HTMLInputElement>('[aria-label="Panel draft"]')!
+    draft.value = 'Keep this draft'
+    setActiveId('two')
+    expect(title().textContent).toBe('Panel two')
+    setActiveId('one')
+    expect(root.querySelector<HTMLInputElement>('[aria-label="Panel draft"]')?.value).toBe('Keep this draft')
+    title().focus()
+    rightClick(title(), { clientX: 0, clientY: 0 })
+    expect(menuItems(root).map((item) => item.textContent?.trim())).toEqual(['Float'])
+    root.querySelector('[data-testid="context-menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
+    expect(document.activeElement).toBe(title())
+    click(root.querySelector('[data-testid="dock-zone-close"]')!)
+    expect(onRequestClose).toHaveBeenCalledOnce()
     dispose()
   })
 
@@ -1590,6 +1763,44 @@ describe('left rail tooltip hover session', () => {
     expect(controller.visible).toBeUndefined()
     vi.advanceTimersByTime(1)
     expect(controller.visible?.lines).toEqual(['Backends'])
+  })
+
+  it('shows icon-only activity help immediately even when selected, without changing other hover delays', () => {
+    vi.useFakeTimers()
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <>
+      <ActivityBarButton label="Library" accessibleName="Library" tooltip="Browse saved workflows" pressed={true} onActivate={() => {}} />
+      <ActivityBarButton label="Pack" accessibleName="Pack" tooltip="Pack" pressed={false} onActivate={() => {}} />
+      <button data-tooltip-label="Delayed help">Other control</button>
+    </>, root)
+    const [library, pack, other] = [...root.querySelectorAll('button')]
+    const controller = new TooltipController(() => 900)
+    controller.register({ id: 'dom', resolve: (target) => ({ lines: [(target as { label: string }).label] }) })
+    const detach = attachDomTooltips(root, controller)
+
+    expect(library!.getAttribute('aria-label')).toBe('Library')
+    expect(library!.textContent).toBe('')
+    expect(pack!.querySelector('svg')).not.toBeNull()
+    library!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+    expect(controller.visible?.lines).toEqual(['Library\nBrowse saved workflows'])
+    library!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    expect(controller.visible).toBeUndefined()
+    library!.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }))
+    library!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+    expect(controller.visible?.lines).toEqual(['Library\nBrowse saved workflows'])
+    library!.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }))
+    pack!.focus()
+    expect(controller.visible?.lines).toEqual(['Pack'])
+    pack!.blur()
+    other!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+    expect(controller.visible).toBeUndefined()
+    vi.advanceTimersByTime(899)
+    expect(controller.visible).toBeUndefined()
+    vi.advanceTimersByTime(1)
+    expect(controller.visible?.lines).toEqual(['Delayed help'])
+    detach()
+    dispose()
   })
 
   it('switches immediately without hiding after the first adjacent tooltip appears', () => {

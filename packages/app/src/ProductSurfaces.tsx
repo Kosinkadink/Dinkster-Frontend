@@ -1,5 +1,4 @@
 import { Show, type JSX } from 'solid-js'
-import { BrandMark } from './BrandMark.js'
 
 export function ProductPanelHeader(props: {
   readonly title: JSX.Element
@@ -53,7 +52,7 @@ export function ProductEmptyState(props: {
       }
       aria-live={tone() === 'loading' ? 'polite' : undefined}
     >
-      <Show when={props.icon !== undefined} fallback={<BrandMark symbol />}>
+      <Show when={props.icon !== undefined}>
         <span class="product-empty-state-icon" aria-hidden="true">
           {props.icon}
         </span>

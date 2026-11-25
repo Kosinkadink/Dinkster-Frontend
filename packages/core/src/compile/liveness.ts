@@ -4,10 +4,8 @@ import type { PortAddress } from '../schema/elaborate.js'
 
 export interface RoutedNode {
   readonly inputs: Readonly<Record<string, Json | readonly [string, number]>>
-  readonly selectorProjection?: {
-    readonly choice: boolean
-    readonly branches: { readonly false: string; readonly true: string }
-  }
+  /** A Switch whose pick is known: the member inputs it does not pick. */
+  readonly selectorProjection?: { readonly inactive: readonly string[] }
 }
 
 export interface DeliveryLiveness {
@@ -100,12 +98,10 @@ export class LivenessDerivation {
       const node = nodes.get(id)
       if (!node) return []
       const projected = wouldRunEdges?.get(id)
-      const inactiveKey = node.selectorProjection?.choice === undefined
-        ? undefined
-        : node.selectorProjection.branches[String(!node.selectorProjection.choice) as 'false' | 'true']
+      const inactive = node.selectorProjection?.inactive ?? []
       const producers: string[] = []
       for (const [inputKey, value] of Object.entries(node.inputs)) {
-        if (inputKey === inactiveKey) continue
+        if (inactive.includes(inputKey)) continue
         const wouldRun = projected?.get(inputKey)
         if (wouldRun !== undefined) producers.push(...wouldRun)
         else if (Array.isArray(value) && typeof value[0] === 'string') producers.push(value[0])
@@ -131,7 +127,6 @@ export class LivenessDerivation {
       for (const [selectorId, node] of nodes) {
         const selector = node.selectorProjection
         if (!selector || !included.has(selectorId)) continue
-        const inactiveKey = selector.branches[String(!selector.choice) as 'false' | 'true']
         const projected = wouldRunEdges.get(selectorId)
         const directProducers = (key: string): readonly string[] => {
           const wouldRun = projected?.get(key)
@@ -139,7 +134,7 @@ export class LivenessDerivation {
           const value = node.inputs[key]
           return Array.isArray(value) && typeof value[0] === 'string' ? [value[0]] : []
         }
-        const inactive = closure(directProducers(inactiveKey))
+        const inactive = closure(selector.inactive.flatMap(directProducers))
         if (inactive.size === 0) continue
         // `included` is already the union of every selected branch and every
         // requested root cone. Subtracting it preserves both branch-shared

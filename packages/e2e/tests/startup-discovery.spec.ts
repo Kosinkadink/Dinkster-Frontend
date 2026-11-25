@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './fixtures.js'
 /**
  * Clean-startup composition proof: a fresh load of the app against an
  * origin that fronts a NATIVE engine selects the native protocol for the
@@ -8,7 +9,6 @@
  * native client fetch, without a stock ComfyUI discovery fallback.
  */
 import { expect, test } from '../visual.js'
-import { openRailPanel } from './fixtures.js'
 
 const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!nativeFrontend) throw new Error('DINKSTER_E2E_NATIVE_FRONTEND must identify the native-only frontend')
@@ -22,68 +22,6 @@ const NATIVE_TABLE = {
   nodes: {
     'demo.node': { schemaVersion: 2, displayName: 'Demo Node', pack: 'demo', signature: 's', body: [] },
   },
-}
-
-for (const unavailable of [404, 503, 'pending'] as const) {
-  test(`retention ${unavailable} does not block the local workspace or registry`, async ({ page }, info) => {
-    const errors: string[] = []
-    page.on('pageerror', (error) => errors.push(error.message))
-    let requested = false
-    let release!: () => void
-    const gate = new Promise<void>((resolve) => { release = resolve })
-    await page.routeWebSocket('**/api/events?*', () => {})
-    await page.route('**/api/**', (route) => route.fulfill({ status: 404 }))
-    await page.route('**/api/nodes*', (route) => route.fulfill({ json: NATIVE_TABLE }))
-    await page.route('**/api/library/retentions/**', async (route) => {
-      requested = true
-      if (unavailable === 'pending') await gate
-      await route.fulfill({ status: unavailable === 'pending' ? 503 : unavailable })
-    })
-    try {
-      await page.goto('/')
-      await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
-      await expect(page.getByTestId('graph-canvas')).toBeVisible()
-      await expect.poll(() => requested).toBe(true)
-      await openRailPanel(page, 'Problems')
-      await expect(page.getByTestId('problems-panel')).toContainText('Workflow ownership unconfirmed')
-      if (unavailable !== 'pending') {
-        await expect(page.getByTestId('problems-panel')).toContainText(`PUT retained assets failed: ${unavailable}`)
-      }
-      await page.getByTestId('problems-panel').locator('details.problem')
-        .filter({ hasText: 'Workflow ownership unconfirmed' }).locator('summary').click()
-      await page.screenshot({ path: info.outputPath(`ownership-${unavailable}.png`) })
-      release()
-      // A usable local shell is not authority to publish new asset roots.
-      const result = await page.evaluate(async () => {
-        const app = window.__dinksterTest!.app
-        app.registerSchemas([{
-          type: 'Loader', displayName: 'Loader', category: 'test', source: 'v3', isOutputNode: false,
-          body: [{ kind: 'input', id: 'file', optional: false, type: { kind: 'concrete', name: 'ASSET' } }],
-        }])
-        const tab = app.activeTab()!
-        const before = JSON.stringify(tab.store.doc)
-        const diagnostics = await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'startup-retention', root: 'g0',
-          graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'Loader', values: {} } },
-            links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
-        } as never, 'Local workflow')
-        const outcome = await app.dispatchTo(tab, { command: 'node.add', params: {
-          graphId: tab.store.doc.root, type: 'Loader', position: { x: 20, y: 40 }, values: { file: {
-            digest: `blake3:${'a'.repeat(64)}`, name: 'new.bin', size: 7,
-            mediaType: 'application/octet-stream', virtualPath: '',
-          } },
-        } })
-        return { codes: diagnostics.map((diagnostic) => (diagnostic as { code: string }).code), ok: outcome.ok,
-          unchanged: app.activeTab() === tab && JSON.stringify(tab.store.doc) === before, undo: tab.store.canUndo }
-      })
-      expect(result).toEqual({ codes: ['workflow.open.retention'], ok: false, unchanged: true, undo: false })
-      expect(errors).toEqual([])
-    } finally {
-      release()
-    }
-  })
-}
-
-for (const fullLifecycle of [false, true]) {
 }
 
 test('slow font startup shows the boot message before the native shell', async ({ page }, testInfo) => {
@@ -107,7 +45,7 @@ test('slow font startup shows the boot message before the native shell', async (
   } finally {
     await page.evaluate(() => Reflect.get(window, 'releaseStartupFonts')())
   }
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await waitForWorkspaceReady(page, 1)
   await expect(page.locator('.boot-indicator')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('native-startup-ready.png') })
 })

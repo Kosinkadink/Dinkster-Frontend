@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, nativeAppViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-f2-proof'
 
@@ -38,7 +38,7 @@ test('proves product select semantics across the five replacement sites', async 
 
   await page.goto('/')
   await expect(page.getByTestId('settings-button')).toBeVisible()
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as any

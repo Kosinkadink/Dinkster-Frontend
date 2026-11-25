@@ -2,13 +2,15 @@ import {
   documentResolver,
   expandLifecycleSelectionFromGroups,
   hasSemanticLifecycleSelection,
-  inputsOf,
   lifecycleCanonicalHash,
   lifecycleFlattenFingerprint,
   lifecycleSelectionFingerprint,
   planFlattenOccurrenceTopology,
   planFlattenBoundaryRoutes,
-  resolveStaticWidgetTap,
+  resolveWidgetTap,
+  buildGraphConnectivity,
+  elabInputsOf,
+  elaborateInterface,
   subgraphDefIdOf,
   type CommandInvocation,
   type CommandOutcome,
@@ -57,8 +59,6 @@ export function extractInvocation(
   const selected = new Set([
     ...expanded.selection.nodeIds.map((id) => `node:${id}`),
     ...expanded.selection.rerouteIds.map((id) => `reroute:${id}`),
-    ...expanded.selection.valueSourceIds.map((id) => `valueSource:${id}`),
-    ...expanded.selection.selectorIds.map((id) => `selector:${id}`),
     ...expanded.selection.groupIds.map((id) => `group:${id}`),
   ])
   const resolvedGeometry = snapshot.geometry.filter((item) => selected.has(`${item.kind}:${item.id}`))
@@ -75,12 +75,13 @@ export function extractInvocation(
           .filter((row) => row.kind === 'typeChoice')
           .map((row) => ({ node: node.id, port: row.id }))
   })
+  const connectivity = buildGraphConnectivity(graph)
   const widgetTapSources = Object.values(graph.nodes).flatMap((node) => {
     const schema = resolve(node.type)
     if (schema === undefined) return []
-    return inputsOf(schema).flatMap((input) =>
-      input.hidden !== true && resolveStaticWidgetTap(schema, input.id).ok
-        ? [{ node: node.id, tap: input.id }]
+    return elabInputsOf(elaborateInterface(schema, node, connectivity(node.id), { promoteGhosts: false })).flatMap((input) =>
+      input.spec.hidden !== true && resolveWidgetTap(schema, node, input.address.port, connectivity(node.id)).ok
+        ? [{ node: node.id, tap: input.address.port }]
         : [],
     )
   })

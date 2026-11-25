@@ -8,8 +8,14 @@ while windows on different projects are fully isolated from each other.
 ## Using projects
 
 Open **Projects** from the app toolbar (folder icon, workspace windows only)
-to create, rename, or switch projects in the selected engine's library. The
-list comes from the engine, including every page, rather than browser storage.
+to create, rename, switch, or link projects in the selected engine's library.
+**Account link** is shown when account services are configured and the project
+has a persistent library identity. Sign in from the top bar, choose an account
+project, and save. Links apply to new account-backed remote runs, not jobs already
+running, local execution, or file synchronization. Removing a link requires
+confirmation and works while signed out. A changed project or refused save
+requires Refresh before retrying; there is no default account choice.
+The list comes from the engine, including every page, rather than browser storage.
 Every library starts with a **Default** project that carries pre-project state.
 Loading and request failures are shown without substituting a local project list.
 
@@ -97,6 +103,17 @@ or document replacements invalidate it. Registering frontend schemas rechecks ne
 against the new registry rather than keeping an unidentified-node review from
 before the extension loaded. Successful enablement shows a dismissible
 success toast and refreshes the scoped node catalog.
+
+In a Desktop project window, Review installation from an uninstalled search
+preview or the imported-packs Problems report opens this same project needs
+review. Selecting a catalog pack keeps it as an explicit requested extra across
+review refreshes, without registering its preview schemas or adding a node.
+Imported nodes use their recorded importer pack and version when no installed
+schema or saved environment stamp identifies them. Truly unidentified nodes and
+conflicting versions still block preparation. Closing or changing the source
+workflow while its needs are loading discards that handoff; changing the active
+workflow invalidates a retained explicit selection. Browser and remote pack
+prompts keep their existing host/terminal-command review contract.
 
 Review installation prepares an exact-version software review through the existing
 host installation API. It does not apply the plan, enable packs, or run a workflow. The installation

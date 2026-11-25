@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test } from './fixtures.js'
+import { expect, openRailPanel, test, waitForWorkspaceReady } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 test.beforeEach(async ({ page }, testInfo) => {
@@ -12,16 +12,16 @@ test.beforeEach(async ({ page }, testInfo) => {
   )
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'ProblemSource', displayName: 'Problem Source', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
+        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
       {
         type: 'ProblemTarget', displayName: 'Problem Target', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'input', type: { kind: 'concrete', name: 'INT' }, optional: false }],
+        body: [{ kind: 'input', id: 'input', type: { kind: 'concrete', name: 'INT' }, optional: false }],
       },
     ])
     await window.__dinksterTest!.app.openDocument({
@@ -170,7 +170,7 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
     const { registerCatalog, setLocale } = await import(i18nModule)
     registerCatalog('de-DE', {
       'shell.panel.problems.title': '[Probleme]',
-      'problems.action.showInFocused': '[Im Fokus zeigen]',
+      'problems.selection.only': '[Nur Auswahl]',
       'problems.action.showOnCanvas': '[Auf Leinwand zeigen]',
       'problems.section.packs': '[Pakete und Backend]',
       'problems.empty': '[Keine Probleme.]',
@@ -180,7 +180,7 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
   }, { i18nModule: new URL(i18nModule!, page.url()).href })
   await expect(panel.locator('h2')).toHaveText('[Probleme]')
   await expect(error.getByRole('button', { name: '[Auf Leinwand zeigen]' })).toBeVisible()
-  await expect(error.getByRole('button', { name: '[Im Fokus zeigen]' })).toBeVisible()
+  await expect(panel.getByRole('checkbox', { name: '[Nur Auswahl]' })).toBeVisible()
   await expect(error.locator('.runtime-error-hint-code')).toHaveAttribute('aria-label', '[Diagnosecode: repair]')
   await expect(compatSkips.locator('.problems-group-title')).toHaveText('[Pakete und Backend]')
   await expect(panel).toHaveAttribute('data-locale-identity', 'panel')
@@ -225,7 +225,7 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).not.toContain('runtime.browserProof')
 })
 
-test('hover a warned pin shows the diagnostic message without a severity prefix', async ({ page }) => {
+test('pointing at a pin with a problem opens nothing; the message is in the node\'s box', async ({ page }) => {
   const point = await page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'target')!
@@ -245,6 +245,7 @@ test('hover a warned pin shows the diagnostic message without a severity prefix'
     }
   })
   await page.mouse.move(point.x, point.y)
-  await expect(page.getByTestId('app-tooltip')).toContainText('target.input: IMAGE cannot feed INT', { timeout: 1_500 })
-  await expect(page.getByTestId('app-tooltip')).not.toContainText(/\[(warning|error)\]|solve.linkMismatch/)
+  await expect(page.getByTestId('app-tooltip')).toContainText('Input: input', { timeout: 1_500 })
+  await expect(page.getByTestId('app-tooltip')).not.toContainText('cannot feed')
+  await expect(page.getByTestId('problem-box')).toHaveCount(0)
 })

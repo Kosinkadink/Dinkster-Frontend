@@ -5,9 +5,10 @@
  * never touched (disconnect-returns-your-value).
  *
  * Two derivation sources, one display contract:
- * - literal: the chain ends at a value source - document-static, resolved
- *   here, ALWAYS exact (this is pure compile-machinery tracing, the same
- *   traceEndpoint the compiler lowers with; no execution involved).
+ * - literal: the chain ends at a stored field value, directly through a
+ *   widget tap or through a primitive's known-value output - document-static,
+ *   resolved here, ALWAYS exact (this is pure compile-machinery tracing, the
+ *   same traceEndpoint the compiler lowers with; no execution involved).
  * - producer: the chain ends at a real node output - the value lives in an
  *   execution, so this module only names the (node, output) pair; the host
  *   resolves it against the tab's bound execution.
@@ -15,17 +16,18 @@
  * Companion values are DERIVED state: never serialized, never part of the
  * modified-from-default signal, never consumed by compile/solve/replace.
  * Scope is deliberately limited to static memberless input ports because
- * dynamic member endpoints need an address-keyed row contract. Selector
- * outputs without a resolution constrain nothing, so they yield no companion.
+ * dynamic member endpoints need an address-keyed row contract.
  */
 
 import type { GraphDef, Json } from './format/document.js'
 import { asPortId, isPortEndpoint, type LinkEndpoint } from './ids.js'
 import { buildRerouteIndex, traceEndpoint, type RerouteIndex } from './reroute.js'
 import { outputsOf, type NodeSchema } from './schema/model.js'
+import { constructsOf } from './schema/body.js'
+import { elabInputsOf, elaborateInterface, valueKeyOf } from './schema/elaborate.js'
 
 export type CompanionSource =
-  /** Document-static literal (value source chain) - always exact. */
+  /** Document-static literal (a stored field value) - always exact. */
   | { readonly kind: 'literal'; readonly value: Json }
   /** Runtime producer: resolve against the bound execution. */
   | { readonly kind: 'producer'; readonly node: string; readonly output: string }
@@ -35,6 +37,24 @@ export type CompanionSourceMap = ReadonlyMap<string, ReadonlyMap<string, Compani
 
 /** Schema-aware fallback for an unstored widget tap's effective value. */
 export type CompanionTapValueResolver = (nodeId: string, inputId: string) => Json | undefined
+
+/**
+ * A tap on a field its node declares inside a group, choice or type-led pin
+ * but does not hold now (an option not chosen, a pin of another type): its
+ * wire gives nothing, so the field's stored value is not what arrives.
+ */
+function tapGivesNothing(
+  def: GraphDef,
+  nodeId: string,
+  tap: string,
+  resolveSchema: ((nodeType: string) => NodeSchema | undefined) | undefined,
+): boolean {
+  const node = def.nodes[nodeId]
+  const schema = node === undefined ? undefined : resolveSchema?.(node.type)
+  if (node === undefined || schema === undefined) return false
+  if (![...constructsOf(schema, node.dynamic).keys()].some((construct) => tap.startsWith(`${construct}.`))) return false
+  return !elabInputsOf(elaborateInterface(schema, node)).some((input) => valueKeyOf(input) === tap)
+}
 
 /** Resolve one endpoint through static literals and schema-declared identity outputs. */
 export function companionSourceOf(
@@ -48,13 +68,10 @@ export function companionSourceOf(
   const resolve = (endpoint: LinkEndpoint, visited: Set<string>): CompanionSource | undefined => {
     const trace = traceEndpoint(def, endpoint, idx)
     if (trace.kind === 'tapValue') {
+      if (tapGivesNothing(def, trace.node, trace.input, resolveSchema)) return undefined
       const stored = def.nodes[trace.node]?.values?.[trace.input]
       const value = stored !== undefined ? stored : resolveTapValue?.(trace.node, trace.input)
       return value === undefined ? undefined : { kind: 'literal', value }
-    }
-    if (trace.kind === 'valueSource') {
-      const source = def.valueSources?.[trace.id]
-      return source === undefined ? undefined : { kind: 'literal', value: source.value }
     }
     if (trace.kind !== 'output') return undefined
     const node = def.nodes[trace.ref.node]
@@ -75,7 +92,7 @@ export function companionSourceOf(
 
 /**
  * Resolve every link/net-driven static input port of `def` to its companion
- * source. Pure and total: malformed references (missing value source,
+ * source. Pure and total: malformed references (missing nodes,
  * undriven chains, cycles) simply yield no companion - this is display
  * derivation, diagnostics belong to invariants/compile.
  */

@@ -18,7 +18,7 @@
  * - every message is anchored as <nodeId>.<valueKey> so a report names the
  *   exact node and input
  */
-import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const problems = (page: Page) => page.getByTestId('problems-panel')
 
@@ -40,14 +40,13 @@ async function badgePoint(page: Page, nodeId: string, badgeId: string): Promise<
   return page.evaluate(({ nodeId, badgeId }) => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((item) => item.id === nodeId)!
-    const index = (renderer.getBadges()[nodeId] ?? []).findIndex((badge) => badge.id === badgeId)
-    if (index < 0) throw new Error(`no badge '${badgeId}' on '${nodeId}'`)
+    const tab = renderer.getNodeBadgeLayout(node).find((entry) => entry.badge.id === badgeId)
+    if (!tab) throw new Error(`no badge '${badgeId}' on '${nodeId}'`)
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()
-    // Mirrors badgeRect(): index 0 is rightmost, 22px inset, 18px stride.
     return {
-      x: rect.left + (node.x + node.layout.width - 22 + 7 - index * 18) * viewport.scale + viewport.x,
-      y: rect.top + (node.y + node.layout.headerHeight / 2) * viewport.scale + viewport.y,
+      x: rect.left + (tab.x + tab.width / 2) * viewport.scale + viewport.x,
+      y: rect.top + (tab.y + tab.height / 2) * viewport.scale + viewport.y,
     }
   }, { nodeId, badgeId })
 }
@@ -109,8 +108,7 @@ test.beforeEach(async ({ page }) => {
     packs: [], assets: [], errors: [],
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 test('an additive nested combo field keeps the node editable and reports its named warning', async ({ page }, testInfo) => {
@@ -122,8 +120,7 @@ test('an additive nested combo field keeps the node editable and reports its nam
     }] } },
   } }))
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page, 1)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'additive-widget', root: 'g0',
@@ -138,7 +135,7 @@ test('an additive nested combo field keeps the node editable and reports its nam
   await expect(problems(page)).toContainText('TolerantWidgets.choice')
   await expect(problems(page)).toContainText('futureHint')
   await openEditor(page, 'sample', 'choice')
-  const search = page.getByTestId('combo-search')
+  const search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('cubic'); await search.press('ArrowDown'); await search.press('Enter')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.sample!.values.choice,
@@ -186,7 +183,7 @@ test('unknown stored COMBO option reports and clears when a listed option is pic
   await expect(problems(page)).toContainText('widget.COMBO.unknownOption')
   await expect(problems(page)).toContainText("widgets.choice: 'omega' is not in the option list")
   await openEditor(page, 'widgets', 'choice')
-  const search = page.getByTestId('combo-search')
+  const search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('beta'); await search.press('ArrowDown'); await search.press('Enter')
   await expect(problems(page)).not.toContainText('widget.COMBO')
 })
@@ -228,7 +225,7 @@ test('diagnostics replace per scene rebuild: unrelated edits never duplicate an 
   // Editing a DIFFERENT widget rebuilds the scene; the standing diagnostic
   // must stay a single entry, not accumulate one copy per rebuild.
   await openEditor(page, 'widgets', 'choice')
-  const search = page.getByTestId('combo-search')
+  const search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('gamma'); await search.press('ArrowDown'); await search.press('Enter')
   await expect(problemEntries(page, 'widget.INT.aboveMax')).toHaveCount(1)
   await expect(problems(page)).toContainText('widgets.count: 999 > max 100')
@@ -237,14 +234,13 @@ test('diagnostics replace per scene rebuild: unrelated edits never duplicate an 
 test('node problem badges expose friendly details, clear live, and distinguish blocking warnings', async ({ page }) => {
   await openFixture(page, { count: 999 })
 
-  // The widget sweep is advisory: it paints the amber warning badge, not the
-  // explicit execution-blocking warning badge.
+  // The widget sweep is advisory: it paints the warning tab, not the error tab.
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
   )).toContain('core.problem.warning')
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
-  )).not.toContain('core.problem.blocking-warning')
+  )).not.toContain('core.problem.error')
 
   const advisory = await badgePoint(page, 'widgets', 'core.problem.warning')
   await page.keyboard.down('Alt')
@@ -255,12 +251,13 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   await page.keyboard.up('Alt')
 
   await page.mouse.click(advisory.x, advisory.y)
-  const popover = page.getByTestId('badge-popover')
-  await expect(popover).toHaveAttribute('data-badge', 'core.problem.warning')
-  const detail = popover.getByTestId('badge-problem-detail')
-  await expect(detail).toContainText('Node "Diag Widgets" (widgets)')
-  await expect(detail).toContainText('input "count"')
-  await expect(detail).toContainText('999 > max 100')
+  const box = page.getByTestId('problem-box')
+  await expect(box).toHaveAttribute('data-node', 'widgets')
+  const detail = box.getByTestId('problem-box-line').filter({ hasText: '999 > max 100' })
+  await expect(detail).toHaveAttribute('data-row', 'count')
+  await expect(detail).toContainText('count: 999 > max 100')
+  await page.keyboard.press('Escape')
+  await expect(box).toHaveCount(0)
 
   // Fixing the value replaces solveDiagnostics. The effect dependency must
   // rederive overlays and remove the warning badge without another gesture.
@@ -272,8 +269,8 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   )).not.toContain('core.problem.warning')
 
   // Compile the fixture's unvalued required API input and publish that real
-  // compile sweep under the active tab owner. Its severity remains warning,
-  // but its explicit blocksExecution signal selects the orange badge.
+  // compile sweep under the active tab owner. It stops a run, so it shows on
+  // the Error tab.
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
@@ -285,8 +282,21 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   })
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
-  )).toContain('core.problem.blocking-warning')
+  )).toContain('core.problem.error')
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
   )).not.toContain('core.problem.warning')
+
+  // Show on canvas opens the node's box with the picked problem's line
+  // highlighted; nothing opened it before the click.
+  await expect(page.getByTestId('problem-box')).toHaveCount(0)
+  await openRailPanel(page, 'Problems')
+  const entry = problemEntries(page, 'compile.input.missing')
+  await entry.locator('summary').click()
+  await entry.getByRole('button', { name: 'Show on canvas' }).click()
+  await expect(box).toHaveAttribute('data-node', 'widgets')
+  await expect(box.locator('[data-highlighted="true"]')).toHaveAttribute('data-row', 'required')
+  // The box words a required input as the row's own sentence; Problems keeps the compile message.
+  await expect(box.locator('[data-highlighted="true"] .problem-box-message')).toHaveText(/^\S.* is required\.$/)
+  await expect(entry).toContainText('has no value or connection')
 })

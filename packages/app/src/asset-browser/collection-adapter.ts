@@ -10,17 +10,10 @@
  */
 
 import type { CollectionEntry, CollectionSource } from '@dinkster/core'
-import type { DinksterConnection } from '@dinkster/client'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
 import { committableAssetRef, formatSize, isBrowserPreviewable, isCompatible } from './helpers.js'
 import { isModel3dMime } from '../model3d-mime.js'
-import { readAssetPreview } from '../workflow-asset-retention.js'
 import { activeProjectId } from '../projects.js'
-
-export interface AssetPreviewOwner {
-  readonly connection: DinksterConnection
-  readonly current: () => boolean
-}
 
 const EXTENSION_KINDS: Readonly<Record<string, string>> = {
   png: 'image', jpg: 'image', jpeg: 'image', webp: 'image', gif: 'image', bmp: 'image',
@@ -38,7 +31,7 @@ export function assetKindOf(item: Pick<AssetBrowserItem, 'kind' | 'name'>): stri
 }
 
 /** One asset row (or folder row) in the common display vocabulary. */
-export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string) => string, previewOwner?: AssetPreviewOwner): CollectionEntry {
+export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string) => string): CollectionEntry {
   const project = activeProjectId()
   if (item.folder === true) {
     return {
@@ -62,35 +55,27 @@ export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string)
     // instead of a URL.
     ...(assetUrl !== undefined && item.digest !== undefined && isBrowserPreviewable(item)
       ? { thumbRender: async (signal?: AbortSignal) => {
-          if (previewOwner === undefined || signal === undefined) throw new Error('Asset preview ownership unavailable')
-          signal.throwIfAborted()
-          const blob = await readAssetPreview(previewOwner.connection, { complete: true, digests: [item.digest!] }, async () => {
-            const bytes = await previewOwner.connection.fetchAssetBytes(item.digest!, signal)
-            if (bytes === undefined) throw new Error('Asset preview is unavailable')
-            return new Blob([bytes], { type: item.mediaType! })
-          }, () => !signal.aborted && activeProjectId() === project && previewOwner.current())
-          signal.throwIfAborted()
+          const response = await fetch(assetUrl(item.digest!), signal === undefined ? undefined : { signal })
+          if (!response.ok) throw new Error(`Asset preview request failed (${response.status})`)
+          const blob = new Blob([await response.arrayBuffer()], { type: item.mediaType! })
+          if (signal?.aborted || activeProjectId() !== project) throw new Error('Asset preview changed during load')
           const url = URL.createObjectURL(blob)
-          signal.addEventListener('abort', () => URL.revokeObjectURL(url), { once: true })
+          signal?.addEventListener('abort', () => URL.revokeObjectURL(url), { once: true })
           return url
         } }
       : assetUrl !== undefined && item.digest !== undefined && (item.availability === undefined || item.availability === 'available') && isModel3dMime(item.mediaType)
         ? {
             thumbRender: async (signal?: AbortSignal) => {
               signal?.throwIfAborted()
-              if (previewOwner === undefined) throw new Error('Asset preview ownership unavailable')
               const viewer = await import('../model3d-viewer.js')
               signal?.throwIfAborted()
-              return readAssetPreview(previewOwner.connection, { complete: true, digests: [item.digest!] },
-                async () => {
-                  const bytes = await previewOwner.connection.fetchAssetBytes(item.digest!, signal)
-                  if (bytes === undefined) throw new Error('Asset preview is unavailable')
-                  signal?.throwIfAborted()
-                  const url = URL.createObjectURL(new Blob([bytes], { type: item.mediaType! }))
-                  try { return await viewer.renderModel3dPosterUrl(url, item.mediaType!) }
-                  finally { URL.revokeObjectURL(url) }
-                },
-                () => signal?.aborted !== true && activeProjectId() === project && previewOwner.current())
+              const response = await fetch(assetUrl(item.digest!), signal === undefined ? undefined : { signal })
+              if (!response.ok) throw new Error(`Asset preview request failed (${response.status})`)
+              const url = URL.createObjectURL(new Blob([await response.arrayBuffer()], { type: item.mediaType! }))
+              try {
+                if (signal?.aborted || activeProjectId() !== project) throw new Error('Asset preview changed during load')
+                return await viewer.renderModel3dPosterUrl(url, item.mediaType!)
+              } finally { URL.revokeObjectURL(url) }
             },
           }
         : {}),
@@ -136,7 +121,7 @@ export function assetEntryPickable(accept: readonly string[], kind?: string): (e
  */
 export function assetCollectionSource(
   adapter: AssetSourceAdapter,
-  opts: { readonly assetUrl?: (digest: string) => string; readonly fixedKind?: string; readonly previewOwner?: AssetPreviewOwner } = {},
+  opts: { readonly assetUrl?: (digest: string) => string; readonly fixedKind?: string } = {},
 ): CollectionSource {
   const seenKinds = new Set<string>()
   return {
@@ -177,8 +162,8 @@ export function assetCollectionSource(
       }
       return {
         items: [
-          ...(page.folders ?? nav.folders).map((f) => assetEntryOf(f, opts.assetUrl, opts.previewOwner)),
-          ...page.items.map((i) => assetEntryOf(i, opts.assetUrl, opts.previewOwner)),
+          ...(page.folders ?? nav.folders).map((f) => assetEntryOf(f, opts.assetUrl)),
+          ...page.items.map((i) => assetEntryOf(i, opts.assetUrl)),
         ],
         ...(page.cursor !== undefined ? { cursor: page.cursor } : {}),
         ...(page.total !== undefined ? { total: page.total } : {}),

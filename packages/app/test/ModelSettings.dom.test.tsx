@@ -121,13 +121,18 @@ it('refuses a stale open editor after a shared update and preserves its draft un
     expect(document.querySelector('[role="listbox"]')).not.toBeNull()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     button('Edit model folder').click()
+    const draft = root.querySelector<HTMLInputElement>('#model-location-path')!
+    expect(button('Save model folder').disabled).toBe(true)
+    draft.value = '/edited/checkpoints'
+    draft.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(button('Save model folder').disabled).toBe(false)
     state = { ...state, revision: 'changed-elsewhere' }
     notify()
     await Promise.resolve(); await Promise.resolve()
     button('Save model folder').click()
     await vi.waitFor(() => expect(root.textContent).toContain('changed while you were editing'))
     expect(saves).toBe(0)
-    expect(root.querySelector<HTMLInputElement>('#model-location-path')!.value).toBe('/existing/checkpoints')
+    expect(root.querySelector<HTMLInputElement>('#model-location-path')!.value).toBe('/edited/checkpoints')
     button('Refresh folders').click()
     await vi.waitFor(() => expect(root.querySelector<HTMLInputElement>('#model-location-path')!.value).toBe(''))
   } finally { dispose() }
@@ -170,6 +175,34 @@ it('discards pending unhide completion after changing engines', async () => {
     finish({ ...initial, hiddenModels: [] }); await Promise.resolve(); await Promise.resolve()
     expect(root.textContent).toContain('second.safetensors')
     expect(changed).not.toHaveBeenCalled()
+  } finally { dispose() }
+})
+
+it('opens only the requested folder editor and requires a changed value before saving', async () => {
+  let settings = initial.settings
+  const connection: ComponentProps<typeof ModelSettings>['connection'] = {
+    fetchModelSettings: async () => initial,
+    onMountsChanged: () => () => {},
+    setModelLocationEnabled: vi.fn(),
+    updateModelSettings: async (next) => { settings = next; return { ...initial, settings: next } },
+  }
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <ModelSettings connection={connection} backendLabel="Engine" editLocation="studio" />, root)
+  try {
+    const input = () => root.querySelector<HTMLInputElement>('#model-location-path')!
+    const save = () => [...root.querySelectorAll<HTMLButtonElement>('button')].find((row) => row.textContent === 'Save model folder')!
+    await vi.waitFor(() => expect(input()?.value).toBe('/existing/checkpoints'))
+    expect(root.querySelector('[data-model-location]')).toBeNull()
+    expect(save().disabled).toBe(true)
+    input().value = '/new/checkpoints'
+    input().dispatchEvent(new Event('input', { bubbles: true }))
+    expect(save().disabled).toBe(false)
+    save().click()
+    await vi.waitFor(() => expect(settings.locations[0]?.path).toBe('/new/checkpoints'))
+    await vi.waitFor(() => expect(save()?.disabled).toBe(true))
+    expect(input().value).toBe('/new/checkpoints')
+    expect(root.textContent).not.toContain('Add model folder')
+    expect(settings.locations[1]).toEqual(initial.settings.locations[1])
   } finally { dispose() }
 })
 

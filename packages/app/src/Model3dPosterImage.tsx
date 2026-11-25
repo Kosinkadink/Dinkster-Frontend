@@ -1,5 +1,5 @@
 import { Show, createResource, onCleanup } from 'solid-js'
-import type { PreviewSource } from './node-previews.js'
+import { PreviewDownload } from './PreviewDownload.js'
 
 /**
  * Poster still for a GLB or splat PLY source, rendered lazily through the
@@ -11,23 +11,18 @@ export function Model3dPosterImage(props: {
   readonly src: string
   readonly name: string
   readonly mime?: string | undefined
-  readonly assetReader?: PreviewSource['assetReader']
 }) {
   let request = 0
   onCleanup(() => { request += 1 })
   const [poster] = createResource(
-    () => ({ src: props.src, mime: props.mime, reader: props.assetReader }),
+    () => ({ src: props.src, mime: props.mime }),
     async (source) => {
       const current = ++request
       const viewer = await import('./model3d-viewer.js')
       if (current !== request) return undefined
-      const render = async () => {
-        if (current !== request) return undefined
-        if (source.reader?.current() === false) throw new Error('Picker preview ownership changed')
-        return viewer.renderModel3dPosterUrl(source.src, source.mime)
-      }
-      const url = await (source.reader === undefined ? render() : source.reader.read(render))
-      if (current !== request || source.reader?.current() === false) return undefined
+      if (current !== request) return undefined
+      const url = await viewer.renderModel3dPosterUrl(source.src, source.mime)
+      if (current !== request) return undefined
       return url
     },
   )
@@ -41,7 +36,7 @@ export function Model3dPosterImage(props: {
       }>
         <div class="asset-preview asset-preview-fallback" data-testid="asset-model3d-fallback" role="status">
           <span>3D preview unavailable.</span>
-          <a href={props.src} download={props.name}>Download model</a>
+          <PreviewDownload class="" download={{ src: props.src, name: props.name }} label="Download model" />
         </div>
       </Show>
     }>

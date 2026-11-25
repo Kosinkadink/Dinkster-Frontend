@@ -5,12 +5,11 @@
  * viewport (and only the viewport: the document never changes), and the
  * overview keeps painting on a frozen historical tab.
  */
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const document = structuredClone(app.activeTab()!.store.doc)
@@ -22,18 +21,49 @@ test.beforeEach(async ({ page }) => {
 
 const viewport = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
 
-/** Count minimap pixels that differ from the canvas background (#181818). */
+/** Count minimap pixels that differ from its panel background. */
 const paintedPixels = (page: Page) =>
   page.evaluate(() => {
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid=minimap]')!
+    const background = getComputedStyle(canvas).backgroundColor.match(/\d+/g)!.slice(0, 3).map(Number)
     const ctx = canvas.getContext('2d')!
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
     let n = 0
     for (let i = 0; i < data.length; i += 4) {
-      if (data[i] !== 0x18) n++
+      if (data[i] !== background[0] || data[i + 1] !== background[1] || data[i + 2] !== background[2]) n++
     }
     return n
   })
+
+test('minimap sizes persist with small as the default; the bar under it keeps its width, right-justified', async ({ page }) => {
+  const map = page.getByTestId('minimap')
+  const bar = page.locator('.canvas-corner-bar')
+  await expect(map).toHaveCSS('width', '160px')
+  await expect(map).toHaveCSS('height', '96px')
+  const before = await viewport(page)
+  await map.hover()
+  await page.mouse.wheel(0, -100)
+  await expect.poll(async () => (await viewport(page)).scale).toBeGreaterThan(before.scale)
+
+  const barWidth = (await bar.boundingBox())!.width
+  expect(barWidth).toBeLessThan(160)
+  for (const [size, width, height] of [
+    ['medium', 196, 118], ['large', 256, 150], ['small', 160, 96],
+  ] as const) {
+    await page.evaluate((value) => window.__dinksterTest!.app.settings.set('canvas.minimap.size', value), size)
+    await expect(map).toHaveCSS('width', `${width}px`)
+    await expect(map).toHaveCSS('height', `${height}px`)
+    const [mapBox, barBox] = await Promise.all([map.boundingBox(), bar.boundingBox()])
+    expect(barBox!.width).toBeCloseTo(barWidth, 0)
+    expect(barBox!.height).toBe(36)
+    expect(barBox!.x + barBox!.width).toBeCloseTo(mapBox!.x + mapBox!.width, 0)
+    await expect(bar.locator('button:visible')).toHaveCount(4)
+  }
+  expect((await page.locator('.canvas-view-controls').boundingBox())!.height).toBe(36)
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.minimap.size', 'medium'))
+  await page.reload()
+  await expect(page.getByTestId('minimap')).toHaveCSS('width', '196px')
+})
 
 test('renders an overview and click-jumps the main viewport; document untouched', async ({ page }) => {
   const minimap = page.getByTestId('minimap')
@@ -94,7 +124,7 @@ test('wheel zoom centers on the pointed far-away minimap location exactly once',
     if (test.renderer!.getScene().nodes.length === 0) {
       test.app.registerSchemas([{
         type: 'MinimapE2E', displayName: 'Minimap E2E', category: 'test', source: 'v3', isOutputNode: false,
-        items: [],
+        body: [],
       }])
       await test.app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'minimap-e2e', root: 'root',
@@ -224,50 +254,38 @@ test('display toggles persist and minimap can be hidden and restored', async ({ 
   const documentBefore = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
   await page.getByTestId('minimap-settings').click()
   const menu = page.locator('.minimap-menu')
-  await expect(menu).toContainText('Node Colors')
-  await expect(menu).toContainText('Render Bypass State')
-  await expect(menu).toContainText('Show Links')
-  await expect(menu).toContainText('Show Frames/Groups')
-  await expect(menu).toContainText('Reroutes')
-  await expect(menu).toContainText('Render Error State')
-  await expect(menu).toContainText('Bookmarks')
-  for (const label of ['Node Colors', 'Render Bypass State', 'Show Links', 'Show Frames/Groups', 'Reroutes', 'Render Error State']) {
+  await expect(menu.getByRole('switch')).toHaveText(['Colors', 'Links', 'Frames and groups', 'Errors', 'Bookmark numbers'])
+  for (const label of ['Colors', 'Links', 'Frames and groups', 'Errors']) {
     const row = menu.getByRole('switch', { name: label, exact: true })
     await expect(row).toHaveAttribute('aria-checked', 'true')
     await expect(row).not.toHaveAttribute('data-tooltip-label')
     await expect(row).not.toHaveAttribute('title')
-    expect(await row.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(36)
+    expect(await row.evaluate((element) => element.getBoundingClientRect().height)).toBe(28)
   }
-  const bookmarks = menu.getByRole('switch', { name: 'Bookmarks. Show bookmark numbers on the minimap', exact: true })
+  const bookmarks = menu.getByRole('switch', { name: 'Bookmark numbers', exact: true })
   await expect(bookmarks).toHaveAttribute('data-tooltip-label', 'Show bookmark numbers on the minimap')
   await expect(bookmarks).not.toHaveAttribute('title')
   await expect(bookmarks).toHaveAttribute('aria-checked', 'true')
   await bookmarks.focus()
   await expect(bookmarks).toBeFocused()
   await page.getByTestId('minimap-toggle-nodes').click()
-  await page.getByTestId('minimap-toggle-bypass').click()
   await page.getByTestId('minimap-toggle-noodles').click()
   await page.getByTestId('minimap-toggle-groups').click()
-  await page.getByTestId('minimap-toggle-reroutes').click()
   await page.getByTestId('minimap-toggle-errors').click()
   await bookmarks.focus()
   await page.keyboard.press('Space')
   await expect(bookmarks).toHaveAttribute('aria-checked', 'false')
   const minimap = page.getByTestId('minimap')
   await expect(minimap).toHaveAttribute('data-node-colors', 'false')
-  await expect(minimap).toHaveAttribute('data-bypass', 'false')
   await expect(minimap).toHaveAttribute('data-links', 'false')
   await expect(minimap).toHaveAttribute('data-groups', 'false')
-  await expect(minimap).toHaveAttribute('data-reroutes', 'false')
   await expect(minimap).toHaveAttribute('data-errors', 'false')
   await expect(minimap).toHaveAttribute('data-bookmarks', 'false')
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('dinkster.settings')!).values)
   expect(stored).toMatchObject({
     'canvas.minimap.nodes': false,
-    'canvas.minimap.bypass': false,
     'canvas.minimap.noodles': false,
     'canvas.minimap.groups': false,
-    'canvas.minimap.reroutes': false,
     'canvas.minimap.errors': false,
     'canvas.minimap.bookmarks': false,
   })
@@ -278,7 +296,7 @@ test('display toggles persist and minimap can be hidden and restored', async ({ 
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(documentBefore)
 
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await expect(page.getByTestId('minimap')).toHaveAttribute('data-node-colors', 'false')
   await expect(page.getByTestId('minimap')).toHaveAttribute('data-bookmarks', 'false')
   const minimapHandle = await page.getByTestId('minimap').elementHandle()
@@ -295,7 +313,7 @@ test('display toggles persist and minimap can be hidden and restored', async ({ 
     await page.setViewportSize(size)
     const [toggleBox, zoom] = await Promise.all([
       toggle.boundingBox(),
-      page.locator('.canvas-zoom-controls').boundingBox(),
+      page.locator('.canvas-corner-bar').boundingBox(),
     ])
     for (const box of [toggleBox!, zoom!]) {
       expect(box.x).toBeGreaterThanOrEqual(0)
@@ -319,7 +337,8 @@ test('display toggles persist and minimap can be hidden and restored', async ({ 
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(documentBefore)
 })
 
-test('corner zoom controls are keyboard reachable, truthful, and preserve the document', async ({ page }) => {
+test('the zoom menu is keyboard reachable, truthful, and preserves the document', async ({ page }) => {
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.minimap.size', 'medium'))
   const revisionBefore = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const documentBefore = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
   const level = page.getByTestId('canvas-zoom-level')
@@ -330,33 +349,62 @@ test('corner zoom controls are keyboard reachable, truthful, and preserve the do
     return { x: (canvas.width / 2 - vp.x) / vp.scale, y: (canvas.height / 2 - vp.y) / vp.scale }
   }
   const center = await worldCenter()
+  const centered = async () =>
+    expect(await worldCenter()).toEqual(expect.objectContaining({ x: expect.closeTo(center.x, 5), y: expect.closeTo(center.y, 5) }))
+  const menu = page.getByTestId('canvas-zoom-menu')
+  const field = page.getByTestId('canvas-zoom-input')
+  const number = menu.locator('.dinkster-canvas-closed-row-open')
+  const numberValue = menu.locator('.dinkster-canvas-closed-row-value')
 
-  const zoomIn = page.getByTestId('canvas-zoom-in')
-  await zoomIn.hover()
-  const restingBackground = await zoomIn.evaluate((element) => getComputedStyle(element).backgroundColor)
-  await page.mouse.down()
-  await expect.poll(() => zoomIn.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(restingBackground)
-  await page.mouse.move(0, 0)
-  await page.mouse.up()
-  expect((await viewport(page)).scale).toBe(initial.scale)
-  await page.getByTestId('canvas-zoom-in').focus()
-  await page.keyboard.press('Enter')
-  const zoomed = await viewport(page)
-  expect(zoomed.scale).toBeCloseTo(Math.min(4, initial.scale * 1.2), 5)
-  expect(await worldCenter()).toEqual(expect.objectContaining({ x: expect.closeTo(center.x, 5), y: expect.closeTo(center.y, 5) }))
-  await expect(level).toHaveText(`${Math.round(zoomed.scale * 100)}%`)
-
-  for (let i = 0; i < 40; i++) await page.getByTestId('canvas-zoom-in').click()
-  expect((await viewport(page)).scale).toBe(4)
-  expect(await worldCenter()).toEqual(expect.objectContaining({ x: expect.closeTo(center.x, 5), y: expect.closeTo(center.y, 5) }))
-  for (let i = 0; i < 50; i++) await page.getByTestId('canvas-zoom-out').click()
-  expect((await viewport(page)).scale).toBe(0.05)
-  expect(await worldCenter()).toEqual(expect.objectContaining({ x: expect.closeTo(center.x, 5), y: expect.closeTo(center.y, 5) }))
-
+  // The percentage opens the menu with the keyboard on its number.
   await level.focus()
   await page.keyboard.press('Enter')
+  await expect(menu).toBeVisible()
+  await expect(level).toHaveAttribute('aria-expanded', 'true')
+  await expect(number).toBeFocused()
+  await expect(number).toHaveAccessibleName(`Zoom: ${Math.round(initial.scale * 100)}%`)
+
+  // Plus and minus step the zoom around the view's center and leave the menu open.
+  await menu.getByRole('button', { name: 'Zoom in' }).click()
+  await expect(menu).toBeVisible()
+  const zoomed = await viewport(page)
+  expect(zoomed.scale).toBeCloseTo(Math.min(4, initial.scale * 1.2), 5)
+  await centered()
+  await expect(level).toHaveText(`${Math.round(zoomed.scale * 100)}%`)
+  await expect(numberValue).toHaveText(`${Math.round(zoomed.scale * 100)}%`)
+  await menu.getByRole('button', { name: 'Zoom out' }).click()
+  expect((await viewport(page)).scale).toBeCloseTo(initial.scale, 5)
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(level).toBeFocused()
+
+  // Pressing the number types a percentage, which sets that zoom around the
+  // view's center, within the canvas limits, and closes the menu.
+  for (const [typed, scale] of [['150', 1.5], ['1000', 4], ['1', 0.05]] as const) {
+    await level.click()
+    await number.click()
+    await expect(field).toBeFocused()
+    await field.fill(typed)
+    await page.keyboard.press('Enter')
+    await expect(menu).toBeHidden()
+    expect((await viewport(page)).scale).toBeCloseTo(scale, 5)
+    await centered()
+  }
+
+  // A digit typed anywhere in the menu starts the field with that digit.
+  await level.focus()
+  await page.keyboard.press('Enter')
+  await expect(number).toBeFocused()
+  await page.keyboard.type('80')
+  await expect(field).toHaveValue('80')
+  await page.keyboard.press('Enter')
+  await expect(menu).toBeHidden()
+  expect((await viewport(page)).scale).toBeCloseTo(0.8, 5)
+
+  await level.click()
+  await page.getByTestId('canvas-zoom-reset').click()
   expect((await viewport(page)).scale).toBeCloseTo(1, 5)
-  expect(await worldCenter()).toEqual(expect.objectContaining({ x: expect.closeTo(center.x, 5), y: expect.closeTo(center.y, 5) }))
+  await centered()
   await expect(level).toHaveText('100%')
 
   await page.getByTestId('canvas-fit-view').focus()
@@ -367,18 +415,20 @@ test('corner zoom controls are keyboard reachable, truthful, and preserve the do
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(documentBefore)
 })
 
-test('settings popover dismisses on outside pointerdown and global Escape', async ({ page }) => {
-  const settings = page.getByTestId('minimap-settings')
-  await settings.click()
-  const backdrop = (await page.getByTestId('canvas-popover-backdrop').boundingBox())!
-  await page.mouse.move(backdrop.x + backdrop.width / 2, backdrop.y + backdrop.height / 2)
-  await page.mouse.down()
-  await page.mouse.up()
-  await expect(settings).toHaveAttribute('aria-expanded', 'false')
+test('corner menus dismiss on outside pointerdown and global Escape', async ({ page }) => {
+  for (const trigger of [page.getByTestId('minimap-settings'), page.getByTestId('canvas-zoom-level')]) {
+    await trigger.click()
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    const backdrop = (await page.getByTestId('canvas-popover-backdrop').boundingBox())!
+    await page.mouse.move(backdrop.x + backdrop.width / 2, backdrop.y + backdrop.height / 2)
+    await page.mouse.down()
+    await page.mouse.up()
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
 
-  await settings.click()
-  await page.keyboard.press('Escape')
-  await expect(settings).toHaveAttribute('aria-expanded', 'false')
+    await trigger.click()
+    await page.keyboard.press('Escape')
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  }
 })
 
 test('overview keeps painting on a frozen historical tab', async ({ page }) => {

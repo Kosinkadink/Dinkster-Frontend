@@ -5,7 +5,7 @@
  * synthetic schema through the SAME public extension API (registerSchemas)
  * and open a matching workflow document.
  */
-import { expect, appViewTest as test, nativeAppViewTest as documentTest, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, appViewTest as test, nativeAppViewTest as documentTest, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -62,14 +62,14 @@ const openSubmenu = async (page: Page, id: string) => {
 
 test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.annotations.some((annotation) => annotation.type === 'mock-name-dispatch')) {
-    await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503, json: {} }))
+    await page.route(/\/api\//, (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'name-fixture', schemaWire: 2 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     return
   }
   if (testInfo.annotations.some((annotation) => annotation.type === 'mock-legacy-discovery')) {
@@ -79,12 +79,11 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   }
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await identityViewport(page)
 })
 
@@ -117,7 +116,7 @@ documentTest('canvas name prompts await acceptance and keep refused or newer dra
     ;(window as any).__namePending = []
     app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
       ;(window as any).__namePending.push((accepted: boolean) => resolve(accepted ? dispatch(tab, invocation) : {
-        ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Name change refused for test' }],
+        ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.rejected', message: 'Name change refused for test' }],
       }))
     })
   })

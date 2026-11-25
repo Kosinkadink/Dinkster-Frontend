@@ -5,7 +5,7 @@
  * undo step. Rewires keep their disconnect-on-empty behavior, and Escape
  * cancels without touching the document.
  */
-import { expect, nativeTest, skipWithoutNativeCatalog, test, type Page } from './fixtures.js'
+import { expect, nativeTest, skipWithoutNativeCatalog, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 /** Reset the viewport to identity so world coords == canvas CSS pixels. */
 async function identityViewport(page: Page): Promise<void> {
@@ -81,7 +81,7 @@ async function singleAddedNode(page: Page, previousIds: readonly string[]): Prom
 
 async function prepareTest(page: Page): Promise<void> {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
   await identityViewport(page)
 }

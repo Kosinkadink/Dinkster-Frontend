@@ -1,13 +1,13 @@
 /**
  * Companion-value source resolution: link/net-driven inputs resolve to
- * either a document-static literal (value source chains - always exact) or
+ * either a document-static literal (a primitive's stored value - always exact) or
  * a runtime producer (node output pair the host peeks against the bound
  * execution). Pure derivation over one GraphDef: no schemas, no execution,
  * no diagnostics - malformed chains just yield no companion.
  */
 import { describe, expect, it } from 'vitest'
 import { companionSourcesOf } from '../src/companion.js'
-import type { GraphDef, Json, ValueSourceData } from '../src/format/document.js'
+import type { GraphDef, Json } from '../src/format/document.js'
 import type { NodeSchema } from '../src/schema/model.js'
 import {
   asGraphDefId,
@@ -16,18 +16,14 @@ import {
   asNodeId,
   asPortId,
   asRerouteId,
-  asValueSourceId,
 } from '../src/ids.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 const tap = (node: string, inputId: string) => ({ node: asNodeId(node), tap: asPortId(inputId) })
 const rr = (id: string) => ({ reroute: asRerouteId(id) })
-const vsrc = (id: string) => ({ valueSource: asValueSourceId(id) })
 const node = (id: string, type = 'T', values: Readonly<Record<string, Json>> = {}) =>
   ({ id: asNodeId(id), type, values })
 const reroute = (id: string) => ({ id: asRerouteId(id) })
-const source = (id: string, value: Json): ValueSourceData =>
-  ({ id: asValueSourceId(id), value }) as ValueSourceData
 const link = (id: string, from: object, to: object) =>
   ({ id: asLinkId(id), from, to }) as GraphDef['links'][string]
 
@@ -65,14 +61,15 @@ const primitiveSchema = (typeName = 'INT'): NodeSchema => ({
 })
 
 describe('companionSourcesOf', () => {
-  it('resolves a direct value-source link to a literal companion', () => {
+  it("resolves a direct link from a primitive to the primitive's stored value", () => {
     const def = graph({
       id: 'g0',
-      nodes: { n1: node('n1') },
-      valueSources: { v1: source('v1', 7) },
-      links: { l1: link('l1', vsrc('v1'), port('n1', 'steps')) },
+      nodes: { p: node('p', 'Primitive', { value: 7 }), n1: node('n1') },
+      links: { l1: link('l1', port('p', 'result'), port('n1', 'steps')) },
     })
-    expect(sourceOf(def, 'n1', 'steps')).toEqual({ kind: 'literal', value: 7 })
+    const schema = primitiveSchema()
+    expect(companionSourcesOf(def, undefined, undefined, (type) => type === 'Primitive' ? schema : undefined).get('n1')?.get('steps'))
+      .toEqual({ kind: 'literal', value: 7 })
   })
 
   it.each([[0, 7], ['', 'changed']] as const)('uses a schema-aware fallback for unstored tap value %j and stored state still wins', (fallback, stored) => {
@@ -88,6 +85,29 @@ describe('companionSourcesOf', () => {
     ;(def.nodes['source']!.values as Record<string, Json>)['value'] = stored
     expect(companionSourcesOf(def, undefined, () => fallback).get('sink')?.get('in'))
       .toEqual({ kind: 'literal', value: stored })
+  })
+
+  it('gives no literal for a tap on a field under an option that is not chosen', () => {
+    const FLOAT = { kind: 'concrete', name: 'FLOAT' } as const
+    const schema: NodeSchema = {
+      type: 'Options', displayName: 'Options', category: '', source: 'v3', isOutputNode: false,
+      body: [{
+        kind: 'choice', id: 'mode', required: true, shared: [],
+        options: [
+          { key: 'fixed', rows: [{ kind: 'input', id: 'amount', type: FLOAT, optional: false, widget: { widgetType: 'FLOAT', options: {}, default: 0.8 } }] },
+          { key: 'none', rows: [] },
+        ],
+      }],
+    }
+    const def = graph({
+      id: 'g0',
+      nodes: { opt: { ...node('opt', 'Options', { 'mode.amount': 0.65 }), dynamic: { mode: { selected: 'fixed' } } }, sink: node('sink') },
+      links: { l1: link('l1', tap('opt', 'mode.amount'), port('sink', 'value')) },
+    })
+    const resolve = (type: string) => (type === 'Options' ? schema : undefined)
+    expect(companionSourcesOf(def, undefined, undefined, resolve).get('sink')?.get('value')).toEqual({ kind: 'literal', value: 0.65 })
+    ;(def.nodes['opt'] as { dynamic: object }).dynamic = { mode: { selected: 'none' } }
+    expect(companionSourcesOf(def, undefined, undefined, resolve).get('sink')?.get('value')).toBeUndefined()
   })
 
   it('resolves a node-output link to a runtime producer', () => {
@@ -124,18 +144,18 @@ describe('companionSourcesOf', () => {
     expect(typeof (resolved as { value: unknown }).value).toBe(typeof value)
   })
 
-  it('follows a mixed value-source, reroute, net, and identity chain', () => {
+  it('follows a mixed primitive, reroute, net, and identity chain', () => {
     const def = graph({
       id: 'g0',
       nodes: {
+        root: node('root', 'Primitive', { value: 12 }),
         first: node('first', 'Primitive'),
         second: node('second', 'Primitive'),
         consumer: node('consumer'),
       },
-      valueSources: { v1: source('v1', 12) },
       reroutes: { r1: reroute('r1'), r2: reroute('r2') },
       links: {
-        l1: link('l1', vsrc('v1'), rr('r1')),
+        l1: link('l1', port('root', 'result'), rr('r1')),
         l2: link('l2', rr('r1'), port('first', 'value')),
         l3: link('l3', port('second', 'result'), rr('r2')),
         l4: link('l4', rr('r2'), port('consumer', 'in')),

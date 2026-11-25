@@ -68,6 +68,12 @@ const schemas: Record<string, NodeSchema> = {
   TapDynamic: schemaOf('TapDynamic', [{
     kind: 'choice', id: 'amount', required: false, shared: [], options: [{ key: 'one', rows: [widgetInput('amount', 1)] }],
   }]),
+  TapChoiceOld: schemaOf('TapChoiceOld', [{
+    kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'a', rows: [widgetInput('amount', 1)] }, { key: 'b', rows: [] }],
+  }]),
+  TapChoiceNew: schemaOf('TapChoiceNew', [{
+    kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'a', rows: [widgetInput('amount', 2)] }, { key: 'b', rows: [] }],
+  }]),
   TapMaskOld: schemaOf('TapMaskOld', [widgetInput('amount', 0.5, { type: { kind: 'concrete', name: 'MASK' } })]),
   TapMaskComfy: schemaOf('TapMaskComfy', [widgetInput('amount', 1, { type: { kind: 'concrete', name: 'comfy.MASK' } })]),
   NewNode: schemaOf('NewNode', [
@@ -177,6 +183,19 @@ const basicRule: ReplacementRule = {
 // ---------------------------------------------------------------------------
 
 describe('isReplacementRule', () => {
+  it('accepts a rule that changes the type, renames inputs and outputs and moves a stored value', () => {
+    const rule = {
+      from: 'ForeignSwitch',
+      migration: { historicalInputs: ['switch', 'on_false', 'on_true'] },
+      cases: [
+        { when: { kind: 'valueEquals', input: 'switch', value: true }, to: 'Switch',
+          inputs: { pick: { kind: 'constant', value: 'b2' }, first: { kind: 'copy', input: 'on_false' } }, outputs: { value: 'output' } },
+        { to: 'Switch', inputs: { pick: { kind: 'value', input: 'switch' }, first: { kind: 'copy', input: 'on_false' } }, outputs: { value: 'output' } },
+      ],
+    }
+    expect(isReplacementRule(JSON.parse(JSON.stringify(rule)))).toBe(true)
+    expect(isReplacementRule({ ...rule, migration: { historicalInputs: [] } })).toBe(false)
+  })
 
   it('rejects malformed predicates, transforms, and mappings', () => {
     expect(isReplacementRule({ from: 'A', cases: [{ when: { kind: 'nope' }, to: 'B' }] })).toBe(false)
@@ -427,6 +446,23 @@ describe('planReplacement rewires', () => {
     expect(store.doc.graphs.g0!.links.tapLink).toEqual(before.graphs.g0!.links.tapLink)
   })
 
+  it("keeps a wire from the output of a field under the chosen option", () => {
+    const before = doc({ g0: graph({
+      id: 'g0',
+      nodes: {
+        old: node('old', 'TapChoiceOld', { 'mode.amount': 0.25 }, { dynamic: { mode: { selected: 'a' } } }),
+        dst: node('dst', 'Consumer'),
+      },
+      links: { tapLink: link('tapLink', { node: asNodeId('old'), tap: asPortId('mode.amount') }, port('dst', 'in')) },
+    }) })
+    const planned = planReplacement(before, 'g0', 'old', { from: 'TapChoiceOld', cases: [{ to: 'TapChoiceNew', slotVariants: { mode: 'a' }, inputs: { 'mode.amount': { kind: 'copy', input: 'mode.amount' } } }] }, resolve)
+    expect(planned.diagnostics).toEqual([])
+    expect(planned.plan!.dropLinks).toEqual([])
+    const store = new DocumentStore(before, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan! } as unknown as Record<string, Json> }).ok).toBe(true)
+    expect(store.doc.graphs.g0!.links.tapLink).toEqual(before.graphs.g0!.links.tapLink)
+  })
+
   it.each([
     ['missing', 'NewNode'],
     ['incompatible type', 'TapWrongType'],
@@ -630,7 +666,7 @@ describe('input family replacement', () => {
     expect(overflow.diagnostics.some((diagnostic) => diagnostic.code === 'replace.target.familyMembers')).toBe(true)
   })
 
-  it('copies a differently named family with suffixes, order, values, controllers, links, and net sinks', () => {
+  it('copies a differently named family with suffixes, order, values, controllers, links, field outputs, and net sinks', () => {
     const original = doc({
       g0: graph({
         id: 'g0',
@@ -647,6 +683,7 @@ describe('input family replacement', () => {
         },
         links: {
           linked: link('linked', port('src', 'out'), port('old', 'operands.b')),
+          tapped: link('tapped', { node: asNodeId('old'), tap: asPortId('operands.a') }, port('dst', 'in')),
         },
         nets: {
           routed: net('routed', port('src', 'out'), [port('old', 'operands.a'), port('dst', 'other')]),
@@ -685,6 +722,8 @@ describe('input family replacement', () => {
       dynamic: { values: { members: ['b', 'a'] } },
       values: { 'values.b': 2, 'values.a': 1 },
     })
+    // A wire from a member field's output follows the member to its new address.
+    expect(store.doc.graphs.g0!.links.tapped!.from).toEqual({ node: 'old', tap: 'values.a' })
     expect(store.undo()).toBe(true)
     expect(store.doc).toEqual(original)
   })
@@ -1644,6 +1683,44 @@ describe('scanReplacements', () => {
       expect(reopened.graphs.g0!.nodes.old).toMatchObject({ type: 'RenamedPorts', values: { scale: 37 } })
       expect(scanReplacements(reopened, registry, resolve)).toEqual([])
     }
+  })
+
+  it.each([[true, 'b2'], [false, 'b1']])('opens a saved node of an uninstalled type with stored %s as the type a rule names, keeping every wire', (stored, pick) => {
+    const value: TypeExpr = { kind: 'variable', templateId: 'value' }
+    const switchSchema = schemaOf('Switch', [
+      widgetInput('pick', undefined, { type: { kind: 'concrete', name: 'STRING' }, optional: true }),
+      { kind: 'group', id: 'branch', value: input('value', { type: value, optional: true }),
+        keys: { kind: 'named', names: ['b1', 'b2'] }, grows: 'link', minMembers: 0 },
+      { kind: 'output', id: 'value', type: value },
+    ])
+    const branches = { branch: { kind: 'members' as const, members: [
+      { suffix: 'b1', inputs: { value: { kind: 'copy' as const, input: 'on_false' } } },
+      { suffix: 'b2', inputs: { value: { kind: 'copy' as const, input: 'on_true' } } },
+    ] } }
+    const rule: ReplacementRule = { from: 'RetiredSwitch', cases: [
+      { when: { kind: 'valueEquals', input: 'switch', value: true }, to: 'Switch', inputs: { pick: { kind: 'constant', value: 'b2' } }, inputFamilies: branches, outputs: { value: 'output' } },
+      { to: 'Switch', inputs: { pick: { kind: 'constant', value: 'b1' } }, inputFamilies: branches, outputs: { value: 'output' } },
+    ] }
+    const saved = doc({ g0: graph({ id: 'g0',
+      nodes: { a: node('a', 'OldNode'), b: node('b', 'OldNode'), old: node('old', 'RetiredSwitch', { switch: stored }), use: node('use', 'NewNode') },
+      links: {
+        l1: link('l1', port('a', 'out'), port('old', 'on_false')),
+        l2: link('l2', port('b', 'out'), port('old', 'on_true')),
+        l3: link('l3', port('old', 'output'), port('use', 'image')),
+      },
+    }) })
+    const loaded = JSON.parse(JSON.stringify(saved)) as WorkflowDocument
+    const resolveOpen = (type: string) => type === 'Switch' ? switchSchema : resolve(type)
+    const items = scanReplacements(loaded, registryWith(rule), resolveOpen)
+    const store = new DocumentStore(loaded, coreCommandRegistry())
+    expect(store.dispatch(replacementInvocation(items, loaded, resolveOpen)!).ok).toBe(true)
+    const opened = store.doc.graphs.g0!
+    expect(opened.nodes.old).toMatchObject({ type: 'Switch', values: { pick } })
+    expect(Object.values(opened.links).map((entry) => [entry.from, entry.to])).toEqual([
+      [port('a', 'out'), port('old', 'branch.b1')],
+      [port('b', 'out'), port('old', 'branch.b2')],
+      [port('old', 'value'), port('use', 'image')],
+    ])
   })
 
   it('finds every migratable node across graphs; skips others', () => {

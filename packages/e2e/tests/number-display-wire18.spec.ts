@@ -1,8 +1,7 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const PROOF_DIR = '/tmp/audit-ae-proof'
-const RANGE_FILL = '#343940'
 const advertisedWires: string[] = []
 
 const numberInput = (id: string, display?: string, displayName?: string) => ({
@@ -36,8 +35,14 @@ const catalog = {
 }
 
 async function rangePaint(page: Page) {
-  return page.evaluate(({ rangeFill }) => {
-    const renderer = window.__dinksterTest!.renderer! as unknown as { invalidate(): void; renderNow(): void; getScene(): any }
+  return page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer! as unknown as { invalidate(): void; renderNow(): void; getScene(): any; getDesignTokens(): any }
+    // The slider's fill color as the canvas reports it back: the accent fill
+    // while values are edited in the row, the plain range fill otherwise.
+    const tokens = renderer.getDesignTokens()
+    const probe = document.createElement('canvas').getContext('2d')!
+    probe.fillStyle = tokens.widgetEditing === 'in-row' ? tokens.colors.widgetRangeFillAccent : tokens.colors.widgetRangeFill
+    const rangeFill = String(probe.fillStyle)
     const node = renderer.getScene().nodes.find((candidate: any) => candidate.id === 'numbers')!
     const rows = Object.fromEntries(node.layout.rows
       .filter((row: any) => row.kind === 'widget')
@@ -112,9 +117,9 @@ async function rangePaint(page: Page) {
       events,
       expectedChrome: {
         x: node.x + row.inset,
-        y: node.y + row.y + 2,
+        y: node.y + row.y + tokens.rowGeometry.fieldInsetY,
         width: node.layout.width - row.inset * 2,
-        height: row.height - 4,
+        height: row.height - tokens.rowGeometry.fieldInsetY * 2,
         radius: 4,
       },
       displays: Object.fromEntries(Object.entries(rows).map(([id, value]) =>
@@ -122,7 +127,7 @@ async function rangePaint(page: Page) {
       views: Object.fromEntries(Object.entries(rows).map(([id, value]) =>
         [id, (value as any).viewId])),
     }
-  }, { rangeFill: RANGE_FILL })
+  })
 }
 
 test.beforeEach(async ({ page }) => {
@@ -144,7 +149,7 @@ test.beforeEach(async ({ page }) => {
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(1)
   expect(advertisedWires).not.toHaveLength(0)
   expect(advertisedWires.every((wire) => wire === '')).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire18-number-display', root: 'g0',

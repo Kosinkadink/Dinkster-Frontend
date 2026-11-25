@@ -8,7 +8,7 @@ test('keeps installed conversions and editable missing-pack placeholders during 
     type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: false } }
   const installed = { schemaVersion: 2, displayName: 'Installed Text', body: [stringPort],
     replacements: [{ from: 'InstalledLegacy', cases: [{ to: 'dinkster.text.installed', inputs: { text: { kind: 'copy', input: 'text' } }, outputs: {} }] }] }
-  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 503 }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 2, nodes: { 'dinkster.text.installed': installed },
@@ -72,7 +72,7 @@ test('reports missing packs and preserves edits as the active registry gains the
   ]
   let releaseApply: (() => void) | undefined
   const plans: unknown[] = []
-  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 503 }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 2, epoch: installed ? 2 : 1, nodes: installed ? {

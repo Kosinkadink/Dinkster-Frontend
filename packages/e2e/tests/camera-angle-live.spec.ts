@@ -1,11 +1,10 @@
-import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeTest as test, unfoldNodeEditor, waitForWorkspaceReady } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
-test('camera composer writes real siblings, executes orbit coordinates and preserves undo', async ({ page }, testInfo) => {
+test('camera angle in the node writes real siblings, executes orbit coordinates and preserves undo', async ({ page }, testInfo) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
-  await waitForStartupOwnership(page)
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 20_000 })
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'camera-angle-live', root: 'g0',
@@ -16,17 +15,12 @@ test('camera composer writes real siblings, executes orbit coordinates and prese
     } as never, 'Camera angle')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
-  const point = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((entry) => entry.id === 'camera')!
-    const row = node.layout.rows.find((entry) => entry.kind === 'widget' && entry.inputId === 'view')!
-    const bounds = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: bounds.left + node.x + node.layout.width / 2, y: bounds.top + node.y + row.y + row.height / 2 }
-  })
-  await page.mouse.click(point.x, point.y)
-  const editor = page.getByTestId('camera-angle-editor')
-  await expect(editor).toBeVisible()
-  const before = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.camera!.values)
-  await expect(page.locator('[data-editor-mode="raw"]')).toHaveCount(0)
+  const values = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.camera!.values)
+  const before = await values()
+  const editor = await unfoldNodeEditor(page, 'camera', 'angle_view')
+  const picture = editor.getByRole('img', { name: 'Camera orbit from above and elevation from the side' })
+  await expect(picture).toHaveAttribute('data-movable', 'true')
+  await expect(editor).toContainText('Front, level, zoom 5.0')
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get().filter((problem) => problem.message.includes('CAMERA_ANGLE_VIEW')))).toEqual([])
   const capture = async (name: string) => {
     const path = testInfo.outputPath(`${name}.png`)
@@ -34,19 +28,31 @@ test('camera composer writes real siblings, executes orbit coordinates and prese
     await testInfo.attach(name, { path, contentType: 'image/png' })
   }
   await capture('camera-default')
-  await page.getByRole('textbox', { name: 'Horizontal angle' }).fill('90')
-  await page.getByRole('textbox', { name: 'Vertical angle' }).fill('30')
-  await page.getByRole('textbox', { name: 'Zoom' }).fill('')
-  await expect(page.getByRole('button', { name: 'Apply camera angle' })).toBeDisabled()
-  await capture('camera-invalid')
-  await page.getByRole('textbox', { name: 'Zoom' }).fill('7.5')
-  await expect(editor.locator('output')).toHaveText('Camera position: X 5.20, Y 3.00, Z 0.00')
+  // A point of the picture's 300 by 150 drawing, on the page: the orbit is a
+  // ring of radius 55 around (80, 75), the elevation an arc of radius 86 around (172, 92).
+  const at = (x: number, y: number) => picture.evaluate((svg, [x, y]) => {
+    const point = new DOMPoint(x, y).matrixTransform((svg as SVGSVGElement).getScreenCTM()!)
+    return { x: point.x, y: point.y }
+  }, [x, y] as const)
+  const press = async (x: number, y: number) => {
+    const point = await at(x, y)
+    await page.mouse.move(point.x, point.y)
+    await page.mouse.down()
+    await page.mouse.up()
+  }
+  // 90 degrees on the ring is its right; 30 degrees on the arc is up and right of its centre.
+  await press(80 + 55, 75)
+  await expect.poll(async () => (await values())['horizontal_angle']).toBe(90)
+  await press(172 + Math.cos(Math.PI / 6) * 86, 92 - Math.sin(Math.PI / 6) * 86)
+  await expect.poll(async () => (await values())['vertical_angle']).toBe(30)
+  // Zoom is the node's own number row below the picture.
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'camera', inputId: 'zoom', value: 7.5 } })
+  })
+  await expect(editor).toContainText('Right, a little above, zoom 7.5')
   await capture('camera-edited')
-  await page.getByRole('button', { name: 'Apply camera angle' }).focus()
-  await page.keyboard.press('Enter')
-  await expect(editor).toHaveCount(0)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.camera!.values))
-    .toEqual({ ...before, horizontal_angle: 90, vertical_angle: 30, zoom: 7.5 })
+  expect(await values()).toEqual({ ...before, horizontal_angle: 90, vertical_angle: 30, zoom: 7.5 })
   await page.evaluate(async () => { const app = window.__dinksterTest!.app; await app.queueSelection(app.activeTab()!, ['camera']) })
   await expect(page.getByTestId('execution-row').first().locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
   const result = await page.evaluate(async () => {
@@ -75,6 +81,7 @@ test('camera composer writes real siblings, executes orbit coordinates and prese
   expect(result.zoom).toBe(1.65625)
   expect(result.fov).toBe(35)
   expect(result.cameraType).toBe('perspective')
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.camera!.values)).toEqual(before)
+  // Each drag and the zoom are one change apiece.
+  for (let step = 0; step < 3; step++) expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+  expect(await values()).toEqual(before)
 })

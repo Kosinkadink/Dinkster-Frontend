@@ -1,32 +1,15 @@
 # Remote execution
 
-Dinkster can execute selected root nodes on a named machine already connected to
-the active Dinkster backend. The browser talks only to that coordinating backend;
-it does not connect to worker daemons or handle their credentials.
+The Dinkster engine supports execution placement on named machines connected to
+the active backend. The browser talks only to that coordinating backend; it does
+not connect to worker daemons or handle their credentials.
 
 ## Run on machine
 
-Right-click an ordinary node or region in the root graph and open **Run on
-machine**. Right-clicking one node in a multi-node selection applies the action
-to every eligible selected node. Connected machines are available when they
-route every selected ordinary node type. Disconnected machines and machines
-missing a selected node type remain visible but disabled. Regions remain
-selectable because the backend validates their bodies recursively. Plain
-subgraph occurrences and drilled subgraph views do not offer the action.
-
-![Run on machine menu with connected and disconnected machines](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-298/run-on-machine-menu.png)
-
-Choosing a machine submits the complete workflow and adds placement only for
-the selected nodes or regions. Placement is transient job input: it does not
-modify the workflow document or node fingerprints. The backend validates every
-hint before queueing and never falls back to another machine. A selected node
-removed by active-branch lowering stops submission instead of silently running
-the rest of the workflow.
-
-The menu appears only when the native backend advertises placement support.
-Its machine list refreshes with the backend schema/composition catalog and is
-invalidated immediately on reconnect, so an open menu cannot submit a stale
-machine choice. Legacy ComfyUI backends do not expose this action.
+The **Run on machine** entry is withdrawn from node and region context menus
+pending the [workflow execution design decision](https://github.com/Kosinkadink/comfy-vibe-station/issues/1146).
+The engine's placement support and the client's worker catalog remain available;
+this withdrawal does not change execution attribution in finished runs.
 
 ## Execution location in history
 

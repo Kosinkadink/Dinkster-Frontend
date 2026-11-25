@@ -1,15 +1,15 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 type Edge = 'left' | 'right' | 'top' | 'bottom'
 
 async function openFixture(page: Page, tall = false): Promise<number> {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   return page.evaluate(async (tall) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'OutlineEdgeE2E', displayName: 'Outline Edge E2E', category: 'test', source: 'v3', isOutputNode: false,
-      items: tall ? Array.from({ length: 36 }, (_, index) => ({
+      body: tall ? Array.from({ length: 36 }, (_, index) => ({
         kind: 'input' as const,
         id: `value_${index}`,
         type: { kind: 'concrete' as const, name: 'FLOAT' },

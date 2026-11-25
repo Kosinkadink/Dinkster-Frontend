@@ -26,9 +26,9 @@ Each requirement keeps the user's verbatim words and its origin issue.
 | 10 | No redundant "compatible only" copy; compatibility is implied by the dialog | "We also have like 2 mentions per modal about 'compatible only' No shit, if it wasnt compatible with the restrictions of the modal, it wouldn't be displayed." | #179 |
 | 11 | Model item details live in the right-side selection panel, not inline in the list | "we can leave showing deatils on the right side preview instead of rendering everything in the search" | #179 |
 
-Where the current behavior for each item is specified: navigation and staging
-in `docs/archive/asset-browser-design.md`; dialog anatomy, selection staging, footer
-actions, and upload limits in `docs/widget-editors.md`; model rows, search,
+Where the current behavior for each item is specified: dialog anatomy,
+selection staging, footer actions, and upload limits in `docs/widget-editors.md`;
+model rows, search,
 and details demotion in `docs/logical-model-variants.md`. All ASSET kinds use
 one CollectionPanel browse shell; media and logical-model adapters supply its
 items. Model upload is disabled, while media upload remains available.

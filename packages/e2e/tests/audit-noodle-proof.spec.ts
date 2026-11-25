@@ -1,4 +1,4 @@
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-noodle-proof'
 
@@ -7,14 +7,14 @@ async function openFixture(page: Page): Promise<void> {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([{
       type: 'TapWidget', displayName: 'Tap Widget', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
+      body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
         widget: { widgetType: 'FLOAT', options: {}, default: 1 } }],
     }, {
       type: 'FloatSource', displayName: 'Float Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
+      body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
     }, {
       type: 'FloatSink', displayName: 'Float Sink', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
+      body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
     }])
     const failures = (await bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-proof', root: 'g0',
@@ -104,8 +104,7 @@ test.beforeEach(async ({ context, page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await openFixture(page)
   // Wait for workspace promotion: a paste gesture in flight while the tab is
   // being replaced by its shared-session twin is dropped by the ownership

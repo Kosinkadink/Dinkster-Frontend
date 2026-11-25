@@ -5,11 +5,15 @@ import { diagnosticFocusTarget, type AppState, type MigrationNotice } from './ap
 import { groupProblemDiagnostics } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { useAppMessage } from './locale.js'
-import { ProductButton } from './ProductControls.js'
+import { ProductButton, ProductCheckbox } from './ProductControls.js'
+import type { useSelectionContext } from './selection-context.js'
+import { contextProblems } from './problem-context.js'
 import { PackPreparationStatus } from './PackPreparationStatus.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
+import { isNativeProjectBackend } from './desktop-bridge.js'
+import { activeProjectId } from './projects.js'
 
 export interface ProblemsDisclosure {
   readonly expanded: (key: string) => boolean
@@ -38,6 +42,7 @@ export function activateProblem(app: AppState, diagnostic: Diagnostic, openAsset
   app.diagnosticFocus.set({
     tab: target.tab,
     anchor: diagnostic.anchor,
+    diagnostic,
     ...(openAssetInput === undefined ? {} : { openAssetInput }),
     ...(openAssetInput !== undefined && typeof diagnostic.data?.['digest'] === 'string'
       ? { missingAssetDigest: diagnostic.data['digest'] } : {}),
@@ -53,7 +58,7 @@ export interface ProblemsPanelProps {
   readonly packInferenceUnavailable?: () => readonly PackInferenceUnavailable[]
   readonly importedNodes?: () => readonly ImportedNodePackResolution[]
   readonly disclosure?: ProblemsDisclosure
-  readonly onShowInContext?: (diagnostic: Diagnostic) => void
+  readonly selection?: ReturnType<typeof useSelectionContext>
 }
 
 interface PackInstallReview {
@@ -83,10 +88,44 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
     return owner !== undefined && props.app.canUndoMigrationNotice(owner)
   }
   const disclosure = props.disclosure ?? createProblemsDisclosure()
+  const [selectionOnly, setSelectionOnly] = createSignal(false)
+  const selectedContext = () => {
+    const view = props.selection?.()
+    return view !== undefined && view.context.kind !== 'document' && view.context.kind !== 'subgraph' ? view : undefined
+  }
+  const filterDiagnostics = (diagnostics: readonly Diagnostic[]): readonly Diagnostic[] => {
+    if (!selectionOnly()) return diagnostics
+    const view = selectedContext()
+    return view === undefined ? [] : contextProblems(view.context, diagnostics, view)
+  }
+  const selectionLabel = (): string => {
+    const view = selectedContext()
+    if (view === undefined) return message('problems.selection.none')
+    const context = view.context
+    if (context.kind === 'widget') return context.label
+    if (context.kind === 'group') return context.groups.map((group) => group.title).join(', ')
+    if (context.kind === 'link') return message('problems.selection.links', { count: context.linkIds.length })
+    if (context.kind === 'node') {
+      if (context.nodeIds.length !== 1) return message('problems.selection.nodes', { count: context.nodeIds.length })
+      const id = context.nodeIds[0]!
+      const node = view.doc.graphs[view.graphId]?.nodes[id]
+      return node?.title || (node === undefined ? id : props.app.registryForTab(view.tab)?.resolve(node.type)?.displayName ?? id)
+    }
+    return message('problems.selection.none')
+  }
+  const migrationNotice = () => {
+    const notice = props.migrationNotice?.()
+    if (notice === undefined || !selectionOnly()) return notice
+    const entries = filterDiagnostics(notice.entries)
+    return entries.length === 0 ? undefined : { ...notice, entries }
+  }
   const missingPacks = createMemo(() => {
     const packs = new Map<string, ImportedNodePackResolution[]>()
     for (const node of props.importedNodes?.() ?? []) {
       if (node.status !== 'installable' || node.pack === undefined) continue
+      if (filterDiagnostics([diag('warning', 'schema', 'pack.missing', node.sourceClass, {
+        refs: [{ graphId: node.graphId, nodeId: node.nodeId }],
+      })]).length === 0) continue
       const nodes = packs.get(node.pack) ?? []
       nodes.push(node)
       packs.set(node.pack, nodes)
@@ -130,6 +169,16 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
         if (versions.size !== 1 || !version) throw new Error(message('problems.importedPacks.versionConflict'))
         return { pack, version }
       })
+      if (isNativeProjectBackend(backend.baseUrl, activeProjectId())) {
+        await props.app.checkProjectNeeds(backend, packs, () => install() === request && current())
+        if (install() === request && current()) {
+          const needs = props.app.projectNeedsReview.get()
+          if (needs?.backend !== backend || !needs.current()) throw new Error(message('projectNeeds.changed'))
+          setInstall(undefined)
+          props.app.modalPanel.set('')
+        }
+        return
+      }
       const plan = await backend.connection.planPackInstall(packs, controller.signal, (value) => {
         if (install() !== request || !current()) { controller.abort(); return }
         setProgress(value)
@@ -166,12 +215,19 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
     )),
   ])
   const groups = createMemo(() => {
-    return groupProblemDiagnostics([...props.diagnostics(), ...packDiagnostics()], props.app.activeTab()?.store.doc)
+    return groupProblemDiagnostics(filterDiagnostics([...props.diagnostics(), ...packDiagnostics()]), props.app.activeTab()?.store.doc)
   })
 
   return (
     <section class="rail-section" data-testid="problems-panel" data-native-text-scope>
-      <ProductPanelHeader title={message('shell.panel.problems.title')} />
+      <ProductPanelHeader title={message('shell.panel.problems.title')} actions={
+        <label class="problems-selection-control">
+          <ProductCheckbox checked={selectionOnly()} onChange={setSelectionOnly}
+            ariaLabel={message('problems.selection.only')} testId="problems-selection-only" />
+          {message('problems.selection.only')}
+        </label>
+      } />
+      <Show when={selectionOnly()}><p data-testid="problems-selection">{selectionLabel()}</p></Show>
       <Show when={missingPacks().length > 0}>
         <section class="problems-group imported-packs-report" data-testid="imported-packs-report" data-severity="warning">
           <div class="problems-group-header">
@@ -244,10 +300,10 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
         </section>
       </Show>
       <Show
-        when={props.migrationNotice?.() !== undefined || groups().length > 0}
-        fallback={<Show when={missingPacks().length === 0}><ProductEmptyState title={message('problems.empty')} /></Show>}
+        when={migrationNotice() !== undefined || groups().length > 0}
+        fallback={<Show when={missingPacks().length === 0 && (!selectionOnly() || selectedContext() !== undefined)}><ProductEmptyState title={message('problems.empty')} /></Show>}
       >
-        <Show when={props.migrationNotice?.()}>{(notice) => (
+        <Show when={migrationNotice()}>{(notice) => (
           <section class="problems-group" data-testid="migration-notice">
             <div class="problems-group-header">
               <span class="problems-group-title">{message('problems.migration.title')}</span>
@@ -332,12 +388,6 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                               onClick={() => activateProblem(props.app, diagnostic)}>
                               {message('problems.action.showOnCanvas')}
                             </ProductButton>
-                            <Show when={props.onShowInContext} keyed>{(showInContext) => (
-                              <ProductButton type="button" variant="secondary" size="compact" class="problem-show-in-context"
-                                onClick={() => showInContext(diagnostic)}>
-                                {message('problems.action.showInFocused')}
-                              </ProductButton>
-                            )}</Show>
                           </Show>
                           <Show when={diagnostic.runtime?.hints?.length}>
                             <RuntimeErrorHints hints={diagnostic.runtime!.hints} />

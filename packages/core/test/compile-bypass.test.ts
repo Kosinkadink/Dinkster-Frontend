@@ -1,7 +1,7 @@
 /**
  * Bypass lowering integration (architecture section 6): bypassed nodes
  * compile to a type-matched passthrough over ELABORATED interfaces - through
- * reroute chains, chained bypassed nodes, value sources, nets, subgraph
+ * reroute chains, chained bypassed nodes, nets, subgraph
  * instances (boundary schemas), boundary-fed inner nodes, and dynamic
  * members. Matching-rule unit coverage lives in bypass.test.ts.
  */
@@ -95,13 +95,11 @@ const schemas: Record<string, NodeSchema> = {
 }
 const resolve = (type: string): NodeSchema | undefined => schemas[type]
 
-// -- Document builder (links may reference reroutes/value sources) -----------
+// -- Document builder (links may reference reroutes and widget taps) ---------
 
 type End =
   | { node: string; port: string }
   | { reroute: string }
-  | { valueSource: string }
-  | { selector: string; candidate?: string }
   | { node: string; tap: string }
 const P = (node: string, port: string): End => ({ node, port })
 
@@ -116,8 +114,6 @@ interface BGraph {
   links?: [from: End, to: End][]
   nets?: { name: string; source: End; sinks: End[] }[]
   reroutes?: string[]
-  valueSources?: Record<string, unknown>
-  selectors?: Record<string, unknown>
   boundary?: { inputs?: unknown[]; outputs?: unknown[] }
 }
 const docOf = (root: BGraph, subgraphs?: Record<string, BGraph>): WorkflowDocument => {
@@ -139,8 +135,6 @@ const docOf = (root: BGraph, subgraphs?: Record<string, BGraph>): WorkflowDocume
     links: Object.fromEntries((g.links ?? []).map((l, i) => [`l${i}`, { id: `l${i}`, from: l[0], to: l[1] }])),
     nets: Object.fromEntries((g.nets ?? []).map((n, i) => [`net${i}`, { id: `net${i}`, ...n }])),
     reroutes: Object.fromEntries((g.reroutes ?? []).map((r) => [r, { id: r }])),
-    ...(g.valueSources ? { valueSources: g.valueSources } : {}),
-    ...(g.selectors ? { selectors: g.selectors } : {}),
     nextOrdinal: 100,
     ...(g.boundary ? { boundary: { inputs: g.boundary.inputs ?? [], outputs: g.boundary.outputs ?? [] } } : {}),
   })
@@ -168,40 +162,6 @@ const input = (doc: WorkflowDocument, scope: CompileInput['scope'] = { kind: 'fu
 const codesOf = (diags: readonly { code: string }[]): string[] => diags.map((d) => d.code)
 
 describe('bypass passthrough basics', () => {
-  it('expands every random selector branch reached behind a bypass hop through a group member', () => {
-    const doc = docOf({
-      nodes: {
-        first: { type: 'ISrc' },
-        second: { type: 'ISrc' },
-        relay: { type: 'Relay', mode: 'bypassed', dynamic: members('selected') },
-        sink: { type: 'GroupSink', dynamic: members('result') },
-      },
-      selectors: {
-        choose: {
-          id: 'choose',
-          candidates: [{ id: 'first' }, { id: 'second' }],
-          policy: { kind: 'random' },
-        },
-      },
-      links: [
-        [P('first', 'out'), { selector: 'choose', candidate: 'first' }],
-        [P('second', 'out'), { selector: 'choose', candidate: 'second' }],
-        [{ selector: 'choose' }, P('relay', 'items.selected')],
-        [P('relay', 'out'), P('sink', 'items.result')],
-      ],
-    })
-    const scope: CompileInput['scope'] = {
-      kind: 'partial', targets: [{ instancePath: [], node: asNodeId('sink') }],
-    }
-    const exact = compile({ ...input(doc, scope), pickCandidate: () => 0 })
-    expect(exact.ok, JSON.stringify(!exact.ok && exact.diagnostics)).toBe(true)
-    if (exact.ok) expect(exact.artifact.prompt['sink']!.inputs['items.result']).toEqual(['first', 0])
-    const closure = scopeClosure(input(doc, scope))
-    expect(closure).toBeDefined()
-    expect([...closure!.included].sort()).toEqual(['first', 'second', 'sink'])
-    expect([...closure!.structural.get('g0')!.selectors.get('choose')!].sort()).toEqual(['first', 'second'])
-    expect(closure).not.toHaveProperty('diagnostics')
-  })
 
   it('keeps a dead first structural route selected without fallback and warns', () => {
     const make = (deadMode: 'active' | 'muted') => docOf({
@@ -400,17 +360,6 @@ describe('bypass with structural constructs', () => {
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt['k']!.inputs['in']).toEqual(['a', 0])
-  })
-
-  it('a value source behind the passthrough bakes into the consumer', () => {
-    const result = compile(input(docOf({
-      nodes: { p: { type: 'NProc', mode: 'bypassed' }, k: { type: 'NSink' } },
-      valueSources: { v0: { id: 'v0', value: 42 } },
-      links: [[{ valueSource: 'v0' }, P('p', 'in')], [P('p', 'out'), P('k', 'in')]],
-    })))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt['k']!.inputs['in']).toBe(42)
   })
 
   it('a net sourced at a bypassed output delivers the passthrough to every sink', () => {
@@ -748,24 +697,6 @@ describe('bypass routes through group members', () => {
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (result.ok) expect(result.artifact.prompt['sink']!.inputs['items.result']).toBe(23)
     expect(scopeClosure(input(recursiveTerminalDoc({ node: 'widget', tap: 'value' }, extra)))).toBeDefined()
-  })
-
-  it('a recursive route ends at a value source', () => {
-    const extra: Partial<BGraph> = { valueSources: { literal: { id: 'literal', value: 31, spec: { widgetType: 'INT' } } } }
-    const result = recursiveTerminal({ valueSource: 'literal' }, extra)
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) expect(result.artifact.prompt['sink']!.inputs['items.result']).toBe(31)
-    expect([...scopeClosure(input(recursiveTerminalDoc({ valueSource: 'literal' }, extra)))!.structural.get('g0')!.valueSources]).toEqual(['literal'])
-  })
-
-  it('a recursive route ends at a fixed graph selector', () => {
-    const result = recursiveTerminal({ selector: 'pick' }, {
-      nodes: { source: { type: 'NSrc' } },
-      selectors: { pick: { id: 'pick', candidates: [{ id: 'chosen' }], policy: { kind: 'fixed', candidate: 'chosen' } } },
-      links: [[P('source', 'out'), { selector: 'pick', candidate: 'chosen' }]],
-    })
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) expect(result.artifact.prompt['sink']!.inputs['items.result']).toEqual(['source', 0])
   })
 
   it('Mixed IMAGE/LATENT boundary alsoBinds fanout through bypass routes each final destination by its own consumer type and would-run closure', () => {

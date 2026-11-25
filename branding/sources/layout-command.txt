@@ -1,1 +1,1 @@
-/home/kosin/comfy-vibe-station/lanes/brand-558/.amp/in/inkscape/root/usr/bin/inkscape /home/kosin/comfy-vibe-station/lanes/brand-558/branding/sources/Dinkster_Master.svg --query-all
+../art-tools/usr/bin/inkscape /home/kosin/comfy-vibe-station/lanes/logo-redraw-1157-20261122T1213Z/Dinkster-Frontend/branding/sources/Dinkster_Master.svg --query-all

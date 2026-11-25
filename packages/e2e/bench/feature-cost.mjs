@@ -9,7 +9,6 @@
  *
  *   baseline      plain chains (same workload compare.mjs uses)
  *   reroutes      every link split through a midpoint junction (2x segments)
- *   valueSources  1 source per chain fanning out to width+height (+2 links)
  *   nets          final segment per chain rides a named net
  *   groups        1 group rectangle per chain
  *   all           everything at once (except subgraphs, which replace topology)
@@ -46,11 +45,9 @@ const NODES = CFG.chains * CFG.chainLength
 const SCENARIOS = [
   { name: 'baseline', flags: {} },
   { name: 'reroutes', flags: { reroutes: true } },
-  { name: 'valueSources', flags: { valueSources: true } },
   { name: 'nets', flags: { nets: true } },
   { name: 'groups', flags: { groups: true } },
-  { name: 'selectors', flags: { selectors: true } },
-  { name: 'all', flags: { reroutes: true, valueSources: true, nets: true, groups: true, selectors: true } },
+  { name: 'all', flags: { reroutes: true, nets: true, groups: true } },
   { name: 'subgraphs', flags: { subgraphs: true }, rootNodes: 2 * CFG.chains, rootLinks: CFG.chains },
 ].filter(scenarioFilter())
 
@@ -73,8 +70,6 @@ async function benchScenario(page, scenario, rep) {
     throw new Error(`${scenario.name} link count mismatch (want ${scenario.rootLinks}): ${JSON.stringify(r.counts)}`)
   for (const [flag, key] of [
     ['reroutes', 'reroutes'],
-    ['valueSources', 'valueSources'],
-    ['selectors', 'selectors'],
     ['groups', 'groups'],
   ]) {
     if (scenario.flags[flag] && r.counts[key] === 0)

@@ -7,17 +7,18 @@
  * Skips loudly without a reachable native backend (DINKSTER_NATIVE_BACKEND,
  * default http://127.0.0.1:8765). Missing required gallery nodes fail.
  */
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, selectProductOption, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
 async function addNativeBackend(page: Page): Promise<void> {
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(NATIVE_BACKEND)
   await page.getByTestId('backend-add').click()
   // Initial socket connection retires settings fetched before its handshake.
-  await expect(page.getByTestId('backend-row').filter({ hasText: NATIVE_BACKEND }).locator('.backend-status'))
+  await expect(page.getByTestId('backend-row').filter({ hasText: NATIVE_BACKEND }))
     .toHaveAttribute('data-status', 'connected')
   await expect(page.getByTestId('tab-target')).toBeVisible()
   await selectProductOption(page, page.getByTestId('tab-target'), NATIVE_BACKEND)
@@ -49,7 +50,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   requireBackendNodes(served!, ['dev.gallery.sockets'], testInfo)
 
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await addNativeBackend(page)
 
   // Open the backend-shipped template through the production Library flow.

@@ -40,7 +40,7 @@ describe('subgraph extraction name prompt contract', () => {
     expect(input.parentElement?.getAttribute('aria-busy')).toBe('true')
     expect(commit).toHaveBeenCalledOnce()
     expect(cancel).not.toHaveBeenCalled()
-    settle({ ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Name change refused' }] })
+    settle({ ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.refused', message: 'Name change refused' }] })
     await vi.waitFor(() => expect(input.readOnly).toBe(false))
     expect(input.value).toBe('  Reusable Body  ')
     expect(input.parentElement?.querySelector('[role="alert"]')?.textContent).toBe('Name change refused')

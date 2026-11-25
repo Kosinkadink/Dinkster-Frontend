@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './fixtures.js'
 import { mkdirSync } from 'node:fs'
 import { expect, test } from '../visual.js'
 
@@ -7,10 +8,7 @@ test('an ordinary third-party pack activates and executes through public contrac
   page,
 }, testInfo) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(
-    /\d+ node schemas/,
-    { timeout: 30_000 },
-  )
+  await waitForWorkspaceReady(page)
   await expect
     .poll(() =>
       page.evaluate(() => {

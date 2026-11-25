@@ -15,6 +15,7 @@ import {
   executionKey,
   isControlEvent,
   parseOccurrenceKey,
+  type AutomaticValueRecord,
   type CompileArtifact,
   type ConnectionId,
   type Diagnostic,
@@ -30,7 +31,6 @@ import {
   type Signal,
   type ValueDiagnostic,
 } from '@dinkster/core'
-import type { RetainedAssets } from './dinkster-connection.js'
 
 export type ExecutionStatus = 'queued' | 'running' | 'completed' | 'error' | 'interrupted' | 'cancelled'
 
@@ -116,8 +116,6 @@ export interface ExecutionState {
   readonly artifacts: readonly ExecutionArtifact[]
   /** A completed job supplied a valid artifacts field, including an empty list. */
   readonly artifactsHydrated: boolean
-  /** Exact acknowledged owners, independent of descriptor display limits. */
-  readonly assetRetentions?: readonly RetainedAssets[]
   /** runtime node id -> stream key -> latest attributed preview frame
    * (metadata protocol). Frames without a stream use the '' key, so a
    * multi-stream family (H3 video + audio) retains one frame per stream. */
@@ -140,6 +138,8 @@ export interface ExecutionState {
   readonly jobRef?: string
   /** Content digest of the exact workflow document submitted for this run. */
   readonly sourceDocument?: string
+  /** What the run's automatic fields used, from the persisted run record. */
+  readonly automaticValues?: readonly AutomaticValueRecord[]
   readonly queuedAt: number
   readonly startedAt?: number
   readonly endedAt?: number
@@ -339,16 +339,7 @@ const mergeSnapshotNodes = (
  */
 const dropPreviewRings = ({ previewRings: _rings, ...rest }: ExecutionState): ExecutionState => rest
 
-const mergeAssetRetentions = (previous: readonly RetainedAssets[], retained: readonly RetainedAssets[]): readonly RetainedAssets[] => {
-  const covered = retained.length > 0 && retained.every((receipt) => receipt.complete)
-    ? new Set(retained.flatMap((receipt) => receipt.digests)) : undefined
-  return [...previous.filter((receipt) => receipt.complete || covered === undefined ||
-    !receipt.digests.every((digest) => covered.has(digest))), ...retained]
-}
-
 export class ExecutionStore {
-  constructor(private readonly admitRetentions: (retained: readonly RetainedAssets[]) => boolean = () => true) {}
-
   private readonly map = new Map<string, ExecutionState>()
   private readonly provisionallyLost = new Set<string>()
   /** retain() pin counts by execution key; pinned entries are never evicted. */
@@ -445,8 +436,8 @@ export class ExecutionStore {
     readonly nodes: Readonly<Record<string, NodeProgress>>
     readonly outputs: Readonly<Record<string, Readonly<Record<string, unknown>>>>
     readonly artifacts: readonly ExecutionArtifact[]
-    readonly assetRetentions?: readonly RetainedAssets[]
     readonly submittedBy?: ExecutionSubmitter
+    readonly automaticValues?: readonly AutomaticValueRecord[]
     readonly jobRef: string
     readonly sourceDocument: string
     readonly queuedAt: number
@@ -454,7 +445,6 @@ export class ExecutionStore {
   }): void {
     const key = executionKey(state.ref)
     if (!this.canRestoreCompleted(state.ref)) return
-    const retained = mergeAssetRetentions(this.map.get(key)?.assetRetentions ?? [], state.assetRetentions ?? [])
     this.recentlyEvicted.delete(key)
     this.unconfirmed.delete(key)
     this.provisionallyLost.delete(key)
@@ -470,13 +460,13 @@ export class ExecutionStore {
       outputs: state.outputs,
       artifacts: state.artifacts,
       artifactsHydrated: true,
-      ...(retained.length === 0 ? {} : { assetRetentions: retained }),
       previews: {},
       activities: [],
       logs: [],
       logsDropped: 0,
       errors: [],
       ...(state.submittedBy === undefined ? {} : { submittedBy: state.submittedBy }),
+      ...(state.automaticValues === undefined || state.automaticValues.length === 0 ? {} : { automaticValues: state.automaticValues }),
       jobRef: state.jobRef,
       sourceDocument: state.sourceDocument,
       queuedAt: state.queuedAt,
@@ -845,11 +835,11 @@ export class ExecutionStore {
     this.put({ ...state, artifacts: [...artifacts], artifactsHydrated: true })
   }
 
-  /** Complete result admissions supersede covered interim references, not their owners. */
-  recordAssetRetentions(ref: ExecutionRef, retained: readonly RetainedAssets[]): void {
+  /** Attach what the run's automatic fields used, from its persisted record. */
+  hydrateAutomaticValues(ref: ExecutionRef, automaticValues: readonly AutomaticValueRecord[]): void {
     const state = this.map.get(executionKey(ref))
-    if (!state || retained.length === 0) return
-    this.put({ ...state, assetRetentions: mergeAssetRetentions(state.assetRetentions ?? [], retained) })
+    if (!state) return
+    this.put({ ...state, automaticValues })
   }
 
   /** Attach the server-authenticated principal that submitted this job. */
@@ -1020,7 +1010,6 @@ export class ExecutionStore {
   }
 
   private put(state: ExecutionState): void {
-    if (!this.admitRetentions(state.assetRetentions ?? [])) throw new Error('Result ownership changed before publication')
     this.map.set(state.key, state)
     this.executionsSignal.set(new Map(this.map))
   }

@@ -88,7 +88,7 @@ test('browses a fallback guide in place and opens its exact template', async ({ 
     const app = window.__dinksterTest!.app as unknown as { readonly settings: { set(id: string, value: string): void } }
     app.settings.set('dinkster.locale', 'zh')
   })
-  await expect(page.getByTestId('learn-toggle')).toContainText('\u5b66\u4e60')
+  await expect(page.getByTestId('learn-toggle')).toHaveAccessibleName('\u5b66\u4e60: \u5b66\u4e60\u6307\u5357')
   await expect(panel).toContainText('\u6b64\u6307\u5357\u6ca1\u6709\u5f53\u524d\u8bed\u8a00\u7684\u7ffb\u8bd1')
   await expect(panel).toHaveAttribute('data-locale-identity', 'panel')
   await expect(panel.getByRole('button', { name: /Map and Gather/ })).toHaveAttribute('data-locale-identity', 'card')

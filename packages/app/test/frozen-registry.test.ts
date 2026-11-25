@@ -27,8 +27,6 @@ let promptCounter = 0
 const addOffline = (url: string): Backend => {
   const backend = app.addBackend(url, undefined, false)
   if (!backend) throw new Error('addBackend rejected')
-  vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   return backend
 }
 

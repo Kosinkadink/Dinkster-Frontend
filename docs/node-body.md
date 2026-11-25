@@ -17,33 +17,70 @@ non-empty legacy `interface` list.
   only.
 - **Section**: a titled box that holds rows and can start folded (wire
   `collapsed`). Layout only; it adds nothing to row ids.
-- **Row**: two to four cells side by side: fields, notes and buttons.
-  Layout only: each cell is drawn beside the one before it when both are in
-  the same section.
-- **Note**: read-only text with no pin, on its own line or as a cell of a
-  Row. It keeps its line while its text is empty. A note whose text is a
-  formula or a lookup shows its `unknown` text dimmed (empty when it has
-  none), because the editor does not evaluate formulas yet.
-- **Button**: a full-width row with a thin edge, its label centered and an
+- **Button**: a full-width raised row (the face an editor's opener row has,
+  a lit top edge and a dark line under it), its label centered and an
   optional icon from the engine's list, on its own line or as a cell of a
   Row. A Row of only buttons splits evenly; beside a field, a button with an
   icon is a small square. A button too narrow for its label shows the icon
-  alone and its label as a tooltip. Clicking it runs its steps; see
+  alone and its label as a tooltip. Pointed at, the face lightens; held
+  down, it sinks; turned off, it fades. Clicking it runs its steps; see
   [Buttons](#buttons).
-- **Editor**: decoded with the schema; the canvas does not draw it. An editor
-  row is a custom or compositor widget with no value of its own; it must name
-  at least one row it writes or reads.
+- **Editor**: a custom or compositor widget with no value of its own; it
+  must name at least one row it writes or reads. The canvas draws it as a
+  widget line with no label and no pin, and opening it opens its widget's
+  editor, titled by the node.
 
 A custom or compositor widget, on an editor row or on an input, may carry
-`writes` and `reads`: its own part names mapped to row ids of its scope. The
-editor keeps them on the widget spec, apart from the widget's own options, and
-does not hand those rows to the widget yet.
+`writes` and `reads`: its own part names mapped to row names of its scope.
+Elaboration resolves each name as a formula does, to the flattened id of that
+row; a name under an unchosen option, or one that names no row, is absent.
+The widget's editor reads and writes the resolved rows instead of fixed row
+names. An editor row whose widget writes exactly one row shows and edits that
+row's value. The editor never changes a written row that has a link.
 - **Group**, **Choice**, **Type choice** and **Described**: the rows below.
 
-Every row's `visible` (a boolean or a formula) and an input's or output's
-label written as a formula are decoded and kept as declared. The editor does
-not evaluate them yet: every row shows, and a formula-labelled input or
-output is labelled by its id.
+## Formulas the editor works out
+
+Elaboration works out these formulas from the node's stored values and wires
+each time it runs, so they follow every edit. Each has an answer for when its
+formula is unknown (it names a row under an option that is not chosen) or
+fails:
+
+| Property | Unknown or failed |
+| --- | --- |
+| `visible` on a row or a box | The row shows |
+| A label on an input, output, section, choice or type choice; a choice's tooltip | The id |
+| A note's `text` | Its `unknown` text, dimmed |
+| A button's `enabled`, `disabledReason` and `tooltip` | Enabled, with no reason |
+| A rule's `check` in the node's `validate` | The rule passes |
+| The node's `titleSuffix` | No suffix |
+
+A row whose `visible` is false is not drawn and is still stored and sent to
+the run; with nothing stored it is sent what it would be sent if shown, so
+showing or hiding a row never changes what a run receives. A box whose
+`visible` is false hides every row in it. A row with a wire on its pin or
+its field's output shows anyway, and so does a box that holds one at any
+depth. A row with a problem shows the same way, and hides
+again once the problem is gone: an error or a warning that elaboration or
+the type solver finds on it, a failed rule that reads only that field, or a
+stored value its widget refuses, such as a number out of range. A note whose text is a lookup shows its `unknown` text. A group's
+`memberLabel`, a group's `count` and a choice's `leader` are worked out as
+the rows above describe.
+
+A rule whose `check` is false is one problem, with the rule's message: an
+error when the rule has no `fix`, which stops the run, and a warning when it
+has one. It names the fields its check reads. With exactly one, it is that
+field's problem and outlines its row; otherwise it is a problem of the
+whole node. It is listed in Problems and marks the node as the user edits,
+and it leaves when the check passes again. The editor does not offer or run
+the fix.
+
+The `titleSuffix` is drawn one space after the title, in the row names' dim
+regular type, also after a renamed title and on a minimized node, and not
+while the title is being renamed. It is at most 64 characters, a line break
+reads as a space, and an extension's title suffix follows it. It never widens
+the node: when the title bar is too narrow it is cut first, and dropped when
+fewer than three of its characters would show.
 
 ## Elaboration and flattened ids
 
@@ -98,8 +135,15 @@ across its members under such an option. An unknown count gives the group's
 `minMembers`; an unknown leader gives the choice's first option. A formula
 reads a choice's key the same whether the choice is declared before or after
 it, including a led choice or one with nothing stored yet. A field with
-nothing stored reads its default, also under the chosen option, in a stored
-member, or where a `Use` gives it another default.
+nothing stored reads what the run is sent for it, also under the chosen
+option, in a stored member, or where a `Use` gives it another default: its
+default, or for a required field with none, its widget's start value (the
+minimum or 0, an empty text, the first option), with looked-up limits and
+stored options applied. A field the run is sent nothing for reads its default,
+or None without one: an optional field or a member past an optional minimum
+with no default, a field declared hidden, or a choice whose options all come
+from the server. A formula that runs before the node's rows are all laid out, such as
+a count, reads a row it has not reached yet from its declaration.
 
 A group that grows by link, filled field or button has its first
 `minMembers` members stored whenever it is part of the node: on a new node,
@@ -133,6 +177,14 @@ Member labels come from the group's `memberLabel`, else the name, else the
 prefix and the member's position counted from 1. Rows of a record member are
 labelled with the member label first.
 
+The members of a `reorderable` group that grows by link, filled field or
+button can be moved (`dynamic.moveMember`, one undo step). A move changes
+only the stored order: keys, values, labels a user typed, wires and boundary
+bindings stay with their member, while the shown number and the order a run
+receives follow the new position. A count group, a group that is not
+`reorderable`, and a node whose schema is not loaded refuse the move
+(`dynamic.notReorderable`). The canvas has no gesture for it yet.
+
 ## Choices
 
 A choice holds a list of options, each with its own rows, and rows several
@@ -158,6 +210,26 @@ default.
 A hidden choice shows neither its dropdown nor its chosen option's rows; its
 stored key still selects those rows, and they are still stored and run.
 
+A stored key that names an option the pack no longer has is treated as no
+pick when the document opens: a required choice goes to its start key, an
+optional choice and an optional type choice go to none, and a required type
+choice has nothing selected, so the document opens and a run is refused until
+a variant is picked. Opening stores that change in one undoable edit; the old
+values stay in the document. Stored state for a removed group or choice also
+stays in the document but contributes no live rows. Malformed state is still
+refused when opening the file. Problems lists one warning per adjusted node
+under "Upgraded on open"; selecting it moves the canvas to the node, and
+undoing the edit restores the old key without dismissing the warning.
+
+A shared choice has one stored key, and each `Use` of it may offer fewer of
+its options with `only`. When retention, flattening or a replacement reads an
+option that is not chosen, a stored key that place leaves out is not a
+problem. The place reads as its start key: its default when it offers it,
+otherwise its first offered option. Nothing is stored or changed. A stored key
+that no option of the shared choice declares, or that the chosen option leaves
+out, is treated as an option the pack no longer has, and is reported once for
+the choice.
+
 ## Type choices
 
 A type choice is led by the type plugged into its pin. Connecting a producer
@@ -182,17 +254,57 @@ unique, and labels are non-blank, at most 256 characters, without NUL. With
 (`elab.outputDescriptors.linkedSource`) and an invalid one reports
 `elab.outputDescriptors.invalid`.
 
-## Sections and Advanced
+## Boxes: sections, groups and choices
 
-Folding a section hides its rows and unconnected pins. Connected pins stay
-visible as proxies on the section header so their links stay attached, and
-the header marks hidden modified values. The open or closed state is view
-state (`view.setSectionCollapsed`) over the schema's start state.
+A section, a group and the chosen option of a choice are drawn as boxes
+(`packages/canvas/src/layout.ts`, painted by `renderer.ts`). Each item of the
+elaborated interface carries `boxes`, the keys of the boxes around it,
+outermost first: a section's flattened id, `group:<path>`,
+`member:<path>.<key>` and `option:<path>`. A box is layout only: ids, stored
+values and pin positions are the same with or without it.
 
-A top-level section with id `advanced` gets the Advanced enclosure
-(`packages/canvas/src/layout.ts`): it stays below every ordinary input and
-output row, its outputs pair with its own rows, and a tinted background and
-border enclose the expanded rows, including labels, controls and pins.
+- The outline sits past the pins: its inner side lines up with a field
+  outside any box, and a field in one box sits 3 px inside it, so it is
+  3 px narrower on each side. Each box inside a box steps in 7 px more. A pin row inside a box keeps its pin on
+  the node's edge; only its name moves in. The node's least width grows with
+  the nesting.
+- A section or group box opens from its own header row: an arrow, the name,
+  and for a group its member count. Closed, the box is one row at the same
+  place, so opening or closing it moves neither its name nor any row above
+  it. The closed row shows how many rows stand directly inside it (an inner
+  box counts one; for a group, how many members) and a dot when a value
+  inside is not its default. The whole row opens or closes the box and
+  highlights under the pointer; the right-click menu does the same.
+- A box declared with `openName: false` shows no header while open, only a
+  small tab on its top edge; closed, it is an ordinary closed row.
+- Closing a box hides its rows and unconnected pins. Connected pins gather
+  at the closed row, inputs on the left edge and outputs on the right. The
+  open or closed state is view state (`view.setSectionCollapsed`, keyed by
+  the box key) over the schema's start state; groups start open.
+- A wire dropped on a closed row takes the first port inside that fits, in
+  declared order, a free input before a wired one, and the box stays
+  closed. While the wire is held there, the row names that field in place
+  of its count. If nothing inside fits, the drop is an ordinary drop on the
+  node.
+- A member of a group of records that draws more than one row gets its own
+  box, headed by its grip when the group can be reordered, its label and a
+  remove cross. In a group that grows by hand, a member that is one row has
+  no box: the row ends in the remove cross and its field stops short of it.
+  In a group that can be reordered, a stored member that is one row starts
+  with its grip, and its field or name, and the spare member's, start after
+  the grip's room. Dragging a grip moves the member (`dynamic.moveMember`). The cross
+  does not remove the member by itself; unused members go with **Remove
+  unused dynamic inputs**. A group that grows by hand ends in an outlined
+  Add row. A group that grows by
+  plugging in shows its spare member last with a hollow pin and a dimmed
+  name.
+- A choice's dropdown reaches its box's outline and has its own outline; the
+  chosen option's rows sit in a box joined to its underside. An option with
+  no rows draws no box, and neither does a choice led by a formula.
+- Outputs pair only with rows inside the same boxes. A node's own outputs
+  left without a row get rows of their own after every row, but before the
+  boxes that end the node and hold only outputs. A top-level section with
+  id `advanced` stays below every other row.
 
 ## Buttons
 
@@ -203,9 +315,21 @@ as one undo step, after its last step; a step that fails, a list or form that
 is closed, or Cancel stores nothing. Copy, Download, Queue, Interrupt, Open
 link and a called file run after the commit; their failure is reported and
 does not take the commit back. Redo replays the committed values and calls
-nothing again. A file goes through the ordinary download, which Desktop shows
-as its Save As dialog; the press cannot see that dialog, so a Save As closed
-without saving is not reported.
+nothing again. In Desktop a file opens its Save As dialog; closing it without
+saving is reported at the button and keeps the changes. In a browser a file
+is an ordinary download.
+
+Steps that are not a button's, such as a rule's fix, run through `runSteps`
+in the same file. It takes parts, each a node, a scope and its steps, and runs
+them in order on one scratch copy, so a later part sees what an earlier one
+set; every change is stored as one undo step, or nothing. Its options make a
+run fail and store nothing when two parts set one field to different values,
+when the caller's `unchanged` check fails at the start or before storing, or,
+with `strict`, when the user changed a field it sets meanwhile. `insideOnly`
+refuses, before anything runs, steps that ask the user or act outside the
+workflow, and `noWait` also refuses pack functions and lookups. `lead` stores
+commands, such as the user's own edit that led to a fix, first in the same
+undo step.
 
 - **Off.** A button is drawn dimmed and does not run when the pack turns it
   off, when a field it needs arrives on a wire, when every field it sets has a
@@ -256,8 +380,8 @@ A boundary forwards one inner input or output by its flattened id, such as
 `loras.lora0.strength`. The member must be stored on the inner node
 (`boundary.memberMissing`), except in a group grown to a count; a row under a
 choice or type choice must belong to the chosen option or variant
-(`boundary.branchInactive`). Forwarding a whole group, choice or type choice
-is refused: the boundary schema reports `boundary.familyBind` and compile
-reports the bound id as an unknown port (`compile.port.unknownInput` or
-`compile.port.unknownOutput`). See
-[Boundary editor](boundary-editor.md).
+(`boundary.branchInactive`). A `construct` binding shows a whole group,
+choice, type choice or described row instead: each subgraph node owns its
+members, pick and values under the item's id, after the definition's own
+members. A `port` binding that names a construct is refused
+(`boundary.familyBind`). See [Boundary editor](boundary-editor.md).

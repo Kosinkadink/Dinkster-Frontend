@@ -1,19 +1,19 @@
-import { expect, appViewTest as test } from './fixtures.js'
+import { expect, appViewTest as test, waitForWorkspaceReady } from './fixtures.js'
 
 test('canvas view controls switch views and lenses without stale placeholders', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   const canvas = page.getByTestId('graph-canvas')
   await expect(canvas).toHaveAttribute('data-lens', 'standard')
-  await expect(page.getByTestId('views-switcher')).toContainText('Graph')
+  await expect(page.getByTestId('views-switcher')).toHaveAttribute('aria-label', 'View: Graph')
   await expect(page.getByTestId('views-switcher')).toHaveAttribute('data-tooltip-label', 'View: how this tab is edited')
   await expect(page.getByTestId('lens-switcher')).toHaveAttribute('data-tooltip-label', 'Lens: how the graph is displayed')
   await page.getByTestId('views-switcher').click()
   await expect(page.getByRole('menu').filter({ hasText: 'Views' })).toContainText('Graph')
-  await expect(page.getByRole('menu').filter({ hasText: 'Views' })).toContainText('App view')
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await expect(page.getByRole('menu').filter({ hasText: 'Views' })).toContainText('App')
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await expect(page.getByTestId('app-view')).toBeVisible()
-  await expect(page.getByTestId('views-switcher')).toContainText('App')
+  await expect(page.getByTestId('views-switcher')).toHaveAttribute('aria-label', 'View: App')
   await expect(page.getByTestId('app-view-toggle')).toHaveCount(0)
   await page.getByTestId('views-switcher').click()
   await page.getByRole('menuitemradio', { name: 'Graph' }).click()
@@ -32,7 +32,7 @@ test('canvas view controls switch views and lenses without stale placeholders', 
 
 test('canvas view menus dismiss on outside pointerdown and global Escape', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   const switcher = page.getByTestId('lens-switcher')
   await switcher.click()
   await expect(page.getByTestId('canvas-popover-backdrop')).toHaveCount(0)
