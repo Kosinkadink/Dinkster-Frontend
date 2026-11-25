@@ -94,6 +94,7 @@ it('lists projects newest first by their last run, or their creation when they n
   ])
   expect(document.querySelector('h2')?.textContent).toBe('Film grain tests')
   expect(document.body.textContent).toContain('Last run 2 hours ago')
+  expect(document.body.textContent).toContain('No workflows yet. Open the project to make one.')
 })
 
 it('shows the opening line on the opening row and cancels through the shell', async () => {
@@ -236,6 +237,13 @@ it('shows the setup command while there is no installation, and the list once on
   await settle()
   expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
   expect(counted).toHaveBeenLastCalledWith(0)
+})
+
+it('does not suggest opening a project to create workflows without an installation', async () => {
+  render(() => <ProjectsView shell={shell()} source={{ ...source(projects), installations: async () => ({ all: [] }) }} />, document.body)
+  await settle()
+  expect(document.body.textContent).toContain('No workflows yet.')
+  expect(document.body.textContent).not.toContain('Open the project to make one.')
 })
 
 it('keeps projects readable and restorable without an installation, but cannot open an editor from a workflow tile', async () => {

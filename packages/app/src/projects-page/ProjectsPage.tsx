@@ -647,7 +647,7 @@ export function ProjectsView(props: {
               when={(workflows()?.length ?? 0) > 0}
               fallback={
                 <ProductEmptyState
-                  message={message(workflows() === null ? 'projects.workflows.unreadable' : 'projects.workflows.empty')}
+                  message={message(workflows() === null ? 'projects.workflows.unreadable' : installation() ? 'projects.workflows.empty' : 'projects.workflows.emptyWithoutInstallation')}
                 />
               }
             >

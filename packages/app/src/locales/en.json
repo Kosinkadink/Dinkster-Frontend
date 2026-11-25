@@ -1707,6 +1707,7 @@
   "projects.facts.outputs": "{count, plural, one {# output} other {# outputs}}",
   "projects.workflows.title": "Workflows",
   "projects.workflows.empty": "No workflows yet. Open the project to make one.",
+  "projects.workflows.emptyWithoutInstallation": "No workflows yet.",
   "projects.outputs.title": "Latest outputs",
   "projects.outputs.empty": "No outputs yet.",
   "projects.outputs.hide": "Hide",

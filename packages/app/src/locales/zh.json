@@ -1707,6 +1707,7 @@
   "projects.facts.outputs": "{count} 个输出",
   "projects.workflows.title": "工作流",
   "projects.workflows.empty": "还没有工作流。打开项目来创建一个。",
+  "projects.workflows.emptyWithoutInstallation": "还没有工作流。",
   "projects.outputs.title": "最新输出",
   "projects.outputs.empty": "还没有输出。",
   "projects.outputs.hide": "隐藏",
