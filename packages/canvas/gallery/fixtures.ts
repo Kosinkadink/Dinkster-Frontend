@@ -241,6 +241,7 @@ interface BoxedNode {
   }
   readonly textLines?: Readonly<Record<string, number>>
   readonly height?: number
+  readonly width?: number
 }
 
 export interface CanvasGalleryFixture {
@@ -638,7 +639,7 @@ export function createCanvasGalleryFixture(
                 : {}),
               [id]: {
                 position: { x, y },
-                size: { width: id === 'Narrow' ? 112 : id === 'Suffix narrow' ? 200 : 280, height: extra.height ?? 0 },
+                size: { width: extra.width ?? (id === 'Narrow' ? 112 : id === 'Suffix narrow' ? 200 : 280), height: extra.height ?? 0 },
                 ...(extra.textLines !== undefined ? { textLines: extra.textLines } : {}),
                 ...(id.startsWith('Minimized') || id === 'Long minimized'
                   ? { collapsed: true }
@@ -791,7 +792,7 @@ export function createCanvasGalleryFixture(
       save_target: { mount: 'output', prefix: 'portraits/take' },
       video_edit: { trim: { start_time: 2, duration: 5 } },
     })
-    add('Empty values', definition, {
+    const empty = {
       checkpoint: null,
       asset: null,
       recording: null,
@@ -805,7 +806,10 @@ export function createCanvasGalleryFixture(
           { position: 1, value: 1 },
         ],
       },
-    })
+    }
+    add('Empty values', definition, empty)
+    add('Empty values, narrow node', definition, empty, undefined, false, { width: 180 })
+    add('Empty values, narrower node', definition, empty, undefined, false, { width: 140 })
   } else if (page === 'core-rows') {
     const core = galleryWidgetInputs.filter((item) =>
       [
