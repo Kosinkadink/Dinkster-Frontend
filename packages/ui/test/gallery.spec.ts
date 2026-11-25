@@ -397,6 +397,54 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await expect(page).toHaveScreenshot('frame-stays-when-scrolled.png')
 })
 
+test('quiet text menus keep shared focus, checked selection and dismissal without a resting outline', async ({ page }) => {
+  for (const theme of ['dark', 'light']) {
+    await page.goto(`/?theme=${theme}#messages`)
+    await page.evaluate((theme) => { document.documentElement.dataset.theme = theme }, theme)
+    const section = page.getByRole('heading', { name: 'Menus', exact: true }).locator('..')
+    const trigger = section.getByRole('button', { name: /^Type:/ })
+    await expect(trigger).toHaveAccessibleName('Type: any type')
+    await section.scrollIntoViewIfNeeded()
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+    await page.mouse.move(0, 0)
+    await expect(trigger).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
+    await expect(trigger).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    const outlined = page.getByRole('button', { name: 'Package actions', exact: true })
+    await expect(outlined).not.toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
+    for (const property of ['min-height', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'color']) {
+      await expect(trigger).toHaveCSS(property, await outlined.evaluate((element, property) => getComputedStyle(element).getPropertyValue(property), property))
+    }
+    await expect(trigger.locator('svg')).toHaveCount(1)
+    await expect(page).toHaveScreenshot(`quiet-menu-${theme}-rest.png`)
+    await trigger.hover()
+    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-hover'))
+    await expect(page).toHaveScreenshot(`quiet-menu-${theme}-hover.png`)
+    await trigger.click()
+    const any = section.getByRole('menuitemcheckbox', { name: 'Any type', exact: true })
+    await expect(any).toBeChecked()
+    await expect(any).toBeFocused()
+    await expect(page).toHaveScreenshot(`quiet-menu-${theme}-open.png`)
+    await page.keyboard.press('Escape')
+    await expect(section.getByRole('menu')).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    await page.mouse.move(0, 0)
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Shift+Tab')
+    await expect(trigger).toBeFocused()
+    await expect(trigger).toHaveCSS('outline-style', 'solid')
+    await expect(page).toHaveScreenshot(`quiet-menu-${theme}-focus.png`)
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    await expect(trigger).toHaveText('Type: image')
+    await expect(trigger).toBeFocused()
+    await trigger.click()
+    await expect(section.getByRole('menuitemcheckbox', { name: 'Image', exact: true })).toBeChecked()
+    await section.getByRole('heading').click()
+    await expect(section.getByRole('menu')).toHaveCount(0)
+  }
+})
+
 test('menus support pointer dismissal, keyboard navigation and immediate sign out', async ({
   page,
 }) => {
