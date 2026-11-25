@@ -555,6 +555,41 @@ describe('value handling', () => {
     expect(tapped('width')?.taps).toBeUndefined()
     expect(tapped('height')?.warnings.map(([message]) => message)).toEqual([expect.stringMatching(/^Could not work out height\. Retime 2 gets the default, \d+\.$/)])
   })
+
+  it('has a formula read for a field with no default what the run is sent for it', () => {
+    const field = (id: string, name: string, widget: Record<string, unknown>, optional = false) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', name }, optional, widget })
+    const read = ['num', 'text', 'pick', 'opt']
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const body = [
+        ...schema.body,
+        field('num', 'INT', { widgetType: 'INT', options: { min: 16, max: 64 } }),
+        field('text', 'STRING', { widgetType: 'STRING', options: {} }),
+        field('pick', 'COMBO', { widgetType: 'COMBO', options: { options: ['slow', 'fast'] } }),
+        field('opt', 'INT', { widgetType: 'INT', options: { min: 5 } }, true),
+        ...read.map((id) => ({ ...field(`reads_${id}`, 'INT', { widgetType: 'INT', options: {}, default: 0 }), automatic: { lookup: `probe.${id}`, args: [id] } })),
+      ]
+      return { ...schema, body } as NodeSchema
+    }
+    const doc = mutableWorkflow('exec-basic')
+    const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
+    ;(nodes['n0'] as Mutable)['values'] = { width: 64, height: 64, batch_size: 1, color: 0 }
+    const asked: Record<string, unknown> = {}
+    const lookupAnswers: CompileInput['lookupAnswers'] = (lookup, args) => {
+      asked[lookup.slice('probe.'.length)] = args[0]
+      return { state: 'ready', answer: 1 }
+    }
+    const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    const inputs = result.artifact.prompt['n0']!.inputs
+    // A required field reads its widget's start: the minimum, an empty text, the first option.
+    expect(Object.fromEntries(read.map((id) => [id, inputs[id]]))).toEqual({ num: 16, text: '', pick: 'slow', opt: undefined })
+    // The lookup is called with what the run is sent; the optional field is sent nothing, so it waits.
+    expect(asked).toEqual({ num: 16, text: '', pick: 'slow' })
+  })
 })
 
 describe('semantic hash', () => {
