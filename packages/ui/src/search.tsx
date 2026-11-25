@@ -149,6 +149,7 @@ export const BlueprintIcon: LucideIcon = Box
 /** The floating preview's width: as wide as the window allows between these. */
 const FLOATING_WIDEST = 320
 const FLOATING_NARROWEST = 240
+const FLOATING_EDGE_GAP = 8
 
 /**
  * The one search surface: the field, kinds as named tabs, groups of
@@ -269,7 +270,7 @@ export function ProductSearch(props: {
    * The floating preview's top stays level with the top of the results, so
    * it never moves while the current row changes. It narrows from 320 px to
    * 240 px as the window narrows, and is hidden, never moved, when 240 px
-   * does not fit beside the list inside the window.
+   * does not fit beside the list with 8 px clear of the window edge.
    */
   const placeFloating = () => {
     const panel = floating
@@ -278,7 +279,7 @@ export function ProductSearch(props: {
     const results = list.querySelector<HTMLElement>('.dinkster-search-group') ?? list
     panel.style.top = `${results.getBoundingClientRect().top - box.top}px`
     const gap = parseFloat(getComputedStyle(panel).left) - box.width
-    const room = document.documentElement.clientWidth - (box.right + gap)
+    const room = document.documentElement.clientWidth - FLOATING_EDGE_GAP - (box.right + gap)
     panel.style.width = `${Math.min(FLOATING_WIDEST, Math.max(FLOATING_NARROWEST, room))}px`
     panel.dataset['fits'] = String(room >= FLOATING_NARROWEST)
   }

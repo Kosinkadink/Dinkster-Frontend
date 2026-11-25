@@ -115,13 +115,15 @@ test('the floating preview narrows to 240 px and is hidden when that does not fi
     const preview = search.getByTestId('search-preview')
     await field(search).focus()
     await expect(preview).toHaveCount(1)
-    const room = await preview.evaluate((element) => document.documentElement.clientWidth - element.getBoundingClientRect().left)
+    const room = await preview.evaluate((element) => document.documentElement.clientWidth - 8 - element.getBoundingClientRect().left)
     if (room < 240) {
       await expect(preview).toBeHidden()
       seen.push('hidden')
     } else {
       await expect(preview).toBeVisible()
       expect(Math.round((await preview.boundingBox())!.width)).toBe(Math.round(Math.min(320, room)))
+      const box = (await preview.boundingBox())!
+      expect(box.x + box.width).toBeLessThanOrEqual(width - 8)
       seen.push(room < 320 ? 'narrowed' : 'full')
     }
   }
