@@ -722,6 +722,24 @@ describe('type choices', () => {
     expect(e.choices).toEqual({ model: 'lora' })
   })
 
+  it('a disconnected stored variant hides shared and variant rows without deleting their values', () => {
+    const schema = schemaOf([specialized()])
+    const node = { values: { 'model.shared': 3, 'model.weight': 7 }, dynamic: { model: { selected: 'lora' } } }
+    const disconnected = elaborateInterface(schema, node)
+    expect(elabInputsOf(disconnected).map((input) => [input.address.port, input.spec.optional])).toEqual([['model', true]])
+    expect(disconnected.choices).toBeUndefined()
+    const run = elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+    expect(elabInputsOf(run)).toEqual([])
+    expect(run.choices).toBeUndefined()
+    const reconnected = elaborateInterface(schema, node, connectedInputs('model'))
+    expect(elabInputsOf(reconnected).map((input) => input.address.port)).toEqual(['model', 'model.shared', 'model.weight'])
+    expect(reconnected.choices).toEqual({ model: 'lora' })
+    expect(node).toEqual({ values: { 'model.shared': 3, 'model.weight': 7 }, dynamic: { model: { selected: 'lora' } } })
+    const valued = elaborateInterface(schema, { ...node, values: { ...node.values, model: 0 } })
+    expect(elabInputsOf(valued).map((input) => input.address.port)).toEqual(['model', 'model.shared', 'model.weight'])
+    expect(valued.choices).toEqual({ model: 'lora' })
+  })
+
   it('surfaces the per-variant widget spec', () => {
     const e = elaborateInterface(schemaOf([specialized([intInput('weight', { widget: { widgetType: 'FLOAT', options: { min: 0 }, default: 0.5 } })])]), { values: {}, dynamic: { model: { selected: 'lora' } } }, connectedInputs('model'))
     expect(elabInputsOf(e)[2]!.spec.widget).toEqual({ widgetType: 'FLOAT', options: { min: 0 }, default: 0.5 })
@@ -1555,10 +1573,16 @@ describe('rows kept for a wire on their output', () => {
         { key: 'latent', type: { kind: 'concrete', name: 'LATENT' }, rows: [intInput('scale')] },
       ],
     }])
-    expect(shown(schema, { values: {}, dynamic: { model: { selected: 'image' } } }, taps('model.scale'))).toEqual([
+    const node = { values: {}, dynamic: { model: { selected: 'image' } } }
+    expect(shown(schema, node, { ...taps('model.scale'), isInputConnected: (port) => port === 'model' })).toEqual([
       ['model', undefined, true],
       ['model.width', undefined, true],
       ['model.scale', 'Not used while Model is image. Its wire gives nothing.', false],
+    ])
+    expect(shown(schema, node, taps('model.width', 'model.scale'))).toEqual([
+      ['model', undefined, false],
+      ['model.width', 'Not used while Model has no wire. Its wire gives nothing.', false],
+      ['model.scale', 'Not used while Model has no wire. Its wire gives nothing.', false],
     ])
   })
 
