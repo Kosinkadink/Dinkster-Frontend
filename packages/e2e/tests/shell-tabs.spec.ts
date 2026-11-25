@@ -221,7 +221,7 @@ test('top-right region toggles and tab geometry match the workspace columns', as
 test('center-stage view menus stay reachable without overlapping App view at narrow width', async ({ page }) => {
   await page.setViewportSize({ width: 600, height: 720 })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const controls = (await page.locator('.canvas-view-controls').boundingBox())!
   const header = (await page.locator('.app-view-header').boundingBox())!
   expect(controls.y + controls.height).toBeLessThanOrEqual(header.y)

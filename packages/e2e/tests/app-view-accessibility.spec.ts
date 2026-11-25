@@ -2,7 +2,7 @@ import { expect, appViewTest as test, waitForWorkspaceReady, type Page } from '.
 
 async function selectAppView(page: Page): Promise<void> {
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
 }
 
 async function setEditorWidth(page: Page, width: number): Promise<void> {

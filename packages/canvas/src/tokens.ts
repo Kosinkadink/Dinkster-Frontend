@@ -616,15 +616,39 @@ export const canvasPaintTokens = {
     margin: canvasSemanticTokens.space[8],
     maxScale: 0.25,
     viewportInset: 2,
-    linkStroke: 0.3,
-    stateStroke: 0.3,
+    /** Wires: one stroke width; type colors nearly opaque, the one grey quieter. */
+    linkStroke: 1,
+    linkOpacity: 0.9,
+    quietLinkOpacity: 0.55,
+    /** Node boxes: corner radius (at most this share of a small box's side), outline width, and the outline of a run state. */
+    nodeRadius: 2,
+    nodeRadiusShare: 0.25,
+    nodeStroke: 0.75,
+    stateStroke: 1,
+    /**
+     * A box smaller than this on either side draws as a plain block with no
+     * outline, and when most boxes are that small the wires draw straight.
+     */
+    roundedMinSize: 3,
+    /** The title line: drawn only on a box at least this large, inset, and this tall. */
+    titleMinWidth: 9,
+    titleMinHeight: 6,
+    titleInset: 2,
+    titleHeight: 1.4,
+    titleWidthRatio: 0.55,
+    /** Groups: a faint fill and a thin outline in the group's color. */
+    groupRadius: 2.5,
+    groupStroke: 0.75,
+    groupFillOpacity: 0.1,
+    groupStrokeOpacity: 0.38,
     minPointRadius: 0.5,
     minNodeSize: 2,
     bypassFill: 'rgba(75, 24, 75, 0.9)',
     remoteStroke: 1.5,
     remoteOpacity: 0.8,
-    viewportFillOpacity: 0.06,
-    viewportStrokeOpacity: 0.5,
+    /** The area outside the current view is dimmed by the canvas color at this opacity. */
+    outsideViewOpacity: 0.34,
+    viewportStrokeOpacity: 0.72,
     viewportStroke: 1,
     viewportRadius: 3,
     markerRadius: 7,

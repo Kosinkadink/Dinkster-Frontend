@@ -644,7 +644,7 @@
   padding-right: var(--dinkster-space-4);
 }
 .dock-zone-overflow { position: relative; display: flex; }
-.dock-zone-overflow-menu { top: calc(100% + 4px); right: 0; left: auto; min-width: 180px; }
+.lens-menu.dock-zone-overflow-menu { top: calc(100% + 4px); right: 0; left: auto; min-width: 180px; border-color: var(--dinkster-border-strong); }
 .dock-zone-overflow-menu button[aria-checked='true'] { color: var(--dinkster-accent-foreground); background: var(--dinkster-interaction-selected); }
 .dock-zone-tabs .product-tabpanel {
   flex: 1;
@@ -882,7 +882,7 @@ section.editor-group:not(:only-of-type):not([data-focused='true']) .tab.active {
   color: var(--dinkster-text-secondary);
 }
 
-.editor-group[data-focused='false'] :is(.canvas-view-control, .extension-toolbar-panel, .tab-target, .minimap, .canvas-corner-bar, .sync-chip, .frozen-banner, .breadcrumb):not(:hover):not(:focus-within) {
+.editor-group[data-focused='false'] :is(.canvas-view-controls, .extension-toolbar-panel, .tab-target, .minimap, .canvas-corner-bar, .sync-chip, .frozen-banner, .breadcrumb):not(:hover):not(:focus-within) {
   opacity: var(--dinkster-interaction-unfocused-opacity);
 }
 

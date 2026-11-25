@@ -6,17 +6,19 @@
  * graph), because nothing here reads live state - callers pass boxes,
  * states, and an optional viewport.
  *
- * Design language matches the main canvas: node boxes tint with the same
- * stateColors the node borders use (error red is the "where did it fail"
- * affordance), groups render as translucent color washes underneath, and
- * the viewport rectangle uses a quiet secondary-text outline.
+ * It draws like a small picture of the graph: rounded node boxes with a
+ * title line, wires as the main canvas's curves in their type colors, and
+ * groups as a soft frame. Run states outline a box in the same stateColors
+ * the node borders use (error red is the "where did it fail" affordance).
+ * Outside the current view the picture is dimmed under a light frame.
  *
  * All coordinates are CSS pixels; callers own devicePixelRatio scaling.
  */
 
 import type { NodeRunState } from '@dinkster/core'
 import type { Viewport } from './renderer.js'
-import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { linkControlOffset } from './hit.js'
+import { canvasPaintTokens, typeColor, type DesignTokens } from './tokens.js'
 import { wheelZoomScale } from './zoom.js'
 
 const paint = canvasPaintTokens.minimap
@@ -56,6 +58,8 @@ export interface MinimapMarker {
 export interface MinimapLink {
   readonly from: { readonly x: number; readonly y: number }
   readonly to: { readonly x: number; readonly y: number }
+  /** Concrete type name: the wire takes that type's color. */
+  readonly typeName?: string
 }
 
 export interface MinimapPoint { readonly x: number; readonly y: number }
@@ -76,8 +80,13 @@ export interface MinimapInput {
   readonly visibility?: {
     readonly groups?: boolean
   }
-  /** Straight world-coordinate segments drawn underneath nodes. */
+  /** Wires drawn underneath nodes, as the main canvas's curves. */
   readonly links?: readonly MinimapLink[]
+  /**
+   * Wires in their type colors and nodes with a title line; false draws
+   * every wire in one grey and no title lines.
+   */
+  readonly linkColors?: boolean
   readonly reroutes?: readonly MinimapPoint[]
   /**
    * Main-canvas viewport + its CSS size: when present, the visible world
@@ -221,7 +230,7 @@ export function drawMinimapGraph(ctx: CanvasRenderingContext2D | OffscreenCanvas
   const t = input.tokens
   const { width, height } = input
   ctx.clearRect(0, 0, width, height)
-  ctx.fillStyle = t.colors.nodeHeader
+  ctx.fillStyle = t.colors.canvasBackground
   ctx.fillRect(0, 0, width, height)
 
   const boxes: MinimapBox[] = [...input.nodes, ...(input.groups ?? [])]
@@ -237,57 +246,140 @@ export function drawMinimapGraph(ctx: CanvasRenderingContext2D | OffscreenCanvas
   if (!tf) return undefined
   const px = (wx: number) => wx * tf.scale + tf.offsetX
   const py = (wy: number) => wy * tf.scale + tf.offsetY
+  const linkColors = input.linkColors !== false
 
   if (input.visibility?.groups !== false) {
+    ctx.lineWidth = paint.groupStroke
     for (const g of input.groups ?? []) {
-      ctx.fillStyle = g.color ?? t.colors.nodeHeader
-      ctx.fillRect(px(g.x), py(g.y), g.width * tf.scale, g.height * tf.scale)
+      const color = g.color ?? t.colors.groupDefault
+      ctx.beginPath()
+      ctx.roundRect(px(g.x), py(g.y), g.width * tf.scale, g.height * tf.scale, paint.groupRadius)
+      ctx.fillStyle = color
+      ctx.globalAlpha = paint.groupFillOpacity
+      ctx.fill()
+      ctx.strokeStyle = color
+      ctx.globalAlpha = paint.groupStrokeOpacity
+      ctx.stroke()
     }
+    ctx.globalAlpha = 1
   }
 
-  ctx.strokeStyle = t.colors.linkDefault
-  ctx.fillStyle = t.colors.linkDefault
-  ctx.lineWidth = paint.linkStroke
+  // Box geometry first: whether most boxes are too small to read decides
+  // between the drawn look and plain blocks with straight wires.
+  const nodes = input.nodes.map((n) => {
+    const w = Math.max(paint.minNodeSize, n.width * tf.scale)
+    const h = Math.max(paint.minNodeSize, n.height * tf.scale)
+    return { n, x: px(n.x), y: py(n.y), w, h, rounded: w >= paint.roundedMinSize && h >= paint.roundedMinSize }
+  })
+  const curved = nodes.filter((box) => box.rounded).length * 2 >= nodes.length
+  const nodeRadius = (box: { readonly w: number; readonly h: number }): number =>
+    Math.min(paint.nodeRadius, box.w * paint.nodeRadiusShare, box.h * paint.nodeRadiusShare)
+
+  // One path per wire color keeps a large graph to a handful of strokes.
+  const wires = new Map<string, MinimapLink[]>()
   for (const link of input.links ?? []) {
+    const color = linkColors && link.typeName !== undefined ? typeColor(t, link.typeName) : t.colors.linkDefault
+    const list = wires.get(color)
+    if (list) list.push(link)
+    else wires.set(color, [link])
+  }
+  ctx.lineWidth = paint.linkStroke
+  ctx.lineCap = 'round'
+  ctx.globalAlpha = linkColors ? paint.linkOpacity : paint.quietLinkOpacity
+  for (const [color, links] of wires) {
+    ctx.strokeStyle = color
     ctx.beginPath()
-    ctx.moveTo(px(link.from.x), py(link.from.y))
-    ctx.lineTo(px(link.to.x), py(link.to.y))
+    for (const link of links) {
+      const x1 = px(link.from.x)
+      const y1 = py(link.from.y)
+      const x2 = px(link.to.x)
+      const y2 = py(link.to.y)
+      ctx.moveTo(x1, y1)
+      if (curved) {
+        // The main canvas's curve, scaled: the same bend at overview size.
+        const dx = linkControlOffset(link.from.x, link.to.x) * tf.scale
+        ctx.bezierCurveTo(x1 + dx, y1, x2 - dx, y2, x2, y2)
+      } else ctx.lineTo(x2, y2)
+    }
     ctx.stroke()
-    for (const point of [link.from, link.to]) {
+  }
+  ctx.globalAlpha = 1
+  ctx.lineCap = 'butt'
+
+  const fills = new Map<string, typeof nodes>()
+  for (const box of nodes) {
+    const n = box.n
+    const fill = n.bypassed && input.renderBypassState !== false
+      ? paint.bypassFill
+      : input.nodeColors === false
+        ? t.colors.widgetRaised
+        : minimapNodeColor(n.color, t.colors.widgetRaised)
+    const list = fills.get(fill)
+    if (list) list.push(box)
+    else fills.set(fill, [box])
+  }
+  for (const [fill, list] of fills) {
+    ctx.fillStyle = fill
+    ctx.beginPath()
+    for (const box of list) {
+      if (box.rounded) ctx.roundRect(box.x, box.y, box.w, box.h, nodeRadius(box))
+      else ctx.rect(box.x, box.y, box.w, box.h)
+    }
+    ctx.fill()
+  }
+
+  const outlined = (box: (typeof nodes)[number]): string | undefined => {
+    const state = box.n.state
+    if ((state === 'error' && input.renderErrorState !== false) || state === 'running' || state === 'done') {
+      return t.stateColors[state]
+    }
+    return box.rounded ? t.colors.nodeOutline : undefined
+  }
+  const outlines = new Map<string, typeof nodes>()
+  for (const box of nodes) {
+    const color = outlined(box)
+    if (color === undefined) continue
+    const list = outlines.get(color)
+    if (list) list.push(box)
+    else outlines.set(color, [box])
+  }
+  for (const [color, list] of outlines) {
+    ctx.strokeStyle = color
+    ctx.lineWidth = color === t.colors.nodeOutline ? paint.nodeStroke : paint.stateStroke
+    ctx.beginPath()
+    for (const box of list) {
+      if (box.rounded) ctx.roundRect(box.x, box.y, box.w, box.h, nodeRadius(box))
+      else ctx.rect(box.x, box.y, box.w, box.h)
+    }
+    ctx.stroke()
+  }
+
+  if (linkColors) {
+    const titled = nodes.filter((box) => box.w >= paint.titleMinWidth && box.h >= paint.titleMinHeight)
+    if (titled.length > 0) {
+      ctx.fillStyle = t.colors.valueMark
       ctx.beginPath()
-      ctx.arc(px(point.x), py(point.y), Math.max(tf.scale, paint.minPointRadius), 0, Math.PI * 2)
+      for (const box of titled) {
+        ctx.roundRect(
+          box.x + paint.titleInset,
+          box.y + paint.titleInset,
+          Math.max(paint.titleInset + 1, (box.w - paint.titleInset * 2) * paint.titleWidthRatio),
+          paint.titleHeight,
+          paint.titleHeight / 2,
+        )
+      }
       ctx.fill()
     }
   }
 
-  for (const n of input.nodes) {
-    const ordinaryFill = input.nodeColors === false
-      ? t.colors.widgetAffordance
-      : minimapNodeColor(n.color, t.colors.widgetAffordance)
-    ctx.fillStyle = n.bypassed && input.renderBypassState !== false
-      ? paint.bypassFill
-      : ordinaryFill
-    // Boxes stay at least 2px so no node ever vanishes at overview scale.
-    const x = px(n.x)
-    const y = py(n.y)
-    const w = Math.max(paint.minNodeSize, n.width * tf.scale)
-    const h = Math.max(paint.minNodeSize, n.height * tf.scale)
-    ctx.fillRect(x, y, w, h)
-    if (
-      (n.state === 'error' && input.renderErrorState !== false)
-      || n.state === 'running'
-      || n.state === 'done'
-    ) {
-      ctx.strokeStyle = t.stateColors[n.state]
-      ctx.lineWidth = paint.stateStroke
-      ctx.strokeRect(x, y, w, h)
-    }
-  }
-
-  for (const r of input.reroutes ?? []) {
-    ctx.beginPath()
-    ctx.arc(px(r.x), py(r.y), Math.max(tf.scale, paint.minPointRadius), 0, Math.PI * 2)
+  if ((input.reroutes ?? []).length > 0) {
     ctx.fillStyle = t.colors.linkDefault
+    ctx.beginPath()
+    for (const r of input.reroutes ?? []) {
+      const radius = Math.max(tf.scale, paint.minPointRadius)
+      ctx.moveTo(px(r.x) + radius, py(r.y))
+      ctx.arc(px(r.x), py(r.y), radius, 0, Math.PI * 2)
+    }
     ctx.fill()
   }
 
@@ -318,12 +410,16 @@ export function drawMinimapOverlay(
   if (vp) {
     const rect = minimapViewportRect(tf, vp, width, height)
     if (rect.width > 0 && rect.height > 0) {
+      // Everything outside the view is dimmed, so the frame reads as a window.
+      ctx.beginPath()
+      ctx.rect(0, 0, width, height)
+      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, paint.viewportRadius)
+      ctx.fillStyle = t.colors.canvasBackground
+      ctx.globalAlpha = paint.outsideViewOpacity
+      ctx.fill('evenodd')
       ctx.beginPath()
       ctx.roundRect(rect.x, rect.y, rect.width, rect.height, paint.viewportRadius)
-      ctx.fillStyle = t.colors.label
-      ctx.globalAlpha = paint.viewportFillOpacity
-      ctx.fill()
-      ctx.strokeStyle = t.colors.label
+      ctx.strokeStyle = t.colors.title
       ctx.globalAlpha = paint.viewportStrokeOpacity
       ctx.lineWidth = paint.viewportStroke
       ctx.stroke()

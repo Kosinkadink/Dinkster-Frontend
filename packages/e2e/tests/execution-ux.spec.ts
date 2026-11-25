@@ -392,7 +392,7 @@ test('data lens toggles via the lens menu and D hotkey; panels are presentation 
   })
   // Off by default: no panels and the menu reports Standard.
   await expect(page.getByTestId('lens-toggle')).toHaveCount(0)
-  await expect(page.getByTestId('lens-switcher')).toContainText('Standard')
+  await expect(page.getByTestId('lens-switcher')).toHaveAttribute('aria-label', 'Lens: Standard')
   expect(await panels()).toBeNull()
   const revisionBefore = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
 
@@ -410,6 +410,6 @@ test('data lens toggles via the lens menu and D hotkey; panels are presentation 
   // D hotkey off again (canvas focus, not a text field).
   await page.getByTestId('graph-canvas').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('d')
-  await expect(page.getByTestId('lens-switcher')).toContainText('Standard')
+  await expect(page.getByTestId('lens-switcher')).toHaveAttribute('aria-label', 'Lens: Standard')
   await expect.poll(panels).toBeNull()
 })

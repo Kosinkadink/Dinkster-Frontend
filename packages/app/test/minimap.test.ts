@@ -107,27 +107,38 @@ describe('minimap pointer gestures', () => {
     vi.unstubAllGlobals()
   })
 
-  it('keeps links, groups, and reroutes independently configurable', () => {
+  it('draws reroutes with links, and Colors off as the quiet minimap', () => {
     const scene = {
       nodes: [{ id: 'n1', x: 0, y: 0, layout: { width: 100, height: 60 }, node: { mode: 'active' } }],
       groups: [{ id: 'g1', x: -10, y: -10, width: 120, height: 80 }],
       links: [{ x1: 1, y1: 2, x2: 3, y2: 4 }],
       reroutes: [{ x: 5, y: 6 }],
     } as unknown as ReturnType<CanvasRenderer['getScene']>
-    const h = harness({
+    const quiet = harness({
       scene,
       settings: {
+        'canvas.minimap.nodes': false,
         'canvas.minimap.noodles': false,
         'canvas.minimap.groups': false,
-        'canvas.minimap.reroutes': true,
       },
     })
-    const input = drawInputs.at(-1)!
-    expect(input.links).toEqual([])
-    expect(input.groups).toHaveLength(1)
-    expect(input.visibility).toEqual({ groups: false })
-    expect(input.reroutes).toEqual([{ x: 5, y: 6 }])
-    h.handle.dispose()
+    const off = drawInputs.at(-1)!
+    expect(off.links).toEqual([])
+    expect(off.reroutes).toEqual([])
+    expect(off.groups).toHaveLength(1)
+    expect(off.visibility).toEqual({ groups: false })
+    expect(off.nodeColors).toBe(false)
+    expect(off.linkColors).toBe(false)
+    expect(off.renderBypassState).toBeUndefined()
+    quiet.handle.dispose()
+
+    const colored = harness({ scene, settings: { 'canvas.minimap.nodes': true, 'canvas.minimap.noodles': true } })
+    const on = drawInputs.at(-1)!
+    expect(on.links).toHaveLength(1)
+    expect(on.reroutes).toEqual([{ x: 5, y: 6 }])
+    expect(on.nodeColors).toBe(true)
+    expect(on.linkColors).toBe(true)
+    colored.handle.dispose()
   })
 
   it.each([66, 300, 1200].flatMap((count) => [true, false].map((offscreen) => ({ count, offscreen }))))('retains $count graph boxes through camera frames with OffscreenCanvas $offscreen', ({ count, offscreen }) => {

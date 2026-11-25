@@ -202,8 +202,8 @@ test('per-group activation moves focus and F6 cycles between groups', async ({ p
   await expect(second).toHaveAttribute('data-focused', 'true')
   expect(await activeTitle(page)).toBe('Subgraph')
   await page.mouse.move(0, 0)
-  await expect(first.locator('.canvas-view-control').first()).toHaveCSS('opacity', '0.5')
-  await expect(second.locator('.canvas-view-control').first()).toHaveCSS('opacity', '1')
+  await expect(first.locator('.canvas-view-controls')).toHaveCSS('opacity', '0.5')
+  await expect(second.locator('.canvas-view-controls')).toHaveCSS('opacity', '1')
   await expect(first.locator('.workflow-queue-control')).toBeHidden()
   await expect(second.locator('.workflow-queue-control')).toBeVisible()
   await expect(first.getByTestId('minimap')).toHaveCSS('opacity', '0.5')
@@ -213,9 +213,9 @@ test('per-group activation moves focus and F6 cycles between groups', async ({ p
   await expect(first.getByTestId('minimap')).toHaveCSS('opacity', '0.5')
   await expect(first).toHaveAttribute('data-focused', 'false')
 
-  const lens = first.locator('.canvas-view-control').last().locator('button').first()
+  const lens = first.getByTestId('lens-switcher')
   await lens.hover()
-  await expect(first.locator('.canvas-view-control').last()).toHaveCSS('opacity', '1')
+  await expect(first.locator('.canvas-view-controls')).toHaveCSS('opacity', '1')
   await expect(first).toHaveAttribute('data-focused', 'false')
   await lens.click()
   await expect(first).toHaveAttribute('data-focused', 'true')
@@ -253,7 +253,7 @@ test('a narrow App View pane renders mobile while its wide sibling stays desktop
 
   for (const group of [second, first]) {
     await group.getByTestId('views-switcher').click()
-    await page.getByRole('menuitemradio', { name: 'App view' }).click()
+    await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   }
   await expect(first.locator('[data-app-breakpoint]')).toHaveAttribute('data-app-breakpoint', 'desktop')
   await expect(second.locator('[data-app-breakpoint]')).toHaveAttribute('data-app-breakpoint', 'desktop')

@@ -83,7 +83,7 @@ async function split(page: Page, title: string) {
   await expect(page.getByTestId('editor-group')).toHaveCount(2)
 }
 
-async function selectView(pane: Locator, name: 'Graph' | 'App view') {
+async function selectView(pane: Locator, name: 'Graph' | 'App') {
   await pane.getByTestId('views-switcher').click()
   await pane.page().getByRole('menuitemradio', { name, exact: true }).click()
 }
@@ -181,8 +181,8 @@ test('simultaneous split panes paint and edit their own connection worlds regard
   await page.mouse.click(point.x, point.y)
   await expect(page.getByText('Editor world B', { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
-  await selectView(a, 'App view')
-  await selectView(b, 'App view')
+  await selectView(a, 'App')
+  await selectView(b, 'App')
   await expect(a.getByTestId('app-view-widget-preview')).toHaveAttribute('data-widget-view', 'pane-proof.viewA')
   await expect(b.getByTestId('app-view-widget-preview')).toHaveAttribute('data-widget-view', 'pane-proof.viewB')
   await a.locator('.tab-select', { hasText: 'Pane A' }).click()
