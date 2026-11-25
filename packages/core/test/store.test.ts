@@ -620,6 +620,22 @@ describe('DocumentStore.dispatch', () => {
     expect(store.doc.graphs.g0!.nodes.n1!.values.seed).toBe(9)
   })
 
+  it('node.setValues clears stored values in the same undo step', () => {
+    const store = makeStore()
+    store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { seed: 7, steps: 30 } } })
+    const out = store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { seed: 8 }, unset: ['steps', 'cfg'] } })
+    expect(out.ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ seed: 8 })
+    expect(store.revision).toBe(2)
+    store.undo()
+    expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ seed: 7, steps: 30 })
+    // Unsetting a key with nothing stored is a no-op with no undo entry.
+    const revision = store.revision
+    expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: {}, unset: ['cfg'] } }).ok).toBe(true)
+    expect(store.revision).toBe(revision)
+    expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { seed: 1 }, unset: ['seed'] } }).ok).toBe(false)
+  })
+
   it('node.setValues rejects unknown nodes and non-object values', () => {
     const store = makeStore()
     expect(

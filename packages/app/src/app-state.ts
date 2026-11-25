@@ -17,6 +17,7 @@ import {
   asPromptId,
   canonicalJson,
   canonicalTypeIdOf,
+  automaticValuesOfJob,
   companionSourcesOf,
   compile,
   documentResolver,
@@ -136,6 +137,7 @@ import {
   type Vec2,
   type CompileArtifact,
 } from '@dinkster/core'
+import { lookupAnswersOf } from './lookup-demand.js'
 import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
@@ -147,6 +149,7 @@ import {
   type LookupClient,
   discoverBackend,
   hydrateDinksterCompletedExecution,
+  noEngineOpen,
   probeSupervisorStatus,
   reconcileDinksterExecutions,
   restartSupervisorEngine,
@@ -5113,10 +5116,12 @@ export class AppState {
     return tab.execution ? undefined : this.backendForTab(tab).keptRegistry.get()
   }
 
-  /** Why what the engine answers is off for this tab: its real node table has not arrived. */
+  /** Why what the engine answers is off for this tab: no engine is open, or its real node table has not arrived. */
   engineOffReason(tab: Tab, message: (key: string) => string): string | undefined {
+    const backend = this.backendForTab(tab)
+    if (noEngineOpen(backend.supervisor.get())) return message('shell.engine.notRunning')
     if (tab.execution || this.registryForTab(tab) !== undefined) return undefined
-    return message(this.backendForTab(tab).schemaState.get().status === 'error' ? 'shell.engine.notAnswering' : 'shell.engine.stillStarting')
+    return message(backend.schemaState.get().status === 'error' ? 'shell.engine.notAnswering' : 'shell.engine.stillStarting')
   }
 
   /** Pane-local widget definitions, independent of the focused shell's world. */
@@ -7947,6 +7952,7 @@ export class AppState {
       outputs,
       artifacts: job.artifacts ?? [],
       ...(result.submittedBy === undefined ? {} : { submittedBy: result.submittedBy }),
+      automaticValues: automaticValuesOfJob(job),
       jobRef: result.jobRef,
       sourceDocument: result.sourceDocument,
       queuedAt: result.queuedAt,
@@ -8221,6 +8227,9 @@ export class AppState {
       // Capability-negotiated graph wire forms (e.g. $typed) are gated on
       // the TARGET backend's advertised features, exactly like the registry.
       ...(registry.graphFeatures ? { graphFeatures: registry.graphFeatures } : {}),
+      // An automatic lookup field copied into another node passes on the
+      // answer its row shows; a frozen view of a run calls no lookups.
+      ...(tab.execution === undefined ? { lookupAnswers: lookupAnswersOf(backend.lookups) } : {}),
     }
   }
 

@@ -28,6 +28,8 @@ function fakeCtx(charWidth = 6) {
   const transforms: Array<{ method: 'translate' | 'scale'; x: number; y: number }> = []
   const images: Array<{ image: unknown; x: number; y: number; width: number; height: number }> = []
   let pendingRect: { x: number; y: number; width: number; height: number; radius: number } | undefined
+  const arcs: Array<{ x: number; y: number; fillStyle: string }> = []
+  let pendingArc: { x: number; y: number } | undefined
   let pendingPoints: Array<{ x: number; y: number }> = []
   const ctx = {
     fillStyle: '',
@@ -36,12 +38,12 @@ function fakeCtx(charWidth = 6) {
     font: '12px system-ui',
     globalAlpha: 1,
     textAlign: 'left',
-    beginPath: () => { pendingPoints = []; pendingRect = undefined },
+    beginPath: () => { pendingPoints = []; pendingRect = undefined; pendingArc = undefined },
     save: () => {},
     restore: () => {},
     translate: (x: number, y: number) => { transforms.push({ method: 'translate', x, y }) },
     scale: (x: number, y: number) => { transforms.push({ method: 'scale', x, y }) },
-    arc: () => {},
+    arc: (x: number, y: number) => { pendingArc = { x, y } },
     moveTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
     lineTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
     stroke() { strokes.push({ points: [...pendingPoints], strokeStyle: String(this.strokeStyle) }) },
@@ -50,6 +52,7 @@ function fakeCtx(charWidth = 6) {
     roundRect: (x: number, y: number, width: number, height: number, radius: number) => { pendingRect = { x, y, width, height, radius } },
     fill() {
       if (pendingRect) roundedFills.push({ ...pendingRect, fillStyle: String(this.fillStyle) })
+      if (pendingArc) arcs.push({ ...pendingArc, fillStyle: String(this.fillStyle) })
     },
     fillRect(x: number, y: number, width: number, height: number) {
       fills.push({ x, y, width, height, fillStyle: String(this.fillStyle) })
@@ -61,7 +64,7 @@ function fakeCtx(charWidth = 6) {
       textCalls.push({ text, x, y, align: this.textAlign as CanvasTextAlign, fill: String(this.fillStyle), font: this.font })
     },
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes, transforms, images }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes, arcs, transforms, images }
 }
 
 const LABEL = 'control_after_generate'
@@ -606,6 +609,62 @@ describe('registry painter label/value split', () => {
       { text: 'alpha', y: 35 },
       { text: 'second canonical', y: 55 },
     ])
+  })
+})
+
+describe('an automatic value', () => {
+  const paintAutomatic = (value: number | undefined, automatic: NonNullable<Extract<LayoutRow, { kind: 'widget' }>['automatic']>, kept?: string) => {
+    const { ctx, textCalls, arcs } = fakeCtx()
+    createRegistryPainter(registry)({
+      ctx,
+      row: { ...rowWith(24), label: 'frame_rate', automatic, ...(kept === undefined ? {} : { kept }) },
+      value,
+      x: 0,
+      y: 0,
+      width: 280,
+      rowHeight: 24,
+      connected: false,
+      tokens: defaultTokens,
+    })
+    const shown = String(value ?? automatic.value)
+    const word = textCalls.find((call) => call.text !== 'frame_rate' && call.text !== shown)
+    return { value: textCalls.find((call) => call.text === shown)!, word, arcs }
+  }
+  const gap = canvasPaintTokens.widget.valueWordGap
+
+  it('shows the word auto, a gap, then the worked-out value, dimmed, with no dot', () => {
+    const { value, word, arcs } = paintAutomatic(undefined, { value: 30, state: 'worked-out' })
+    expect(value.text).toBe('30')
+    expect(value.fill).toBe(defaultTokens.colors.label)
+    expect(word).toMatchObject({ align: 'right', fill: defaultTokens.colors.label })
+    // Right-aligned at 6 px a character: the word ends one gap before the value starts.
+    expect(gap).toBeGreaterThanOrEqual(8)
+    expect(value.x - 2 * 6 - word!.x).toBe(gap)
+    expect(arcs).toEqual([])
+  })
+
+  it('puts a warning dot before auto when the default is used', () => {
+    const { value, word, arcs } = paintAutomatic(undefined, { value: 24, state: 'default', reason: 'failed' })
+    expect([word?.text, value.text]).toEqual(['auto', '24'])
+    expect(arcs).toHaveLength(1)
+    expect(arcs[0]!.fillStyle).toBe(defaultTokens.colors.warningMark)
+    // Right-aligned value: the dot sits left of the word.
+    expect(arcs[0]!.x).toBeLessThan(word!.x - 4 * 6)
+  })
+
+  it('reads the kept word only, with no auto and no dot, on a row kept for its wire', () => {
+    const { value, word, arcs } = paintAutomatic(undefined, { value: 24, state: 'default', reason: 'failed' }, 'Kept for the wire on its output.')
+    expect(word?.text).not.toBe('auto')
+    expect(value.text).toBe('24')
+    expect(value.x - 2 * 6 - word!.x).toBe(gap)
+    expect(arcs).toEqual([])
+  })
+
+  it('shows a stored value as any value', () => {
+    const { value, arcs } = paintAutomatic(25, { value: 24, state: 'worked-out' })
+    expect(value.text).toBe('25')
+    expect(value.fill).toBe(defaultTokens.colors.value)
+    expect(arcs).toEqual([])
   })
 })
 

@@ -19,6 +19,8 @@ import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
 import type { ToolboxButton } from './toolbox.js'
 
 const paint = canvasPaintTokens.widget
+/** The word before an automatic value. */
+const AUTOMATIC_WORD = 'auto'
 /** The word before the value of a row that stays only for the wire on its output. */
 const KEPT_WORD = 'inactive'
 const TEXT_PAD = paint.textPadding
@@ -183,10 +185,14 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       paintCompanionValue(args, summary)
       return
     }
-    const resolved: Json = value !== undefined ? value : (kind.defaultValue(row.spec) as Json)
-    // A kept row shows "inactive" before its value.
-    const keptWord = row.kept !== undefined
-    const keptReserve = keptWord ? measureWidth(ctx, KEPT_WORD) + paint.valueWordGap : 0
+    // A field with nothing stored that declares automatic shows the value it
+    // has in use, after the word "auto". A kept row shows its own word before
+    // its value instead, and then no "auto".
+    const automatic = value === undefined ? row.automatic : undefined
+    const resolved: Json = value !== undefined ? value : automatic !== undefined ? automatic.value : (kind.defaultValue(row.spec) as Json)
+    const valueWord = row.kept !== undefined ? KEPT_WORD : automatic !== undefined ? AUTOMATIC_WORD : undefined
+    const automaticDot = valueWord === AUTOMATIC_WORD && automatic?.state === 'default' ? paint.automaticDot.radius * 2 + paint.automaticDot.gap : 0
+    const wordReserve = valueWord === undefined ? 0 : measureWidth(ctx, valueWord) + paint.valueWordGap + automaticDot
     // Draw the shared row chrome (label) then let the view draw its content.
     const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)
     if (row.viewId !== 'core.compositor') {
@@ -264,7 +270,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ? measureWidth(ctx, '#ffffff') + paint.colorValueReserve
       : valuePreview === undefined
         ? usableWidth * paint.structuredValueRatio
-        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding + keptReserve
+        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding + wordReserve
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
         + (args.editorSummary?.thumbnail !== undefined && !row.unfolded ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
@@ -435,7 +441,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
             const role = style['role']
-            const marked = keptWord && (role === undefined || role === 'widgetValue')
+            const marked = valueWord !== undefined && (role === undefined || role === 'widgetValue')
             const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
             const items = stringList(style['items'])
             // Unfolded, the editor shows the picture itself, so the row drops its small copy.
@@ -443,7 +449,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const markReserve = (modeIcon !== undefined && role === 'widgetValue' && alignRight ? modeIconReserve : 0)
               + (swatch !== undefined ? paint.valueSwatch.size + paint.valueSwatch.gap : 0)
               + (thumbnail !== undefined ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
-            const iconReserve = markReserve + (marked ? keptReserve : 0)
+            const iconReserve = markReserve + (marked ? wordReserve : 0)
             const fitWidth = Math.max(0, availableWidth - iconReserve)
             const text = items !== undefined ? fitItems(ctx, items, fitWidth)
               : ellipsize(ctx, run.split('\n')[0] ?? '', fitWidth)
@@ -458,14 +464,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               const placeholder = style['placeholder'] === true
               // A dragged plain number shows its moving value in the accent; a slider shows its fill instead.
               const draggedValue = inRow && args.dragging === true && !declaredSlider && role === 'widgetValue'
-              // A kept value and its word are dimmed, as a placeholder is.
+              // A value with a word before it ("auto", or a kept row's word) is dimmed with its word, as a placeholder is.
               ctx.fillStyle = placeholder ? tokens.colors.label : draggedValue ? tokens.colors.widgetAffordanceActive
                 : marked ? tokens.colors.label : tokens.colors.value
               if (placeholder) ctx.font = `italic ${ctx.font}`
               ctx.beginPath()
               ctx.rect(alignRight ? zoneRight - zoneWidth : px + reserveLeft, clipTop, zoneWidth, clipBottom - clipTop)
               ctx.clip()
-              const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + (marked ? keptReserve : 0)
+              const before = marked ? wordReserve : 0
+              const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + before
               const textY = centered ? chrome.y + chrome.height / 2 : y + (ty + 0.5) * rowHeight
               ctx.fillText(text, textX, textY)
               if (centered) sketchValueWidth = measureWidth(ctx, text) + TEXT_PAD * 2
@@ -494,7 +501,14 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
                 const wordRight = alignRight ? textX - measureWidth(ctx, text) - markReserve - paint.valueWordGap : textX - paint.valueWordGap
                 ctx.textAlign = 'right'
                 ctx.fillStyle = tokens.colors.label
-                ctx.fillText(KEPT_WORD, wordRight, textY)
+                ctx.fillText(valueWord!, wordRight, textY)
+                if (automaticDot > 0) {
+                  const radius = paint.automaticDot.radius
+                  ctx.fillStyle = tokens.colors.warningMark
+                  ctx.beginPath()
+                  ctx.arc(wordRight - measureWidth(ctx, valueWord!) - paint.automaticDot.gap - radius, textY, radius, 0, Math.PI * 2)
+                  ctx.fill()
+                }
               }
               // A host's editor summary is what the editor shows, an arriving value included, so it is never struck.
               if (args.connected && summary === undefined && (role === undefined || role === 'widgetValue')) {

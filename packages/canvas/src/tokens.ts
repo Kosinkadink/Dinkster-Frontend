@@ -545,7 +545,9 @@ export const canvasPaintTokens = {
     valueWidthPadding: canvasSemanticTokens.space[16],
     swatchReserve: canvasSemanticTokens.space[16],
     toggleReserve: canvasSemanticTokens.space[12],
-    /** Room between a word about a value ("inactive") and the value. */
+    /** An automatic value's dot, drawn before "auto" when the default is used. */
+    automaticDot: { radius: 3, gap: canvasSemanticTokens.space[4] },
+    /** Room between a word about a value ("auto", "inactive") and the value: the open field's room between auto and its hint. */
     valueWordGap: canvasSemanticTokens.space[8],
     toggle: {
       trailingInset: 22,
@@ -893,6 +895,8 @@ export interface DesignTokens {
      * document-level problems the solver proved, independent of execution.
      */
     readonly error: string
+    /** The dot before a row's value that could not be worked out, so its default is used. */
+    readonly warningMark: string
   }
   /** Data-type -> pin/link color. Unknown types get a stable hashed hue. */
   readonly typeColors: Readonly<Record<string, string>>
@@ -1071,6 +1075,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,
     error: tokens.meaning.danger.border,
+    warningMark: tokens.meaning.warning.border,
     boxOutline: tokens.border.box,
     boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
     boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,

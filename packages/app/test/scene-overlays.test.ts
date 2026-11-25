@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEPRECATED_BADGE, executionErrorBadge, LAST_RUN_BADGE, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
+import { buildScene, defaultTokens, DEPRECATED_BADGE, executionErrorBadge, LAST_RUN_BADGE, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
 import { asConnectionId, asGraphDefId, asLinkId, asNodeId, asPortId, compile, occurrenceKey, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
-import { applyNodeDecorations, deriveSceneOverlays, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
+import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, representedPreviewAssetForNode, withRecordedAutomaticValues, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
 import type { PreviewLoader, PreviewSource } from '../src/node-previews.js'
 
 // The derivation reads scene.nodes (id/isSubgraph/node.type), execution
@@ -1060,6 +1060,41 @@ describe('deriveSceneOverlays', () => {
     })
   })
 
+  it('shows on a field a tap feeds the automatic value the tapped field has in use, as a run sends it', () => {
+    const number = (id: string, extra: Record<string, unknown>) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', types: ['FLOAT'] }, required: true, widget: { type: 'NUMBER', min: 0, max: 1000 }, ...extra })
+    const wire = (nodeType: string, body: unknown[]) =>
+      [nodeType, { schemaVersion: 2, nodeType, version: 1, displayName: nodeType, category: 'test', body }]
+    const { schemas } = parseDinksterNodes({
+      schemaVersion: 2,
+      dinkster: { schemaWire: 2 },
+      nodes: Object.fromEntries([
+        // fps declares 24 and works out to rate / 4 = 12 while nothing is stored.
+        wire('test.retime', [number('rate', { default: 48 }), number('fps', { default: 24, automatic: { formula: 'rate / 4' } }),
+          { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['FLOAT'] } }]),
+        wire('test.sink', [number('rate', { default: 1 }), { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['FLOAT'] } }]),
+      ]),
+    } as never)
+    const def = {
+      id: 'g0', name: 'root', nets: {}, reroutes: {}, nextOrdinal: 5,
+      nodes: { src: { id: 'src', type: 'test.retime', values: {} }, sink: { id: 'sink', type: 'test.sink', values: {} } },
+      links: { l1: { id: 'l1', from: { node: 'src', tap: 'fps' }, to: { node: 'sink', port: 'rate' } } },
+    } as unknown as GraphDef
+    const doc = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'automatic-tap', root: 'g0', graphs: { g0: def }, view: { graphs: {} } } as unknown as WorkflowDocument
+    const resolveSchema = (type: string) => schemas.get(type)
+
+    const compiled = compile({ document: doc, revision: 1, resolve: resolveSchema, scope: { kind: 'full' },
+      connection: asConnectionId('c0'), schemaHash: 'h' })
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (!compiled.ok) return
+    const sent = compiled.artifact.prompt['sink']!.inputs['rate']
+    expect(sent).toBe(12)
+
+    const built = buildScene({ document: doc, graphId: 'g0', resolve: resolveSchema, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }) })
+    expect(deriveSceneOverlays({ ...base, scene: built, doc, def, resolveSchema }).companions).toEqual({ sink: { rate: { value: sent } } })
+  })
+
   it('adds counted document problem tabs without replacing the runtime error badge', () => {
     const cause = (kind: 'error' | 'warning', code: string) => ({
       kind, diagnostic: { severity: kind, origin: 'compile' as const, code, message: code },
@@ -1877,5 +1912,99 @@ describe('glsl image estimate overlay', () => {
       expect(m.previews['a1']).toBeUndefined()
       expect(estimate).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('last run automatic warnings', () => {
+  // A scene node with automatic rows, as layout draws them.
+  const automaticScene = (nodes: Record<string, Record<string, 'worked-out' | 'default' | undefined>>): Scene =>
+    ({
+      nodes: Object.entries(nodes).map(([id, rows]) => ({
+        id,
+        layout: {
+          rows: Object.entries(rows).map(([key, state]) => ({
+            kind: 'widget', inputId: key, valueKey: key, label: key.replace('_', ' '),
+            ...(state === undefined ? {} : { automatic: { value: 30, state } }),
+          })),
+        },
+      })),
+    }) as unknown as Scene
+  const run = (toSource: Record<string, string>, automaticValues: readonly unknown[], graphs: Record<string, unknown> = {}) =>
+    ({ artifact: { provenance: { toSource }, snapshot: { root: 'g0', graphs } }, automaticValues }) as unknown as ExecutionState
+
+  it('warns on a field the run filled with its default only while the editor works it out', () => {
+    const view = automaticScene({
+      a: { frame_rate: 'worked-out', other: 'worked-out', fixed: undefined },
+      b: { frame_rate: 'default' },
+    })
+    const execution = run({ r1: 'a', r2: 'b' }, [
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
+      { runtimeNodeId: 'r1', inputId: 'other', value: 5, workedOut: true },
+      { runtimeNodeId: 'r1', inputId: 'fixed', value: 1, workedOut: false },
+      { runtimeNodeId: 'r2', inputId: 'frame_rate', value: 24, workedOut: false },
+    ])
+
+    const found = lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] })
+
+    expect(found.map((d) => [d.severity, d.message, d.anchor?.port])).toEqual([
+      ['warning', 'The last run could not work out frame rate and used the default, 24.', { node: 'a', port: 'frame_rate' }],
+    ])
+  })
+
+  it('maps runtime ids through provenance to the viewed instance only', () => {
+    const view = automaticScene({ inner: { frame_rate: 'worked-out' } })
+    const execution = run({ r1: 'sub.inner', r2: 'other.inner' }, [
+      { runtimeNodeId: 'r2', inputId: 'frame_rate', value: 12, workedOut: false },
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
+    ])
+
+    expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: ['sub'] }).map((d) => d.message))
+      .toEqual(['The last run could not work out frame rate and used the default, 24.'])
+    expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] })).toEqual([])
+  })
+
+  it('finds a field promoted to a subgraph node through each boundary it crosses', () => {
+    const view = { ...automaticScene({ sub: { fps: 'worked-out', frame_rate: 'worked-out' } }), diagnostics: [] } as unknown as Scene
+    const port = (id: string, node: string, inner: string) => ({ id, binds: { kind: 'port', node, port: inner } })
+    const execution = run({ r1: 'sub.mid.inner' }, [
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
+    ], {
+      g0: { nodes: { sub: { type: '#outer' } } },
+      outer: { nodes: { mid: { type: '#middle' } }, boundary: { inputs: [port('fps', 'mid', 'rate')] } },
+      middle: { nodes: { inner: { type: 'Video' } }, boundary: { inputs: [port('rate', 'inner', 'frame_rate')] } },
+    })
+
+    expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] }).map((d) => d.anchor?.port))
+      .toEqual([{ node: 'sub', port: 'fps' }])
+    const rows = withRecordedAutomaticValues(view, execution, []).nodes[0]!.layout.rows as readonly { valueKey: string; automatic?: unknown }[]
+    expect(Object.fromEntries(rows.map((row) => [row.valueKey, row.automatic]))).toEqual({
+      fps: { value: 24, state: 'default' },
+      frame_rate: { value: 30, state: 'worked-out' },
+    })
+  })
+
+  it('shows in a frozen view the value each field used in its run, not one worked out now', () => {
+    const view = {
+      ...automaticScene({ a: { frame_rate: 'worked-out', other: 'default', fixed: undefined } }),
+      diagnostics: [{ severity: 'warning', origin: 'schema', code: 'automatic.default', message: 'now',
+        anchor: { port: { node: 'a', port: 'other' } }, data: { input: 'other' } }],
+    } as unknown as Scene
+    const execution = run({ r1: 'a' }, [
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
+      { runtimeNodeId: 'r1', inputId: 'other', value: 12, workedOut: true },
+      { runtimeNodeId: 'r1', inputId: 'fixed', value: 1, workedOut: true },
+    ])
+
+    const frozen = withRecordedAutomaticValues(view, execution, [])
+
+    const rows = frozen.nodes[0]!.layout.rows as readonly { valueKey: string; automatic?: unknown }[]
+    expect(Object.fromEntries(rows.map((row) => [row.valueKey, row.automatic ?? null]))).toEqual({
+      frame_rate: { value: 24, state: 'default' },
+      other: { value: 12, state: 'worked-out' },
+      fixed: null,
+    })
+    expect(frozen.diagnostics.map((d) => [d.code, d.message])).toEqual([
+      ['automatic.default', 'Could not work out frame rate. Using the default, 24.'],
+    ])
   })
 })

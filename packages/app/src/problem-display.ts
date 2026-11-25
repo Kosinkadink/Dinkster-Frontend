@@ -47,7 +47,19 @@ export function composeCanvasProblemDiagnostics(args: {
   readonly artifact?: readonly Diagnostic[]
   readonly execution?: readonly Diagnostic[]
 }): readonly Diagnostic[] {
-  return [...args.owned, ...args.scene, ...(args.artifact ?? []), ...(args.execution ?? [])]
+  const others = [...args.owned, ...(args.artifact ?? []), ...(args.execution ?? [])]
+  return [...args.owned, ...withoutPassedOnDefaults(args.scene, others), ...(args.artifact ?? []), ...(args.execution ?? [])]
+}
+
+/**
+ * The editor's own warnings without a field's "Using the default" when
+ * `others` say that default was passed on to another node: the field is
+ * listed once, by the warning that names that node.
+ */
+export function withoutPassedOnDefaults(own: readonly Diagnostic[], others: readonly Diagnostic[]): readonly Diagnostic[] {
+  const field = (d: Diagnostic): string => JSON.stringify([d.anchor?.port?.node, d.data?.['input']])
+  const passedOn = new Set(others.filter((d) => d.code === 'automatic.tapDefault').map(field))
+  return passedOn.size === 0 ? own : own.filter((d) => d.code !== 'automatic.default' || !passedOn.has(field(d)))
 }
 
 interface DiagnosticNodeTarget {

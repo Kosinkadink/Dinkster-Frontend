@@ -46,6 +46,7 @@ import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
 import { InNodeEditorsGallery } from './in-node-editors.js'
 import { RowEditingGallery } from './row-editing.js'
+import { RowAutomaticGallery } from './row-automatic.js'
 import { RowListsGallery } from './row-lists.js'
 import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
@@ -78,6 +79,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widgets',
         'core-rows',
         'row-editing',
+        'row-automatic',
         'row-lists',
         'lookups',
         'color-editing',
@@ -176,6 +178,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'row-automatic':
+    'A number whose value is automatic: closed, opened, stepped, while a lookup loads, and when it cannot be worked out.',
   'row-lists':
     'A choice, and a list a pack fills from a lookup, open one filtered list in their own row: the value becomes the filter, a check marks the stored option and the grey highlight the candidate. Opening, filtering, refreshing or Tab never changes the stored value; only Enter or a click picks. Model and media fields are asset fields and keep their own editor; a list of plain names is what a pack\'s own dropdown shows.',
   lookups:
@@ -612,7 +616,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -719,6 +723,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'row-automatic'}>
+          <RowAutomaticGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'in-node-editors'}>
           <InNodeEditorsGallery theme={theme()} />
