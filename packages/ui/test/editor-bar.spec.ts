@@ -120,3 +120,51 @@ test('the left bar account menu opens beside the bar, upward from its trigger', 
     await expect(trigger).toBeFocused()
   }
 })
+
+test('the logo sits over the left bar and the panel switches sit at the right end', async ({
+  page,
+}) => {
+  await page.goto('/#editor-bar')
+  const editor = page.getByRole('region', { name: 'Editor' })
+  const bar = editor.locator('header')
+  const logo = bar.getByRole('button', { name: 'Dinkster menu', exact: true })
+  const project = bar.getByRole('button', {
+    name: 'Film grain tests',
+    exact: true,
+  })
+  const rail = (await editor
+    .getByRole('navigation', { name: 'Primary navigation' })
+    .boundingBox())!
+  // The logo draws only the D symbol; the project keeps its arrow.
+  await expect(logo.locator('svg')).toHaveCount(0)
+  await expect(project.locator('svg')).toHaveCount(2)
+  for (const platform of ['browser', 'win32', 'linux', 'darwin']) {
+    await page.getByLabel('Platform', { exact: true }).selectOption(platform)
+    const mark = (await logo.boundingBox())!
+    const start = (await project.boundingBox())!.x
+    if (platform === 'darwin') {
+      expect(mark.x).toBeGreaterThan(rail.x + rail.width)
+      expect(start).toBeGreaterThan(mark.x + mark.width)
+    } else {
+      expect(mark.x + mark.width / 2).toBeCloseTo(rail.x + rail.width / 2, 0)
+      expect(start).toBeCloseTo(rail.x + rail.width, 0)
+    }
+    expect(
+      await bar
+        .locator('.dinkster-window-toolbar-actions button')
+        .evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute('aria-label')),
+        ),
+    ).toEqual([
+      'Collaboration',
+      'Customize layout',
+      'Left panel',
+      'Bottom panel',
+      'Right panel',
+    ])
+  }
+  const arrow = project.locator('svg').last()
+  const rest = await arrow.evaluate((node) => getComputedStyle(node).color)
+  await project.hover()
+  await expect(arrow).not.toHaveCSS('color', rest)
+})

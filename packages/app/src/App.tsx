@@ -45,7 +45,6 @@ import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, 
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import { AccountControl, createAccountSession } from './AccountControl.js'
-import ChevronDown from 'lucide-solid/icons/chevron-down'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
@@ -291,7 +290,7 @@ export function DinksterAppMenu(props: {
     <div class="app-menu" ref={root}>
       <ProductWindowAction
         label={message('shell.applicationTitle')}
-        labelContent={<><ProductBrandMark /><ProductIcon icon={ChevronDown} /></>}
+        labelContent={<ProductBrandMark />}
         icon={() => <ProductBrandMark />}
         ref={button}
         data-testid="dinkster-menu-button"
@@ -2966,6 +2965,7 @@ export function App(props: {
             <ProductWindowAction label={message('shell.window.moveToMain')} icon={PanelTop} data-testid="redock-workflow" onClick={redockCurrentWindow} />
           </Show>
           <CancelExecutionButton toolbar app={app} execution={(executions(), activeTab(), app.currentCancellableExecution())} />
+          <ProductIconButton label={message('shell.panel.workspace.title')} icon={Users} data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} onClick={() => app.modalPanel.set('collab')} />
           <span class="app-layout-menu" ref={layoutMenu}><ProductMenu
             label={message('command.layout.customize')}
             icon={SlidersHorizontal}
@@ -2996,7 +2996,6 @@ export function App(props: {
               onClick={() => app.dock.setOpen('right', !railOpen())}
             />
           </Show>
-          <ProductIconButton label={message('shell.panel.workspace.title')} icon={Users} data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} onClick={() => app.modalPanel.set('collab')} />
         </>}
       />
       <ProductToast notification={projectPackNotification()} onDismiss={() => app.projectPackNotification.set(undefined)} />

@@ -12,7 +12,6 @@ import {
 import { render } from 'solid-js/web'
 import {
   Bell,
-  ChevronDown,
   CircleAlert,
   Ellipsis,
   LayoutList,
@@ -1243,6 +1242,7 @@ function WindowToolbarGallery() {
                                 label="Dinkster"
                                 triggerName="Dinkster menu"
                                 icon={() => <ProductBrandMark />}
+                                iconOnly
                                 items={[
                                   {
                                     label: 'Projects',
@@ -1255,12 +1255,7 @@ function WindowToolbarGallery() {
                           >
                             <ProductWindowAction
                               label="Dinkster menu"
-                              labelContent={
-                                <>
-                                  <ProductBrandMark />
-                                  <ProductIcon icon={ChevronDown} />
-                                </>
-                              }
+                              labelContent={<ProductBrandMark />}
                               icon={() => <ProductBrandMark />}
                               pending={state() === 'pending'}
                               onClick={() => setActivity('Dinkster opened')}
@@ -1299,6 +1294,20 @@ function WindowToolbarGallery() {
                               label={runSummary()}
                             />
                           </Show>
+                          <Show when={state() !== 'idle'}>
+                            <ProductWindowAction
+                              label="Cancel run"
+                              icon={Square}
+                              intent="remove"
+                              pending={state() === 'pending'}
+                              onClick={() => setActivity('Run cancelled')}
+                            />
+                          </Show>
+                          <ProductIconButton
+                            label="Collaboration"
+                            icon={Users}
+                            onClick={() => setActivity('Collaboration opened')}
+                          />
                           <ProductMenu
                             label="Customize layout"
                             icon={Settings}
@@ -1348,20 +1357,6 @@ function WindowToolbarGallery() {
                               )}
                             </For>
                           </Show>
-                          <Show when={state() !== 'idle'}>
-                            <ProductWindowAction
-                              label="Cancel run"
-                              icon={Square}
-                              intent="remove"
-                              pending={state() === 'pending'}
-                              onClick={() => setActivity('Run cancelled')}
-                            />
-                          </Show>
-                          <ProductIconButton
-                            label="Collaboration"
-                            icon={Users}
-                            onClick={() => setActivity('Collaboration opened')}
-                          />
                         </>
                       )}
                     />

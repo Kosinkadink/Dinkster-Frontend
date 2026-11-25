@@ -635,9 +635,8 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
         'clip-path',
         'none',
       )
-      await expect(
-        action.locator('.dinkster-window-action-label > svg'),
-      ).toBeVisible()
+      // The D symbol alone, with no arrow.
+      await expect(action.locator('svg')).toHaveCount(0)
       const geometry = (await image.boundingBox())!
       expect(geometry.width).toBe(22)
       expect(geometry.height).toBe(22)
@@ -791,14 +790,14 @@ for (const state of ['running', 'pending'])
           const projectBounds = (await project.boundingBox())!
           const searchBounds = (await search.boundingBox())!
           expect(searchBounds.width).toBeGreaterThanOrEqual(116)
-          const layoutBounds = (await bar
-            .getByRole('button', { name: 'Customize layout', exact: true })
+          const actionsBounds = (await bar
+            .locator('.dinkster-window-toolbar-actions')
             .boundingBox())!
           // Search fills the space between the project and the actions.
           expect(
             searchBounds.x - projectBounds.x - projectBounds.width,
           ).toBeGreaterThanOrEqual(4)
-          expect(layoutBounds.x - searchBounds.x - searchBounds.width).toBe(4)
+          expect(actionsBounds.x - searchBounds.x - searchBounds.width).toBe(4)
         } else {
           await expect(search.locator('kbd')).toBeHidden()
           const width = (await text.boundingBox())!.width

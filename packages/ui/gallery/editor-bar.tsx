@@ -153,6 +153,7 @@ export function EditorBarGallery() {
                 label="Dinkster"
                 triggerName="Dinkster menu"
                 icon={() => <ProductBrandMark />}
+                iconOnly
                 items={[
                   ...accountItems(),
                   {
@@ -203,6 +204,11 @@ export function EditorBarGallery() {
                   onClick={() => setActivity('Run cancelled')}
                 />
               </Show>
+              <ProductIconButton
+                label="Collaboration"
+                icon={Users}
+                onClick={() => setActivity('Collaboration opened')}
+              />
               <ProductMenu
                 label="Customize layout"
                 icon={SlidersHorizontal}
@@ -227,11 +233,6 @@ export function EditorBarGallery() {
                   )}
                 </For>
               </Show>
-              <ProductIconButton
-                label="Collaboration"
-                icon={Users}
-                onClick={() => setActivity('Collaboration opened')}
-              />
             </>
           )}
         />

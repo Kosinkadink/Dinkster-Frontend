@@ -239,19 +239,18 @@
   .dinkster-window-toolbar .dinkster-window-action-icon { display: inline-flex; }
   .dinkster-window-toolbar .dinkster-window-action:has([aria-busy='true']) .dinkster-window-action-icon { display: none; }
   .dinkster-window-toolbar .dinkster-window-action > [aria-busy='true']:has(.dinkster-window-action-label .dinkster-icon, .dinkster-wordmark) > .dinkster-spinner { left: 50%; }
-  .dinkster-window-toolbar-brand .dinkster-menu-trigger:not([data-project]) { width: var(--dinkster-control-compact-height); padding-inline: 0; }
-  .dinkster-window-toolbar-brand .dinkster-menu-trigger:not([data-project]) > .dinkster-icon:last-child { display: none; }
 }
 .dinkster-window-toolbar-brand .dinkster-window-action > .dinkster-button,
-.dinkster-window-toolbar-brand .dinkster-menu-trigger:not([data-project]) { width: auto; padding-inline: 0; gap: var(--dinkster-space-4); }
+.dinkster-window-toolbar-brand .dinkster-menu-trigger:not([data-project]) { width: auto; justify-content: center; padding-inline: 0; gap: var(--dinkster-space-4); }
+/* Off macOS the logo is centred over the left icon bar and the next item starts where the panels start. */
+.dinkster-window-toolbar-host:not([data-platform='darwin']) .dinkster-window-toolbar-brand > :first-child { margin-inline-end: calc(var(--dinkster-space-12) - var(--dinkster-space-4)); }
+.dinkster-window-toolbar-host:not([data-platform='darwin']) .dinkster-window-toolbar-brand > :first-child:is(.dinkster-window-action, .dinkster-menu-anchor) > :is(.dinkster-button, .dinkster-menu-trigger),
+.dinkster-window-toolbar-host:not([data-platform='darwin']) .dinkster-window-toolbar-brand > :first-child > .dinkster-window-action > .dinkster-button { width: calc(var(--dinkster-icon-bar-width) - 2 * var(--dinkster-space-12)); }
 .dinkster-window-toolbar-brand .dinkster-window-action-label { position: static; clip-path: none; width: auto; height: auto; overflow: visible; gap: var(--dinkster-space-4); }
 .dinkster-window-toolbar-brand .dinkster-window-action-icon,
 .dinkster-window-toolbar-brand .dinkster-menu-trigger:not([data-project]) > .dinkster-menu-label { display: none; }
-.dinkster-window-toolbar-brand .dinkster-menu-trigger > .dinkster-icon:last-child { display: inline-flex; }
-.dinkster-window-toolbar-brand .dinkster-window-action [aria-busy='true'] .dinkster-window-action-label,
-.dinkster-window-toolbar-brand .dinkster-window-action [aria-busy='true'] .dinkster-window-action-label .dinkster-icon { visibility: visible; }
+.dinkster-window-toolbar-brand .dinkster-window-action [aria-busy='true'] .dinkster-window-action-label { visibility: visible; }
 .dinkster-window-toolbar-brand [aria-busy='true'] .dinkster-brand-mark { visibility: hidden; }
-.dinkster-window-toolbar-brand .dinkster-window-action > [aria-busy='true']:has(.dinkster-window-action-label .dinkster-brand-mark) > .dinkster-spinner { left: calc(var(--dinkster-border-width) + var(--dinkster-toolbar-brand-mark-size) / 2); }
 .dinkster-sign-in { display: inline-flex; }
 .dinkster-sign-in .dinkster-menu-trigger > .dinkster-icon { display: none; }
 .dinkster-window-toolbar .dinkster-sign-in .dinkster-button { width: var(--dinkster-control-compact-height); padding: 0; }
@@ -261,7 +260,7 @@
 .dinkster-desktop-preview { contain: layout paint; min-width: 0; height: calc(var(--dinkster-top-bar-height) * 6); background: var(--dinkster-surface-canvas); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 .dinkster-editor-preview { display: grid; grid-template-rows: auto 1fr; height: calc(var(--dinkster-top-bar-height) * 12); max-width: 100%; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-frame); }
 .dinkster-editor-preview-body { display: flex; min-height: 0; }
-.dinkster-editor-preview-rail { display: flex; flex-direction: column; align-items: center; gap: var(--dinkster-space-4); width: calc(var(--dinkster-control-compact-height) + var(--dinkster-space-16)); padding: var(--dinkster-space-4); }
+.dinkster-editor-preview-rail { display: flex; flex-direction: column; align-items: center; gap: var(--dinkster-space-4); width: var(--dinkster-icon-bar-width); padding: var(--dinkster-space-4); }
 .dinkster-editor-preview-rail-end { display: flex; flex-direction: column; align-items: center; gap: var(--dinkster-space-4); margin-top: auto; }
 .dinkster-editor-preview-canvas { flex: 1; margin: 0 var(--dinkster-space-4) var(--dinkster-space-4) 0; border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-canvas); }
 .dinkster-about-preview { background: var(--dinkster-surface-canvas); color: var(--dinkster-text-primary); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); }
@@ -273,6 +272,8 @@
 /* Block-level so the trigger takes its anchor's width and the name, not the trigger, gives way. */
 .dinkster-menu-trigger[data-project] { display: flex; justify-content: flex-start; gap: var(--dinkster-space-4); width: 100%; min-width: 0; padding-inline: var(--dinkster-space-8); }
 .dinkster-menu-trigger[data-project] > .dinkster-icon { flex: none; }
+.dinkster-menu-trigger[data-project] > .dinkster-icon:last-child { color: var(--dinkster-text-muted); }
+.dinkster-menu-trigger[data-project]:is(:hover, :focus-visible, [aria-expanded='true']) > .dinkster-icon:last-child { color: inherit; }
 .dinkster-project-name { flex: 0 1 auto; margin-inline-start: var(--dinkster-space-4); min-width: var(--dinkster-toolbar-project-name-min-width); max-width: var(--dinkster-toolbar-project-name-max-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dinkster-menu[data-project] { max-width: min(var(--dinkster-project-menu-max-width), calc(100vw - var(--dinkster-space-32))); }
 .dinkster-menu-item-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

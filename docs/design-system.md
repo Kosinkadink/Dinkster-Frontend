@@ -1006,10 +1006,14 @@ execution, account and project-name changes. In the expanded row Search takes
 spare grid width and gives it back first. Search keeps an unfilled outline, is
 capped at the 480px `toolbarSearchMaxWidth`, and centers on the window when the
 surrounding controls leave room; otherwise it stays within its available grid
-slot. The app-menu button uses the D symbol and chevron at every width, not a
-wordmark or a three-line menu icon. Its accessible name is unchanged. The
-brand slot may follow it with `ProductProjectMenu`: a folder, the project's name
-and a chevron at every width. The name shows at most 160px and shortens to 64px
+slot. The app-menu button uses the D symbol alone at every width, with no
+chevron, not a wordmark or a three-line menu icon. Its accessible name is
+unchanged. Off macOS it is centred over the 48px `iconBarWidth` column of the
+editor's left icon bar, and the next control in the brand slot starts at that
+column's edge, where the panels start; on macOS it follows the window buttons.
+The brand slot may follow it with `ProductProjectMenu`: a folder, the project's
+name and a chevron at every width. The chevron uses the muted text color at rest
+and the normal color on hover, keyboard focus and while the menu is open. The name shows at most 160px and shortens to 64px
 before anything else in the slot gives way, ending in an ellipsis; the full
 name is the trigger's accessible name and tooltip. Its menu lists the current
 project checked, up to 8 other projects in the order given, each with an
@@ -1030,17 +1034,17 @@ An optional `labelContent` replaces the expanded visible label. The required
 string `label` still owns the accessible name and title; rich content must be
 non-interactive. Compact mode clips action content and shows the action's icon
 without changing activation or menu ownership, except for the app-menu brand
-slot, which retains its D symbol and chevron at every width. Pending toolbar
+slot, which retains its D symbol at every width. Pending toolbar
 actions retain their exact non-pending width and shared disabled/focus behavior.
 The spinner replaces the compact icon, the leading icon in an expanded rich
-label, or the app-menu D symbol while keeping its chevron.
+label, or the app-menu D symbol.
 For a text-only expanded label, it replaces the drawn text at the center while
 the label continues to supply the accessible name. No other control moves when
 an action becomes pending. Ordinary ProductButton presentation is unchanged.
 The actions slot also accepts a render function receiving a reactive `narrow`
-accessor. It switches below the fixed 418px available-content token
+accessor. It switches below the fixed 406px available-content token
 `toolbarFullRowWidth`, after native reservations, independently of account or
-execution state; 418px is the widest gallery row's measured need with the
+execution state; 406px is the widest gallery row's measured need with the
 project in the brand slot and no account. The layout menu then holds the left, bottom and right panel
 switches together, followed by left bar, status bar and Reset layout. In the full
 row the three panel switches stay in the bar and are not repeated in the menu.
@@ -1050,7 +1054,9 @@ navigation and dismissal. The host owns visibility and commands in either place.
 Compact and narrow brand triggers show the bundled 22px color D symbol inside
 32px controls, with the accessible name Dinkster menu. Toolbar icon buttons are
 unboxed at rest; hover and pressed use shared interaction fills. Cancel run
-retains its coral outline. Collaboration uses the two-person Users icon.
+retains its coral outline. Collaboration uses the two-person Users icon and
+comes before the layout menu and the panel switches, which then sit next to the
+window buttons on every platform.
 `ProductMenu.triggerName` separates the accessible trigger name from its drawn
 label and menu name when needed.
 

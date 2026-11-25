@@ -240,6 +240,11 @@ nativeTest('editor bar holds the project menu and the left bar holds the account
   const accountBox = (await account.boundingBox())!
   const settingsBox = (await page.getByTestId('settings-button').boundingBox())!
   expect(accountBox.y + accountBox.height).toBeLessThanOrEqual(settingsBox.y)
+  // The logo is centred over the left bar; the project starts where the panels start.
+  const railBox = (await rail.boundingBox())!
+  const logoBox = (await page.getByTestId('dinkster-menu-button').boundingBox())!
+  expect(logoBox.x + logoBox.width / 2).toBeCloseTo(railBox.x + railBox.width / 2, 0)
+  expect((await trigger.boundingBox())!.x).toBeCloseTo(railBox.x + railBox.width, 0)
 
   await trigger.click()
   const menu = page.getByRole('menu', { name: 'Projects', exact: true })
