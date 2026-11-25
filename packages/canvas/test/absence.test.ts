@@ -10,6 +10,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  asConnectionId,
+  compile,
   documentResolver,
   type InputSpec,
   type NodeProgress,
@@ -58,7 +60,9 @@ const schemas: Record<string, NodeSchema> = {
   Sink2: schemaOf('Sink2', [input('a'), input('b')]),
   /** Two inputs of different types; bypassed, its MASK output passes on the MASK input. */
   Blend: schemaOf('Blend', [input('image'), input('mask', { type: MASK }), output('out', { type: MASK })]),
+  WildBlend: schemaOf('WildBlend', [input('image'), input('mask', { type: MASK, optional: true }), output('out', { type: { kind: 'wildcard' } })]),
   MaskSrc: schemaOf('MaskSrc', [output('out', { type: MASK })]),
+  MaybeMaskSrc: schemaOf('MaybeMaskSrc', [output('out', { type: MASK, optional: true })]),
   MaskSink: schemaOf('MaskSink', [input('in', { type: MASK })]),
   Pass: schemaOf('Pass', [input('in'), output('out')]),
   IntSrc: schemaOf('IntSrc', [output('out', { type: INT })]),
@@ -318,6 +322,39 @@ describe('wires out of muted nodes', () => {
     expect(link('l2').maybeAbsent).toBeUndefined()
     expect(link('l4').maybeAbsent).toBe(true)
     expect(link('l4').sourceMuted).toBeUndefined()
+  })
+
+  it('draws a generic bypass route from the same producer the consumer runs', () => {
+    for (const sink of ['Sink', 'MaskSink']) {
+      for (const muted of [false, true]) {
+        const doc = docOf({
+          g0: {
+            nodes: {
+              i: { type: 'Src' },
+              m: { type: 'MaybeMaskSrc', ...(muted ? { mode: 'muted' as const } : {}) },
+              b: { type: 'WildBlend', mode: 'bypassed' },
+              k: { type: sink },
+            },
+            links: [
+              [['i', 'out'], ['b', 'image']],
+              [['m', 'out'], ['b', 'mask']],
+              [['b', 'out'], ['k', 'in']],
+            ],
+          },
+        })
+        const result = compile({
+          document: doc, revision: 1, resolve: (type) => schemas[type],
+          scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test',
+        })
+        expect(result.ok).toBe(true)
+        if (!result.ok) continue
+        const mask = sink === 'MaskSink'
+        expect(result.artifact.prompt['k']!.inputs['in']).toEqual(mask && muted ? undefined : [mask ? 'm' : 'i', 0])
+        const drawn = sceneOf(doc).links.find((link) => link.id === 'l2')!
+        expect(drawn.maybeAbsent, `${sink}, muted=${muted}`).toBe(mask ? true : undefined)
+        expect(drawn.sourceMuted, `${sink}, muted=${muted}`).toBe(mask && muted ? true : undefined)
+      }
+    }
   })
 
   it('follows a node that passes on its field\'s value to the wire into that field', () => {

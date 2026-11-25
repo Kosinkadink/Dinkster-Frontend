@@ -42,6 +42,12 @@ const blur = schema('Blur', 'Blur', [input('image', 'IMAGE'), out('IMAGE', 'IMAG
 /** Takes a face when there is one. */
 const retouch = schema('Retouch', 'Retouch', [input('face', 'IMAGE', true), out('IMAGE', 'IMAGE')])
 const sampler = schema('Sampler', 'Sampler', [input('latent', 'LATENT'), out('LATENT', 'LATENT')])
+const findMask = schema('Find mask', 'Find mask', [{ ...out('MASK', 'MASK'), optional: true }])
+const useMask = schema('Use mask', 'Use mask', [input('mask', 'MASK', true)])
+const bypass = schema('Bypass', 'Bypassed node', [
+  input('image', 'IMAGE'), input('mask', 'MASK', true),
+  { kind: 'output', id: 'value', displayName: 'Value', type: { kind: 'wildcard' } },
+])
 
 const SOURCE_WIDTH = 160
 const pair = (
@@ -157,6 +163,19 @@ export function wireLooksGallery(
 
   const outlines = scene(pair(loadImage, 'IMAGE', blur, 'image', 0, false, '', 160))
   const outlineGroup = { id: 'sources', title: 'Sources', x: -20, y: 170, width: 600, height: 110 }
+  const bypassRoute = (muted: boolean): Scene => scene({
+    nodes: {
+      image: { type: loadImage, x: 0, y: 0, width: SOURCE_WIDTH },
+      mask: { type: findMask, x: 0, y: 120, width: SOURCE_WIDTH, ...(muted ? { mode: 'muted' as const } : {}) },
+      bypass: { type: bypass, x: COLUMN + 40, y: 50, width: SOURCE_WIDTH, mode: 'bypassed' },
+      imageSink: { type: blur, x: (COLUMN + 40) * 2, y: 0, width: SOURCE_WIDTH },
+      maskSink: { type: useMask, x: (COLUMN + 40) * 2, y: 140, width: SOURCE_WIDTH },
+    },
+    links: [
+      ['image', 'IMAGE', 'bypass', 'image'], ['mask', 'MASK', 'bypass', 'mask'],
+      ['bypass', 'value', 'imageSink', 'image'], ['bypass', 'value', 'maskSink', 'mask'],
+    ],
+  })
 
   return [
     {
@@ -176,6 +195,14 @@ export function wireLooksGallery(
       caption:
         'A wire is faded when its source is switched off, and keeps the dashes it would have anyway. From an inactive field, a row kept for its wire under an option not chosen, it is solid and faded (top). From a muted node it is faded like the node: solid from the ordinary output, dashed from the output that may carry nothing, and the input pin it enters is faded with it. A wire out of a bypassed node is an ordinary wire.',
       scene: besideKept,
+    },
+    {
+      caption: 'Past a bypassed node, each wire follows the input the run selects. Blur takes the image and its wire stays solid. Use mask takes the optional mask and its wire is dashed.',
+      scene: bypassRoute(false),
+    },
+    {
+      caption: 'With Find mask switched off, only the wire to Use mask and the input pin it enters fade. Its wire keeps its dashes. The wire to Blur stays solid and unfaded.',
+      scene: bypassRoute(true),
     },
     {
       caption:
