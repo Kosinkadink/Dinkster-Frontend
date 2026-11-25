@@ -47,11 +47,13 @@ it('shows the carried curve in a wired space, never the dormant curve, and resto
   plot.dispatchEvent(new MouseEvent('dblclick', { clientX: 40, clientY: 40, bubbles: true }))
 })
 
-it('shows a wired clip with playback enabled and recording and removal disabled', () => {
+it('shows a wired clip with playback enabled and recording and removal disabled even without a microphone', async () => {
+  vi.stubGlobal('navigator', { mediaDevices: { enumerateDevices: async () => [] } })
   const clip = { digest: `blake3:${'a'.repeat(64)}`, name: 'Carried clip', size: 12, mediaType: 'audio/wav', virtualPath: 'clip.wav' }
   const recorder = new AudioRecordController({ upload: undefined, fetchBytes: undefined,
     commit: () => { throw new Error('a wired recording cannot commit') } })
   dispose = render(() => <AudioRecordSpace controller={recorder} value={clip} wired />, document.body)
+  await recorder.findMicrophones()
   expect(document.body.textContent).toContain('Carried clip')
   expect(document.body.textContent).not.toContain('Nothing stored')
   const buttons = [...document.querySelectorAll('button')]

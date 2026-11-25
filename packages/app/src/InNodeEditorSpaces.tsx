@@ -521,7 +521,8 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
   const recorder = props.controller
   createEffect(on(() => props.wired, (wired) => { if (wired) recorder.discard() }))
   const stored = () => isClip(props.value) ? props.value : undefined
-  const shown = (): AudioRecordStatus | 'ready' => recorder.status() === 'idle' && stored() !== undefined ? 'ready' : recorder.status()
+  const shown = (): AudioRecordStatus | 'ready' => props.wired ? stored() === undefined ? 'idle' : 'ready'
+    : recorder.status() === 'idle' && stored() !== undefined ? 'ready' : recorder.status()
   const recording = () => recorder.status() === 'recording'
   const busy = () => recorder.status() === 'waiting' || recorder.status() === 'saving'
   const defaultLabel = () => message('inNodeAudio.defaultMicrophone')
@@ -554,6 +555,7 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
     return []
   }
   const detail = () => {
+    if (props.wired) return undefined
     if (recording()) return `${clock(recorder.seconds())}, ${roundedSize(recorder.bytes())}`
     const seconds = recorder.clipSeconds()
     return (shown() === 'ready' || shown() === 'uploadFailed') && seconds !== undefined ? clock(seconds) : undefined
@@ -658,6 +660,7 @@ export function CurveSpace(props: {
   const message = useAppMessage()
   const [selected, setSelected] = createSignal<number>()
   const [draft, setDraft] = createSignal<CurveValue>()
+  createEffect(on(() => props.wired, (wired) => { if (wired) setDraft(undefined) }))
   const curve = () => draft() ?? props.value ?? { points: [] }
   const interpolation = () => curve().interpolation ?? 'linear'
   const points = () => curve().points
