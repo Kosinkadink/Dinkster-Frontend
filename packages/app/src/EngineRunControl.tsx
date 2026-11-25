@@ -1,6 +1,6 @@
 import { Match, Show, Switch, createEffect, createSignal, createUniqueId, onCleanup, onMount } from 'solid-js'
 import { fetchSupervisorEngineLog, type SupervisorStatus } from '@dinkster/client'
-import { ProductButton, ProductCodeBlock, ProductDialog, ProductIcon, ProductLoading, ProductSpinner } from '@dinkster/ui'
+import { ProductButton, ProductCodeBlock, ProductDialog, ProductIcon, ProductLoading, ProductSpinner, ProductTextButton } from '@dinkster/ui'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Power from 'lucide-solid/icons/power'
 import RotateCw from 'lucide-solid/icons/rotate-cw'
@@ -108,11 +108,12 @@ export function EngineRunControl(props: {
       </Switch>
       <Show when={reasonOpen()}>
         <section ref={reason} id={reasonId} class="engine-run-reason" role="dialog" aria-label={message('shell.engine.failed')}>
-          <strong>{message('shell.engine.failed')}</strong>
-          <p>{props.status.detail || message('shell.engine.notAnswering')}</p>
+          <strong>{props.status.detail || message('shell.engine.notAnswering')}</strong>
           <div class="engine-run-reason-actions">
-            <ProductButton pending={restarting()} onClick={() => void restart()}>{message('shell.engine.restart')}</ProductButton>
-            <ProductButton onClick={() => void showLog()}>{message('shell.engine.showLog')}</ProductButton>
+            <ProductButton pending={restarting()} onClick={() => void restart()}>
+              <ProductIcon icon={RotateCw} />{message('shell.engine.restart')}
+            </ProductButton>
+            <ProductTextButton label={message('shell.engine.showLog')} onClick={() => void showLog()} />
           </div>
         </section>
       </Show>
@@ -128,7 +129,7 @@ export function EngineRunControl(props: {
                   return <>
                     <Show when={tail.truncated}><p class="dinkster-description">{message('shell.engine.logTruncated')}</p></Show>
                     <Show when={tail.available} fallback={<p>{message('shell.engine.noLog')}</p>}>
-                      <ProductCodeBlock label={message('shell.engine.log')} value={tail.text || message('shell.engine.emptyLog')} />
+                      <ProductCodeBlock value={tail.text || message('shell.engine.emptyLog')} />
                     </Show>
                   </>
                 })()}

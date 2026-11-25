@@ -91,6 +91,7 @@ describe('EngineRunControl', () => {
     button('Show log').click()
     await vi.waitFor(() => expect(document.body.textContent).toContain(expected))
     expect(document.body.textContent).not.toContain('Not the engine log')
+    expect(document.body.textContent?.match(/Engine log/g)).toHaveLength(1)
     if (body.truncated) expect(document.body.textContent).toContain('64 KiB')
   })
 
