@@ -5113,6 +5113,12 @@ export class AppState {
     return tab.execution ? undefined : this.backendForTab(tab).keptRegistry.get()
   }
 
+  /** Why what the engine answers is off for this tab: its real node table has not arrived. */
+  engineOffReason(tab: Tab, message: (key: string) => string): string | undefined {
+    if (tab.execution || this.registryForTab(tab) !== undefined) return undefined
+    return message(this.backendForTab(tab).schemaState.get().status === 'error' ? 'shell.engine.notAnswering' : 'shell.engine.stillStarting')
+  }
+
   /** Pane-local widget definitions, independent of the focused shell's world. */
   widgetRegistryForTab(tab: Tab | undefined): typeof this.widgetRegistry {
     const registry = tab === undefined ? undefined : this.registryForTab(tab)

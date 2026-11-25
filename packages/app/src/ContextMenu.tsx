@@ -414,6 +414,7 @@ export function ContextMenu(props: {
                         id={`context-menu-item-${depth}-${index}`}
                         role="menuitem"
                         aria-disabled={entry.item.disabled === true}
+                        data-tooltip-label={entry.item.disabled === true ? entry.item.disabledReason : undefined}
                         aria-haspopup={entry.item.children !== undefined ? 'menu' : undefined}
                         aria-expanded={hasChildren() ? openPath()[depth] === entry.item : undefined}
                         aria-controls={hasChildren() && openPath()[depth] === entry.item

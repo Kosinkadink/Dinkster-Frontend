@@ -2369,7 +2369,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         fields: nodeSearchFields(kind.schema),
       })
     }
-    const reg = registry()
+    const reg = registry() ?? keptRegistry()
     if (reg) {
       for (const s of reg.schemas.values()) {
         // Deprecated (structured, legacy, or explicit demotion) and hidden
@@ -2960,6 +2960,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ctx,
           scopes?.upTo !== undefined,
           tab.execution === undefined,
+          props.app.engineOffReason(tab, message),
         ),
         ...selectionLifecycleMenuGroups(target, {
           group: '15-subgraph-lifecycle',
@@ -4073,7 +4074,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         void insertBlueprint(tab, entry.blueprint, p, graphId)
         return
       }
-      const reg = registry()
+      const reg = registry() ?? keptRegistry()
       // Predict through the session so solo and actor-scoped allocation use
       // the same cursor and formatting rules as node.add.
       const expectedId = tab.store.predictedNodeId(graphId)

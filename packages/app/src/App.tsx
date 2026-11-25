@@ -2728,6 +2728,7 @@ export function App(props: {
                       owner={{ id: tab().id, title: tab().title, lineage: tab().store.doc.lineage }}
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), tab().execution === undefined && app.registryForTab(tab()) !== undefined)}
+                      blockedReason={(backendsTick(), app.engineOffReason(tab(), message))}
                       onQueue={() => { void app.queue(tab()) }}
                       onOpenExecution={(ref) => { void app.openExecutionView(ref) }}
                     />
