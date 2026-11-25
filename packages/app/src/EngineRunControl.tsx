@@ -66,11 +66,11 @@ export function EngineRunControl(props: {
     const result = await fetchSupervisorEngineLog(props.baseUrl)
     if (request === logRequest) setLog(result)
   }
-  const percent = (): number => {
+  const percent = (): number | undefined => {
     const progress = props.status.progress
     return progress && progress.total > 0
       ? Math.round(Math.min(1, Math.max(0, progress.done / progress.total)) * 100)
-      : 0
+      : undefined
   }
 
   return (
@@ -87,7 +87,7 @@ export function EngineRunControl(props: {
           <span class="engine-run-starting" role="status" aria-live="polite">
             <ProductSpinner label={message('shell.engine.startingControl')} />
             <span>{message('shell.engine.startingControl')}</span>
-            <span class="engine-run-percent">{percent()}%</span>
+            <Show when={percent() !== undefined}><span class="engine-run-percent">{percent()}%</span></Show>
           </span>
         </Match>
         <Match when={props.status.state === 'stopped'}>
@@ -108,7 +108,7 @@ export function EngineRunControl(props: {
       </Switch>
       <Show when={reasonOpen()}>
         <section ref={reason} id={reasonId} class="engine-run-reason" role="dialog" aria-label={message('shell.engine.failed')}>
-          <strong>{props.status.detail || message('shell.engine.notAnswering')}</strong>
+          <strong>{(props.status.detail || message('shell.engine.notAnswering')).replace(/^./u, (letter) => letter.toLocaleUpperCase())}</strong>
           <div class="engine-run-reason-actions">
             <ProductButton pending={restarting()} onClick={() => void restart()}>
               <ProductIcon icon={RotateCw} />{message('shell.engine.restart')}
