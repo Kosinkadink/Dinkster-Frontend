@@ -130,8 +130,24 @@ export interface CompileArtifact {
   readonly provenance: Provenance
   /** Selector/random choices resolved during compile. */
   readonly choices?: readonly SelectorChoice[]
+  /**
+   * Automatic values copied into another node at compile time. The engine
+   * works the field's own node out again at queue time, so after the run each
+   * is compared with the value recorded for that node.
+   */
+  readonly automaticTaps?: readonly AutomaticTap[]
   /** Warnings produced during a successful compile. */
   readonly diagnostics: readonly Diagnostic[]
+}
+
+/** An automatic field's value copied into another node, and the node that got it. */
+export interface AutomaticTap {
+  /** The runtime node that owns the field, as the run records it. */
+  readonly runtimeNodeId: string
+  readonly inputId: string
+  readonly value: Json
+  /** The name of the node that got the value. */
+  readonly receiver: string
 }
 
 export interface WorkspaceProvenance {

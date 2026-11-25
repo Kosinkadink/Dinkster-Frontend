@@ -1916,6 +1916,30 @@ describe('last run automatic warnings', () => {
     ])
   })
 
+  it('warns on a field whose value a node got at compile time when the run worked out another', () => {
+    const view = automaticScene({ a: { frame_rate: 'worked-out', delay: 'worked-out', fixed: undefined } })
+    const execution = {
+      ...run({ r1: 'a' }, [
+        { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 30, workedOut: true },
+        { runtimeNodeId: 'r1', inputId: 'delay', value: 2, workedOut: true },
+        { runtimeNodeId: 'r1', inputId: 'fixed', value: 1, workedOut: true },
+      ]),
+    } as unknown as { artifact: Record<string, unknown> }
+    execution.artifact = { ...execution.artifact, automaticTaps: [
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, receiver: 'Retime 2' },
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 30, receiver: 'Retime 3' },
+      { runtimeNodeId: 'r1', inputId: 'delay', value: 2.0, receiver: 'Retime 2' },
+      { runtimeNodeId: 'r1', inputId: 'fixed', value: 7, receiver: 'Retime 2' },
+    ] }
+
+    const found = lastRunAutomaticDiagnostics({ scene: view, execution: execution as unknown as ExecutionState, instancePath: [] })
+
+    // One warning for the node that got another value; agreeing values and a field fixed since give none.
+    expect(found.map((d) => [d.code, d.message, d.anchor?.port])).toEqual([
+      ['automatic.lastRunTapDiffers', 'The last run used 30 for frame rate, but Retime 2 got 24.', { node: 'a', port: 'frame_rate' }],
+    ])
+  })
+
   it('maps runtime ids through provenance to the viewed instance only', () => {
     const view = automaticScene({ inner: { frame_rate: 'worked-out' } })
     const execution = run({ r1: 'sub.inner', r2: 'other.inner' }, [

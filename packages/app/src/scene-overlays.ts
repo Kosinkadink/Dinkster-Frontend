@@ -208,9 +208,11 @@ const shownValue = (value: Json): string => typeof value === 'string' ? value : 
 /**
  * The fields the viewed graph's last run filled with their default because
  * it could not work out their automatic value, while the editor works one
- * out now: one warning each, anchored to the field and listed in Problems.
- * A field that is fixed or wired is not automatic, so its warning goes; a
- * later run replaces the records.
+ * out now, and the fields whose value a node got at compile time differs
+ * from the one the run worked out for the field's own node: warnings
+ * anchored to the field and listed in Problems. A field that is fixed or
+ * wired is not automatic, so its warnings go; a later run replaces the
+ * records.
  */
 export function lastRunAutomaticDiagnostics(args: {
   readonly scene: Scene
@@ -226,8 +228,24 @@ export function lastRunAutomaticDiagnostics(args: {
         data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
       }))
   })
+  // A node that got the field's value copied in at compile time ran with
+  // that value, while the field's own node was worked out again when queued.
+  const taps = args.execution?.artifact?.automaticTaps ?? []
+  const differing = (record: RecordedAutomatic) => taps.filter((tap) =>
+    tap.runtimeNodeId === record.runtimeNodeId && tap.inputId === record.inputId && !sameJson(tap.value, record.value))
+  eachRecordedAutomaticRow(args.scene, args.execution, args.instancePath, (record) => differing(record).length > 0, (node, row, record) => {
+    for (const tap of differing(record)) {
+      out.push(diag('warning', 'runtime', 'automatic.lastRunTapDiffers',
+        `The last run used ${shownValue(record.value)} for ${row.label}, but ${tap.receiver} got ${shownValue(tap.value)}.`, {
+          anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
+          data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
+        }))
+    }
+  })
   return out
 }
+
+const sameJson = (a: Json, b: Json): boolean => JSON.stringify(a) === JSON.stringify(b)
 
 /**
  * A frozen view of a past run: each automatic row shows the value that run

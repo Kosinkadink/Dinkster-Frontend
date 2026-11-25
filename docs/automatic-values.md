@@ -75,7 +75,11 @@ holds, or the default when there is neither. When that is the default, the
 field carries the warning "Could not work out frame rate. Retime 2 gets the
 default, 24.", listed in Problems in place of the field's own warning. The
 engine still works out the owning node's own value when the run is queued,
-so it can differ from the value passed on.
+so it can differ from the value passed on. The run keeps each value passed on;
+when the owning node's recorded value differs, the field carries the warning
+"The last run used 30 for frame rate, but Retime 2 got 24.", listed in
+Problems, until the user fixes a value or wires the field, or a later run
+replaces the record.
 
 When the latest run of the open workflow used the default for a field that
 the editor works out now, the field carries the warning "The last run could
