@@ -37,7 +37,7 @@ test('save destination writes the selected relative prefix through the real back
   }
   const capture = async (name: string) => {
     const path = testInfo.outputPath(`${name}.png`)
-    await page.locator('.widget-in-row-field').screenshot({ path })
+    await page.locator('.dinkster-canvas-target-box').screenshot({ path })
     await testInfo.attach(name, { path, contentType: 'image/png' })
   }
   await open('save', 'target')
