@@ -69,7 +69,7 @@ import { companionSourcesOf } from '../companion.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, rerouteDriverOf, rerouteInputTargets, type RerouteIndex, type TraceVia } from '../reroute.js'
 import { effectivePrimitiveSpec, explicitPrimitiveDefault, explicitPrimitiveLimits, primitiveOf, withPrimitiveValue, type EffectivePrimitiveSpec, type FedField } from '../primitive.js'
-import { matchBypassInput, type BypassCandidate } from './bypass.js'
+import { buildBypassCandidates, matchBypassInput } from './bypass.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../schema/derive-boundary.js'
 import {
   buildGraphConnectivity,
@@ -77,6 +77,7 @@ import {
   elabOutputsOf,
   elaborateInterface,
   type ElaborateOptions,
+  missingInputValue,
   ruleProblemRefs,
   selectorMembersOf,
   valueKeyOf,
@@ -90,7 +91,7 @@ import { solveGraphTypes } from '../schema/solve.js'
 import { constructsOf } from '../schema/body.js'
 import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
 import { assetTypeId, canonicalTypeIdOf, effectiveAbsentPolicy, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
-import { effectiveWidgetDefault, isAssetRefValue, sentWhenUnset } from '../schema/widget-defaults.js'
+import { effectiveWidgetDefault, isAssetRefValue, sentSpecOf, sentWhenUnset } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
   decimalIntegerWire,
@@ -114,6 +115,7 @@ import {
 } from './dinkster-graph.js'
 import { LivenessDerivation, traverseRoutedProjection, type RouteProjection, type RoutedStep } from './liveness.js'
 import type {
+  AutomaticCall,
   AutomaticTap,
   CompileArtifact,
   CompileResult,
@@ -192,8 +194,10 @@ export function documentPrimitiveResolver(doc: WorkflowDocument, base: SchemaRes
       const reaches = consumer.sources.some((source) => 'occurrence' in source && source.graph === graphId &&
         source.occurrence.node === node.id && source.valueKey === shape.value.id && samePath(source.occurrence.instancePath))
       if (!reaches) continue
+      const storedValue = doc.graphs[consumer.terminal.graph]?.nodes[consumer.terminal.occurrence.node]?.values[consumer.terminal.valueKey]
       fed.set(JSON.stringify([consumer.terminal.graph, occurrenceKey(consumer.terminal.occurrence), consumer.terminal.valueKey]),
-        { name: `${consumer.ref.node}.${consumer.input.displayName ?? consumer.input.id}`, input: consumer.input })
+        { name: `${consumer.ref.node}.${consumer.input.displayName ?? consumer.input.id}`, input: consumer.input,
+          ...(storedValue !== undefined ? { storedValue } : {}) })
     }
     // A limit field holds its typed-in value, or the one its wire brings
     // when that is known before the run, such as another primitive's.
@@ -504,6 +508,7 @@ function compileImpl(
   const diags: Diagnostic[] = []
   /** Automatic values copied into a node, by the node that receives each. */
   const automaticTaps: AutomaticTap[] = []
+  const automaticCalls: AutomaticCall[] = []
   const elaborationDiagnosticOwners = new Map<Diagnostic, {
     readonly graphId: GraphDefId
     readonly nodeId: NodeId
@@ -1377,14 +1382,10 @@ function compileImpl(
     const output = elab.outputsByAddr.get(address)
     const outputIndex = elab.outputIndexByAddr.get(address)
     if (!output || outputIndex === undefined) return undefined
-    const candidates: BypassCandidate<{ readonly driver: LocatedDriver; readonly input: ElaboratedInput }>[] = []
-    let wireIndex = 0
-    for (const input of elab.inputs) {
-      if (input.apiName === undefined || hasSyntheticAncestor(input.ancestry)) continue
-      const index = wireIndex++
+    const candidates = buildBypassCandidates(elab.inputs, (input) => {
       const driver = driverOfInput(at.path, at.defId, at.ref.node, input.address)
-      if (driver) candidates.push({ index, type: input.spec.type, driver: { driver, input } })
-    }
+      return driver === undefined ? undefined : { driver, input }
+    })
     const selected = matchBypassInput(
       { index: outputIndex, type: consumerType ?? output.spec.type },
       candidates,
@@ -1884,6 +1885,10 @@ function compileImpl(
         continue
       }
       if (input.apiName === undefined) continue
+      // An empty save target from an older workflow is left out, so the
+      // input's declared default (Project default with its name) applies;
+      // the backend's SAVE_TARGET type refuses a literal null.
+      if (value === null && canonicalTypeIdOf(input.spec.type) === 'SAVE_TARGET') continue
       // Stage under the ELABORATED id (identical to the persisted value key).
       const lowered = lowerWidgetLiteral(fn, input, value, nodeDiags)
       if (lowered !== undefined) fn.inputs[input.spec.id] = lowered
@@ -2609,14 +2614,21 @@ function compileImpl(
       if (input.apiName === undefined) continue // never reaches the prompt
       if (input.origin.kind === 'member' && input.origin.ghost === true) continue
       const spec = input.spec
-      if (fn.inputs[spec.id] !== undefined) continue
-      if (spec.hidden === true) continue
-      // An automatic field with nothing stored stays out of the prompt: the
-      // engine works it out when the run is queued.
-      if (spec.automatic !== undefined) continue
+      const value = fn.inputs[spec.id]
+      if (value !== undefined && !missingInputValue(input, value)) continue
+      // An automatic field with nothing stored stays out of the prompt, shown
+      // or not: the engine works it out when the run is queued.
+      if (value === undefined && spec.automatic !== undefined) {
+        const call = input.automatic?.call
+        if (call !== undefined) automaticCalls.push({ runtimeNodeId: fn.runtimeId, inputId: spec.id, lookup: call.lookup, args: call.args })
+        continue
+      }
+      // A field declared hidden is sent only what it stores; a row hidden by
+      // its visible, or by a hidden choice or group, is sent as if shown.
+      if (spec.hidden === true && input.hiddenByScope !== true) continue
       // A primitive's empty limit only shows the limit worked out for it.
       if (spec.widget?.automatic === true) continue
-      if (spec.widget) {
+      if (value === undefined && spec.widget) {
         // Explicit schema default first, then the widget kind's intrinsic
         // value (an INT shows 0/min, a STRING shows '', ...): what the
         // canvas visibly displays is what executes, and what a formula reads
@@ -2626,7 +2638,7 @@ function compileImpl(
         // default stays out of the prompt (the backend's own default
         // applies - inventing 0/''/false would change valid workflows that
         // never warned).
-        const fallback = sentWhenUnset(spec)
+        const fallback = sentWhenUnset(sentSpecOf(spec, input.hiddenByScope))
         if (fallback !== undefined) {
           const lowered = lowerWidgetLiteral(fn, input, fallback)
           if (lowered !== undefined) fn.inputs[spec.id] = lowered
@@ -2635,7 +2647,8 @@ function compileImpl(
           continue
         }
       }
-      if (!spec.optional) {
+      // The canvas shows a row this refuses even when it is hidden, by the same rule.
+      if (missingInputValue(input, value)) {
         // Server-side validation is authoritative; surface early as a warning.
         diags.push(diag('warning', 'compile', 'compile.input.missing', `'${fn.node.type}' required input '${spec.id}' has no value or connection`, {
           blocksExecution: true,
@@ -3130,6 +3143,10 @@ function compileImpl(
     ...(() => {
       const taps = automaticTaps.filter((tap) => included.has(tap.receiverRuntimeId))
       return taps.length > 0 ? { automaticTaps: deepFreeze(structuredClone(taps)) } : {}
+    })(),
+    ...(() => {
+      const calls = automaticCalls.filter((call) => included.has(call.runtimeNodeId))
+      return calls.length > 0 ? { automaticCalls: deepFreeze(structuredClone(calls)) } : {}
     })(),
     diagnostics: deepFreeze(structuredClone(diags)),
   })

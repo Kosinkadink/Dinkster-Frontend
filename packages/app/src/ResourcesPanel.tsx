@@ -229,7 +229,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
                   <ProductTextInput {...attributes} value={otherBudgetValue(device)} placeholder={message('runtimeSettings.memory.automatic')} disabled={pending() || stale()} onInput={(event) => changeOtherBudget(device, event.currentTarget.value)} />
                   <ProductButton type="button" disabled={pending() || stale() || otherBudgetValue(device) === ''} onClick={() => changeOtherBudget(device, '')}>{message('runtimeSettings.memory.automatic')}</ProductButton>
                 </div>}</ProductField>}</For>
-                <ProductButton type="submit" fill="solid" disabled={pending() || stale() || Object.keys(otherBudgetDraft()).length === 0}>{message('runtimeSettings.action.apply')}</ProductButton>
+                <ProductButton type="submit" disabled={pending() || stale() || Object.keys(otherBudgetDraft()).length === 0}>{message('runtimeSettings.action.apply')}</ProductButton>
               </form>
             </Show>
             <Show when={granted('memory-headroom') && headroom() !== undefined}><div class="dinkster-resource-limit-control"><span>{message('resources.keepFree')}</span><ProductSlider ariaLabel={message('resources.keepFree')} min={0} max={Math.max(...cards().map((device) => status()!.memoryGovernor![device]!.measured?.totalBytes ?? 0), headroom()!, 1024 ** 3)} step={64 * 1024 ** 2} value={headroomDraft() ?? headroom()!} disabled={pending() || stale()} onInput={setHeadroomDraft} onCommit={(value) => void update('memory-headroom', value)} /><span>{gb(headroomDraft() ?? headroom()!)}</span></div></Show>

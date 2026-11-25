@@ -27,6 +27,20 @@ export interface SettingsSearchGroup {
   readonly matches: readonly SettingsSearchMatch[]
 }
 
+/** A settings group's name: its translation, or its category id spelled as words. */
+export function settingsCategoryLabel(category: string, translate: (key: string) => string): string {
+  const key = `settingsDialog.category.${category.replaceAll('.', '_')}`
+  const translated = translate(key)
+  if (translated !== key) return translated
+  return category
+    .replaceAll('.', ' ')
+    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toLocaleUpperCase() ?? ''}${part.slice(1)}`)
+    .join(' ')
+}
+
 const INTERNAL_SETTING_IDS = new Set(['keybindings.overrides', 'search.recentActivations'])
 
 /** Settings represented by user-facing rows in SettingsDialog and search. */

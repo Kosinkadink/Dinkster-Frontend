@@ -100,7 +100,7 @@ test('creates an empty subgraph from universal search and drills into it', async
   const rootControlsY = (await page.getByTestId('views-switcher').boundingBox())!.y
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('> Create empty subgraph')
-  await page.locator('[data-provider="core.commands"] [data-testid="search-result-row"]', { hasText: 'Create empty subgraph' }).click()
+  await page.locator('[data-group="core.commands"] [role="option"]', { hasText: 'Create empty subgraph' }).click()
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   const drilledControls = (await page.getByTestId('views-switcher').boundingBox())!
   const breadcrumb = (await page.getByTestId('graph-breadcrumb').boundingBox())!
@@ -164,7 +164,7 @@ test('previews and removes root-unreachable subgraph definitions', async ({ page
 
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('> Manage subgraph definitions')
-  await page.locator('[data-provider="core.commands"] [data-testid="search-result-row"]', { hasText: 'Manage subgraph definitions' }).click()
+  await page.locator('[data-group="core.commands"] [role="option"]', { hasText: 'Manage subgraph definitions' }).click()
   const dialog = page.locator('[data-modal="subgraph-definitions"]')
   await expect(dialog).toBeVisible()
   const unused = page.getByTestId('unused-subgraph-list')
@@ -270,7 +270,7 @@ test('previews and removes root-unreachable subgraph definitions', async ({ page
 
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('> Manage subgraph definitions')
-  await page.locator('[data-provider="core.commands"] [data-testid="search-result-row"]', { hasText: 'Manage subgraph definitions' }).click()
+  await page.locator('[data-group="core.commands"] [role="option"]', { hasText: 'Manage subgraph definitions' }).click()
   const emptyDialog = page.locator('[data-modal="subgraph-definitions"]')
   await expect(emptyDialog.locator('[data-state="empty"] strong')).toHaveText('No unused definitions')
   await expect(emptyDialog).toContainText('Every subgraph definition is reachable')

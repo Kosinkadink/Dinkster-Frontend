@@ -647,11 +647,9 @@
 .asset-decision-summary dd { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-section-size); font-weight: var(--dinkster-weight-bold); line-height: var(--dinkster-type-section-line); }
 .asset-decision-notice { flex: none; margin: 0; }
 .asset-decision .product-action-buttons > .product-button { white-space: nowrap; }
-.asset-decision-list { display: grid; flex: 1; min-height: 0; gap: var(--dinkster-space-8); margin: 0; padding: var(--dinkster-space-4); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; list-style: none; }
+.asset-decision-list { display: grid; flex: 1; min-height: 0; margin: 0; padding: var(--dinkster-space-4); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; list-style: none; }
 .asset-decision-list:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; border-radius: var(--dinkster-radius-control); }
-.asset-decision-row { display: flex; min-width: 0; align-items: flex-start; gap: var(--dinkster-space-8); padding: var(--dinkster-space-12); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-left: 3px solid var(--dinkster-success-border); border-radius: var(--dinkster-radius-card); }
-.asset-decision-row.selected { background: var(--dinkster-surface-selected); border-color: var(--dinkster-border-selected); }
-.asset-decision-row.unresolvable { border-left-color: var(--dinkster-danger-border); }
+.asset-decision-row { display: flex; min-width: 0; align-items: flex-start; gap: var(--dinkster-space-8); }
 .asset-decision-row .asset-decision-checkbox { min-width: var(--dinkster-input-primary-height); min-height: var(--dinkster-input-primary-height); margin: calc(var(--dinkster-space-4) * -1); }
 .asset-decision-row-copy { display: grid; min-width: 0; flex: 1; gap: var(--dinkster-space-8); cursor: pointer; }
 .asset-decision-row.unresolvable .asset-decision-row-copy { cursor: default; }
@@ -702,7 +700,6 @@
   .asset-decision { gap: var(--dinkster-space-8); padding: var(--dinkster-space-12); }
   .asset-decision-summary { gap: var(--dinkster-space-4); }
   .asset-decision-summary > div { padding: var(--dinkster-space-4) var(--dinkster-space-8); }
-  .asset-decision-row { padding: var(--dinkster-space-8); }
   .asset-decision-row-heading,
   .asset-decision-option-heading { flex-direction: column; gap: var(--dinkster-space-4); }
   .asset-decision-state,

@@ -566,6 +566,7 @@ export function CollectionPanel(props: {
       id={`${resultsId}-entry-${navigableItems().findIndex((entry) => entry.id === p.entry.id)}`}
       classList={{
         'collection-entry': true,
+        'dinkster-list-row': mode() === 'list',
         'collection-child': p.child === true,
         selected: highlighted(p.entry),
         folder: p.entry.folder !== undefined,
@@ -576,7 +577,8 @@ export function CollectionPanel(props: {
       role="option"
       aria-selected={highlighted(p.entry)}
       aria-disabled={props.pick !== undefined && p.entry.folder === undefined && !props.pick.pickable(p.entry) ? 'true' : undefined}
-      data-tooltip-label={`${p.entry.title}${p.entry.subtitle ? `\n${p.entry.subtitle}` : ''}`}
+      // A host that draws its own entry content already shows these facts, and the tooltip would cover the rows under it.
+      data-tooltip-label={props.entryContent === undefined ? `${p.entry.title}${p.entry.subtitle ? `\n${p.entry.subtitle}` : ''}` : undefined}
       tabindex={p.entry.id === rovingId() ? '0' : '-1'}
       onClick={() => activate(p.entry)}
     >
@@ -850,7 +852,7 @@ export function CollectionPanel(props: {
         >
           <div
             id={resultsId}
-            classList={{ 'collection-items': true, grid: mode() === 'grid', list: mode() === 'list' }}
+            classList={{ 'collection-items': true, grid: mode() === 'grid', list: mode() === 'list', 'dinkster-list-rows': mode() === 'list' }}
             data-testid="collection-items"
             data-mode={mode()}
             role="listbox"

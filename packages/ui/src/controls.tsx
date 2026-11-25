@@ -7,10 +7,11 @@ import {
   splitProps,
   type JSX,
 } from 'solid-js'
-import { ChevronDown, CircleAlert, Clock, LoaderCircle, type LucideIcon } from 'lucide-solid'
+import { ChevronDown, CircleAlert, Clock, LoaderCircle, X, type LucideIcon } from 'lucide-solid'
 import { Dynamic } from 'solid-js/web'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
+import { useFieldFocus } from './field-focus.js'
 import githubMark from '../../../branding/providers/github-mark.svg?url'
 import googleMark from '../../../branding/providers/google-mark.svg?url'
 
@@ -239,6 +240,35 @@ export function ProductIconButton(
   )
 }
 
+/**
+ * The slim X that cancels a run: muted at rest, coral under the pointer. Its
+ * label names the job it cancels, or says that it opens the list instead.
+ */
+export function ProductCancelButton(
+  props: Omit<ButtonAttributes, 'children' | 'aria-label' | 'title'> & {
+    label: string
+    pending?: boolean
+  },
+) {
+  const [local, button] = splitProps(props, ['label', 'pending'])
+  return (
+    <Button
+      {...button}
+      intent={undefined}
+      fill="quiet"
+      iconOnly
+      pending={local.pending}
+      data-cancel=""
+      aria-label={local.label}
+      data-tooltip-label={local.label}
+    >
+      <Show when={!local.pending}>
+        <ProductIcon icon={X} />
+      </Show>
+    </Button>
+  )
+}
+
 /** A secondary action drawn as underlined text beside the value it acts on. */
 export function ProductTextButton(
   props: Omit<ButtonAttributes, 'children'> & {
@@ -360,6 +390,7 @@ export function ProductTextInput(
     density?: 'canvas'
   },
 ) {
+  useFieldFocus()
   const [local, input] = splitProps(props, ['density'])
   return (
     <input {...input} data-density={local.density} class="dinkster-input" />
@@ -372,12 +403,14 @@ export function ProductTextArea(
     'class' | 'style'
   >,
 ) {
+  useFieldFocus()
   return <textarea {...props} class="dinkster-input dinkster-textarea" />
 }
 
 export function ProductSelect(
   props: Omit<JSX.SelectHTMLAttributes<HTMLSelectElement>, 'class' | 'style'>,
 ) {
+  useFieldFocus()
   return (
     <div class="dinkster-select">
       <select {...props} class="dinkster-input" />
@@ -398,6 +431,32 @@ export function ProductCheckbox(
       <input {...input} type="checkbox" class="dinkster-check" />
       <span>{local.label}</span>
     </label>
+  )
+}
+
+/** An on/off setting that changes the moment it is pressed. */
+export function ProductSwitch(props: {
+  checked: boolean
+  label: string
+  disabled?: boolean
+  onChange: (next: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      class="dinkster-switch"
+      aria-checked={props.checked}
+      aria-label={props.label}
+      disabled={props.disabled}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation()
+        props.onChange(!props.checked)
+      }}
+    >
+      <span class="dinkster-switch-knob" aria-hidden="true" />
+    </button>
   )
 }
 

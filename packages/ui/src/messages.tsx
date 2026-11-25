@@ -24,17 +24,10 @@ export function ProductNotice(props: {
 export function ProductErrorBanner(props: {
   children: JSX.Element
   onDismiss: () => void
-  /** The danger colour on the text and icon, over a faint fill and a reduced-strength outline of it. */
-  quiet?: boolean
 }) {
   const strings = useProductStrings()
   return (
-    <div
-      class="dinkster-message"
-      data-kind="error"
-      data-quiet={props.quiet ? '' : undefined}
-      role="alert"
-    >
+    <div class="dinkster-message" data-kind="error" role="alert">
       <ProductIcon icon={CircleAlert} />
       <span class="dinkster-message-copy">{props.children}</span>
       <ProductIconButton
@@ -158,6 +151,7 @@ export function ProductDialog(props: {
   children: JSX.Element
   onDismiss: () => void
   pending?: boolean
+  size?: 'default' | 'wide'
 }) {
   const strings = useProductStrings()
   let dialog!: HTMLDialogElement
@@ -172,6 +166,7 @@ export function ProductDialog(props: {
     <dialog
       ref={dialog}
       class="dinkster-dialog"
+      data-size={props.size ?? 'default'}
       aria-labelledby={id}
       onKeyDown={(event) => {
         // Browsers stop honoring a cancelled `cancel` event after repeated

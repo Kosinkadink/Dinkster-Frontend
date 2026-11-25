@@ -85,6 +85,13 @@ submits. The engine works the value out again when the run is queued, before
 any cache lookup, uses the default when it cannot, and records for each such
 field the value used and whether it was worked out or was the default
 (`automaticValues` on the job). A run is never blocked by an automatic value.
+The editor keeps the lookup call it made for each such field with the run it
+queued. When the run worked a field out to another value than the answer the
+editor holds for that call, that one call's answer is old: the row asks again
+and shows the new answer, and other calls keep theirs. The run records no
+arguments, so when a lookup's argument reads another automatic field whose
+answer also changed, the editor asks its old call once more and agrees with
+the run after the next one.
 
 An automatic field with nothing stored whose value is copied into another
 node, through a widget tap or from a node that does not run, passes on the

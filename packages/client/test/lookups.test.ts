@@ -79,6 +79,31 @@ describe('lookup client', () => {
     expect(host.seen.map((seen) => seen.args)).toEqual([['local'], ['broken'], ['local']])
   })
 
+  it('asks again only for the call a run got another answer from', async () => {
+    const host = fakeHost()
+    const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })
+    const sd = client.request(call('n0', 'sd'))
+    await host.answer(200, { answer: 99 })
+    await sd
+    const sdxl = client.request(call('n1', 'sdxl'))
+    await host.answer(200, { answer: 30 })
+    await sdxl
+    // A run that got the kept answer changes nothing; nor does a call never asked.
+    client.answerRecorded(call('n0', 'sd'), 99)
+    client.answerRecorded(call('n2', 'sd15'), 12)
+    expect(await client.request(call('n0', 'sd'))).toEqual({ state: 'ready', answer: 99 })
+    expect(client.entry(call('n2', 'sd15'))).toBeUndefined()
+    expect(host.seen).toHaveLength(2)
+    // A run that got another answer makes that one call old; the other call of the function keeps its answer.
+    client.answerRecorded(call('n0', 'sd'), 25)
+    expect([client.isOld(call('n0', 'sd')), client.isOld(call('n1', 'sdxl'))]).toEqual([true, false])
+    const again = client.request(call('n0', 'sd'))
+    await host.answer(200, { answer: 25 })
+    expect(await again).toEqual({ state: 'ready', answer: 25 })
+    expect(await client.request(call('n1', 'sdxl'))).toEqual({ state: 'ready', answer: 30 })
+    expect(host.seen.map((seen) => seen.args)).toEqual([['sd'], ['sdxl'], ['sd']])
+  })
+
   it('never shows an answer for other arguments, and a failed refresh is stale only for the same ones', async () => {
     const host = fakeHost()
     const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })

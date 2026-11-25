@@ -461,6 +461,30 @@ describe('value handling', () => {
     expect(loaded.document!.graphs[base.root]!.nodes.n0!.values).toEqual({ width: 37, height: 91, mode: 'nearest' })
   })
 
+  it('leaves an empty save target out so its declared default applies, and sends Project default as stored', () => {
+    const schema: NodeSchema = {
+      type: 'Save', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: true,
+        widget: { widgetType: 'SAVE_TARGET', options: {}, default: { prefix: 'ComfyUI' } } }],
+    }
+    const sent = (target: Json) => {
+      const loaded = loadDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'save-target', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'root', nodes: { n0: { id: 'n0', type: 'Save', values: { target } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+        view: { graphs: { g0: { nodes: { n0: { position: { x: 0, y: 0 } } } } } },
+      })
+      expect(loaded.document, JSON.stringify(loaded)).toBeDefined()
+      const result = compile(compileInput(loaded.document!, { kind: 'full' }, () => schema))
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) throw new Error('save target workflow must compile')
+      return result.artifact.prompt['n0']!.inputs['target']
+    }
+    expect(sent(null)).not.toBeNull()
+    expect(sent(null)).toEqual({ prefix: 'ComfyUI' })
+    expect(sent({ prefix: 'renders/portrait' })).toEqual({ prefix: 'renders/portrait' })
+    expect(sent({ mount: 'archive', prefix: 'renders/portrait' })).toEqual({ mount: 'archive', prefix: 'renders/portrait' })
+  })
+
   it('unknown value keys warn and are dropped', () => {
     const doc = mutableWorkflow('exec-basic')
     const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
@@ -504,6 +528,27 @@ describe('value handling', () => {
     expect(inputs['batch_size']).toBeUndefined()
     expect(inputs['color']).toBe(5)
     expect(result.artifact.diagnostics.some((d) => d.code === 'compile.input.missing' || d.code === 'automatic.default')).toBe(false)
+  })
+
+  it('keeps the lookup call it made for each automatic field it leaves for the engine', () => {
+    const callsOf = (values: Record<string, unknown>, hidden = false) => {
+      const resolve: CompileInput['resolve'] = (type) => {
+        const schema = backendResolve(type)
+        if (type !== 'EmptyImage' || schema === undefined) return schema
+        const automatic: Record<string, unknown> = { batch_size: { lookup: 'sizes.batch', args: ['width'] }, color: { formula: 'width * 2' } }
+        return { ...schema, body: schema.body.map((row) => row.kind !== 'input' || automatic[row.id] === undefined ? row
+          : { ...row, automatic: automatic[row.id], ...(hidden ? { visible: { formula: 'width > 100' } } : {}) }) } as NodeSchema
+      }
+      const doc = mutableWorkflow('exec-basic')
+      ;((((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable)['n0'] as Mutable)['values'] = values
+      const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers: () => ({ state: 'ready', answer: 3 }) })
+      return result.ok ? result.artifact.automaticCalls : 'failed'
+    }
+    const kept = [{ runtimeNodeId: 'n0', inputId: 'batch_size', lookup: 'sizes.batch', args: [24] }]
+    // A formula makes no call; a stored value is not automatic; a field its visible hides is still worked out by the run.
+    expect(callsOf({ width: 24, height: 64 })).toEqual(kept)
+    expect(callsOf({ width: 24, height: 64, batch_size: 2 })).toBeUndefined()
+    expect(callsOf({ width: 24, height: 64 }, true)).toEqual(kept)
   })
 
   it('passes on what a tapped automatic field shows, warning on the field only when that is its default', () => {
@@ -559,7 +604,7 @@ describe('value handling', () => {
   it('has a formula read for a field with no default what the run is sent for it', () => {
     const field = (id: string, name: string, widget: Record<string, unknown>, optional = false) =>
       ({ kind: 'input', id, type: { kind: 'concrete', name }, optional, widget })
-    const read = ['num', 'text', 'pick', 'opt', 'hid', 'limited', 'many', 'authored']
+    const read = ['num', 'text', 'pick', 'opt', 'hid', 'hid_def', 'secret', 'boxed', 'boxed_secret', 'limited', 'many', 'authored']
     const resolve: CompileInput['resolve'] = (type) => {
       const schema = backendResolve(type)
       if (type !== 'EmptyImage' || schema === undefined) return schema
@@ -569,8 +614,15 @@ describe('value handling', () => {
         field('text', 'STRING', { widgetType: 'STRING', options: {} }),
         field('pick', 'COMBO', { widgetType: 'COMBO', options: { options: ['slow', 'fast'] } }),
         field('opt', 'INT', { widgetType: 'INT', options: { min: 5 } }, true),
-        // Hidden by its visible, looked-up limits, authored options and members past an optional minimum change what compile sends.
+        // Looked-up limits, authored options and members past an optional minimum change what compile sends.
+        // A row its visible hides is sent what it would be sent if shown; a field declared hidden only what it stores.
         { ...field('hid', 'INT', { widgetType: 'INT', options: { min: 7 } }), visible: { formula: 'width > 100' } },
+        { ...field('hid_def', 'INT', { widgetType: 'INT', options: { min: 7 }, default: 9 }), visible: { formula: 'width > 100' } },
+        { ...field('secret', 'INT', { widgetType: 'INT', options: { min: 4 } }), hidden: true },
+        { kind: 'section', id: 'box', visible: { formula: 'width > 100' }, rows: [
+          field('boxed', 'INT', { widgetType: 'INT', options: { min: 6 } }),
+          { ...field('boxed_secret', 'INT', { widgetType: 'INT', options: { min: 5 } }), hidden: true },
+        ] },
         field('limited', 'INT', { widgetType: 'INT', options: {}, looked: { min: { formula: 'width + 1' } } }),
         field('authored', 'COMBO', { widgetType: 'COMBO', options: { options: ['declared'] }, editableOptions: true }),
         {
@@ -596,10 +648,14 @@ describe('value handling', () => {
     if (!result.ok) return
     const inputs = result.artifact.prompt['n0']!.inputs
     // A required field reads its widget's start: the minimum, an empty text, the first option.
-    const sent = Object.fromEntries(['num', 'text', 'pick', 'opt', 'hid', 'limited', 'authored', 'many.m0.entry', 'many.m1.entry'].map((id) => [id, inputs[id]]))
-    expect(sent).toEqual({ num: 16, text: '', pick: 'slow', opt: undefined, hid: undefined, limited: 65, authored: 'first', 'many.m0.entry': 3, 'many.m1.entry': undefined })
+    const sent = Object.fromEntries(['num', 'text', 'pick', 'opt', 'hid', 'hid_def', 'secret', 'boxed', 'boxed_secret', 'limited', 'authored', 'many.m0.entry', 'many.m1.entry'].map((id) => [id, inputs[id]]))
+    expect(sent).toEqual({ num: 16, text: '', pick: 'slow', opt: undefined, hid: 7, hid_def: 9, secret: undefined, boxed: 6, boxed_secret: undefined, limited: 65, authored: 'first', 'many.m0.entry': 3, 'many.m1.entry': undefined })
     // The lookup is called with what the run is sent; a field sent nothing waits.
-    expect(asked).toEqual({ num: 16, text: '', pick: 'slow', limited: 65, authored: 'first', many: [3, null] })
+    expect(asked).toEqual({ num: 16, text: '', pick: 'slow', hid: 7, hid_def: 9, boxed: 6, limited: 65, authored: 'first', many: [3, null] })
+    // Shown, the same rows are sent the same values.
+    ;(nodes['n0'] as Mutable)['values'] = { width: 200, height: 64, batch_size: 1, color: 0 }
+    const shown = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers })
+    expect(shown.ok && ['hid', 'hid_def', 'secret', 'boxed', 'boxed_secret'].map((id) => shown.artifact.prompt['n0']!.inputs[id])).toEqual([7, 9, undefined, 6, undefined])
   })
 })
 
@@ -1725,6 +1781,25 @@ describe('dynamic interfaces', () => {
       inputs: { slot: ['source', 0], 'slot.x': 3 },
       slotVariants: { slot: 'selected' },
     })
+  })
+
+  it('omits a disconnected stored type choice from a run but still refuses a required pin', () => {
+    const doc = dynDoc({ nodes: {
+      target: { type: 'SpecializedSlot', dynamic: { slot: { selected: 'selected' } }, values: { 'slot.x': 7 } },
+    } })
+    const optional = dynCompile(doc)
+    expect(optional.ok, JSON.stringify(!optional.ok && optional.diagnostics)).toBe(true)
+    if (optional.ok) expect(optional.artifact.prompt['target']).toEqual({
+      class_type: 'SpecializedSlot', inputs: {}, outputIds: [],
+    })
+    const schema = dynSchemas['SpecializedSlot']!
+    const required = compile({ ...compileInput(doc), resolve: (type) => type === schema.type ? {
+      ...schema, body: schema.body.map((row) => row.kind === 'typeChoice' ? { ...row, required: true } : row),
+    } : dynSchemas[type] })
+    expect(required.ok ? required.artifact.diagnostics : required.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'compile.input.missing', blocksExecution: true,
+      anchor: expect.objectContaining({ port: expect.objectContaining({ port: 'slot' }) }),
+    }))
   })
 
   it('emits slotVariants for a connected variant with no rows (the key travels even with no dependents)', () => {
