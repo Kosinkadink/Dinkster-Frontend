@@ -40,7 +40,7 @@ import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductRunActivity, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import { AccountControl, createAccountSession } from './AccountControl.js'
@@ -115,7 +115,7 @@ import {
 } from './panel-drag.js'
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
-import { CancelExecutionButton } from './CancelExecutionButton.js'
+import { RunActivityControl, RunRow, RunSection, placeInLine, runAge, runIsPending, useNow } from './RunControls.js'
 import { ExecutedImageFacts, ExecutedImageViewer, SavedOutputFiles, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { executedImageInventory, executedImageLabel, executionThumbnail, type ExecutedImage } from './executed-image-inventory.js'
 import { RunThumbnail } from './RunThumbnail.js'
@@ -1260,39 +1260,43 @@ export function App(props: {
     {(label) => <span class="services-badge" data-testid="services-badge">{label()}</span>}
   </Show>
 
-  const ExecutionRow = (p: { exec: ExecutionState }) => {
+  const cancelling = useSignal(app.cancellingExecutions)
+  const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
     const live = () => liveTabOf(p.exec)
-    const thumbnail = () => p.exec.status === 'queued' || p.exec.status === 'running' ? undefined : executionThumbnail(p.exec)
-    return <article class="runs-row" role="listitem" data-testid="execution-row"
-      data-status={p.exec.status} data-selected={selectedRun()?.key === p.exec.key}>
-      <div class="runs-row-heading">
-        <Show when={thumbnail()}>{(asset) => <RunThumbnail
-          url={app.assetUrlForExecution(p.exec.ref, asset().digest)} mediaType={asset().mediaType} />}</Show>
-        <ProductButton size="compact" variant="ghost" aria-pressed={selectedRun()?.key === p.exec.key}
-          onClick={() => setSelectedRunKey(p.exec.key)}>{app.tabTitleFor(p.exec.ref)}</ProductButton>
-        <span class="execution-status">{p.exec.status === 'queued' && app.store.isUnconfirmed(p.exec.ref) ? 'Unconfirmed' : executionStatusLabel(p.exec.status)}</span>
-        <Show when={p.exec.submittedBy?.kind === 'agent'}><span class="collab-agent">{message('runs.agent')}</span></Show>
-        <ExecutionOpenButton entry={p.exec} title={app.tabTitleFor(p.exec.ref)} onOpen={() => { void app.openExecutionView(p.exec.ref) }} />
-        <CancelExecutionButton app={app} execution={p.exec} />
-      </div>
-      <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
-          entry={p.exec}
-          title={app.tabTitleFor(p.exec.ref)}
-          testId="run-details"
-          relation={overlayRoleOf(p.exec)}
-          hideOpen
-          onPin={live() ? () => {
-            const tab = live()
-            if (!tab) return
-            if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
-            else app.pinExecutionOverlay(tab.id, p.exec.ref)
-          } : undefined}
-        />} />
-    </article>
+    // A finished run shows its outputs while it is the chosen run; a running or
+    // queued one only once its name is pressed, so the list stays one line each.
+    const selected = () => selectedRunKey() === p.exec.key ||
+      (selectedRunKey() === undefined && !runIsPending(p.exec) && selectedRun()?.key === p.exec.key)
+    const thumbnail = () => runIsPending(p.exec) ? undefined : executionThumbnail(p.exec)
+    return <RunRow entry={p.exec} name={app.tabTitleFor(p.exec.ref)} workflow={app.tabTitleFor(p.exec.ref)}
+      statusInNote all={p.all} testId="execution-row" nodeTitle={runtimeNodeTitle}
+      cancelling={cancelling().has(executionKey(p.exec.ref))}
+      onCancel={() => { void app.cancelExecution(p.exec.ref) }}
+      onOpen={() => { void app.openExecutionView(p.exec.ref) }}
+      thumbnail={<Show when={thumbnail()}>{(asset) => <RunThumbnail
+        url={app.assetUrlForExecution(p.exec.ref, asset().digest)} mediaType={asset().mediaType} />}</Show>}
+      selected={selected()}
+      onSelect={() => setSelectedRunKey(selected() && selectedRunKey() === p.exec.key ? undefined : p.exec.key)}>
+      <Show when={selected()}>
+        <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
+            entry={p.exec}
+            title={app.tabTitleFor(p.exec.ref)}
+            testId="run-details"
+            relation={overlayRoleOf(p.exec)}
+            hideOpen
+            onPin={live() ? () => {
+              const tab = live()
+              if (!tab) return
+              if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
+              else app.pinExecutionOverlay(tab.id, p.exec.ref)
+            } : undefined}
+          />} />
+      </Show>
+    </RunRow>
   }
 
-  const RunList = (p: { runs: readonly ExecutionState[] }) => <For each={p.runs.map((run) => run.key)}>
-    {(key) => <Show when={executions().get(key)}>{(execution) => <ExecutionRow exec={execution()} />}</Show>}
+  const RunList = (p: { runs: readonly ExecutionState[]; all: readonly ExecutionState[] }) => <For each={p.runs.map((run) => run.key)}>
+    {(key) => <Show when={executions().get(key)}>{(execution) => <ExecutionRow exec={execution()} all={p.all} />}</Show>}
   </For>
 
   // ---- Shell panels ------------------------------------------------------
@@ -1512,62 +1516,88 @@ export function App(props: {
     const Facts = () => <>
       <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
     </>
-    return <div class="runs-stored-row">
-      <div class="runs-row-heading">
-        <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
-        <strong>{p.entry.title}</strong>
-        <Show when={storedExecution(p.entry)?.artifact && storedExecution(p.entry)}>{(execution) =>
+    const known = () => storedExecution(p.entry)
+    const record = () => historyRunOfEntry(p.entry)
+    const now = useNow()
+    const note = () => {
+      const execution = known()
+      // Durable records count seconds; the store counts milliseconds.
+      const finished = record()?.finishedAt
+      const ended = execution?.endedAt ?? (finished === undefined ? undefined : finished * 1000)
+      if (ended === undefined) return p.entry.subtitle
+      // Runs of one workflow are told apart by their age; the job id stays in the opened run.
+      const grouped = p.entry.children?.length ?? 0
+      const parts = [
+        ...(execution === undefined ? [] : [executionStatusLabel(execution.status)]),
+        runAge(ended, now()),
+        ...(grouped > 1 ? [message('runs.row.grouped', { count: grouped })] : []),
+      ]
+      return parts.join(', ')
+    }
+    return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
+      <div class="run-row-line">
+        <span class="run-row-thumbnail" aria-hidden="true">
+          <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
+        </span>
+        <span class="run-row-text">
+          <span class="run-row-name">{known() ? app.tabTitleFor(known()!.ref) : p.entry.title}</span>
+          <span class="run-row-note">{note()}</span>
+        </span>
+        <Show when={known()?.artifact && known()}>{(execution) =>
           <ExecutionOpenButton entry={execution()} title={p.entry.title} onOpen={() => { void app.openExecutionView(execution().ref) }} />
         }</Show>
       </div>
-      <p>{p.entry.subtitle}</p>
-      <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
-      <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
-      <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
-      <Show when={storedExecution(p.entry)} fallback={<Show when={loaded()} fallback={<details class="runs-details" onClick={(event) => event.stopPropagation()}>
-        <summary>{message('runs.details')}</summary><Facts />
-      </details>}>{(source) => <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} />}</Show>}>
-        {(execution) => <>
-          <CancelExecutionButton app={app} execution={execution()} />
-          <Outputs app={app} execution={execution()} details={<Facts />} />
-        </>}
+      <Show when={p.selected()}>
+        <p>{p.entry.subtitle}</p>
+        <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
+        <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
+        <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
+        <Show when={known()} fallback={<Show when={loaded()} fallback={<details class="runs-details" onClick={(event) => event.stopPropagation()}>
+          <summary>{message('runs.details')}</summary><Facts />
+        </details>}>{(source) => <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} />}</Show>}>
+          {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} />}
+        </Show>
+        {p.actions}
       </Show>
-      <Show when={p.selected()}>{p.actions}</Show>
     </div>
-  }
-  const pendingRuns = () => {
-    executions()
-    return app.executionList().filter((execution) => execution.status === 'queued' || execution.status === 'running')
   }
   const allWorkflowActivity = () => {
     executions()
     return executionActivity(app.executionList())
   }
-  const runsActivity = () => {
+  /** The runs the panel's scope covers: this workflow's, or every workflow's. */
+  const scopedRuns = (): readonly ExecutionState[] => {
     executions()
-    const tab = activeTab()
-    return executionActivity(runScope() === 'all' ? app.executionList() : tab ? app.executionsForTab(tab) : [])
+    return runScope() === 'all' ? app.executionList() : workflowExecutions()
+  }
+  const runningRuns = () => scopedRuns().filter((execution) => execution.status === 'running')
+  const queuedRuns = () => {
+    const all = app.executionList()
+    return scopedRuns().filter((execution) => execution.status === 'queued')
+      .sort((a, b) => (placeInLine(a, all) ?? 0) - (placeInLine(b, all) ?? 0))
   }
   const RunsPanel = () => (
     <div class="rail-panel-body runs-panel" data-testid="runs-panel">
-      <ProductSelect testId="runs-scope" ariaLabel={message('runs.scope')}
-        selectedId={runScope()} options={[
-          { id: 'workflow', label: message('runs.scope.workflow'), value: 'workflow' },
-          { id: 'all', label: message('runs.scope.all'), value: 'all' },
-        ]} onSelect={(option) => setRunScope(option.value)} />
-      <Show when={runsActivity().running > 0 || runsActivity().waiting > 0}>
-        <ProductRunActivity running={runsActivity().running} waiting={runsActivity().waiting}
-          label={message('runs.activity', runsActivity())} />
+      <div class="runs-scope" data-testid="runs-scope" data-selected-id={runScope()}>
+        <ProductSegmented label={message('runs.scope')} value={runScope()}
+          options={(['workflow', 'all'] as const).map((scope) => ({ value: scope, label: message(`runs.scope.${scope}`) }))}
+          onChange={(scope) => setRunScope(scope)} />
+      </div>
+      <Show when={runningRuns().length > 0}>
+        <RunSection title={message('runs.section.running', { count: runningRuns().length })} testId="runs-running">
+          <RunList runs={runningRuns()} all={app.executionList()} />
+        </RunSection>
+      </Show>
+      <Show when={queuedRuns().length > 0}>
+        <RunSection title={message('runs.section.queued', { count: queuedRuns().length })} testId="runs-queued">
+          <RunList runs={queuedRuns()} all={app.executionList()} />
+        </RunSection>
       </Show>
       <Show when={runScope() === 'workflow'} fallback={<>
         <Show when={clearArmed() && clearArmOwner === activeBackend().id}>
           <ProductNotice tone="info" testId="runs-clear-confirmation">{message('runs.clear.confirmation')}</ProductNotice>
         </Show>
-        <Show when={activeBackend().protocol === 'dinkster'}>
-          <div role="list" aria-label={message('runs.pending')}>
-            <RunList runs={pendingRuns()} />
-          </div>
-        </Show>
+        <h3 class="run-section-title">{message('runs.section.finished')}</h3>
         <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
@@ -1578,24 +1608,28 @@ export function App(props: {
           onSourceAction={librarySourceAction} />
       </>}>
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>
-        <For each={executionGroups().map((group) => group.id)}>
-          {(id) => <Show when={executionGroups().find((group) => group.id === id)}>{(group) => (
-            <div class="backend-group" role="list" aria-label={group().backend?.label ?? `${id} removed backend executions`}>
-              <Show when={multiBackend() || group().backend === undefined}>
-                <h3
-                  class="backend-group-title"
-                  classList={{ disconnected: group().backend === undefined }}
-                  data-testid="backend-group"
-                  data-connection={id}
-                  role={group().backend === undefined ? 'status' : undefined}
-                >
-                  {group().backend?.label ?? `${id} - backend removed or disconnected`}
-                </h3>
-              </Show>
-              <RunList runs={group().execs} />
-            </div>
-          )}</Show>}
-        </For>
+        <Show when={workflowExecutions().some((execution) => !runIsPending(execution))}>
+          <RunSection title={message('runs.section.finished')} testId="runs-finished">
+            <For each={executionGroups().map((group) => group.id)}>
+              {(id) => <Show when={executionGroups().find((group) => group.id === id)}>{(group) => (
+                <div class="backend-group" role="list" aria-label={group().backend?.label ?? `${id} removed backend executions`}>
+                  <Show when={multiBackend() || group().backend === undefined}>
+                    <h3
+                      class="backend-group-title"
+                      classList={{ disconnected: group().backend === undefined }}
+                      data-testid="backend-group"
+                      data-connection={id}
+                      role={group().backend === undefined ? 'status' : undefined}
+                    >
+                      {group().backend?.label ?? `${id} - backend removed or disconnected`}
+                    </h3>
+                  </Show>
+                  <RunList runs={group().execs.filter((execution) => !runIsPending(execution))} all={app.executionList()} />
+                </div>
+              )}</Show>}
+            </For>
+          </RunSection>
+        </Show>
         <RunIterations />
       </Show>
       </Show>
@@ -2838,7 +2872,11 @@ export function App(props: {
                 <Show when={paneActiveTab()}>
                   {(tab) => (
                     <WorkflowQueueControl
-                      app={app}
+                      onCancel={(ref) => { void app.cancelExecution(ref) }}
+                      cancelling={cancelling()}
+                      nodeTitle={runtimeNodeTitle}
+                      thumbnail={(entry) => <Show when={runIsPending(entry) ? undefined : executionThumbnail(entry)}>{(asset) => <RunThumbnail
+                        url={app.assetUrlForExecution(entry.ref, asset().digest)} mediaType={asset().mediaType} />}</Show>}
                       owner={{ id: tab().id, title: tab().title, lineage: tab().store.doc.lineage }}
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), app.registryForTab(tab()) !== undefined)}
@@ -2990,13 +3028,19 @@ export function App(props: {
         </>}
         search={<UniversalSearchTrigger shortcut={searchShortcut()} open={searchOpen()} onOpen={() => app.searchOpen.set(true)} />}
         actions={(narrow) => <>
-          <Show when={allWorkflowActivity().running > 0}>
-            <ProductRunActivity {...allWorkflowActivity()} label={message('runs.activity', allWorkflowActivity())} />
-          </Show>
+          <RunActivityControl
+            executions={(executions(), app.executionList())}
+            title={(entry) => app.tabTitleFor(entry.ref)}
+            cancelling={cancelling()}
+            onCancel={(entry) => { void app.cancelExecution(entry.ref) }}
+            onOpenList={() => {
+              setRunScope('all')
+              setPanelOpen(app.panels, app.dock, 'runs', 'right', true)
+            }}
+          />
           <Show when={managedContext().kind === 'workflow'}>
             <ProductWindowAction label={message('shell.window.moveToMain')} icon={PanelTop} data-testid="redock-workflow" onClick={redockCurrentWindow} />
           </Show>
-          <CancelExecutionButton toolbar app={app} execution={(executions(), activeTab(), app.currentCancellableExecution())} />
           <ProductIconButton label={message('shell.panel.workspace.title')} icon={Users} data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} onClick={() => app.modalPanel.set('collab')} />
           <span class="app-layout-menu" ref={layoutMenu}><ProductMenu
             label={message('command.layout.customize')}
