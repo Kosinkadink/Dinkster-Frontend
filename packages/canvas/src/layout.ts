@@ -48,6 +48,7 @@ import {
   type PortAddress,
   type SourceFilenameSpec,
   type TypeExpr,
+  type WidgetKind,
   type WidgetSpec,
 } from '@dinkster/core'
 import { canvasPaintTokens, type DesignTokens } from './tokens.js'
@@ -56,7 +57,11 @@ import { canvasPaintTokens, type DesignTokens } from './tokens.js'
 export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'label' | 'value') => number
 
 /** Resolves the widget view for a spec: view id + compact row count. */
-export type WidgetMeasure = (spec: WidgetSpec) => { viewId: string; rows: number } | undefined
+export interface WidgetMeasure {
+  (spec: WidgetSpec): { viewId: string; rows: number } | undefined
+  /** Kind-owned alternatives, resolved through the same registry as measurement. */
+  representations?: WidgetKind['representations']
+}
 
 export interface DynamicEditOwner {
   readonly graphId: string
@@ -1004,6 +1009,7 @@ export function layoutNode(
     const representation = resolveWidgetRepresentation(
       widget,
       options.widgetRepresentations?.[valueKey],
+      widgetMeasure.representations?.(widget),
     )
     const measured = widgetMeasure(representation.spec) ?? { viewId: 'core.unknown', rows: 1 }
     // Widget measures are host-supplied: a zero, negative, fractional, or

@@ -360,6 +360,7 @@ export function RowEditingExample(props: {
             ? { viewId: view.id, rows: view.measure(spec).rows }
             : undefined
         }
+        widgetMeasure.representations = (spec) => props.registry.kind(spec.widgetType)?.representations?.(spec)
         const built = (
           example.build?.scene ??
           (example.focus === undefined

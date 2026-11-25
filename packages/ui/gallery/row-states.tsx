@@ -64,6 +64,7 @@ function measurers(tokens: DesignTokens, registry: WidgetRegistry) {
       .find((candidate) => candidate.id === kind?.defaultView(spec))
     return view ? { viewId: view.id, rows: view.measure(spec).rows } : undefined
   }
+  widgetMeasure.representations = (spec) => registry.kind(spec.widgetType)?.representations?.(spec)
   return { measure, widgetMeasure }
 }
 

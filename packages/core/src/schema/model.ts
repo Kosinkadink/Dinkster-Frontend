@@ -368,8 +368,9 @@ export interface ResolvedWidgetRepresentation {
  * explicit representation set takes authority, including a locked set with
  * userSwitchable false or only one representation.
  */
-export function widgetRepresentationsOf(spec: WidgetSpec): WidgetRepresentationsSpec | undefined {
+export function widgetRepresentationsOf(spec: WidgetSpec, registered?: WidgetRepresentationsSpec): WidgetRepresentationsSpec | undefined {
   if (spec.representations !== undefined) return spec.representations
+  if (registered !== undefined) return registered
   if (spec.widgetType === 'FLOAT') {
     const { min, max } = spec.options
     if (typeof min !== 'number' || typeof max !== 'number' || !Number.isFinite(min)
@@ -380,17 +381,6 @@ export function widgetRepresentationsOf(spec: WidgetSpec): WidgetRepresentations
       representations: [
         { id: 'number', displayName: 'Number', widget: { ...spec, options: { ...spec.options, display: 'number' } } },
         { id: 'slider', displayName: 'Slider', widget: { ...spec, options: { ...spec.options, display: 'slider' } } },
-      ],
-    }
-  }
-  if (spec.widgetType === 'INT' && spec.options['display'] === 'color') {
-    // A color row has no steppers; Number is the way back to the raw whole number.
-    return {
-      default: 'color',
-      userSwitchable: true,
-      representations: [
-        { id: 'color', displayName: 'Color', widget: { ...spec } },
-        { id: 'number', displayName: 'Number', widget: { ...spec, options: { ...spec.options, display: 'number' } } },
       ],
     }
   }
@@ -445,8 +435,9 @@ export function widgetRepresentationChoices(spec: WidgetSpec, selected: string |
 export function resolveWidgetRepresentation(
   spec: WidgetSpec,
   selected?: string,
+  registered?: WidgetRepresentationsSpec,
 ): ResolvedWidgetRepresentation {
-  const set = widgetRepresentationsOf(spec)
+  const set = widgetRepresentationsOf(spec, registered)
   if (set === undefined) return { spec }
   const representation = set.representations.find((candidate) => candidate.id === selected) ??
     set.representations.find((candidate) => candidate.id === set.default)

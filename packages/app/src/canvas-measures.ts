@@ -22,5 +22,6 @@ export function canvasMeasures(registry: () => WidgetRegistry): {
     if (!view) return undefined
     return { viewId, rows: view.measure(spec).rows }
   }
+  widgetMeasure.representations = (spec) => registry().kind(spec.widgetType)?.representations?.(spec)
   return { measure, widgetMeasure }
 }
