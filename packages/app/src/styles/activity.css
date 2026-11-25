@@ -20,8 +20,11 @@
 .runs-output-thumbnails .output-thumbnail-preview { min-height: 0; aspect-ratio: 1; }
 .runs-output-thumbnails > [data-state] { width: 100%; font-size: var(--dinkster-type-metadata-size); color: var(--dinkster-text-muted); }
 /* A chosen stored run: four pictures, its actions, then Details. */
-.runs-output-thumbnails[data-chosen='true'] [role='listitem'], .runs-output-thumbnails[data-chosen='true'] > .product-button { flex: 1; min-width: 0; max-width: 20%; }
+.runs-output-thumbnails[data-chosen='true'] { flex-wrap: wrap; }
+.runs-output-thumbnails[data-chosen='true'] [role='listitem'], .runs-output-thumbnails[data-chosen='true'] > .product-button { flex: 0 0 calc((100% - 4 * var(--dinkster-space-4)) / 5); min-width: 0; }
 .runs-output-thumbnails[data-chosen='true'] > .product-button { aspect-ratio: 1; height: auto; }
+.runs-output-thumbnails > .output-file-tile { display: grid; place-content: center; justify-items: center; gap: 2px; padding: 0; color: var(--dinkster-text-secondary); background: var(--dinkster-surface-inset); font-size: var(--dinkster-type-metadata-size); }
+.run-chosen-inspection { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
 .run-chosen { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
 .run-chosen-reason { margin: 0; color: var(--dinkster-danger-foreground); }
 .run-chosen-actions { display: flex; align-items: center; min-width: 0; gap: var(--dinkster-space-8); }

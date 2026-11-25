@@ -284,6 +284,9 @@ test('Run again reopens the producing document and queues a FRESH submission', a
   const stamped = entryFor(page, INTERRUPTED_JOB_ID)
   await stamped.click()
   await expect(stamped.locator('.run-chosen-reason')).toHaveText('The engine stopped while this was running.')
+  // An interrupted run kept no outputs: once its record has loaded, only the reason shows, never a load failure.
+  await expect(stamped.getByText('Loading retained outputs...')).toHaveCount(0)
+  await expect(stamped.getByText(/Could not load outputs/)).toHaveCount(0)
   await stamped.getByTestId('chosen-run-again').click()
 
   // Runs stays available while the producing document opens in the active tab.

@@ -133,9 +133,31 @@ describe('ChosenRun', () => {
     expect(details.textContent).toContain('4 ran, 2 from cache')
 
     await view.openMenu()
+    expect([...document.querySelectorAll('[role^="menuitem"]')].map((item) => item.textContent?.trim()))
+      .toEqual(['Hide details', 'Copy job ID', 'Delete record'])
     menuItem('Copy job ID').click()
     expect(copy).toHaveBeenCalledOnce()
     view.unmount()
+  })
+
+  it('offers Inspect run only when the owner has an inspection, and no Delete record without a delete', async () => {
+    const [inspectOpen, setInspectOpen] = createSignal(false)
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => (
+      <ChosenRun name="Long run" facts={[]} detailsOpen={false} onDetails={() => {}}
+        inspectOpen={inspectOpen()} onInspect={setInspectOpen} onCopyJobId={() => {}} />
+    ), root)
+    const items = () => [...document.querySelectorAll('[role^="menuitem"]')].map((item) => item.textContent?.trim())
+    root.querySelector<HTMLButtonElement>('button[aria-label="More for Long run"]')!.click()
+    await settle()
+    expect(items()).toEqual(['Details', 'Inspect run', 'Copy job ID'])
+    menuItem('Inspect run').click()
+    expect(inspectOpen()).toBe(true)
+    root.querySelector<HTMLButtonElement>('button[aria-label="More for Long run"]')!.click()
+    await settle()
+    expect(items()).toContain('Hide inspection')
+    unmount()
   })
 
   it('says why an interrupted run stopped and offers Run again', () => {

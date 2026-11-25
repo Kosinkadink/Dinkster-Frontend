@@ -88,3 +88,31 @@ test('save destination writes the selected relative prefix through the real back
   await page.keyboard.press('Enter')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.gallery!.values.destination)).toBeNull()
 })
+
+test('a chosen finished run shows a saved file that is not a picture as a tile that opens it', async ({ page }) => {
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  const text = `A diner at night, ${Date.now()}.`
+  await page.evaluate(async (text) => {
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'saved-text-tile', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Saved text', nodes: {
+        save: { id: 'save', type: 'dinkster.text.save_text', values: { text } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { save: { position: { x: 80, y: 100 } } } } } },
+    } as never, 'Saved text')
+  }, text)
+  await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
+  await page.getByTestId('queue-button').click()
+  const row = page.getByTestId('execution-row').first()
+  await expect(row.getByTestId('chosen-run')).toBeVisible({ timeout: 30_000 })
+  const tile = row.locator('.output-file-tile')
+  await expect(tile).toHaveCount(1)
+  await expect(tile).toHaveText('TXT')
+  await expect(tile).toHaveAccessibleName(/^Open .+\.txt$/)
+  // The engine serves bytes untyped; the tile hands them to a new tab typed as text, so the tab shows the file.
+  const [opened] = await Promise.all([page.waitForEvent('popup'), tile.click()])
+  await expect.poll(() => opened.url(), { timeout: 15_000 }).toMatch(/^blob:/)
+  await expect(opened.locator('body')).toHaveText(text)
+  await opened.close()
+})

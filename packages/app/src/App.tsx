@@ -18,6 +18,12 @@ import BookOpen from 'lucide-solid/icons/book-open'
 import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
 import Users from 'lucide-solid/icons/users'
+import AudioLines from 'lucide-solid/icons/audio-lines'
+import Box from 'lucide-solid/icons/box'
+import FileIcon from 'lucide-solid/icons/file'
+import FileText from 'lucide-solid/icons/file-text'
+import Film from 'lucide-solid/icons/film'
+import type { LucideIcon } from 'lucide-solid'
 import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
@@ -1268,6 +1274,25 @@ export function App(props: {
     const selected = () => selectedRunKey() === p.exec.key ||
       (selectedRunKey() === undefined && !runIsPending(p.exec) && selectedRun()?.key === p.exec.key)
     const thumbnail = () => runIsPending(p.exec) ? undefined : executionThumbnail(p.exec)
+    // A finished run reads as it does under All workflows; its inspection, opened
+    // from the menu, keeps the activity card with the overlay pin and errors. One
+    // open state serves both, so a run inspected while it ran stays inspected.
+    const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
+    const [inspectOpen, setInspectOpen] = createSolidSignal(false)
+    const reason = (): string | undefined => p.exec.status === 'error'
+      ? p.exec.errors.map((error) => error.message).join(' ') || undefined : undefined
+    const facts = (): ChosenRunFact[] => {
+      const nodes = Object.values(p.exec.nodes)
+      const backend = app.backendFor(p.exec.ref.connection)
+      return [
+        ...(p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.finished'), text: formatCollectionDate(p.exec.endedAt) }]),
+        ...(p.exec.startedAt === undefined || p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText((p.exec.endedAt - p.exec.startedAt) / 1000) }]),
+        { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', {
+          ran: nodes.filter((node) => node.state === 'done').length, cached: nodes.filter((node) => node.state === 'cached').length,
+        }) },
+        ...(backend === undefined ? [] : [{ label: message('runs.chosen.ranOn'), text: backend.label }]),
+      ]
+    }
     return <RunRow entry={p.exec} name={app.tabTitleFor(p.exec.ref)} workflow={app.tabTitleFor(p.exec.ref)}
       statusInNote all={p.all} testId="execution-row" nodeTitle={runtimeNodeTitle}
       cancelling={cancelling().has(executionKey(p.exec.ref))}
@@ -1290,7 +1315,10 @@ export function App(props: {
               if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
               else app.pinExecutionOverlay(tab.id, p.exec.ref)
             } : undefined}
-          />} />
+          />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
+          {...(runIsPending(p.exec) ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
+            detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
+            onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
       </Show>
     </RunRow>
   }
@@ -1472,7 +1500,11 @@ export function App(props: {
         if (run === undefined || run.scope !== LIBRARY_SCOPE || (run.jobRef ?? run.runId) !== runId) throw new Error('Stored run is no longer available')
         const job = await backend.connection.fetchHistoryJob(run)
         if (!current()) return
-        if (job === undefined) throw new Error('Retained outputs are no longer available')
+        if (job === undefined) {
+          // An interrupted run never finished, so the engine kept no outputs to load; its reason line says so.
+          if (run.state === 'interrupted') return
+          throw new Error('Retained outputs are no longer available')
+        }
         if (job.state === 'queued' || job.state === 'running') throw new Error('Stored run is no longer terminal')
         const rawOutputs = job.outputs
         if (rawOutputs !== undefined && (typeof rawOutputs !== 'object' || rawOutputs === null || Array.isArray(rawOutputs) ||
@@ -1513,6 +1545,8 @@ export function App(props: {
       return asset !== undefined && backend?.protocol === 'dinkster'
         ? { url: backend.connection.assetUrl(asset.digest), mediaType: asset.mediaType } : undefined
     }
+    // The record's own facts (ids, client, source and each node's receipt), shown when the run is inspected.
+    const Facts = () => <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
     const known = () => storedExecution(p.entry)
     const record = () => historyRunOfEntry(p.entry)
     const now = useNow()
@@ -1532,6 +1566,7 @@ export function App(props: {
       return parts.join(', ')
     }
     const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
+    const [inspectOpen, setInspectOpen] = createSolidSignal(false)
     const facts = (): ChosenRunFact[] => {
       const run = record()
       if (run === undefined) return []
@@ -1552,7 +1587,7 @@ export function App(props: {
     }
     const act = (actionId: 'resubmit' | 'open' | 'delete') => () => libraryEntryAction('runs', p.entry, actionId)
     const chosen = () => <ChosenRun name={known() ? app.tabTitleFor(known()!.ref) : p.entry.title} reason={reason()} facts={facts()}
-      detailsOpen={detailsOpen()} onDetails={setDetailsOpen}
+      detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
       onRunAgain={record()?.state === 'interrupted' && record()?.sourceDocument !== undefined ? act('resubmit') : undefined}
       onOpenWorkflow={record()?.sourceDocument !== undefined ? act('open') : undefined}
       onCopyJobId={() => { const jobId = record()?.jobId; if (jobId !== undefined) void navigator.clipboard?.writeText(jobId) }}
@@ -1573,10 +1608,13 @@ export function App(props: {
       <Show when={p.selected()}>
         <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
         <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
-        <Show when={known()} fallback={<Show when={loaded()} fallback={chosen()}>{(source) =>
-          <Outputs app={app} execution={source().execution} source={source()} chosen={chosen()} />
+        <Show when={known()} fallback={<Show when={loaded()} fallback={<>
+          {chosen()}
+          <Show when={inspectOpen()}><div class="run-chosen-inspection" data-testid="run-inspection"><Facts /></div></Show>
+        </>}>{(source) =>
+          <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />
         }</Show>}>
-          {(execution) => <Outputs app={app} execution={execution()} chosen={chosen()} />}
+          {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />}
         </Show>
       </Show>
     </div>
@@ -3437,18 +3475,63 @@ function outputIterationGroup(runtimeId: string, workflowLabel: string): { reado
 }
 
 /**
+ * Opens a saved file in a new browser tab, where the browser plays audio and
+ * video and shows text. The engine serves assets as plain bytes, so the file
+ * is read and handed to the tab typed by its recorded media type.
+ */
+async function openSavedFile(url: string, mediaType: string): Promise<void> {
+  // Opened before the read, while the click still allows a new tab.
+  const tab = window.open('', '_blank')
+  if (tab === null) return
+  tab.opener = null
+  try {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const blob = new Blob([await response.arrayBuffer()], { type: mediaType })
+    const objectUrl = URL.createObjectURL(blob)
+    tab.location.href = objectUrl
+    // The tab plays from the object URL, so it is released only once the tab closes.
+    const watch = setInterval(() => {
+      if (!tab.closed) return
+      clearInterval(watch)
+      URL.revokeObjectURL(objectUrl)
+    }, 5000)
+  } catch {
+    tab.location.href = url
+  }
+}
+
+/** The kind of a saved file, as its tile's icon. */
+const fileIcon = (mediaType: string): LucideIcon => {
+  const [kind, subtype = ''] = mediaType.split('/')
+  if (kind === 'audio') return AudioLines
+  if (kind === 'video') return Film
+  if (kind === 'model' || /gltf|glb|obj|stl|ply|fbx|usd/.test(subtype)) return Box
+  if (kind === 'text' || subtype === 'json') return FileText
+  return FileIcon
+}
+/** A saved file's short kind, as its tile's label: "WAV", "MP4". */
+const fileExtension = (file: { readonly name: string; readonly virtualPath: string; readonly mediaType: string }): string => {
+  const name = file.name || file.virtualPath
+  const dot = name.lastIndexOf('.')
+  return (dot > 0 ? name.slice(dot + 1) : file.mediaType.split('/').at(-1) ?? '').slice(0, 5).toUpperCase()
+}
+
+/**
  * A run's pictures and, behind a Details fold, what else it made and where.
- * Given `chosen`, it is a chosen stored run instead: four pictures, then
- * `chosen`, its actions and plain facts.
+ * Given `chosen`, it is a chosen finished run instead: four pictures and a
+ * tile for each other saved file, then `chosen` (its actions and plain
+ * facts), then the same inspection while `inspectOpen`.
  */
 function Outputs(props: { app: AppState; execution: ExecutionState; details?: JSX.Element; source?: {
   values: DinksterValuesClient
-}; chosen?: JSX.Element }) {
+}; chosen?: JSX.Element; inspectOpen?: boolean; onInspect?: (open: boolean) => void }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
   const [viewerIndex, setViewerIndex] = createSolidSignal<number>()
   const [viewerGrid, setViewerGrid] = createSolidSignal(false)
-  const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
+  const [localOpen, setLocalOpen] = createSolidSignal(false)
+  const detailsOpen = (): boolean => props.inspectOpen ?? localOpen()
   const [failed, setFailed] = createSolidSignal<ReadonlySet<string>>(new Set())
   const [loaded, setLoaded] = createSolidSignal<ReadonlySet<string>>(new Set())
   const currentExecutionKey = createMemo(() => props.execution.key)
@@ -3539,13 +3622,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
       detail: 'This execution completed without inspectable image descriptors or assets.',
     }
   }
-  return (
-    <>
-      <Show when={props.chosen === undefined}>
-      <details class="runs-details" onClick={(event) => event.stopPropagation()}
-        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
-        <summary>{message('runs.details')}</summary>
-        <Show when={detailsOpen()}>
+  const Inspection = () => <>
         {props.details}
       <section class="output-execution-provenance output-rail-provenance" aria-label="Execution provenance">
         <div><span>Backend</span><strong>{provenance().backendLabel}</strong></div>
@@ -3571,11 +3648,28 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
         </section>
       )}</For>
       <For each={images()}>{(image) => <ExecutedImageFacts image={image} availability={availability(image.key)} />}</For>
-        </Show>
+  </>
+  // A finished run's saved files that are not pictures, each opened in a new browser tab.
+  const files = createMemo(() => {
+    if (props.chosen === undefined) return []
+    const seen = new Set<string>()
+    return props.execution.artifacts.filter((artifact) => {
+      if (artifact.mediaType.startsWith('image/') || seen.has(artifact.digest)) return false
+      seen.add(artifact.digest)
+      return true
+    })
+  })
+  return (
+    <>
+      <Show when={props.chosen === undefined}>
+      <details class="runs-details" open={detailsOpen()} onClick={(event) => event.stopPropagation()}
+        onToggle={(event) => { const open = event.currentTarget.open; if (open !== detailsOpen()) { setLocalOpen(open); props.onInspect?.(open) } }}>
+        <summary>{message('runs.details')}</summary>
+        <Show when={detailsOpen()}><Inspection /></Show>
       </details>
       </Show>
       <div class="outputs runs-output-thumbnails" data-chosen={props.chosen !== undefined} aria-label={`${images().length} execution images`}>
-        <For each={imageGroups()} fallback={<Show when={props.chosen === undefined || emptyState().state !== 'empty'}>
+        <For each={imageGroups()} fallback={<Show when={props.chosen === undefined || (emptyState().state !== 'empty' && emptyState().state !== 'error')}>
           <span data-state={emptyState().state} role="status" title={emptyState().detail}>{emptyState().title}</span>
         </Show>}>
           {(group) => (
@@ -3607,8 +3701,22 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
           <ProductButton size="compact" aria-label={message('runs.outputs.all', { count: images().length })}
             onClick={(event) => { event.stopPropagation(); setViewerGrid(true); setViewerIndex(0) }}>+{images().length - shown()}</ProductButton>
         </Show>
+        <For each={files()}>{(file) => (
+          <ProductButton type="button" class="output-file-tile" data-kind={file.mediaType.split('/')[0]}
+            aria-label={message('runs.chosen.openFile', { name: file.name || file.virtualPath })} data-tooltip-label={file.name || file.virtualPath}
+            onClick={(event) => {
+              event.stopPropagation()
+              void openSavedFile(props.app.assetUrlForExecution(props.execution.ref, file.digest), file.mediaType)
+            }}>
+            <ProductIcon icon={fileIcon(file.mediaType)} />
+            <span>{fileExtension(file)}</span>
+          </ProductButton>
+        )}</For>
       </div>
       {props.chosen}
+      <Show when={props.chosen !== undefined && detailsOpen()}>
+        <div class="run-chosen-inspection" data-testid="run-inspection" onClick={(event) => event.stopPropagation()}><Inspection /></div>
+      </Show>
       <Show when={viewerIndex() !== undefined}>
         <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} initialMode={viewerGrid() ? 'grid' : 'single'} provenance={provenance()} backendUrl={props.app.backendFor(props.execution.ref.connection)?.baseUrl} onRequestClose={() => setViewerIndex(undefined)} />
       </Show>

@@ -242,9 +242,10 @@ export interface ChosenRunFact {
 
 /**
  * Under a chosen finished run's pictures: why it stopped when it was
- * interrupted, then Run again, Open workflow and a menu holding Details,
- * Copy job ID and Delete record. Details opens a few plain lines; the job ID
- * is copied from the menu, never shown.
+ * interrupted or failed, then Run again, Open workflow and a menu holding
+ * Details, Inspect run, Copy job ID and Delete record. Details opens a few
+ * plain lines; the job ID is copied from the menu, never shown in them.
+ * Inspect run asks the owner to show the run's full inspection.
  */
 export function ChosenRun(props: {
   /** The workflow's name, which the menu's label carries. */
@@ -254,10 +255,13 @@ export function ChosenRun(props: {
   readonly facts: readonly ChosenRunFact[]
   readonly detailsOpen: boolean
   readonly onDetails: (open: boolean) => void
+  /** Whether the owner shows the run's full inspection; absent when the run has none. */
+  readonly inspectOpen?: boolean | undefined
+  readonly onInspect?: ((open: boolean) => void) | undefined
   readonly onRunAgain?: (() => void) | undefined
   readonly onOpenWorkflow?: (() => void) | undefined
   readonly onCopyJobId: () => void
-  readonly onDelete: () => void
+  readonly onDelete?: (() => void) | undefined
 }) {
   const message = useAppMessage()
   const [deleting, setDeleting] = createSignal(false)
@@ -266,7 +270,7 @@ export function ChosenRun(props: {
       <Show when={props.reason}>{(reason) => <p class="run-chosen-reason" role="status">{reason()}</p>}</Show>
       <Show when={!deleting()} fallback={
         <ProductConfirmation consequence={message('runs.chosen.deleteConsequence')} actionLabel={message('runs.chosen.delete')}
-          intent="remove" onCancel={() => setDeleting(false)} onConfirm={() => { setDeleting(false); props.onDelete() }} />
+          intent="remove" onCancel={() => setDeleting(false)} onConfirm={() => { setDeleting(false); props.onDelete?.() }} />
       }>
         <div class="run-chosen-actions">
           <Show when={props.onRunAgain}>{(runAgain) =>
@@ -277,10 +281,16 @@ export function ChosenRun(props: {
           }</Show>
           <span class="run-chosen-menu">
             <ProductMenu icon={Ellipsis} iconOnly label={message('runs.chosen.actions', { name: props.name })} items={[
-              { label: message('runs.details'), onSelect: () => props.onDetails(!props.detailsOpen) },
+              { label: message(props.detailsOpen ? 'runs.chosen.hideDetails' : 'runs.details'), onSelect: () => props.onDetails(!props.detailsOpen) },
+              ...(props.onInspect === undefined ? [] : [{
+                label: message(props.inspectOpen === true ? 'runs.chosen.hideInspect' : 'runs.chosen.inspect'),
+                onSelect: () => props.onInspect?.(props.inspectOpen !== true),
+              }]),
               { label: message('runs.chosen.copyJob'), onSelect: () => props.onCopyJobId() },
-              'separator',
-              { label: message('runs.chosen.delete'), intent: 'remove', onSelect: () => setDeleting(true) },
+              ...(props.onDelete === undefined ? [] : [
+                'separator' as const,
+                { label: message('runs.chosen.delete'), intent: 'remove' as const, onSelect: () => setDeleting(true) },
+              ]),
             ]} />
           </span>
         </div>

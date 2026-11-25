@@ -110,14 +110,33 @@ export async function unfoldNodeEditor(page: Page, nodeId: string, inputId: stri
   return editor
 }
 
-export async function executionDetails(row: Locator): Promise<Locator> {
-  const details = row.locator('details.runs-details')
-  // A running or queued row shows its outputs and details once its name is pressed.
-  if (await details.count() === 0) await row.locator('.run-row-name').click()
-  if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) {
-    await details.locator('summary').click()
+/**
+ * Opens a run's inspection and returns it: a finished chosen run's "Inspect
+ * run" from its menu, or a running or queued run's Details fold.
+ */
+export async function inspectRun(row: Locator): Promise<Locator> {
+  const chosen = row.getByTestId('chosen-run')
+  const fold = row.locator('details.runs-details')
+  // A running or queued row shows its outputs once its name is pressed.
+  if (await chosen.count() === 0 && await fold.count() === 0) await row.locator('.run-row-name').click()
+  await expect(chosen.or(fold)).toBeVisible()
+  if (await chosen.count() > 0) {
+    const inspection = row.getByTestId('run-inspection')
+    if (await inspection.count() === 0) {
+      await row.getByRole('button', { name: /^More for / }).click()
+      await row.page().getByRole('menuitem', { name: 'Inspect run', exact: true }).click()
+    }
+    await expect(inspection).toBeVisible()
+    return inspection
   }
-  return details.getByTestId('run-details')
+  if (!await fold.evaluate((element) => (element as HTMLDetailsElement).open)) await fold.locator('summary').click()
+  return fold
+}
+
+/** A run's activity card, inside its inspection; it stays found when the run finishes. */
+export async function executionDetails(row: Locator): Promise<Locator> {
+  await inspectRun(row)
+  return row.getByTestId('run-details')
 }
 
 const regionSwitches = {
