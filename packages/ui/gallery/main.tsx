@@ -91,6 +91,7 @@ import { CanvasChromeGallery } from './canvas-chrome.js'
 import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 import { ProjectsGallery } from './projects.js'
+import { SearchGallery } from './search.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -98,6 +99,7 @@ const navigation = [
   { label: 'Lists and tables', href: '#lists', icon: LayoutList },
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
+  { label: 'Search', href: '#search', icon: Search },
   { label: 'Account data', href: '#account-data', icon: User },
   {
     label: 'Canvas',
@@ -188,7 +190,7 @@ function Gallery() {
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search'}
       >
         <Show
           when={!loading()}
@@ -323,6 +325,9 @@ function Gallery() {
               <Section title="Canvas corner, view bar and Run" components="CanvasCornerControls, CanvasViewControls, WorkflowQueueControl">
                 <CanvasChromeGallery />
               </Section>
+            </Match>
+            <Match when={route() === '#search'}>
+              <SearchGallery />
             </Match>
             <Match when={route() === '#context-menus'}>
               <Section title="Context menus" components="ContextMenu">

@@ -397,6 +397,32 @@ export function ProductCheckbox(
   )
 }
 
+/** An on/off setting that changes the moment it is pressed. */
+export function ProductSwitch(props: {
+  checked: boolean
+  label: string
+  disabled?: boolean
+  onChange: (next: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      class="dinkster-switch"
+      aria-checked={props.checked}
+      aria-label={props.label}
+      disabled={props.disabled}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation()
+        props.onChange(!props.checked)
+      }}
+    >
+      <span class="dinkster-switch-knob" aria-hidden="true" />
+    </button>
+  )
+}
+
 export function ProductRadio(
   props: Omit<
     JSX.InputHTMLAttributes<HTMLInputElement>,
