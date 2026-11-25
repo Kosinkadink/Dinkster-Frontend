@@ -6717,7 +6717,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const at = valueTarget()
           if (at === undefined) return ''
           const execution = props.app.executionForTab(at.tab)
-          return JSON.stringify([at.tab.id, at.tab.store.revision, at.current.key, at.current.wired, [...at.current.wiredParts],
+          return JSON.stringify([at.tab.id, at.tab.store.doc.lineage, at.tab.store.revision, at.target, viewInstancePath(at.tab),
+            props.app.backendForTab(at.tab).id, at.current.key, at.current.wired, [...at.current.wiredParts],
             execution?.key, execution?.status, execution?.nodes])
         })
         createEffect(on(arrivalKey, () => {
