@@ -160,6 +160,10 @@ body,
 
 .app-shell-layer { position: absolute; inset: 0; }
 
+.app-shell-held { position: absolute; inset: 0; pointer-events: none; }
+
+.app-shell-held:empty { display: none; }
+
 .app-shell-page {
   opacity: 1;
   transition: opacity 150ms var(--dinkster-motion-easing);

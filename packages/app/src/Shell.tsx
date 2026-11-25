@@ -100,6 +100,8 @@ export function Shell(props: {
   const [opening, setOpening] = createSignal<ProjectOpening>()
   const [editorProject, setEditorProject] = createSignal<string>()
   let editorHost!: HTMLDivElement
+  let heldHost!: HTMLDivElement
+  let coverElement!: HTMLDivElement
   let disposeEditor: (() => void) | undefined
   let openInstallation: ProjectInstallation | undefined = props.home.open
   let facts: Promise<ReadonlyMap<string, InstallationFrontend>> | undefined
@@ -130,6 +132,40 @@ export function Shell(props: {
   const cover = async (on: boolean): Promise<void> => {
     setCovered(on)
     await wait(fadeTime())
+    if (!on && !covered()) coverElement.style.clipPath = ''
+  }
+
+  /** On a switch the cover leaves the editor's top bar and icon bar out, so they stay on screen. */
+  const shapeCoverAroundBars = (): void => {
+    const origin = editorHost.getBoundingClientRect()
+    const top = editorHost.querySelector('.dinkster-window-toolbar-host')?.getBoundingClientRect()
+    const icons = editorHost.querySelector('nav.left-sidebar:not([hidden])')?.getBoundingClientRect()
+    const below = top ? top.bottom - origin.top : 0
+    const right = icons ? icons.right - origin.left : 0
+    const bottom = icons ? icons.bottom - origin.top : below
+    coverElement.style.clipPath = `polygon(0 ${bottom}px, ${right}px ${bottom}px, ${right}px ${below}px, 100% ${below}px, 100% 100%, 0 100%)`
+  }
+
+  /**
+   * A still copy of the old editor over the swap; with the centre covered only its bars show.
+   * One project scope per window rules out keeping the old editor running beside the new one.
+   */
+  const holdOldEditor = (): (() => void) => {
+    const copy = editorHost.cloneNode(true) as HTMLElement
+    for (const node of copy.querySelectorAll('[id]')) node.removeAttribute('id')
+    copy.removeAttribute('data-testid')
+    copy.setAttribute('inert', '')
+    copy.setAttribute('aria-hidden', 'true')
+    heldHost.replaceChildren(copy)
+    return () => heldHost.replaceChildren()
+  }
+
+  /** The new top bar names its project once the library answers; the copy waits for that, a second at most. */
+  const projectNamed = async (): Promise<void> => {
+    const until = performance.now() + 1000
+    while (editorHost.querySelector('.dinkster-project-name') === null && performance.now() < until) {
+      await new Promise(requestAnimationFrame)
+    }
   }
 
   const mount = async (projectId: string): Promise<void> => {
@@ -137,7 +173,13 @@ export function Shell(props: {
     disposeEditor?.()
     disposeEditor = undefined
     setEditorProject(projectId)
-    disposeEditor = await props.mountEditor(projectId, editorHost, navigation)
+    try {
+      disposeEditor = await props.mountEditor(projectId, editorHost, navigation)
+    } catch (error) {
+      setEditorProject(undefined)
+      editorHost.replaceChildren()
+      throw error
+    }
   }
 
   const failedOpening = (opening: ProjectOpening, installation: ShellInstallation, error: unknown): ProjectOpening => {
@@ -201,10 +243,28 @@ export function Shell(props: {
       return
     }
     if (run !== attempt) return
-    // From one editor straight to another, the frame colour covers the swap.
+    // From one editor straight to another, the frame colour covers the swap below the bars.
     const fromEditor = !pageShown()
-    if (fromEditor && replacing) await cover(true)
-    await mount(projectId)
+    const switching = fromEditor && replacing
+    let release: (() => void) | undefined
+    if (switching) {
+      shapeCoverAroundBars()
+      await cover(true)
+      release = holdOldEditor()
+    }
+    try {
+      await mount(projectId)
+      if (switching) await projectNamed()
+    } catch (error) {
+      if (run !== attempt) return
+      push({ kind: 'projects', newProject: false })
+      setOpening({ projectId, line, reason: detailOf(error), failed: message('shell.opening.editorFailed') })
+      if (!pageShown() || !pageOpaque()) await fadePage(true)
+      await cover(false)
+      return
+    } finally {
+      release?.()
+    }
     if (run !== attempt) return
     push({ kind: 'editor', projectId })
     recordOpened(projectId)
@@ -279,12 +339,13 @@ export function Shell(props: {
   return (
     <div class="app-shell" data-testid="app-shell" data-view={view().kind}>
       <div class="app-shell-layer" ref={editorHost} data-testid="app-shell-editor" />
+      <div class="app-shell-held" ref={heldHost} data-testid="app-shell-held" />
       <Show when={pageShown()}>
         <div class="app-shell-layer app-shell-page" classList={{ 'app-shell-faded': !pageOpaque() }} data-testid="app-shell-page">
           {props.page({ shell: navigation })}
         </div>
       </Show>
-      <div class="app-shell-cover" classList={{ 'app-shell-covered': covered() }} data-testid="app-shell-cover" />
+      <div class="app-shell-cover" ref={coverElement} classList={{ 'app-shell-covered': covered() }} data-testid="app-shell-cover" />
     </div>
   )
 }

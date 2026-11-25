@@ -44,6 +44,8 @@ function mount(home: HomeStatus = { role: 'home', state: 'stopped' }) {
   }))
   const editors: string[] = []
   const disposed: string[] = []
+  const gates = new Map<string, Promise<void>>()
+  const unnamed = new Set<string>()
   const navigated: string[] = []
   let shell!: ShellNavigation
   const root = document.createElement('div')
@@ -59,13 +61,19 @@ function mount(home: HomeStatus = { role: 'home', state: 'stopped' }) {
     }}
     mountEditor={async (projectId, host) => {
       editors.push(projectId)
-      host.textContent = `editor ${projectId}`
-      return () => disposed.push(projectId)
+      const name = unnamed.has(projectId) ? '' : `<span class="dinkster-project-name">${projectId}</span>`
+      host.innerHTML = `<header class="dinkster-window-toolbar-host" id="bar">${name}</header>` +
+        `<nav class="left-sidebar"><button>${projectId}</button></nav><main>editor ${projectId}</main>`
+      await gates.get(projectId)
+      return () => {
+        disposed.push(projectId)
+        host.replaceChildren()
+      }
     }}
     navigate={(url) => navigated.push(url)}
   />, root)
   return {
-    root, editors, disposed, navigated, opened, recorded, dispose,
+    root, editors, disposed, navigated, opened, recorded, dispose, gates, unnamed,
     get shell() { return shell },
     become(next: Partial<HomeStatus>) { status = { ...status, ...next } },
     page: () => root.querySelector<HTMLElement>('[data-testid="app-shell-page"]'),
@@ -106,6 +114,49 @@ describe('the one app shell', () => {
     expect(view.opened).toHaveLength(1)
     expect(view.navigated).toEqual([])
     await vi.waitFor(() => expect(view.recorded).toEqual(['film', 'teapot']))
+  })
+
+  it('keeps the top bar and icon bar on screen while switching projects, as a copy nothing can reach', async () => {
+    const view = mount()
+    view.shell.openProject('film', { root: '/same', engine: 'main' })
+    await vi.waitFor(() => expect(view.page()).toBeNull())
+    let drawn!: () => void
+    view.gates.set('teapot', new Promise((resolve) => { drawn = resolve }))
+    view.unnamed.add('teapot')
+    const held = () => view.root.querySelector<HTMLElement>('[data-testid="app-shell-held"]')!
+
+    view.shell.openProject('teapot')
+    await vi.waitFor(() => expect(view.editors).toEqual(['film', 'teapot']))
+    // The new editor is mounting underneath; the old one's bars stay over it until it has drawn.
+    const copy = held().firstElementChild as HTMLElement
+    expect(copy.querySelector('.dinkster-window-toolbar-host')?.textContent).toBe('film')
+    expect(copy.querySelector('nav.left-sidebar')?.textContent).toBe('film')
+    expect(copy.hasAttribute('inert')).toBe(true)
+    expect(copy.getAttribute('aria-hidden')).toBe('true')
+    expect(copy.querySelector('[id]')).toBeNull()
+    expect(view.root.querySelector('[data-testid="app-shell-cover"]')?.classList.contains('app-shell-covered')).toBe(true)
+
+    // Drawn but not yet named: the copy keeps the old name on screen rather than an empty top bar.
+    drawn()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(held().childElementCount).toBe(1)
+    view.root.querySelector('[data-testid="app-shell-editor"] header')!.innerHTML = '<span class="dinkster-project-name">teapot</span>'
+    await vi.waitFor(() => expect(held().childElementCount).toBe(0))
+    await vi.waitFor(() => expect(view.root.querySelector('[data-testid="app-shell-cover"]')?.classList.contains('app-shell-covered')).toBe(false))
+    expect(view.text('app-shell-editor')).toContain('editor teapot')
+    expect(view.disposed).toEqual(['film'])
+
+    // An editor that fails to mount leaves no copy and no cover: the page shows the failed opening.
+    const failing = Promise.reject(new Error('mount failed'))
+    failing.catch(() => undefined)
+    view.gates.set('bookshop', failing)
+    view.shell.openProject('bookshop')
+    await vi.waitFor(() => expect(view.page()).not.toBeNull())
+    expect(view.text('failed')).toBe('The editor did not open')
+    expect(view.root.querySelector('[data-testid="line"]')?.getAttribute('title')).toBe('mount failed')
+    expect(held().childElementCount).toBe(0)
+    await vi.waitFor(() => expect(view.root.querySelector('[data-testid="app-shell-cover"]')?.classList.contains('app-shell-covered')).toBe(false))
+    expect(location.search).toBe('')
   })
 
   it('opens an installation on another wire version at its own address once its engine is ready', async () => {

@@ -1691,6 +1691,7 @@
   "shell.opening.reason.older": "This installation uses an older editor.",
   "shell.opening.reason.development": "This installation uses a development editor.",
   "shell.opening.starting": "Starting {installation}",
+  "shell.opening.editorFailed": "The editor did not open",
   "shell.opening.didNotStart": "{installation} did not start",
   "shell.opening.unavailable": "This installation has no editor this Dinkster can open. Update it to open its projects."
 }

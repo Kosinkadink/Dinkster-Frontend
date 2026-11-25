@@ -1691,6 +1691,7 @@
   "shell.opening.reason.older": "此安装使用较旧的编辑器。",
   "shell.opening.reason.development": "此安装使用开发版编辑器。",
   "shell.opening.starting": "正在启动 {installation}",
+  "shell.opening.editorFailed": "编辑器未能打开",
   "shell.opening.didNotStart": "{installation} 未能启动",
   "shell.opening.unavailable": "此安装没有当前 Dinkster 能打开的编辑器。请更新它以打开其中的项目。"
 }
