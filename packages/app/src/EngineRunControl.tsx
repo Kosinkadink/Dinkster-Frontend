@@ -129,7 +129,10 @@ export function EngineRunControl(props: {
                   return <>
                     <Show when={tail.truncated}><p class="dinkster-description">{message('shell.engine.logTruncated')}</p></Show>
                     <Show when={tail.available} fallback={<p>{message('shell.engine.noLog')}</p>}>
-                      <ProductCodeBlock value={tail.text || message('shell.engine.emptyLog')} />
+                      <div class="engine-run-log" data-testid="engine-log-content" tabIndex={0}
+                        ref={(element) => queueMicrotask(() => { element.scrollTop = element.scrollHeight })}>
+                        <ProductCodeBlock value={tail.text || message('shell.engine.emptyLog')} />
+                      </div>
                     </Show>
                   </>
                 })()}

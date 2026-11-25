@@ -1314,6 +1314,7 @@
 .engine-run-reason { position: absolute; top: calc(100% + var(--dinkster-space-8)); right: 0; z-index: 1; display: grid; gap: var(--dinkster-space-12); box-sizing: border-box; width: var(--dinkster-project-menu-max-width); max-width: calc(100vw - var(--dinkster-space-32)); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }
 .engine-run-reason > strong { overflow-wrap: anywhere; white-space: pre-wrap; }
 .engine-run-reason-actions { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); }
+.engine-run-log { max-height: calc(100dvh - 6 * var(--dinkster-space-32)); overflow: auto; }
 .engine-state-gallery { display: grid; gap: var(--dinkster-space-16); }
 .engine-state-gallery-example { display: grid; gap: var(--dinkster-space-8); margin: 0; }
 .engine-state-gallery-example > figcaption { color: var(--dinkster-text-secondary); }

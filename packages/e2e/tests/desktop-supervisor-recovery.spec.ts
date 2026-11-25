@@ -19,6 +19,9 @@ test('a post-ready engine death surfaces restart and returns to ready', async ({
     await route.fulfill({ status: 202 })
     setTimeout(() => { state = 'ready' }, 100)
   })
+  await page.route('**/supervisor/engine/log', (route) => route.fulfill({ json: {
+    available: true, text: 'Earlier engine output\n'.repeat(180) + 'Final engine failure', truncated: true,
+  } }))
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
@@ -41,6 +44,19 @@ test('a post-ready engine death surfaces restart and returns to ready', async ({
   await page.getByTestId('engine-failed').click()
   await expect(page.getByRole('dialog', { name: 'Engine failed' })).toContainText('Engine exited with code 3')
   await page.screenshot({ path: evidencePath('issue-92', 'desktop-engine-recovery.png'), fullPage: true })
+  await page.getByRole('button', { name: 'Show log', exact: true }).click()
+  const log = page.getByTestId('engine-log-content')
+  await expect.poll(() => log.evaluate((element) => element.scrollTop > 0 && element.scrollHeight - element.scrollTop - element.clientHeight <= 1)).toBe(true)
+  const dialog = page.getByRole('dialog', { name: 'Engine log', exact: true })
+  const heading = dialog.getByRole('heading', { name: 'Engine log', exact: true })
+  const headingBounds = await heading.boundingBox()
+  await log.evaluate((element) => { element.scrollTop = 0 })
+  expect(await heading.boundingBox()).toEqual(headingBounds)
+  expect(await dialog.evaluate((element) => element.scrollTop)).toBe(0)
+  const dialogBounds = (await dialog.boundingBox())!
+  expect(dialogBounds.y).toBeGreaterThanOrEqual(16)
+  expect(dialogBounds.y + dialogBounds.height).toBeLessThanOrEqual(page.viewportSize()!.height - 16)
+  await page.keyboard.press('Escape')
   await page.getByTestId('engine-restart').click()
   await expect.poll(() => restarts).toBe(1)
   await expect(engine).toHaveCount(0, { timeout: 7000 })
