@@ -861,7 +861,10 @@ describe('type choice MatchType binding', () => {
     ['image', 'IMAGE'],
     ['mask', 'MASK'],
   ] as const)('binds the selected %s variant through inputs and outputs', (selected, expected) => {
-    const solved = solveGraphTypes(defOf({ nodes: { matched: matched(selected) } }), resolve)
+    const solved = solveGraphTypes(defOf({
+      nodes: { src: { type: selected === 'image' ? 'ImageSrc' : 'DinksterMaskSrc' }, matched: matched(selected) },
+      links: { l0: { from: ['src', 'out'], to: ['matched', 'source'] } },
+    }), resolve)
     expect(solved.resolutionOf(n('matched'), 'T')).toEqual({ kind: 'resolved', name: expected })
     expect(solved.portTypeOf(n('matched'), 'input', 'source')).toEqual({ kind: 'concrete', name: expected })
     expect(solved.portTypeOf(n('matched'), 'input', 'source.copy')).toEqual({ kind: 'concrete', name: expected })
@@ -934,7 +937,8 @@ describe('type choice MatchType binding', () => {
       output('out', T('T', ['IMAGE', 'MASK'])),
     ])
     const solved = solveGraphTypes(defOf({
-      nodes: { matched: { type: narrowed.type, dynamic: { source: { selected: 'mask' } } } },
+      nodes: { src: { type: 'DinksterMaskSrc' }, matched: { type: narrowed.type, dynamic: { source: { selected: 'mask' } } } },
+      links: { l0: { from: ['src', 'out'], to: ['matched', 'source'] } },
     }), (type) => type === narrowed.type ? narrowed : resolve(type))
     expect(solved.resolutionOf(n('matched'), 'T')).toEqual({ kind: 'conflict' })
     expect(solved.portTypeOf(n('matched'), 'input', 'source.copy')).toEqual({ kind: 'concrete', name: 'MASK' })
