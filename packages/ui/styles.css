@@ -715,12 +715,12 @@
 /* Menus of the canvas chrome. The corner's open straight above the bar under the minimap, over the minimap, their right edge on the bar's; the host caps their height to the stage. */
 .minimap-menu, .lens-menu, .canvas-zoom-menu { position: absolute; font-size: var(--dinkster-type-body-size); line-height: normal; z-index: 8; display: flex; flex-direction: column; box-sizing: border-box; min-width: 210px; padding: var(--dinkster-space-12); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-card); box-shadow: var(--dinkster-elevation-high); }
 .minimap-menu, .canvas-zoom-menu { right: 0; bottom: calc(100% + 6px); overflow-y: auto; pointer-events: auto; }
-.minimap-menu { width: max-content; gap: var(--dinkster-space-8); }
+.minimap-menu { width: max-content; gap: 0; padding: var(--dinkster-space-4); }
 :is(.minimap-menu, .lens-menu, .canvas-zoom-menu) button { display: flex; align-items: center; box-sizing: border-box; width: 100%; min-height: 28px; padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 1px solid transparent; border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: transparent; font: inherit; text-align: left; cursor: pointer; user-select: none; }
 :is(.minimap-menu, .lens-menu, .canvas-zoom-menu) button:hover:not(:disabled) { border-color: transparent; background: var(--dinkster-interaction-hover); }
 :is(.minimap-menu, .lens-menu, .canvas-zoom-menu) button:active:not(:disabled) { background: var(--dinkster-interaction-pressed); }
 :is(.minimap-menu, .lens-menu, .canvas-zoom-menu) button:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
-.minimap-menu .minimap-setting-row { gap: var(--dinkster-space-8); min-height: 36px; }
+.minimap-menu .minimap-setting-row { gap: var(--dinkster-space-8); min-height: 28px; }
 .minimap-setting-row > svg { width: 15px; height: 15px; flex: none; color: var(--dinkster-text-muted); }
 .minimap-setting-row > span { flex: 1; white-space: nowrap; }
 .minimap-setting-row > .minimap-switch { position: relative; flex: none; box-sizing: border-box; width: 30px; height: 17px; border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-border-subtle); }
@@ -730,7 +730,7 @@
 @media (prefers-reduced-motion: reduce) {
   .minimap-switch > span { transition-duration: var(--dinkster-motion-reduced); }
 }
-.canvas-zoom-menu { width: 124px; min-width: 0; padding: var(--dinkster-space-4); gap: 2px; }
+.canvas-zoom-menu { width: 160px; min-width: 0; padding: var(--dinkster-space-4); gap: 2px; }
 /* The zoom row is drawn like a node's number row: minus, the percentage, plus, on the row's field; pressing the number lays a field over it. */
 .canvas-zoom-row > :is(.dinkster-canvas-closed-row, .canvas-zoom-field) { display: flex; align-items: center; height: 28px; font-variant-numeric: tabular-nums; }
 .canvas-zoom-menu .canvas-zoom-row button { width: auto; min-height: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; }

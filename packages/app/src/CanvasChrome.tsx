@@ -1,6 +1,6 @@
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import type { CommandOutcome } from '@dinkster/core'
-import { AppWindow, Bookmark, ChevronDown, CircleSlash2, Frame, Layers, Map as MapIcon, Maximize2, MessageCircleWarning, Palette, Route, Workflow, type LucideIcon } from 'lucide-solid'
+import { AppWindow, Bookmark, ChevronDown, CircleSlash2, Frame, Layers, Focus, Map as MapIcon, MessageCircleWarning, Palette, Route, Workflow, type LucideIcon } from 'lucide-solid'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from './editors.js'
 import { Icon } from './Icon.js'
 import { useAppMessage } from './locale.js'
@@ -263,7 +263,7 @@ export function CanvasCornerControls(props: {
             data-tooltip-label={message('canvas.corner.fit')}
             aria-label={message('canvas.corner.fitShortcut')}
             onClick={props.onFit}
-          ><Icon icon={Maximize2} /></ProductButton>
+          ><Icon icon={Focus} /></ProductButton>
           <ProductButton variant="ghost" type="button" class="canvas-chrome-button canvas-zoom-level" data-testid="canvas-zoom-level"
             ref={zoomTrigger}
             data-tooltip-label={props.menu === 'zoom' ? undefined : message('canvas.corner.zoomOptions')}
@@ -326,6 +326,8 @@ export function CanvasCornerControls(props: {
                 </label>
               </Show>
             </div>
+            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-in" onClick={() => props.onZoomBy(1.2)}><span>{message('canvas.corner.zoomIn')}</span><Show when={props.shortcuts?.zoomIn}>{(keys) => <span class="menu-shortcut">{keys()}</span>}</Show></ProductButton>
+            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-out" onClick={() => props.onZoomBy(1 / 1.2)}><span>{message('canvas.corner.zoomOut')}</span><Show when={props.shortcuts?.zoomOut}>{(keys) => <span class="menu-shortcut">{keys()}</span>}</Show></ProductButton>
             <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-reset" onClick={() => { props.onZoomTo(1); props.onCloseMenu() }}><span>{message('canvas.corner.zoomReset')}</span></ProductButton>
           </div>
         </Show>

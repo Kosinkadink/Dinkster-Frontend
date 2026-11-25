@@ -196,7 +196,7 @@ describe('canvas view controls', () => {
 })
 
 describe('canvas corner controls', () => {
-  it('steps the zoom with minus and plus, leaving the menu open; types a percentage over the number; Reset closes it', () => {
+  it('steps the zoom with minus and plus or the Zoom in and Zoom out rows, leaving the menu open; types a percentage over the number; Reset closes it', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const [menu, setMenu] = createSignal<CanvasCornerMenu | undefined>('zoom')
@@ -229,11 +229,17 @@ describe('canvas corner controls', () => {
     expect(zoomBy).toHaveBeenLastCalledWith(1 / 1.2)
     expect(menu()).toBe('zoom')
     expect(row().querySelector('.dinkster-canvas-closed-row-value')?.textContent).toBe('26%')
+    const zoomInRow = root.querySelector('[data-testid="canvas-zoom-in"]')!
+    expect(zoomInRow.querySelector('.menu-shortcut')?.textContent).toBe('alt+=')
+    click(zoomInRow)
+    expect(zoomBy).toHaveBeenLastCalledWith(1.2)
+    expect(menu()).toBe('zoom')
+    expect(row().querySelector('.dinkster-canvas-closed-row-value')?.textContent).toBe('31%')
     expect(root.querySelector('[data-testid="canvas-zoom-input"]')).toBeNull()
 
     click(row().querySelector('.dinkster-canvas-closed-row-open')!)
     const field = root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!
-    expect(field.value).toBe('26')
+    expect(field.value).toBe('31')
     field.value = '150'
     field.dispatchEvent(new Event('input', { bubbles: true }))
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))

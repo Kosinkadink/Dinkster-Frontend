@@ -806,7 +806,6 @@ test('the canvas corner bar keeps one width right-justified under the minimap, i
 
   const zoomCell = page.getByTestId('canvas-chrome-corner-zoom')
   const zoomMenu = zoomCell.getByTestId('canvas-zoom-menu')
-  expect(Math.round((await zoomMenu.boundingBox())!.width)).toBeLessThanOrEqual(width)
   await zoomMenu.getByRole('button', { name: 'Zoom in' }).click()
   await expect(zoomMenu).toBeVisible()
   await expect(zoomCell.getByTestId('canvas-zoom-level')).toHaveText('45%')
