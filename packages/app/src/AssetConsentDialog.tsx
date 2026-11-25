@@ -62,6 +62,7 @@ export function AssetConsentDialog(props: { app: AppState }) {
   }
   const selectable = () => (request()?.assets ?? []).filter((asset) => asset.fetchable)
   const models = () => request()?.models ?? []
+  const standalone = () => request()?.retry === undefined
   const nextDownload = () => models().findIndex((entry) => entry.plan?.status === 'consent-required' && !entry.pending)
   const modelsReady = () => models().every((entry) => !entry.pending && (entry.plan?.status === 'local' || entry.job?.status === 'completed'))
   const canRun = () => modelsReady() && (models().length > 0 || selected().size > 0)
@@ -69,12 +70,12 @@ export function AssetConsentDialog(props: { app: AppState }) {
     const count = selected().size
     if (request()?.enablingLocation) return message('assetConsent.enablingFolder', { folder: request()!.enablingLocation! })
     if (request()?.busy) return message('assetConsent.selection.busy', { count })
-    return models().length ? message('modelConsent.footer') : message('assetConsent.selection.ready', { selected: count, available: selectable().length })
+    return models().length ? message(standalone() ? 'modelConsent.reviewFooter' : 'modelConsent.footer') : message('assetConsent.selection.ready', { selected: count, available: selectable().length })
   }
   return <Show when={request()}>
     <ModalSurface
-      title={message('assetConsent.title')}
-      ariaLabel={message('assetConsent.ariaLabel')}
+      title={message(standalone() ? 'modelConsent.reviewTitle' : 'assetConsent.title')}
+      ariaLabel={message(standalone() ? 'modelConsent.reviewTitle' : 'assetConsent.ariaLabel')}
       describedBy="asset-consent-intro"
       modalId="asset-consent"
       testId="asset-consent-dialog"
@@ -83,8 +84,8 @@ export function AssetConsentDialog(props: { app: AppState }) {
     >
       <div ref={decisionEl} class="asset-decision asset-consent-decision" aria-busy={request()?.busy === true ? 'true' : 'false'}>
         <section class="asset-decision-intro">
-          <span class="asset-decision-eyebrow">{message('assetConsent.eyebrow')}</span>
-          <p id="asset-consent-intro">{message('assetConsent.intro')}</p>
+          <span class="asset-decision-eyebrow">{message(standalone() ? 'modelConsent.reviewEyebrow' : 'assetConsent.eyebrow')}</span>
+          <p id="asset-consent-intro">{message(standalone() ? 'modelConsent.reviewIntro' : 'assetConsent.intro')}</p>
           <Show when={models().length === 0 || (request()?.assets.length ?? 0) > 0}><dl class="asset-decision-summary" aria-label={message('assetConsent.summary')}>
             <div><dt>{message('assetConsent.summary.required')}</dt><dd data-testid="asset-consent-required-count">{(request()?.assets.length ?? 0) + models().length}</dd></div>
             <div><dt>{message('assetConsent.summary.available')}</dt><dd data-testid="asset-consent-available-count">{selectable().length}</dd></div>
@@ -94,7 +95,7 @@ export function AssetConsentDialog(props: { app: AppState }) {
         <Show when={selectable().length > 0 && !request()?.busy}>
           <ProductNotice tone="warning" class="asset-decision-notice">{message('assetConsent.notice.available')}</ProductNotice>
         </Show>
-        <ul class="asset-decision-list dinkster-list-rows" tabindex="0" aria-label={message('assetConsent.listAriaLabel')}>
+        <ul class="asset-decision-list dinkster-list-rows" tabindex="0" aria-label={message(standalone() ? 'modelConsent.reviewListAriaLabel' : 'assetConsent.listAriaLabel')}>
           <For each={request()?.assets ?? []}>{(asset, index) => {
             const display = () => presentAssetPlan(asset, message)
             const controlId = `asset-consent-choice-${index()}`
@@ -148,8 +149,10 @@ export function AssetConsentDialog(props: { app: AppState }) {
             const phase = () => {
               const job = state().job
               if (state().interrupted) return message('modelConsent.interrupted')
+              if (standalone() && job?.status === 'completed') return message('modelConsent.reviewCompleted')
               if (job) return message(`modelConsent.phase.${job.status}`)
               const plan = state().plan
+              if (standalone() && plan?.status === 'local') return message('modelConsent.reviewLocal')
               if (plan) return message(`modelConsent.plan.${plan.status}`)
               return message('modelConsent.reviewFirst')
             }
@@ -221,8 +224,8 @@ export function AssetConsentDialog(props: { app: AppState }) {
         </Show>
         <ProductActionFooter status={<span role="status" aria-live="polite" data-testid="asset-consent-selection-status">{selectionStatus()}</span>}>
           <ProductButton data-testid="asset-consent-cancel" onClick={dismiss}>{message(request()?.busy || models().length ? 'assetConsent.action.dismiss' : 'assetConsent.action.cancel')}</ProductButton>
-          <Show when={nextDownload() < 0}>
-            <ProductButton variant="primary" data-testid="asset-consent-acquire" disabled={request()?.busy === true || !canRun()} onClick={() => void request()?.retry([...selected()])}>
+          <Show when={request()?.retry !== undefined && nextDownload() < 0}>
+            <ProductButton variant="primary" data-testid="asset-consent-acquire" disabled={request()?.busy === true || !canRun()} onClick={() => void request()?.retry?.([...selected()])}>
               {message(request()?.enablingLocation ? 'assetConsent.action.enabling' : request()?.busy ? 'assetConsent.action.acquiring' : models().length ? 'modelConsent.runOnce' : 'assetConsent.action.acquire')}
             </ProductButton>
           </Show>

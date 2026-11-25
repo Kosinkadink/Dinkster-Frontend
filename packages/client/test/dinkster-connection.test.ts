@@ -439,6 +439,56 @@ describe('model download planning and owned jobs', () => {
   }
   const active = { ...selected, jobId: 'owned / job', status: 'downloading', received: 307 }
 
+  it('reads ordered model presence in bounded project-local batches without planning', async () => {
+    const requested = Array.from({ length: 257 }, (_, index) => ({ name: `model-${index}.safetensors`, kind: 'model/vae' }))
+    const statuses = [
+      { status: 'local' }, { status: 'model-hidden' },
+      { status: 'folder-disabled', disabledLocations: ['studio', 'archive'] },
+      { status: 'duplicate' }, { status: 'missing', plannable: true },
+      { status: 'missing', plannable: false },
+    ]
+    const responses = requested.map((requirement, index) => ({ ...requirement, ...statuses[index % statuses.length] }))
+    const batches: unknown[] = []
+    let offset = 0
+    const controller = new AbortController()
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test', project: 'studio',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        expect(url).toBe('/engine/api/models/presence')
+        expect(init?.method).toBe('POST')
+        expect(init?.signal).toBe(controller.signal)
+        expect(init?.cache).toBe('no-store')
+        const body = JSON.parse(String(init?.body)) as { models: unknown[] }
+        batches.push(body)
+        const rows = responses.slice(offset, offset + body.models.length)
+        offset += body.models.length
+        return jsonResponse(200, { models: rows })
+      } })
+    expect(await connection.checkModelPresence(requested, controller.signal)).toEqual(responses)
+    expect(batches).toEqual([
+      { project: 'studio', scope: 'local', models: requested.slice(0, 256) },
+      { project: 'studio', scope: 'local', models: requested.slice(256) },
+    ])
+    expect(await connection.checkModelPresence([])).toEqual([])
+    expect(batches).toHaveLength(2)
+  })
+
+  it('rejects incomplete, mismatched and malformed presence rather than inventing a missing model', async () => {
+    const requirement = { name: 'missing.safetensors', kind: 'model/checkpoint' }
+    let payload: unknown
+    let status = 200
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(status, payload) })
+    for (payload of [null, { models: [] }, { models: [{ ...requirement, name: 'other', status: 'local' }] },
+      { models: [{ ...requirement, kind: 'model/vae', status: 'local' }] },
+      { models: [{ ...requirement, status: 'missing' }] },
+      { models: [{ ...requirement, status: 'folder-disabled', disabledLocations: [3] }] },
+      { models: [{ ...requirement, status: 'consent-required' }] }]) {
+      await expect(connection.checkModelPresence([requirement])).rejects.toThrow()
+    }
+    status = 403
+    await expect(connection.checkModelPresence([requirement])).rejects.toThrow('POST /api/models/presence failed: 403')
+  })
+
   it('keeps immutable planning separate from explicit consent and recovers existing jobs without starting them', async () => {
     const calls: { url: string; method: string; body: unknown }[] = []
     let payload: unknown = { ...selected, status: 'consent-required', planId: 'opaque-plan' }

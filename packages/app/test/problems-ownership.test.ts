@@ -534,7 +534,7 @@ describe('late async results and dead owners', () => {
     expect(request).toBeDefined()
     expect((await app.openDocument(CHAIN_DOC, 'replacement'))).toEqual([])
     expect(app.activeTab()).not.toBe(tab)
-    await request!.retry(['blake3:model'])
+    await request!.retry!(['blake3:model'])
     expect(retryWithAssets).not.toHaveBeenCalled()
     expect(app.assetConsent.get()).toBeUndefined()
   })
