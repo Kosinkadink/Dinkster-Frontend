@@ -674,11 +674,17 @@ test('A reopened workflow draws from the kept node definitions until the real on
     schemaVersion: 1, epoch: 7, dinkster: { version: 'visual-fixture', schemaWire: 2 }, packs: { visual: { displayName: 'Visual' } }, nodes,
   })
   const source = node('visual.Source', 'Source', [{ kind: 'output', id: 'image', type: image }])
+  // Pick is in no workflow: it is placed from search, and its choices come from the engine.
+  const pick = node('visual.Pick', 'Pick', [{
+    kind: 'input', id: 'model', required: true, type: { kind: 'concrete', types: ['COMBO'] }, default: 'kept.safetensors',
+    widget: { type: 'COMBO', options: [], remote: { route: '/api/choices/visual-models' } },
+  }])
   // The kept copy: Sink has one input and Gone still exists; Late is unknown.
   const kept = table({
     'visual.Source': source,
     'visual.Sink': node('visual.Sink', 'Sink', [{ kind: 'input', id: 'image', type: image }]),
     'visual.Gone': node('visual.Gone', 'Gone', [{ kind: 'input', id: 'image', type: image }]),
+    'visual.Pick': pick,
   })
   // The real table: Sink gained a field row, Gone was removed and Late was added.
   const real = table({
@@ -688,14 +694,16 @@ test('A reopened workflow draws from the kept node definitions until the real on
       { kind: 'input', id: 'image', type: image },
     ]),
     'visual.Late': node('visual.Late', 'Late', [{ kind: 'input', id: 'image', type: image }]),
+    'visual.Pick': pick,
   })
-  let answer = kept
+  let answer: unknown = kept
   let held: Promise<void> | undefined
   let release!: () => void
   await page.route('/api/nodes*', async (route) => {
     if (held !== undefined) await held
-    await route.fulfill({ json: answer })
+    await route.fulfill(answer === undefined ? { status: 500, body: 'engine error' } : { json: answer })
   })
+  await page.route('**/api/choices/visual-models*', (route) => route.fulfill({ status: 503, body: 'engine not ready' }))
   const link = (id: string, to: string) => ({ id, from: { node: 'source', port: 'image' }, to: { node: to, port: 'image' } })
   const workflow = {
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'kept-definitions', root: 'g0',
@@ -734,7 +742,7 @@ test('A reopened workflow draws from the kept node definitions until the real on
     }
     request.onerror = () => resolve([])
   }))
-  await expect.poll(keptNodeTypes).toEqual(['visual.Gone', 'visual.Sink', 'visual.Source'])
+  await expect.poll(keptNodeTypes).toEqual(['visual.Gone', 'visual.Pick', 'visual.Sink', 'visual.Source'])
 
   answer = real
   held = new Promise<void>((resolve) => { release = resolve })
@@ -778,11 +786,57 @@ test('A reopened workflow draws from the kept node definitions until the real on
   await page.getByRole('menuitem', { name: /^Rename/ }).click()
   await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.value)).toBe('Sink')
   await page.keyboard.press('Escape')
+  // What waits for the engine says why on a plain hover.
+  const tooltip = page.getByTestId('app-tooltip')
+  await page.getByTestId('queue-button').hover()
+  await expect(tooltip).toHaveText('The engine is still starting')
+  await page.mouse.click(title.x, title.y, { button: 'right' })
+  const upTo = page.getByTestId('context-menu-item').filter({ hasText: 'Execute up to selection' })
+  await expect(upTo).toHaveAttribute('aria-disabled', 'true')
+  await upTo.hover()
+  await expect(tooltip).toHaveText('The engine is still starting')
+  await page.keyboard.press('Escape')
+  // Search lists the copy's types, and placing one adds it with the copy's defaults.
+  await page.getByTestId('topbar-search').click()
+  await page.getByTestId('universal-search-input').fill('@ Pick')
+  await page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]', { hasText: 'Pick' }).click()
+  const canvas = (await page.getByTestId('graph-canvas').boundingBox())!
+  await page.mouse.click(canvas.x + 900, canvas.y + 160)
+  const placed = () => page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes)
+    .filter((node) => node.type === 'visual.Pick').map((node) => ({ id: node.id, values: node.values })))
+  await expect.poll(placed).toEqual([{ id: expect.any(String), values: { model: 'kept.safetensors' } }])
+  const pickId = (await placed())[0]!.id
+  // A field whose choices come from the engine says why it has none and still offers the stored value.
+  const field = await (await page.waitForFunction((id) => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === id && candidate.schemaPending !== true)
+    const row = node?.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'model')
+    if (node === undefined || row === undefined) return undefined
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x, y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y }
+  }, pickId)).jsonValue() as { x: number; y: number }
+  await page.mouse.click(field.x, field.y)
+  const dropdown = page.getByTestId('combo-dropdown')
+  await expect(dropdown).toHaveAttribute('data-remote', 'unavailable')
+  await expect(dropdown.locator('.combo-status')).toHaveText('The engine is still starting')
+  await expect(dropdown.getByRole('option', { name: 'kept.safetensors' })).toBeVisible()
+  await page.keyboard.press('Escape')
   release()
   await expect.poll(drawn).toEqual({
     schemas: 'ready', registry: true, run: false, problems: 1, rows: first.rows! + 1,
-    nodes: { source: 'Source', sink: 'Sink', gone: 'missing', late: 'Late' },
+    nodes: { source: 'Source', sink: 'Sink', gone: 'missing', late: 'Late', [pickId]: 'Pick' },
   })
+  await expect(page.getByTestId('queue-button')).toHaveAttribute('data-tooltip-label', 'Run workflow')
+
+  // After the engine fails to answer, the same places say so.
+  answer = undefined
+  held = undefined
+  await page.reload()
+  await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.schemaState.get().status === 'error')
+  await expect(page.getByTestId('queue-button')).toBeDisabled()
+  await page.getByTestId('queue-button').hover()
+  await expect(tooltip).toHaveText('The engine is not answering')
 })
 
 test('Storage settings distinguish accounting policy and permission failures', async ({ page }) => {

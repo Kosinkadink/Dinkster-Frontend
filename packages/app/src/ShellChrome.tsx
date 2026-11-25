@@ -25,7 +25,8 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   const position = (): void => {
     const tip = props.tip
     const rect = tip.element?.getBoundingClientRect()
-    const beside = rect !== undefined && Boolean(tip.element?.closest('.left-sidebar'))
+    // A menu row's tooltip below it would cover the next row.
+    const beside = rect !== undefined && Boolean(tip.element?.closest('.left-sidebar, .context-menu'))
     element.style.setProperty('--tooltip-available-width', `${window.innerWidth - (beside ? rect.right + 16 : 16)}px`)
     content.style.removeProperty('-webkit-line-clamp')
     const naturalHeight = element.getBoundingClientRect().height

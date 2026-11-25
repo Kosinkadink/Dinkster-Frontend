@@ -48,6 +48,13 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     const client = props.editor.app.backendForTab(ed.tab).scopedClient
     return state.source.client === client && state.source.route === spec.remote.route && state.source.authority === client.remoteChoiceAuthority() ? state : undefined
   }
+  // Before the engine's real table arrives, the engine's state is the reason no choices came back.
+  const remoteStatus = (): string | undefined => {
+    const state = remote()?.state
+    if (state === 'stale') return 'remote options stale'
+    if (state !== 'loading' && state !== 'unavailable') return undefined
+    return props.editor.app.engineOffReason(ed.tab, message) ?? (state === 'loading' ? 'loading remote options...' : 'remote options unavailable')
+  }
   const availableOptions = (): readonly ComboOption[] => {
     const state = remote()
     const available = state?.state === 'ready' || state?.state === 'stale' ? state.options : comboOptions(spec)
@@ -185,9 +192,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     <ProductField controlId={multi ? 'multi-combo-search-control' : 'combo-search-control'} label="Search options" layout="compact"><input id={multi ? 'multi-combo-search-control' : 'combo-search-control'} data-testid={multi ? 'multi-combo-search' : 'combo-search'} placeholder={multi && typeof spec.options['placeholder'] === 'string' ? spec.options['placeholder'] : 'Search options...'} ref={(el) => queueMicrotask(() => el.focus())} value={query()} onInput={(event) => { highlightSource = 'keyboard'; setQuery(event.currentTarget.value); setIndex(0) }} onKeyDown={onKeyDown} /></ProductField>
     <Show when={folder().length > 0}><div class="combo-folder-navigation" data-testid="combo-folder-navigation"><button type="button" aria-label="Back to parent folder" onMouseDown={(event) => event.preventDefault()} onClick={() => openFolder(folder().slice(0, -1))}><Icon icon={ChevronLeft} /> Back</button><span>{folder().join(' / ')}</span></div></Show>
     <div class="combo-options" role="listbox" aria-label={`${ed.label} options`} aria-multiselectable={multi ? 'true' : undefined}>
-      <Show when={remote()?.state === 'loading'}><div class="combo-status">loading remote options...</div></Show>
-      <Show when={remote()?.state === 'stale'}><div class="combo-status">remote options stale</div></Show>
-      <Show when={remote()?.state === 'unavailable'}><div class="combo-status">remote options unavailable</div></Show>
+      <Show when={remoteStatus()}>{(status) => <div class="combo-status">{status()}</div>}</Show>
       <Show when={window().hiddenBefore > 0}>
         <button type="button" class="combo-status combo-page" data-testid="combo-earlier" onMouseDown={(event) => event.preventDefault()} onClick={() => pageTo(window().start - 1)}>{`${window().hiddenBefore} earlier options`}</button>
       </Show>

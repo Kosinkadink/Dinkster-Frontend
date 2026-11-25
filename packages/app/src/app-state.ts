@@ -149,6 +149,7 @@ import {
   type LookupClient,
   discoverBackend,
   hydrateDinksterCompletedExecution,
+  noEngineOpen,
   probeSupervisorStatus,
   reconcileDinksterExecutions,
   restartSupervisorEngine,
@@ -5113,6 +5114,14 @@ export class AppState {
   /** The kept node table the canvas draws from while `registryForTab` has none. */
   keptRegistryForTab(tab: Tab): SchemaRegistry | undefined {
     return tab.execution ? undefined : this.backendForTab(tab).keptRegistry.get()
+  }
+
+  /** Why what the engine answers is off for this tab: no engine is open, or its real node table has not arrived. */
+  engineOffReason(tab: Tab, message: (key: string) => string): string | undefined {
+    const backend = this.backendForTab(tab)
+    if (noEngineOpen(backend.supervisor.get())) return message('shell.engine.notRunning')
+    if (tab.execution || this.registryForTab(tab) !== undefined) return undefined
+    return message(backend.schemaState.get().status === 'error' ? 'shell.engine.notAnswering' : 'shell.engine.stillStarting')
   }
 
   /** Pane-local widget definitions, independent of the focused shell's world. */

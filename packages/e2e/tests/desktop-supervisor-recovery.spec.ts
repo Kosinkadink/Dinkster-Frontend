@@ -59,6 +59,6 @@ test('with no engine open the status bar and Run say so until an engine opens', 
 
   status = { protocol: 1, state: 'starting', role: 'home', installations: 1, open: { root: '/installs/a', engine: 'main' } }
   await expect(connection).not.toHaveAttribute('data-state', 'no-engine', { timeout: 7000 })
-  await expect(run).toHaveAttribute('data-tooltip-label', 'Run workflow')
+  await expect(run).toHaveAttribute('data-tooltip-label', 'The engine is still starting')
   await expect(page.getByTestId('status-bar')).toContainText('Loading schemas')
 })
