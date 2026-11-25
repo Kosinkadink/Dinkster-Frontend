@@ -1525,8 +1525,8 @@ export function App(props: {
       const finished = record()?.finishedAt
       const ended = execution?.endedAt ?? (finished === undefined ? undefined : finished * 1000)
       if (ended === undefined) return p.entry.subtitle
-      // The short job id tells apart runs of one workflow that ended close together.
-      const job = (record()?.jobId ?? p.entry.id).slice(0, 8)
+      // The job id tells apart runs of one workflow that ended close together.
+      const job = record()?.jobId ?? p.entry.id
       const grouped = p.entry.children?.length ?? 0
       const parts = [
         ...(execution === undefined ? [] : [executionStatusLabel(execution.status)]),

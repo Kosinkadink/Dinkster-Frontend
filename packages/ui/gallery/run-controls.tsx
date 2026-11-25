@@ -1,8 +1,9 @@
-import { For, onMount, type JSX } from 'solid-js'
+import { For, createSignal, onMount, type JSX } from 'solid-js'
 import { asConnectionId, asLineageId, asPromptId, registerCatalog, type CompileArtifact } from '@dinkster/core'
 import english from '../../app/src/locales/en.json'
 import { RunActivityControl, RunRow, RunSection } from '../../app/src/RunControls.js'
 import { WorkflowQueueControl } from '../../app/src/WorkflowQueueControl.js'
+import { ProductSegmented } from '../src/index.js'
 
 type ExecutionState = Parameters<typeof RunRow>[0]['entry']
 
@@ -80,6 +81,7 @@ const runBars = [
 export function RunControlsGallery() {
   registerCatalog('en', english)
   let root: HTMLDivElement | undefined
+  const [scope, setScope] = createSignal('all')
   onMount(() => requestAnimationFrame(() => { if (root) root.dataset['ready'] = 'true' }))
   const row = (entry: ExecutionState, name: string, statusInNote: boolean, testId: string, selected?: boolean) => (
     <RunRow entry={entry} name={name} workflow={workflowOf(entry)} statusInNote={statusInNote} all={all}
@@ -125,6 +127,8 @@ export function RunControlsGallery() {
       </Example>
       <Example id="panel" shape="panel" caption="The Runs panel, all workflows: rows named by their workflow; the chosen finished run is shaded.">
         <div class="dinkster-run-controls-panel">
+          <ProductSegmented label="Runs scope" value={scope()} onChange={setScope}
+            options={[{ value: 'workflow', label: 'This workflow' }, { value: 'all', label: 'All workflows' }]} />
           <RunSection title="Running (1)">{row(running, 'Long run', true, 'run-controls-panel-row')}</RunSection>
           <RunSection title="Queued (3)">
             <For each={[...queued, mixedQueued]}>{(entry) => row(entry, workflowOf(entry), true, 'run-controls-panel-row')}</For>

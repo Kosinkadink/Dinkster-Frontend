@@ -980,7 +980,7 @@
 .dinkster-canvas-chrome-toolbar[data-side='right'] { right: 8px; left: auto; }
 .dinkster-run-controls-stage { width: 380px; height: 120px; }
 .dinkster-run-controls-stage[data-shape='list'] { height: 330px; }
-.dinkster-run-controls-stage[data-shape='panel'] { width: 340px; height: 470px; }
+.dinkster-run-controls-stage[data-shape='panel'] { width: 340px; height: 520px; }
 .dinkster-run-controls-topbar { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; min-height: 44px; padding: 0 var(--dinkster-space-12); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-frame); }
 .dinkster-run-controls-list { top: 8px; right: 8px; left: 8px; width: auto; }
 .dinkster-run-controls-picture { display: block; width: 100%; height: 100%; background: var(--dinkster-border-subtle); }
