@@ -56,7 +56,7 @@
 .dinkster-page-load-loading { display: grid; place-items: center; height: 100%; }
 .dinkster-page-load-loading > .dinkster-actions { justify-content: center; }
 .dinkster-page-load-content { display: grid; align-content: start; gap: var(--dinkster-space-16); }
-.dinkster-page-load-answer { animation: dinkster-page-arrival var(--dinkster-motion-standard) var(--dinkster-motion-easing); }
+.dinkster-page-load-answer { animation: dinkster-page-arrival 200ms var(--dinkster-motion-easing); }
 @keyframes dinkster-page-arrival { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .dinkster-page-load-answer { animation: none; } }
 .dinkster-page-load-example { height: calc(var(--dinkster-space-32) * 10); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-frame); }

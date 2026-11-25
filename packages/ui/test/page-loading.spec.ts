@@ -9,6 +9,7 @@ test.beforeEach(async ({ page }) => {
 test('a quick page waits for both reads without a loading sign and retains its answer during refresh', async ({
   page,
 }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
   const section = page.getByRole('region', { name: 'Page loading' })
   const loading = section.getByRole('status')
   await section.getByRole('button', { name: 'Load quickly' }).click()
@@ -20,6 +21,10 @@ test('a quick page waits for both reads without a loading sign and retains its a
   await expect(
     section.getByText('alex@example.test', { exact: true }),
   ).toBeVisible()
+  await expect(section.locator('.dinkster-page-load-answer')).toHaveCSS(
+    'animation-duration',
+    '0.2s',
+  )
   await page.clock.runFor(200)
   await expect(loading).toHaveCount(0)
   await section.getByRole('button', { name: 'Refresh account' }).click()
@@ -129,6 +134,10 @@ test('the content frame stays fixed, centres loading, and retains the last answe
     ),
   ).toBeLessThan(1)
   await page.clock.runFor(800)
+  await expect(section.locator('.dinkster-page-load-answer')).toHaveCSS(
+    'animation-name',
+    'none',
+  )
   await section.getByRole('button', { name: 'Fail to load' }).click()
   await page.clock.runFor(250)
   const alert = section.getByRole('alert')
