@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultTokens, typeColor } from '@dinkster/canvas'
-import { CANVAS_MEDIA_DOM_LIMIT, boundedVisibleOverlayKeys, contrastingTextColor, mediaScreenRect } from '../src/widget-editor-position.js'
+import { CANVAS_MEDIA_DOM_LIMIT, boundedVisibleOverlayKeys, contrastingTextColor, mediaScreenRect, overlayClipStyle } from '../src/widget-editor-position.js'
 
 describe('widget editor type pill contrast', () => {
   it('uses socket colors with readable contrast for known and namespaced types', () => {
@@ -29,6 +29,18 @@ describe('mediaScreenRect', () => {
     })
   })
 
+})
+
+describe('overlayClipStyle', () => {
+  const canvas = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: 200 }) } as HTMLCanvasElement
+  const rect = { x: 100, y: 100, width: 200, height: 150 }
+
+  it('cuts what is drawn in front out of the overlay, kept inside the canvas', () => {
+    // The overlay's lower 50 px are below the canvas; the cover pokes out above and to the right of it.
+    expect(overlayClipStyle(rect, canvas, [{ x: 250, y: 80, width: 100, height: 100 }])['clip-path'])
+      .toBe('path(evenodd, "M 0 0 H 200 V 100 H 0 Z M 150 0 H 200 V 80 H 150 Z")')
+    expect(overlayClipStyle(rect, canvas)['clip-path']).toBe('inset(0px 0px 50px 0px)')
+  })
 })
 
 describe('boundedVisibleOverlayKeys', () => {

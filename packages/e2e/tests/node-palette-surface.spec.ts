@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, mockProjectPacks, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as test, setShellRegion, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_PALETTE_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -14,7 +14,7 @@ const schemas = [
     source: 'v3',
     pack: 'palette-proof-pack',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'model', displayName: 'Model', type: { kind: 'concrete', name: 'MODEL' }, optional: false },
       { kind: 'input', id: 'image', displayName: 'Optional source image', type: { kind: 'concrete', name: 'IMAGE' }, optional: true },
       { kind: 'output', id: 'image', displayName: 'Image', type: { kind: 'concrete', name: 'IMAGE' } },
@@ -28,7 +28,7 @@ const schemas = [
     source: 'v3',
     pack: 'palette-proof-pack',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: false },
       { kind: 'input', id: 'latent', type: { kind: 'concrete', name: 'LATENT' }, optional: false },
       { kind: 'output', id: 'latent', type: { kind: 'concrete', name: 'LATENT' } },
@@ -42,7 +42,7 @@ const schemas = [
     source: 'v3',
     pack: 'palette-proof-pack',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
       { kind: 'output', id: 'latent', type: { kind: 'concrete', name: 'LATENT' } },
     ],
@@ -55,7 +55,7 @@ const schemas = [
     source: 'v3',
     pack: 'palette-proof-pack',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
     ],
   },
@@ -67,7 +67,7 @@ const schemas = [
     source: 'v3',
     pack: 'palette-proof-pack',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: index % 3 === 0 },
       { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
     ],
@@ -84,7 +84,7 @@ async function installPaletteFixture(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'palette-proof', schemaWire: 1 },
+    dinkster: { version: 'palette-proof', schemaWire: 2 },
     nodes: {},
   } }))
   await mockProjectPacks(page, ['palette-proof-pack'])
@@ -311,8 +311,7 @@ test('result hierarchy, preview, scrolling, and popovers remain contained at des
   ]) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
     if (viewport.width === 360) {
-      const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
-      if (await railToggle.getAttribute('aria-pressed') === 'true') await railToggle.click()
+      await setShellRegion(page, 'right', false)
     }
     await openPalette(page, true)
     const palette = page.getByTestId('node-palette')

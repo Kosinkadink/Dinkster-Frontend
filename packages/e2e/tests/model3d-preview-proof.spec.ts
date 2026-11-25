@@ -96,7 +96,7 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'model3d-proof', schemaWire: 1 },
+    dinkster: { version: 'model3d-proof', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('/api/assets/**', (route) => {
@@ -130,7 +130,7 @@ async function installGraph(page: Page, artifact: ProofArtifact): Promise<void> 
       category: 'proof',
       source: 'v3' as const,
       isOutputNode: true,
-      items: [{ kind: 'output' as const, id: 'saved', type: { kind: 'concrete' as const, name: typeName }, preview: true }],
+      body: [{ kind: 'output' as const, id: 'saved', type: { kind: 'concrete' as const, name: typeName }, preview: true }],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'model3d-proof', root: 'g0',
@@ -245,6 +245,31 @@ test('a saved GLB artifact paints a poster and mounts a disposable orbit viewpor
     mediaType: 'model/gltf-binary',
   })
   await provePosterAndOrbitViewport(page, (name) => testInfo.outputPath(`model3d-${name}`))
+  const failure = `Save permission denied: ${'UnbrokenDestinationSegment'.repeat(24)}`
+  await page.evaluate((message) => {
+    Object.assign(window, { dinksterDesktop: { saveFile: async () => { throw new Error(message) } } })
+  }, failure)
+  for (const state of ['idle', 'orbit']) {
+    if (state === 'orbit') await page.getByRole('button', { name: 'Open 3D orbit view' }).click()
+    const overlay = page.locator('.node-media-overlay[data-media-kind="model3d"]')
+    const download = overlay.getByRole('link', { name: 'Download' })
+    const action = overlay.getByRole('button', { name: state === 'orbit' ? 'Close 3D orbit view' : 'Open 3D orbit view' })
+    await download.click()
+    const alert = overlay.getByRole('alert')
+    await expect(alert).toHaveText(`Download failed: ${failure}`)
+    const alertBox = (await alert.boundingBox())!
+    const downloadBox = (await download.boundingBox())!
+    const actionBox = (await action.boundingBox())!
+    const overlayBox = (await overlay.boundingBox())!
+    expect(alertBox.y).toBeGreaterThanOrEqual(Math.max(downloadBox.y + downloadBox.height, actionBox.y + actionBox.height))
+    for (const box of [alertBox, downloadBox, actionBox]) {
+      expect(box.x).toBeGreaterThanOrEqual(overlayBox.x)
+      expect(box.x + box.width).toBeLessThanOrEqual(overlayBox.x + overlayBox.width)
+      expect(box.y + box.height).toBeLessThanOrEqual(overlayBox.y + overlayBox.height)
+    }
+    await page.screenshot({ path: testInfo.outputPath(`model3d-${state}-save-error.png`), animations: 'disabled' })
+    if (state === 'orbit') await action.click()
+  }
 })
 
 test('a saved splat PLY artifact paints a poster and mounts a disposable orbit viewport', async ({ page }, testInfo) => {

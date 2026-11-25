@@ -25,20 +25,20 @@ async function fixture(clean = false) {
   const app = prepareWorkflowApp(new AppState())
   const backend = app.backends.get()[0]!
   const payload: DinksterNodesPayload = {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'queue-test', schemaWire: 1 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'queue-test', schemaWire: 2 },
     nodes: {
       EmptyImage: {
-        schemaVersion: 1, nodeType: 'EmptyImage', displayName: 'Empty Image', category: 'test',
-        interface: [
+        schemaVersion: 2, nodeType: 'EmptyImage', displayName: 'Empty Image', category: 'test',
+        body: [
           ...['width', 'height', 'batch_size', 'color'].map((id) => ({
-            role: 'input' as const, id, type: { kind: 'concrete' as const, types: ['INT'] }, required: false,
+            kind: 'input' as const, id, type: { kind: 'concrete' as const, types: ['INT'] }, required: false,
           })),
-          { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['IMAGE'] } },
+          { kind: 'output', id: 'out0', type: { kind: 'concrete', types: ['IMAGE'] } },
         ],
       },
       PreviewImage: {
-        schemaVersion: 1, nodeType: 'PreviewImage', displayName: 'Preview Image', category: 'test', outputNode: true,
-        interface: [{ role: 'input', id: 'images', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
+        schemaVersion: 2, nodeType: 'PreviewImage', displayName: 'Preview Image', category: 'test', outputNode: true,
+        body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
       },
     },
   }

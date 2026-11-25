@@ -175,7 +175,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   const shown = createMemo(() => listed().slice(window().start, window().end))
   const target = ed.target
   const focusRow = (): void => {
-    if (target.kind === 'input') host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
+    host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
   }
   const [picked, setPicked] = createSignal<string>()
   const store = (value: Json, text: string): void => {
@@ -199,8 +199,8 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   }
 
   const [authoring, setAuthoring] = createSignal(false)
-  const editable = spec.remote === undefined && ed.target.kind === 'input' &&
-    ((spec.editableOptions === true && ed.target.optionsTarget !== undefined) || spec.optionSource !== undefined)
+  const editable = spec.remote === undefined &&
+    spec.editableOptions === true && ed.target.optionsTarget !== undefined
   const refreshing = (): boolean => {
     const state = lookupState()
     return state?.kind === 'loading' || ((state?.kind === 'ready' || state?.kind === 'stale' || state?.kind === 'unavailable') && state.refreshing)
@@ -226,7 +226,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
       case 'waiting': return { tone: 'notice', text: state.check === true ? `Checking ${state.input}` : `Waiting for ${state.input}` }
       case 'loading': return { tone: 'busy', text: 'Loading options' }
       case 'off': return { tone: 'notice', text: 'Not loaded in preview' }
-      case 'paused': return { tone: 'notice', text: 'Rate limited' }
+      case 'paused': return { tone: 'notice', text: 'Paused' }
       case 'unavailable': return state.refreshing ? { tone: 'busy', text: 'Loading options' } : { tone: 'error', text: FAILURE_TEXT[state.reason], action: tryAgain }
       case 'stale': return state.refreshing ? { tone: 'busy', text: 'Refreshing options' } : { tone: 'warning', text: 'Could not refresh', action: tryAgain }
       case 'ready': return state.refreshing ? { tone: 'busy', text: 'Refreshing options' } : undefined
@@ -319,7 +319,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
     } else if (event.key === 'Tab') {
       // Tab keeps the stored value and moves to the next or previous row.
       event.preventDefault()
-      if (props.commitPending() || target.kind !== 'input') return
+      if (props.commitPending()) return
       props.close()
       host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, event.shiftKey ? -1 : 1)
     } else if (event.key === 'Backspace' && query() === '' && folder().length > 0) {

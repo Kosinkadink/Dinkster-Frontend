@@ -44,9 +44,9 @@ test.beforeEach(async ({ page, request }) => {
   expect(sameOrigin.ok()).toBe(true)
   const payload = await sameOrigin.json() as {
     dinkster?: { schemaWire?: number }
-    nodes?: Record<string, { interface?: unknown[] }>
+    nodes?: Record<string, { body?: unknown[] }>
   }
-  expect(payload.dinkster?.schemaWire).toBe(1)
+  expect(payload.dinkster?.schemaWire).toBe(2)
   expect(JSON.stringify(payload.nodes)).toContain('"type":"REPRESENTATIONS"')
 
   await page.goto('/')
@@ -131,7 +131,7 @@ test('schema default and user switch persist as view state without changing the 
     const app = window.__dinksterTest!.app
     const registry = app.backends.get()[0]!.registry.get() as unknown as {
       resolve(type: string): {
-        items: readonly {
+        body: readonly {
           kind: string
           id: string
           widget?: {
@@ -148,7 +148,7 @@ test('schema default and user switch persist as view state without changing the 
     ;(window as typeof window & { __wire17OriginalSchema?: typeof original }).__wire17OriginalSchema = original
     app.registerSchemas([{
       ...original,
-      items: original.items.map((item) => item.kind === 'input' && item.id === 'value'
+      body: original.body.map((item) => item.kind === 'input' && item.id === 'value'
         ? {
             ...item,
             widget: {

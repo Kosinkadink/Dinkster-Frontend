@@ -11,8 +11,8 @@
  * - producer values on a LIVE tab are exact only when upstream-recipe
  *   provenance PROVES them current (liveExactnessFor: the producer's
  *   transitive input closure compares identical between a fresh compile of
- *   the live document and the run's artifact, under equal schema hashes and
- *   outside both artifacts' random-selector cones); every occurrence
+ *   the live document and the run's artifact, under equal schema hashes);
+ *   every occurrence
  *   contributing the value must pass. Anything unprovable stays
  *   conservatively stale - a previous execution's value must never silently
  *   present itself as current;
@@ -55,9 +55,7 @@ import {
  * - both artifacts present: a foreign/reconciled run has no recorded prompt
  *   to compare against, and an uncompilable document proves nothing;
  * - equal schemaHash: identical recipes under different registries can
- *   compute different values (node behavior lives in the schema);
- * - random-selector route provenance whenever either artifact rolled a
- *   selector: older artifacts without that proof fail closed.
+ *   compute different values (node behavior lives in the schema).
  *
  * Past the gates, exactness is upstreamRecipesEqual in prompt space: the
  * engine's cache keys are content-derived over the lowered recipe, so an
@@ -68,32 +66,26 @@ export function liveExactnessFor(
   live: CompileArtifact | undefined,
   ran: CompileArtifact | undefined,
 ): ((runtimeId: string) => boolean) | undefined {
+  const standing = recipeStandingFor(live, ran)
+  return standing && ((runtimeId) => standing(runtimeId) === 'same')
+}
+
+/** Whether a runtime node's upstream recipe in a past run equals the current one. */
+export type RecipeStanding = 'same' | 'changed' | 'unknown'
+
+/**
+ * The comparison behind liveExactnessFor, telling a recipe that differs from
+ * one that is the same. Undefined under the same whole-artifact gates.
+ * `ignored` leaves literal inputs out of the comparison (upstreamRecipesEqual).
+ */
+export function recipeStandingFor(
+  live: CompileArtifact | undefined,
+  ran: CompileArtifact | undefined,
+  ignored?: (runtimeId: string, input: string) => boolean,
+): ((runtimeId: string) => RecipeStanding) | undefined {
   if (!live || !ran) return undefined
   if (live.schemaHash !== ran.schemaHash) return undefined
-  const rolled = (a: CompileArtifact) => (a.choices ?? []).some((c) => c.policy === 'random')
-  if ((rolled(live) && live.provenance?.randomSelectorInputs === undefined) ||
-    (rolled(ran) && ran.provenance?.randomSelectorInputs === undefined)) return undefined
-  const randomConeContains = (artifact: CompileArtifact, runtimeId: string): boolean => {
-    const pending = [runtimeId]
-    const seen = new Set<string>()
-    while (pending.length > 0) {
-      const id = pending.pop()!
-      if (seen.has(id)) continue
-      seen.add(id)
-      if ((artifact.provenance?.randomSelectorInputs?.[id]?.length ?? 0) > 0) return true
-      const node = artifact.prompt[id]
-      if (node === undefined) continue
-      for (const input of Object.values(node.inputs)) {
-        if (Array.isArray(input) && input.length === 2 &&
-          typeof input[0] === 'string' && typeof input[1] === 'number') pending.push(input[0])
-      }
-    }
-    return false
-  }
-  return (runtimeId) =>
-    !randomConeContains(live, runtimeId) &&
-    !randomConeContains(ran, runtimeId) &&
-    upstreamRecipesEqual(live.prompt, ran.prompt, runtimeId)
+  return (runtimeId) => upstreamRecipesEqual(live.prompt, ran.prompt, runtimeId, ignored) ? 'same' : 'changed'
 }
 
 export interface CompanionDerivation {

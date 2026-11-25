@@ -129,7 +129,7 @@
   gap: var(--dinkster-space-8);
   padding: var(--dinkster-space-12);
   background: var(--dinkster-surface-panel);
-  border: 1px dashed var(--dinkster-border-strong);
+  border: 1px dashed var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-card);
 }
 .app-layout-item-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: var(--dinkster-space-4); }
@@ -143,7 +143,7 @@
   gap: var(--dinkster-space-12);
   padding: var(--dinkster-space-12);
   background: var(--dinkster-surface-panel);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-card);
   box-shadow: var(--dinkster-elevation-low);
 }
@@ -176,7 +176,7 @@
   border-radius: var(--dinkster-radius-card);
 }
 .app-layout-grid.arrange .app-layout-grid-placement {
-  outline: 1px dashed var(--dinkster-border-strong);
+  outline: 1px dashed var(--dinkster-border-subtle);
   outline-offset: 2px;
 }
 .app-layout-grid-placement:focus-visible {
@@ -256,7 +256,7 @@
   padding: 0 var(--dinkster-space-4);
   color: var(--dinkster-text-secondary);
   background: var(--dinkster-surface-panel);
-  border: 1px dashed var(--dinkster-border-strong);
+  border: 1px dashed var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
 }
 .app-layout-mobile-toolbar > span {
@@ -306,11 +306,12 @@
   margin: 8px;
   padding: 5px 10px;
   color: var(--dinkster-text-primary);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: 4px;
   background: var(--dinkster-surface-raised);
   text-decoration: none;
 }
+.app-preview-download:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .app-preview-download:hover { background: var(--dinkster-interaction-hover); }
 .app-preview-download:focus-visible { outline: 2px solid var(--dinkster-border-focus); outline-offset: 1px; }
 .app-preview-text {

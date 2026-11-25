@@ -82,6 +82,7 @@ test('icon-only activity items show immediate name-first help on hover and focus
 })
 
 test('Settings keeps immediate help, Alt detail, and hover-out', async ({ page }) => {
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('tooltips.delayMs', 3000))
   const settings = page.getByTestId('settings-button')
   await settings.hover()
@@ -97,7 +98,7 @@ test('Settings keeps immediate help, Alt detail, and hover-out', async ({ page }
 })
 
 test('top-right tooltip uses its real width and follows content changes', async ({ page }, testInfo) => {
-  const target = page.getByTestId('customize-layout-button')
+  const target = page.getByTestId('left-panel-toggle')
   const tooltip = page.getByTestId('app-tooltip')
   await target.focus()
   await expect(tooltip).toBeVisible()
@@ -110,6 +111,9 @@ test('top-right tooltip uses its real width and follows content changes', async 
       return Math.abs(box.x - expectedX) + Math.abs(box.y - anchor.y - anchor.height - 8)
     }).toBeLessThan(0.1)
   }
+  await assertPlacement()
+  // A neighbour widening in the same group moves the anchor.
+  await page.getByTestId('collab-button').evaluate((element) => { (element as HTMLElement).style.minWidth = '160px' })
   await assertPlacement()
   await target.evaluate((element) => { (element as HTMLElement).dataset['tooltipDetail'] = 'Additional layout information that changes the measured tooltip width.|Second detail line.' })
   await page.keyboard.down('Alt')
@@ -172,7 +176,7 @@ test('node palette port product tooltip preserves hover and keyboard wording', a
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'UaTooltipProof', displayName: 'UA tooltip proof', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: false, tooltip: 'Exact input tooltip wording.' },
       { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'STRING' }, tooltip: 'Exact output tooltip wording.' },
     ],
@@ -193,7 +197,7 @@ test('node palette port product tooltip preserves hover and keyboard wording', a
 
 test('shell and minimap seams use product tooltips without document writes', async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'shell-tooltip-fixture', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'shell-tooltip-fixture', schemaWire: 2 }, nodes: {},
   } }))
   await page.reload()
   await expect(page.getByTestId('left-panel-toggle')).toBeEnabled()
@@ -223,7 +227,7 @@ test('shell and minimap seams use product tooltips without document writes', asy
   await expect(shellToggle).toHaveAccessibleName('Toggle left panel')
   await expect(shellToggle).toHaveAttribute('aria-pressed', /true|false/)
   await proveTooltip(minimapToggle, 'Show bookmark numbers on the minimap')
-  await expect(minimapToggle).toHaveAccessibleName('Bookmarks. Show bookmark numbers on the minimap')
+  await expect(minimapToggle).toHaveAccessibleName('Bookmark numbers')
 
   const checked = await minimapToggle.getAttribute('aria-checked')
   await minimapToggle.click()
@@ -288,11 +292,11 @@ test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagno
     test.app.registerSchemas([
       {
         type: 'TooltipImage', displayName: 'Image source', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
+        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
       {
         type: 'TooltipLatent', displayName: 'Latent sink', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'input', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
+        body: [{ kind: 'input', id: 'input', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
       },
     ])
     await test.app.openDocument({

@@ -3,13 +3,14 @@ import { expect, mockProjectPacks, nativeAppViewTest as test, type Page } from '
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f7-proof', schemaWire: 1 },
+  dinkster: { version: 'audit-f7-proof', schemaWire: 2 },
   packs: {},
   nodes: {},
 }
 
 async function prepare(page: Page): Promise<void> {
   await page.route(/\/api\/.*/, (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
+  await page.route('/api/account', (route) => route.fulfill({ json: { available: false, canStartSignIn: false, signInUnavailableReason: 'account-unavailable', signedIn: false, profile: null, signIn: { state: 'idle' } } }))
   await mockProjectPacks(page)
   await page.route('/api/models/downloads?scope=local', (route) => {
     expect(route.request().method()).toBe('GET')

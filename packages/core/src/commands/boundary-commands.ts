@@ -1,35 +1,20 @@
 /**
  * Boundary-editing commands: the write path for a subgraph definition's
- * boundary items - slot-selective family forwarding (`binds.slots`, hazard
- * F10) and input fan-out (`alsoBinds`).
+ * boundary items - exposures, bindings and input fan-out (`alsoBinds`).
  *
  * Like every core command these are SCHEMA-BLIND and deterministic: they
- * validate structure (item exists, binding kind, selection grammar and
- * prefix-conflict rules) and write exactly what the params describe.
- * Template-aware validation (unknown paths, narrowing into non-autogrow
- * constructs, starvation) is derivation's job - deriveBoundarySchema reports
- * boundary.slotUnknown / boundary.slotNotNestable / boundary.slotStarved
- * against whatever the document says, so an editor surfaces those inline
- * without commands needing a schema resolver (which would break command
- * determinism/serializability).
- *
- * Selection is CANONICALIZED before writing: entries are deduplicated and
- * sorted lexicographically. The derived template is filtered in TEMPLATE
- * order regardless of listing order (see BoundaryBinding.slots), so listing
- * order carries no meaning - canonicalizing prevents semantically identical
- * selections (checkbox click order) from producing document churn, and makes
- * "same selection" checkable by deep equality.
- *
- * Selection never touches member identity, stored values, or capacity
- * arithmetic - these commands only rewrite `binds.slots`, so undo simply
- * restores the previous selection and hidden state returns untouched.
+ * validate structure (item exists, binding kind, unique targets) and write
+ * exactly what the params describe. Whether a bound port exists and accepts
+ * the boundary type is derivation's job (deriveBoundarySchema), so an editor
+ * surfaces those problems inline without commands needing a schema resolver
+ * (which would break command determinism/serializability).
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { boundaryBindingKey, isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
-import { asDynamicMemberId, asNodeId, asPortId, asRerouteId, isPortEndpoint, samePortRef, type PortRef } from '../ids.js'
+import { asNodeId, asPortId, asRerouteId, isPortEndpoint, samePortRef, type PortRef } from '../ids.js'
 import type { CommandDefinition, CommandExecutionContext, SharedReplayPreparation, TransactionBuilder } from './contract.js'
-import { deriveBoundarySchema, familyStateAt, resolveBoundaryRoute } from '../schema/derive-boundary.js'
+import { constructsAround, deriveBoundarySchema, familyStateAt, resolveBoundaryRoute } from '../schema/derive-boundary.js'
 import type { InputSpec } from '../schema/model.js'
 import { documentNodeResolver, documentResolver } from '../compile/compile.js'
 
@@ -61,173 +46,19 @@ function findItem(
   return index === -1 ? undefined : { item: items[index]!, index }
 }
 
-/**
- * A syntactically valid selection entry: nonempty dotted path with nonempty
- * segments. Splitting on '.' is the `slots` field's own grammar (template
- * slot ids never legally contain dots); no charset restriction beyond that,
- * since legacy-derived template ids may carry other characters (warn-only
- * at elaboration).
- */
-const isValidEntry = (v: Json): v is string =>
-  typeof v === 'string' && v.length > 0 && v.split('.').every((seg) => seg.length > 0)
-
-/**
- * Dedupe + lexicographic sort. Exact duplicates are set-semantics idempotent
- * downstream, so dropping them here loses nothing.
- */
-const canonicalize = (entries: readonly string[]): string[] =>
-  [...new Set(entries)].sort()
-
-/**
- * First prefix conflict in a CANONICAL (sorted) selection: an entry plus a
- * strict dotted extension of it ('sub' AND 'sub.s'). Whole-subtree and
- * narrowed selection of the same construct are mutually exclusive
- * (BoundaryBinding.slots). Sorting places a prefix immediately before its
- * extensions, so adjacent comparison suffices.
- */
-function findPrefixConflict(sorted: readonly string[]): { prefix: string; extension: string } | undefined {
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = sorted[i - 1]!
-    const cur = sorted[i]!
-    if (cur.startsWith(`${prev}.`)) return { prefix: prev, extension: cur }
-  }
-  return undefined
-}
-
-const sameSelection = (a: readonly string[] | undefined, b: readonly string[]): boolean =>
-  a !== undefined && a.length === b.length && a.every((v, i) => v === b[i])
-
 // ---------------------------------------------------------------------------
-// boundary.setSlots {graphId, side, itemId, slots: string[]}
-//
-// Pins the boundary item's exposure to the listed template slot paths.
-// Family bindings only; an empty list is rejected (boundary.clearSlots is
-// the one canonical spelling for "whole template", hazard N2).
-// ---------------------------------------------------------------------------
-
-const boundarySetSlots: CommandDefinition = {
-  id: 'boundary.setSlots',
-  run(doc, params, tx) {
-    if (
-      !isObj(params) ||
-      typeof params.itemId !== 'string' ||
-      !isSide(params.side) ||
-      !Array.isArray(params.slots)
-    )
-      return [
-        err(
-          'params.invalid',
-          "boundary.setSlots: params must be {graphId, side: 'inputs'|'outputs', itemId, slots: string[]}",
-        ),
-      ]
-    const def = graphOf(doc, params.graphId)
-    if (!def)
-      return [err('graph.missing', `boundary.setSlots: unknown graph '${String(params.graphId)}'`)]
-    if (params.slots.length === 0)
-      return [
-        err(
-          'params.invalid',
-          'boundary.setSlots: slots must be nonempty; use boundary.clearSlots to restore whole-template exposure',
-        ),
-      ]
-    const invalid = params.slots.find((s) => !isValidEntry(s))
-    if (invalid !== undefined)
-      return [
-        err(
-          'params.invalid',
-          `boundary.setSlots: '${String(invalid)}' is not a valid slot path (nonempty dotted segments)`,
-        ),
-      ]
-    const found = findItem(def, params.side, params.itemId)
-    if (!found)
-      return [
-        err(
-          'boundary.itemMissing',
-          `boundary.setSlots: no boundary ${params.side.slice(0, -1)} '${params.itemId}' in graph '${String(params.graphId)}'`,
-        ),
-      ]
-    if (found.item.binds.kind !== 'family')
-      return [
-        err(
-          'boundary.bindKind',
-          `boundary.setSlots: boundary ${params.side.slice(0, -1)} '${params.itemId}' binds a '${found.item.binds.kind}'; slot selection applies to family forwarding only`,
-        ),
-      ]
-    const slots = canonicalize(params.slots as string[])
-    const conflict = findPrefixConflict(slots)
-    if (conflict)
-      return [
-        err(
-          'boundary.slotConflict',
-          `boundary.setSlots: '${conflict.prefix}' selects a whole subtree but '${conflict.extension}' narrows beneath it; list one or the other`,
-        ),
-      ]
-    if (sameSelection(found.item.binds.slots, slots)) return [] // no-op: identical selection
-    tx.set(
-      ['graphs', params.graphId as string, 'boundary', params.side, found.index, 'binds', 'slots'],
-      slots,
-    )
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// boundary.clearSlots {graphId, side, itemId}
-//
-// Removes the selection, restoring whole-template exposure so template slot
-// changes track automatically. Works on any binding kind so it can also
-// repair an invalid `slots` on a 'port' binding.
-// ---------------------------------------------------------------------------
-
-const boundaryClearSlots: CommandDefinition = {
-  id: 'boundary.clearSlots',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.itemId !== 'string' || !isSide(params.side))
-      return [
-        err(
-          'params.invalid',
-          "boundary.clearSlots: params must be {graphId, side: 'inputs'|'outputs', itemId}",
-        ),
-      ]
-    const def = graphOf(doc, params.graphId)
-    if (!def)
-      return [err('graph.missing', `boundary.clearSlots: unknown graph '${String(params.graphId)}'`)]
-    const found = findItem(def, params.side, params.itemId)
-    if (!found)
-      return [
-        err(
-          'boundary.itemMissing',
-          `boundary.clearSlots: no boundary ${params.side.slice(0, -1)} '${params.itemId}' in graph '${String(params.graphId)}'`,
-        ),
-      ]
-    if (found.item.binds.kind === 'widgetTap' || found.item.binds.slots === undefined) return [] // no-op: already whole-template
-    tx.remove([
-      'graphs',
-      params.graphId as string,
-      'boundary',
-      params.side,
-      found.index,
-      'binds',
-      'slots',
-    ])
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// boundary.addBinding {graphId, itemId, node, port, members?: string[]}
+// boundary.addBinding {graphId, itemId, node, port}
 //
 // Fan-out: appends an ADDITIONAL inner input target to a boundary INPUT
 // item (BoundaryItem.alsoBinds). Input-side only - an output has exactly
-// one source - and only on a 'port' primary (family forwarding cannot fan
-// out). The new entry is always kind 'port' (one canonical spelling).
+// one source - and only on a 'port' primary. The new entry is always kind
+// 'port' (one canonical spelling).
 // Whether the target port exists and accepts the boundary type is
 // derivation's job (boundary.unknownPort / boundary.fanoutTypeMismatch);
 // this command validates document structure only.
 // ---------------------------------------------------------------------------
 
-const bindingTargetKey = (node: string, port: string, members: readonly string[] | undefined): string =>
-  JSON.stringify([node, port, members ?? []])
+const bindingTargetKey = (node: string, port: string): string => JSON.stringify([node, port])
 
 const boundaryAddBinding: CommandDefinition = {
   id: 'boundary.addBinding',
@@ -236,13 +67,12 @@ const boundaryAddBinding: CommandDefinition = {
       !isObj(params) ||
       typeof params.itemId !== 'string' ||
       typeof params.node !== 'string' ||
-      typeof params.port !== 'string' ||
-      (params.members !== undefined && !(Array.isArray(params.members) && params.members.every((m) => typeof m === 'string' && m.length > 0)))
+      typeof params.port !== 'string'
     )
       return [
         err(
           'params.invalid',
-          'boundary.addBinding: params must be {graphId, itemId, node, port, members?: string[]}',
+          'boundary.addBinding: params must be {graphId, itemId, node, port}',
         ),
       ]
     const def = graphOf(doc, params.graphId)
@@ -260,19 +90,18 @@ const boundaryAddBinding: CommandDefinition = {
       return [
         err(
           'boundary.bindKind',
-          `boundary.addBinding: boundary input '${params.itemId}' forwards a family; family forwarding cannot fan out`,
+          `boundary.addBinding: boundary input '${params.itemId}' binds a '${found.item.binds.kind}'; only a port binding can fan out`,
         ),
       ]
     if (!def.nodes[params.node])
       return [err('node.missing', `boundary.addBinding: no node '${params.node}' in graph '${String(params.graphId)}'`)]
-    const members = params.members as string[] | undefined
-    const key = bindingTargetKey(params.node, params.port, members)
+    const key = bindingTargetKey(params.node, params.port)
     const existing = (def.boundary?.inputs ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
-    if (existing.some((b) => isNodeBoundaryBinding(b) && b.kind !== 'widgetTap' && bindingTargetKey(b.node, b.port, b.members) === key))
+    if (existing.some((b) => isNodeBoundaryBinding(b) && b.kind !== 'widgetTap' && bindingTargetKey(b.node, b.port) === key))
       return [
         err(
           'boundary.duplicateBind',
-          `boundary.addBinding: inner input '${params.node}/${params.port}'${members ? ` member '${members.join('.')}'` : ''} is already bound by a boundary input`,
+          `boundary.addBinding: inner input '${params.node}/${params.port}' is already bound by a boundary input`,
         ),
       ]
     const entry = bindingFromParams(params, 'inputs')
@@ -286,7 +115,7 @@ const boundaryAddBinding: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// boundary.removeBinding {graphId, itemId, node, port, members?: string[]}
+// boundary.removeBinding {graphId, itemId, node, port}
 //
 // Removes one fan-out target from a boundary input's `alsoBinds`. The
 // PRIMARY binding is not removable this way - re-point it or remove the
@@ -302,13 +131,12 @@ const boundaryRemoveBinding: CommandDefinition = {
       !isObj(params) ||
       typeof params.itemId !== 'string' ||
       typeof params.node !== 'string' ||
-      typeof params.port !== 'string' ||
-      (params.members !== undefined && !(Array.isArray(params.members) && params.members.every((m) => typeof m === 'string' && m.length > 0)))
+      typeof params.port !== 'string'
     )
       return [
         err(
           'params.invalid',
-          'boundary.removeBinding: params must be {graphId, itemId, node, port, members?: string[]}',
+          'boundary.removeBinding: params must be {graphId, itemId, node, port}',
         ),
       ]
     const def = graphOf(doc, params.graphId)
@@ -322,9 +150,8 @@ const boundaryRemoveBinding: CommandDefinition = {
           `boundary.removeBinding: no boundary input '${params.itemId}' in graph '${String(params.graphId)}'`,
         ),
       ]
-    const members = params.members as string[] | undefined
-    const key = bindingTargetKey(params.node, params.port, members)
-    if (isNodeBoundaryBinding(found.item.binds) && found.item.binds.kind !== 'widgetTap' && bindingTargetKey(found.item.binds.node, found.item.binds.port, found.item.binds.members) === key)
+    const key = bindingTargetKey(params.node, params.port)
+    if (isNodeBoundaryBinding(found.item.binds) && found.item.binds.kind !== 'widgetTap' && bindingTargetKey(found.item.binds.node, found.item.binds.port) === key)
       return [
         err(
           'boundary.primaryBind',
@@ -332,12 +159,12 @@ const boundaryRemoveBinding: CommandDefinition = {
         ),
       ]
     const also = found.item.alsoBinds ?? []
-    const kept = also.filter((b) => !isNodeBoundaryBinding(b) || b.kind === 'widgetTap' || bindingTargetKey(b.node, b.port, b.members) !== key)
+    const kept = also.filter((b) => !isNodeBoundaryBinding(b) || b.kind === 'widgetTap' || bindingTargetKey(b.node, b.port) !== key)
     if (kept.length === also.length)
       return [
         err(
           'boundary.bindMissing',
-          `boundary.removeBinding: boundary input '${params.itemId}' has no fan-out target '${params.node}/${params.port}'${members ? ` member '${members.join('.')}'` : ''}`,
+          `boundary.removeBinding: boundary input '${params.itemId}' has no fan-out target '${params.node}/${params.port}'`,
         ),
       ]
     if (kept.length === 0) {
@@ -352,45 +179,35 @@ const boundaryRemoveBinding: CommandDefinition = {
   },
 }
 
-const validMembers = (v: Json | undefined): boolean =>
-  v === undefined || (Array.isArray(v) && v.every((m) => typeof m === 'string' && m.length > 0))
-
 const bindingKey = (binding: BoundaryItem['binds']): string => boundaryBindingKey(binding)
 
 const bindingMatchesEndpoint = (binding: BoundaryBinding, target: BoundaryBinding): boolean =>
   !isNodeBoundaryBinding(binding) || !isNodeBoundaryBinding(target) || binding.kind === 'widgetTap' || target.kind === 'widgetTap'
     ? bindingKey(binding) === bindingKey(target)
-    : bindingTargetKey(binding.node, binding.port, binding.members) ===
-      bindingTargetKey(target.node, target.port, target.members)
+    : bindingTargetKey(binding.node, binding.port) === bindingTargetKey(target.node, target.port)
 
 const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding | undefined => {
   if (typeof params.node !== 'string') return undefined
-  if (typeof params.tap === 'string' && params.tap.length > 0 && params.port === undefined && params.members === undefined) {
+  if (typeof params.tap === 'string' && params.tap.length > 0 && params.port === undefined) {
     return side === 'outputs' && params.viaReroute === undefined
       ? { kind: 'widgetTap', node: asNodeId(params.node), tap: asPortId(params.tap) } : undefined
   }
-  if (typeof params.port !== 'string' || params.tap !== undefined || !validMembers(params.members)) return undefined
-  const kind = params.bindingKind ?? 'port'
-  if (kind !== 'port' && kind !== 'slot' && kind !== 'dynamicCombo') return undefined
-  if (side !== 'inputs' && kind !== 'port') return undefined
+  if (typeof params.port !== 'string' || params.tap !== undefined) return undefined
   if (params.viaReroute !== undefined &&
-      (side !== 'inputs' || kind !== 'port' || typeof params.viaReroute !== 'string' || params.viaReroute.length === 0)) return undefined
-  const members = params.members as string[] | undefined
+      (side !== 'inputs' || typeof params.viaReroute !== 'string' || params.viaReroute.length === 0)) return undefined
   return {
-    kind,
+    kind: 'port',
     node: asNodeId(params.node),
     port: asPortId(params.port),
-    ...(members !== undefined ? { members: members.map(asDynamicMemberId) } : {}),
     ...(typeof params.viaReroute === 'string' ? { viaReroute: asRerouteId(params.viaReroute) } : {}),
   }
 }
 
 /**
  * First-run schema facts an inputs-side exposure records in its params, so a
- * shared replay writes the same item without a schema: a dropdown that leads
- * options forwards as a 'dynamicCombo' subtree, and a field (a widget-backed
- * port reached directly, not through a junction) is promoted so the subgraph
- * node shows it as a field instead of a pin.
+ * shared replay writes the same item without a schema: a field (a
+ * widget-backed port reached directly, not through a junction) is promoted so
+ * the subgraph node shows it as a field instead of a pin.
  */
 const newBindingParams = (doc: WorkflowDocument, params: JsonObject, context: CommandExecutionContext): JsonObject => {
   if (params.side !== 'inputs' || context.kind !== 'initial') return params
@@ -402,20 +219,48 @@ const newBindingParams = (doc: WorkflowDocument, params: JsonObject, context: Co
   const route = schema && binding && resolveBoundaryRoute(schema, binding, 'input')
   const slot = route?.ok && route.route.side === 'input' && route.route.terminal.kind === 'port' ? route.route.terminal.slot as InputSpec : undefined
   if (slot === undefined || params.viaReroute !== undefined) return params
-  if (slot.dynamic?.kind === 'dynamicCombo')
-    return params.bindingKind === undefined ? { ...params, bindingKind: 'dynamicCombo' } : params
-  return (params.bindingKind ?? 'port') === 'port' && params.promoted === undefined && slot.widget !== undefined && slot.dynamic === undefined
-    ? { ...params, promoted: true } : params
+  return params.promoted === undefined && slot.widget !== undefined ? { ...params, promoted: true } : params
 }
 
 // ---------------------------------------------------------------------------
-// boundary.addItem {graphId, side, node, port?, tap?, members?, itemId?, displayName?, promoted?}
+// boundary.addItem {graphId, side, node, port?, tap?, itemId?, displayName?, promoted?}
 //
 // Appends one endpoint exposure. IDs are allocated deterministically from the
 // target when omitted. Input targets are globally unique across primary and
 // fan-out bindings; outputs may re-expose a source. Exposing the primary
-// target of an input drawn without its wire draws the wire instead.
+// target of an input drawn without its wire draws the wire instead. A row
+// inside a construct shown whole is refused: the construct owns it.
 // ---------------------------------------------------------------------------
+
+/** The item that already shows `binding`'s row through a construct, or a row inside it. */
+function ownershipConflict(def: GraphDef, binding: NodeBoundaryBinding): BoundaryItem | undefined {
+  if (binding.kind === 'widgetTap') return undefined
+  const items = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
+  return items.find((item) => [item.binds, ...(item.alsoBinds ?? [])].some((other) => {
+    if ((other.kind !== 'port' && other.kind !== 'construct') || other.node !== binding.node) return false
+    if (other.kind === 'construct' && (binding.port === other.port || binding.port.startsWith(`${other.port}.`))) return true
+    return binding.kind === 'construct' && (other.port === binding.port || other.port.startsWith(`${binding.port}.`))
+  }))
+}
+
+/**
+ * The refusal for a new item id or binding: an id taken, or under a
+ * construct item's id (an address under it names a row inside the
+ * construct), or a row a construct shown whole already owns.
+ */
+function itemConflict(command: string, def: GraphDef, binding: NodeBoundaryBinding, itemId?: string): Diagnostic | undefined {
+  if (itemId !== undefined && idTaken(def, binding, itemId))
+    return err('boundary.duplicateId', `${command}: boundary item '${itemId}' already exists in graph '${def.id}'`)
+  const owner = ownershipConflict(def, binding)
+  return owner === undefined ? undefined
+    : err('boundary.constructOwned', `${command}: '${binding.kind === 'widgetTap' ? binding.tap : binding.port}' is already shown through '${owner.id}'`)
+}
+
+function idTaken(def: GraphDef, binding: NodeBoundaryBinding, id: string): boolean {
+  return [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])].some((item) => item.id === id ||
+    (binding.kind === 'construct' && item.id.startsWith(`${id}.`)) ||
+    (item.binds.kind === 'construct' && id.startsWith(`${item.id}.`)))
+}
 
 const boundaryAddItem: CommandDefinition = {
   id: 'boundary.addItem',
@@ -434,11 +279,10 @@ const boundaryAddItem: CommandDefinition = {
     if (!def) return [err('graph.missing', `boundary.addItem: unknown graph '${params.graphId}'`)]
     if (!def.nodes[params.node]) return [err('node.missing', `boundary.addItem: no node '${params.node}' in graph '${params.graphId}'`)]
     const items = def.boundary?.[params.side] ?? []
-    const allItems = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
-    if (params.itemId !== undefined && allItems.some((item) => item.id === params.itemId))
-      return [err('boundary.duplicateId', `boundary.addItem: boundary item '${params.itemId}' already exists in graph '${params.graphId}'`)]
     const prepared = newBindingParams(doc, params, context)
     const binding = bindingFromParams(prepared, params.side)!
+    const conflict = itemConflict('boundary.addItem', def, binding, params.itemId as string | undefined)
+    if (conflict !== undefined) return [conflict]
     const pinless = params.side === 'inputs'
       ? items.findIndex((item) => item.wireHidden === true && bindingMatchesEndpoint(item.binds, binding))
       : -1
@@ -472,14 +316,11 @@ function appendItem(
   fields: { readonly itemId?: string; readonly displayName?: string; readonly promoted?: true; readonly wireHidden?: true },
 ): void {
   const items = def.boundary?.[side] ?? []
-  const allItems = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
   let id = fields.itemId
   if (id === undefined) {
-    const base = binding.kind === 'widgetTap'
-      ? binding.tap
-      : binding.members?.length ? `${binding.port}_${binding.members.join('_')}` : binding.port
+    const base = binding.kind === 'widgetTap' ? binding.tap : binding.port
     id = base
-    for (let suffix = 2; allItems.some((item) => item.id === id); suffix++) id = `${base}_${suffix}`
+    for (let suffix = 2; idTaken(def, binding, id); suffix++) id = `${base}_${suffix}`
   }
   const { itemId: _itemId, ...rest } = fields
   const item = { id, ...(rest.displayName !== undefined ? { displayName: rest.displayName } : {}), binds: binding,
@@ -496,45 +337,35 @@ function appendItem(
 
 /**
  * The boundary input that drives an inner field, and whether that input is
- * shown on the subgraph node as a field (a promoted 'port' binding or a
- * 'dynamicCombo' subtree). `driven` without `item` means something else
- * already delivers the input: a link, a named net, or a forwarded family or
- * construct that contains it.
+ * shown on the subgraph node as a field (a promoted 'port' binding).
+ * `driven` without `item` means something else already delivers the input:
+ * a link or a named net.
  */
 export function boundaryFieldState(
   def: GraphDef,
   target: PortRef,
 ): { readonly driven: boolean; readonly item?: BoundaryItem; readonly primary?: boolean; readonly field?: boolean } {
-  const end: BoundaryBinding = { kind: 'port', node: target.node, port: target.port, ...(target.members?.length ? { members: target.members } : {}) }
+  const end: BoundaryBinding = { kind: 'port', node: target.node, port: target.port }
   for (const item of def.boundary?.inputs ?? []) {
-    const bindings = [item.binds, ...(item.alsoBinds ?? [])]
-    const index = bindings.findIndex((binding) => isNodeBoundaryBinding(binding) && binding.kind !== 'family' && binding.kind !== 'slot' &&
-      bindingMatchesEndpoint(binding, end))
-    if (index !== -1) {
-      const field = item.binds.kind === 'port' ? item.promoted === true : item.binds.kind === 'dynamicCombo'
-      return { driven: true, item, primary: index === 0, field }
-    }
-    const forwards = bindings.some((binding) => (binding.kind === 'family' || binding.kind === 'slot' || binding.kind === 'dynamicCombo') &&
-      binding.node === target.node && target.port.startsWith(`${binding.port}.`) &&
-      (binding.members ?? []).every((member, i) => target.members?.[i] === member))
-    if (forwards) return { driven: true }
+    const index = [item.binds, ...(item.alsoBinds ?? [])].findIndex((binding) => bindingMatchesEndpoint(binding, end))
+    if (index !== -1) return { driven: true, item, primary: index === 0, field: item.binds.kind === 'port' && item.promoted === true }
   }
   const linked = Object.values(def.links).some((link) => isPortEndpoint(link.to) && samePortRef(link.to, target)) ||
     Object.values(def.nets).some((net) => net.sinks.some((sink) => samePortRef(sink, target)))
   return { driven: linked }
 }
 
-const showParamsInvalid = (): Diagnostic[] => [err('params.invalid', 'boundary.showOnSubgraphNode: params must be {graphId, node, port, members?: string[]}')]
+const showParamsInvalid = (): Diagnostic[] => [err('params.invalid', "boundary.showOnSubgraphNode: params must be {graphId, node, port, side?: 'inputs'|'outputs'}")]
 
 /**
  * Validate a "Show on subgraph node" request. The first run also reads the
- * schema: the target must be a stored field the format can show on the
- * subgraph node, and the binding kind it needs is recorded in the params so
- * a shared replay writes the same row without a schema.
+ * schema: the target must be a group, choice, type choice or described row,
+ * or a stored field the format can show on the subgraph node. A shared
+ * replay writes the same row without a schema.
  */
 function prepareShowParams(doc: WorkflowDocument, params: Json, context: CommandExecutionContext): SharedReplayPreparation {
   if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.node !== 'string' || typeof params.port !== 'string' ||
-      !validMembers(params.members) || (params.bindingKind !== undefined && params.bindingKind !== 'port' && params.bindingKind !== 'dynamicCombo'))
+      (params.side !== undefined && !isSide(params.side)))
     return { ok: false, diagnostics: showParamsInvalid() }
   const graphId = params.graphId
   const def = doc.graphs[graphId]
@@ -543,8 +374,13 @@ function prepareShowParams(doc: WorkflowDocument, params: Json, context: Command
     return { ok: false, diagnostics: [err('boundary.topLevel', 'boundary.showOnSubgraphNode: the top-level workflow has no subgraph node')] }
   const node = def.nodes[params.node]
   if (!node) return { ok: false, diagnostics: [err('node.missing', `boundary.showOnSubgraphNode: no node '${params.node}' in graph '${graphId}'`)] }
-  const members = params.members as string[] | undefined
-  const target: PortRef = { node: asNodeId(params.node), port: asPortId(params.port), ...(members?.length ? { members: members.map(asDynamicMemberId) } : {}) }
+  // A construct: the first run records its side, which a shared replay reads.
+  if (params.side !== undefined) return { ok: true, params }
+  const resolveConstruct = context.kind === 'initial' ? context.schemaResolverFor?.(doc) : undefined
+  const schemaOfNode = resolveConstruct === undefined ? undefined : documentNodeResolver(doc, resolveConstruct)(graphId, node)
+  const construct = schemaOfNode === undefined ? undefined : constructsAround(schemaOfNode, params.port).find((entry) => entry.path === params.port)
+  if (construct !== undefined) return { ok: true, params: { ...params, side: construct.side } }
+  const target: PortRef = { node: asNodeId(params.node), port: asPortId(params.port) }
   const state = boundaryFieldState(def, target)
   if (state.item !== undefined)
     return { ok: false, diagnostics: [err('boundary.duplicateBind', `boundary.showOnSubgraphNode: '${params.node}/${params.port}' is already bound by boundary input '${state.item.id}'`)] }
@@ -561,14 +397,11 @@ function prepareShowParams(doc: WorkflowDocument, params: Json, context: Command
   const missingMember = route.route.hops.some((hop, i) => hop.kind === 'member' &&
     familyStateAt(node, route.route.hops.slice(0, i), hop.familyPath)?.members?.includes(hop.member) !== true)
   if (missingMember) return notField('has no stored value yet')
-  const slot = route.route.terminal.slot as InputSpec
-  const combo = slot.dynamic?.kind === 'dynamicCombo'
-  const bindingKind = (params.bindingKind ?? (combo ? 'dynamicCombo' : 'port')) as 'port' | 'dynamicCombo'
-  if (!combo && (slot.widget === undefined || slot.dynamic !== undefined)) return notField('is not a field')
-  // The format's own refusals (a forwarded construct, a selector, a slot
-  // that is not connected inside) come from derivation: refuse when adding
-  // the row brings an error the definition does not already have.
-  const item: BoundaryItem = { id: 'show_on_subgraph_node', binds: { kind: bindingKind, ...target }, ...(bindingKind === 'port' ? { promoted: true } : {}) }
+  if ((route.route.terminal.slot as InputSpec).widget === undefined) return notField('is not a field')
+  // The format's own refusals (a selector, a row of an option that is not
+  // chosen) come from derivation: refuse when adding the row brings an error
+  // the definition does not already have.
+  const item: BoundaryItem = { id: 'show_on_subgraph_node', binds: { kind: 'port', ...target }, promoted: true }
   const withItem: GraphDef = { ...def, boundary: { inputs: [...(def.boundary?.inputs ?? []), item], outputs: def.boundary?.outputs ?? [] } }
   const schemas = documentResolver(doc, resolve)
   const resolveNode = (inner: typeof node) => documentNodeResolver(doc, resolve)(graphId, inner)
@@ -580,15 +413,17 @@ function prepareShowParams(doc: WorkflowDocument, params: Json, context: Command
     const [code, message] = JSON.parse(added[0]!) as [string, string]
     return { ok: false, diagnostics: [err(code, `boundary.showOnSubgraphNode: ${message}`)] }
   }
-  return { ok: true, params: { ...params, bindingKind } }
+  return { ok: true, params }
 }
 
 // ---------------------------------------------------------------------------
-// boundary.showOnSubgraphNode {graphId, node, port, members?}
+// boundary.showOnSubgraphNode {graphId, node, port, side?}
 //
-// Puts an inner field on the subgraph node without drawing a wire: appends an
-// input bound to the field (promoted, or the 'dynamicCombo' subtree for a
-// dropdown that leads options) marked wireHidden, in one undo step.
+// Puts an inner field on the subgraph node without drawing a wire: appends a
+// promoted input bound to the field, marked wireHidden, in one undo step.
+// At a group, choice, type choice or described row it shows the construct
+// whole instead; the first run records the construct's side, so a shared
+// replay writes the same item without a schema.
 // ---------------------------------------------------------------------------
 
 const boundaryShowOnSubgraphNode: CommandDefinition = {
@@ -601,14 +436,14 @@ const boundaryShowOnSubgraphNode: CommandDefinition = {
     if (!prepared.ok) return [...prepared.diagnostics]
     const p = prepared.params as JsonObject
     const def = doc.graphs[p.graphId as string]!
-    const kind = p.bindingKind === 'dynamicCombo' ? 'dynamicCombo' : 'port'
-    const members = p.members as string[] | undefined
-    appendItem(tx, def, 'inputs', {
-      kind,
-      node: asNodeId(p.node as string),
-      port: asPortId(p.port as string),
-      ...(members?.length ? { members: members.map(asDynamicMemberId) } : {}),
-    }, { ...(kind === 'port' ? { promoted: true } : {}), wireHidden: true })
+    const node = asNodeId(p.node as string)
+    const port = asPortId(p.port as string)
+    // A group, choice, type choice or described row is shown whole: each
+    // subgraph node then owns its members, pick and values under the item.
+    const binding: NodeBoundaryBinding = isSide(p.side) ? { kind: 'construct', node, port } : { kind: 'port', node, port }
+    const conflict = itemConflict('boundary.showOnSubgraphNode', def, binding)
+    if (conflict !== undefined) return [conflict]
+    appendItem(tx, def, isSide(p.side) ? p.side : 'inputs', binding, isSide(p.side) ? {} : { promoted: true, wireHidden: true })
     return []
   },
 }
@@ -629,8 +464,7 @@ const boundarySetWireHidden: CommandDefinition = {
     if (!def) return [err('graph.missing', `boundary.setWireHidden: unknown graph '${params.graphId}'`)]
     const found = findItem(def, 'inputs', params.itemId)
     if (!found) return [err('boundary.itemMissing', `boundary.setWireHidden: no boundary input '${params.itemId}' in graph '${params.graphId}'`)]
-    const field = found.item.binds.kind === 'port' ? found.item.promoted === true : found.item.binds.kind === 'dynamicCombo'
-    if (!field) return [err('boundary.notField', `boundary.setWireHidden: boundary input '${params.itemId}' is not shown as a field on the subgraph node`)]
+    if (found.item.binds.kind !== 'port' || found.item.promoted !== true) return [err('boundary.notField', `boundary.setWireHidden: boundary input '${params.itemId}' is not shown as a field on the subgraph node`)]
     const path = ['graphs', params.graphId, 'boundary', 'inputs', found.index, 'wireHidden']
     if (params.hidden === (found.item.wireHidden === true)) return []
     if (params.hidden) tx.set(path, true)
@@ -666,9 +500,9 @@ const boundaryRenameItem: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// boundary.setBinding {graphId, side, itemId, node, port, members?}
+// boundary.setBinding {graphId, side, itemId, node, port}
 //
-// Re-points an item's primary binding to a concrete port, dropping slots.
+// Re-points an item's primary binding to a concrete port.
 // ---------------------------------------------------------------------------
 
 const boundarySetBinding: CommandDefinition = {
@@ -690,7 +524,7 @@ const boundarySetBinding: CommandDefinition = {
     if (bindingKey(current) === bindingKey(binding)) return []
     tx.set(['graphs', params.graphId, 'boundary', params.side, found.index, 'binds'], binding as unknown as Json)
     // A row that stops being a field on the subgraph node draws its wire again.
-    const stillField = binding.kind === 'dynamicCombo' || (binding.kind === 'port' && found.item.promoted === true)
+    const stillField = binding.kind === 'port' && found.item.promoted === true
     if (found.item.wireHidden === true && !stillField)
       tx.remove(['graphs', params.graphId, 'boundary', params.side, found.index, 'wireHidden'])
     return []
@@ -698,7 +532,7 @@ const boundarySetBinding: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// boundary.unbind {graphId, side, itemId, node, port, members?}
+// boundary.unbind {graphId, side, itemId, node, port}
 //
 // Disconnects one boundary noodle, promoting input fan-out in stable order.
 // ---------------------------------------------------------------------------
@@ -740,8 +574,6 @@ const boundaryUnbind: CommandDefinition = {
 }
 
 export const BOUNDARY_COMMANDS: readonly CommandDefinition[] = [
-  boundarySetSlots,
-  boundaryClearSlots,
   boundaryAddBinding,
   boundaryRemoveBinding,
   boundaryAddItem,

@@ -6,8 +6,6 @@ export interface TextWidgetEditorContext {
   readonly inputId: string
   readonly nodeType: string
   readonly spec: WidgetSpec
-  /** Current materialized member names, grouped by schema input-family id. */
-  readonly inputFamilyMembers?: Readonly<Record<string, readonly string[]>>
 }
 
 export interface TextCompletionRequest extends TextWidgetEditorContext {
@@ -107,16 +105,7 @@ export class SchemaTextCompletionProvider implements TextWidgetEditorExtension {
     const declared = request.spec.textCompletions
     if (declared === undefined || request.signal.aborted) return []
     const tokenKind = completionTokenKindAt(request.text, request.caret)
-    const familyItems = declared.inputFamilies.flatMap((family) =>
-      (request.inputFamilyMembers?.[family] ?? []).map((value) => ({
-        value,
-        label: value,
-        insertText: value,
-        detail: 'Input',
-        kind: 'identifier' as const,
-      })),
-    )
-    return [...declared.items, ...familyItems].flatMap((item, index) => {
+    return declared.items.flatMap((item, index) => {
       if (tokenKind !== undefined && item.kind !== tokenKind) return []
       const range = completionTokenRange(request.text, request.caret, item.kind)
       if (!item.value.normalize('NFKC').toLowerCase().startsWith(range.query)) return []

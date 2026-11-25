@@ -5,44 +5,68 @@
     "category": "image",
     "source": "v3",
     "isOutputNode": false,
-    "items": [
+    "body": [
       {
         "kind": "input",
         "id": "width",
-        "type": { "kind": "concrete", "name": "INT" },
+        "type": {
+          "kind": "concrete",
+          "name": "INT"
+        },
         "optional": false,
         "widget": {
           "widgetType": "INT",
-          "options": { "min": 1, "max": 16384, "step": 1 },
+          "options": {
+            "min": 1,
+            "max": 16384,
+            "step": 1
+          },
           "default": 512
         }
       },
       {
         "kind": "input",
         "id": "height",
-        "type": { "kind": "concrete", "name": "INT" },
+        "type": {
+          "kind": "concrete",
+          "name": "INT"
+        },
         "optional": false,
         "widget": {
           "widgetType": "INT",
-          "options": { "min": 1, "max": 16384, "step": 1 },
+          "options": {
+            "min": 1,
+            "max": 16384,
+            "step": 1
+          },
           "default": 512
         }
       },
       {
         "kind": "input",
         "id": "batch_size",
-        "type": { "kind": "concrete", "name": "INT" },
+        "type": {
+          "kind": "concrete",
+          "name": "INT"
+        },
         "optional": false,
         "widget": {
           "widgetType": "INT",
-          "options": { "min": 1, "max": 4096, "step": 1 },
+          "options": {
+            "min": 1,
+            "max": 4096,
+            "step": 1
+          },
           "default": 1
         }
       },
       {
         "kind": "input",
         "id": "color",
-        "type": { "kind": "concrete", "name": "INT" },
+        "type": {
+          "kind": "concrete",
+          "name": "INT"
+        },
         "optional": false,
         "widget": {
           "widgetType": "INT",
@@ -58,7 +82,10 @@
       {
         "kind": "output",
         "id": "IMAGE",
-        "type": { "kind": "concrete", "name": "IMAGE" }
+        "type": {
+          "kind": "concrete",
+          "name": "IMAGE"
+        }
       }
     ]
   },
@@ -68,38 +95,60 @@
     "category": "image/upscaling",
     "source": "v3",
     "isOutputNode": false,
-    "items": [
+    "body": [
       {
         "kind": "input",
         "id": "image",
-        "type": { "kind": "concrete", "name": "IMAGE" },
+        "type": {
+          "kind": "concrete",
+          "name": "IMAGE"
+        },
         "optional": false
       },
       {
         "kind": "input",
         "id": "upscale_method",
-        "type": { "kind": "concrete", "name": "COMBO" },
+        "type": {
+          "kind": "concrete",
+          "name": "COMBO"
+        },
         "optional": false,
         "widget": {
           "widgetType": "COMBO",
-          "options": ["nearest-exact", "bilinear", "area", "bicubic", "lanczos"]
+          "options": [
+            "nearest-exact",
+            "bilinear",
+            "area",
+            "bicubic",
+            "lanczos"
+          ]
         }
       },
       {
         "kind": "input",
         "id": "scale_by",
-        "type": { "kind": "concrete", "name": "FLOAT" },
+        "type": {
+          "kind": "concrete",
+          "name": "FLOAT"
+        },
         "optional": false,
         "widget": {
           "widgetType": "FLOAT",
-          "options": { "min": 0.01, "max": 8, "step": 0.01 },
+          "options": {
+            "min": 0.01,
+            "max": 8,
+            "step": 0.01
+          },
           "default": 1
         }
       },
       {
         "kind": "output",
         "id": "IMAGE",
-        "type": { "kind": "concrete", "name": "IMAGE" }
+        "type": {
+          "kind": "concrete",
+          "name": "IMAGE"
+        }
       }
     ]
   },
@@ -109,17 +158,23 @@
     "category": "image",
     "source": "v3",
     "isOutputNode": true,
-    "items": [
+    "body": [
       {
         "kind": "input",
         "id": "images",
-        "type": { "kind": "concrete", "name": "IMAGE" },
+        "type": {
+          "kind": "concrete",
+          "name": "IMAGE"
+        },
         "optional": false
       },
       {
         "kind": "output",
         "id": "images",
-        "type": { "kind": "concrete", "name": "IMAGE" },
+        "type": {
+          "kind": "concrete",
+          "name": "IMAGE"
+        },
         "preview": true
       }
     ]

@@ -5,7 +5,7 @@
  * directly (same discipline as menu-target.ts / app-view-rows.ts).
  */
 
-import { evaluateExpression, formatWidgetValue, integerWidgetValue, isCanonicalUnsafeInteger, isPrimitiveListWidgetValue, numericStepConstraints, spliceDiff, stepNumericValue, transformSplice, type IntegerWidgetValue, type Json, type TextSplice, type WidgetKind, type WidgetSpec } from '@dinkster/core'
+import { evaluateExpression, formatWidgetValue, integerWidgetValue, isCanonicalUnsafeInteger, isPrimitiveListWidgetValue, numericStepConstraints, specialValueLabel, spliceDiff, stepNumericValue, transformSplice, type IntegerWidgetValue, type Json, type TextSplice, type WidgetKind, type WidgetSpec } from '@dinkster/core'
 
 export type NumericCommitResult = { readonly ok: true; readonly value: IntegerWidgetValue } | { readonly ok: false; readonly error: string }
 type FloatNumericCommitResult = { readonly ok: true; readonly value: number } | { readonly ok: false; readonly error: string }
@@ -60,18 +60,19 @@ export function parseNumericCommit(raw: string, widgetType: 'INT' | 'FLOAT', rou
  * `result` is the outcome of typed arithmetic ("= 48"); `problem` says what
  * Enter corrects or keeps. Typing is never refused: a number past a limit or
  * off a whole-number step is corrected, and anything that is not a number
- * keeps the stored value. Text today's parser accepts is read by it, so
- * exact 64-bit integers and forms like 1e-3 behave as in every other field.
+ * keeps the stored value, or leaves an automatic field automatic. Text
+ * today's parser accepts is read by it, so exact 64-bit integers and forms
+ * like 1e-3 behave as in every other field.
  */
 export type TypedNumber =
   | { readonly kind: 'store'; readonly value: IntegerWidgetValue; readonly result?: string; readonly problem?: string }
   | { readonly kind: 'keep'; readonly problem: string }
 
-export function resolveTypedNumber(raw: string, spec: WidgetSpec, stored: IntegerWidgetValue): TypedNumber {
+export function resolveTypedNumber(raw: string, spec: WidgetSpec, stored: IntegerWidgetValue, automatic = false): TypedNumber {
   const constraints = numericStepConstraints(spec)
   const widgetType = constraints.integer ? 'INT' : 'FLOAT'
   const keep = (reason: string): TypedNumber =>
-    ({ kind: 'keep', problem: `${reason} Enter keeps ${formatWidgetValue(stored, spec)}.` })
+    ({ kind: 'keep', problem: `${reason} ${automatic ? 'Enter keeps it automatic' : `Enter keeps ${formatWidgetValue(stored, spec)}`}.` })
   const trimmed = raw.trim()
   const direct = parseNumericCommit(trimmed, widgetType, spec.options['round'], spec.options['precision'])
   let typed: bigint | number
@@ -107,6 +108,10 @@ export function resolveTypedNumber(raw: string, spec: WidgetSpec, stored: Intege
     ...(result !== undefined ? { result } : {}),
     ...(problem !== undefined ? { problem } : {}),
   })
+  // A declared special value is allowed outside the limits and off the step, so it is stored as typed.
+  if (!fraction && specialValueLabel(typed, spec) !== undefined) {
+    return store(constraints.integer ? integerWidgetValue(typed as bigint) : typed as number)
+  }
   if (!constraints.integer) {
     const value = typed as number
     if (value > constraints.max) return store(constraints.max, `Above ${show(constraints.max)}. Enter uses ${show(constraints.max)}.`)
@@ -122,14 +127,17 @@ export function resolveTypedNumber(raw: string, spec: WidgetSpec, stored: Intege
     const min = integerWidgetValue(constraints.min)
     return store(min, `Below ${show(min)}. Enter uses ${show(min)}.`)
   }
-  // Whole numbers snap to the step counted from the lower limit, as the
-  // design's sketch does; a value that rounds past the upper limit steps back.
-  const step = constraints.step
-  const base = constraints.min ?? 0n
-  const offset = value - base
-  const remainder = ((offset % step) + step) % step
-  let snapped = base + offset - remainder + (remainder * 2n >= step ? step : 0n)
+  // Whole numbers snap to the step counted from the field's offset (its lower
+  // limit when none is declared), as the stepper does; a value that rounds
+  // past a limit steps back inside it. While a worked-out offset is not known
+  // there is no grid, so a whole number is kept.
+  const step = constraints.offset === undefined ? 1n : constraints.step
+  const base = constraints.offset ?? 0n
+  const distance = value - base
+  const remainder = ((distance % step) + step) % step
+  let snapped = base + distance - remainder + (remainder * 2n >= step ? step : 0n)
   if (constraints.max !== undefined && snapped > constraints.max) snapped -= step
+  if (constraints.min !== undefined && snapped < constraints.min) snapped += step
   if (snapped !== value || fraction) {
     const uses = integerWidgetValue(snapped)
     return store(uses, `${step === 1n ? 'Whole numbers only.' : `Not a multiple of ${step}.`} Enter uses ${show(uses)}.`)

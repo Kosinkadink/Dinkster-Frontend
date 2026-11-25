@@ -69,7 +69,7 @@ async function openSubgraphWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'in', displayName: 'Source Image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
           { kind: 'output', id: 'out0', displayName: 'Result Image', type: { kind: 'concrete', name: 'IMAGE' } },
         ],

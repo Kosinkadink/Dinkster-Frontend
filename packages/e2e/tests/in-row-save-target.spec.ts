@@ -21,7 +21,7 @@ type Mounts = (route: Route) => Promise<void> | void
  */
 async function openTargets(page: Page, mounts: Mounts = (route) => route.fulfill({ json: READY }), options: { wired?: boolean } = {}): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'save-target-fixture', schemaWire: 1 }, nodes: {},
+    schemaVersion: 2, epoch: 1, dinkster: { version: 'save-target-fixture', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('/api/mounts*', mounts)
   await page.setViewportSize({ width: 1280, height: 800 })
@@ -37,9 +37,9 @@ async function openTargets(page: Page, mounts: Mounts = (route) => route.fulfill
     })
     const image = { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }
     window.__dinksterTest!.app.registerSchemas([
-      { type: 'SaveImage', displayName: 'Save image', category: 'test', source: 'v3', isOutputNode: true, items: [image, target(false), { kind: 'input', id: 'quality', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: { min: 1, max: 100 }, default: 90 } }] },
-      { type: 'Gallery', displayName: 'Gallery', category: 'test', source: 'v3', isOutputNode: true, items: [image, target(true)] },
-      { type: 'TargetSource', displayName: 'Target source', category: 'test', source: 'v3', isOutputNode: false, items: [{ kind: 'output', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' } }] },
+      { type: 'SaveImage', displayName: 'Save image', category: 'test', source: 'v3', isOutputNode: true, body: [image, target(false), { kind: 'input', id: 'quality', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: { min: 1, max: 100 }, default: 90 } }] },
+      { type: 'Gallery', displayName: 'Gallery', category: 'test', source: 'v3', isOutputNode: true, body: [image, target(true)] },
+      { type: 'TargetSource', displayName: 'Target source', category: 'test', source: 'v3', isOutputNode: false, body: [{ kind: 'output', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' } }] },
     ] as never)
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'save-target-box', root: 'g0',

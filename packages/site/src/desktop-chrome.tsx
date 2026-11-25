@@ -8,6 +8,8 @@ export interface DesktopChromeOptions {
   readonly theme: 'dark' | 'light'
   readonly qa?: boolean
   readonly development?: boolean
+  /** Full screen hides the window buttons, so the bar reserves no room for them. */
+  readonly fullScreen?: boolean
 }
 
 let dispose: (() => void) | undefined
@@ -60,10 +62,13 @@ export function install(options: DesktopChromeOptions): void {
       desktopChrome: current.getAttribute('data-desktop-chrome'),
       platform: current.getAttribute('data-platform'),
       theme: current.getAttribute('data-theme'),
+      fullScreen: current.getAttribute('data-full-screen'),
     }
     current.dataset.desktopChrome = ''
     current.dataset.platform = options.platform
     current.dataset.theme = options.theme
+    if (options.fullScreen) current.dataset.fullScreen = ''
+    else delete current.dataset.fullScreen
     clear = () => {
       unmount()
       mount.remove()

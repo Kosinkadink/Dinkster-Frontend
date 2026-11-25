@@ -20,7 +20,7 @@ export const colorEditingSchema: NodeSchema = {
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     { kind: 'output', id: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } },
     {
       kind: 'input',
@@ -50,7 +50,7 @@ export const colorEditingSchema: NodeSchema = {
 /** The same node with its color stored as a whole number, as an integer color view shows it. */
 const integerColorSchema: NodeSchema = {
   ...colorEditingSchema,
-  items: colorEditingSchema.items.map((item) =>
+  body: colorEditingSchema.body.map((item) =>
     item.kind === 'input' && item.id === 'color'
       ? {
           ...item,
@@ -72,7 +72,7 @@ const sourceSchema: NodeSchema = {
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items: [{ kind: 'output', id: 'color', type: { kind: 'concrete', name: 'COLOR' } }],
+  body: [{ kind: 'output', id: 'color', type: { kind: 'concrete', name: 'COLOR' } }],
 }
 
 /**

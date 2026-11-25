@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { planClipboardPaste, serializeSelection } from '../src/clipboard.js'
 import { compile } from '../src/compile/compile.js'
 import { effectiveOccurrenceTopology, type EffectiveLinkIdentity } from '../src/compile/effective-topology.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
@@ -9,13 +8,13 @@ import { planOccurrenceLinkMutation, type OccurrenceLinkIntention } from '../src
 import { DocumentStore } from '../src/commands/store.js'
 import { loadDocument } from '../src/format/migrate.js'
 import type { BoundaryItem, Json, NodeData, OccurrenceLinkEndpoint, WorkflowDocument } from '../src/format/document.js'
-import { asConnectionId, asGraphDefId, asLineageId, asNodeId, asPortId, asValueSourceId, occurrenceKey, type OccurrenceRef } from '../src/ids.js'
+import { asConnectionId, asGraphDefId, asLineageId, asNodeId, asPortId, occurrenceKey, type OccurrenceRef } from '../src/ids.js'
 import type { NodeSchema } from '../src/schema/model.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 
 const schema = (type: string, inputs: string[], outputs: string[]): NodeSchema => ({
   type, displayName: type, category: 'test', source: 'v3', isOutputNode: type === 'Sink',
-  items: [
+  body: [
     ...inputs.map((id) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'IMAGE' }, optional: true })),
     ...outputs.map((id) => ({ kind: 'output' as const, id, type: { kind: 'concrete' as const, name: 'IMAGE' } })),
   ],
@@ -25,19 +24,8 @@ const schemas: Record<string, NodeSchema> = {
   Sink: schema('Sink', ['in', 'other'], []),
   NumberSink: {
     ...schema('NumberSink', [], []), isOutputNode: true,
-    items: [{ kind: 'input', id: 'in', type: { kind: 'concrete', name: 'INT' }, optional: false,
+    body: [{ kind: 'input', id: 'in', type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: { widgetType: 'INT', options: {}, default: 0 } }],
-  },
-  FamilySink: {
-    ...schema('FamilySink', [], []),
-    items: [{
-      kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: [{ kind: 'input', id: 'item', type: { kind: 'concrete', name: 'IMAGE' }, optional: true }],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-      },
-    }],
   },
 }
 const resolve = (type: string) => schemas[type]
@@ -151,73 +139,6 @@ function localConnect(doc: WorkflowDocument, target: OccurrenceRef, from = direc
 }
 
 describe('occurrence-local link commands', () => {
-  it.each([false, true])('connects a literal output route with nested=%s without changing sibling occurrences', (nested) => {
-    const base = document(nested)
-    const target = nested ? owner('inner', ['outer']) : owner('a')
-    const sourceBinding = { kind: 'valueSource' as const, valueSource: asValueSourceId('v0'), type: { kind: 'concrete' as const, name: 'INT' } }
-    const initial: WorkflowDocument = {
-      ...base,
-      graphs: {
-        ...base.graphs,
-        body: {
-          ...base.graphs.body!,
-          nodes: { sink: { id: asNodeId('sink'), type: 'NumberSink', values: { in: 3 } } },
-          links: {}, nets: {},
-          valueSources: { v0: { id: asValueSourceId('v0'), value: 23 } },
-          boundary: { inputs: [], outputs: [{ id: 'feed', binds: sourceBinding }] },
-        },
-      },
-    }
-    const from: OccurrenceLinkEndpoint = {
-      kind: 'boundary', occurrence: nested ? owner('outer') : target,
-      address: { port: asPortId(nested ? 'outerFeed' : 'feed') },
-      route: [
-        ...(nested ? [{ graph: asGraphDefId('mid'), boundaryId: 'outerFeed', binding: binding('inner', 'feed') }] : []),
-        { graph: asGraphDefId('body'), boundaryId: 'feed', binding: sourceBinding },
-      ],
-    }
-    for (const badBinding of [
-      { ...sourceBinding, valueSource: asValueSourceId('missing') },
-      { ...sourceBinding, type: { kind: 'concrete' as const, name: 'FLOAT' } },
-    ]) {
-      const badFrom = { ...from, route: [...from.route.slice(0, -1), { graph: asGraphDefId('body'), boundaryId: 'feed', binding: badBinding }] }
-      expect(planOccurrenceLinkMutation(initial, resolve, {
-        kind: 'connect', owner: target, bodyGraph: 'body', from: badFrom, to: body({ node: 'sink', port: 'in' }),
-      }).ok).toBe(false)
-    }
-    const inputOnly: WorkflowDocument = {
-      ...initial, graphs: { ...initial.graphs, body: { ...initial.graphs.body!, boundary: { inputs: [{ id: 'feed', binds: sourceBinding }], outputs: [] } } },
-    }
-    const inputRoute: OccurrenceLinkEndpoint = {
-      kind: 'boundary', occurrence: target, address: { port: asPortId('feed') },
-      route: [{ graph: asGraphDefId('body'), boundaryId: 'feed', binding: sourceBinding }],
-    }
-    expect(planOccurrenceLinkMutation(inputOnly, resolve, {
-      kind: 'connect', owner: target, bodyGraph: 'body', from: body({ valueSource: 'v0' }), to: inputRoute,
-    }).ok).toBe(false)
-    const store = new DocumentStore(initial, coreCommandRegistry())
-    expect(store.dispatch(localConnect(store.doc, target, from).invocation).ok).toBe(true)
-    const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc)))
-    expect(reopened.document, JSON.stringify(reopened.diagnostics)).toEqual(store.doc)
-    const result = compile({
-      document: reopened.document!, revision: 1, resolve, scope: { kind: 'full' },
-      connection: asConnectionId('test'), schemaHash: 'test',
-    })
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) {
-      const id = nested ? 'outer.inner.sink' : 'a.sink'
-      expect(result.artifact.prompt[id]!.inputs.in).toBe(23)
-      expect(Object.keys(result.artifact.prompt).sort()).toEqual(nested ? [id] : ['a.sink', 'b.sink'])
-      if (!nested) expect(result.artifact.prompt['b.sink']!.inputs.in).toBe(3)
-    }
-    expect(store.doc.graphs.body).toEqual(initial.graphs.body)
-    expect(store.undo()).toBe(true)
-    expect(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links).toEqual({})
-    expect(store.redo()).toBe(true)
-    expect(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links.l0!.from).toEqual(from)
-    const missingSource = { ...store.doc, graphs: { ...store.doc.graphs, body: { ...store.doc.graphs.body!, valueSources: {} } } }
-    expect(loadDocument(missingSource).document).toBeUndefined()
-  })
 
   it.each([
     ['root direct', document(), owner('a'), directBoundary(owner('a'))],
@@ -341,209 +262,6 @@ describe('occurrence-local link commands', () => {
     expect(store.doc.occurrenceTopologies!.a!.suppressedDeliveries?.[0]?.kind).toBe('projectedLeg')
   })
 
-  it('materializes a boundary ghost and creates its local link in one undo step', () => {
-    const initial = document()
-    ;(initial.graphs.root!.nodes as Record<string, NodeData>).a = {
-      ...initial.graphs.root!.nodes.a!, dynamic: { ingest: { options: ['duplicate', false, 0] } },
-    }
-    const target = owner('a')
-    const bodyGraph = initial.graphs.body!
-    ;(bodyGraph.nodes as Record<string, NodeData>).sink = { id: asNodeId('sink'), type: 'FamilySink', values: {} }
-    ;(bodyGraph as unknown as { links: Record<string, never>; nets: Record<string, never> }).links = {}
-    ;(bodyGraph as unknown as { links: Record<string, never>; nets: Record<string, never> }).nets = {}
-    const familyBinding = { kind: 'family' as const, node: asNodeId('sink'), port: asPortId('items') }
-    ;(bodyGraph.boundary as unknown as { inputs: BoundaryItem[] }).inputs = [{ id: 'ingest' as never, binds: familyBinding }]
-    const ghost = {
-      kind: 'boundary' as const,
-      occurrence: target,
-      address: { port: asPortId('ingest.item'), members: ['m0' as never] },
-      route: [{ graph: asGraphDefId('body'), boundaryId: 'ingest', binding: familyBinding }],
-    } as OccurrenceLinkEndpoint
-    const store = new DocumentStore(initial, coreCommandRegistry())
-    const result = store.dispatch(planned(store.doc, {
-      command: 'occurrence.link.connect', owner: target, bodyGraph: 'body',
-      from: body({ node: 'producerOne', port: 'out' }), to: ghost,
-    }).invocation)
-    expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
-    expect(store.doc.graphs.root!.nodes.a!.dynamic).toEqual({ ingest: { options: ['duplicate', false, 0], members: ['m0'], seq: 1 } })
-    expect(store.doc.occurrenceTopologies!.a!.links.l0).toBeDefined()
-    expect(store.undo()).toBe(true)
-    expect(store.doc.graphs.root!.nodes.a!.dynamic).toEqual({ ingest: { options: ['duplicate', false, 0], seq: 1 } })
-    expect(store.doc.occurrenceTopologies!.a!.links).toEqual({})
-    expect(store.redo()).toBe(true)
-    expect(store.doc.graphs.root!.nodes.a!.dynamic).toEqual({ ingest: { options: ['duplicate', false, 0], members: ['m0'], seq: 1 } })
-    expect(store.doc.occurrenceTopologies!.a!.links.l0).toBeDefined()
-
-    const capped = structuredClone(initial) as WorkflowDocument
-    ;(capped.graphs.root!.nodes as Record<string, NodeData>).a = {
-      ...capped.graphs.root!.nodes.a!,
-      dynamic: { ingest: { members: ['m0', 'm1', 'm2', 'm3'], seq: 4 } },
-    }
-    const unavailable = planOccurrenceLinkMutation(capped, resolve, {
-      kind: 'connect', owner: target, bodyGraph: 'body',
-      from: body({ node: 'producerOne', port: 'out' }),
-      to: {
-        ...(ghost as Extract<OccurrenceLinkEndpoint, { kind: 'boundary' }>),
-        address: { ...(ghost as Extract<OccurrenceLinkEndpoint, { kind: 'boundary' }>).address, members: ['m4' as never] },
-      },
-    })
-    expect(unavailable.ok).toBe(false)
-  })
-
-  it.each([false, true].flatMap((named) => [false, true].map((chained) => ({ named, chained }))))('materializes a canonical boundary ghost atomically (named=$named, chained=$chained)', ({ named, chained }) => {
-    const names = named ? ['head', 'middle', 'tail'] : ['item0', 'item1', 'item2']
-    const canonical: NodeSchema = { ...schema('CanonicalSink', [], []), isOutputNode: true, items: [{
-      kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: true,
-      dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
-        template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'IMAGE' }, optional: true }],
-        naming: named ? { kind: 'names', names } : { kind: 'prefix', prefix: 'item', min: 0, max: 3 },
-      },
-    }] }
-    const resolver = (type: string) => type === 'CanonicalSink' ? canonical : resolve(type)
-    const initial = document(chained)
-    const target = chained ? owner('inner', ['outer']) : owner('a')
-    const sourceOwner = chained ? owner('outer') : target
-    const bodyGraph = initial.graphs.body!
-    ;(bodyGraph.nodes as Record<string, NodeData>).sink = {
-      id: asNodeId('sink'), type: 'CanonicalSink', values: {}, dynamic: { items: { members: [names[0]!] } },
-    }
-    ;(bodyGraph as unknown as { links: Record<string, never>; nets: Record<string, never> }).links = {}
-    ;(bodyGraph as unknown as { links: Record<string, never>; nets: Record<string, never> }).nets = {}
-    const familyBinding = { kind: 'family' as const, node: asNodeId('sink'), port: asPortId('items') }
-    ;(bodyGraph.boundary as unknown as { inputs: BoundaryItem[] }).inputs = [{ id: 'ingest' as never, binds: familyBinding }]
-    const outerBinding = { kind: 'family' as const, node: asNodeId('inner'), port: asPortId('ingest') }
-    if (chained) (initial.graphs.mid!.boundary as unknown as { inputs: BoundaryItem[] }).inputs = [{ id: 'outerIngest' as never, binds: outerBinding }]
-    const construct = chained ? 'outerIngest' : 'ingest'
-    ;(initial.view.graphs as Record<string, unknown>).root = { nodes: {
-      [sourceOwner.node]: { position: { x: 0, y: 0 } },
-    } }
-    const ghost: OccurrenceLinkEndpoint = {
-      kind: 'boundary', occurrence: sourceOwner, address: { port: asPortId(`${construct}.${names[1]}`) },
-      route: [...(chained ? [{ graph: asGraphDefId('mid'), boundaryId: 'outerIngest', binding: outerBinding }] : []),
-        { graph: asGraphDefId('body'), boundaryId: 'ingest', binding: familyBinding }],
-    }
-    const store = new DocumentStore(initial, coreCommandRegistry())
-    const plan = planOccurrenceLinkMutation(store.doc, resolver, {
-      kind: 'connect', owner: target, bodyGraph: 'body',
-      from: body({ node: 'producerOne', port: 'out' }), to: ghost,
-    })
-    expect(plan.ok, plan.ok ? undefined : JSON.stringify(plan.diagnostics)).toBe(true)
-    if (!plan.ok) return
-    const applied = store.dispatch(plan.invocation)
-    expect(applied.ok, JSON.stringify(applied.diagnostics)).toBe(true)
-    const source = () => store.doc.graphs.root!.nodes[sourceOwner.node]!
-    expect(source().dynamic?.[construct]?.members).toEqual([names[1]])
-    expect(store.doc.graphs.body!.nodes.sink!.dynamic?.items?.members).toEqual([names[0]])
-    expect(Object.values(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links)).toHaveLength(1)
-    expect(store.dispatch(plan.invocation).ok).toBe(false)
-    expect(planOccurrenceLinkMutation(store.doc, resolver, {
-      kind: 'connect', owner: target, bodyGraph: 'body', from: body({ node: 'producerOne', port: 'out' }),
-      to: { ...ghost, address: { port: asPortId(`${construct}.notOffered`) } },
-    }).ok).toBe(false)
-    const compiled = compile({ document: store.doc, revision: store.revision, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('c'), schemaHash: 'canonical-ghost' })
-    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
-    if (compiled.ok) {
-      const prefix = chained ? 'outer.inner' : 'a'
-      expect(compiled.artifact.prompt[`${prefix}.sink`]!.inputs).toEqual({ [`items.${names[1]}`]: [`${prefix}.producerOne`, 0] })
-    }
-    if (!named && chained) {
-      const legacy: NodeSchema = { ...canonical, items: [{
-        kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: true,
-        dynamic: { kind: 'autogrow', materialization: 'wire15',
-          template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'IMAGE' }, optional: true }],
-          naming: { kind: 'prefix', prefix: 'item', min: 0, max: 3 },
-        },
-      }] }
-      const legacyResolver = (type: string) => type === 'CanonicalSink' ? legacy : resolve(type)
-      const invalid = compile({ document: store.doc, revision: store.revision, resolve: legacyResolver, scope: { kind: 'full' }, connection: asConnectionId('c'), schemaHash: 'legacy-dotted-route' })
-      expect(invalid.ok).toBe(false)
-      if (!invalid.ok) expect(invalid.diagnostics.map((item) => item.code)).toContain('compile.boundary.forwardMemberMissing')
-      expect(planOccurrenceLinkMutation(store.doc, legacyResolver, {
-        kind: 'connect', owner: target, bodyGraph: 'body', from: body({ node: 'producerOne', port: 'out' }), to: ghost,
-      }).ok).toBe(false)
-    }
-    expect(store.undo()).toBe(true)
-    expect(source().dynamic?.[construct]?.members ?? []).toEqual([])
-    expect(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links).toEqual({})
-    expect(store.redo()).toBe(true)
-    expect(source().dynamic?.[construct]?.members).toEqual([names[1]])
-    expect(Object.values(store.doc.occurrenceTopologies![occurrenceKey(target)]!.links)).toHaveLength(1)
-
-    const envelope = serializeSelection(store.doc, 'root', { nodes: [sourceOwner.node], reroutes: [] })!
-    const paste = planClipboardPaste(store.doc, 'root', envelope)
-    expect(paste).toBeDefined()
-    if (!paste) return
-    expect(store.dispatch(paste.invocation).ok).toBe(true)
-    const pasted = paste.nodeIds[0]!
-    const pastedOwner = chained ? owner('inner', [pasted]) : owner(pasted)
-    expect(Object.values(store.doc.occurrenceTopologies![occurrenceKey(pastedOwner)]!.links)).toHaveLength(1)
-    const copiedCompile = compile({ document: store.doc, revision: store.revision, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('c'), schemaHash: 'canonical-copy' })
-    expect(copiedCompile.ok, copiedCompile.ok ? undefined : JSON.stringify(copiedCompile.diagnostics)).toBe(true)
-    if (copiedCompile.ok) {
-      const prefix = chained ? `${pasted}.inner` : pasted
-      expect(copiedCompile.artifact.prompt[`${prefix}.sink`]!.inputs).toEqual({ [`items.${names[1]}`]: [`${prefix}.producerOne`, 0] })
-    }
-    expect(store.undo()).toBe(true)
-    expect(store.doc.occurrenceTopologies![occurrenceKey(pastedOwner)]).toBeUndefined()
-    expect(store.redo()).toBe(true)
-    expect(Object.values(store.doc.occurrenceTopologies![occurrenceKey(pastedOwner)]!.links)).toHaveLength(1)
-  })
-
-  it('allows ordinary edits to distinct members while occurrence and whole-family drivers stay guarded', () => {
-    const initial = document()
-    const target = owner('a')
-    const bodyGraph = initial.graphs.body!
-    ;(bodyGraph.nodes as Record<string, NodeData>).sink = {
-      id: asNodeId('sink'), type: 'FamilySink', values: {},
-      dynamic: { items: { members: ['d0' as never], seq: 1 } },
-    }
-    ;(bodyGraph as unknown as { links: Record<string, never>; nets: Record<string, never> }).links = {}
-    ;(bodyGraph as unknown as { links: Record<string, never>; nets: Record<string, never> }).nets = {}
-    const familyBinding = { kind: 'family' as const, node: asNodeId('sink'), port: asPortId('items') }
-    ;(bodyGraph.boundary as unknown as { inputs: BoundaryItem[] }).inputs = [{ id: 'ingest' as never, binds: familyBinding }]
-    ;(initial.graphs.root!.nodes as Record<string, NodeData>).p = { id: asNodeId('p'), type: 'Src', values: {} }
-    const ghost = {
-      kind: 'boundary' as const,
-      occurrence: target,
-      address: { port: asPortId('ingest.item'), members: ['m0' as never] },
-      route: [{ graph: asGraphDefId('body'), boundaryId: 'ingest', binding: familyBinding }],
-    } as OccurrenceLinkEndpoint
-    const store = new DocumentStore(initial, coreCommandRegistry())
-    const connected = store.dispatch(planned(store.doc, {
-      command: 'occurrence.link.connect', owner: target, bodyGraph: 'body',
-      from: body({ node: 'producerOne', port: 'out' }), to: ghost,
-    }).invocation)
-    expect(connected.ok, JSON.stringify(connected.diagnostics)).toBe(true)
-
-    const distinct = store.dispatch({
-      command: 'link.connect',
-      params: {
-        graphId: 'body',
-        from: { node: 'producerTwo', port: 'out' },
-        to: { node: 'sink', port: 'items.item', members: ['d0'] },
-      },
-    } as never)
-    expect(distinct.ok, JSON.stringify(distinct.diagnostics)).toBe(true)
-    expect(store.doc.occurrenceTopologies!.a!.links.l0).toBeDefined()
-    expect(Object.values(store.doc.graphs.body!.links).some((link) =>
-      'members' in link.to && (link.to as { members?: readonly string[] }).members?.[0] === 'd0',
-    )).toBe(true)
-
-    const whole = store.dispatch({
-      command: 'link.connect',
-      params: { graphId: 'body', from: { node: 'producerTwo', port: 'out' }, to: { node: 'sink', port: 'items' } },
-    } as never)
-    expect(whole.ok).toBe(false)
-    expect(whole.diagnostics[0]!.code).toBe('occurrence.topology.definitionReferenced')
-
-    const sameMember = store.dispatch({
-      command: 'link.connect',
-      params: { graphId: 'root', from: { node: 'p', port: 'out' }, to: { node: 'a', port: 'ingest.item', members: ['m0'] } },
-    } as never)
-    expect(sameMember.ok).toBe(false)
-    expect(sameMember.diagnostics[0]!.code).toBe('occurrence.topology.definitionReferenced')
-  })
-
   it('refuses digest mismatch, snapshot coverage mismatch, and stale topology', () => {
     const initial = document()
     const connect = localConnect(initial, owner('a'))
@@ -651,20 +369,6 @@ describe('occurrence-local link commands', () => {
         endpoint: { reroute: 'r' },
         prepare: (doc) => { (doc.graphs.body!.reroutes as any).r = { id: 'r' } },
       },
-      {
-        command: 'valueSource.remove', params: { graphId: 'body', valueSourceIds: ['v'] },
-        endpoint: { valueSource: 'v' },
-        prepare: (doc) => { (doc.graphs.body as any).valueSources = { v: { id: 'v', value: 1 } } },
-      },
-      {
-        command: 'selector.remove', params: { graphId: 'body', selectorIds: ['s'] },
-        endpoint: { selector: 's' },
-        prepare: (doc) => {
-          (doc.graphs.body as any).selectors = {
-            s: { id: 's', candidates: [{ id: 'c' }], policy: { kind: 'fixed', candidate: 'c' } },
-          }
-        },
-      },
     ]
 
     for (const testCase of cases) {
@@ -688,46 +392,6 @@ describe('occurrence-local link commands', () => {
       expect(outcome.diagnostics[0]!.code, testCase.command).toBe('occurrence.topology.definitionReferenced')
       expect(store.doc, testCase.command).toBe(before)
     }
-  })
-
-  it('rejects selector candidate removal while an occurrence endpoint references it', () => {
-    const initial = document()
-    ;(initial.graphs.body as any).selectors = {
-      choice: {
-        id: 'choice',
-        candidates: [{ id: 'c1' }, { id: 'c2' }],
-        policy: { kind: 'fixed', candidate: 'c1' },
-      },
-    }
-    ;(initial.graphs.body!.links as any).candidateFeed = {
-      id: 'candidateFeed',
-      from: { node: 'producerOne', port: 'out' },
-      to: { selector: 'choice', candidate: 'c1' },
-    }
-    ;(initial as any).occurrenceTopologies = {
-      a: {
-        owner: owner('a'), bodyGraph: 'body', nextOrdinal: 1,
-        links: {
-          l0: {
-            id: 'l0',
-            from: body({ node: 'producerTwo', port: 'out' }),
-            to: body({ selector: 'choice', candidate: 'c1' }),
-          },
-        },
-      },
-    }
-    const store = new DocumentStore(initial, coreCommandRegistry())
-    const before = store.doc
-    const outcome = store.dispatch({
-      command: 'selector.removeCandidate',
-      params: { graphId: 'body', selectorId: 'choice', candidateId: 'c1' },
-    })
-    expect(outcome.ok).toBe(false)
-    expect(outcome.diagnostics.map((diagnostic) => diagnostic.code)).toContain('doc.occurrenceTopology.endpointDangling')
-    expect(store.revision).toBe(0)
-    expect(store.doc).toBe(before)
-    expect(store.doc.graphs.body!.selectors!.choice!.candidates.map((candidate) => candidate.id)).toEqual(['c1', 'c2'])
-    expect(store.doc.graphs.body!.links.candidateFeed).toBeDefined()
   })
 
   it('guards every definition driver displacement path', () => {
@@ -846,8 +510,8 @@ describe('occurrence-local link commands', () => {
           nodes: {
             ...base.graphs.body!.nodes,
             dynamicNode: {
-              id: asNodeId('dynamicNode'), type: 'Sink', values: {},
-              dynamic: { images: { members: ['m0', 'm1'], seq: 2 } },
+              id: asNodeId('dynamicNode'), type: 'Grow', values: {},
+              dynamic: { images: { members: ['image0', 'image1'], seq: 2 } },
             },
           },
         },
@@ -859,7 +523,7 @@ describe('occurrence-local link commands', () => {
             l0: {
               id: 'l0' as never,
               from: body({ node: 'producerTwo', port: 'out' }),
-              to: body({ node: 'dynamicNode', port: 'images.value', members: ['m0'] }),
+              to: body({ node: 'dynamicNode', port: 'images.image0' }),
             },
           },
         },
@@ -867,19 +531,22 @@ describe('occurrence-local link commands', () => {
     }
     const store = new DocumentStore(initial, coreCommandRegistry())
     expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'body', nodeId: 'dynamicNode' } }).ok).toBe(true)
-    expect(store.doc.graphs.body!.nodes.dynamicNode!.dynamic).toEqual({ images: { members: ['m0'], seq: 2 } })
+    expect(store.doc.graphs.body!.nodes.dynamicNode!.dynamic).toEqual({ images: { members: ['image0'], seq: 2 } })
 
-    const autogrow: NodeSchema = {
+    const grow: NodeSchema = {
       type: 'Grow', displayName: 'Grow', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: true,
-        dynamic: {
-          kind: 'autogrow', naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },
-          template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'IMAGE' }, optional: true }],
-        },
+      body: [{
+        kind: 'group', id: 'images',
+        value: { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: true },
+        keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 },
+        grows: 'link', minMembers: 0, maxMembers: 4,
       }],
     }
-    const elaborated = elaborateInterface(autogrow, { values: {}, dynamic: { images: { members: ['m0'], seq: 2 } } })
-    expect(elabInputsOf(elaborated).filter((input) => input.origin.kind === 'member' && input.origin.ghost === true)).toHaveLength(1)
+    // The occurrence's local link uses the kept member, so the group offers one
+    // spare; seq keeps the removed key image1 from being reused.
+    const elaborated = elaborateInterface(grow, { values: {}, dynamic: store.doc.graphs.body!.nodes.dynamicNode!.dynamic! },
+      { isInputConnected: (port) => port === 'images.image0', isOutputConnected: () => false })
+    expect(elabInputsOf(elaborated).filter((input) => input.origin.kind === 'member' && input.origin.ghost === true)
+      .map((input) => input.address.port)).toEqual(['images.image2'])
   })
 })

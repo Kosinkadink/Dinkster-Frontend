@@ -44,7 +44,7 @@ test('node search ghost appears at the selection cursor with zero movement and E
   // Placement needs the app bridge and node schemas; wait for readiness.
   await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
-    type: 'KSampler', displayName: 'KSampler', category: 'sampling', source: 'e2e', isOutputNode: false, items: [],
+    type: 'KSampler', displayName: 'KSampler', category: 'sampling', source: 'e2e', isOutputNode: false, body: [],
   }]))
   const nodeCount = () => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes).length)
   const ghost = () => page.evaluate(() => (window.__dinksterTest!.renderer!.getOverlay() as { placementGhost?: { x: number; y: number } }).placementGhost)
@@ -364,7 +364,7 @@ test('Search Dinkster keeps the node title center under the placement click at e
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'auditSearchPlacementTest', displayName: 'audit Search Node', category: 'test', source: 'v3', isOutputNode: false,
-      items: [],
+      body: [],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-search-placement', root: 'g0',

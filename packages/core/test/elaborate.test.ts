@@ -1,28 +1,30 @@
 /**
  * Interface elaboration tests. The contract under test:
- * (schema, persisted state, link existence) -> effective ordered interface,
- * deterministic, with stable member identity, positional api names, branch-
- * local combo values, non-destructive slot hiding, and input/output symmetry.
+ * (schema body, stored state, link existence) -> effective ordered interface,
+ * deterministic, with every row at its flattened id, members in stored order
+ * with their keys as identity, the chosen option's rows only, type choice
+ * rows that follow the pin, and input/output symmetry.
  * Elaboration never sees solved types - nothing here constructs any.
  */
 import { describe, expect, it } from 'vitest'
 import type { GraphDef } from '../src/format/document.js'
-import { asDynamicMemberId, asNodeId } from '../src/ids.js'
-import { buildGraphConnectivity, elabInputsOf, elabKeyOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity, type ElaboratedInput } from '../src/schema/elaborate.js'
-import { initialDynamicStateOf, type DynamicComboSpec, type InputSpec, type InterfaceItem, type NodeSchema, type OutputSpec } from '../src/schema/model.js'
+import { asNodeId } from '../src/ids.js'
+import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, inGoneMember, lookupSitesOf, type Connectivity, type LookupAnswerState } from '../src/schema/elaborate.js'
+import { checkBody, initialDynamicStateOf } from '../src/schema/body.js'
+import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeChoiceSpec } from '../src/schema/model.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 
 // ---------------------------------------------------------------------------
 // Builders
 // ---------------------------------------------------------------------------
 
-const schemaOf = (items: InterfaceItem[]): NodeSchema => ({
+const schemaOf = (body: BodyRow[]): NodeSchema => ({
   type: 'Test',
   displayName: 'Test',
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body,
 })
 
 const intInput = (id: string, extra: Partial<InputSpec> = {}): InputSpec => ({
@@ -49,59 +51,52 @@ const output = (id: string, type = 'IMAGE', extra: Partial<OutputSpec> = {}): Ou
   ...extra,
 })
 
-const autogrowFamily = (id: string, opts: { min?: number; max?: number; names?: string[] } = {}): InputSpec => ({
-  kind: 'input',
+/** A group of IMAGE pins named image0, image1, ... (or by the given names). */
+const imageGroup = (id: string, opts: { min?: number; max?: number; names?: string[] } = {}): GroupSpec => ({
+  kind: 'group',
   id,
-  type: { kind: 'wildcard' },
-  optional: false,
-  dynamic: {
-    kind: 'autogrow',
-    template: [socketInput('item', 'IMAGE')],
-    naming: opts.names
-      ? { kind: 'names', names: opts.names, ...(opts.min !== undefined ? { min: opts.min } : {}) }
-      : { kind: 'prefix', prefix: 'image', min: opts.min ?? 1, max: opts.max ?? 4 },
-  },
+  value: socketInput('item', 'IMAGE'),
+  keys: opts.names ? { kind: 'named', names: opts.names } : { kind: 'numbered', prefix: 'image', start: 0, pad: 0 },
+  grows: 'link',
+  minMembers: opts.min ?? 1,
+  ...(opts.max !== undefined ? { maxMembers: opts.max } : opts.names ? {} : { maxMembers: 4 }),
 })
 
-/** A grouped-template family: each member stamps an image + optional mask. */
-const groupedFamily = (id: string, opts: { min?: number; max?: number } = {}): InputSpec => ({
-  kind: 'input',
+/** A group of records: each member holds an image and an optional mask. */
+const recordGroup = (id: string, opts: { min?: number; max?: number } = {}): GroupSpec => ({
+  kind: 'group',
   id,
-  type: { kind: 'wildcard' },
-  optional: false,
-  dynamic: {
-    kind: 'autogrow',
-    template: [socketInput('image', 'IMAGE'), socketInput('mask', 'MASK', { optional: true })],
-    naming: { kind: 'prefix', prefix: 'item', min: opts.min ?? 1, max: opts.max ?? 3 },
-  },
+  member: [socketInput('image', 'IMAGE'), socketInput('mask', 'MASK', { optional: true })],
+  keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+  grows: 'link',
+  minMembers: opts.min ?? 1,
+  maxMembers: opts.max ?? 3,
 })
 
-const comboConstruct = (id: string, options: { key: string; inputs: InputSpec[] }[]): InputSpec => ({
-  kind: 'input',
+const choiceOf = (id: string, options: ChoiceSpec['options'], extra: Partial<ChoiceSpec> = {}): ChoiceSpec => ({
+  kind: 'choice',
   id,
-  type: { kind: 'concrete', name: 'COMBO' },
-  optional: false,
-  dynamic: { kind: 'dynamicCombo', options },
+  options,
+  shared: [],
+  required: true,
+  ...extra,
 })
 
-const slotConstruct = (id: string, inputs: InputSpec[], slotType = 'MODEL'): InputSpec => ({
-  kind: 'input',
+const openSlot = (id: string, rows: BodyRow[], type = 'MODEL'): TypeChoiceSpec => ({
+  kind: 'typeChoice',
   id,
-  type: { kind: 'concrete', name: slotType },
-  optional: true,
-  dynamic: { kind: 'dynamicSlot', slotType: { kind: 'concrete', name: slotType }, inputs },
+  type: { kind: 'concrete', name: type },
+  rows,
+  required: false,
 })
 
-const samePath = (a?: readonly string[], b?: readonly string[]): boolean => {
-  if (a === undefined || a.length === 0) return b === undefined || b.length === 0
-  return b !== undefined && a.length === b.length && a.every((seg, i) => seg === b[i])
-}
-
-const connectedInputs = (...keys: [port: string, ...members: string[]][]): Connectivity => ({
-  isInputConnected: (port, members) =>
-    keys.some(([p, ...path]) => p === port && samePath(path, members)),
+const connectedInputs = (...ports: string[]): Connectivity => ({
+  isInputConnected: (port) => ports.includes(port),
   isOutputConnected: () => false,
 })
+
+const ghostOf = (input: { origin: { kind: string; ghost?: boolean } }): boolean =>
+  input.origin.kind === 'member' && input.origin.ghost === true
 
 const noState = { values: {} }
 
@@ -131,7 +126,7 @@ describe('static schemas', () => {
     const closed = elaborateInterface(schemaOf([socketInput('choice', 'COMBO')]), { values, additionalInputs: ['index'] })
     expect(closed.diagnostics.map((diag) => diag.code)).toContain('elab.additionalInput.closed')
     expect(elabInputsOf(closed).map((input) => input.apiName)).toEqual(['choice'])
-    const collision = elaborateInterface({ ...schema, items: [...schema.items, autogrowFamily('items')] }, {
+    const collision = elaborateInterface({ ...schema, body: [...schema.body, imageGroup('items')] }, {
       values, additionalInputs: ['choice', 'items.inactive', 'items'],
     })
     expect(collision.diagnostics.filter((diag) => diag.code === 'elab.additionalInput.reserved')).toHaveLength(3)
@@ -141,12 +136,11 @@ describe('static schemas', () => {
     const schema = schemaOf([
       output('out0'),
       socketInput('image'),
-      { kind: 'section', id: 'adv', displayName: 'Advanced' },
-      intInput('strength', { section: 'adv' }),
+      { kind: 'section', id: 'adv', displayName: 'Advanced', rows: [intInput('strength')] },
     ])
     const e = elaborateInterface(schema, noState)
     expect(e.diagnostics).toEqual([])
-    expect(e.items.map((i) => (i.kind === 'section' ? `section:${i.spec.id}` : `${i.kind}:${elabKeyOf((i as ElaboratedInput).address)}`))).toEqual([
+    expect(e.items.map((i) => (i.kind === 'section' ? `section:${i.spec.id}` : i.kind === 'input' || i.kind === 'output' ? `${i.kind}:${i.address.port}` : i.kind))).toEqual([
       'output:out0',
       'input:image',
       'section:adv',
@@ -155,249 +149,193 @@ describe('static schemas', () => {
     const strength = elabInputsOf(e).find((i) => i.address.port === 'strength')!
     expect(strength.origin).toEqual({ kind: 'static' })
     expect(strength.apiName).toBe('strength')
+    expect(strength.spec.section).toBe('adv')
   })
 
-  it('censuses every wire15 combo branch at its stored path without changing the active interface', () => {
-    const schema = schemaOf([{
-      kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: false,
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-        { key: 'a', inputs: [socketInput('file', 'IMAGE')] },
-        { key: 'b', inputs: [socketInput('file', 'MASK'), socketInput('other', 'AUDIO')] },
-      ] },
-    }])
+  it('censuses every option of a choice, including a shared row two options use, without changing the active interface', () => {
+    const schema = schemaOf([choiceOf('mode', [
+      { key: 'a', rows: [{ kind: 'use', id: 'file' }] },
+      { key: 'b', rows: [{ kind: 'use', id: 'file' }, socketInput('other', 'AUDIO')] },
+    ], { shared: [socketInput('file', 'IMAGE')] })])
+    expect(() => checkBody(schema.body)).not.toThrow()
     const node = { values: {}, dynamic: { mode: { selected: 'a' } } }
     const active = elaborateInterface(schema, node)
     expect(active.diagnostics).toEqual([])
     expect(elabInputsOf(active).map((input) => input.spec.id)).toEqual(['mode', 'mode.file'])
     const stored = elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { includeDormant: true })
     expect(stored.diagnostics).toEqual([])
-    expect(elabInputsOf(stored).map((input) => [input.spec.id, input.spec.type, input.apiName])).toEqual([
-      ['mode.file', { kind: 'concrete', name: 'IMAGE' }, undefined],
-      ['mode.file', { kind: 'concrete', name: 'MASK' }, undefined],
-      ['mode.other', { kind: 'concrete', name: 'AUDIO' }, undefined],
-    ])
+    expect(elabInputsOf(stored).map((input) => input.spec.id)).toEqual(expect.arrayContaining(['mode.file', 'mode.other']))
+    expect(elabInputsOf(stored).find((input) => input.spec.id === 'mode.other')!.apiName).toBeUndefined()
     expect(elaborateInterface(schema, node)).toEqual(active)
-    const duplicate = { ...schema, items: [{ ...schema.items[0]!, dynamic: {
-      kind: 'dynamicCombo' as const, materialization: 'wire15' as const,
-      options: [{ key: 'a', inputs: [socketInput('file'), socketInput('file')] }],
-    } }] } as NodeSchema
-    expect(elaborateInterface(duplicate, node, EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics)
-      .toContainEqual(expect.objectContaining({ code: 'elab.projectedNamespaceCollision' }))
   })
 
+  it('reads a shared choice key an unchosen option leaves out as that option\'s start key, and reports an undeclared key once', () => {
+    // Save Video's shape: webm offers only auto and av1 of the shared codec.
+    const schema = schemaOf([choiceOf('format', [
+      { key: 'mp4', rows: [{ kind: 'use', id: 'codec' }] },
+      { key: 'webm', rows: [{ kind: 'use', id: 'codec', only: ['auto', 'av1'] }] },
+    ], { shared: [choiceOf('codec', [
+      { key: 'auto', rows: [] },
+      { key: 'h264', rows: [intInput('crf')] },
+      { key: 'av1', rows: [intInput('cq')] },
+    ], { default: 'h264' })] })])
+    const census = (format: string, codec: string) => elaborateInterface(schema,
+      { values: {}, dynamic: { format: { selected: format }, 'format.codec': { selected: codec } } },
+      EMPTY_CONNECTIVITY, { includeDormant: true })
+
+    const stored = census('mp4', 'h264')
+    expect(stored.diagnostics).toEqual([])
+    expect(stored.choices).toEqual({ format: 'mp4', 'format.codec': 'h264' })
+    expect(stored.unstoredChoices).toBeUndefined()
+    // The census still reaches the rows of every codec option.
+    expect(elabInputsOf(stored).map((input) => input.spec.id)).toEqual(expect.arrayContaining(['format.codec.crf', 'format.codec.cq']))
+    const selectors = elabInputsOf(stored).filter((input) => input.spec.id === 'format.codec')
+    expect(selectors.map((input) => input.derivedValue)).toEqual(['h264', 'auto'])
+
+    // The chosen option that leaves the key out treats it as a removed
+    // option and goes to its own start key.
+    const removed = (format: string, codec: string) => census(format, codec).diagnostics
+      .map((diagnostic) => [diagnostic.code, diagnostic.severity, diagnostic.data])
+    expect(removed('webm', 'h264')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto' }]])
+    // A key no option declares is reported once, not once per place, with
+    // the chosen place's start key whichever place is read first.
+    expect(removed('mp4', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'h264' }]])
+    expect(removed('webm', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto' }]])
+  })
 })
 
 // ---------------------------------------------------------------------------
-// Autogrow
+// Groups
 // ---------------------------------------------------------------------------
 
-describe('autogrow', () => {
-  it.each([false, true])('uses declared positions for opted-in native families (named=%s)', (named) => {
-    const parsed = parseDinksterSchema('Positional', { interface: [{
-      role: 'inputFamily', id: 'items', minMembers: 2, optionalAfterMinimum: true,
-      ...(named ? { memberNames: ['z', 'a', 'b', 'c'] } : { memberPrefix: 'item', maxMembers: 12 }),
-      template: [{ role: 'input', id: 'entry', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
-    }] })
+describe('groups', () => {
+  it.each([false, true])('a new node stores the first minimum keys; members past the minimum of an optional-after-minimum group are optional (named=%s)', (named) => {
+    const parsed = parseDinksterSchema('Positional', {
+      schemaVersion: 2,
+      nodeType: 'Positional',
+      body: [{
+        kind: 'group', id: 'items', minMembers: 2, optionalAfterMinimum: true, grows: 'link',
+        ...(named ? { keys: { named: ['z', 'a', 'b', 'c'] } } : { keys: { numbered: { prefix: 'item', start: 0 } }, maxMembers: 12 }),
+        value: { kind: 'input', id: 'entry', type: { kind: 'concrete', types: ['IMAGE'] }, required: true },
+      }],
+    })
     expect(parsed.diagnostics).toEqual([])
     expect(parsed.schema).toBeDefined()
-    const tails = named ? ['c', 'b'] : ['item10', 'item2']
-    const e = elaborateInterface(parsed.schema!, {
-      values: {}, dynamic: { items: { members: tails } },
-    })
-    const actual = elabInputsOf(e).filter((input) => input.origin.kind !== 'member' || !input.origin.ghost)
     const first = named ? ['z', 'a'] : ['item0', 'item1']
-    expect(actual.map((input) => [input.address.port, input.apiName, input.spec.optional])).toEqual(
-      [...first, ...[...tails].reverse()].map((suffix, index) => [`items.${suffix}`, `items.${suffix}`, index >= 2]),
-    )
     expect(initialDynamicStateOf(parsed.schema!).items?.members).toEqual(first)
-  })
-
-  it('discovers dynamic-only wire15 members inside a native combo branch', () => {
-    const family: InputSpec = {
-      ...autogrowFamily('items', { min: 0, max: 4 }),
-      dynamic: { kind: 'autogrow', materialization: 'wire15',
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-        template: [{ ...comboConstruct('choice', []), dynamic: {
-          kind: 'dynamicCombo', materialization: 'wire15', options: [
-            { key: 'first', inputs: [] }, { key: 'second', inputs: [] },
-          ],
-        } }],
-      },
-    }
-    const schema = schemaOf([comboConstruct('mode', [{ key: 'active', inputs: [family] }])])
-    const node = { values: {}, dynamic: {
-      mode: { selected: 'active' }, 'mode.[active].items.m7.choice': { selected: 'second' },
-    } }
-    const result = elaborateInterface(schema, node)
-    expect(result.diagnostics).toEqual([])
-    expect(elabInputsOf(result).find((input) => input.address.port === 'mode.[active].items.m7.choice'))
-      .toMatchObject({ apiName: 'mode.items.item0.choice', derivedValue: 'second', origin: { kind: 'selector' } })
-    const atLimit = { ...node, dynamic: { ...node.dynamic,
-      ...Object.fromEntries(Array.from({ length: 6 }, (_, index) => [`unread${index}`, { selected: 'unused' }])),
-    } }
-    expect(elaborateInterface(schema, atLimit, EMPTY_CONNECTIVITY, { budget: { maxItems: 8 } }).diagnostics).toEqual([])
-    const overLimit = { ...atLimit, dynamic: { ...atLimit.dynamic, overflow: { selected: 'unused' } } }
-    for (const includeDormant of [false, true]) {
-      const over = elaborateInterface(schema, overLimit, EMPTY_CONNECTIVITY, { includeDormant, budget: { maxItems: 8 } })
-      expect(over.items).toEqual([])
-      expect(over.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['elab.budget.items'])
-    }
-  })
-
-  it('fresh node: synthesizes members up to min plus one trailing ghost', () => {
-    const e = elaborateInterface(schemaOf([autogrowFamily('images', { min: 2, max: 4 })]), noState)
-    const inputs = elabInputsOf(e)
-    expect(inputs).toHaveLength(3)
-    // Member addresses use the stamped slot path ('<family>.<slotId>') even
-    // for single-slot templates, so growing a template into a group later
-    // never reshapes existing addresses.
-    expect(inputs.map((i) => i.address)).toEqual([
-      { port: 'images.item', members: ['m0'] },
-      { port: 'images.item', members: ['m1'] },
-      { port: 'images.item', members: ['m2'] },
-    ])
-    expect(inputs.map((i) => i.origin)).toEqual([
-      { kind: 'member', construct: 'images', ordinal: 0 },
-      { kind: 'member', construct: 'images', ordinal: 1 },
-      { kind: 'member', construct: 'images', ordinal: 2, ghost: true },
-    ])
-    // First min are required; ghost is optional and never compiles.
-    expect(inputs.map((i) => i.spec.optional)).toEqual([false, false, true])
-    expect(inputs.map((i) => i.apiName)).toEqual(['images.image0', 'images.image1', undefined])
-  })
-
-  it('persisted members keep their ids; api names are positional', () => {
-    const node = { values: {}, dynamic: { images: { members: ['m5', 'm2'] } } }
-    const e = elaborateInterface(schemaOf([autogrowFamily('images', { min: 1, max: 4 })]), node)
-    const inputs = elabInputsOf(e)
-    expect(inputs.map((i) => [i.address.members, i.apiName])).toEqual([
-      [['m5'], 'images.image0'], // ordinal 0 regardless of id
-      [['m2'], 'images.image1'],
-      [['m6'], undefined], // ghost continues past the highest used suffix
-    ])
-  })
-
-  it('stops growing at the cap and warns above it', () => {
-    const capped = elaborateInterface(
-      schemaOf([autogrowFamily('images', { min: 1, max: 2 })]),
-      { values: {}, dynamic: { images: { members: ['m0', 'm1'] } } },
+    const tails = named ? ['c', 'b'] : ['item10', 'item2']
+    const e = elaborateInterface(parsed.schema!, { values: {}, dynamic: { items: { members: [...first, ...tails] } } })
+    expect(e.diagnostics).toEqual([])
+    const stored = elabInputsOf(e).filter((input) => !ghostOf(input))
+    expect(stored.map((input) => [input.address.port, input.apiName, input.spec.optional])).toEqual(
+      [...first, ...tails].map((key, index) => [`items.${key}`, `items.${key}`, index >= 2]),
     )
-    expect(elabInputsOf(capped)).toHaveLength(2) // no ghost at cap
+  })
+
+  it('a node with no stored members offers members up to the minimum, which never compile', () => {
+    const schema = schemaOf([imageGroup('images', { min: 2, max: 4 })])
+    const fresh = elabInputsOf(elaborateInterface(schema, noState))
+    expect(fresh.map((i) => i.address.port)).toEqual(['images.image0', 'images.image1'])
+    expect(fresh.map((i) => i.origin)).toEqual([
+      { kind: 'member', construct: 'images', ordinal: 0, key: 'image0', ghost: true },
+      { kind: 'member', construct: 'images', ordinal: 1, key: 'image1', ghost: true },
+    ])
+    expect(fresh.map((i) => [i.spec.optional, i.apiName])).toEqual([[true, undefined], [true, undefined]])
+
+    const dynamic = initialDynamicStateOf(schema)
+    expect(dynamic).toEqual({ images: { members: ['image0', 'image1'], seq: 2 } })
+    const stored = elabInputsOf(elaborateInterface(schema, { values: {}, dynamic }))
+    expect(stored.map((i) => [i.address.port, i.spec.optional, i.apiName])).toEqual([
+      ['images.image0', false, 'images.image0'],
+      ['images.image1', false, 'images.image1'],
+    ])
+    // A spare member appears once every member is in use.
+    const used = elabInputsOf(elaborateInterface(schema, { values: {}, dynamic }, connectedInputs('images.image0', 'images.image1')))
+    expect(used.map((i) => [i.address.port, ghostOf(i), i.apiName])).toEqual([
+      ['images.image0', false, 'images.image0'],
+      ['images.image1', false, 'images.image1'],
+      ['images.image2', true, undefined],
+    ])
+  })
+
+  it('stored members keep their keys and stored order; a spare continues past the highest key', () => {
+    const node = { values: {}, dynamic: { images: { members: ['image5', 'image2'] } } }
+    const e = elaborateInterface(schemaOf([imageGroup('images', { min: 1, max: 4 })]), node, connectedInputs('images.image5', 'images.image2'))
+    expect(elabInputsOf(e).map((i) => [i.address.port, i.apiName, i.origin.kind === 'member' ? i.origin.ordinal : undefined])).toEqual([
+      ['images.image5', 'images.image5', 0],
+      ['images.image2', 'images.image2', 1],
+      ['images.image6', undefined, 2],
+    ])
+  })
+
+  it('stops growing at the cap and refuses a group stored above it', () => {
+    const capped = elaborateInterface(
+      schemaOf([imageGroup('images', { min: 1, max: 2 })]),
+      { values: {}, dynamic: { images: { members: ['image0', 'image1'] } } },
+      connectedInputs('images.image0', 'images.image1'),
+    )
+    expect(elabInputsOf(capped)).toHaveLength(2) // no spare at the cap
     expect(capped.diagnostics).toEqual([])
 
     const over = elaborateInterface(
-      schemaOf([autogrowFamily('images', { min: 1, max: 2 })]),
-      { values: {}, dynamic: { images: { members: ['m0', 'm1', 'm2'] } } },
+      schemaOf([imageGroup('images', { min: 1, max: 2 })]),
+      { values: {}, dynamic: { images: { members: ['image0', 'image1', 'image2'] } } },
     )
     expect(over.diagnostics.some((d) => d.code === 'elab.autogrow.overMax')).toBe(true)
-    const extras = elabInputsOf(over)
-    expect(extras).toHaveLength(3) // loadable + fixable: extras render...
-    expect(extras[2]!.apiName).toBeUndefined() // ...but never compile
+    expect(elabInputsOf(over)).toEqual([])
   })
 
-  it('names-list naming uses the declared names as api names and labels', () => {
+  it('named keys are the flattened ids and labels; the spare takes the first unused name', () => {
     const e = elaborateInterface(
-      schemaOf([autogrowFamily('ops', { names: ['first', 'second'], min: 1 })]),
-      { values: {}, dynamic: { ops: { members: ['m0'] } } },
+      schemaOf([imageGroup('ops', { names: ['first', 'second'], min: 1 })]),
+      { values: {}, dynamic: { ops: { members: ['first'] } } },
+      connectedInputs('ops.first'),
     )
-    const inputs = elabInputsOf(e)
-    expect(inputs.map((i) => [i.spec.displayName, i.apiName])).toEqual([
+    expect(elabInputsOf(e).map((i) => [i.spec.displayName, i.apiName])).toEqual([
       ['first', 'ops.first'],
-      ['second', undefined], // ghost
+      ['second', undefined], // spare
     ])
   })
 
-  it('a connected trailing member is real, not a ghost', () => {
-    const node = { values: {}, dynamic: { images: { members: ['m0'] } } }
-    const facts = connectedInputs(['images.item', 'm1'])
-    const e = elaborateInterface(schemaOf([autogrowFamily('images', { min: 1, max: 4 })]), node, facts)
-    const last = elabInputsOf(e).at(-1)!
-    expect(last.address.members).toEqual(['m1'])
-    expect(last.origin).toEqual({ kind: 'member', construct: 'images', ordinal: 1 })
-    expect(last.apiName).toBe('images.image1')
-  })
-
-  it('members inherit the family section for presentation', () => {
-    const e = elaborateInterface(
-      schemaOf([{ kind: 'section', id: 's' }, autogrowFamily('images', { min: 1 }) ]
-        .map((it, i) => (i === 1 ? { ...it, section: 's' } : it)) as InterfaceItem[],
-      ),
-      noState,
-    )
+  it('members take the section that holds their group', () => {
+    const e = elaborateInterface(schemaOf([{ kind: 'section', id: 's', rows: [imageGroup('images', { min: 1 })] }]), noState)
+    expect(elabInputsOf(e).length).toBeGreaterThan(0)
     for (const input of elabInputsOf(e)) expect(input.spec.section).toBe('s')
   })
 })
 
 // ---------------------------------------------------------------------------
-// Autogrow ordinal offset (derived boundary families: the definition prefix
-// owns ordinals 0..offset-1, instance members continue after it)
+// Groups of records (one member = several rows)
 // ---------------------------------------------------------------------------
 
-describe('autogrow ordinal offset', () => {
-  const offsetPrefixFamily = (ordinalOffset: number): InputSpec => ({
-    kind: 'input',
-    id: 'images',
-    type: { kind: 'wildcard' },
-    optional: false,
-    dynamic: {
-      kind: 'autogrow',
-      template: [socketInput('item', 'IMAGE')],
-      naming: { kind: 'prefix', prefix: 'image', min: 1, max: 2 },
-      ordinalOffset,
-    },
-  })
-
-  it('prefix naming continues after the definition prefix; bounds stay local', () => {
-    const e = elaborateInterface(schemaOf([offsetPrefixFamily(2)]), noState)
+describe('groups of records', () => {
+  it('stamps every member row per member, in declared order, sharing member key and ordinal', () => {
+    const node = { values: {}, dynamic: { items: { members: ['item0'] } } }
+    const e = elaborateInterface(schemaOf([recordGroup('items', { min: 1, max: 3 })]), node, connectedInputs('items.item0.image'))
     expect(e.diagnostics).toEqual([])
     const inputs = elabInputsOf(e)
-    // Local min 1 -> one real member + one ghost, exactly as without offset.
-    expect(inputs).toHaveLength(2)
-    // Wire names and reported ordinals continue the definition's numbering
-    // (the definition owns image0/image1); member ids stay local identity.
-    expect(inputs.map((i) => i.apiName)).toEqual(['images.image2', undefined])
-    expect(inputs.map((i) => i.origin)).toEqual([
-      { kind: 'member', construct: 'images', ordinal: 2 },
-      { kind: 'member', construct: 'images', ordinal: 3, ghost: true },
-    ])
-    expect(inputs.map((i) => i.address.members)).toEqual([['m0'], ['m1']])
-  })
-
-})
-
-// ---------------------------------------------------------------------------
-// Autogrow grouped templates (one member = one stamped group)
-// ---------------------------------------------------------------------------
-
-describe('autogrow grouped templates', () => {
-  it('stamps every template slot per member, in declared order, sharing member id and ordinal', () => {
-    const e = elaborateInterface(schemaOf([groupedFamily('items', { min: 1, max: 3 })]), noState)
-    expect(e.diagnostics).toEqual([])
-    const inputs = elabInputsOf(e)
-    // min 1 -> one real member (both slots), plus one ghost group.
-    expect(inputs.map((i) => i.address)).toEqual([
-      { port: 'items.image', members: ['m0'] },
-      { port: 'items.mask', members: ['m0'] },
-      { port: 'items.image', members: ['m1'] },
-      { port: 'items.mask', members: ['m1'] },
+    expect(inputs.map((i) => i.address.port)).toEqual([
+      'items.item0.image',
+      'items.item0.mask',
+      'items.item1.image',
+      'items.item1.mask',
     ])
     expect(inputs.map((i) => i.origin)).toEqual([
-      { kind: 'member', construct: 'items', ordinal: 0 },
-      { kind: 'member', construct: 'items', ordinal: 0 },
-      { kind: 'member', construct: 'items', ordinal: 1, ghost: true },
-      { kind: 'member', construct: 'items', ordinal: 1, ghost: true },
+      { kind: 'member', construct: 'items', ordinal: 0, key: 'item0' },
+      { kind: 'member', construct: 'items', ordinal: 0, key: 'item0' },
+      { kind: 'member', construct: 'items', ordinal: 1, key: 'item1', ghost: true },
+      { kind: 'member', construct: 'items', ordinal: 1, key: 'item1', ghost: true },
     ])
-    // Per-slot optionality survives inside a required member; ghosts are
-    // always optional.
+    // A row's own optionality holds inside a stored member; a spare member's
+    // rows are always optional.
     expect(inputs.map((i) => i.spec.optional)).toEqual([false, true, true, true])
+    // A numbered member is labeled by its prefix and position.
     expect(inputs.map((i) => i.spec.displayName)).toEqual([
-      'item 1.image',
-      'item 1.mask',
-      // Members and the offered member read prefix and position from 1.
-      'item 2.image',
-      'item 2.mask',
+      'item 1 image',
+      'item 1 mask',
+      'item 2 image',
+      'item 2 mask',
     ])
-    // Provisional nested wire names for grouped templates; ghosts never compile.
     expect(inputs.map((i) => i.apiName)).toEqual([
       'items.item0.image',
       'items.item0.mask',
@@ -406,147 +344,43 @@ describe('autogrow grouped templates', () => {
     ])
   })
 
-  it('a connection on ANY slot of the ghost group promotes the whole group', () => {
-    const node = { values: {}, dynamic: { items: { members: ['m0'] } } }
-    // Connect only the OPTIONAL mask slot of the ghost member.
-    const facts = connectedInputs(['items.mask', 'm1'])
-    const e = elaborateInterface(schemaOf([groupedFamily('items', { min: 1, max: 3 })]), node, facts)
-    const promoted = elabInputsOf(e).filter((i) => samePath(i.address.members, ['m1']))
-    expect(promoted).toHaveLength(2)
-    for (const input of promoted) {
-      expect(input.origin).toEqual({ kind: 'member', construct: 'items', ordinal: 1 })
-    }
-    expect(promoted.map((i) => i.apiName)).toEqual(['items.item1.image', 'items.item1.mask'])
+  it('a link on any row of a member counts as use and offers the spare member', () => {
+    const node = { values: {}, dynamic: { items: { members: ['item0'] } } }
+    const unused = elabInputsOf(elaborateInterface(schemaOf([recordGroup('items')]), node))
+    expect(unused.map((i) => i.address.port)).toEqual(['items.item0.image', 'items.item0.mask'])
+    // Only the OPTIONAL mask row of the stored member is wired.
+    const used = elabInputsOf(elaborateInterface(schemaOf([recordGroup('items')]), node, connectedInputs('items.item0.mask')))
+    expect(used.filter(ghostOf).map((i) => i.address.port)).toEqual(['items.item1.image', 'items.item1.mask'])
   })
 
-  it('keeps nested structural paths while removing a duplicated family segment from labels', () => {
-    const nested: InputSpec = {
-      ...autogrowFamily('groups', { names: ['images'], min: 1 }),
-      dynamic: {
-        kind: 'autogrow',
-        template: [{
-          ...autogrowFamily('nested', { min: 1, max: 2 }),
-          dynamic: {
-            kind: 'autogrow',
-            template: [socketInput('image')],
-            naming: { kind: 'prefix', prefix: 'images_m', min: 1, max: 2 },
-          },
-        }],
-        naming: { kind: 'names', names: ['images'], min: 1 },
-      },
-    }
-    const state = {
-      values: {},
-      dynamic: {
-        groups: {
-          members: ['outer'],
-          memberState: { outer: { 'groups.nested': { members: ['inner'] } } },
-        },
-      },
-    }
-
-    const inputs = elabInputsOf(elaborateInterface(schemaOf([nested]), state))
-    const persisted = inputs.find((candidate) => candidate.address.members?.[1] === 'inner')!
-    expect(persisted.address).toEqual({ port: 'groups.nested.image', members: ['outer', 'inner'] })
-    expect(persisted.apiName).toBe('groups.images.nested.images_m0')
-    expect(persisted.spec.displayName).toBe('images_m 1')
-    expect(new Set(inputs.map((candidate) => candidate.spec.id)).size).toBe(inputs.length)
-  })
-
-  it('retains ancestor label context when suppressing a repeated nested family stem', () => {
-    const nested: InputSpec = {
-      kind: 'input',
-      id: 'outer',
-      type: { kind: 'wildcard' },
-      optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: [{
-          kind: 'input',
-          id: 'middle',
-          type: { kind: 'wildcard' },
-          optional: false,
-          dynamic: {
-            kind: 'autogrow',
-            template: [{
-              kind: 'input',
-              id: 'nested',
-              type: { kind: 'wildcard' },
-              optional: false,
-              dynamic: {
-                kind: 'autogrow',
-                template: [socketInput('image')],
-                naming: { kind: 'prefix', prefix: 'images_m', min: 0, max: 2 },
-              },
-            }],
-            naming: { kind: 'names', names: ['images'], min: 0 },
-          },
-        }],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 2 },
-      },
-    }
-    const state = {
-      values: {},
-      dynamic: {
-        outer: {
-          members: ['o0', 'o1'],
-          memberState: {
-            o0: {
-              'outer.middle': {
-                members: ['m0'],
-                memberState: { m0: { 'outer.middle.nested': { members: ['i0'] } } },
-              },
-            },
-            o1: {
-              'outer.middle': {
-                members: ['m1'],
-                memberState: { m1: { 'outer.middle.nested': { members: ['i1'] } } },
-              },
-            },
-          },
-        },
-      },
-    }
-
-    const labels = elabInputsOf(elaborateInterface(schemaOf([nested]), state))
-      .filter((candidate) =>
-        candidate.origin.kind === 'member'
-        && !candidate.origin.ghost
-        && candidate.address.port.endsWith('.image'))
-      .map((candidate) => candidate.spec.displayName)
-    expect(labels).toEqual(['item 1.images_m 1', 'item 2.images_m 1'])
-  })
-
-  describe('growth affordance (nested-only templates, hazard N3)', () => {
+  describe('growth items (members of only boxes)', () => {
     const growthsOf = (e: ReturnType<typeof elaborateInterface>) =>
       e.items.filter((i): i is Extract<typeof i, { kind: 'growth' }> => i.kind === 'growth')
-    const nested = (opts: { innerMin: number; outerMin?: number; withStatic?: boolean }): InputSpec => ({
-      kind: 'input',
+    const nested = (opts: { innerMin: number; outerMin?: number; outerMax?: number; withStatic?: boolean }): GroupSpec => ({
+      kind: 'group',
       id: 'items',
-      type: { kind: 'wildcard' },
-      optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          ...(opts.withStatic ? [socketInput('img')] : []),
-          {
-            ...socketInput('sub'),
-            optional: true,
-            dynamic: {
-              kind: 'autogrow',
-              template: [socketInput('s')],
-              naming: { kind: 'prefix', prefix: 'sub', min: opts.innerMin, max: 4 },
-            },
-          },
-        ],
-        naming: { kind: 'prefix', prefix: 'item', min: opts.outerMin ?? 0, max: 5 },
-      },
+      member: [
+        ...(opts.withStatic ? [socketInput('img')] : []),
+        {
+          kind: 'group',
+          id: 'sub',
+          value: socketInput('s'),
+          keys: { kind: 'numbered', prefix: 'sub', start: 0, pad: 0 },
+          grows: 'link',
+          minMembers: opts.innerMin,
+          maxMembers: 4,
+        },
+      ],
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+      grows: 'link',
+      minMembers: opts.outerMin ?? 0,
+      maxMembers: opts.outerMax ?? 5,
     })
 
-    it('a ghost that emits nothing is replaced by a growth item with materialize frames', () => {
-      // Fresh node, min-0 outer, min-0 inner: the trailing ghost's inner
-      // ghost tree is suppressed (single-ghost rule), so a growth affordance
-      // stands in. Its frames persist the offered member.
+    it('a spare member that shows nothing is replaced by a growth item with materialize frames', () => {
+      // Fresh node, min-0 outer, min-0 inner: the spare member offers no
+      // inner members of its own, so a growth item stands in. Its frames
+      // persist the offered member.
       const bare = elaborateInterface(schemaOf([nested({ innerMin: 0 })]), noState)
       expect(elabInputsOf(bare)).toHaveLength(0)
       expect(growthsOf(bare)).toEqual([
@@ -555,282 +389,227 @@ describe('autogrow grouped templates', () => {
           construct: 'items',
           side: 'input',
           label: 'items',
-          frames: [{ construct: 'items', members: ['m0'] }],
+          frames: [{ construct: 'items', members: ['item0'], seq: 1 }],
+          boxes: ['group:items'],
         },
       ])
     })
 
-    it('no growth item when the ghost renders something', () => {
-      // Inner min > 0: the ghost member min-fills its inner family -
-      // grabbable pins exist, so connect-to-materialize covers growth.
+    it('no growth item when the spare member shows something', () => {
+      // Inner min > 0: the spare member offers its inner minimum, so pins
+      // exist and connecting one grows the group.
       const minFill = elaborateInterface(schemaOf([nested({ innerMin: 1 })]), noState)
       expect(growthsOf(minFill)).toHaveLength(0)
       expect(elabInputsOf(minFill).length).toBeGreaterThan(0)
 
-      // A static slot alongside the construct renders the ghost: no growth.
+      // A plain row beside the inner group shows the spare member: no growth.
       const mixed = elaborateInterface(schemaOf([nested({ innerMin: 0, withStatic: true })]), noState)
       expect(growthsOf(mixed)).toHaveLength(0)
     })
 
-    it('persisted members shift the offer; capacity removes it', () => {
-      const node = (members: string[], seq: number) => ({
+    it('stored members shift the offer; capacity removes it', () => {
+      const node = {
         values: {},
-        dynamic: { items: { members, seq } },
-      })
-      const one = elaborateInterface(schemaOf([nested({ innerMin: 0 })]), node(['m0'], 1))
-      expect(growthsOf(one)[0]!.frames).toEqual([{ construct: 'items', members: ['m1'] }])
-      // At the family cap (max 5) there is no ghost and no growth offer.
-      const full = elaborateInterface(
-        schemaOf([nested({ innerMin: 0 })]),
-        node(['m0', 'm1', 'm2', 'm3', 'm4'], 5),
-      )
-      expect(growthsOf(full)).toHaveLength(0)
+        dynamic: { items: { members: ['item0'], seq: 1 }, 'items.item0.sub': { members: ['sub0'], seq: 1 } },
+      }
+      const wired = connectedInputs('items.item0.sub.sub0')
+      const one = elaborateInterface(schemaOf([nested({ innerMin: 0 })]), node, wired)
+      expect(growthsOf(one).filter((g) => g.construct === 'items').map((g) => g.frames)).toEqual([
+        [{ construct: 'items', members: ['item1'], seq: 2 }],
+      ])
+      // At the group's maximum there is no spare member and no growth offer.
+      const full = elaborateInterface(schemaOf([nested({ innerMin: 0, outerMax: 1 })]), node, wired)
+      expect(growthsOf(full).filter((g) => g.construct === 'items')).toHaveLength(0)
     })
 
-    it('nested growth: an inner nested-only family offers two-level frames', () => {
-      // items > sub > leaf, every level min-0 nested-only until the leaf.
-      const doubly: InputSpec = {
-        kind: 'input',
+    it('an inner group of a stored member offers growth with its own frame', () => {
+      // items > sub > leaf, every level min-0 until the leaf's value.
+      const doubly: GroupSpec = {
+        kind: 'group',
         id: 'items',
-        type: { kind: 'wildcard' },
-        optional: false,
-        dynamic: {
-          kind: 'autogrow',
-          template: [
-            {
-              ...socketInput('sub'),
-              optional: true,
-              dynamic: {
-                kind: 'autogrow',
-                template: [
-                  {
-                    ...socketInput('leaf'),
-                    optional: true,
-                    dynamic: {
-                      kind: 'autogrow',
-                      template: [socketInput('s')],
-                      naming: { kind: 'prefix', prefix: 'leaf', min: 0, max: 3 },
-                    },
-                  },
-                ],
-                naming: { kind: 'prefix', prefix: 'sub', min: 0, max: 3 },
-              },
-            },
-          ],
-          naming: { kind: 'prefix', prefix: 'item', min: 0, max: 3 },
-        },
+        member: [{
+          kind: 'group',
+          id: 'sub',
+          member: [{
+            kind: 'group',
+            id: 'leaf',
+            value: socketInput('s'),
+            keys: { kind: 'numbered', prefix: 'leaf', start: 0, pad: 0 },
+            grows: 'link',
+            minMembers: 0,
+            maxMembers: 3,
+          }],
+          keys: { kind: 'numbered', prefix: 'sub', start: 0, pad: 0 },
+          grows: 'link',
+          minMembers: 0,
+          maxMembers: 3,
+        }],
+        keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+        grows: 'link',
+        minMembers: 0,
+        maxMembers: 3,
       }
-      // Fresh: only the OUTER growth offers (progressive disclosure - the
-      // inner families do not exist until a member does).
+      // Fresh: only the OUTER group offers growth (the inner groups do not
+      // exist until a member does).
       const fresh = elaborateInterface(schemaOf([doubly]), noState)
       expect(growthsOf(fresh).map((g) => g.construct)).toEqual(['items'])
-      // With outer m0 persisted, the inner family under it offers growth
-      // through BOTH levels: the persisted ancestor frame plus its own.
+      // With item0 stored, the group under it offers growth through its own
+      // frame; the stored outer member needs none.
       const grown = elaborateInterface(schemaOf([doubly]), {
         values: {},
-        dynamic: { items: { members: ['m0'], seq: 1 } },
+        dynamic: { items: { members: ['item0'], seq: 1 } },
       })
-      const inner = growthsOf(grown).find((g) => g.construct === 'items.sub')
-      expect(inner).toEqual({
+      expect(growthsOf(grown).find((g) => g.construct === 'items.item0.sub')).toEqual({
         kind: 'growth',
-        construct: 'items.sub',
+        construct: 'items.item0.sub',
         side: 'input',
-        label: 'item 1.sub',
-        frames: [
-          { construct: 'items', members: ['m0'] },
-          { construct: 'items.sub', members: ['m0'] },
-        ],
+        label: 'sub',
+        frames: [{ construct: 'items.item0.sub', members: ['sub0'], seq: 1 }],
+        boxes: ['group:items', 'group:items.item0.sub'],
       })
-      // The outer family's own next-member offer is unaffected.
-      expect(growthsOf(grown).some((g) => g.construct === 'items')).toBe(true)
     })
-
   })
 
-  it('grouped output families elaborate symmetrically', () => {
-    const family: OutputSpec = {
-      kind: 'output',
+  it('groups of output records elaborate symmetrically', () => {
+    const family: GroupSpec = {
+      kind: 'group',
       id: 'results',
-      type: { kind: 'wildcard' },
-      dynamic: {
-        kind: 'autogrow',
-        template: [socketInput('image', 'IMAGE'), socketInput('mask', 'MASK')],
-        naming: { kind: 'prefix', prefix: 'result', min: 1, max: 2 },
-      },
+      member: [output('image', 'IMAGE'), output('mask', 'MASK')],
+      keys: { kind: 'numbered', prefix: 'result', start: 0, pad: 0 },
+      grows: 'link',
+      minMembers: 1,
+      maxMembers: 2,
     }
-    const e = elaborateInterface(schemaOf([family]), { values: {}, dynamic: { results: { members: ['m0'] } } })
+    const connected: Connectivity = {
+      isInputConnected: () => false,
+      isOutputConnected: (port) => port === 'results.result0.image',
+    }
+    const e = elaborateInterface(schemaOf([family]), { values: {}, dynamic: { results: { members: ['result0'] } } }, connected)
     const outs = elabOutputsOf(e)
-    expect(outs.map((o) => [elabKeyOf(o.address), o.spec.displayName])).toEqual([
-      ['results.image#m0', 'result 1.image'],
-      ['results.mask#m0', 'result 1.mask'],
-      ['results.image#m1', 'result 2.image'], // ghost group affordance
-      ['results.mask#m1', 'result 2.mask'],
+    expect(outs.map((o) => [o.address.port, o.spec.displayName, o.wireable])).toEqual([
+      ['results.result0.image', 'result 1 image', undefined],
+      ['results.result0.mask', 'result 1 mask', undefined],
+      ['results.result1.image', 'result 2 image', false], // spare member
+      ['results.result1.mask', 'result 2 mask', false],
     ])
     expect(outs[1]!.spec.type).toEqual({ kind: 'concrete', name: 'MASK' })
   })
 })
 
 // ---------------------------------------------------------------------------
-// DynamicCombo
+// Choices
 // ---------------------------------------------------------------------------
 
-describe('dynamicCombo', () => {
-  const modes = comboConstruct('mode', [
-    { key: 'simple', inputs: [intInput('strength')] },
-    { key: 'advanced', inputs: [intInput('strength'), socketInput('mask', 'MASK')] },
-  ])
+describe('choices', () => {
+  const modes = choiceOf('mode', [
+    { key: 'simple', rows: [{ kind: 'use', id: 'strength' }] },
+    { key: 'advanced', rows: [{ kind: 'use', id: 'strength' }, socketInput('mask', 'MASK')] },
+  ], { shared: [intInput('strength')] })
 
-  it('emits a COMBO selector whose value is dynamic state, then the active branch', () => {
-    const e = elaborateInterface(schemaOf([modes]), noState)
+  it('emits a COMBO selector whose value is the stored key, then the chosen option rows', () => {
+    const e = elaborateInterface(schemaOf([modes]), { values: {}, dynamic: { mode: { selected: 'simple' } } })
     const inputs = elabInputsOf(e)
     const selector = inputs[0]!
-    expect(selector.origin).toEqual({ kind: 'selector', construct: 'mode' })
+    expect(selector.origin).toEqual({ kind: 'selector', construct: 'mode', selected: 'simple' })
     expect(selector.spec.widget).toMatchObject({ widgetType: 'COMBO', options: { options: ['simple', 'advanced'] } })
-    expect(selector.derivedValue).toBe('simple') // defaults to first option
-    expect(selector.apiName).toBe('mode')
-    // Active branch inputs: branch-local value keys, option-stripped api names.
-    expect(inputs.slice(1).map((i) => [i.address.port, i.apiName])).toEqual([['mode.[simple].strength', 'mode.strength']])
+    expect(selector.derivedValue).toBe('simple')
+    // The key travels with the node's choices, never as a prompt input.
+    expect(selector.apiName).toBeUndefined()
+    expect(e.choices).toEqual({ mode: 'simple' })
+    expect(inputs.slice(1).map((i) => [i.address.port, i.apiName])).toEqual([['mode.strength', 'mode.strength']])
   })
 
-  it('switching options swaps branches; value keys never collide across branches', () => {
+  it('switching options swaps the rows; a shared row keeps one flattened id', () => {
     const simple = elaborateInterface(schemaOf([modes]), { values: {}, dynamic: { mode: { selected: 'simple' } } })
     const advanced = elaborateInterface(schemaOf([modes]), { values: {}, dynamic: { mode: { selected: 'advanced' } } })
     const keysOf = (e: ReturnType<typeof elaborateInterface>) => elabInputsOf(e).slice(1).map((i) => i.address.port)
-    expect(keysOf(simple)).toEqual(['mode.[simple].strength'])
-    expect(keysOf(advanced)).toEqual(['mode.[advanced].strength', 'mode.[advanced].mask'])
-    // Same input id, different branches -> different document keys: switching
-    // back restores the branch's stored values because nothing ever collided.
-    expect(keysOf(simple)[0]).not.toBe(keysOf(advanced)[0])
+    expect(keysOf(simple)).toEqual(['mode.strength'])
+    expect(keysOf(advanced)).toEqual(['mode.strength', 'mode.mask'])
     for (const i of elabInputsOf(advanced).slice(1)) {
       expect(i.origin).toEqual({ kind: 'branch', construct: 'mode', option: 'advanced' })
     }
   })
 
-  it('re-keyed branch inputs keep the short id as displayName', () => {
-    // spec.id becomes the full elaborated address ('mode.[simple].strength');
-    // without an authored displayName the human label must stay the leaf
-    // name, never the address.
-    const e = elaborateInterface(schemaOf([modes]), noState)
+  it('option rows keep the short id as displayName', () => {
+    // spec.id becomes the flattened id ('mode.strength'); without an
+    // authored displayName the human label must stay the row id.
+    const e = elaborateInterface(schemaOf([modes]), { values: {}, dynamic: { mode: { selected: 'simple' } } })
     for (const i of elabInputsOf(e).slice(1)) {
       expect(i.spec.displayName).toBe('strength')
     }
   })
 
-  it('unknown selected option falls back to the first with a warning', () => {
-    const e = elaborateInterface(schemaOf([modes]), { values: {}, dynamic: { mode: { selected: 'gone' } } })
-    expect(e.diagnostics.some((d) => d.code === 'elab.combo.unknownOption')).toBe(true)
-    expect(elabInputsOf(e)[0]!.derivedValue).toBe('simple')
+  it('a stored option the pack no longer has is no pick: a required choice shows its start option', () => {
+    const e = elaborateInterface(schemaOf([modes]), { values: { 'mode.mask': 4 }, dynamic: { mode: { selected: 'gone' } } })
+    expect(e.diagnostics.map((d) => [d.code, d.severity, d.data])).toEqual([
+      ['elab.combo.removedOption', 'warning', { construct: 'mode', selected: 'simple' }],
+    ])
+    expect(elabInputsOf(e).map((input) => input.address.port)).toEqual(['mode', 'mode.strength'])
+    expect(e.choices).toEqual({ mode: 'simple' })
+    const optional = choiceOf('mode', [{ key: 'on', rows: [intInput('value')] }], { required: false })
+    const none = elaborateInterface(schemaOf([optional]), { values: {}, dynamic: { mode: { selected: 'gone' } } })
+    expect(none.diagnostics.map((d) => [d.code, d.data])).toEqual([['elab.combo.removedOption', { construct: 'mode', selected: null }]])
+    expect(none.diagnostics[0]!.message).toContain("option 'gone' of 'mode' is no longer in the pack. It is now none.")
+    expect(elabInputsOf(none).map((input) => input.address.port)).toEqual(['mode'])
   })
 
-  it('uses the first wire-15 option for absent state and ignores descriptor defaults', () => {
-    const first = intInput('width')
-    const second = intInput('multiplier')
-    const combo: InputSpec = {
-      ...comboConstruct('resize_type', [
-        { key: 'scale dimensions', inputs: [first] },
-        { key: 'scale by multiplier', inputs: [second] },
-      ]),
-      dynamic: {
-        kind: 'dynamicCombo',
-        materialization: 'wire15',
-        defaultOption: 'scale by multiplier',
-        options: [
-          { key: 'scale dimensions', inputs: [first] },
-          { key: 'scale by multiplier', inputs: [second] },
-        ],
-      },
-    }
+  it('shows the declared start option for a required choice with nothing stored; a run refuses it', () => {
+    const combo = choiceOf('resize_type', [
+      { key: 'scale dimensions', rows: [intInput('width')] },
+      { key: 'scale by multiplier', rows: [intInput('multiplier')] },
+    ], { default: 'scale by multiplier' })
     const node = { values: {}, dynamic: {} }
     const e = elaborateInterface(schemaOf([combo]), node)
     expect(e.diagnostics).toEqual([])
-    expect(elabInputsOf(e).map((input) => input.address.port)).toEqual([
-      'resize_type',
-      'resize_type.width',
-    ])
+    expect(elabInputsOf(e).map((input) => input.address.port)).toEqual(['resize_type', 'resize_type.multiplier'])
     expect(elabInputsOf(e)[0]).toMatchObject({
       origin: { kind: 'selector', construct: 'resize_type' },
-      derivedValue: 'scale dimensions',
+      derivedValue: 'scale by multiplier',
       spec: {
         widget: {
           widgetType: 'COMBO',
           options: { options: ['scale dimensions', 'scale by multiplier'] },
-          default: 'scale dimensions',
+          default: 'scale by multiplier',
         },
       },
     })
+    expect(e.unstoredChoices).toEqual({ resize_type: 'scale by multiplier' })
     expect(e.submissionValues).toEqual([])
     expect(node.dynamic).toEqual({})
 
+    const run = elaborateInterface(schemaOf([combo]), node, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+    expect(run.diagnostics).toEqual([expect.objectContaining({
+      severity: 'error',
+      message: expect.stringContaining("required choice 'resize_type' has no stored option"),
+    })])
+
     const explicit = elaborateInterface(schemaOf([combo]), {
       values: {},
-      dynamic: { resize_type: { selected: 'scale by multiplier' } },
+      dynamic: { resize_type: { selected: 'scale dimensions' } },
     })
     expect(explicit.diagnostics).toEqual([])
-    expect(elabInputsOf(explicit).map((input) => input.address.port)).toEqual([
-      'resize_type',
-      'resize_type.multiplier',
-    ])
-    expect(elabInputsOf(explicit)[0]?.derivedValue).toBe('scale by multiplier')
+    expect(elabInputsOf(explicit).map((input) => input.address.port)).toEqual(['resize_type', 'resize_type.width'])
+    expect(elabInputsOf(explicit)[0]?.derivedValue).toBe('scale dimensions')
+    expect(explicit.unstoredChoices).toBeUndefined()
   })
 
-  it('uses the first wire-15 option when a saved option has been removed', () => {
-    const combo: InputSpec = {
-      ...comboConstruct('mode', [
-        { key: 'first', inputs: [intInput('value')] },
-        { key: 'second', inputs: [] },
-      ]),
-      dynamic: {
-        kind: 'dynamicCombo',
-        materialization: 'wire15',
-        options: [
-          { key: 'first', inputs: [intInput('value')] },
-          { key: 'second', inputs: [] },
-        ],
-      },
-    }
+  it('starts on the first option without a declared default', () => {
+    const combo = choiceOf('mode', [
+      { key: 'first', rows: [intInput('value')] },
+      { key: 'second', rows: [] },
+    ])
     const fresh = elaborateInterface(schemaOf([combo]), noState)
     expect(elabInputsOf(fresh).map((input) => input.address.port)).toEqual(['mode', 'mode.value'])
-    expect(fresh.submissionValues).toEqual([])
-
-    const invalid = elaborateInterface(schemaOf([combo]), {
-      values: {},
-      dynamic: { mode: { selected: 'gone' } },
-    })
-    expect(invalid.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['elab.combo.removedOption'])
-    expect(elabInputsOf(invalid).map((input) => input.address.port)).toEqual(['mode', 'mode.value'])
-    expect(elabInputsOf(invalid)[0]?.derivedValue).toBe('first')
-    expect(invalid.submissionValues).toEqual([])
+    expect(fresh.unstoredChoices).toEqual({ mode: 'first' })
+    expect(initialDynamicStateOf(schemaOf([combo]))).toEqual({ mode: { selected: 'first' } })
   })
 
-  it('initializes nested first branches but not inactive or empty wire-15 choices', () => {
-    const nested = (id: string, options: DynamicComboSpec): InputSpec => ({
-      kind: 'input',
-      id,
-      type: { kind: 'wildcard' },
-      optional: false,
-      dynamic: options,
-    })
-    const inner = nested('inner', {
-      kind: 'dynamicCombo',
-      materialization: 'wire15',
-      options: [{ key: 'inner first', inputs: [] }, { key: 'inner second', inputs: [] }],
-    })
-    const inactive = nested('inactive', {
-      kind: 'dynamicCombo',
-      materialization: 'wire15',
-      options: [{ key: 'inactive first', inputs: [] }],
-    })
-    const outer = nested('outer', {
-      kind: 'dynamicCombo',
-      materialization: 'wire15',
-      options: [{ key: 'outer first', inputs: [inner] }, { key: 'outer second', inputs: [inactive] }],
-    })
-    const empty = nested('empty', {
-      kind: 'dynamicCombo',
-      materialization: 'wire15',
-      options: [],
-    })
-    expect(initialDynamicStateOf(schemaOf([outer, empty]))).toEqual({
+  it('a new node stores nested start options but not those of options it does not start on', () => {
+    const inner = choiceOf('inner', [{ key: 'inner first', rows: [] }, { key: 'inner second', rows: [] }])
+    const inactive = choiceOf('inactive', [{ key: 'inactive first', rows: [] }])
+    const outer = choiceOf('outer', [{ key: 'outer first', rows: [inner] }, { key: 'outer second', rows: [inactive] }])
+    const optional = choiceOf('extra', [{ key: 'on', rows: [] }], { required: false })
+    expect(initialDynamicStateOf(schemaOf([outer, optional]))).toEqual({
       outer: { selected: 'outer first' },
       'outer.inner': { selected: 'inner first' },
     })
@@ -838,76 +617,77 @@ describe('dynamicCombo', () => {
 })
 
 // ---------------------------------------------------------------------------
-// DynamicSlot
+// Type choices
 // ---------------------------------------------------------------------------
 
-describe('dynamicSlot', () => {
-  const slot = slotConstruct('model', [intInput('lora_strength'), socketInput('clip', 'CLIP')])
-  it('keeps required wire-15 variant selection reachable without materializing an absent choice', () => {
-    const required: InputSpec = {
-      kind: 'input', id: 'source', optional: false,
-      type: { kind: 'union', names: ['STRING', 'INT'] },
-      dynamic: {
-        kind: 'dynamicSlot', materialization: 'wire15',
-        slotType: { kind: 'union', names: ['STRING', 'INT'] }, inputs: [],
-        variants: [
-          { key: 'text', type: { kind: 'concrete', name: 'STRING' }, inputs: [] },
-          { key: 'integer', type: { kind: 'concrete', name: 'INT' }, inputs: [] },
-        ],
-      },
+describe('type choices', () => {
+  const slot = openSlot('model', [intInput('lora_strength'), socketInput('clip', 'CLIP')])
+
+  it('a required type choice with nothing stored shows its pin; a run refuses it', () => {
+    const required: TypeChoiceSpec = {
+      kind: 'typeChoice',
+      id: 'source',
+      variants: [
+        { key: 'text', type: { kind: 'concrete', name: 'STRING' }, rows: [] },
+        { key: 'integer', type: { kind: 'concrete', name: 'INT' }, rows: [] },
+      ],
+      rows: [],
+      required: true,
     }
     const cleared = elaborateInterface(schemaOf([required]), { values: { source: 7 }, dynamic: { source: {} } })
+    expect(cleared.diagnostics).toEqual([])
     expect(elabInputsOf(cleared)).toHaveLength(1)
     expect(elabInputsOf(cleared)[0]).toMatchObject({
-      address: { port: 'source' }, spec: { optional: false, type: required.type },
+      address: { port: 'source' }, spec: { optional: false, type: { kind: 'union', names: ['STRING', 'INT'] } },
       origin: { kind: 'slot', construct: 'source', variants: [
         { key: 'text', type: { kind: 'concrete', name: 'STRING' } },
         { key: 'integer', type: { kind: 'concrete', name: 'INT' } },
       ] },
     })
     expect(elabInputsOf(cleared)[0]!.apiName).toBeUndefined()
-    expect(cleared.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', code: 'prompt.missing_dynamic_choice' }))
+    const run = elaborateInterface(schemaOf([required]), { values: { source: 7 }, dynamic: { source: {} } }, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+    expect(run.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', code: 'prompt.missing_dynamic_choice' }))
 
     const reselected = elaborateInterface(schemaOf([required]), { values: { source: 7 }, dynamic: { source: { selected: 'integer' } } })
     expect(reselected.diagnostics).toEqual([])
     expect(elabInputsOf(reselected)[0]).toMatchObject({ apiName: 'source', spec: { type: { kind: 'concrete', name: 'INT' } } })
-    const optional = elaborateInterface(schemaOf([{ ...required, optional: true }]), noState)
+    expect(reselected.choices).toEqual({ source: 'integer' })
+    const optional = elaborateInterface(schemaOf([{ ...required, required: false }]), noState, EMPTY_CONNECTIVITY, { promoteGhosts: false })
     expect(elabInputsOf(optional)).toEqual([])
     expect(optional.diagnostics).toEqual([])
   })
 
-  const specialized = (variantInputs: InputSpec[] = [intInput('weight')]): InputSpec => ({
-    ...slotConstruct('model', [intInput('shared')]),
-    dynamic: {
-      kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'MODEL' }, inputs: [intInput('shared')],
-      variants: [{ key: 'lora', type: { kind: 'concrete', name: 'LORA' }, inputs: variantInputs }],
-    },
+  const specialized = (variantRows: BodyRow[] = [intInput('weight')]): TypeChoiceSpec => ({
+    kind: 'typeChoice',
+    id: 'model',
+    rows: [intInput('shared')],
+    variants: [{ key: 'lora', type: { kind: 'concrete', name: 'LORA' }, rows: variantRows }],
+    required: false,
   })
 
-  it('censuses wire15 slot branches without submitting dormant paths and keeps the item budget', () => {
-    const source: InputSpec = { ...slotConstruct('source', [intInput('shared')]), dynamic: {
-      kind: 'dynamicSlot', materialization: 'wire15', slotType: { kind: 'concrete', name: 'STRING' },
-      inputs: [intInput('shared')], variants: [
-        { key: 'text', type: { kind: 'concrete', name: 'STRING' }, inputs: [intInput('amount')] },
-        { key: 'integer', type: { kind: 'concrete', name: 'INT' }, inputs: [socketInput('amount', 'ASSET')] },
+  it('censuses the rows of variants that are not chosen without submitting them', () => {
+    const source: TypeChoiceSpec = {
+      kind: 'typeChoice',
+      id: 'source',
+      rows: [intInput('shared')],
+      variants: [
+        { key: 'text', type: { kind: 'concrete', name: 'STRING' }, rows: [intInput('amount')] },
+        { key: 'integer', type: { kind: 'concrete', name: 'INT' }, rows: [socketInput('amount', 'ASSET')] },
       ],
-    } }
+      required: true,
+    }
+    expect(() => checkBody([source])).not.toThrow()
     const node = { values: { source: 'hello' }, dynamic: { source: { selected: 'text' } } }
     const active = elaborateInterface(schemaOf([source]), node)
     expect(elabInputsOf(active).map((input) => input.apiName)).toEqual(['source', 'source.shared', 'source.amount'])
     const census = elaborateInterface(schemaOf([source]), node, EMPTY_CONNECTIVITY, { includeDormant: true })
     expect(census.diagnostics).toEqual([])
-    expect(elabInputsOf(census).map((input) => [input.address.port, input.spec.type, input.apiName])).toEqual([
-      ['source', { kind: 'concrete', name: 'STRING' }, undefined],
-      ['source.shared', { kind: 'concrete', name: 'INT' }, undefined],
-      ['source.amount', { kind: 'concrete', name: 'INT' }, undefined],
-      ['source.amount', { kind: 'concrete', name: 'ASSET' }, undefined],
-    ])
-    expect(elaborateInterface(schemaOf([source]), node, EMPTY_CONNECTIVITY, { includeDormant: true, budget: { maxItems: 3 } })
+    expect(elabInputsOf(census).map((input) => input.spec.type)).toContainEqual({ kind: 'concrete', name: 'ASSET' })
+    expect(elaborateInterface(schemaOf([source]), node, EMPTY_CONNECTIVITY, { includeDormant: true, budget: { maxItems: 2 } })
       .diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['elab.budget.items'])
   })
 
-  it('disconnected: only the slot itself, typed and optional', () => {
+  it('disconnected open slot: only the pin itself, typed and optional', () => {
     const e = elaborateInterface(schemaOf([slot]), noState)
     const inputs = elabInputsOf(e)
     expect(inputs).toHaveLength(1)
@@ -918,8 +698,8 @@ describe('dynamicSlot', () => {
     expect(inputs[0]!.origin).not.toHaveProperty('variants')
   })
 
-  it('connected: dependents appear with slot-scoped keys; disconnect hides, never deletes', () => {
-    const e = elaborateInterface(schemaOf([slot]), noState, connectedInputs(['model']))
+  it('connected open slot: its rows appear at slot-scoped ids; disconnect hides, never deletes', () => {
+    const e = elaborateInterface(schemaOf([slot]), noState, connectedInputs('model'))
     const inputs = elabInputsOf(e)
     expect(inputs.map((i) => [i.address.port, i.apiName])).toEqual([
       ['model', 'model'],
@@ -933,405 +713,748 @@ describe('dynamicSlot', () => {
     expect(elabInputsOf(hidden)).toHaveLength(1)
   })
 
-  it('selected variant elaborates bracket-keyed inputs with construct-local wire names', () => {
-    // Settled contract (c2ac572): the choice travels once per node as
-    // slotVariants; dependents lower construct-local ('model.weight'),
-    // while document keys stay variant-bracketed so switching variants
-    // never reinterprets stored values.
-    const e = elaborateInterface(schemaOf([specialized()]), { values: {}, dynamic: { model: { selected: 'lora' } } }, connectedInputs(['model']))
+  it('the chosen variant adds its rows at <slot>.<row>', () => {
+    const e = elaborateInterface(schemaOf([specialized()]), { values: {}, dynamic: { model: { selected: 'lora' } } }, connectedInputs('model'))
     expect(elabInputsOf(e).map((i) => [i.address.port, i.apiName])).toEqual([
-      ['model', 'model'], ['model.shared', 'model.shared'], ['model.[lora].weight', 'model.weight'],
+      ['model', 'model'], ['model.shared', 'model.shared'], ['model.weight', 'model.weight'],
     ])
+    expect(elabInputsOf(e)[2]!.origin).toEqual({ kind: 'dependent', construct: 'model', variant: 'lora' })
+    expect(e.choices).toEqual({ model: 'lora' })
   })
 
   it('surfaces the per-variant widget spec', () => {
-    const e = elaborateInterface(schemaOf([specialized([intInput('weight', { widget: { widgetType: 'FLOAT', options: { min: 0 }, default: 0.5 } })])]), { values: {}, dynamic: { model: { selected: 'lora' } } }, connectedInputs(['model']))
+    const e = elaborateInterface(schemaOf([specialized([intInput('weight', { widget: { widgetType: 'FLOAT', options: { min: 0 }, default: 0.5 } })])]), { values: {}, dynamic: { model: { selected: 'lora' } } }, connectedInputs('model'))
     expect(elabInputsOf(e)[2]!.spec.widget).toEqual({ widgetType: 'FLOAT', options: { min: 0 }, default: 0.5 })
   })
 
-  it('warns and uses only the base form for an unknown selected variant', () => {
-    const e = elaborateInterface(schemaOf([specialized()]), { values: {}, dynamic: { model: { selected: 'gone' } } }, connectedInputs(['model']))
-    expect(e.diagnostics.map((d) => d.code)).toContain('elab.slot.unknownVariant')
-    expect(elabInputsOf(e).map((i) => i.address.port)).toEqual(['model', 'model.shared'])
+  it('a stored variant the pack no longer has is no pick', () => {
+    const e = elaborateInterface(schemaOf([specialized()]), { values: {}, dynamic: { model: { selected: 'gone' } } }, connectedInputs('model'))
+    expect(e.diagnostics.map((d) => [d.code, d.severity, d.data])).toEqual([
+      ['elab.slot.removedVariant', 'warning', { construct: 'model', selected: null }],
+    ])
+    expect(e.choices?.model).toBeUndefined()
+    expect(elabInputsOf(e).map((input) => input.address.port)).not.toContain('model.weight')
   })
 
-  it('keeps selected variant inputs hidden while disconnected and restores them purely', () => {
-    const state = { values: { 'model.[lora].weight': 2 }, dynamic: { model: { selected: 'lora' } } }
-    expect(elabInputsOf(elaborateInterface(schemaOf([specialized()]), state)).map((i) => i.address.port)).toEqual(['model'])
-    expect(elabInputsOf(elaborateInterface(schemaOf([specialized()]), state, connectedInputs(['model']))).map((i) => i.address.port)).toEqual(['model', 'model.shared', 'model.[lora].weight'])
+  it('reads a member type choice from state at its flattened id', () => {
+    const family: GroupSpec = {
+      kind: 'group',
+      id: 'items',
+      member: [specialized()],
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+      grows: 'link',
+      minMembers: 0,
+      maxMembers: 2,
+    }
+    const state = { values: {}, dynamic: { items: { members: ['item0'] }, 'items.item0.model': { selected: 'lora' } } }
+    const e = elaborateInterface(schemaOf([family]), state, connectedInputs('items.item0.model'))
+    expect(elabInputsOf(e).map((i) => i.address.port)).toEqual(['items.item0.model', 'items.item0.model.shared', 'items.item0.model.weight', 'items.item1.model'])
+    expect(e.choices).toEqual({ 'items.item0.model': 'lora' })
   })
-
-  it('reads specialization from autogrow member state', () => {
-    const family = autogrowFamily('items', { min: 0, max: 2 })
-    if (family.dynamic?.kind !== 'autogrow') throw new Error('expected autogrow')
-    const nested = { ...family, dynamic: { ...family.dynamic, template: [specialized()] } }
-    const state = { values: {}, dynamic: { items: { members: ['m0'], memberState: { m0: { 'items.model': { selected: 'lora' } } } } } }
-    const e = elaborateInterface(schemaOf([nested]), state, connectedInputs(['items.model', 'm0']))
-    expect(elabInputsOf(e).map((i) => elabKeyOf(i.address))).toEqual(['items.model#m0', 'items.model.shared#m0', 'items.model.[lora].weight#m0', 'items.model#m1'])
-  })
-
 })
 
 // ---------------------------------------------------------------------------
 // Nesting
 // ---------------------------------------------------------------------------
 
-describe('nested constructs', () => {
-  it('an autogrow inside a combo branch keys state and members by construct path', () => {
+describe('nested boxes', () => {
+  it('a group inside a choice option keys state and members by flattened path', () => {
     const schema = schemaOf([
-      comboConstruct('mode', [
-        { key: 'multi', inputs: [autogrowFamily('images', { min: 1, max: 3 })] },
-        { key: 'single', inputs: [socketInput('image')] },
+      choiceOf('mode', [
+        { key: 'multi', rows: [imageGroup('images', { min: 1, max: 3 })] },
+        { key: 'single', rows: [socketInput('image')] },
       ]),
     ])
     const node = {
       values: {},
       dynamic: {
         'mode': { selected: 'multi' },
-        'mode.[multi].images': { members: ['m0', 'm1'] },
+        'mode.images': { members: ['image0', 'image1'] },
       },
     }
     const e = elaborateInterface(schema, node)
     expect(e.diagnostics).toEqual([])
-    const inputs = elabInputsOf(e)
-    expect(inputs.map((i) => [elabKeyOf(i.address), i.apiName])).toEqual([
-      ['mode', 'mode'],
-      ['mode.[multi].images.item#m0', 'mode.images.image0'],
-      ['mode.[multi].images.item#m1', 'mode.images.image1'],
-      ['mode.[multi].images.item#m2', undefined], // ghost
+    expect(elabInputsOf(e).map((i) => [i.address.port, i.apiName])).toEqual([
+      ['mode', undefined],
+      ['mode.images.image0', 'mode.images.image0'],
+      ['mode.images.image1', 'mode.images.image1'],
     ])
+    expect(e.outputMembers).toEqual({ 'mode.images': ['image0', 'image1'] })
   })
 
-  it('a combo inside a slot only elaborates while the slot is connected', () => {
+  it('a choice inside an open slot only elaborates while the slot is connected', () => {
     const schema = schemaOf([
-      slotConstruct('model', [comboConstruct('mode', [{ key: 'a', inputs: [intInput('x')] }])]),
+      openSlot('model', [choiceOf('mode', [{ key: 'a', rows: [intInput('x')] }])]),
     ])
     expect(elabInputsOf(elaborateInterface(schema, noState))).toHaveLength(1)
-    const e = elaborateInterface(schema, noState, connectedInputs(['model']))
-    expect(elabInputsOf(e).map((i) => i.address.port)).toEqual(['model', 'model.mode', 'model.mode.[a].x'])
+    const e = elaborateInterface(schema, { values: {}, dynamic: { 'model.mode': { selected: 'a' } } }, connectedInputs('model'))
+    expect(elabInputsOf(e).map((i) => i.address.port)).toEqual(['model', 'model.mode', 'model.mode.x'])
   })
 
   it('runaway nesting is cut off with ONE budget error, not a stack overflow', () => {
-    let inner: InputSpec = intInput('leaf')
-    for (let i = 0; i < 40; i++) inner = comboConstruct(`c${i}`, [{ key: 'k', inputs: [inner] }])
+    let inner: BodyRow = intInput('leaf')
+    for (let i = 0; i < 40; i++) inner = choiceOf(`c${i}`, [{ key: 'k', rows: [inner] }])
     const e = elaborateInterface(schemaOf([inner]), noState)
     expect(e.diagnostics.filter((d) => d.code === 'elab.budget.depth')).toHaveLength(1)
   })
 })
 
 // ---------------------------------------------------------------------------
-// Recursive elaboration: Autogrow-in-Autogrow
+// Groups in groups
 // ---------------------------------------------------------------------------
 
 /**
- * Outer family 'items' (grouped template): each member stamps an image plus
- * an INNER family 'sub' of latents. The schema shape custom packs actually
- * build ("each item takes an image and any number of latents").
+ * Outer group 'items': each member holds an image plus an INNER group 'sub'
+ * of latents ("each item takes an image and any number of latents").
  */
-const nestedFamily = (opts: { outerMin?: number; innerMin?: number } = {}): InputSpec => ({
-  kind: 'input',
+const nestedFamily = (opts: { outerMin?: number; innerMin?: number } = {}): GroupSpec => ({
+  kind: 'group',
   id: 'items',
-  type: { kind: 'wildcard' },
-  optional: false,
-  dynamic: {
-    kind: 'autogrow',
-    template: [
-      socketInput('image', 'IMAGE'),
-      {
-        kind: 'input',
-        id: 'sub',
-        type: { kind: 'wildcard' },
-        optional: true,
-        dynamic: {
-          kind: 'autogrow',
-          template: [socketInput('item', 'LATENT')],
-          naming: { kind: 'prefix', prefix: 'g', min: opts.innerMin ?? 0, max: 3 },
-        },
-      },
-    ],
-    naming: { kind: 'prefix', prefix: 'item', min: opts.outerMin ?? 1, max: 3 },
-  },
+  member: [
+    socketInput('image', 'IMAGE'),
+    {
+      kind: 'group',
+      id: 'sub',
+      value: socketInput('item', 'LATENT'),
+      keys: { kind: 'numbered', prefix: 'g', start: 0, pad: 0 },
+      grows: 'link',
+      minMembers: opts.innerMin ?? 0,
+      maxMembers: 3,
+    },
+  ],
+  keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+  grows: 'link',
+  minMembers: opts.outerMin ?? 1,
+  maxMembers: 3,
 })
 
-/** Two real outer members with independent inner families. */
+/** Two stored outer members with independent inner groups. */
 const nestedState = {
   values: {},
   dynamic: {
-    items: {
-      members: ['m0', 'm1'],
-      memberState: {
-        m0: { 'items.sub': { members: ['m10', 'm11'] } },
-        m1: { 'items.sub': { members: ['m5'] } },
-      },
-    },
+    items: { members: ['item0', 'item1'] },
+    'items.item0.sub': { members: ['g10', 'g11'] },
+    'items.item1.sub': { members: ['g5'] },
   },
 }
 
-describe('autogrow-in-autogrow', () => {
-  it('nested members get full member-path identity, never flattened or ordinal-based', () => {
+describe('groups in groups', () => {
+  it('nested members are addressed by their full flattened path', () => {
     const e = elaborateInterface(schemaOf([nestedFamily()]), nestedState)
     expect(e.diagnostics).toEqual([])
     const inputs = elabInputsOf(e)
-    expect(inputs.map((i) => [elabKeyOf(i.address), i.apiName])).toEqual([
-      // outer m0: image + inner members m10, m11 + inner ghost m12 (fresh
-      // ids continue past the highest used suffix - never recycled)
-      ['items.image#m0', 'items.item0.image'],
-      ['items.sub.item#m0#m10', 'items.item0.sub.g0'],
-      ['items.sub.item#m0#m11', 'items.item0.sub.g1'],
-      ['items.sub.item#m0#m12', undefined], // inner ghost under a real member
-      // outer m1: image + inner member m5 + inner ghost m6
-      ['items.image#m1', 'items.item1.image'],
-      ['items.sub.item#m1#m5', 'items.item1.sub.g0'],
-      ['items.sub.item#m1#m6', undefined], // inner ghost
-      // outer trailing ghost m2: image ONLY - no inner tree beneath a ghost
-      ['items.image#m2', undefined],
+    expect(inputs.map((i) => [i.address.port, i.apiName])).toEqual([
+      ['items.item0.image', 'items.item0.image'],
+      ['items.item0.sub.g10', 'items.item0.sub.g10'],
+      ['items.item0.sub.g11', 'items.item0.sub.g11'],
+      ['items.item1.image', 'items.item1.image'],
+      ['items.item1.sub.g5', 'items.item1.sub.g5'],
     ])
-    // spec.id always equals the packed elaborated key (unique within node).
-    for (const i of inputs) expect(i.spec.id).toBe(elabKeyOf(i.address))
+    for (const i of inputs) expect(i.spec.id).toBe(i.address.port)
+    expect(e.outputMembers).toEqual({
+      items: ['item0', 'item1'],
+      'items.item0.sub': ['g10', 'g11'],
+      'items.item1.sub': ['g5'],
+    })
   })
 
-  it('reordering outer members moves ordinals/api names, never nested identity or state', () => {
-    const reordered = {
-      values: {},
-      dynamic: {
-        items: {
-          members: ['m1', 'm0'], // swapped
-          memberState: nestedState.dynamic.items.memberState,
-        },
-      },
-    }
+  it('reordering outer members moves ordinals, never nested identity or state', () => {
+    const reordered = { ...nestedState, dynamic: { ...nestedState.dynamic, items: { members: ['item1', 'item0'] } } }
     const inputs = elabInputsOf(elaborateInterface(schemaOf([nestedFamily()]), reordered))
-    // m1 is now ordinal 0 (api item0) but still owns ONLY its inner member m5.
-    expect(inputs.map((i) => [elabKeyOf(i.address), i.apiName])).toEqual([
-      ['items.image#m1', 'items.item0.image'],
-      ['items.sub.item#m1#m5', 'items.item0.sub.g0'],
-      ['items.sub.item#m1#m6', undefined],
-      ['items.image#m0', 'items.item1.image'],
-      ['items.sub.item#m0#m10', 'items.item1.sub.g0'],
-      ['items.sub.item#m0#m11', 'items.item1.sub.g1'],
-      ['items.sub.item#m0#m12', undefined],
-      ['items.image#m2', undefined],
+    expect(inputs.map((i) => i.address.port)).toEqual([
+      'items.item1.image',
+      'items.item1.sub.g5',
+      'items.item0.image',
+      'items.item0.sub.g10',
+      'items.item0.sub.g11',
     ])
+    expect(inputs[0]!.origin).toEqual({ kind: 'member', construct: 'items', ordinal: 0, key: 'item1' })
   })
 
-  it('ghost rules: at most one ghost ancestor per address; nothing beneath a ghost compiles', () => {
+  it('nothing under an offered member compiles', () => {
     const e = elaborateInterface(schemaOf([nestedFamily({ innerMin: 1 })]), noState)
     const inputs = elabInputsOf(e)
     for (const i of inputs) {
-      const ghosts = (i.ancestry ?? []).filter((a) => a.ghost).length
-      expect(ghosts, elabKeyOf(i.address)).toBeLessThanOrEqual(1)
-      if (ghosts > 0) {
-        expect(i.apiName, elabKeyOf(i.address)).toBeUndefined()
-        expect(i.spec.optional, elabKeyOf(i.address)).toBe(true)
+      if ((i.ancestry ?? []).some((a) => a.ghost)) {
+        expect(i.apiName, i.address.port).toBeUndefined()
+        expect(i.spec.optional, i.address.port).toBe(true)
       }
     }
-    // innerMin=1 synthesizes one real-shaped inner row even under the outer
-    // ghost - but it inherits the outer's ghostness (single ghost ancestor)
-    // and the inner family emits NO ghost affordance of its own there.
-    const underGhost = inputs.filter((i) => i.ancestry?.[0]?.ghost)
-    expect(underGhost.map((i) => elabKeyOf(i.address))).toEqual([
-      'items.image#m1',
-      'items.sub.item#m1#m0', // synthesized inner minimum, no trailing sibling
+    // The offered outer member shows its image and its inner minimum.
+    expect(inputs.filter((i) => i.ancestry?.[0]?.ghost).map((i) => i.address.port)).toEqual([
+      'items.item0.image',
+      'items.item0.sub.g0',
     ])
   })
 
-  it('a connection on any slot of the outer ghost group promotes it, re-enabling its inner ghost', () => {
-    const e = elaborateInterface(
-      schemaOf([nestedFamily()]),
-      noState,
-      connectedInputs(['items.image', 'm1']), // fresh node: m0 synthesized real, m1 = outer ghost
-    )
-    const keys = elabInputsOf(e).map((i) => elabKeyOf(i.address))
-    // Promoted m1 stamps its full group, including the inner ghost affordance.
-    expect(keys).toContain('items.sub.item#m1#m0')
-    const image = elabInputsOf(e).find((i) => elabKeyOf(i.address) === 'items.image#m1')!
-    expect(image.origin).toEqual({ kind: 'member', construct: 'items', ordinal: 1 }) // not ghost
-  })
-
-  it('an inner ghost promotes by a full-path connection without touching siblings', () => {
-    const e = elaborateInterface(
-      schemaOf([nestedFamily()]),
-      nestedState,
-      connectedInputs(['items.sub.item', 'm0', 'm12']), // m0's inner ghost (fresh id past m10/m11)
-    )
-    const byKey = new Map(elabInputsOf(e).map((i) => [elabKeyOf(i.address), i]))
-    expect(byKey.get('items.sub.item#m0#m12')!.apiName).toBe('items.item0.sub.g2')
-    expect(byKey.get('items.sub.item#m0#m12')!.ancestry!.every((a) => !a.ghost)).toBe(true)
-    // Sibling member m1's inner ghost is untouched.
-    expect(byKey.get('items.sub.item#m1#m6')!.ancestry!.some((a) => a.ghost)).toBe(true)
-  })
-
-  it('a combo inside a member keeps selector/branch roles; state and values are member-scoped', () => {
-    const family: InputSpec = {
-      kind: 'input',
+  it('a choice inside a member keeps selector and option roles; state and values are member-scoped', () => {
+    const family: GroupSpec = {
+      kind: 'group',
       id: 'items',
-      type: { kind: 'wildcard' },
-      optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: [comboConstruct('mode', [{ key: 'a', inputs: [intInput('x')] }, { key: 'b', inputs: [] }])],
-        naming: { kind: 'prefix', prefix: 'item', min: 1, max: 3 },
-      },
+      member: [choiceOf('mode', [{ key: 'a', rows: [intInput('x')] }, { key: 'b', rows: [] }])],
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+      grows: 'link',
+      minMembers: 1,
+      maxMembers: 3,
     }
     const node = {
       values: {},
       dynamic: {
-        items: {
-          members: ['m0', 'm1'],
-          memberState: { m1: { 'items.mode': { selected: 'b' } } },
-        },
+        items: { members: ['item0', 'item1'] },
+        'items.item1.mode': { selected: 'b' },
       },
     }
-    const inputs = elabInputsOf(elaborateInterface(schemaOf([family]), node))
-    const rows = inputs.map((i) => [elabKeyOf(i.address), i.origin.kind, i.derivedValue])
-    expect(rows).toEqual([
-      ['items.mode#m0', 'selector', 'a'], // default: no member state
-      ['items.mode.[a].x#m0', 'branch', undefined], // branch value key is member-scoped
-      ['items.mode#m1', 'selector', 'b'], // m1's own selection
-      // The ghost member previews its full group shape, including the
-      // combo's default active branch. Nothing under it compiles.
-      ['items.mode#m2', 'selector', 'a'],
-      ['items.mode.[a].x#m2', 'branch', undefined],
+    const e = elaborateInterface(schemaOf([family]), node)
+    const inputs = elabInputsOf(e)
+    expect(inputs.map((i) => [i.address.port, i.origin.kind, i.derivedValue])).toEqual([
+      ['items.item0.mode', 'selector', 'a'], // start option: nothing stored
+      ['items.item0.mode.x', 'branch', undefined],
+      ['items.item1.mode', 'selector', 'b'], // item1's own key
     ])
-    const ghostBranch = inputs.find((i) => elabKeyOf(i.address) === 'items.mode.[a].x#m2')!
-    expect(ghostBranch.apiName).toBeUndefined()
-    const branch = inputs.find((i) => elabKeyOf(i.address) === 'items.mode.[a].x#m0')!
-    expect(branch.ancestry).toEqual([{ construct: 'items', member: 'm0', ordinal: 0 }])
+    expect(e.unstoredChoices).toEqual({ 'items.item0.mode': 'a' })
+    const branch = inputs.find((i) => i.address.port === 'items.item0.mode.x')!
+    expect(branch.ancestry).toEqual([{ construct: 'items', member: 'item0', ordinal: 0 }])
   })
 
-  it('fresh member ids skip orphaned memberState keys (stale state is never resurrected)', () => {
-    const node = {
-      values: {},
-      dynamic: {
-        images: {
-          members: ['m0'],
-          // Orphaned entry (member removed, nested state left behind): its
-          // id stays burned even though it is absent from `members` - a
-          // freshly minted ghost must never inherit stale nested state.
-          memberState: { m1: {} },
-        },
-      },
-    }
-    const inputs = elabInputsOf(elaborateInterface(schemaOf([autogrowFamily('images', { min: 1, max: 4 })]), node))
-    expect(inputs.map((i) => elabKeyOf(i.address))).toEqual(['images.item#m0', 'images.item#m2'])
+  it('a spare member never reuses a removed key: it continues from seq', () => {
+    const node = { values: {}, dynamic: { images: { members: ['image0'], seq: 2 } } }
+    const inputs = elabInputsOf(elaborateInterface(schemaOf([imageGroup('images', { min: 1, max: 4 })]), node, connectedInputs('images.image0')))
+    expect(inputs.map((i) => i.address.port)).toEqual(['images.image0', 'images.image2'])
   })
-
 })
 
 // ---------------------------------------------------------------------------
-// Dynamic outputs (symmetry) and unknown kinds
+// Groups of outputs
 // ---------------------------------------------------------------------------
 
-describe('dynamic outputs', () => {
-  it('autogrow elaborates output families through the same handler', () => {
-    const family: OutputSpec = {
-      kind: 'output',
+describe('groups of outputs', () => {
+  it('a group of output values elaborates through the same rules', () => {
+    const family: GroupSpec = {
+      kind: 'group',
       id: 'results',
-      type: { kind: 'wildcard' },
-      dynamic: {
-        kind: 'autogrow',
-        template: [socketInput('item', 'IMAGE')],
-        naming: { kind: 'prefix', prefix: 'result', min: 1, max: 3 },
-      },
+      value: output('item', 'IMAGE'),
+      keys: { kind: 'numbered', prefix: 'result', start: 0, pad: 0 },
+      grows: 'link',
+      minMembers: 1,
+      maxMembers: 3,
     }
-    const node = { values: {}, dynamic: { results: { members: ['m0', 'm1'] } } }
+    const node = { values: {}, dynamic: { results: { members: ['result0', 'result1'] } } }
     const e = elaborateInterface(schemaOf([family]), node)
     const outs = elabOutputsOf(e)
-    expect(outs.map((o) => [o.address.members, o.spec.displayName])).toEqual([
-      [['m0'], 'result 1'],
-      [['m1'], 'result 2'],
-      [['m2'], 'result 3'], // ghost affordance, symmetric with inputs
+    expect(outs.map((o) => [o.address.port, o.spec.displayName])).toEqual([
+      ['results.result0', 'result 1'],
+      ['results.result1', 'result 2'],
     ])
     expect(outs[0]!.spec.type).toEqual({ kind: 'concrete', name: 'IMAGE' })
-    expect(e.outputMembers).toEqual({ results: ['m0', 'm1'] })
+    expect(e.outputMembers).toEqual({ results: ['result0', 'result1'] })
   })
-
-  it('numbers members and the offered member by stored position from 1, keeping labels a person typed', () => {
-    const familyOf = (prefix: string): OutputSpec => ({
-      kind: 'output',
-      id: 'results',
-      type: { kind: 'wildcard' },
-      dynamic: {
-        kind: 'autogrow',
-        template: [socketInput('item', 'IMAGE')],
-        naming: { kind: 'prefix', prefix, min: 0, max: 8 },
-      },
-    })
-    // m1 was removed: m2 is the second member and the offer is the third,
-    // whatever the numbers in the ids.
-    const nodeWith = (memberLabels?: Record<string, string>) => ({
-      values: {},
-      dynamic: { results: { members: ['m0', 'm2'], seq: 3, ...(memberLabels ? { memberLabels } : {}) } },
-    })
-    const labels = (prefix: string, node = nodeWith()) =>
-      elabOutputsOf(elaborateInterface(schemaOf([familyOf(prefix)]), node)).map((o) => o.spec.displayName)
-    expect(labels('image')).toEqual(['image 1', 'image 2', 'image 3'])
-    expect(labels('')).toEqual(['1', '2', '3'])
-    expect(labels('image', nodeWith({ m2: 'Subject' }))).toEqual(['image 1', 'Subject', 'image 3'])
-  })
-
-  it('keeps member ids, value keys and API names when it numbers members for display', () => {
-    const family = (materialization?: 'wire15'): InputSpec => ({
-      kind: 'input',
-      id: 'images',
-      type: { kind: 'wildcard' },
-      optional: true,
-      dynamic: {
-        kind: 'autogrow',
-        ...(materialization ? { materialization } : {}),
-        template: [socketInput('item', 'IMAGE', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },
-      },
-    })
-    const rows = (materialization?: 'wire15') =>
-      elabInputsOf(elaborateInterface(schemaOf([family(materialization)]), {
-        values: {},
-        dynamic: { images: { members: ['m0', 'm2'], seq: 3 } },
-      })).map((input) => [elabKeyOf(input.address), input.apiName, input.spec.displayName])
-    expect(rows()).toEqual([
-      ['images.item#m0', 'images.image0', 'image 1'],
-      ['images.item#m2', 'images.image1', 'image 2'],
-      ['images.item#m3', undefined, 'image 3'],
-    ])
-    expect(rows('wire15')).toEqual([
-      ['images.m0', 'images.image0', 'image 1'],
-      ['images.m2', 'images.image1', 'image 2'],
-      ['images.m3', undefined, 'image 3'],
-    ])
-  })
-
-})
-
-describe('unknown dynamic kinds', () => {
-  it('elaborates an inert port plus a diagnostic - never drops or corrupts', () => {
-    const weird: InputSpec = {
-      kind: 'input',
-      id: 'future',
-      type: { kind: 'wildcard' },
-      optional: false,
-      dynamic: { kind: 'holographic' } as never,
-    }
-    const e = elaborateInterface(schemaOf([weird, socketInput('image')]), noState)
-    expect(e.diagnostics.some((d) => d.code === 'elab.dynamic.unknownKind')).toBe(true)
-    const inputs = elabInputsOf(e)
-    expect(inputs.map((i) => i.address.port)).toEqual(['future', 'image'])
-    expect(inputs[0]!.origin).toEqual({ kind: 'unknown', construct: 'future' })
-  })
-
 })
 
 // ---------------------------------------------------------------------------
 // Connectivity facts
 // ---------------------------------------------------------------------------
 
+describe('formulas', () => {
+  const int = { kind: 'concrete', types: ['INT'] }
+  const outputsUnder = (body: unknown[], values: Record<string, unknown> = {}, dynamic: Record<string, unknown> = {}) => {
+    const { schema, diagnostics } = parseDinksterSchema('Formulas', { body } as never)
+    expect(diagnostics).toEqual([])
+    const elaborated = elaborateInterface(schema!, { values, dynamic } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+    expect(elaborated.diagnostics).toEqual([])
+    return elabOutputsOf(elaborated).map((output) => output.spec.id)
+  }
+  const counted = (count: string) => ({
+    kind: 'group', id: 'a', grows: { count }, keys: { numbered: { prefix: '', start: 1, pad: 0 } }, maxMembers: 5,
+    value: { kind: 'output', id: 'v', type: int },
+  })
+
+  it('reads a led choice the same whether it is declared before or after the formula', () => {
+    const led = { kind: 'choice', id: 'b', leader: '"x"', options: [
+      { key: 'x', rows: [{ kind: 'input', id: 'n', type: int, pin: false, default: 3 }] },
+      { key: 'y', rows: [] },
+    ] }
+    for (const count of ['b.n', '3 if b == "x" else 1']) {
+      expect(outputsUnder([counted(count), led], { 'b.n': 3 })).toEqual(['a.1', 'a.2', 'a.3'])
+      expect(outputsUnder([led, counted(count)], { 'b.n': 3 })).toEqual(['a.1', 'a.2', 'a.3'])
+    }
+  })
+
+  it('reads the size of a group under an option that is not chosen as unknown', () => {
+    // Unknown counts fall back to the minimum (1), not to the 2 members stored under the unchosen option.
+    const c = { kind: 'choice', id: 'c', options: [
+      { key: 'a', rows: [{ kind: 'group', id: 'g', keys: { numbered: { prefix: '', start: 1, pad: 0 } },
+        member: [{ kind: 'input', id: 's', type: int, required: false }] }] },
+      { key: 'b', rows: [] },
+    ] }
+    const size = { ...counted('len(c.g)'), id: 'o', minMembers: 1 }
+    const sum = { ...counted('sum(c.g.s)'), id: 'p', minMembers: 1 }
+    expect(outputsUnder([c, size, sum], { 'c.g.1.s': 2, 'c.g.2.s': 3 }, { c: { selected: 'b' }, 'c.g': { members: ['1', '2'] } }))
+      .toEqual(['o.1', 'p.1'])
+    expect(outputsUnder([c, size, sum], { 'c.g.1.s': 2, 'c.g.2.s': 3 }, { c: { selected: 'a' }, 'c.g': { members: ['1', '2'] } }))
+      .toEqual(['o.1', 'o.2', 'p.1', 'p.2', 'p.3', 'p.4', 'p.5'])
+  })
+
+  it('refuses at load a formula or argument that reads across a counted group, and allows reads within a member', () => {
+    const n = { kind: 'input', id: 'n', type: int, pin: false, default: 2 }
+    const g = { kind: 'group', id: 'g', grows: { count: 'n' }, keys: { numbered: { prefix: '', start: 1, pad: 0 } }, maxMembers: 4,
+      member: [{ kind: 'input', id: 's', type: int, pin: false, default: 1 }] }
+    const refusal = (body: unknown[], extra: Record<string, unknown> = {}) => {
+      const { schema, diagnostics } = parseDinksterSchema('Counted', { body, ...extra } as never)
+      return schema === undefined ? diagnostics.map((diagnostic) => diagnostic.message).join() : undefined
+    }
+    const note = (text: string) => ({ kind: 'note', id: 'x', text: { formula: text } })
+    expect(refusal([n, g, note('len(g)')])).toContain("reads 'g': reading the size or the members of group 'g', whose count is a formula, is not built yet")
+    expect(refusal([n, { kind: 'choice', id: 'c', options: [{ key: 'a', rows: [g] }] }, note('sum(c.g.s)')]))
+      .toContain("reads 'c.g.s': reading the size or the members of group 'c.g'")
+    expect(refusal([n, g, { kind: 'choice', id: 'c', leader: '"a" if len(g) > 1 else "b"', options: [{ key: 'a', rows: [] }, { key: 'b', rows: [] }] }]))
+      .toContain('is not built yet')
+    expect(refusal([n, { ...g, grows: { count: 'len(g)' } }])).toContain('is not built yet')
+    expect(refusal([n, g, note('total')], { derived: { total: 'sum(g.s)' } })).toContain("reads 'g.s'")
+    expect(refusal([n, g, { kind: 'note', id: 'x', text: { lookup: 'pack.mod.fn', args: ['g'] } }]))
+      .toContain("pack.mod.fn: argument 'g' reads the members of a group whose count is a formula, which is not built yet")
+    expect(refusal([n, g], { titleSuffix: { formula: 'str(len(g))' } })).toContain('is not built yet')
+    // A member reads its own sibling and its position, and a group that grows by hand is read as before.
+    expect(refusal([n, { ...g, memberLabel: { formula: 'str(s)' } }])).toBeUndefined()
+    expect(refusal([n, { ...g, member: [{ ...g.member[0], label: { formula: '"s " + str(index() + 1)' } }] }])).toBeUndefined()
+    expect(refusal([n, g, { kind: 'group', id: 'h', grows: 'button', keys: { numbered: { prefix: '', start: 1, pad: 0 } },
+      value: { kind: 'output', id: 'o', type: int, label: { formula: 'str(len(g))' } } }])).toContain('is not built yet')
+    expect(refusal([n, { ...g, grows: 'button' }, note('len(g)')])).toBeUndefined()
+  })
+
+  it('censuses what a member past a shrunk count stored, up to the limit the keys allow', () => {
+    const body = [
+      { kind: 'input', id: 'n', type: int, pin: false, default: 2 },
+      { kind: 'group', id: 'g', grows: { count: 'n' }, keys: { numbered: { prefix: '', start: 1, pad: 0 } }, maxMembers: 4,
+        member: [{ kind: 'choice', id: 'c', options: [{ key: 'x', rows: [] }, { key: 'y', rows: [] }] }] },
+    ]
+    const { schema } = parseDinksterSchema('Shrunk', { body } as never)
+    const census = (dynamic: Record<string, unknown>) => elaborateInterface(schema!, { values: { n: 2 }, dynamic } as never,
+      EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics.map((diagnostic) => diagnostic.message)
+    const start = { 'g.1.c': { selected: 'x' }, 'g.2.c': { selected: 'x' } }
+    expect(census({ ...start, 'g.4.c': { selected: 'y' } })).toEqual([])
+    expect(census({ ...start, 'g.5.c': { selected: 'y' } })).toEqual(["Shrunk: 'g.5.c' is no longer part of this node. What was stored for it is kept in the file."])
+    expect(census({ ...start, 'g.z.c': { selected: 'y' } })).toEqual(["Shrunk: 'g.z.c' is no longer part of this node. What was stored for it is kept in the file."])
+    const active = elaborateInterface(schema!, { values: { n: 2 }, dynamic: { ...start, 'g.4.c': { selected: 'y' } } } as never)
+    expect(elabInputsOf(active).map((input) => input.spec.id)).toEqual(['n', 'g.1.c', 'g.2.c'])
+  })
+})
+
+describe('automatic values', () => {
+  const rate = intInput('rate', { widget: { widgetType: 'INT', options: {}, default: 48 } })
+  const fps = intInput('fps', {
+    automatic: { lookup: 'video.rate_of', args: ['rate'] },
+    widget: { widgetType: 'INT', options: {}, default: 24 },
+  })
+  const automaticOf = (lookupAnswers?: (lookup: string, args: readonly unknown[]) => unknown, values: Record<string, unknown> = { rate: 50 }) => {
+    const elaborated = elaborateInterface(schemaOf([rate, fps]), { values: values as never }, EMPTY_CONNECTIVITY,
+      lookupAnswers === undefined ? {} : { lookupAnswers: lookupAnswers as never })
+    return {
+      automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+      warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+      sites: lookupSitesOf(elaborated.items),
+      openSites: lookupSitesOf(elaborated.items, 'fps'),
+    }
+  }
+
+  it('asks for the lookup with arguments worked out from the values and waits on it with the default', () => {
+    const asked: unknown[] = []
+    const { automatic, warned, sites } = automaticOf((lookup, args) => { asked.push([lookup, args]); return undefined })
+    expect(asked).toContainEqual(['video.rate_of', [50]])
+    expect(automatic).toEqual({ value: 24, state: 'loading', call: { lookup: 'video.rate_of', args: [50] } })
+    expect(warned).toBe(false)
+    // The node on screen asks for the call; an answer of any kind arrives,
+    // so one that is not a value of the field warns as the run does.
+    expect(sites.map((site) => site.call)).toEqual([{ lookup: 'video.rate_of', args: [50] }])
+    expect(sites[0]!.accepts('not a rate')).toBe(true)
+    // A typed value asks, for what emptying the field would give, only while its field is open.
+    const typed = automaticOf(() => undefined, { rate: 50, fps: 30 })
+    expect(typed.sites).toEqual([])
+    expect(typed.openSites.map((site) => site.call)).toEqual([{ lookup: 'video.rate_of', args: [50] }])
+  })
+
+  it('uses an answer and a kept answer, and refuses a decimal that is not whole for a whole-number field', () => {
+    expect(automaticOf(() => ({ state: 'ready', answer: 25 })).automatic).toEqual({ value: 25, state: 'worked-out', call: { lookup: 'video.rate_of', args: [50] } })
+    expect(automaticOf(() => ({ state: 'loading', answer: 26 })).automatic).not.toHaveProperty('kept')
+    expect(automaticOf(() => ({ state: 'stale', answer: 30, reason: 'failed' }))).toMatchObject({ automatic: { value: 30, state: 'worked-out', kept: 'stale' }, warned: false })
+    expect(automaticOf(() => ({ state: 'paused', answer: 31 }))).toMatchObject({ automatic: { value: 31, state: 'worked-out', kept: 'paused' }, warned: false })
+    // Paused with nothing kept, or waiting for a file to be checked: the default, not loading, and no warning.
+    expect(automaticOf(() => ({ state: 'paused' }))).toMatchObject({ automatic: { value: 24, state: 'not-known', reason: 'paused' }, warned: false })
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'file-unchecked' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'file-unchecked' }, warned: false,
+    })
+    expect(automaticOf(() => ({ state: 'ready', answer: 25.5 })).automatic).toMatchObject({ value: 24, state: 'default', reason: 'wrong-type' })
+  })
+
+  it('uses the default with a warning when the lookup fails or runs out of time, and without one offline', () => {
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'timeout' }))).toMatchObject({
+      automatic: { value: 24, state: 'default', reason: 'lookup-timeout' }, warned: true,
+    })
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'wrong-shape' })).automatic?.reason).toBe('lookup-failed')
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'offline' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'offline' }, warned: false,
+    })
+  })
+
+  it('waits without a warning while an argument reads an automatic field still waiting, and warns for one never known', () => {
+    const base = intInput('base', {
+      automatic: { lookup: 'video.base_of', args: ['rate'] },
+      widget: { widgetType: 'INT', options: {}, default: 10 },
+    })
+    const reads = intInput('reads', {
+      automatic: { lookup: 'video.rate_of', args: ['base'] },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const doubled = intInput('doubled', {
+      automatic: { formula: 'base * 2' },
+      widget: { widgetType: 'INT', options: {}, default: 0 },
+    })
+    const elaborate = (answers: (lookup: string) => unknown, connectivity: Connectivity = EMPTY_CONNECTIVITY) => {
+      const elaborated = elaborateInterface(schemaOf([rate, base, reads, doubled]), { values: { rate: 50 } }, connectivity, { lookupAnswers: answers as never })
+      return {
+        automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'reads')!.automatic,
+        doubled: elabInputsOf(elaborated).find((input) => input.spec.id === 'doubled')!.automatic?.state,
+        warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default' && d.message.includes('reads')),
+      }
+    }
+    expect(elaborate(() => undefined)).toMatchObject({ automatic: { value: 24, state: 'not-known', reason: 'argument-unknown' }, warned: false })
+    // A paused field with nothing kept is still waiting: what reads it does not read its default.
+    expect(elaborate((lookup) => lookup === 'video.base_of' ? { state: 'paused' } : { state: 'ready', answer: 30 }))
+      .toMatchObject({ automatic: { value: 24, state: 'not-known', reason: 'argument-unknown' }, doubled: 'default', warned: false })
+    expect(elaborate((lookup) => lookup === 'video.base_of' ? { state: 'ready', answer: 12 } : { state: 'ready', answer: 30 }))
+      .toMatchObject({ automatic: { value: 30, state: 'worked-out', call: { lookup: 'video.rate_of', args: [12] } }, doubled: 'worked-out', warned: false })
+    // A wired argument is never known in the editor; the run gives the default, so the field warns.
+    const wired: Connectivity = { isInputConnected: (port) => port === 'rate', isOutputConnected: () => false }
+    const elaborated = elaborateInterface(schemaOf([rate, base]), { values: {} }, wired, { lookupAnswers: (() => ({ state: 'ready', answer: 12 })) as never })
+    expect(elabInputsOf(elaborated).find((input) => input.spec.id === 'base')!.automatic)
+      .toEqual({ value: 10, state: 'default', reason: 'argument-unknown' })
+    expect(elaborated.diagnostics.some((d) => d.code === 'automatic.default')).toBe(true)
+  })
+
+  it('waits quietly for an argument field left empty, and warns for a stored value that does not fit', () => {
+    const video = intInput('video', { type: { kind: 'concrete', name: 'STRING' }, displayName: 'Video', optional: true, widget: { widgetType: 'STRING', options: {} } })
+    const delay = intInput('delay', { widget: { widgetType: 'INT', options: {}, default: 0 } })
+    const lookupRate = (args: readonly (string | { readonly formula: string })[]) => intInput('fps', {
+      automatic: { lookup: 'video.rate_of', args: args as never },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const elaborate = (args: readonly (string | { readonly formula: string })[], values: Record<string, unknown>) => {
+      const asked: unknown[] = []
+      const elaborated = elaborateInterface(schemaOf([video, delay, lookupRate(args)]), { values: values as never }, EMPTY_CONNECTIVITY,
+        { lookupAnswers: ((lookup: string, called: unknown) => { asked.push([lookup, called]); return { state: 'ready', answer: 30 } }) as never })
+      return {
+        automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+        warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+        asked,
+      }
+    }
+    // A new node stores nothing; clearing a file field stores null. Both wait for the field by its label.
+    for (const values of [{}, { video: null }]) {
+      expect(elaborate(['video'], values)).toEqual({
+        automatic: { value: 24, state: 'not-known', reason: 'argument-empty', waitingFor: 'Video' }, warned: false, asked: [],
+      })
+    }
+    // An argument that is not one plain field waits for a value.
+    expect(elaborate([{ formula: 'video if delay == 0 else video' }], {}).automatic)
+      .toEqual({ value: 24, state: 'not-known', reason: 'argument-empty' })
+    // A field with a default that stores null holds a value that does not fit: the default, with the warning.
+    expect(elaborate(['delay'], { delay: null })).toEqual({
+      automatic: { value: 24, state: 'default', reason: 'argument-unknown' }, warned: true, asked: [],
+    })
+    expect(elaborate(['video'], { video: 'clip.mp4' }).automatic).toMatchObject({ value: 30, state: 'worked-out' })
+  })
+
+  it('hands a lookup argument that names a file field the picked file as stored, and waits quietly for one', () => {
+    const video = socketInput('video', 'ASSET', { displayName: 'Video', optional: true })
+    const fpsOf = intInput('fps', {
+      automatic: { lookup: 'video.rate_of', args: ['video'] },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const picked = { digest: `blake3:${'a'.repeat(64)}`, name: 'clip_25fps.mp4', size: 12, mediaType: 'video/mp4', virtualPath: '' }
+    const local = { verification: 'unverified', localBinding: 'b1', name: 'clip.mp4', size: 12, virtualPath: 'mounts/m/clip.mp4' }
+    const elaborate = (values: Record<string, unknown>, held: (args: readonly unknown[]) => unknown, connectivity = EMPTY_CONNECTIVITY) => {
+      const asked: unknown[] = []
+      const elaborated = elaborateInterface(schemaOf([video, fpsOf]), { values: values as never }, connectivity,
+        { lookupAnswers: ((_lookup: string, args: readonly unknown[]) => { asked.push(args); return held(args) }) as never })
+      return {
+        automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+        warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+        asked: [...new Set(asked.map((args) => JSON.stringify(args)))].map((args) => JSON.parse(args) as unknown),
+      }
+    }
+    const answered = () => ({ state: 'ready', answer: 25 })
+    // Nothing picked, or cleared: wait for the file field by its label, without a call or a warning.
+    for (const values of [{}, { video: null }]) {
+      expect(elaborate(values, answered)).toEqual({
+        automatic: { value: 24, state: 'not-known', reason: 'argument-empty', waitingFor: 'Video' }, warned: false, asked: [],
+      })
+    }
+    // A picked file is sent as the node stores it, the same value a run sends.
+    expect(elaborate({ video: picked }, answered)).toEqual({
+      automatic: { value: 25, state: 'worked-out', call: { lookup: 'video.rate_of', args: [picked] } }, warned: false, asked: [[picked]],
+    })
+    // A local file the host has not checked yet waits for it, still without a warning.
+    expect(elaborate({ video: local }, () => ({ state: 'unavailable', reason: 'file-unchecked' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'file-unchecked', call: { args: [local] } }, warned: false,
+    })
+    // A wired file is never known in the editor; the run gives the default, so the field warns.
+    const wired: Connectivity = { isInputConnected: (port) => port === 'video', isOutputConnected: () => false }
+    expect(elaborate({ video: picked }, answered, wired)).toEqual({
+      automatic: { value: 24, state: 'default', reason: 'argument-unknown' }, warned: true, asked: [],
+    })
+  })
+
+  it('works out a fixed field only for its open field, without a warning, while the fixed value stays in use', () => {
+    const doubled = intInput('doubled', {
+      automatic: { formula: 'rate * 2' },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const reads = intInput('reads', {
+      automatic: { formula: 'doubled + 1' },
+      widget: { widgetType: 'INT', options: {}, default: 0 },
+    })
+    const elaborated = elaborateInterface(schemaOf([rate, doubled, reads]), { values: { rate: 50, doubled: 7 } }, EMPTY_CONNECTIVITY)
+    const inputs = elabInputsOf(elaborated)
+    const fixed = inputs.find((input) => input.spec.id === 'doubled')!
+    expect(fixed.automatic).toBeUndefined()
+    expect(fixed.automaticIfEmptied).toEqual({ value: 100, state: 'worked-out' })
+    expect(inputs.find((input) => input.spec.id === 'reads')!.automatic).toEqual({ value: 8, state: 'worked-out' })
+    expect(elaborated.diagnostics.some((d) => d.code === 'automatic.default')).toBe(false)
+  })
+})
+
+describe('formula properties', () => {
+  const int = { kind: 'concrete', types: ['INT'] }
+  const field = (id: string, extra: Record<string, unknown> = {}) =>
+    ({ kind: 'input', id, type: int, default: 3, widget: { type: 'INT' }, ...extra })
+  const wired = (inputs: string[] = [], outputs: string[] = []): Connectivity => ({
+    isInputConnected: (port) => inputs.includes(port),
+    isOutputConnected: (port) => outputs.includes(port),
+    inputPorts: () => inputs,
+    outputPorts: () => outputs,
+  })
+  const elaborate = (body: unknown[], values: Record<string, unknown> = {}, connectivity = EMPTY_CONNECTIVITY, dynamic: Record<string, unknown> = { pick: { selected: 'a' } }) => {
+    const { schema, diagnostics } = parseDinksterSchema('Formulas', { body } as never)
+    expect(diagnostics).toEqual([])
+    const elaborated = elaborateInterface(schema!, { values, dynamic } as never, connectivity, { promoteGhosts: false })
+    expect(elaborated.diagnostics).toEqual([])
+    return elaborated
+  }
+  const hiddenInputs = (elaborated: ReturnType<typeof elaborate>) =>
+    elabInputsOf(elaborated).filter((input) => input.spec.hidden === true).map((input) => input.spec.id)
+  // `pick` holds `under` only while option a is chosen, so a formula outside reads it as unknown under b.
+  const pick = { kind: 'choice', id: 'pick', options: [{ key: 'a', rows: [field('under')] }, { key: 'b', rows: [] }] }
+
+  it('hides a row whose visible is false, still sends it to the run, and shows it while unknown, failed or wired', () => {
+    const body = (visible: string) => [field('w'), pick, field('extra', { visible: { formula: visible } })]
+    expect(hiddenInputs(elaborate(body('w > 5'), { w: 3 }))).toEqual(['extra'])
+    expect(elabInputsOf(elaborate(body('w > 5'), { w: 3 })).find((input) => input.spec.id === 'extra')!.apiName).toBe('extra')
+    expect(hiddenInputs(elaborate(body('w > 5'), { w: 7 }))).toEqual([])
+    // Unknown: `pick.under` exists only under option a; b is chosen.
+    expect(hiddenInputs(elaborate(body('pick.under > 5'), {}, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } }))).toEqual([])
+    expect(hiddenInputs(elaborate(body('pick.under > 5'), {}, EMPTY_CONNECTIVITY, { pick: { selected: 'a' } }))).toEqual(['extra'])
+    // Failed.
+    expect(hiddenInputs(elaborate(body('1 // 0 > 5'), { w: 3 }))).toEqual([])
+    // A wire into the row, or out of its field, shows it.
+    expect(hiddenInputs(elaborate(body('w > 5'), { w: 3 }, wired(['extra'])))).toEqual([])
+    expect(hiddenInputs(elaborate(body('w > 5'), { w: 3 }, wired([], ['extra'])))).toEqual([])
+  })
+
+  it('works out lookup fields and notes for their own arguments and uses only an answer for exactly them', () => {
+    const type = (name: string) => ({ kind: 'concrete', types: [name] })
+    const lookup = (name: string, ...args: string[]) => ({ lookup: `pack.${name}`, args })
+    const { schema } = parseDinksterSchema('Picker', { body: [
+      { kind: 'input', id: 'category', type: type('COMBO'), pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl'] } },
+      { kind: 'input', id: 'lora', type: type('COMBO'), widget: { type: 'COMBO', options: lookup('loras', 'category') } },
+      { kind: 'input', id: 'frames', type: int, widget: { type: 'NUMBER', min: 0, max: lookup('most', 'category'), step: 4, offset: lookup('start', 'category') } },
+      { kind: 'input', id: 'trigger', type: type('STRING'), widget: { type: 'STRING', completions: lookup('words', 'lora') } },
+      { kind: 'note', id: 'count', text: lookup('count', 'category'), unknown: 'Counting...' },
+    ] } as never)
+    const run = (category: string, held: Record<string, LookupAnswerState> = {}, connectivity = EMPTY_CONNECTIVITY) => {
+      const elaborated = elaborateInterface(schema!, { values: { category, lora: 'a.safetensors', frames: 6 } }, connectivity,
+        { lookupAnswers: (name, args) => held[JSON.stringify([name, args])] })
+      const input = (id: string) => elabInputsOf(elaborated).find((item) => item.spec.id === id)!
+      return { input, note: elaborated.items.find((item) => item.kind === 'note')! }
+    }
+    const key = (name: string, ...args: unknown[]) => JSON.stringify([`pack.${name}`, args])
+
+    // Nothing held yet: each site is loading for its own call, with no list, no max and no step grid.
+    const first = run('sd')
+    expect(first.input('lora').looked).toEqual({ options: { state: 'loading', call: { lookup: 'pack.loras', args: ['sd'] } } })
+    expect(first.input('lora').spec.widget!.options).not.toHaveProperty('options')
+    expect(first.input('frames').spec.widget!.options).toEqual({ min: 0, step: 4, offsetUnknown: true })
+    expect(first.note).toMatchObject({ text: 'Counting...', unknown: true, lookup: { state: 'loading' } })
+    expect(first.input('trigger').looked).toEqual({ completions: { state: 'loading', call: { lookup: 'pack.words', args: ['a.safetensors'] } } })
+
+    // Answers for sd are never shown for sdxl.
+    const forSd = { [key('loras', 'sd')]: { state: 'ready', answer: ['old.safetensors'] }, [key('count', 'sd')]: { state: 'ready', answer: '3 LoRAs' } } as const
+    const changed = run('sdxl', forSd)
+    expect(changed.input('lora').looked!.options).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+    expect(changed.note).toMatchObject({ text: 'Counting...', unknown: true })
+
+    // Ready answers replace the fields.
+    const ready = run('sdxl', {
+      [key('loras', 'sdxl')]: { state: 'ready', answer: ['x.safetensors', { value: 'y.safetensors', label: 'Y', folder: 'styles' }] },
+      [key('most', 'sdxl')]: { state: 'ready', answer: 40 },
+      [key('start', 'sdxl')]: { state: 'ready', answer: 2 },
+      [key('count', 'sdxl')]: { state: 'stale', answer: '2 LoRAs', reason: 'timeout' },
+      [key('words', 'a.safetensors')]: { state: 'loading', answer: ['glow', { value: 'mist', info: 'soft' }] },
+    })
+    expect(ready.input('lora').spec.widget!.options['options']).toEqual(['x.safetensors', { value: 'y.safetensors', label: 'Y', folder: 'styles' }])
+    expect(ready.input('frames').spec.widget!.options).toEqual({ min: 0, max: 40, step: 4, offset: 2 })
+    expect(ready.note).toEqual(expect.objectContaining({ text: '2 LoRAs', lookup: { state: 'stale', call: { lookup: 'pack.count', args: ['sdxl'] }, reason: 'timeout' } }))
+    expect(ready.note).not.toHaveProperty('unknown')
+    expect(ready.input('trigger').looked!.completions).toMatchObject({ state: 'ready', refreshing: true })
+    expect(ready.input('trigger').spec.widget!.textCompletions!.items.map((item) => [item.value, item.label, item.detail]))
+      .toEqual([['glow', 'glow', ''], ['mist', 'mist', 'soft']])
+
+    // A max below min, a whole-number field given a fraction, or a note given a number is a wrong shape, never repaired.
+    const wrong = run('sdxl', {
+      [key('most', 'sdxl')]: { state: 'ready', answer: -4 },
+      [key('start', 'sdxl')]: { state: 'ready', answer: 2.5 },
+      [key('count', 'sdxl')]: { state: 'ready', answer: 7 },
+    })
+    expect(wrong.input('frames').looked).toMatchObject({ max: { state: 'unavailable', reason: 'wrong-shape' }, offset: { state: 'unavailable', reason: 'wrong-shape' } })
+    expect(wrong.input('frames').spec.widget!.options).toEqual({ min: 0, step: 4, offsetUnknown: true })
+    expect(wrong.note).toMatchObject({ text: 'Counting...', unknown: true, lookup: { state: 'unavailable', reason: 'wrong-shape' } })
+    // None means no limit, and no offset: the step counts from min.
+    const none = run('sdxl', { [key('most', 'sdxl')]: { state: 'ready', answer: null }, [key('start', 'sdxl')]: { state: 'ready', answer: null } })
+    expect(none.input('frames').spec.widget!.options).toEqual({ min: 0, step: 4 })
+
+    // A wired argument is not known: nothing is called, and the row names the input it waits for.
+    const wired = run('sd', {}, { ...EMPTY_CONNECTIVITY, isInputConnected: (port: string) => port === 'lora' })
+    expect(wired.input('trigger').looked).toEqual({ completions: { state: 'waiting', input: 'lora' } })
+    // Without lookup answers (search, registry previews) lookups are off.
+    const off = elaborateInterface(schema!, { values: { category: 'sd' } })
+    expect(elabInputsOf(off).find((item) => item.spec.id === 'lora')!.looked).toEqual({ options: { state: 'off' } })
+  })
+
+  it('hides a box with everything in it, unless a row inside has a wire', () => {
+    const body = [field('w'), { kind: 'section', id: 'more', label: 'More', visible: { formula: 'w > 5' }, rows: [
+      field('a'), { kind: 'output', id: 'o', type: int }, { kind: 'note', id: 'n', text: 'hi' },
+      { kind: 'group', id: 'g', grows: 'button', keys: { numbered: { prefix: 'g', start: 0, pad: 0 } }, value: { kind: 'input', id: 'v', type: int } },
+    ] }]
+    const members = { g: { members: ['g0'], seq: 1 } }
+    const hidden = elaborate(body, { w: 3 }, EMPTY_CONNECTIVITY, members)
+    expect(hidden.items.map((item) => item.kind === 'input' || item.kind === 'output' ? `${item.kind}:${item.spec.id}:${item.spec.hidden === true}` : item.kind))
+      .toEqual(['input:w:false', 'input:a:true', 'output:o:true', 'input:g.g0:true'])
+    // A wire into a member inside: the box shows as if it were visible.
+    const shown = elaborate(body, { w: 7 }, wired(['g.g0']), members)
+    expect(elaborate(body, { w: 3 }, wired(['g.g0']), members).items).toEqual(shown.items)
+    expect(shown.items.map((item) => item.kind)).toContain('section')
+    expect(hiddenInputs(shown)).toEqual([])
+  })
+
+  it('shows a hidden row, and every box holding it, while the row has a problem', () => {
+    const parse = (body: unknown[]) => {
+      const { schema, diagnostics } = parseDinksterSchema('Formulas', { body } as never)
+      expect(diagnostics).toEqual([])
+      return schema!
+    }
+    const hiddenWith = (body: unknown[], values: Record<string, unknown>, dynamic: Record<string, unknown>, problemRows?: string[]) =>
+      hiddenInputs(elaborateInterface(parse(body), { values, dynamic } as never, EMPTY_CONNECTIVITY,
+        { promoteGhosts: false, ...(problemRows !== undefined ? { problemRows: new Set(problemRows) } : {}) }))
+    const row = [field('w'), field('extra', { visible: { formula: 'w > 5' } })]
+    expect(hiddenWith(row, { w: 3 }, {})).toEqual(['extra'])
+    expect(hiddenWith(row, { w: 3 }, {}, ['extra'])).toEqual([])
+    expect(hiddenWith(row, { w: 3 }, {}, ['w'])).toEqual(['extra'])
+    // A box shows whole while a row it holds at any depth has a problem.
+    const box = [field('w'), { kind: 'section', id: 'more', label: 'More', visible: { formula: 'w > 5' }, rows: [
+      field('a'), { kind: 'section', id: 'deeper', label: 'Deeper', rows: [field('b')] },
+    ] }]
+    expect(hiddenWith(box, { w: 3 }, {})).toEqual(['a', 'b'])
+    expect(hiddenWith(box, { w: 3 }, {}, ['b'])).toEqual([])
+    // A problem elaboration finds itself: a stored option the choice no longer offers.
+    const choice = [field('w'), { kind: 'choice', id: 'mode', required: true, visible: { formula: 'w > 5' },
+      options: [{ key: 'fit', rows: [field('m')] }, { key: 'fill', rows: [] }] }]
+    expect(hiddenWith(choice, { w: 3 }, { mode: { selected: 'fit' } })).toEqual(['mode', 'mode.m'])
+    expect(hiddenWith(choice, { w: 3 }, { mode: { selected: 'gone' } })).not.toContain('mode')
+    // A failed rule that reads one hidden field is that field's problem.
+    const ruled = (w: number) => {
+      const { schema } = parseDinksterSchema('Formulas', { body: row, validate: [{ check: { formula: 'extra < 5' }, message: 'Too big', fix: [] }] } as never)
+      return hiddenInputs(elaborateInterface(schema!, { values: { w, extra: 9 } } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false }))
+    }
+    expect(ruled(3)).toEqual([])
+  })
+
+  it('labels a row by its formula, and by its id while the formula is unknown or fails', () => {
+    const body = (label: string) => [field('w'), pick, field('size', { label: { formula: label } }), { kind: 'output', id: 'o', type: int, label: { formula: label } }]
+    const labels = (elaborated: ReturnType<typeof elaborate>) => elaborated.items
+      .filter((item) => item.kind === 'input' || item.kind === 'output')
+      .filter((item) => item.spec.id === 'size' || item.spec.id === 'o').map((item) => item.spec.displayName)
+    expect(labels(elaborate(body('"Size " + str(w)'), { w: 4 }))).toEqual(['Size 4', 'Size 4'])
+    expect(labels(elaborate(body('"Size " + str(pick.under)'), {}, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } }))).toEqual(['size', 'o'])
+    expect(labels(elaborate(body('"Size " + str(1 // 0)'), { w: 4 }))).toEqual(['size', 'o'])
+  })
+
+  it("shows a note's formula text, and its unknown text while the formula is unknown or fails", () => {
+    const body = (text: string) => [field('w'), pick, { kind: 'note', id: 'n', text: { formula: text }, unknown: 'working it out' }]
+    const note = (elaborated: ReturnType<typeof elaborate>) => elaborated.items.find((item) => item.kind === 'note')
+    expect(note(elaborate(body('str(w * 2) + " px"'), { w: 4 }))).toEqual({ kind: 'note', id: 'n', text: '8 px' })
+    expect(note(elaborate(body('str(pick.under)'), {}, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } })))
+      .toEqual({ kind: 'note', id: 'n', text: 'working it out', unknown: true })
+    expect(note(elaborate(body('str(1 // 0)'), { w: 4 }))).toEqual({ kind: 'note', id: 'n', text: 'working it out', unknown: true })
+  })
+
+  it('reports a failed rule of the node, an error without a fix and a warning with one, naming the fields it reads, and passes it while unknown or failed', () => {
+    const sizes = { kind: 'group', id: 'g', member: [field('s')], keys: { numbered: { prefix: 'item', start: 0 } }, grows: 'link', minMembers: 2 }
+    const rules = (check: string, fix: unknown[] = []) => {
+      const { schema, diagnostics } = parseDinksterSchema('Formulas', { body: [field('w'), field('h'), pick, sizes], validate: [
+        { check: { formula: check }, message: 'Too big', fix },
+      ] } as never)
+      expect(diagnostics).toEqual([])
+      return (values: Record<string, unknown>, dynamic: Record<string, unknown> = { pick: { selected: 'a' } }) =>
+        elaborateInterface(schema!, { values, dynamic: { g: { members: ['item0', 'item1'] }, ...dynamic } } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false, nodeId: 'n' as never })
+          .diagnostics.map((diagnostic) => [diagnostic.severity, diagnostic.code, diagnostic.message, diagnostic.data, diagnostic.anchor?.port?.port])
+    }
+    expect(rules('w % 2 == 0')({ w: 3 })).toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: ['w'] }, 'w']])
+    expect(rules('w % 2 == 0')({ w: 4 })).toEqual([])
+    expect(rules('w % 2 == 0', [{ step: 'Set', row: 'w', value: { value: 4 } }])({ w: 3 }))
+      .toEqual([['warning', 'node.rule.failed', 'Too big', { rule: 0, hasFix: true, fields: ['w'] }, 'w']])
+    // Two fields, or none: a problem of the whole node, with no row anchor.
+    expect(rules('w + h < 6')({ w: 3, h: 4 })).toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: ['w', 'h'] }, undefined]])
+    expect(rules('len(g) < 2')({})).toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: [] }, undefined]])
+    // A column of a group's members reads each member's field.
+    expect(rules('sum(g.s) < 5')({ 'g.item0.s': 3, 'g.item1.s': 4 }))
+      .toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: ['g.item0.s', 'g.item1.s'] }, undefined]])
+    expect(rules('pick.under > 5')({}, { pick: { selected: 'b' } })).toEqual([])
+    expect(rules('1 // 0 > 5')({ w: 3 })).toEqual([])
+  })
+
+  it('works out the title suffix: at most 64 characters, a line break read as a space, and none while unknown, failed or empty', () => {
+    const suffix = (titleSuffix: unknown, values: Record<string, unknown> = { w: 4 }, dynamic: Record<string, unknown> = { pick: { selected: 'a' } }) => {
+      const { schema, diagnostics } = parseDinksterSchema('Formulas', { body: [field('w'), pick], titleSuffix } as never)
+      expect(diagnostics).toEqual([])
+      return elaborateInterface(schema!, { values, dynamic } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false }).titleSuffix
+    }
+    expect(suffix('fast')).toBe('fast')
+    expect(suffix({ formula: 'str(w) + " steps"' })).toBe('4 steps')
+    expect(suffix({ formula: '"two\\nlines"' })).toBe('two lines')
+    expect(suffix('x'.repeat(70))).toBe('x'.repeat(64))
+    expect(suffix({ formula: '""' })).toBeUndefined()
+    expect(suffix({ formula: 'str(pick.under)' }, {}, { pick: { selected: 'b' } })).toBeUndefined()
+    expect(suffix({ formula: 'str(1 // 0)' })).toBeUndefined()
+  })
+
+  it("works out a button's enabled, reason and tooltip, and leaves it enabled while unknown or failed", () => {
+    const body = (enabled: string) => [field('w'), pick, { kind: 'button', id: 'go', label: 'Go', steps: [],
+      enabled: { formula: enabled }, disabledReason: { formula: '"needs " + str(w) + " more"' }, tooltip: { formula: '"Go " + str(w)' } }]
+    const button = (elaborated: ReturnType<typeof elaborate>) => elaborated.items.find((item) => item.kind === 'button')
+    expect(button(elaborate(body('w > 5'), { w: 2 }))).toEqual({ kind: 'button', id: 'go', label: 'Go', enabled: false, disabledReason: 'needs 2 more', tooltip: 'Go 2' })
+    expect(button(elaborate(body('w > 5'), { w: 9 }))).toEqual({ kind: 'button', id: 'go', label: 'Go', tooltip: 'Go 9' })
+    expect(button(elaborate(body('pick.under > 5'), { w: 2 }, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } })))
+      .toEqual({ kind: 'button', id: 'go', label: 'Go', tooltip: 'Go 2' })
+    expect(button(elaborate(body('1 // 0 > 5'), { w: 2 }))).toEqual({ kind: 'button', id: 'go', label: 'Go', tooltip: 'Go 2' })
+  })
+})
+
 describe('buildGraphConnectivity', () => {
 
-  it('indexes links and nets once, member-aware, ignoring reroute endpoints', () => {
+  it('indexes links and nets once by flattened id, ignoring reroute endpoints', () => {
     const def = {
       id: 'g0',
       nodes: {},
       links: {
-        l0: { id: 'l0', from: { node: 'a', port: 'out0' }, to: { node: 'b', port: 'images.item', members: ['m1'] } },
+        l0: { id: 'l0', from: { node: 'a', port: 'out0' }, to: { node: 'b', port: 'images.m1' } },
         l1: { id: 'l1', from: { node: 'a', port: 'out0' }, to: { reroute: 'r0' } },
         l2: { id: 'l2', from: { reroute: 'r0' }, to: { node: 'b', port: 'model' } },
       },
@@ -1343,11 +1466,124 @@ describe('buildGraphConnectivity', () => {
     } as unknown as GraphDef
     const facts = buildGraphConnectivity(def)
     const b = facts(asNodeId('b'))
-    expect(b.isInputConnected('images.item', [asDynamicMemberId('m1')])).toBe(true)
-    expect(b.isInputConnected('images.item')).toBe(false) // member-addressed, not family-wide
+    expect(b.isInputConnected('images.m1')).toBe(true)
+    expect(b.isInputConnected('images.m0')).toBe(false) // one member, not the whole group
     expect(b.isInputConnected('model')).toBe(true) // reroute-driven links still land on the input
     expect(b.isInputConnected('vae')).toBe(true) // net sinks count
     expect(facts(asNodeId('a')).isOutputConnected('out0')).toBe(true)
   })
 
+})
+
+describe('boxes around rows', () => {
+  const body: BodyRow[] = [{
+    kind: 'section',
+    id: 'sampling',
+    rows: [
+      recordGroup('loras', { min: 1 }),
+      choiceOf('resize', [
+        { key: 'scale', rows: [intInput('factor')] },
+        { key: 'keep', rows: [] },
+      ]),
+    ],
+  }]
+  const chains = (state: { dynamic?: Record<string, { selected?: string }> } = {}) =>
+    elaborateInterface(schemaOf(body), { values: {}, ...state }).items.map((item) => [
+      item.kind === 'input' || item.kind === 'output' ? item.address.port
+        : item.kind === 'box' ? item.id : item.kind === 'section' ? item.spec.id : item.kind,
+      item.boxes ?? [],
+    ])
+
+  it('names every box around a row, outermost first, without changing its id', () => {
+    expect(chains()).toEqual([
+      ['sampling', []],
+      ['group:loras', ['sampling']],
+      ['member:loras.item0', ['sampling', 'group:loras']],
+      ['loras.item0.image', ['sampling', 'group:loras', 'member:loras.item0']],
+      ['loras.item0.mask', ['sampling', 'group:loras', 'member:loras.item0']],
+      ['resize', ['sampling']],
+      ['option:resize', ['sampling']],
+      ['resize.factor', ['sampling', 'option:resize']],
+    ])
+  })
+
+  it('draws no box for an option with no rows', () => {
+    expect(chains({ dynamic: { resize: { selected: 'keep' } } }).map(([id]) => id)).toEqual([
+      'sampling', 'group:loras', 'member:loras.item0', 'loras.item0.image', 'loras.item0.mask', 'resize',
+    ])
+  })
+})
+
+describe('rows kept for a wire on their output', () => {
+  const taps = (...ports: string[]): Connectivity => ({
+    isInputConnected: () => false,
+    isOutputConnected: (port) => ports.includes(port),
+    outputPorts: () => ports,
+  })
+  const shown = (schema: NodeSchema, node: object, connectivity: Connectivity) =>
+    elabInputsOf(elaborateInterface(schema, node as never, connectivity))
+      .map((input) => [input.spec.id, input.kept, input.apiName !== undefined] as const)
+
+  it('keeps a wired row of an option not chosen after the chosen rows, and only that row', () => {
+    const schema = schemaOf([{
+      kind: 'choice', id: 'mode', displayName: 'Mode', required: true, shared: [],
+      options: [
+        { key: 'fast', label: 'Fast', rows: [intInput('steps')] },
+        { key: 'fine', label: 'Fine', rows: [intInput('detail'), intInput('passes')] },
+      ],
+    }])
+    const node = { values: {}, dynamic: { mode: { selected: 'fast' } } }
+    expect(shown(schema, node, taps('mode.passes'))).toEqual([
+      ['mode', undefined, false],
+      ['mode.steps', undefined, true],
+      ['mode.passes', 'Not used while Mode is Fast. Its wire gives nothing.', false],
+    ])
+    // Chosen again, it is an ordinary row; with no wire, it is not drawn.
+    expect(shown(schema, { ...node, dynamic: { mode: { selected: 'fine' } } }, taps('mode.passes')).map(([id, kept]) => [id, kept]))
+      .toEqual([['mode', undefined], ['mode.detail', undefined], ['mode.passes', undefined]])
+    expect(shown(schema, node, taps()).map(([id]) => id)).toEqual(['mode', 'mode.steps'])
+    // The run's view has no kept rows.
+    expect(elabInputsOf(elaborateInterface(schema, node as never, taps('mode.passes'), { promoteGhosts: false }))
+      .some((input) => input.kept !== undefined)).toBe(false)
+  })
+
+  it('keeps a wired row of another type under its type-led pin', () => {
+    const schema = schemaOf([{
+      kind: 'typeChoice', id: 'model', displayName: 'Model', required: false, rows: [],
+      variants: [
+        { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, rows: [intInput('width')] },
+        { key: 'latent', type: { kind: 'concrete', name: 'LATENT' }, rows: [intInput('scale')] },
+      ],
+    }])
+    expect(shown(schema, { values: {}, dynamic: { model: { selected: 'image' } } }, taps('model.scale'))).toEqual([
+      ['model', undefined, true],
+      ['model.width', undefined, true],
+      ['model.scale', 'Not used while Model is image. Its wire gives nothing.', false],
+    ])
+  })
+
+  it('draws no member the group does not store, even with a wire on its field', () => {
+    const schema = schemaOf([{
+      kind: 'group', id: 'items', displayName: 'Items', member: [intInput('amount'), intInput('weight')],
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'button', minMembers: 0, maxMembers: 8,
+    }])
+    const node = { values: {}, dynamic: { items: { members: ['item0', 'item2'], seq: 3 } } }
+    expect(shown(schema, node, taps('items.item1.weight'))).toEqual([
+      ['items.item0.amount', undefined, true],
+      ['items.item0.weight', undefined, true],
+      ['items.item2.amount', undefined, true],
+      ['items.item2.weight', undefined, true],
+    ])
+    expect(inGoneMember(elaborateInterface(schema, node as never, taps('items.item1.weight')), 'items.item1.weight')).toBe(true)
+    expect(inGoneMember(elaborateInterface(schema, node as never, taps()), 'items.item2.weight')).toBe(false)
+    // The spare offered under the same key is not a member the node has.
+    const valued = schemaOf([{
+      kind: 'group', id: 'weights', value: intInput('weight', { optional: true }),
+      keys: { kind: 'numbered', prefix: 'weight', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 8,
+    }])
+    const spare = elaborateInterface(valued, { values: { 'weights.weight0': 2 }, dynamic: { weights: { members: ['weight0'] } } } as never, taps('weights.weight1'))
+    expect(elabInputsOf(spare).map((input) => input.address.port)).toEqual(['weights.weight0', 'weights.weight1'])
+    expect(inGoneMember(spare, 'weights.weight1')).toBe(true)
+    expect(inGoneMember(spare, 'weights.weight0')).toBe(false)
+  })
 })

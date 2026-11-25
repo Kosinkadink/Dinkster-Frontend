@@ -6,8 +6,8 @@ describe('routed liveness projection', () => {
   it('derives nested inactive-exclusive cones while preserving shared and other-root producers', () => {
     const edge = (producer: string) => [producer, 0] as const
     const nodes = new Map<string, RoutedNode>([
-      ['outer', { inputs: { off: edge('outerOff'), on: edge('inner'), shared: edge('shared') }, selectorProjection: { choice: true, branches: { false: 'off', true: 'on' } } }],
-      ['inner', { inputs: { off: edge('innerOn'), on: edge('innerOff') }, selectorProjection: { choice: false, branches: { false: 'off', true: 'on' } } }],
+      ['outer', { inputs: { off: edge('outerOff'), on: edge('inner'), shared: edge('shared') }, selectorProjection: { inactive: ['off'] } }],
+      ['inner', { inputs: { off: edge('innerOn'), on: edge('innerOff') }, selectorProjection: { inactive: ['on'] } }],
       ['otherRoot', { inputs: { input: edge('otherUsed') } }],
       ['outerOff', { inputs: { shared: edge('shared'), elsewhere: edge('otherUsed'), exclusive: edge('outerOnly') } }],
       ['innerOn', { inputs: { shared: edge('shared') } }],
@@ -27,7 +27,7 @@ describe('routed liveness projection', () => {
     expect([...result.inactiveExclusive.get('inner') ?? []].sort()).toEqual(['innerOff', 'innerOnly'])
   })
 
-  it('keeps missing and non-boolean selector choices neutral by omitting a projection', () => {
+  it('keeps an unknown pick neutral by omitting a projection', () => {
     const nodes = new Map<string, RoutedNode>([
       ['selector', { inputs: { off: ['falseSource', 0], on: ['trueSource', 0] } }],
       ['falseSource', { inputs: {} }],

@@ -4,10 +4,10 @@
  * get dedicated rows, auto-size is a pure function of the row stack.
  */
 import { describe, expect, it } from 'vitest'
-import type { InputSpec, NodeData, NodeSchema, OutputSpec } from '@dinkster/core'
-import { asNodeId, elaborateInterface } from '@dinkster/core'
-import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
-import { defaultTokens } from '../src/tokens.js'
+import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
+import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
+import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = (spec) =>
@@ -28,33 +28,18 @@ const output = (id: string, over: Partial<OutputSpec> = {}): OutputSpec => ({
   kind: 'output', id, type: { kind: 'concrete', name: 'IMAGE' }, ...over,
 })
 
-const schemaOf = (items: NodeSchema['items'], displayName = 'Test'): NodeSchema => ({
+const schemaOf = (items: NodeSchema['body'], displayName = 'Test'): NodeSchema => ({
   type: 'Test',
   displayName,
   category: 'test',
   source: 'v3',
-  items,
+  body: items,
   isOutputNode: false,
 })
 const nodeData: NodeData = { id: asNodeId('n0'), type: 'Test', values: {} }
 
-const doLayout = (items: NodeSchema['items'], displayName?: string) =>
+const doLayout = (items: NodeSchema['body'], displayName?: string) =>
   layoutNode(schemaOf(items, displayName), nodeData, defaultTokens, measure, widgetMeasure)
-
-describe('conditional widget groups', () => {
-  const schema = { ...schemaOf([widget('mode', { widget: { widgetType: 'STRING', options: {}, default: 'basic' } }), widget('basic'), widget('advanced')]), widgetGroups: [{ input: 'mode', values: ['basic'], members: ['basic'] }, { input: 'mode', values: ['advanced'], members: ['advanced'] }] }
-
-  it('changes generic rows without deleting stored values', () => {
-    const node = { ...nodeData, values: { mode: 'advanced', basic: 4, advanced: 8 } }
-    expect(layoutNode(schema, node, defaultTokens, measure, widgetMeasure).rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(['mode', 'advanced'])
-    expect(node.values).toEqual({ mode: 'advanced', basic: 4, advanced: 8 })
-  })
-
-  it('keeps a connected controlled widget rendered', () => {
-    const layout = layoutNode(schema, { ...nodeData, values: { mode: 'basic' } }, defaultTokens, measure, widgetMeasure, { connectedPorts: new Set(['in:advanced']) })
-    expect(layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(['mode', 'basic', 'advanced'])
-  })
-})
 
 describe('pairing', () => {
   it('places an appended adjacent widget after its sibling without changing schema or value order', () => {
@@ -82,31 +67,68 @@ describe('pairing', () => {
     expect(realOutput.y).toBeGreaterThan(valueOutput.y)
   })
 
-  it('keeps adjacency inside each materialized branch and family member', () => {
-    const siblings = [widget('prefix'), widget('quality'), widget('mount', { adjacentTo: 'prefix' })]
-    const combo = widget('mode', { dynamic: {
-      kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'save', inputs: siblings }],
-    } })
-    const family = input('files', { dynamic: {
-      kind: 'autogrow', materialization: 'wire15', template: [combo],
-      naming: { kind: 'prefix', prefix: 'file', min: 1, max: 2 },
-    } })
-    for (const [items, values, prefixes] of [
-      [[combo], {}, ['mode']],
-      [[family], { 'files.m0.mode.prefix': 'first', 'files.m1.mode.prefix': 'second' }, ['files.m0.mode', 'files.m1.mode']],
+  it('keeps adjacency inside each chosen option and group member', () => {
+    const siblings: NodeSchema['body'] = [{ kind: 'row', rows: [widget('prefix'), widget('mount')] }, widget('quality')]
+    const combo: NodeSchema['body'][number] = {
+      kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'save', rows: siblings }],
+    }
+    const family: NodeSchema['body'][number] = {
+      kind: 'group', id: 'files', member: [combo],
+      keys: { kind: 'numbered', prefix: 'file', start: 0, pad: 0 }, grows: 'link', minMembers: 1, maxMembers: 2,
+    }
+    for (const [items, node, prefixes] of [
+      [[combo], nodeData, ['mode']],
+      [
+        [family],
+        { ...nodeData, values: { 'files.file0.mode.prefix': 'first', 'files.file1.mode.prefix': 'second' }, dynamic: { files: { members: ['file0', 'file1'], seq: 2 } } },
+        ['files.file0.mode', 'files.file1.mode'],
+      ],
     ] as const) {
       const schema = schemaOf(items)
-      const node = { ...nodeData, values }
       const before = JSON.stringify({ schema, node })
       const elaborated = elaborateInterface(schema, node)
       const layout = layoutNode(schema, node, defaultTokens, measure, widgetMeasure)
-      const rows = layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)
+      const widgets = layout.rows.filter((row) => row.kind === 'widget')
       for (const prefix of prefixes) {
-        expect(rows.filter((id) => id?.startsWith(`${prefix}.`))).toEqual([`${prefix}.prefix`, `${prefix}.mount`, `${prefix}.quality`])
-        expect(elaborated.items.filter((item) => item.kind === 'input' && item.spec.id.startsWith(`${prefix}.`)).map((item) => item.kind === 'input' && item.spec.id)).toEqual([`${prefix}.prefix`, `${prefix}.quality`, `${prefix}.mount`])
+        const rows = widgets.filter((row) => row.inputId?.startsWith(`${prefix}.`))
+        expect(rows.map((row) => row.inputId)).toEqual([`${prefix}.prefix`, `${prefix}.mount`, `${prefix}.quality`])
+        expect(rows[1]!.y).toBe(rows[0]!.y)
+        expect(rows[2]!.y).toBe(rows[0]!.y + rows[0]!.height)
+        expect(elaborated.items.filter((item) => item.kind === 'input' && item.spec.id.startsWith(`${prefix}.`)).map((item) => item.kind === 'input' && item.spec.id)).toEqual([`${prefix}.prefix`, `${prefix}.mount`, `${prefix}.quality`])
       }
       expect(JSON.stringify({ schema, node })).toBe(before)
     }
+  })
+
+  it('draws notes and buttons as rows, inside a Row on its line, and only under the chosen option', () => {
+    const note = (id: string, text: NoteSpec['text'], unknown?: string): NoteSpec =>
+      ({ kind: 'note', id, text, ...(unknown !== undefined ? { unknown } : {}) })
+    const button = (id: string, label: string): ButtonSpec => ({ kind: 'button', id, label, steps: [] })
+    const mode: NodeSchema['body'][number] = {
+      kind: 'choice', id: 'mode', required: true, shared: [],
+      options: [{ key: 'a', rows: [note('shown', 'under a')] }, { key: 'b', rows: [note('hidden', 'under b'), button('go', 'Go')] }],
+    }
+    const layout = doLayout([
+      note('intro', 'Plain text'),
+      { kind: 'row', rows: [widget('w'), note('size', { formula: 'w * 2' }, 'pending'), button('swap', 'Swap')] },
+      widget('after'),
+      mode,
+    ])
+    const kinds = layout.rows.map((row) => row.kind === 'note' ? `note:${row.noteId}:${row.text}${row.unknown ? ':unknown' : ''}`
+      : row.kind === 'button' ? `button:${row.buttonId}:${row.label}`
+        : row.kind === 'widget' ? `widget:${row.inputId}` : row.kind)
+    expect(kinds).toEqual(['note:intro:Plain text', 'widget:w', 'note:size:pending:unknown', 'button:swap:Swap', 'widget:after', 'widget:mode', 'note:mode.shown:under a'])
+    const [intro, w, size, swap, after] = layout.rows
+    expect(w!.y).toBe(intro!.y + intro!.height)
+    expect(size!.y).toBe(w!.y)
+    expect(swap!.y).toBe(w!.y)
+    const span = (row: (typeof layout.rows)[number] | undefined) =>
+      row !== undefined && 'width' in row ? [row.inset, row.inset + row.width!] : []
+    expect(span(w)[1]).toBeLessThanOrEqual(span(size)[0]!)
+    expect(span(size)[1]).toBeLessThanOrEqual(span(swap)[0]!)
+    expect(after!.y).toBe(w!.y + w!.height)
+    // Neither kind is a pin target.
+    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['w', 'after'])
   })
 
   it('outputs pair with connection-input rows top-down', () => {
@@ -143,32 +165,43 @@ describe('pairing', () => {
     ['INT', 'INT'],
     ['FLOAT', 'FLOAT'],
     ['BOOLEAN', 'BOOLEAN'],
-  ] as const)('renders forceInput wire-15 %s family members as pairable socket rows', (widgetType, typeName) => {
-    const family = input('values', {
-      type: { kind: 'wildcard' },
-      dynamic: {
-        kind: 'autogrow',
-        materialization: 'wire15',
-        naming: { kind: 'names', names: ['a', 'b'], min: 1 },
-        template: [input('value', {
-          type: { kind: 'concrete', name: typeName },
-          widget: { widgetType, options: {} },
-          forceInput: true,
-        })],
-      },
-    })
-    const layout = doLayout([family, output('x'), output('y')])
-    expect(layout.rows).toHaveLength(2)
-    expect(layout.rows[0]).toMatchObject({
-      kind: 'ports',
-      input: { portId: 'values.a', familyMember: true, type: { kind: 'concrete', name: typeName } },
-      output: { portId: 'x' },
-    })
+  ] as const)('renders forceInput %s group members as socket rows', (widgetType, typeName) => {
+    const family: NodeSchema['body'][number] = {
+      kind: 'group',
+      id: 'values',
+      value: input('value', {
+        type: { kind: 'concrete', name: typeName },
+        widget: { widgetType, options: {} },
+        forceInput: true,
+      }),
+      keys: { kind: 'named', names: ['a', 'b'] },
+      grows: 'link',
+      minMembers: 2,
+    }
+    // Member a is stored; member b is offered up to the minimum.
+    const layout = layoutNode(
+      schemaOf([family, output('x'), output('y')]),
+      { ...nodeData, dynamic: { values: { members: ['a'] } } },
+      defaultTokens,
+      measure,
+      widgetMeasure,
+    )
+    // The members sit in the group's box; the node's own outputs, outside
+    // it, take rows of their own after it.
+    expect(layout.rows).toHaveLength(5)
+    expect(layout.rows[0]).toMatchObject({ kind: 'section', sectionId: 'group:values', box: 'group' })
     expect(layout.rows[1]).toMatchObject({
       kind: 'ports',
-      input: { portId: 'values.b', familyMember: true, ghost: true, materialize: expect.any(Array) },
-      output: { portId: 'y' },
+      input: { portId: 'values.a', familyMember: true, type: { kind: 'concrete', name: typeName } },
     })
+    expect(layout.rows[2]).toMatchObject({
+      kind: 'ports',
+      input: { portId: 'values.b', familyMember: true, ghost: true, materialize: expect.any(Array) },
+    })
+    expect(layout.rows.slice(3)).toMatchObject([
+      { kind: 'ports', output: { portId: 'x' } },
+      { kind: 'ports', output: { portId: 'y' } },
+    ])
     expect(layout.rows.some((row) => row.kind === 'widget')).toBe(false)
     expect(layout.pins.filter((pin) => pin.direction === 'in')).toHaveLength(2)
     expect(layout.pins.filter((pin) => pin.direction === 'in').every((pin) => pin.widgetBacked === undefined)).toBe(true)
@@ -176,91 +209,84 @@ describe('pairing', () => {
     expect(layout.pins.some((pin) => pin.widgetTap === true)).toBe(false)
   })
 
-  it('derives a numeric literal for a wire-15 scalar union while retaining its socket type', () => {
-    const scalar = {
-      kind: 'union' as const,
-      names: ['FLOAT', 'INT', 'BOOLEAN'],
-    }
-    const family = input('values', {
-      type: { kind: 'wildcard' },
-      dynamic: {
-        kind: 'autogrow',
-        materialization: 'wire15',
-        naming: { kind: 'names', names: ['a', 'b'], min: 1 },
-        template: [input('value', { type: scalar })],
-      },
-    })
-    const layout = doLayout([family])
-    const rows = layout.rows.filter((row) => row.kind === 'widget')
-    expect(rows).toHaveLength(2)
-    expect(rows[0]).toMatchObject({
-      familyLiteral: true,
-      type: scalar,
-      spec: { widgetType: 'FLOAT', options: {} },
-    })
-    expect(layout.pins[0]).toMatchObject({ direction: 'in', type: scalar })
-    expect(layout.pins[0]!.widgetBacked).toBeUndefined()
-    expect(layout.pins.some((pin) => pin.direction === 'out')).toBe(false)
+  it.each([true, false])('draws a node\'s extra outputs above an ending box of outputs (closed: %s)', (closed) => {
+    const layout = layoutNode(
+      schemaOf([
+        input('a'),
+        { kind: 'section', id: 'settings', displayName: 'Settings', rows: [input('b')] },
+        output('image'),
+        output('mask'),
+        output('normal'),
+        { kind: 'section', id: 'more', displayName: 'More outputs', collapsedByDefault: true, rows: [output('extra')] },
+      ]),
+      nodeData, defaultTokens, measure, widgetMeasure,
+      { sectionOverrides: { more: closed } },
+    )
+    // A box that holds an input stays above them; the one of outputs ends the node.
+    expect(layout.rows.map((row) => row.kind === 'ports'
+      ? `${row.input?.portId ?? ''}|${row.output?.portId ?? ''}`
+      : row.kind === 'section' ? row.sectionId : row.kind)).toEqual([
+      'a|image',
+      'settings',
+      'b|',
+      '|mask',
+      '|normal',
+      'more',
+      ...(closed ? [] : ['|extra']),
+    ])
   })
 
-  it('uses a decimal editor for a named integer/boolean union', () => {
-    const scalar = {
-      kind: 'union' as const,
-      names: ['INT', 'BOOLEAN'],
-    }
-    const family = input('values', {
-      type: { kind: 'wildcard' },
-      dynamic: {
-        kind: 'autogrow',
-        materialization: 'wire15',
-        naming: { kind: 'names', names: ['a'], min: 1 },
-        template: [input('value', { type: scalar })],
-      },
-    })
-    const layout = doLayout([family])
-    expect(layout.rows[0]).toMatchObject({
-      kind: 'widget',
-      familyLiteral: true,
-      type: scalar,
-      spec: { widgetType: 'FLOAT', options: {} },
-    })
+  it('ends a reorderable group\'s spare member where the members\' fields end', () => {
+    const layout = layoutNode(
+      schemaOf([{
+        kind: 'group', id: 'colors', displayName: 'Colors', reorderable: true,
+        value: widget('color'), keys: { kind: 'numbered', prefix: 'color', start: 0, pad: 0 }, grows: 'filled', minMembers: 1,
+      }]),
+      // Both members are filled, so the group shows its spare.
+      { ...nodeData, values: { 'colors.color0': 1, 'colors.color1': 2 }, dynamic: { colors: { members: ['color0', 'color1'] } } },
+      defaultTokens, measure, widgetMeasure,
+    )
+    const fields = layout.rows.filter((row) => row.kind === 'widget') as Extract<(typeof layout.rows)[number], { kind: 'widget' }>[]
+    expect(fields.map((row) => [row.inputId, row.reorder !== undefined])).toEqual([
+      ['colors.color0', true], ['colors.color1', true], ['colors.color2', false],
+    ])
+    expect(new Set(fields.map((row) => `${row.inset} ${row.width}`)).size).toBe(1)
   })
 
-  it('keeps prefix family widgets as their existing socket rows', () => {
-    const family = input('values', {
-      type: { kind: 'wildcard' },
-      dynamic: {
-        kind: 'autogrow',
-        materialization: 'wire15',
-        naming: { kind: 'prefix', prefix: 'value', min: 1, max: 3 },
-        template: [input('value', {
+  it('starts a reorderable group\'s spare socket name where the members\' names start', () => {
+    const schema = schemaOf([{
+      kind: 'group', id: 'images', displayName: 'Images', reorderable: true,
+      value: input('image'), keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 }, grows: 'link', minMembers: 1,
+    }])
+    const node = { ...nodeData, dynamic: { images: { members: ['image0', 'image1'] } } }
+    // Both members are plugged in, so the group shows its spare.
+    const wired = { ...EMPTY_CONNECTIVITY, isInputConnected: (port: string) => port === 'images.image0' || port === 'images.image1' }
+    const layout = layoutNode(schema, node, defaultTokens, measure, widgetMeasure, { elaborated: elaborateInterface(schema, node, wired) })
+    const sockets = layout.rows.filter((row) => row.kind === 'ports') as Extract<(typeof layout.rows)[number], { kind: 'ports' }>[]
+    expect(sockets.map((row) => [row.input?.portId, row.reorder !== undefined])).toEqual([
+      ['images.image0', true], ['images.image1', true], ['images.image2', false],
+    ])
+    expect(new Set(sockets.map((row) => row.nameInset)).size).toBe(1)
+    // The grip stands between the pin on the node's edge and the name.
+    const grip = sockets[0]!.reorder!
+    expect(grip.gripX + canvasPaintTokens.node.box.gripWidth / 2).toBeLessThan(defaultTokens.rowGeometry.portLabelInset + sockets[0]!.nameInset!)
+  })
+
+  it('keeps force-input widgets of a chosen option as socket rows', () => {
+    const mode: NodeSchema['body'][number] = {
+      kind: 'choice',
+      id: 'mode',
+      required: true,
+      shared: [],
+      options: [{
+        key: 'active',
+        rows: [input('value', {
           type: { kind: 'concrete', name: 'INT' },
           widget: { widgetType: 'INT', options: {} },
           forceInput: true,
         })],
-      },
-    })
-    const layout = doLayout([family])
-    expect(layout.rows.filter((row) => row.kind === 'widget')).toEqual([])
-    expect(layout.rows.filter((row) => row.kind === 'ports').map((row) => row.input?.portId))
-      .toEqual(['values.m0', 'values.m1'])
-  })
-
-  it('keeps wire-15 branch force-input widgets as socket rows', () => {
-    const mode = input('mode', {
-      dynamic: {
-        kind: 'dynamicCombo',
-        materialization: 'wire15',
-        options: [{
-          key: 'active',
-          inputs: [input('value', {
-            type: { kind: 'concrete', name: 'INT' },
-            widget: { widgetType: 'INT', options: {} },
-            forceInput: true,
-          })],
-        }],
-      },
-    })
+      }],
+    }
     const layout = doLayout([mode])
     expect(layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(['mode'])
     expect(layout.rows.find((row) => row.kind === 'ports'))
@@ -343,20 +369,19 @@ describe('wire-17 widget representations', () => {
 
 })
 
-describe('document-time selector branch display', () => {
+describe('Switch branch display', () => {
+  const pick = input('switch', { type: { kind: 'union', names: ['INT', 'BOOLEAN'] }, optional: true })
+  const branches = (value: InputSpec, names: readonly string[]): NodeSchema['body'][number] => ({
+    kind: 'group', id: 'branch', value, keys: { kind: 'named', names: [...names] }, grows: 'link', minMembers: 1,
+  })
   const selectorSchema = (): NodeSchema => ({
-    ...schemaOf([
-      widget('switch', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
-      input('on_false'),
-      input('on_true'),
-      output('result'),
-    ]),
-    selector: { input: 'switch', branches: { false: 'on_false', true: 'on_true' } },
+    ...schemaOf([pick, branches(input('value', { optional: true, lazy: true }), ['a', 'b', 'c']), output('result')]),
+    selector: { input: 'switch', group: 'branch' },
   })
   const branchState = (values: NodeData['values']) => {
     const rows = layoutNode(
       selectorSchema(),
-      { ...nodeData, values },
+      { ...nodeData, values, dynamic: { branch: { members: ['c', 'a', 'b'] } } },
       defaultTokens,
       measure,
       widgetMeasure,
@@ -368,33 +393,14 @@ describe('document-time selector branch display', () => {
     ))
   }
 
-  it('projects the stored boolean onto active and inactive branch rows, with absent state neutral', () => {
-    expect(branchState({ switch: false })).toMatchObject({ on_false: 'normal', on_true: 'inactive' })
-    expect(branchState({ switch: true })).toMatchObject({ on_false: 'inactive', on_true: 'normal' })
-    expect(branchState({})).toMatchObject({ on_false: 'normal', on_true: 'normal' })
-  })
-
-  it('projects selector branches by raw port identity when elaborated ids are escaped', () => {
-    const schema: NodeSchema = {
-      ...schemaOf([input('branch#false'), input('branch%23false'), output('result')]),
-      selector: {
-        input: 'switch',
-        branches: { false: 'branch#false', true: 'branch%23false' },
-      },
-    }
-    const rows = layoutNode(
-      schema,
-      { ...nodeData, values: { switch: true } },
-      defaultTokens,
-      measure,
-      widgetMeasure,
-    ).rows
-    expect(rows.find((row) => row.kind === 'ports' && row.input?.address.port === 'branch#false')).toMatchObject({
-      input: { inactive: true },
-    })
-    expect(rows.find((row) => row.kind === 'ports' && row.input?.address.port === 'branch%23false')).not.toMatchObject({
-      input: { inactive: true },
-    })
+  it('dims every branch but the one the stored pick names', () => {
+    const only = (live: string) => Object.fromEntries(['a', 'b', 'c'].map((key) => [`branch.${key}`, key === live ? 'normal' : 'inactive']))
+    expect(branchState({ switch: 'a' })).toMatchObject(only('a'))
+    expect(branchState({ switch: 2 })).toMatchObject(only('b'))
+    expect(branchState({ switch: 'gone' })).toMatchObject(only('c'))
+    expect(branchState({})).toMatchObject(only('c'))
+    expect(branchState({ switch: 3 })).toMatchObject({ 'branch.a': 'normal', 'branch.b': 'normal', 'branch.c': 'normal' })
+    expect(branchState({ switch: true })).toMatchObject({ 'branch.a': 'normal', 'branch.b': 'normal', 'branch.c': 'normal' })
   })
 })
 
@@ -533,7 +539,7 @@ describe('sizing', () => {
     const schema = schemaOf([
       input('required', { type: { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } } }),
       widget('value'),
-      input('advanced', { advanced: true }),
+      { kind: 'section', id: 'advanced', displayName: 'Advanced', collapsedByDefault: true, rows: [input('advanced')] },
       output('result', { type: { kind: 'union', names: ['IMAGE', 'MASK'] } }),
     ], 'A')
     const layout = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
@@ -577,7 +583,7 @@ describe('sizing', () => {
     // pins; a long label in the collapsed Advanced section must not widen it.
     const hiddenWide = schemaOf([
       output('result'),
-      widget('a deliberately long advanced setting label', { advanced: true }),
+      { kind: 'section', id: 'advanced', displayName: 'Advanced', collapsedByDefault: true, rows: [widget('a deliberately long advanced setting label')] },
     ], 'A')
     const open = layoutNode(hiddenWide, nodeData, defaultTokens, measure, widgetMeasure)
     expect(open.rows.some((row) => row.kind === 'widget')).toBe(false)
@@ -585,31 +591,38 @@ describe('sizing', () => {
     expect(layoutNode(hiddenWide, nodeData, defaultTokens, measure, widgetMeasure, { minimized: true }).width)
       .toBe(defaultTokens.nodeMinWidth)
 
-    const family = input('images', {
-      dynamic: {
-        kind: 'autogrow',
-        naming: { kind: 'prefix', prefix: 'image', min: 1, max: 3 },
-        template: [input('image')],
-      },
-    })
+    const familySchema = schemaOf([{
+      kind: 'group',
+      id: 'images',
+      value: input('image'),
+      keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 },
+      grows: 'link',
+      minMembers: 1,
+      maxMembers: 3,
+    }])
+    const familyNode = { ...nodeData, dynamic: { images: { members: ['image0'], seq: 1 } } }
+    // The stored member is connected, so the group offers a spare member.
     const familyLayout = layoutNode(
-      schemaOf([family]),
-      { ...nodeData, dynamic: { images: { members: ['m0'], seq: 1 } } },
+      familySchema,
+      familyNode,
       defaultTokens,
       measure,
       widgetMeasure,
-      { minimized: true },
+      {
+        minimized: true,
+        elaborated: elaborateInterface(familySchema, familyNode, { ...EMPTY_CONNECTIVITY, isInputConnected: (port) => port === 'images.image0' }),
+      },
     )
     expect(familyLayout.pins).toHaveLength(2)
     expect(familyLayout.pins).toEqual(expect.arrayContaining([
       expect.objectContaining({
         familyMember: true,
-        address: expect.objectContaining({ members: ['m0'] }),
+        address: { port: 'images.image0' },
       }),
       expect.objectContaining({
         familyMember: true,
         ghost: true,
-        address: expect.objectContaining({ members: ['m1'] }),
+        address: { port: 'images.image1' },
       }),
     ]))
     expect(familyLayout.pins.every((pin) => pin.minimized === true)).toBe(true)
@@ -739,33 +752,34 @@ describe('manual size override', () => {
   })
 
   it('does not give manual height surplus to an inactive core.text branch', () => {
-    const text = (id: string) => widget(id, {
-      type: { kind: 'concrete', name: 'STRING' },
-      widget: { widgetType: 'STRING', options: { multiline: true } },
-    })
-    const items = [
-      widget('switch', {
-        type: { kind: 'concrete', name: 'BOOLEAN' },
-        widget: { widgetType: 'BOOLEAN', options: {} },
-      }),
-      text('active'),
-      text('inactive'),
+    const items: NodeSchema['body'] = [
+      input('switch', { type: { kind: 'union', names: ['INT', 'BOOLEAN'] }, optional: true }),
+      {
+        kind: 'group', id: 'branch', keys: { kind: 'named', names: ['active', 'inactive'] }, grows: 'link', minMembers: 1,
+        value: input('value', {
+          type: { kind: 'concrete', name: 'STRING' },
+          optional: true,
+          lazy: true,
+          widget: { widgetType: 'STRING', options: { multiline: true } },
+        }),
+      },
       input('after'),
     ]
     const schema: NodeSchema = {
       ...schemaOf(items),
-      selector: { input: 'switch', branches: { false: 'active', true: 'inactive' } },
+      selector: { input: 'switch', group: 'branch' },
     }
-    const selected = { ...nodeData, values: { switch: false } }
+    const selected = { ...nodeData, values: { switch: 'active' }, dynamic: { branch: { members: ['active', 'inactive'] } } }
     const natural = layoutNode(schema, selected, defaultTokens, measure, widgetMeasure)
     const grown = layoutNode(schema, selected, defaultTokens, measure, widgetMeasure, {
       size: { width: natural.width, height: natural.height + 61 },
     })
     const multilineHeight = defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight +
       2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding
-    expect(grown.rows[1]).toMatchObject({ kind: 'widget', inputId: 'active', height: multilineHeight + 61 })
-    expect(grown.rows[2]).toMatchObject({ kind: 'widget', inputId: 'inactive', height: multilineHeight, inactive: true })
-    expect(grown.rows[3]!.y - natural.rows[3]!.y).toBe(61)
+    expect(grown.rows[1]).toMatchObject({ kind: 'section', sectionId: 'group:branch' })
+    expect(grown.rows[2]).toMatchObject({ kind: 'widget', inputId: 'branch.active', height: multilineHeight + 61 })
+    expect(grown.rows[3]).toMatchObject({ kind: 'widget', inputId: 'branch.inactive', height: multilineHeight, inactive: true })
+    expect(grown.rows[4]!.y - natural.rows[4]!.y).toBe(61)
     expect(grown.pins.find((pin) => pin.portId === 'after')!.y - natural.pins.find((pin) => pin.portId === 'after')!.y).toBe(61)
   })
 
@@ -878,13 +892,14 @@ describe('in-node text output region', () => {
 })
 
 describe('sections', () => {
-  const section = (id: string, over: Partial<Extract<NodeSchema['items'][number], { kind: 'section' }>> = {}) =>
-    ({ kind: 'section', id, ...over }) as const
-  const items: NodeSchema['items'] = [
+  const section = (
+    id: string,
+    rows: NodeSchema['body'],
+    over: Partial<Omit<Extract<NodeSchema['body'][number], { kind: 'section' }>, 'kind' | 'id' | 'rows'>> = {},
+  ) => ({ kind: 'section' as const, id, rows, ...over })
+  const items: NodeSchema['body'] = [
     input('a'),
-    section('adv', { displayName: 'Advanced' }),
-    widget('w', { section: 'adv' }),
-    input('b', { section: 'adv', optional: true }),
+    section('adv', [widget('w'), input('b', { optional: true })], { displayName: 'Advanced' }),
     output('x'),
   ]
   const layout = (opts: Parameters<typeof layoutNode>[5] = {}) =>
@@ -904,121 +919,295 @@ describe('sections', () => {
     expect(node.values).toEqual({ provider: 'vision.depth.v2' })
   })
 
-  it('hides a dynamic choice subtree without hiding sibling controls or losing literals', () => {
+  it('hides a choice subtree without hiding sibling controls or losing literals', () => {
     for (const hidden of [false, true]) {
-      const schema = schemaOf([widget('prefix'), input('codec', {
+      const schema = schemaOf([widget('prefix'), {
+        kind: 'choice',
+        id: 'codec',
+        required: true,
+        shared: [],
         ...(hidden ? { hidden: true as const } : {}),
-        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'h264', inputs: [
-          widget('crf'), input('nested', { dynamic: { kind: 'dynamicCombo', options: [{ key: 'on', inputs: [widget('quality')] }] } }),
-        ] }] },
-      })])
-      const node = { ...nodeData, values: { 'codec.crf': 23, 'codec.nested.[on].quality': 7 } }
+        options: [{ key: 'h264', rows: [
+          widget('crf'),
+          { kind: 'choice', id: 'nested', required: true, shared: [], options: [{ key: 'on', rows: [widget('quality')] }] },
+        ] }],
+      }])
+      const node = { ...nodeData, values: { 'codec.crf': 23, 'codec.nested.quality': 7 } }
       const layout = layoutNode(schema, node, defaultTokens, measure, widgetMeasure)
       expect(layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(hidden
-        ? ['prefix'] : ['prefix', 'codec', 'codec.crf', 'codec.nested', 'codec.nested.[on].quality'])
+        ? ['prefix'] : ['prefix', 'codec', 'codec.crf', 'codec.nested', 'codec.nested.quality'])
       expect(layout.pins.some((pin) => String(pin.portId).startsWith('codec'))).toBe(!hidden)
-      expect(node.values).toEqual({ 'codec.crf': 23, 'codec.nested.[on].quality': 7 })
+      expect(node.values).toEqual({ 'codec.crf': 23, 'codec.nested.quality': 7 })
     }
   })
 
-  it('groups unsectioned advanced inputs under a collapsed Advanced row', () => {
-    const schema = schemaOf([widget('prompt'), widget('service', { advanced: true })])
-    const collapsed = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure)
-    expect(collapsed.rows).toMatchObject([
-      { kind: 'widget', inputId: 'prompt' },
-      { kind: 'section', sectionId: 'advanced', label: 'Advanced', collapsed: true },
-    ])
-    expect(collapsed.pins.some((pin) => pin.portId === 'service')).toBe(false)
-
-    const expanded = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
-      sectionOverrides: { advanced: false },
-    })
-    expect(expanded.rows).toMatchObject([
-      { kind: 'widget', inputId: 'prompt' },
-      { kind: 'section', sectionId: 'advanced', collapsed: false },
-      { kind: 'widget', inputId: 'service' },
-    ])
-    expect(expanded.advancedGroup).toEqual({
-      y: expanded.rows[1]!.y,
-      height: expanded.rows[1]!.height + expanded.rows[2]!.height,
-    })
-  })
-
-  it('keeps generated Advanced after ordinary inputs and outputs in both states', () => {
-    const schema = schemaOf([
-      widget('first'),
-      input('advancedSocket', { advanced: true }),
-      widget('last'),
-      widget('advancedWidget', { advanced: true }),
-      output('result'),
-    ])
-    const collapsed = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure)
-    const l = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
-      sectionOverrides: { advanced: false },
-      size: { width: defaultTokens.nodeMinWidth, height: 0 },
-    })
-    const rowIdentity = (row: typeof l.rows[number]): string =>
-      row.kind === 'widget'
-        ? row.inputId
-        : row.kind === 'ports'
-          ? row.input?.portId ?? row.output?.portId ?? 'ports'
-          : row.kind
-    expect(collapsed.rows.map(rowIdentity)).toEqual(['first', 'last', 'result', 'section'])
-    expect(l.rows.map(rowIdentity)).toEqual([
-      'first', 'last', 'result', 'section', 'advancedSocket', 'advancedWidget',
-    ])
-    expect(l.rows[4]).toMatchObject({ kind: 'ports', input: { portId: 'advancedSocket' } })
-    expect((l.rows[4] as { output?: unknown }).output).toBeUndefined()
-    const group = l.advancedGroup!
-    expect(group.y).toBe(l.rows[3]!.y)
-    expect(group.y).toBe(collapsed.rows[3]!.y)
-    expect(group.y + group.height).toBe(l.rows[5]!.y + l.rows[5]!.height)
-    expect(l.pins.find((pin) => pin.portId === 'result')!.y).toBeLessThan(group.y)
-    expect(l.width).toBe(defaultTokens.nodeMinWidth)
-    expect(l.pins.filter((pin) => ['advancedSocket', 'advancedWidget'].includes(pin.portId))).toHaveLength(3)
-  })
-
-  it('includes an Advanced dynamic-family growth row in the enclosure', () => {
-    const nestedOnly = input('items', {
-      section: 'advanced',
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('sub', {
-          optional: true,
-          dynamic: {
-            kind: 'autogrow',
-            template: [input('value', { optional: true })],
-            naming: { kind: 'prefix', prefix: 'value', min: 0, max: 2 },
-          },
-        })],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 2 },
-      },
-    })
+  it('draws Advanced as a box around its rows, a group and its growth row included', () => {
+    const nestedOnly: NodeSchema['body'][number] = {
+      kind: 'group',
+      id: 'items',
+      member: [{
+        kind: 'group',
+        id: 'sub',
+        value: input('value', { optional: true }),
+        keys: { kind: 'numbered', prefix: 'value', start: 0, pad: 0 },
+        grows: 'link',
+        minMembers: 0,
+        maxMembers: 2,
+      }],
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+      grows: 'link',
+      minMembers: 0,
+      maxMembers: 2,
+    }
     const l = layoutNode(
-      schemaOf([section('advanced', { displayName: 'Advanced' }), nestedOnly]),
+      schemaOf([section('advanced', [nestedOnly], { displayName: 'Advanced' })]),
       nodeData,
       defaultTokens,
       measure,
       widgetMeasure,
     )
     expect(l.rows).toMatchObject([
-      { kind: 'section', sectionId: 'advanced', collapsed: false },
+      { kind: 'section', sectionId: 'advanced', box: 'section', collapsed: false },
+      // A group that declares a maximum carries it to its header: "0 of 2".
+      { kind: 'section', sectionId: 'group:items', box: 'group', collapsed: false, count: 0, maxCount: 2 },
       { kind: 'growth', construct: 'items' },
     ])
-    expect(l.advancedGroup).toEqual({
-      y: l.rows[0]!.y,
-      height: l.rows[0]!.height + l.rows[1]!.height,
+    expect(l.boxes).toMatchObject([
+      { id: 'advanced', depth: 1, first: 0, last: 2 },
+      { id: 'group:items', depth: 2, first: 1, last: 2 },
+    ])
+    const [outer, inner] = l.boxes!
+    const growth = l.rows[2]!
+    expect(outer!.y).toBe((l.rows[0] as { top: number }).top)
+    expect(inner!.x).toBeGreaterThan(outer!.x)
+    expect(inner!.y + inner!.height).toBeGreaterThan(growth.y + growth.height - defaultTokens.rowGeometry.fieldInsetY)
+    expect(outer!.y + outer!.height).toBeGreaterThan(inner!.y + inner!.height)
+  })
+
+  it('narrows a field by 8 px a side in one box and 9 more per level, its outline past the pins', () => {
+    const member = { kind: 'group' as const, id: 'loras', member: [widget('name'), widget('strength')],
+      keys: { kind: 'numbered' as const, prefix: 'lora', start: 0, pad: 0 }, grows: 'button' as const, minMembers: 1 }
+    const l = layoutNode(
+      schemaOf([widget('outside'), section('outer', [widget('one'), member], { displayName: 'Outer' })]),
+      nodeData, defaultTokens, measure, widgetMeasure,
+    )
+    const insetOf = (id: string) => (l.rows.find((r) => r.kind === 'widget' && r.inputId === id) as { inset: number }).inset
+    // A group that declares no maximum shows its count alone.
+    expect(l.rows.find((r) => r.kind === 'section' && r.sectionId === 'group:loras')).toMatchObject({ count: 1 })
+    expect(l.rows.find((r) => r.kind === 'section' && r.sectionId === 'group:loras')).not.toHaveProperty('maxCount')
+    const outside = insetOf('outside')
+    // section > group > member: three boxes deep.
+    expect([insetOf('one'), insetOf('loras.lora0.name')]).toEqual([outside + 8, outside + 8 + 9 + 9])
+    const outer = l.boxes!.find((b) => b.id === 'outer')!
+    expect(insetOf('one') - (outer.x + canvasPaintTokens.node.box.stroke)).toBe(8)
+    expect(outer.x - defaultTokens.pinRadius).toBeGreaterThanOrEqual(1)
+  })
+
+  it('a row inside its member box draws only its own label; pins and a one-row member keep the full name', () => {
+    const numbered = (prefix: string) => ({ kind: 'numbered' as const, prefix, start: 0, pad: 0 })
+    const l = doLayout([
+      { kind: 'group', id: 'loras', member: [widget('name'), input('clip'), output('out')], keys: numbered('lora'), grows: 'button', minMembers: 1 },
+      { kind: 'group', id: 'ones', member: [widget('w')], keys: numbered('one'), grows: 'button', minMembers: 1 },
+    ])
+    const field = l.rows.find((row) => row.kind === 'widget' && row.inputId === 'loras.lora0.name')
+    expect(field).toMatchObject({ label: 'name', name: 'lora 1 name' })
+    const ports = l.rows.filter((row) => row.kind === 'ports')
+    expect(ports.map((row) => [row.input?.label, row.input?.name, row.output?.label, row.output?.name]))
+      .toEqual([['clip', 'lora 1 clip', 'out', 'lora 1 out']])
+    // A pin is named away from the box: in its tooltip and in wire menus.
+    expect(l.pins.filter((pin) => pin.portId.startsWith('loras.')).map((pin) => pin.label).sort())
+      .toEqual(['lora 1 clip', 'lora 1 name', 'lora 1 name', 'lora 1 out'])
+    // A member of one row has no box to name it, so its row keeps the member's label.
+    const one = l.rows.find((row) => row.kind === 'widget' && row.inputId === 'ones.one0.w')
+    expect(one).toMatchObject({ label: 'one 1 w' })
+    expect(one).not.toHaveProperty('name')
+  })
+
+  it('opening or closing a box moves neither its name nor any row above it', () => {
+    const nested: NodeSchema['body'] = [
+      input('a'),
+      widget('top'),
+      section('outer', [
+        widget('w1'),
+        {
+          kind: 'group',
+          id: 'loras',
+          member: [widget('name'), widget('strength')],
+          keys: { kind: 'numbered', prefix: 'lora', start: 0, pad: 0 },
+          grows: 'button',
+          minMembers: 2,
+        },
+        section('inner', [widget('q')], { displayName: 'Inner', openName: false }),
+      ], { displayName: 'Outer' }),
+      widget('after'),
+      output('x'),
+    ]
+    const key = (row: { kind: string }) =>
+      'inputId' in row ? `${row.kind}:${String(row.inputId)}`
+        : 'sectionId' in row ? `${row.kind}:${String(row.sectionId)}`
+          : 'input' in row && row.input ? `ports:${String((row.input as { portId: string }).portId)}`
+            : row.kind
+    for (const box of ['outer', 'group:loras', 'inner']) {
+      const [open, closed] = [false, true].map((shut) =>
+        layoutNode(schemaOf(nested), nodeData, defaultTokens, measure, widgetMeasure, {
+          sectionOverrides: { [box]: shut },
+        }))
+      const at = (l: typeof open) => l!.rows.findIndex((row) => row.kind === 'section' && row.sectionId === box)
+      const above = (l: typeof open) => l!.rows.slice(0, at(l)).map((row) => [key(row), row.y])
+      expect(at(open), box).toBeGreaterThan(0)
+      expect(above(closed), box).toEqual(above(open))
+      const [openHeader, closedHeader] = [open, closed].map((l) => l!.rows[at(l)] as { top: number; tab?: boolean })
+      // A box with no name while open shows only a tab on its top edge.
+      if (!openHeader!.tab) expect(closedHeader!.top, box).toBe(openHeader!.top)
+      expect(closed!.height, box).toBeLessThan(open!.height)
+    }
+  })
+
+  it('lists every port a closed box hides, wired or not, for a wire dropped on its row', () => {
+    const l = layout({ sectionOverrides: { adv: true }, connectedPorts: new Set(['in:b']) })
+    const row = l.rows.find((r) => r.kind === 'section')!
+    expect(row.kind === 'section' && row.hiddenPorts?.map((p) => [p.portId, p.direction, p.widgetBacked ?? false]))
+      .toEqual([['w', 'in', true], ['b', 'in', false]])
+    expect(layout().rows.find((r) => r.kind === 'section')).not.toHaveProperty('hiddenPorts')
+  })
+
+  it('ends each one-row member of a group grown by hand with a remove cross, once the cross is on', () => {
+    const group = (grows: 'button' | 'link'): NodeSchema['body'][number] => ({
+      kind: 'group',
+      id: 'prompts',
+      value: widget('prompt'),
+      keys: { kind: 'numbered', prefix: 'prompt', start: 0, pad: 0 },
+      grows,
+      minMembers: 2,
     })
+    const fields = (grows: 'button' | 'link', tokens = { ...defaultTokens, memberRemoveCross: true }) => {
+      const l = layoutNode(schemaOf([widget('top'), group(grows)]), nodeData, tokens, measure, widgetMeasure)
+      const outline = l.boxes!.find((b) => b.id === 'group:prompts')!
+      // From the inner side of the group's outline to the node's right edge.
+      const outlineRight = l.width - (outline.x + outline.width - canvasPaintTokens.node.box.stroke)
+      return l.rows.flatMap((r) => r.kind === 'widget'
+        ? [{ id: r.inputId, inset: r.inset, cross: r.crossInset, right: l.width - r.inset - (r.width ?? l.width - r.inset * 2), outlineRight }]
+        : [])
+    }
+    const cross = canvasPaintTokens.node.box.cross
+    const [top, ...members] = fields('button')
+    expect(top).toMatchObject({ id: 'top', cross: undefined, right: top!.inset })
+    expect(members.map((m) => m.id)).toEqual(['prompts.prompt0', 'prompts.prompt1'])
+    for (const member of members) {
+      // The cross stands as far inside the outline as before the field's end.
+      expect(member.cross! - member.outlineRight).toBe(cross.fieldGap)
+      expect(member.right - (member.cross! + cross.size)).toBe(cross.fieldGap)
+    }
+    expect(fields('link').every((field) => field.cross === undefined)).toBe(true)
+    // The editor draws no cross until pressing it removes the member.
+    expect(fields('button', defaultTokens).every((field) => field.cross === undefined && field.right === field.inset)).toBe(true)
+  })
+
+  it('draws no box for a group hidden by its visible, and its box again while a member is wired', () => {
+    const schema = schemaOf([widget('top'), {
+      kind: 'group', id: 'prompts', displayName: 'Prompts', visible: false,
+      value: widget('prompt'), keys: { kind: 'numbered', prefix: 'prompt', start: 0, pad: 0 }, grows: 'button', minMembers: 1,
+    }])
+    const node = { ...nodeData, dynamic: { prompts: { members: ['prompt0'] } } }
+    const hidden = layoutNode(schema, node, defaultTokens, measure, widgetMeasure)
+    expect(hidden.boxes ?? []).toEqual([])
+    expect(hidden.rows.map((row) => row.kind)).toEqual(['widget'])
+    const wired = { ...EMPTY_CONNECTIVITY, isInputConnected: (port: string) => port === 'prompts.prompt0', inputPorts: () => ['prompts.prompt0'] }
+    const shown = layoutNode(schema, node, defaultTokens, measure, widgetMeasure, { elaborated: elaborateInterface(schema, node, wired) })
+    expect(shown.boxes?.map((b) => b.id)).toEqual(['group:prompts'])
+  })
+
+  it('leaves a step under an inner box or add row in a box, and bottomGap under a field', () => {
+    const box = canvasPaintTokens.node.box
+    const sides = { field: box.bottomGap, outline: box.step }
+    const stroke = box.stroke
+    const lay = (body: NodeSchema['body'], dynamic = {}) =>
+      layoutNode(schemaOf(body), { ...nodeData, dynamic }, defaultTokens, measure, widgetMeasure)
+    const outline = (l: ReturnType<typeof lay>, id: string) => l.boxes!.find((b) => b.id === id)!
+    const prompts = (maxMembers: number) => ({
+      kind: 'group' as const, id: 'p', displayName: 'P', keys: { kind: 'numbered' as const, prefix: 'p', start: 0, pad: 0 },
+      member: [widget('text'), widget('weight')], grows: 'button' as const, minMembers: 1, maxMembers, addLabel: 'Add',
+    })
+    // A group ending in its add row: the add row's outline stands a step above the group's.
+    const adding = lay([prompts(4), widget('after')], { p: { members: ['p0'] } })
+    const add = adding.rows.find((row) => row.kind === 'growth')!
+    const addOutlineBottom = add.y + add.height - defaultTokens.rowGeometry.fieldInsetY
+    const group = outline(adding, 'group:p')
+    expect(group.y + group.height - stroke - addOutlineBottom).toBe(sides.outline)
+    // A group at its most members ends in a member box: a step again.
+    const full = lay([prompts(1), widget('after')], { p: { members: ['p0'] } })
+    const member = outline(full, 'member:p.p0')
+    const fullGroup = outline(full, 'group:p')
+    expect(fullGroup.y + fullGroup.height - stroke - (member.y + member.height)).toBe(sides.outline)
+    // A section ending in a field: the field's own inset.
+    const fielded = lay([{ kind: 'section', id: 's', displayName: 'S', rows: [widget('a')] }, widget('after')])
+    const field = fielded.rows.find((row) => row.kind === 'widget' && row.inputId === 'a')!
+    const section = outline(fielded, 's')
+    expect(section.y + section.height - stroke - (field.y + field.height - defaultTokens.rowGeometry.fieldInsetY)).toBe(sides.field)
+    // A box that ends the node is as far from its bottom edge as from its side.
+    const ending = lay([widget('before'), { kind: 'section', id: 's', displayName: 'S', rows: [widget('a')] }])
+    const last = outline(ending, 's')
+    expect(ending.height - (last.y + last.height)).toBe(last.x)
+  })
+
+  it('gives a group add row as much room above as below, and keeps member boxes apart', () => {
+    const box = canvasPaintTokens.node.box
+    const inset = defaultTokens.rowGeometry.fieldInsetY
+    const group = (member: Partial<NodeSchema['body'][number]>, minMembers: number) => ({
+      kind: 'group' as const, id: 'p', displayName: 'P', keys: { kind: 'numbered' as const, prefix: 'p', start: 0, pad: 0 },
+      grows: 'button' as const, minMembers, maxMembers: 4, addLabel: 'Add', ...member,
+    }) as NodeSchema['body'][number]
+    const lay = (body: NodeSchema['body'], members: string[]) =>
+      layoutNode(schemaOf(body), { ...nodeData, dynamic: { p: { members } } }, defaultTokens, measure, widgetMeasure)
+    /** From what ends above the add row to its lit top edge, and from the line under it to the group's outline. */
+    const room = (l: ReturnType<typeof lay>, endAbove: number) => {
+      const add = l.rows.find((row) => row.kind === 'growth')!
+      const outline = l.boxes!.find((b) => b.id === 'group:p')!
+      return { above: add.y + inset - endAbove, below: outline.y + outline.height - box.stroke - (add.y + add.height) }
+    }
+    const boxes = lay([group({ member: [widget('text'), widget('weight')] }, 1), widget('after')], ['p0', 'p1'])
+    const [first, second] = ['member:p.p0', 'member:p.p1'].map((id) => boxes.boxes!.find((b) => b.id === id)!)
+    expect(second!.y - (first!.y + first!.height)).toBe(box.memberGap)
+    const rows = lay([group({ value: widget('text') }, 1), widget('after')], ['p0'])
+    const field = rows.rows.find((row) => row.kind === 'widget' && row.inputId === 'p.p0')!
+    const empty = lay([group({ value: widget('text') }, 0), widget('after')], [])
+    const header = empty.rows.find((row) => row.kind === 'section')!
+    for (const r of [
+      room(boxes, second!.y + second!.height),
+      room(rows, field.y + field.height - inset),
+      room(empty, header.y + header.height),
+    ]) {
+      expect(r.below).toBe(box.step - inset)
+      expect(r.above).toBe(r.below)
+    }
+    // A box header under a field or a pin row stands `headerGap` below it.
+    for (const above of [widget('top'), input('top')]) {
+      const l = lay([above, { kind: 'section', id: 's', displayName: 'S', rows: [widget('a')] }], [])
+      const row = l.rows[0]!
+      const section = l.boxes!.find((b) => b.id === 's')!
+      expect(section.y - (row.y + row.height - inset)).toBe(box.headerGap)
+    }
+    // After a box, open or closed, the next box header and the next field stand `boxGap` under its outline.
+    for (const closed of [false, true]) {
+      const l = layoutNode(schemaOf([
+        { kind: 'section', id: 's', displayName: 'S', rows: [widget('a')] },
+        { kind: 'section', id: 't', displayName: 'T', rows: [widget('b')] },
+        { kind: 'section', id: 'u', displayName: 'U', rows: [widget('c')] },
+        widget('after'),
+      ]), nodeData, defaultTokens, measure, widgetMeasure, { sectionOverrides: { s: closed, t: false, u: closed } })
+      const [s, t, u] = ['s', 't', 'u'].map((id) => l.boxes!.find((b) => b.id === id)!)
+      const after = l.rows.find((row) => row.kind === 'widget' && row.inputId === 'after')!
+      expect(t!.y - (s!.y + s!.height)).toBe(box.boxGap)
+      expect(after.y + inset - (u!.y + u!.height)).toBe(box.boxGap)
+    }
   })
 
   it('keeps declared Advanced members continuous without enclosing primary rows or outputs', () => {
     const l = layoutNode(
       schemaOf([
         input('before'),
-        section('advanced', { displayName: 'Advanced' }),
-        input('tuning', { section: 'advanced' }),
+        section('advanced', [input('tuning'), input('expert')], { displayName: 'Advanced' }),
         input('after'),
-        input('expert', { section: 'advanced' }),
         output('first'),
         output('second'),
       ]),
@@ -1034,34 +1223,34 @@ describe('sections', () => {
       { kind: 'ports', input: { portId: 'tuning' } },
       { kind: 'ports', input: { portId: 'expert' } },
     ])
-    const group = l.advancedGroup!
-    expect(group.y).toBe(l.rows[2]!.y)
-    expect(group.y + group.height).toBe(l.rows[4]!.y + l.rows[4]!.height)
-    expect(l.pins.find((pin) => pin.portId === 'second')!.y).toBeLessThan(group.y)
+    const [group] = l.boxes!
+    expect(group).toMatchObject({ id: 'advanced', first: 2, last: 4 })
+    expect(group!.y + group!.height).toBeGreaterThan(l.rows[4]!.y + l.rows[4]!.height - defaultTokens.rowGeometry.fieldInsetY)
+    expect(l.pins.find((pin) => pin.portId === 'second')!.y).toBeLessThan(group!.y)
   })
 
   it('keeps connected Advanced sockets as collapsed disclosure proxies', () => {
-    const schema = schemaOf([input('socket', { advanced: true }), widget('value', { advanced: true })])
+    const schema = schemaOf([section('advanced', [input('socket'), widget('value')], { displayName: 'Advanced', collapsedByDefault: true })])
     const l = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
       connectedPorts: new Set(['in:socket', 'in:value', 'out:value']),
     })
     expect(l.rows).toMatchObject([{ kind: 'section', collapsed: true }])
-    const header = l.rows[0]!
+    const center = (l.rows[0] as { top: number }).top + (defaultTokens.rowHeight - defaultTokens.rowGeometry.fieldInsetY * 2) / 2
     expect(l.pins).toMatchObject([
       { portId: 'socket', direction: 'in', collapsedSection: 'advanced' },
       { portId: 'value', direction: 'in', collapsedSection: 'advanced' },
       { portId: 'value', direction: 'out', widgetTap: true, collapsedSection: 'advanced' },
     ])
-    expect(l.pins.every((pin) => pin.y === header.y + header.height / 2)).toBe(true)
-    expect(l.advancedGroup).toBeUndefined()
+    // Two pins at one end overlap in a cluster around the closed row's
+    // middle, 7 apart; one pin sits on the middle.
+    expect(l.pins.map((pin) => pin.y)).toEqual([center - 3.5, center + 3.5, center])
+    expect(l.boxes).toMatchObject([{ id: 'advanced', closed: true, first: 0, last: 0 }])
   })
 
   it('keeps declared Advanced outputs inside the enclosure and proxies connected outputs when collapsed', () => {
     const schema = schemaOf([
       input('primary'),
-      section('advanced', { displayName: 'Advanced' }),
-      input('tuning', { section: 'advanced' }),
-      output('diagnostic', { section: 'advanced' }),
+      section('advanced', [input('tuning'), output('diagnostic')], { displayName: 'Advanced' }),
       output('result'),
     ])
     const expanded = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure)
@@ -1074,10 +1263,7 @@ describe('sections', () => {
         output: { portId: 'diagnostic' },
       },
     ])
-    expect(expanded.advancedGroup).toEqual({
-      y: expanded.rows[1]!.y,
-      height: expanded.rows[1]!.height + expanded.rows[2]!.height,
-    })
+    expect(expanded.boxes).toMatchObject([{ id: 'advanced', first: 1, last: 2 }])
     expect(expanded.pins.filter((pin) => ['tuning', 'diagnostic'].includes(pin.portId))).toHaveLength(2)
 
     const collapsed = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
@@ -1093,22 +1279,20 @@ describe('sections', () => {
       { direction: 'in', collapsedSection: 'advanced' },
       { direction: 'out', collapsedSection: 'advanced' },
     ])
-    expect(collapsed.advancedGroup).toBeUndefined()
+    expect(collapsed.boxes).toMatchObject([{ id: 'advanced', closed: true }])
   })
 
   it('keeps Advanced bounds aligned when a primary text row is resized', () => {
     const schema = schemaOf([
       widget('prompt', { widget: { widgetType: 'STRING', options: { multiline: true } } }),
-      widget('tuning', { advanced: true }),
+      section('advanced', [widget('tuning')], { displayName: 'Advanced' }),
     ])
     const base = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
       sectionOverrides: { advanced: false },
     })
     const resized = projectNodeLayoutHeight(base, base.height + 48, defaultTokens)
-    expect(resized.advancedGroup).toEqual({
-      y: base.advancedGroup!.y + 48,
-      height: base.advancedGroup!.height,
-    })
+    expect(resized.boxes![0]!.y).toBe(base.boxes![0]!.y + 48)
+    expect(resized.boxes![0]!.height).toBe(base.boxes![0]!.height)
   })
 
   it('emits a section header row at its declared position', () => {
@@ -1123,21 +1307,42 @@ describe('sections', () => {
     expect(pinIds).toEqual(['in:a', 'in:b', 'in:w', 'out:w', 'out:x'])
   })
 
-  it('collapsing hides member rows and unconnected member pins', () => {
+  it('collapsing hides member rows; a socket keeps its pin and an unwired field has none', () => {
     const l = layout({ sectionOverrides: { adv: true } })
     // Output x pairs into input a's socket row (top-down pairing), so hiding
     // b's row leaves just the paired row and the section header.
     expect(l.rows.map((r) => r.kind)).toEqual(['ports', 'section'])
     expect(l.rows[1]).toMatchObject({ kind: 'section', collapsed: true })
     const pinIds = l.pins.map((p) => `${p.direction}:${p.portId}`).sort()
-    expect(pinIds).toEqual(['in:a', 'out:x'])
+    expect(pinIds).toEqual(['in:a', 'in:b', 'out:x'])
+    expect(l.pins.find((p) => p.portId === 'b')).toMatchObject({ collapsedSection: 'adv', label: 'b' })
+  })
+
+  it('draws at most three pins on a closed box side, wired first, and stacks further wires on the last', () => {
+    const sockets = ['s1', 's2', 's3', 's4', 's5']
+    const schema = schemaOf([section('more', sockets.map((id) => input(id)), { displayName: 'More', collapsedByDefault: true })])
+    const pinsOf = (wired: readonly string[]) => layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
+      connectedPorts: new Set(wired.map((id) => `in:${id}`)),
+    }).pins
+    const center = (pins: ReturnType<typeof pinsOf>) => pins.find((pin) => pin.portId === 's1')!.y
+    // One wire: the wired pin leads, then the first unwired ones; s3 and s5 are not drawn.
+    const one = pinsOf(['s4'])
+    expect(one.map((pin) => pin.portId)).toEqual(['s4', 's1', 's2'])
+    expect(one.map((pin) => pin.y - center(one))).toEqual([-6, 0, 6])
+    expect(one.some((pin) => pin.stacked)).toBe(false)
+    // Five wires: three are drawn; s4 and s5 end on s3, the last drawn pin.
+    const all = pinsOf(sockets)
+    expect(all.map((pin) => [pin.portId, pin.stacked ?? false])).toEqual([
+      ['s1', false], ['s2', false], ['s3', false], ['s4', true], ['s5', true],
+    ])
+    expect(new Set(all.slice(2).map((pin) => pin.y)).size).toBe(1)
   })
 
   it('connected members of a collapsed section keep pins anchored on the header row', () => {
     const l = layout({ sectionOverrides: { adv: true }, connectedPorts: new Set(['in:b']) })
     const pinB = l.pins.find((p) => p.portId === 'b')!
-    const header = l.rows.find((r) => r.kind === 'section')!
-    expect(pinB.y).toBe(header.y + header.height / 2)
+    const closed = l.boxes!.find((b) => b.closed)!
+    expect(pinB.y).toBe(closed.y + closed.height / 2)
     expect(pinB.optional).toBe(true)
     // The unconnected member stays hidden.
     expect(l.pins.find((p) => p.portId === 'w')).toBeUndefined()
@@ -1151,9 +1356,8 @@ describe('sections', () => {
   })
 
   it('collapsedByDefault applies without an override and an override can expand it', () => {
-    const defaultItems: NodeSchema['items'] = [
-      section('adv', { displayName: 'Advanced', collapsedByDefault: true }),
-      widget('w', { section: 'adv' }),
+    const defaultItems: NodeSchema['body'] = [
+      section('adv', [widget('w')], { displayName: 'Advanced', collapsedByDefault: true }),
       output('x'),
     ]
     const closed = layoutNode(schemaOf(defaultItems), nodeData, defaultTokens, measure, widgetMeasure)
@@ -1165,7 +1369,7 @@ describe('sections', () => {
   })
 
   it('members of an UNDECLARED section render normally (schema bug, not a hole)', () => {
-    const buggy: NodeSchema['items'] = [widget('w', { section: 'ghost' }), output('x')]
+    const buggy: NodeSchema['body'] = [widget('w', { section: 'ghost' }), output('x')]
     const l = layoutNode(schemaOf(buggy), nodeData, defaultTokens, measure, widgetMeasure, {
       sectionOverrides: { ghost: true },
     })
@@ -1173,10 +1377,11 @@ describe('sections', () => {
   })
 
   it('collapsed sections count hidden MODIFIED widget values (derived, never stored)', () => {
-    const tunable: NodeSchema['items'] = [
-      section('adv', { displayName: 'Advanced' }),
-      widget('w', { section: 'adv', widget: { widgetType: 'INT', options: {}, default: 20 } }),
-      widget('v', { section: 'adv', widget: { widgetType: 'INT', options: {}, default: 5 } }),
+    const tunable: NodeSchema['body'] = [
+      section('adv', [
+        widget('w', { widget: { widgetType: 'INT', options: {}, default: 20 } }),
+        widget('v', { widget: { widgetType: 'INT', options: {}, default: 5 } }),
+      ], { displayName: 'Advanced' }),
       output('x'),
     ]
     const withValues = (values: NodeData['values'], collapsed = true) =>
@@ -1200,12 +1405,12 @@ describe('sections', () => {
   })
 
   it('controller widgets never trip the hidden-modified indicator', () => {
-    const items: NodeSchema['items'] = [
-      section('adv', {}),
-      widget('seed', {
-        section: 'adv',
-        widget: { widgetType: 'INT', options: {}, default: 0, controller: 'after_generate' },
-      }),
+    const items: NodeSchema['body'] = [
+      section('adv', [
+        widget('seed', {
+          widget: { widgetType: 'INT', options: {}, default: 0, controller: 'after_generate' },
+        }),
+      ]),
       output('x'),
     ]
     const row = layoutNode(
@@ -1220,17 +1425,12 @@ describe('sections', () => {
   })
 
   it('hidden outputs are excluded from row pairing', () => {
-    const outItems: NodeSchema['items'] = [
+    const outItems: NodeSchema['body'] = [
       input('a'),
-      section('outs', {}),
-      output('hidden1'),
+      section('outs', [output('hidden1')]),
       output('visible'),
     ]
-    // Attach the first output to the section.
-    const patched = outItems.map((it) =>
-      it.kind === 'output' && it.id === 'hidden1' ? { ...it, section: 'outs' } : it,
-    )
-    const l = layoutNode(schemaOf(patched), nodeData, defaultTokens, measure, widgetMeasure, {
+    const l = layoutNode(schemaOf(outItems), nodeData, defaultTokens, measure, widgetMeasure, {
       sectionOverrides: { outs: true },
     })
     const portRows = l.rows.filter((r) => r.kind === 'ports')
@@ -1248,19 +1448,190 @@ describe('v14 COMBO layout', () => {
   it('preserves COMBO identity on widget pins, taps, and output slots', () => {
     const l = doLayout([comboWidget('forced', { forceInput: true }), comboWidget('backed'), comboOutput('choice')])
     expect(l.pins.filter((p) => ['forced', 'backed', 'choice'].includes(p.portId)).every((pin) => JSON.stringify(pin.type).includes('COMBO'))).toBe(true)
-    expect(l.pins.find((p) => p.portId === 'backed' && p.direction === 'out')).toMatchObject({ widgetTap: true, staticWidgetTap: true, type: { name: 'COMBO' } })
+    expect(l.pins.find((p) => p.portId === 'backed' && p.direction === 'out')).toMatchObject({ widgetTap: true, type: { name: 'COMBO' } })
     expect(l.rows.find((r) => r.kind === 'ports' && r.output?.portId === 'choice')).toMatchObject({ output: { type: { name: 'COMBO' } } })
   })
 
-  it('does not mark DynamicCombo selector or active branch widget taps as static', () => {
+  it("gives a field that is never sent to the run no output, and keeps its editor", () => {
+    const l = doLayout([comboWidget('shaping', { socketless: true, sent: false }), comboWidget('picked', { socketless: true })])
+    expect(l.pins.filter((p) => p.widgetTap === true).map((p) => p.portId)).toEqual(['picked'])
+    expect(l.rows.filter((r) => r.kind === 'widget').map((r) => r.kind === 'widget' && r.inputId)).toEqual(['shaping', 'picked'])
+  })
+
+  it("draws a field's output on a choice's dropdown and on its chosen option's field", () => {
     const leaf = comboWidget('leaf')
-    const schema = schemaOf([input('combo', {
-      dynamic: { kind: 'dynamicCombo', options: [{ key: 'a', inputs: [leaf] }] },
-    })])
+    const schema = schemaOf([{ kind: 'choice', id: 'combo', required: true, shared: [], options: [{ key: 'a', rows: [leaf] }] }])
     const elaborated = elaborateInterface(schema, nodeData)
     const layout = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, { elaborated })
     const taps = layout.pins.filter((pin) => pin.widgetTap === true)
-    expect(taps.map((pin) => pin.portId)).toEqual(['combo', 'combo.[a].leaf'])
-    expect(taps.every((pin) => pin.staticWidgetTap !== true)).toBe(true)
+    expect(taps.map((pin) => pin.portId)).toEqual(['combo', 'combo.leaf'])
+  })
+})
+
+describe('editors shown in the node', () => {
+  const editorMeasure: WidgetMeasure = (spec) =>
+    spec.widgetType === 'WEBCAM' ? { viewId: 'core.webcam', rows: 1 }
+      : spec.widgetType === 'AUDIO_RECORD' ? { viewId: 'core.audioRecord', rows: 1 }
+        : widgetMeasure(spec)
+  const editor = (id: string, widgetType: string, options: Record<string, unknown> = {}) =>
+    input(id, { type: { kind: 'concrete', name: widgetType }, widget: { widgetType, options } })
+  const body = [editor('frame', 'WEBCAM'), editor('clip', 'AUDIO_RECORD', { unfolded: true }), widget('width'), widget('height')]
+  const lay = (options: Parameters<typeof layoutNode>[5] = {}) =>
+    layoutNode(schemaOf(body), nodeData, defaultTokens, measure, editorMeasure, options)
+  const rowY = (layout: ReturnType<typeof lay>, id: string) =>
+    layout.rows.find((row) => row.kind === 'widget' && row.inputId === id)!.y
+
+  it('unfolds under its row, grows the node by its space and moves the rows below down', () => {
+    const folded = lay({ editorUnfolded: { clip: false } })
+    expect(folded.rows.some((row) => row.kind === 'editorSpace')).toBe(false)
+    const open = lay({ editorUnfolded: { clip: false, frame: true } })
+    const spaces = open.rows.filter((row) => row.kind === 'editorSpace')
+    expect(spaces.map((row) => row.valueKey)).toEqual(['frame'])
+    const space = spaces[0]!
+    const frameRow = open.rows.find((row) => row.kind === 'widget' && row.inputId === 'frame')!
+    expect(frameRow.kind === 'widget' && frameRow.unfolded).toBe(true)
+    expect(space.y).toBeGreaterThanOrEqual(frameRow.y + frameRow.height)
+    const grown = open.height - folded.height
+    expect(grown).toBe(space.height)
+    // Every row below starts under the space and moved down by its height.
+    for (const id of ['clip', 'width', 'height']) {
+      expect(rowY(open, id)).toBeGreaterThanOrEqual(space.y + space.height)
+      expect(rowY(open, id) - rowY(folded, id)).toBe(grown)
+    }
+    expect(space.picture).toEqual({ top: canvasPaintTokens.node.editorSpace.pad, height: 180 })
+  })
+
+  it('starts as the declaration says and folds each editor on its own', () => {
+    const fresh = lay()
+    expect(fresh.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['clip'])
+    const both = lay({ editorUnfolded: { frame: true } })
+    expect(both.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['frame', 'clip'])
+    const onlyFrame = lay({ editorUnfolded: { frame: true, clip: false } })
+    expect(onlyFrame.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['frame'])
+  })
+
+  it('starts a group member folded and keeps its fold with it when the members are reordered', () => {
+    const schema = schemaOf([{
+      kind: 'group', id: 'frames', displayName: 'Frames', reorderable: true,
+      value: editor('frame', 'WEBCAM', { unfolded: true }), keys: { kind: 'numbered', prefix: 'frame', start: 0, pad: 0 },
+      grows: 'button', minMembers: 0,
+    }])
+    // The member rows in order, each unfolded one followed by its space.
+    const order = (members: string[], editorUnfolded?: Record<string, boolean>) =>
+      layoutNode(schema, { ...nodeData, dynamic: { frames: { members, seq: 3 } } }, defaultTokens, measure, editorMeasure,
+        editorUnfolded ? { editorUnfolded } : {})
+        .rows.flatMap((row) => row.kind === 'editorSpace' ? [`space ${row.valueKey}`]
+          : row.kind === 'widget' && row.viewId === 'core.webcam' ? [row.inputId] : [])
+    expect(order(['frame0', 'frame1', 'frame2'])).toEqual(['frames.frame0', 'frames.frame1', 'frames.frame2'])
+    expect(order(['frame0', 'frame1', 'frame2'], { 'frames.frame1': true }))
+      .toEqual(['frames.frame0', 'frames.frame1', 'space frames.frame1', 'frames.frame2'])
+    expect(order(['frame1', 'frame2', 'frame0'], { 'frames.frame1': true }))
+      .toEqual(['frames.frame1', 'space frames.frame1', 'frames.frame2', 'frames.frame0'])
+  })
+
+  it("gives the curve its histogram line only while the histogram input has a wire", () => {
+    const curveMeasure: WidgetMeasure = (spec) => spec.widgetType === 'CURVE' ? { viewId: 'core.curve', rows: 2 } : widgetMeasure(spec)
+    const schema = schemaOf([
+      input('histogram', { type: { kind: 'concrete', name: 'HISTOGRAM' } }),
+      input('gamma', { type: { kind: 'concrete', name: 'HISTOGRAM' } }),
+      editor('curve', 'CURVE', { unfolded: true }),
+    ])
+    const space = (connected: string[]) => {
+      const row = layoutNode(schema, nodeData, defaultTokens, measure, curveMeasure, { connectedPorts: new Set(connected) })
+        .rows.find((item) => item.kind === 'editorSpace')!
+      return row.kind === 'editorSpace' ? row : undefined
+    }
+    const unwired = space([])!
+    expect(unwired.wiredLine).toBeUndefined()
+    // A wire into another input changes nothing.
+    expect(space(['in:gamma'])!.height).toBe(unwired.height)
+    const wired = space(['in:histogram'])!
+    expect(wired.wiredLine).toBe(true)
+    expect(wired.height - unwired.height).toBe(defaultTokens.rowHeight)
+  })
+
+  it('keeps a dragged picture height within its limits', () => {
+    const picture = (stored: number) => {
+      const space = lay({ editorUnfolded: { frame: true, clip: false }, pictureHeights: { frame: stored } })
+        .rows.find((row) => row.kind === 'editorSpace')!
+      return space.kind === 'editorSpace' ? space.picture!.height : undefined
+    }
+    const { pictureMin, pictureMax } = canvasPaintTokens.node.editorSpace
+    expect(picture(240)).toBe(240)
+    expect(picture(1)).toBe(pictureMin)
+    expect(picture(99_999)).toBe(pictureMax)
+  })
+
+  it('paints a picture while its edge is dragged where the stored height puts it', () => {
+    const open = lay({ editorUnfolded: { frame: true, clip: false } })
+    for (const height of [300, 1]) {
+      const stored = lay({ editorUnfolded: { frame: true, clip: false }, pictureHeights: { frame: height } })
+      const dragged = projectPictureHeight(open, 'frame', height)
+      expect(dragged.height).toBe(stored.height)
+      expect(dragged.rows.map((row) => [row.kind, row.y, row.height])).toEqual(stored.rows.map((row) => [row.kind, row.y, row.height]))
+      expect(dragged.pins.map((pin) => pin.y)).toEqual(stored.pins.map((pin) => pin.y))
+    }
+  })
+})
+
+describe('editor rows', () => {
+  const viewport: NodeSchema['body'][number] = {
+    kind: 'editor', id: 'viewport',
+    widget: { widgetType: 'LOAD_3D', options: {}, writes: { state: 'view_state' }, reads: { width: 'width', model: 'model', color: 'mode.tint' } },
+  }
+  const memberRows: NodeSchema['body'] = [
+    widget('width'),
+    { kind: 'state', id: 'view_state', type: { kind: 'concrete', name: 'LOAD_3D' }, partOfRun: true },
+    viewport,
+    widget('height'),
+  ]
+  const schema = schemaOf([
+    input('model'),
+    {
+      kind: 'choice', id: 'mode', required: true, shared: [], options: [
+        { key: 'plain', rows: [] },
+        { key: 'tinted', rows: [widget('tint')] },
+      ],
+    },
+    {
+      kind: 'group', id: 'views', member: memberRows,
+      keys: { kind: 'numbered', prefix: 'view', start: 1, pad: 0 }, grows: 'button', minMembers: 0,
+    },
+  ])
+  const node: NodeData = {
+    ...nodeData,
+    values: { 'views.view2.view_state': { camera: 'stored' } },
+    dynamic: { mode: { selected: 'plain' }, views: { members: ['view2'], seq: 2 } },
+  }
+
+  it('draws the editor where its member writes it, with no label and no pin, and hands it the rows its names reach', () => {
+    const editor = elaborateInterface(schema, node).items.find((item) => item.kind === 'editor')!
+    // The member's own rows resolve inside the member; `model` reaches the node's top scope;
+    // `mode.tint` sits under an option that is not chosen, so that part is absent.
+    expect(editor.parts).toEqual({
+      writes: { state: 'views.view2.view_state' },
+      reads: { width: 'views.view2.width', model: 'model' },
+    })
+    const layout = layoutNode(schema, node, defaultTokens, measure, widgetMeasure)
+    const widgets = layout.rows.filter((row) => row.kind === 'widget')
+    expect(widgets.map((row) => row.inputId)).toEqual(['mode', 'views.view2.width', 'views.view2.viewport', 'views.view2.height'])
+    const row = widgets[2]!
+    expect(row).toMatchObject({ label: '', editor: true, derivedValue: { camera: 'stored' }, parts: editor.parts })
+    expect(row.height).toBe(defaultTokens.rowHeight)
+    expect(layout.pins.some((pin) => pin.portId === 'views.view2.viewport')).toBe(false)
+  })
+
+  it('draws no editor row under an option that is not chosen', () => {
+    const optional = schemaOf([{
+      kind: 'choice', id: 'mode', required: true, shared: [], options: [
+        { key: 'plain', rows: [widget('width')] },
+        { key: 'framed', rows: [{ kind: 'editor', id: 'frame', widget: { widgetType: 'LOAD_3D', options: {}, reads: { width: 'width' } } }] },
+      ],
+    }])
+    const plain = { ...nodeData, dynamic: { mode: { selected: 'plain' } } }
+    expect(layoutNode(optional, plain, defaultTokens, measure, widgetMeasure).rows.some((row) => row.kind === 'widget' && row.editor === true)).toBe(false)
+    const framed = { ...nodeData, dynamic: { mode: { selected: 'framed' } } }
+    expect(layoutNode(optional, framed, defaultTokens, measure, widgetMeasure).rows.filter((row) => row.kind === 'widget' && row.editor === true)
+      .map((row) => row.kind === 'widget' ? row.inputId : '')).toEqual(['mode.frame'])
   })
 })

@@ -11,7 +11,7 @@ function preparedReview(result: unknown) {
 
 test('uninstalled search renders the same real preview as installed search and never places on selection', async ({ page }) => {
   const wire = { ...catalog.nodes['comfy.EmptyImage'], pack: 'image-tools', displayName: 'Catalog Image', searchTerms: ['catalog-resample'] }
-  const body = JSON.stringify({ packName: 'image-tools', version: '1.10.0', schemas: [{ nodeType: 'image.catalog', schemaVersion: 1, schemaWireVersion: 1, schemaSignature: 'catalog-image', role: 'compute', schema: wire }] })
+  const body = JSON.stringify({ packName: 'image-tools', version: '1.10.0', schemas: [{ nodeType: 'image.catalog', schemaVersion: 1, schemaWireVersion: 2, schemaSignature: 'catalog-image', role: 'compute', schema: wire }] })
   let installed = false
   let plans = 0
   let applies = 0
@@ -112,7 +112,7 @@ test('uninstalled search renders the same real preview as installed search and n
 async function openInstallPrompt(page: Page) {
   const state = { installed: false }
   const wire = { ...catalog.nodes['comfy.EmptyImage'], pack: 'image-tools', displayName: 'Catalog Image', searchTerms: ['catalog-resample'] }
-  const body = JSON.stringify({ packName: 'image-tools', version: '1.10.0', schemas: [{ nodeType: 'image.catalog', schemaVersion: 1, schemaWireVersion: 1, schemaSignature: 'catalog-image', role: 'executing', schema: wire }] })
+  const body = JSON.stringify({ packName: 'image-tools', version: '1.10.0', schemas: [{ nodeType: 'image.catalog', schemaVersion: 1, schemaWireVersion: 2, schemaSignature: 'catalog-image', role: 'executing', schema: wire }] })
   await page.route(/\/api\/nodes(?:\?.*)?$/, (route) => route.fulfill({ json: { ...catalog, nodes: state.installed ? { 'image.catalog': wire } : {} } }))
   await page.route('https://catalog.example/static/**', (route) => route.fulfill({
     headers: { 'Access-Control-Allow-Origin': '*' }, contentType: 'application/json',

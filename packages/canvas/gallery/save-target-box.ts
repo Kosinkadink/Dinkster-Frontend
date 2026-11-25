@@ -30,7 +30,7 @@ export const saveTargetSchema: NodeSchema = {
   category: 'gallery',
   source: 'v3',
   isOutputNode: true,
-  items: [
+  body: [
     { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
     saveTargetInput(false, 'Where the saved images are written.'),
   ],
@@ -41,7 +41,7 @@ export const optionalSaveTargetSchema: NodeSchema = {
   ...saveTargetSchema,
   type: 'Gallery',
   displayName: 'Gallery',
-  items: [
+  body: [
     { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
     saveTargetInput(true),
   ],
@@ -54,7 +54,7 @@ const sourceSchema: NodeSchema = {
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items: [{ kind: 'output', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' } }],
+  body: [{ kind: 'output', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' } }],
 }
 
 /**

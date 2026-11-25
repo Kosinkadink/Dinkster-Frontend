@@ -1,16 +1,17 @@
-import { expect, mockProjectPacks, openRailPanel, nativeTest as test, subgraphMarkPoint, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as test, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f5-proof', schemaWire: 1 },
+  dinkster: { version: 'audit-f5-proof', schemaWire: 2 },
   packs: {},
   nodes: {},
 }
 
 async function prepare(page: Page): Promise<void> {
   await page.route(/\/api\/.*/, (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
+  await page.route('/api/account', (route) => route.fulfill({ json: { available: false, canStartSignIn: false, signInUnavailableReason: 'account-unavailable', signedIn: false, profile: null, signIn: { state: 'idle' } } }))
   await mockProjectPacks(page)
   await page.route('/api/models/settings?project=default', (route) => {
     expect(route.request().method()).toBe('GET')
@@ -180,54 +181,4 @@ test('checkboxes and radios preserve keyboard, disabled, focus, and mutation bou
   await expect(dialog).toContainText('Resolve imported assets')
 
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-
-  await page.keyboard.press('Escape')
-  await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    const socket = (id: string) => ({ kind: 'input', id, type: { kind: 'concrete', name: 'IMAGE' }, optional: true })
-    app.registerSchemas([{
-      type: 'ToggleProof', displayName: 'Toggle proof', category: 'proof', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
-        dynamic: {
-          kind: 'autogrow',
-          template: [socket('tag'), {
-            kind: 'input', id: 'sub', type: { kind: 'wildcard' }, optional: false,
-            dynamic: { kind: 'autogrow', template: [socket('x'), socket('y')], naming: { kind: 'prefix', prefix: 'sub', min: 0, max: 4 } },
-          }],
-          naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-        },
-      }],
-    }])
-    await app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'toggle-proof', root: 'g0',
-      graphs: {
-        g0: { id: 'g0', name: 'root', nodes: { occurrence: { id: 'occurrence', type: '#subgraph', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 },
-        subgraph: {
-          id: 'subgraph', name: 'subgraph', nodes: { node: { id: 'node', type: 'ToggleProof', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
-          boundary: { inputs: [{ id: 'items', binds: { kind: 'family', node: 'node', port: 'items' } }], outputs: [] },
-        },
-      },
-      view: { graphs: { g0: { nodes: { occurrence: { position: { x: 120, y: 120 } } } }, subgraph: { nodes: { node: { position: { x: 120, y: 120 } } } } } },
-    }, 'Toggle proof')
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
-  await page.waitForFunction(() => {
-    const tab = window.__dinksterTest!.app.activeTab()
-    return tab !== undefined && 'status' in tab.store
-  })
-  const mark = await subgraphMarkPoint(page, 'occurrence')
-  await page.mouse.dblclick(mark.x, mark.y)
-  await openRailPanel(page, 'Boundary')
-  await expect(page.getByTestId('boundary-panel')).toBeVisible()
-  await page.getByTestId('boundary-pin').click()
-  await page.locator('[data-testid="slot-toggle"][data-slot-path="sub.x"]').click()
-  const parent = page.locator('[data-testid="slot-toggle"][data-slot-path="sub"]')
-  await expect(parent).toHaveAttribute('data-state', 'narrowed')
-  await expect(parent).toHaveAttribute('aria-checked', 'mixed')
-  const beforeEnter = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
-  await parent.focus()
-  await parent.press('Enter')
-  await expect(parent).toHaveAttribute('aria-checked', 'true')
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(beforeEnter + 1)
 })

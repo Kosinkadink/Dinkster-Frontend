@@ -164,7 +164,7 @@ function SaveTargetExampleCard(props: {
       projectMount: projectText(),
     })
   const tooltip = () => {
-    const input = schema().items.find((item) => item.kind === 'input' && item.id === 'target')
+    const input = schema().body.find((item) => item.kind === 'input' && item.id === 'target')
     return input?.kind === 'input' ? input.tooltip : undefined
   }
 

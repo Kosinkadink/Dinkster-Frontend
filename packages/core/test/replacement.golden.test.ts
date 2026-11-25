@@ -1,7 +1,7 @@
 /**
  * Replacement rules against GOLDEN payloads emitted by the real backend
- * encoder (dinkster_schema schema_to_wire/rule_to_wire at Dinkster a479dfee,
- * schema wire v21; regenerate with
+ * encoder (dinkster_schema schema_to_wire/rule_to_wire at Dinkster 22898868,
+ * schema wire 2; copied byte for byte from goldens/replacements, regenerated with
  * scripts/generate_replacement_goldens.py there, drift-locked backend-side
  * by tests/test_goldens.py).
  *
@@ -36,7 +36,7 @@ const loadGolden = (name: string): { raw: readonly (DinksterWireSchema & { repla
     }
   ).schemas
   const { schemas, diagnostics } = parseDinksterNodes({
-    schemaVersion: 1,
+    schemaVersion: 2,
     nodes: Object.fromEntries(raw.map((s) => [s.nodeType, s])),
   })
   expect(diagnostics, `${name}.json must decode clean`).toEqual([])
@@ -218,5 +218,54 @@ describe('chain golden: deprecation + visibility + rules on one schema', () => {
     expect(store.doc.graphs.g0!.links.l1!.from).toEqual(port('n', 'value')) // survived both output maps
     expect(store.undo()).toBe(true) // one undo step restores A
     expect(store.doc).toEqual(d)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// replace_spread_v1.json: the cases Dinkster's graph migration also checks
+// ---------------------------------------------------------------------------
+
+describe('spread golden: one stored list becomes a group of members', () => {
+  const spread = loadGolden('replace_spread_v1')
+  const registry = registryOf(spread)
+  const resolve = resolveIn(spread)
+  const { cases } = JSON.parse(
+    readFileSync(join(here, '../fixtures/replacements/replace_spread_v1.json'), 'utf8'),
+  ) as {
+    cases: {
+      name: string
+      type: string
+      values: Record<string, Json>
+      expect:
+        | { error: { code: string; message: string } }
+        | {
+            type: string
+            members: Record<string, string[]>
+            values: Record<string, Json>
+            warnings: { code: string; message: string }[]
+          }
+    }[]
+  }
+
+  it.each(cases)('$name', ({ type, values, expect: expected }) => {
+    const d = doc({ g0: graph({ id: 'g0', nodes: { n: node('n', type, values) } }) })
+    const [item] = scanReplacements(d, registry, resolve)
+    if ('error' in expected) {
+      expect(item!.status).toBe('blocked')
+      expect(item!.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', ...expected.error }))
+      return
+    }
+    expect(item!.status).toBe('terminal')
+    expect(item!.diagnostics.map(({ code, message }) => ({ code, message }))).toEqual(expected.warnings)
+    const store = new DocumentStore(d, coreCommandRegistry())
+    expect(store.dispatch(replacementInvocation([item!], d, resolve)!).ok).toBe(true)
+    const after = store.doc.graphs.g0!.nodes.n!
+    expect(after.type).toBe(expected.type)
+    expect(after.values).toEqual(expected.values)
+    expect(Object.fromEntries(Object.entries(after.dynamic ?? {}).map(([id, state]) => [id, state.members])))
+      .toEqual(expected.members)
+    // Undo restores the node; a group's numbering cursor never rewinds, so `dynamic` may keep its seq.
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.n!).toMatchObject({ type, values })
   })
 })

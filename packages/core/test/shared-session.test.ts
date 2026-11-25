@@ -30,9 +30,8 @@ import {
 } from '../src/commands/shared-session.js'
 import { createLocalSession, type SessionOp, type WirePatchOp } from '../src/commands/session.js'
 import { planClipboardPaste, serializeSelection, type DinksterClipboardEnvelope } from '../src/clipboard.js'
-import { documentResolver } from '../src/compile/compile.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
-import { asGraphDefId, asLineageId, asLinkId, asNodeId, type PortRef } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { lifecycleFlattenFingerprint, lifecycleSelectionFingerprint, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
@@ -65,9 +64,6 @@ function doc(graphs: Record<string, GraphDef>, root = 'g0'): WorkflowDocument {
 }
 
 const node = (id: string, type = 'X') => ({ id: asNodeId(id), type, values: {} })
-const port = (nodeId: string, portId: string, members?: readonly string[]): PortRef => ({
-  node: asNodeId(nodeId), port: portId as never, ...(members !== undefined ? { members: members as never } : {}),
-})
 
 // The peer's allocation cursor is seeded above its minted ordinals, exactly
 // as a real peer's forward patches would leave it (the actor-cursor
@@ -131,7 +127,7 @@ const imageDoc = (): WorkflowDocument => doc({
 })
 const imageSchema = {
   type: 'LoadImage', displayName: 'Load Image', category: 'test', source: 'v3' as const, isOutputNode: false,
-  items: [{
+  body: [{
     kind: 'input' as const,
     id: 'image',
     type: { kind: 'asset' as const, element: { kind: 'concrete' as const, name: 'comfy.IMAGE' } },
@@ -146,67 +142,6 @@ const applyImage = {
     asset: imageRef(IMAGE_REPLACEMENT, 'edited.png'),
   },
 }
-
-const countOutputSchema: NodeSchema = {
-  type: 'CountOutput',
-  displayName: 'Count output',
-  category: 'test',
-  source: 'v3',
-  isOutputNode: false,
-  items: [
-    {
-      kind: 'input',
-      id: 'count',
-      type: { kind: 'concrete', name: 'INT' },
-      optional: false,
-      widget: { widgetType: 'INT', options: {}, default: 1 },
-    },
-    {
-      kind: 'output',
-      id: 'items',
-      type: { kind: 'concrete', name: 'comfy.IMAGE' },
-      dynamic: {
-        kind: 'autogrow',
-        template: [{
-          kind: 'input',
-          id: 'item',
-          type: { kind: 'concrete', name: 'comfy.IMAGE' },
-          optional: false,
-        }],
-        naming: { kind: 'prefix', prefix: '', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
-    },
-  ],
-}
-
-const derivedCountDoc = (): WorkflowDocument => doc({
-  g0: graph({
-    id: 'g0',
-    nodes: {
-      occurrence: { ...node('occurrence', '#body'), values: { amount: 1 } },
-      unrelated: node('unrelated'),
-    },
-    actorCursors: { peer: 1000 },
-  }),
-  body: graph({
-    id: 'body',
-    nodes: {
-      split: { ...node('split', 'CountOutput'), values: { count: 1 } },
-    },
-    boundary: {
-      inputs: [{
-        id: 'amount',
-        binds: { kind: 'port', node: asNodeId('split'), port: 'count' as never },
-        promoted: true,
-      }],
-      outputs: [{
-        id: 'items',
-        binds: { kind: 'family', node: asNodeId('split'), port: 'items' as never },
-      }],
-    },
-  }),
-})
 
 // ---------------------------------------------------------------------------
 // Fake collab server + connection
@@ -247,6 +182,8 @@ class FakeConnection implements CollabConnection {
   snapshotRequiredOnce = false
   /** Force every post to answer 406 protocol-unsupported. */
   protocolBroken = false
+  /** Answer 422 with this message for an op it returns one for; nothing is stored. */
+  refuse: ((op: CollabClientOp) => string | undefined) | undefined
   /** Answer 410 resync-required for fetchOps with after < this value. */
   retentionFloor: number | undefined
 
@@ -305,6 +242,8 @@ class FakeConnection implements CollabConnection {
       return { kind: 'snapshot-required' }
     }
     if (op.baseRevision !== this.revision) return { kind: 'stale-base', revision: this.revision }
+    const refusal = this.refuse?.(op)
+    if (refusal !== undefined) return { kind: 'refused', code: 'value-outside-limits', message: refusal }
     const server: CollabServerOp = {
       opId: op.opId,
       actorId: op.actorId,
@@ -767,20 +706,11 @@ describe('shared DocumentSession', () => {
   ])('$case', async ({ checkResolver, mutateCaller }) => {
     const innerSchema = {
       type: 'X', displayName: 'X', category: 'test', source: 'v3' as const, isOutputNode: false,
-      items: [{
-        kind: 'input' as const, id: 'items', type: { kind: 'concrete' as const, name: 'X' }, optional: true,
-        dynamic: {
-          kind: 'autogrow' as const, naming: { kind: 'prefix' as const, prefix: 'item', min: 0, max: 8 },
-          template: [
-            { kind: 'input' as const, id: 'value', type: { kind: 'concrete' as const, name: 'X' }, optional: true,
-              widget: { widgetType: 'INT', options: {}, controller: 'after_generate' as const } },
-            { kind: 'input' as const, id: 'mode', type: { kind: 'concrete' as const, name: 'X' }, optional: true,
-              dynamic: { kind: 'dynamicCombo' as const, options: [
-                { key: 'a', label: 'A', inputs: [] }, { key: 'b', label: 'B', inputs: [] },
-              ] } },
-          ],
-        },
-      }],
+      body: [
+        { kind: 'input' as const, id: 'value', type: { kind: 'concrete' as const, name: 'X' }, optional: true,
+          widget: { widgetType: 'INT', options: {}, controller: 'after_generate' as const } },
+        { kind: 'input' as const, id: 'in', type: { kind: 'concrete' as const, name: 'X' }, optional: true },
+      ],
     }
     const liveResolver = (type: string) => type === 'X' ? innerSchema : undefined
     const flattenDoc = () => doc({
@@ -789,28 +719,15 @@ describe('shared DocumentSession', () => {
         nodes: {
           occurrence: {
             ...node('occurrence', '#body'),
-            values: { 'input.value#x': 7, 'input.value#y': 8 },
-            controllers: { 'input.value#x': 'fixed' },
-            dynamic: {
-              input: {
-                members: ['x', 'y'],
-                memberState: { x: { 'input.mode': { selected: 'b' } } },
-              },
-            },
+            values: { input: 7 },
+            controllers: { input: 'fixed' },
           },
           unrelated: node('unrelated'),
-          source: node('source'),
-        },
-        links: {
-          familyLink: { id: asLinkId('familyLink'), from: port('source', 'out'), to: port('occurrence', 'input.value', ['x']) },
-        },
-        nets: {
-          familyNet: { id: 'familyNet' as never, name: 'Family', source: port('source', 'net'), sinks: [port('occurrence', 'input.value', ['y'])] },
         },
         boundary: {
           inputs: [
             { id: 'unrelatedBoundary', binds: { kind: 'port', node: asNodeId('unrelated'), port: 'in' as never } },
-            { id: 'incidentBoundary', binds: { kind: 'family', node: asNodeId('occurrence'), port: 'input' as never, slots: ['mode', 'value'] } },
+            { id: 'incidentBoundary', binds: { kind: 'port', node: asNodeId('occurrence'), port: 'wired' as never } },
           ],
           outputs: [],
         },
@@ -820,11 +737,18 @@ describe('shared DocumentSession', () => {
         id: 'body',
         nodes: { innerPrimary: node('innerPrimary'), innerAdditional: node('innerAdditional') },
         boundary: {
-          inputs: [{
-            id: 'input',
-            binds: { kind: 'family', node: asNodeId('innerPrimary'), port: 'items' as never },
-            alsoBinds: [{ kind: 'family', node: asNodeId('innerAdditional'), port: 'items' as never }],
-          }],
+          inputs: [
+            {
+              id: 'input', promoted: true,
+              binds: { kind: 'port', node: asNodeId('innerPrimary'), port: 'value' as never },
+              alsoBinds: [{ kind: 'port', node: asNodeId('innerAdditional'), port: 'value' as never }],
+            },
+            {
+              id: 'wired',
+              binds: { kind: 'port', node: asNodeId('innerPrimary'), port: 'in' as never },
+              alsoBinds: [{ kind: 'port', node: asNodeId('innerAdditional'), port: 'in' as never }],
+            },
+          ],
           outputs: [],
         },
         nextOrdinal: 1,
@@ -890,17 +814,14 @@ describe('shared DocumentSession', () => {
     expect(unrelated.session.doc.graphs.g0!.nodes.occurrence).toBeUndefined()
     for (const id of ['n0-actorA', 'n1-actorA']) {
       expect(unrelated.session.doc.graphs.g0!.nodes[id]).toMatchObject({ type: 'X' })
-      expect(unrelated.session.doc.graphs.g0!.nodes[id]!.values).toEqual({ 'items.value#m0': 7, 'items.value#m1': 8 })
-      expect(unrelated.session.doc.graphs.g0!.nodes[id]!.controllers).toEqual({ 'items.value#m0': 'fixed' })
-      expect(unrelated.session.doc.graphs.g0!.nodes[id]!.dynamic).toMatchObject({
-        items: { members: ['m0', 'm1'] },
-      })
+      expect(unrelated.session.doc.graphs.g0!.nodes[id]!.values).toEqual({ value: 7 })
+      expect(unrelated.session.doc.graphs.g0!.nodes[id]!.controllers).toEqual({ value: 'fixed' })
     }
     expect(unrelated.session.doc.graphs.g0!.boundary!.inputs[1]!.binds).toEqual({
-      kind: 'family', node: 'n1-actorA', port: 'items', slots: ['value', 'mode'],
+      kind: 'port', node: 'n1-actorA', port: 'in',
     })
     expect(unrelated.session.doc.graphs.g0!.boundary!.inputs[1]!.alsoBinds).toEqual([{
-      kind: 'family', node: 'n0-actorA', port: 'items', slots: ['value', 'mode'],
+      kind: 'port', node: 'n0-actorA', port: 'in',
     }])
     expect(unrelated.session.doc.graphs.body).toBeDefined()
     expect(unrelated.conn.log).toHaveLength(2)
@@ -930,128 +851,8 @@ describe('shared DocumentSession', () => {
     expect(incident.conn.log).toHaveLength(1)
   })
 
-  it.each([
-    {
-      case: 'direct count edit',
-      invocation: {
-        command: 'node.setOutputCount',
-        params: {
-          graphId: 'g0', nodeId: 'occurrence', inputId: 'amount', value: 3, removedLinks: 'preserve',
-        },
-      },
-    },
-    {
-      case: 'count edit inside a batch',
-      invocation: {
-        command: 'batch',
-        params: {
-          invocations: [{
-            command: 'node.setOutputCount',
-            params: {
-              graphId: 'g0', nodeId: 'occurrence', inputId: 'amount', value: 3, removedLinks: 'preserve',
-            },
-          }],
-        },
-      },
-    },
-  ])('retains a derived-schema $case across an unrelated shared-session rebase', async ({ invocation }) => {
-    const resolve = (type: string): NodeSchema | undefined =>
-      type === 'CountOutput' ? countOutputSchema : undefined
-    const { conn, session, conflicts } = await makeShared(
-      'actorA',
-      derivedCountDoc(),
-      (document) => documentResolver(document, resolve),
-    )
-    const postGate = deferred()
-    conn.postHook = () => postGate.promise
-
-    expect(session.dispatch(invocation).ok).toBe(true)
-    expect(session.doc.graphs.g0!.nodes.occurrence!.values.amount).toBe(3)
-    await until(() => conn.postedOps.length === 1, 'count edit POST held')
-    conn.appendForeign('peer', [
-      { op: 'add', path: ['graphs', 'g0', 'nodes', 'unrelated', 'title'], value: 'peer edit' },
-    ])
-    postGate.resolve()
-    await session.settle()
-
-    expect(conflicts).toEqual([])
-    expect(session.doc.graphs.g0!.nodes.occurrence!.values.amount).toBe(3)
-    expect(conn.log).toHaveLength(2)
-    expect(conn.postedOps).toHaveLength(2)
-  })
-
-  it('prepares a count edit against earlier actor-scoped writes in the same batch', async () => {
-    let resolverEnabled = true
-    const resolve = (type: string): NodeSchema | undefined => {
-      if (!resolverEnabled) throw new Error('mutable registry resolver must not run during shared replay')
-      return type === 'CountOutput' ? countOutputSchema : undefined
-    }
-    const { conn, session, conflicts } = await makeShared('actorA', baseDoc(), undefined, resolve)
-    const postGate = deferred()
-    conn.postHook = () => postGate.promise
-    const invocation = {
-      command: 'batch',
-      params: {
-        invocations: [
-          {
-            command: 'node.add',
-            params: { graphId: 'g0', type: 'CountOutput', position: { x: 0, y: 0 } },
-          },
-          {
-            command: 'node.setOutputCount',
-            params: {
-              graphId: 'g0', nodeId: 'n0-actorA', inputId: 'count', value: 3, removedLinks: 'preserve',
-            },
-          },
-        ],
-      },
-    }
-
-    expect(session.dispatch(invocation).ok).toBe(true)
-    expect(session.doc.graphs.g0!.nodes['n0-actorA']!.values.count).toBe(3)
-    resolverEnabled = false
-    await until(() => conn.postedOps.length === 1, 'sequential batch POST held')
-    conn.appendForeign('peer', [
-      { op: 'add', path: ['graphs', 'g0', 'nodes', 'n1', 'title'], value: 'peer edit' },
-    ])
-    postGate.resolve()
-    await session.settle()
-
-    expect(conflicts).toEqual([])
-    expect(session.doc.graphs.g0!.nodes['n0-actorA']!.values.count).toBe(3)
-    expect(conn.log).toHaveLength(2)
-    expect(conn.postedOps).toHaveLength(2)
-  })
-
-  it('rejects an unpreparable schema-sensitive batch atomically and still rejects nested batches loudly', async () => {
-    let resolverCalls = 0
-    const resolve = (type: string): NodeSchema | undefined => {
-      resolverCalls++
-      return resolverCalls === 1 || type !== 'CountOutput' ? undefined : countOutputSchema
-    }
-    const { conn, session } = await makeShared('actorA', baseDoc(), undefined, resolve)
-    const missingSchema = session.dispatch({
-      command: 'batch',
-      params: {
-        invocations: [
-          {
-            command: 'node.add',
-            params: { graphId: 'g0', type: 'CountOutput', position: { x: 0, y: 0 } },
-          },
-          {
-            command: 'node.setOutputCount',
-            params: {
-              graphId: 'g0', nodeId: 'n0-actorA', inputId: 'count', value: 3, removedLinks: 'preserve',
-            },
-          },
-        ],
-      },
-    })
-    expect(missingSchema.ok).toBe(false)
-    if (!missingSchema.ok) expect(missingSchema.diagnostics.map((diagnostic) => diagnostic.code)).toContain('schema.missing')
-    expect(session.doc.graphs.g0!.nodes['n0-actorA']).toBeUndefined()
-    expect(conn.postedOps).toEqual([])
-
+  it('rejects nested batches loudly without publishing', async () => {
+    const { conn, session } = await makeShared()
     const nested = session.dispatch({
       command: 'batch',
       params: { invocations: [{ command: 'batch', params: { invocations: [addNode] } }] },
@@ -1399,6 +1200,40 @@ describe('shared DocumentSession', () => {
     await session.settle()
     expect(session.doc.graphs.g0!.nodes.n1!.values.prompt).toBe('Xhello!')
     expect(session.revision).toBe(2)
+  })
+
+  it('drops an intention the server refuses, keeps the ones queued after it, and stays live', async () => {
+    const { conn, session, conflicts } = await makeShared('actorA')
+    const refusal = 'Sampler: steps = 12000 refused. Allowed: 1 to 10000. Nothing stored.'
+    conn.refuse = (op) => (JSON.stringify(op.patch).includes('"n1"') ? refusal : undefined)
+    const gate = deferred()
+    conn.postHook = () => {
+      conn.postHook = undefined
+      return gate.promise
+    }
+    session.dispatch(setTitle('n1', 'refused'))
+    await until(() => conn.postedOps.length === 1, 'first POST in flight')
+    session.dispatch(setTitle('n2', 'kept'))
+    gate.resolve()
+    await session.settle()
+    expect(session.status.get()).toBe('live')
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0]!.during).toBe('refused')
+    expect(conflicts[0]!.invocation.command).toBe('node.setTitle')
+    expect(conflicts[0]!.diagnostics[0]!.message).toBe(refusal)
+    const nodes = session.doc.graphs.g0!.nodes as Record<string, { title?: string }>
+    expect(nodes.n1!.title).toBeUndefined()
+    expect(nodes.n2!.title).toBe('kept')
+    // The refused op is posted once and never retried; only the kept one is stored.
+    expect(conn.postedOps.filter((op) => JSON.stringify(op.patch).includes('"n1"'))).toHaveLength(1)
+    expect(conn.log.map((op) => op.patch)).toEqual([
+      [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n2', 'title'], value: 'kept' }],
+    ])
+    // Its history record went with it: one undo takes back the kept edit, and nothing is left.
+    expect(session.undo()).toBe(true)
+    await session.settle()
+    expect((session.doc.graphs.g0!.nodes.n2 as { title?: string }).title).toBeUndefined()
+    expect(session.undo()).toBe(false)
   })
 
   it('retries a transport failure idempotently with the SAME opId', async () => {

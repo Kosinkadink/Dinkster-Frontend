@@ -14,14 +14,14 @@ import { defaultTokens } from '../src/tokens.js'
 const concrete = (name: string) => ({ kind: 'concrete' as const, name })
 const numberSchema: NodeSchema = {
   type: 'Number', displayName: 'Number', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{
+  body: [{
     kind: 'input', id: 'steps', type: concrete('INT'), optional: false,
     widget: { widgetType: 'INT', options: { min: 1, max: 100 }, default: 20 },
   }],
 }
 const sinkSchema: NodeSchema = {
   type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{ kind: 'input', id: 'value', type: concrete('INT'), optional: false }],
+  body: [{ kind: 'input', id: 'value', type: concrete('INT'), optional: false }],
 }
 
 function scene(): Scene {

@@ -14,7 +14,7 @@ async function openDoc(page: Page): Promise<void> {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'PreviewRetentionTest', displayName: 'Image Result', category: 'test', source: 'v3', isOutputNode: false,
-      items: [widget('count', 'INT', 5, { min: 0, max: 100, step: 1 })],
+      body: [widget('count', 'INT', 5, { min: 0, max: 100, step: 1 })],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'preview-retention', root: 'g0',

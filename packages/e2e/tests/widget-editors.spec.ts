@@ -7,10 +7,10 @@ const catalogTest = test.extend({ widgetDocument: false })
 
 catalogTest('mixed scalar COMBO keeps typed native choices through list picks', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'scalar-combo-fixture', schemaWire: 1 },
-    nodes: { ScalarCombo: { displayName: 'Mixed scalar choices', outputNode: true, interface: [
-      { role: 'input', id: 'bit_depth', type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto', widget: { type: 'COMBO', options: ['auto', 8, 10] } },
-      { role: 'input', id: 'identity', type: { kind: 'concrete', types: ['COMBO'] }, default: true, widget: { type: 'COMBO', options: [
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'scalar-combo-fixture', schemaWire: 2 },
+    nodes: { ScalarCombo: { displayName: 'Mixed scalar choices', outputNode: true, body: [
+      { kind: 'input', id: 'bit_depth', type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto', widget: { type: 'COMBO', options: ['auto', 8, 10] } },
+      { kind: 'input', id: 'identity', type: { kind: 'concrete', types: ['COMBO'] }, default: true, widget: { type: 'COMBO', options: [
         { value: 8, label: 'Integer eight' }, { value: '8', label: 'String eight' },
         { value: true, label: 'Boolean true' }, { value: 1, label: 'Integer one' },
       ] } },
@@ -40,9 +40,9 @@ catalogTest('mixed scalar COMBO keeps typed native choices through list picks', 
 
 catalogTest('native integer RGB color edits retain numeric values without catalog warnings', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'integer-color-fixture', schemaWire: 1 },
-    nodes: { IntegerColor: { displayName: 'Integer RGB color', outputNode: true, interface: [
-      { role: 'input', id: 'color', type: { kind: 'concrete', types: ['INT'] }, default: 0, widget: { type: 'NUMBER', min: 0, max: 16777215, step: 1, display: 'color' } },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'integer-color-fixture', schemaWire: 2 },
+    nodes: { IntegerColor: { displayName: 'Integer RGB color', outputNode: true, body: [
+      { kind: 'input', id: 'color', type: { kind: 'concrete', types: ['INT'] }, default: 0, widget: { type: 'NUMBER', min: 0, max: 16777215, step: 1, display: 'color' } },
     ] } },
   } }))
   await page.goto('/')
@@ -68,12 +68,12 @@ catalogTest('native integer RGB color edits retain numeric values without catalo
 
 catalogTest('socketless native color keeps its editor and neighboring input socket', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'socketless-fixture', schemaWire: 1 },
-    nodes: { SocketlessFixture: { displayName: 'Socketless color fixture', outputNode: true, interface: [
-      { role: 'input', id: 'style', type: { kind: 'concrete', types: ['STRING'] }, default: 'solid' },
-      { role: 'dynamicCombo', id: 'padding', options: [{ key: 'color', inputs: [
-        { role: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', socketless: true, widget: { type: 'COLOR' } },
-        { role: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'socketless-fixture', schemaWire: 2 },
+    nodes: { SocketlessFixture: { displayName: 'Socketless color fixture', outputNode: true, body: [
+      { kind: 'input', id: 'style', type: { kind: 'concrete', types: ['STRING'] }, default: 'solid' },
+      { kind: 'choice', id: 'padding', shared: [], options: [{ key: 'color', rows: [
+        { kind: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', pin: false, widget: { type: 'COLOR' } },
+        { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
       ] }] },
     ] } },
   } }))
@@ -192,7 +192,7 @@ test.beforeEach(async ({ page, widgetDocument }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'widget-editors-e2e', schemaWire: 1, graphFeatures: ['decimalInt'] },
+    dinkster: { version: 'widget-editors-e2e', schemaWire: 2, graphFeatures: ['decimalInt'] },
     nodes: {},
   } }))
   await page.route('/system_stats', (route) =>
@@ -208,7 +208,7 @@ test.beforeEach(async ({ page, widgetDocument }) => {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'WidgetEditorsTest', displayName: 'Widget Editors', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         widget('count', 'INT', 5, { min: 0, max: 100, step: 5 }),
         widget('amount', 'FLOAT', 1.5, { min: 0, max: 10 }),
         widget('title', 'STRING', 'old'),
@@ -293,7 +293,7 @@ test('AUDIO_RECORD captures only on request and stages canonical uploads with re
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'AudioRecordWidgetTest', displayName: 'Record audio', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'recording', type: { kind: 'asset', element: { kind: 'concrete', name: 'AUDIO' } }, optional: false,
+      body: [{ kind: 'input', id: 'recording', type: { kind: 'asset', element: { kind: 'concrete', name: 'AUDIO' } }, optional: false,
         widget: { widgetType: 'AUDIO_RECORD', options: {} } }],
     }])
     await app.openDocument({
@@ -376,90 +376,13 @@ test('AUDIO_RECORD captures only on request and stages canonical uploads with re
   expect(await value()).toEqual(stored)
 })
 
-test('COLORS stages exact ordered palettes with add, remove, reorder and one undoable commit', async ({ page }, testInfo) => {
-  const initial = ['#A1B2C3dd', '#f00', '#A1B2C3dd']
-  await page.evaluate(async (initial) => {
-    const app = window.__dinksterTest!.app
-    app.registerSchemas([{
-      type: 'ColorsWidgetTest', displayName: 'Palette', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
-        ...(['palette', 'empty', 'long'] as const).map((id) => ({ kind: 'input' as const, id, type: { kind: 'list' as const, element: { kind: 'concrete' as const, name: 'STRING' } }, optional: false,
-          widget: { widgetType: 'COLORS', default: id === 'empty' ? [] : id === 'long' ? Array.from({ length: 17 }, () => '#112233') : initial, options: {} } })),
-        { kind: 'input', id: 'color', type: { kind: 'concrete', name: 'STRING' }, optional: false,
-          widget: { widgetType: 'COLOR', default: '#11223380', options: {} } },
-      ],
-    }])
-    await app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'colors-widget', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'Palette', nodes: { widgets: { id: 'widgets', type: 'ColorsWidgetTest', values: { palette: initial } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
-      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
-    }, 'Palette')
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  }, initial)
-  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'palette')))
-  const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.palette
-  const editor = page.getByTestId('colors-editor')
-  await openEditor(page, 'palette')
-  await expect(editor.getByRole('textbox', { name: /^Color \d+$/ })).toHaveCount(3)
-  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#A1B2C3dd')
-  await page.screenshot({ path: testInfo.outputPath('colors-desktop.png'), animations: 'disabled' })
-  await editor.getByRole('textbox', { name: 'Color 1', exact: true }).fill('not a color')
-  await expect(editor.getByRole('alert')).toHaveText('Use #rgb, #rrggbb or #rrggbbaa for every color.')
-  await expect(editor.getByRole('button', { name: 'Commit', exact: true })).toBeDisabled()
-  await page.screenshot({ path: testInfo.outputPath('colors-invalid.png'), animations: 'disabled' })
-  await editor.getByRole('button', { name: 'Cancel' }).click()
-  expect(await value()).toEqual(initial)
-  await page.setViewportSize({ width: 900, height: 700 })
-  await openEditor(page, 'palette')
-  await page.screenshot({ path: testInfo.outputPath('colors-compact.png'), animations: 'disabled' })
-  const picker = editor.getByLabel('Choose color 1', { exact: true })
-  await picker.fill('#00ff00')
-  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#00ff00dd')
-  await editor.getByRole('button', { name: 'Move color 1 down' }).press('Enter')
-  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#f00')
-  await editor.getByRole('button', { name: 'Remove color 3' }).click()
-  await editor.getByRole('button', { name: 'Add color' }).click()
-  await expect(editor.getByRole('textbox', { name: 'Color 3', exact: true })).toHaveValue('#ffffff')
-  expect(await value()).toEqual(initial)
-  await editor.getByRole('button', { name: 'Commit', exact: true }).click()
-  expect(await value()).toEqual(['#f00', '#00ff00dd', '#ffffff'])
-  await page.getByTestId('graph-canvas').focus()
-  await page.keyboard.press('Control+z')
-  expect(await value()).toEqual(initial)
-  await page.keyboard.press('Control+Shift+z')
-  expect(await value()).toEqual(['#f00', '#00ff00dd', '#ffffff'])
-  await openEditor(page, 'palette')
-  await editor.getByRole('button', { name: 'Add color' }).click()
-  await page.keyboard.press('Escape')
-  expect(await value()).toEqual(['#f00', '#00ff00dd', '#ffffff'])
-  await openEditor(page, 'empty')
-  await expect(editor.getByRole('textbox', { name: /^Color \d+$/ })).toHaveCount(0)
-  await page.screenshot({ path: testInfo.outputPath('colors-empty.png'), animations: 'disabled' })
-  await editor.getByRole('button', { name: 'Add color' }).click()
-  await expect(editor.getByRole('textbox', { name: 'Color 1', exact: true })).toHaveValue('#ffffff')
-  await editor.getByRole('button', { name: 'Remove color 1' }).click()
-  await editor.getByRole('button', { name: 'Commit', exact: true }).click()
-  await openEditor(page, 'long')
-  await expect(editor.getByRole('textbox', { name: /^Color \d+$/ })).toHaveCount(17)
-  await expect(editor.getByRole('button', { name: 'Add color' })).toBeDisabled()
-  await editor.getByRole('button', { name: 'Remove color 17' }).click()
-  await expect(editor.getByRole('button', { name: 'Add color' })).toBeDisabled()
-  await editor.getByRole('button', { name: 'Remove color 16' }).click()
-  await expect(editor.getByRole('button', { name: 'Add color' })).toBeEnabled()
-  await page.keyboard.press('Escape')
-  await openEditor(page, 'color')
-  await expect(page.locator('.widget-in-row-field input')).toHaveValue('#11223380')
-  await page.screenshot({ path: testInfo.outputPath('colors-color-sibling.png'), animations: 'disabled' })
-  await page.keyboard.press('Escape')
-})
-
 test('MARKDOWN previews safely and edits one undoable source string', async ({ page }, testInfo) => {
   const source = '## Workflow notes\n\n**Keep** the source and `code`.\n\n- First item\n- Second item\n\n[Safe](https://example.com) [Unsafe](javascript:alert(1))\n\n<script>alert(1)</script>\n\n![Remote](https://example.com/image.png)'
   await page.evaluate(async (source) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'MarkdownWidgetTest', displayName: 'Workflow notes', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         ...(['notes', 'readonly'] as const).map((id) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'STRING' }, optional: false,
           widget: { widgetType: 'MARKDOWN', default: source, options: { read_only: id === 'readonly' } } })),
         { kind: 'input', id: 'title', type: { kind: 'concrete', name: 'STRING' }, optional: false,
@@ -540,7 +463,7 @@ test('BUTTON actions invoke registered commands without changing widget values',
     } })
     app.registerSchemas([{
       type: 'ButtonWidgetTest', displayName: 'Capture controls', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         ...([
           ['capture', { display_name: 'Capture frame', command: 'fixture.capture' }],
           ['busy', { display_name: 'Busy action', command: 'fixture.busy' }],
@@ -595,7 +518,7 @@ test('FLOAT slider drafts support pointer, keyboard, Cancel and one undoable Com
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'WidgetEditorsTest', displayName: 'Float sliders', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'FLOAT', options: { display: 'slider', min: -0.5, max: 2.5, step: 0.25, round: 0.01, precision: 2 }, default: 0.5 } },
         { kind: 'input', id: 'ordinary', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'FLOAT', options: { min: -0.5, max: 2.5 }, default: 0.5 } },
       ],
@@ -662,7 +585,7 @@ catalogTest('numeric union uses FLOAT editing in canvas and exposed AppView with
   const fixture = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1,
-    dinkster: { version: 'numeric-union-e2e', schemaWire: 1, graphFeatures: ['decimalInt'] },
+    dinkster: { version: 'numeric-union-e2e', schemaWire: 2, graphFeatures: ['decimalInt'] },
     nodes: { 'test.numeric_union': fixture.nodes['test.numeric_union'] },
   } }))
   await page.goto('/')
@@ -689,7 +612,7 @@ catalogTest('numeric union uses FLOAT editing in canvas and exposed AppView with
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.frame_rate).toBe(23.976)
   await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'frame_rate' } }))
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const exposed = page.getByTestId('app-view-number')
   await expect(exposed).toHaveValue('23.976')
   await exposed.fill('24')
@@ -704,7 +627,7 @@ test('primitive list edits preserve arrays in canvas and exposed AppView control
     app.settings.set('features.appView.enabled', true)
     app.registerSchemas([{
       type: 'PrimitiveListEditorTest', displayName: 'Text list', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'texts', optional: false,
         type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } },
         widget: { widgetType: 'LIST', options: {}, element: { widgetType: 'STRING', options: { multiline: false } }, default: ['red', 'blue'] },
@@ -735,7 +658,7 @@ test('primitive list edits preserve arrays in canvas and exposed AppView control
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.texts).toEqual(['blue,green', 'line\nnext', ''])
   await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'texts' } }))
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const exposed = page.getByTestId('app-view-text')
   await expect(exposed).toHaveValue('["blue,green","line\\nnext",""]')
   await exposed.fill('["violet","amber"]')
@@ -794,7 +717,7 @@ test('uint64 INT values edit, step, reload, and compile without precision loss',
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'ExactSeedE2E', displayName: 'Exact Seed', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{
+      body: [{
         kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: {
           widgetType: 'INT',
@@ -856,7 +779,7 @@ test('unbounded INT stepping crosses the JavaScript safe-integer boundary exactl
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'UnboundedIntE2E', displayName: 'Unbounded Integer', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 0 },
       }],
@@ -1175,27 +1098,27 @@ test('Escape discards a STRING draft and a COLOR draft', async ({ page }) => {
 })
 
 test('widget popover is anchored, non-draggable, Escape-restoring, and fits a sub-320px viewport', async ({ page }) => {
-  // Number and color rows edit in their row; COLORS keeps the shared popover frame.
+  // Number and color rows edit in their row; MARKDOWN keeps the shared popover frame.
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
-      type: 'ColorsWidgetTest', displayName: 'Palette', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'palette', type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }, optional: false,
-        widget: { widgetType: 'COLORS', default: ['#112233'], options: {} } }],
+      type: 'MarkdownPopoverTest', displayName: 'Notes', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'notes', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+        widget: { widgetType: 'MARKDOWN', default: '## Notes', options: {} } }],
     }])
     await app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'colors-popover', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'Palette', nodes: { widgets: { id: 'widgets', type: 'ColorsWidgetTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'markdown-popover', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Notes', nodes: { widgets: { id: 'widgets', type: 'MarkdownPopoverTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
-    }, 'Palette')
+    }, 'Notes')
   })
-  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'palette')))
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'notes')))
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 650, y: 0, scale: 1 }))
   await page.getByTestId('rail-toggle').click()
   await expect(page.getByTestId('rail-toggle')).toHaveAttribute('aria-pressed', 'false')
-  await openEditor(page, 'palette')
-  const dialog = page.getByRole('dialog', { name: 'Edit palette COLORS' })
-  const editor = page.getByTestId('colors-editor')
+  await openEditor(page, 'notes')
+  const dialog = page.getByRole('dialog', { name: 'Edit notes MARKDOWN' })
+  const editor = page.getByTestId('markdown-editor')
   await page.setViewportSize({ width: 1200, height: 900 })
   const moderate = await dialog.boundingBox()
   const canvas = await page.getByTestId('graph-canvas').boundingBox()
@@ -1351,7 +1274,7 @@ test('numeric edge controls step an intrinsic default while body activation rema
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'IntrinsicNumericTest', displayName: 'Intrinsic Numeric', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
         widget: { widgetType: 'FLOAT', options: { min: 2, max: 4, step: 0.5 } },
       }],
@@ -1385,7 +1308,7 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'PassThroughTest', displayName: 'Pass Through', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         widget('number', 'INT', 0),
         widget('text', 'STRING', ''),
         {
@@ -1513,13 +1436,13 @@ test('a changed producer exposes stale/unproven companion wording while styling 
     const concreteInt = { kind: 'concrete', name: 'INT' } as const
     window.__dinksterTest!.app.registerSchemas([{
       type: 'UnprovenSourceTest', displayName: 'Unproven Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'value', type: concreteInt, optional: false, widget: { widgetType: 'INT', options: {}, default: 512 } },
         { kind: 'output', id: 'out', type: concreteInt },
       ],
     }, {
       type: 'UnprovenSinkTest', displayName: 'Unproven Sink', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'width', type: concreteInt, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 512 },
       }],
@@ -1764,7 +1687,7 @@ test('huge COMBO lists render a capped window with paging rows and still commit 
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'HugeComboTest', displayName: 'Huge Combo', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: {
           widgetType: 'COMBO',

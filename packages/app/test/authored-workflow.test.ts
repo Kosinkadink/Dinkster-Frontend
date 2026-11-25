@@ -1,7 +1,7 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asNodeId, resolveImportedNodePacks } from '@dinkster/core'
-import type { CommandOutcome, DinksterNodesPayload } from '@dinkster/core'
+import type { CommandOutcome, DinksterNodesPayload, NodeSchema, WorkflowDocument } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { historicalRegistry } from './historical-schemas.js'
 import { AppState } from '../src/app-state.js'
@@ -30,23 +30,23 @@ afterEach(() => {
 const nativePayload: DinksterNodesPayload = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'authored-workflow-test', schemaWire: 1 },
+  dinkster: { version: 'authored-workflow-test', schemaWire: 2 },
   packs: {},
   nodes: {
     EmptyImage: {
-      schemaVersion: 1, nodeType: 'EmptyImage', displayName: 'Empty Image', category: 'image',
-      interface: [
+      schemaVersion: 2, nodeType: 'EmptyImage', displayName: 'Empty Image', category: 'image',
+      body: [
         ...['width', 'height', 'batch_size', 'color'].map((id, index) => ({
-          role: 'input' as const, id, type: { kind: 'concrete' as const, types: ['INT'] },
+          kind: 'input' as const, id, type: { kind: 'concrete' as const, types: ['INT'] },
           required: false, default: [512, 512, 1, 0][index]!,
         })),
-        { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+        { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
       ],
     },
     PreviewImage: {
-      schemaVersion: 1, nodeType: 'PreviewImage', displayName: 'Preview Image', category: 'image',
+      schemaVersion: 2, nodeType: 'PreviewImage', displayName: 'Preview Image', category: 'image',
       outputNode: true,
-      interface: [{ role: 'input', id: 'images', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
+      body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
     },
   },
 }
@@ -82,12 +82,12 @@ describe('authored workflows on a native backend', () => {
     const backend = app.backends.get()[0]!
     const type = 'dinkster.text.string_length'
     backend.registry.set(buildDinksterRegistry(backend.id, {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodes: { [type]: {
-        schemaVersion: 1, nodeType: type, displayName: 'Text Length',
-        interface: [
-          { role: 'input', id: 'string', required: true, type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: false } },
-          { role: 'output', id: 'length', type: { kind: 'concrete', types: ['INT'] } },
+        schemaVersion: 2, nodeType: type, displayName: 'Text Length',
+        body: [
+          { kind: 'input', id: 'string', required: true, type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: false } },
+          { kind: 'output', id: 'length', type: { kind: 'concrete', types: ['INT'] } },
         ],
         replacements: [{ from: 'StringLength', cases: [{ to: type,
           inputs: { string: { kind: 'copy', input: 'string' } }, outputs: { length: 'length' },
@@ -146,11 +146,11 @@ describe('authored workflows on a native backend', () => {
   it('resolves promoted instance assets without replacing sibling overrides or definition defaults', async () => {
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, {
-      schemaVersion: 1,
-      nodes: { ModelFile: { outputNode: true, interface: [
-        { role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
+      schemaVersion: 2,
+      nodes: { ModelFile: { outputNode: true, body: [
+        { kind: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
           widget: { type: 'ASSET', accept: [] } },
-        { role: 'output', id: 'MODEL', type: { kind: 'concrete', types: ['MODEL'] } },
+        { kind: 'output', id: 'MODEL', type: { kind: 'concrete', types: ['MODEL'] } },
       ] } },
     }))
     const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'turbo.safetensors', held: true,
@@ -199,9 +199,9 @@ describe('authored workflows on a native backend', () => {
   it.each(['accepted', 'refused', 'closed', 'replaced', 'newer dialog'])('awaits asset autoresolution before provenance and leftover prompts: %s', async (completion) => {
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, {
-      schemaVersion: 1,
-      nodes: { AssetLoader: { interface: [
-        { role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [] } },
+      schemaVersion: 2,
+      nodes: { AssetLoader: { body: [
+        { kind: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [] } },
       ] } },
     }))
     const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'known.png', held: true,
@@ -438,5 +438,51 @@ describe('unresolved-type reporting', () => {
     expect(app.problems.get().filter((entry) => entry.code === 'schema.unresolvedType')).toEqual(before)
     expect((await app.openDocument(docJson('comfy.EmptyImage'), 'Different identity'))).toEqual([])
     expect(app.problems.get()).toContainEqual(expect.objectContaining({ code: 'schema.unresolvedType', message: expect.stringContaining('comfy.EmptyImage') }))
+  })
+})
+
+describe('opening a wire from a member that is gone', () => {
+  it('removes what reads a member the node does not have, in one undoable step, and lists it', async () => {
+    const weights: NodeSchema = { type: 'Weights', displayName: 'Weights', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'group', id: 'weights', keys: { kind: 'numbered', prefix: 'weight', start: 0, pad: 0 }, grows: 'link',
+        minMembers: 0, maxMembers: 4, value: { kind: 'input', id: 'weight', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
+          widget: { widgetType: 'FLOAT', options: {}, default: 0.5 } } }] }
+    // A count of 1: the second member is past it.
+    const counted: NodeSchema = { ...weights, type: 'Counted', displayName: 'Counted', body: [
+      { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 1 } },
+      { ...weights.body[0]!, grows: { count: 'count' } } as NodeSchema['body'][number]] }
+    const sink: NodeSchema = { type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'input', id: 'factor', type: { kind: 'concrete', name: 'FLOAT' }, optional: true }] }
+    const own = createWorkflowApp([weights, counted, sink])
+    const before = own.activeTab()!.store.doc
+    const graph = before.graphs[before.root]!
+    const tap = (id: string, member: string, to: string, from = '1') => ({ id, from: { node: asNodeId(from), tap: `weights.${member}` },
+      to: { node: asNodeId(to), port: 'factor' } })
+    const incoming = { ...before, graphs: { [before.root]: { ...graph, nextOrdinal: 20,
+      nodes: {
+        1: { id: asNodeId('1'), type: 'Weights', values: {}, dynamic: { weights: { members: ['weight0'], seq: 2 } } },
+        2: { id: asNodeId('2'), type: 'Sink', values: {} },
+        3: { id: asNodeId('3'), type: 'Sink', values: {} },
+        6: { id: asNodeId('6'), type: 'Counted', values: { count: 1 } },
+        7: { id: asNodeId('7'), type: 'Sink', values: {} },
+        // A node whose type is not installed loses nothing.
+        8: { id: asNodeId('8'), type: 'NotInstalled', values: {}, dynamic: { weights: { members: ['weight0'], seq: 2 } } },
+        9: { id: asNodeId('9'), type: 'Sink', values: {} },
+      },
+      links: { 4: tap('4', 'weight0', '2'), 5: tap('5', 'weight1', '3'), 10: tap('10', 'weight1', '7', '6'), 11: tap('11', 'weight1', '9', '8') },
+      boundary: { inputs: [], outputs: [{ id: 'second', binds: { kind: 'widgetTap', node: asNodeId('1'), tap: 'weights.weight1' } }] },
+    } } } as unknown as WorkflowDocument
+    expect(await own.openDocument(incoming, 'Gone member')).toEqual([])
+    const tab = own.activeTab()!
+    await vi.waitFor(() => expect(own.problems.get()).toContainEqual(expect.objectContaining({
+      code: 'upgrade.removedDynamicParts', message: expect.stringContaining("the wire from 'weights.weight1' is removed") })))
+    expect(Object.keys(tab.store.doc.graphs[before.root]!.links).sort()).toEqual(['11', '4'])
+    expect(tab.store.doc.graphs[before.root]!.boundary?.outputs ?? []).toEqual([])
+    expect(own.problems.get().filter((entry) => entry.code === 'upgrade.removedDynamicParts').map((entry) => entry.message.split(':')[0]).sort())
+      .toEqual(['Counted', 'Weights'])
+    expect(tab.store.undo()).toBe(true)
+    expect(Object.keys(tab.store.doc.graphs[before.root]!.links).sort()).toEqual(['10', '11', '4', '5'])
+    expect(tab.store.doc.graphs[before.root]!.boundary!.outputs.map((item) => item.id)).toEqual(['second'])
+    own.dispose()
   })
 })

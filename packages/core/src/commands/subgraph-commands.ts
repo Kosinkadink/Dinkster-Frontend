@@ -17,9 +17,9 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import { isForwardingBinding, isNodeBoundaryBinding, MAX_DYNAMIC_STATE_DEPTH, type BoundaryBinding, type BoundaryItem, type BoundaryRouteLeg, type ControllerMode, type DynamicPortState, type GraphDef, type GraphViewState, type GroupViewState, type Json, type JsonObject, type LinkData, type NamedNetData, type NodeData, type OccurrenceLinkEndpoint, type OccurrenceTopology, type SelectorData, type SuppressedDelivery, type ValueSourceData, type WorkflowDocument } from '../format/document.js'
+import { isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type BoundaryRouteLeg, type ControllerMode, type DynamicPortState, type GraphDef, type GraphViewState, type GroupViewState, type Json, type JsonObject, type LinkData, type NamedNetData, type NodeData, type OccurrenceLinkEndpoint, type OccurrenceTopology, type SuppressedDelivery, type WorkflowDocument } from '../format/document.js'
 import { validateBoundaryBindingShape, validateGraphDefShape, validateGraphViewShape } from '../format/validate.js'
-import { actorCursorOf, asDynamicMemberId, asGraphDefId, asLinkId, asNetId, asNodeId, asPortId, asRerouteId, asSelectorCandidateId, asSelectorId, asValueSourceId, formatAllocatedId, isPortEndpoint, isRerouteRef, isSelectorRef, isValueSourceRef, isWidgetTapRef, occurrenceKey, portRefKey, sameEndpoint, type LinkEndpoint, type OccurrenceRef, type PortRef, type WidgetTapRef } from '../ids.js'
+import { actorCursorOf, asGraphDefId, asLinkId, asNetId, asNodeId, asPortId, asRerouteId, formatAllocatedId, isPortEndpoint, isRerouteRef, isWidgetTapRef, occurrenceKey, portRefKey, sameEndpoint, type LinkEndpoint, type OccurrenceRef, type PortRef, type WidgetTapRef } from '../ids.js'
 import { EXPOSED_EXT_KEY, parseExposedEntry } from '../format/exposed.js'
 import { EXPOSED_PREVIEWS_EXT_KEY, parseExposedPreviewEntry } from '../format/exposed-previews.js'
 import { APP_LAYOUT_EXT_KEY, localizeAppLayoutJson, removeAppLayoutGraphRefs } from '../format/app-layout.js'
@@ -54,9 +54,11 @@ import {
   type ResolvedGeometryItem,
 } from '../lifecycle/planner.js'
 import { planFlattenOccurrenceTopology, type FlattenOccurrenceTopologyPlan } from '../compile/effective-topology.js'
-import { matchBoundaryItem } from '../compile/crossing.js'
+import { innerConstructAddress, matchBoundaryItem } from '../compile/crossing.js'
+import type { NodeSchema } from '../schema/model.js'
 import { canonicalJson } from '../compile/hash.js'
-import { resolveStaticWidgetTap } from '../schema/derive-boundary.js'
+import { resolveWidgetTap } from '../schema/derive-boundary.js'
+import { buildGraphConnectivity } from '../schema/elaborate.js'
 import { graphAllocator } from './alloc.js'
 import type { CommandDefinition, CommandExecutionContext, TransactionBuilder } from './contract.js'
 import { groupAllocationFloor } from '../group-alloc.js'
@@ -127,9 +129,7 @@ function occurrenceEndpointIntersectsSelection(
   const nodes = new Set(selection.nodeIds)
   const endpointSelected = (value: LinkEndpoint): boolean => {
     if (isPortEndpoint(value) || isWidgetTapRef(value)) return nodes.has(value.node)
-    if (isRerouteRef(value)) return selection.rerouteIds.includes(value.reroute)
-    if (isValueSourceRef(value)) return selection.valueSourceIds.includes(value.valueSource)
-    return selection.selectorIds.includes(value.selector)
+    return selection.rerouteIds.includes(value.reroute)
   }
   if (endpoint.kind === 'body') return topologyBody === graphId && endpointSelected(endpoint.endpoint)
   return occurrenceRefIntersectsNodes(doc, endpoint.occurrence, graphId, nodes) ||
@@ -203,9 +203,6 @@ function remapPort(port: PortRef, nodeIds: ReadonlyMap<string, string>): PortRef
 interface ExtractIdMaps {
   readonly nodes: ReadonlyMap<string, string>
   readonly reroutes: ReadonlyMap<string, string>
-  readonly valueSources: ReadonlyMap<string, string>
-  readonly selectors: ReadonlyMap<string, string>
-  readonly candidates: ReadonlyMap<string, string>
 }
 
 function remapEndpoint(endpoint: LinkEndpoint, ids: ExtractIdMaps): LinkEndpoint {
@@ -216,30 +213,12 @@ function remapEndpoint(endpoint: LinkEndpoint, ids: ExtractIdMaps): LinkEndpoint
     if (node === undefined) throw new Error(`subgraph.extract: no node map for '${endpoint.node}'`)
     return { ...endpoint, node: asNodeId(node) }
   }
-  if (isRerouteRef(endpoint)) {
-    const reroute = ids.reroutes.get(endpoint.reroute)
-    if (reroute === undefined) throw new Error(`subgraph.extract: no reroute map for '${endpoint.reroute}'`)
-    return { reroute: asRerouteId(reroute) }
-  }
-  if (isValueSourceRef(endpoint)) {
-    const valueSource = ids.valueSources.get(endpoint.valueSource)
-    if (valueSource === undefined) throw new Error(`subgraph.extract: no value-source map for '${endpoint.valueSource}'`)
-    return { valueSource: asValueSourceId(valueSource) }
-  }
-  const selector = ids.selectors.get(endpoint.selector)
-  if (selector === undefined) throw new Error(`subgraph.extract: no selector map for '${endpoint.selector}'`)
-  if (endpoint.candidate === undefined) return { selector: asSelectorId(selector) }
-  const candidate = ids.candidates.get(JSON.stringify([endpoint.selector, endpoint.candidate]))
-  if (candidate === undefined) throw new Error(`subgraph.extract: no selector candidate map for '${endpoint.candidate}'`)
-  return { selector: asSelectorId(selector), candidate: asSelectorCandidateId(candidate) }
+  const reroute = ids.reroutes.get(endpoint.reroute)
+  if (reroute === undefined) throw new Error(`subgraph.extract: no reroute map for '${endpoint.reroute}'`)
+  return { reroute: asRerouteId(reroute) }
 }
 
-function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, string>, rerouteIds?: ReadonlyMap<string, string>, valueSourceIds?: ReadonlyMap<string, string>): BoundaryBinding {
-  if (binding.kind === 'valueSource' && valueSourceIds !== undefined) {
-    const valueSource = valueSourceIds.get(binding.valueSource)
-    if (valueSource === undefined) throw new Error(`subgraph.extract: no value-source map for '${binding.valueSource}'`)
-    return { ...binding, valueSource: asValueSourceId(valueSource) }
-  }
+function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, string>, rerouteIds?: ReadonlyMap<string, string>): BoundaryBinding {
   if (!isNodeBoundaryBinding(binding)) return binding
   const node = nodeIds.get(binding.node)
   if (node === undefined) throw new Error(`subgraph.extract: no node map for '${binding.node}'`)
@@ -252,19 +231,16 @@ function remapBinding(binding: BoundaryBinding, nodeIds: ReadonlyMap<string, str
 }
 
 function bindingAsEndpoint(binding: BoundaryBinding): LinkEndpoint {
-  if (binding.kind === 'valueSource') return { valueSource: binding.valueSource }
   if (!isNodeBoundaryBinding(binding)) throw new Error('unbound boundary has no endpoint')
   return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
-    : { node: binding.node, port: binding.port, ...(binding.members !== undefined ? { members: binding.members } : {}) }
+    : { node: binding.node, port: binding.port }
 }
 
 function endpointKey(endpoint: LinkEndpoint): string {
   if (isRerouteRef(endpoint)) return canonicalJson(['reroute', endpoint.reroute])
-  if (isValueSourceRef(endpoint)) return canonicalJson(['valueSource', endpoint.valueSource])
-  if (isSelectorRef(endpoint)) return canonicalJson(['selector', endpoint.selector, endpoint.candidate ?? null])
   if (isWidgetTapRef(endpoint)) return canonicalJson(['tap', endpoint.node, endpoint.tap])
-  return canonicalJson(['port', endpoint.node, endpoint.port, endpoint.members ?? []])
+  return canonicalJson(['port', endpoint.node, endpoint.port])
 }
 
 function parentPort(nodeId: string, port: string): PortRef {
@@ -287,13 +263,7 @@ function inputLinkForGroup(group: InputCutGroup, links: readonly LinkData[]): Li
 
 function portRefFromJson(value: Json): PortRef | undefined {
   if (!isObj(value) || typeof value.node !== 'string' || typeof value.port !== 'string') return undefined
-  if (value.members !== undefined && (!Array.isArray(value.members) || value.members.length === 0 ||
-      !value.members.every((member) => typeof member === 'string' && member.length > 0))) return undefined
-  return {
-    node: asNodeId(value.node),
-    port: value.port as PortRef['port'],
-    ...(Array.isArray(value.members) ? { members: value.members.map((member) => asDynamicMemberId(member as string)) } : {}),
-  }
+  return { node: asNodeId(value.node), port: value.port as PortRef['port'] }
 }
 
 function rewriteEnclosingInput(
@@ -309,14 +279,8 @@ function rewriteEnclosingInput(
   for (const binding of bindings) {
     if (moved.has(binding)) {
       if (!inserted) {
-        rewritten.push(isForwardingBinding(binding)
-          ? {
-              kind: binding.kind,
-              node: asNodeId(occurrenceId),
-              port: boundaryId as PortRef['port'],
-              ...(binding.slots !== undefined ? { slots: binding.slots } : {}),
-            }
-          : { kind: 'port', node: asNodeId(occurrenceId), port: boundaryId as PortRef['port'] })
+        // A construct shown whole stays whole through the new subgraph node.
+        rewritten.push({ kind: binding.kind === 'construct' ? 'construct' : 'port', node: asNodeId(occurrenceId), port: boundaryId as PortRef['port'] })
         inserted = true
       }
     } else {
@@ -353,7 +317,7 @@ function geometryItemsFromJson(value: Json | undefined): ResolvedGeometryItem[] 
   const result: ResolvedGeometryItem[] = []
   for (const item of value) {
     if (!isObj(item) || typeof item.id !== 'string' ||
-        !['node', 'reroute', 'valueSource', 'selector', 'group'].includes(String(item.kind)) ||
+        !['node', 'reroute', 'group'].includes(String(item.kind)) ||
         !['x', 'y', 'width', 'height'].every((key) => typeof item[key] === 'number')) return undefined
     result.push({
       id: item.id,
@@ -386,8 +350,8 @@ function remapNestedItem(
   if (nested === undefined) throw new Error(`subgraph.extract: boundary '${cut.itemId}' has no nested item`)
   return {
     id,
-    binds: remapBinding(nested.binds, ids.nodes, ids.reroutes, ids.valueSources),
-    ...(nested.alsoBinds !== undefined ? { alsoBinds: nested.alsoBinds.map((binding) => remapBinding(binding, ids.nodes, ids.reroutes, ids.valueSources)) } : {}),
+    binds: remapBinding(nested.binds, ids.nodes, ids.reroutes),
+    ...(nested.alsoBinds !== undefined ? { alsoBinds: nested.alsoBinds.map((binding) => remapBinding(binding, ids.nodes, ids.reroutes)) } : {}),
     ...(nested.promoted === true ? { promoted: true } : {}),
     ...(nested.wireHidden === true ? { wireHidden: true } : {}),
     ...(nested.displayName !== undefined ? { displayName: nested.displayName } : {}),
@@ -400,7 +364,7 @@ function validateGroupMemberships(value: Json | undefined, selection: LifecycleS
   const byId = new Map<string, JsonObject>()
   for (const entry of value) {
     if (!isObj(entry) || typeof entry.groupId !== 'string' || byId.has(entry.groupId)) return false
-    for (const field of ['nodeIds', 'rerouteIds', 'valueSourceIds', 'selectorIds']) {
+    for (const field of ['nodeIds', 'rerouteIds']) {
       const ids = entry[field]
       if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string')) return false
     }
@@ -410,8 +374,6 @@ function validateGroupMemberships(value: Json | undefined, selection: LifecycleS
   const selected = {
     nodeIds: new Set(selection.nodeIds),
     rerouteIds: new Set(selection.rerouteIds),
-    valueSourceIds: new Set(selection.valueSourceIds),
-    selectorIds: new Set(selection.selectorIds),
   }
   return selection.groupIds.every((groupId) => {
     const membership = byId.get(groupId)
@@ -454,9 +416,7 @@ function emptiedParentGroups(
   })
   const hasRetainedPositionable =
     Object.keys(view.nodes).some((id) => !selection.nodeIds.includes(id)) ||
-    Object.keys(view.reroutes ?? {}).some((id) => !selection.rerouteIds.includes(id)) ||
-    Object.keys(view.valueSources ?? {}).some((id) => !selection.valueSourceIds.includes(id)) ||
-    Object.keys(view.selectors ?? {}).some((id) => !selection.selectorIds.includes(id))
+    Object.keys(view.reroutes ?? {}).some((id) => !selection.rerouteIds.includes(id))
   if (hasRetainedPositionable) return []
   return Object.values(view.groups ?? {})
     .filter((group) => !selection.groupIds.includes(group.id) && movedInside(group))
@@ -533,7 +493,7 @@ const subgraphExtract: CommandDefinition = {
     if (!contextResolves(doc, graphId, instancePath)) {
       return [lifecycleError('subgraph.lifecycle.contextInvalid', `subgraph.extract: instance path does not resolve to graph '${graphId}'`, graphId, instancePath)]
     }
-    const selectionFields = ['nodeIds', 'rerouteIds', 'valueSourceIds', 'selectorIds', 'groupIds'] as const
+    const selectionFields = ['nodeIds', 'rerouteIds', 'groupIds'] as const
     for (const field of selectionFields) {
       const value = params.selection[field]
       if (value !== undefined && (!Array.isArray(value) || !value.every((id) => typeof id === 'string'))) {
@@ -543,12 +503,10 @@ const subgraphExtract: CommandDefinition = {
     const selection = canonicalizeLifecycleSelection({
       nodeIds: (params.selection.nodeIds ?? []) as string[],
       rerouteIds: (params.selection.rerouteIds ?? []) as string[],
-      valueSourceIds: (params.selection.valueSourceIds ?? []) as string[],
-      selectorIds: (params.selection.selectorIds ?? []) as string[],
       groupIds: (params.selection.groupIds ?? []) as string[],
     })
     if (!hasSemanticLifecycleSelection(selection)) {
-      return [lifecycleError('subgraph.extract.empty', 'subgraph.extract: at least one node, value source, or selector must be selected', graphId, instancePath)]
+      return [lifecycleError('subgraph.extract.empty', 'subgraph.extract: at least one node must be selected', graphId, instancePath)]
     }
     const missing = missingLifecycleEntities(doc, graphId, selection)
     if (missing.length > 0) {
@@ -651,13 +609,14 @@ const subgraphExtract: CommandDefinition = {
       }
       try {
         const resolve = context.schemaResolverFor(doc)
+        const connectivity = buildGraphConnectivity(parent)
         for (const source of crossingWidgetTaps) {
           const node = parent.nodes[source.node]
           const schema = node === undefined ? undefined : resolve(node.type)
-          if (schema === undefined || !resolveStaticWidgetTap(schema, source.tap).ok) {
+          if (schema === undefined || node === undefined || !resolveWidgetTap(schema, node, source.tap, connectivity(source.node)).ok) {
             return [lifecycleError(
               'subgraph.extract.widgetTapSchemaStale',
-              `subgraph.extract: widget tap '${source.node}/${source.tap}' is not one exact static widget-backed input`,
+              `subgraph.extract: widget tap '${source.node}/${source.tap}' is not one exact widget-backed input`,
               graphId,
               instancePath,
               source.node,
@@ -692,40 +651,6 @@ const subgraphExtract: CommandDefinition = {
       nodeIds.set(oldId, id)
       innerNodes[id] = { ...parent.nodes[oldId]!, id: asNodeId(id) }
     }
-    const valueSourceIds = new Map<string, string>()
-    const innerValueSources: Record<string, ValueSourceData> = {}
-    for (const oldId of selection.valueSourceIds) {
-      const id = innerAllocator.mint('v')
-      valueSourceIds.set(oldId, id)
-      innerValueSources[id] = { ...parent.valueSources![oldId]!, id: asValueSourceId(id) }
-    }
-    const selectorIds = new Map<string, string>()
-    const candidateIds = new Map<string, string>()
-    const innerSelectors: Record<string, SelectorData> = {}
-    for (const oldId of selection.selectorIds) {
-      const selector = parent.selectors![oldId]!
-      const id = innerAllocator.mint('s')
-      selectorIds.set(oldId, id)
-      const candidates = selector.candidates.map((candidate) => {
-        const candidateId = innerAllocator.mint('c')
-        candidateIds.set(JSON.stringify([oldId, candidate.id]), candidateId)
-        return { ...candidate, id: asSelectorCandidateId(candidateId) }
-      })
-      const fixed = selector.policy.kind === 'fixed'
-        ? candidateIds.get(JSON.stringify([oldId, selector.policy.candidate]))
-        : undefined
-      if (selector.policy.kind === 'fixed' && fixed === undefined) {
-        return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.extract: selector '${oldId}' has an unmapped fixed candidate`, graphId, instancePath, selection.nodeIds[0])]
-      }
-      innerSelectors[id] = {
-        ...selector,
-        id: asSelectorId(id),
-        candidates,
-        policy: selector.policy.kind === 'fixed'
-          ? { kind: 'fixed', candidate: asSelectorCandidateId(fixed!) }
-          : { kind: 'random' },
-      }
-    }
     const rerouteIds = new Map<string, string>()
     const innerReroutes: GraphDef['reroutes'] extends Readonly<Record<string, infer T>> ? Record<string, T> : never = {}
     for (const oldId of selection.rerouteIds) {
@@ -735,24 +660,17 @@ const subgraphExtract: CommandDefinition = {
     }
     const idMaps: ExtractIdMaps = {
       nodes: nodeIds,
-      valueSources: valueSourceIds,
-      selectors: selectorIds,
-      candidates: candidateIds,
       reroutes: rerouteIds,
     }
 
     const candidates = planBoundaryNames(boundaryNameCandidates(audit))
     const enclosingInputs = audit.boundaries.filter((cut) => cut.kind === 'in-cut')
-    const enclosingFamilyOutputs = audit.boundaries.filter((cut) =>
-      cut.kind === 'out-cut' && cut.nestedItem?.binds.kind === 'family')
     const inputNames = candidates.slice(0, audit.inputs.length)
     const enclosingInputNames = candidates.slice(audit.inputs.length, audit.inputs.length + enclosingInputs.length)
     const outputStart = audit.inputs.length + enclosingInputs.length
     const outputNames = candidates.slice(outputStart, outputStart + audit.outputs.length)
-    const enclosingOutputNames = candidates.slice(outputStart + audit.outputs.length)
     const inputIdByBoundary = new Map(enclosingInputs.map((cut, index) => [cut.itemId, enclosingInputNames[index]!.id]))
     const outputIdBySource = new Map(audit.outputs.map((cut, index) => [endpointKey(cut.source), outputNames[index]!.id]))
-    const outputIdByBoundary = new Map(enclosingFamilyOutputs.map((cut, index) => [cut.itemId, enclosingOutputNames[index]!.id]))
 
     const innerBoundaryInputs: BoundaryItem[] = audit.inputs.map((cut, index) => ({
       id: inputNames[index]!.id,
@@ -766,26 +684,15 @@ const subgraphExtract: CommandDefinition = {
       innerBoundaryInputs.push(remapNestedItem(cut, idMaps, itemId))
     }
     const innerBoundaryOutputs: BoundaryItem[] = []
+    const wholeOutput = (cut: (typeof audit.outputs)[number]): boolean =>
+      cut.boundaryItems.some(({ itemIndex }) => parent.boundary!.outputs[itemIndex]!.binds.kind === 'construct')
     for (const [index, cut] of audit.outputs.entries()) {
-      if (isValueSourceRef(cut.source)) {
-        const authored = cut.boundaryItems.map(({ itemIndex }) => parent.boundary!.outputs[itemIndex]!.binds)
-          .filter((binding) => binding.kind === 'valueSource')
-        const type = authored[0]?.type ?? { kind: 'wildcard' as const }
-        if (authored.some((binding) => canonicalJson(binding.type) !== canonicalJson(type))) {
-          return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', 'subgraph.extract: value source output boundary types disagree', graphId, instancePath)]
-        }
-        innerBoundaryOutputs.push({ id: outputNames[index]!.id,
-          binds: { kind: 'valueSource', valueSource: asValueSourceId(valueSourceIds.get(cut.source.valueSource)!), type },
-        })
-      } else innerBoundaryOutputs.push({
+      innerBoundaryOutputs.push({
         id: outputNames[index]!.id,
         binds: isWidgetTapRef(cut.source)
           ? { kind: 'widgetTap', node: asNodeId(nodeIds.get(cut.source.node)!), tap: cut.source.tap }
-          : { kind: 'port', ...remapPort(cut.source, nodeIds) },
+          : { kind: wholeOutput(cut) ? 'construct' : 'port', ...remapPort(cut.source, nodeIds) },
       })
-    }
-    for (const cut of enclosingFamilyOutputs) {
-      innerBoundaryOutputs.push(remapNestedItem(cut, idMaps, outputIdByBoundary.get(cut.itemId)!))
     }
 
     const parentLinks: Record<string, LinkData> = { ...parent.links }
@@ -875,17 +782,10 @@ const subgraphExtract: CommandDefinition = {
         } else if (cut.kind === 'out-cut') {
           const original = outputs[cut.itemIndex]!
           const source = cut.movedBindings[0]!
-          const id = source.kind === 'family'
-            ? outputIdByBoundary.get(cut.itemId)!
-            : outputIdBySource.get(endpointKey(bindingAsEndpoint(source)))!
+          const id = outputIdBySource.get(endpointKey(bindingAsEndpoint(source)))!
           outputs[cut.itemIndex] = {
             ...original,
-            binds: {
-              kind: source.kind === 'family' ? 'family' : 'port',
-              node: asNodeId(occurrenceId),
-              port: id as PortRef['port'],
-              ...(source.kind === 'family' && source.slots !== undefined ? { slots: source.slots } : {}),
-            },
+            binds: { kind: source.kind === 'construct' ? 'construct' : 'port', node: asNodeId(occurrenceId), port: id as PortRef['port'] },
           }
         }
       }
@@ -895,10 +795,6 @@ const subgraphExtract: CommandDefinition = {
     const parentNodes: Record<string, NodeData> = { ...parent.nodes }
     for (const id of selection.nodeIds) delete parentNodes[id]
     parentNodes[occurrenceId] = { id: asNodeId(occurrenceId), type: `#${freshGraphId}`, values: {} }
-    const parentValueSources = { ...(parent.valueSources ?? {}) }
-    for (const id of selection.valueSourceIds) delete parentValueSources[id]
-    const parentSelectors = { ...(parent.selectors ?? {}) }
-    for (const id of selection.selectorIds) delete parentSelectors[id]
     const parentReroutes = { ...parent.reroutes }
     for (const id of selection.rerouteIds) delete parentReroutes[id]
     const innerCursor = innerAllocator.cursor()
@@ -909,8 +805,6 @@ const subgraphExtract: CommandDefinition = {
       links: innerLinks,
       nets: innerNets,
       reroutes: innerReroutes,
-      ...(selection.valueSourceIds.length > 0 ? { valueSources: innerValueSources } : {}),
-      ...(selection.selectorIds.length > 0 ? { selectors: innerSelectors } : {}),
       boundary: { inputs: innerBoundaryInputs, outputs: innerBoundaryOutputs },
       nextOrdinal: innerCursor.nextOrdinal,
       ...(innerCursor.actorCursors !== undefined ? { actorCursors: innerCursor.actorCursors } : {}),
@@ -939,26 +833,6 @@ const subgraphExtract: CommandDefinition = {
         position: translatedPosition(translatedGeometry, 'reroute', oldId),
       }
     }
-    const parentViewValueSources = { ...(parentViewState.valueSources ?? {}) }
-    const innerViewValueSources: NonNullable<GraphViewState['valueSources']> extends Readonly<Record<string, infer T>> ? Record<string, T> : never = {}
-    for (const oldId of selection.valueSourceIds) {
-      const oldView = parentViewState.valueSources?.[oldId]
-      delete parentViewValueSources[oldId]
-      innerViewValueSources[valueSourceIds.get(oldId)!] = {
-        ...(oldView ?? {}),
-        position: translatedPosition(translatedGeometry, 'valueSource', oldId),
-      }
-    }
-    const parentViewSelectors = { ...(parentViewState.selectors ?? {}) }
-    const innerViewSelectors: NonNullable<GraphViewState['selectors']> extends Readonly<Record<string, infer T>> ? Record<string, T> : never = {}
-    for (const oldId of selection.selectorIds) {
-      const oldView = parentViewState.selectors?.[oldId]
-      delete parentViewSelectors[oldId]
-      innerViewSelectors[selectorIds.get(oldId)!] = {
-        ...(oldView ?? {}),
-        position: translatedPosition(translatedGeometry, 'selector', oldId),
-      }
-    }
     const parentGroups = { ...(parentViewState.groups ?? {}) }
     const innerGroups: Record<string, GroupViewState> = {}
     for (const [index, oldId] of selection.groupIds.entries()) {
@@ -981,8 +855,6 @@ const subgraphExtract: CommandDefinition = {
     const freshView: GraphViewState = {
       nodes: innerViewNodes,
       ...(selection.rerouteIds.length > 0 ? { reroutes: innerViewReroutes } : {}),
-      ...(selection.valueSourceIds.length > 0 ? { valueSources: innerViewValueSources } : {}),
-      ...(selection.selectorIds.length > 0 ? { selectors: innerViewSelectors } : {}),
       ...(selection.groupIds.length > 0 ? { groups: innerGroups, groupSeq: selection.groupIds.length } : {}),
       ...(innerCollapsedNets.length > 0 ? { collapsedNets: innerCollapsedNets } : {}),
       ...(innerGuideNets.length > 0 ? { guideNets: innerGuideNets } : {}),
@@ -1026,19 +898,11 @@ const subgraphExtract: CommandDefinition = {
     tx.set(['graphs', graphId, 'links'], parentLinks as unknown as Json)
     tx.set(['graphs', graphId, 'nets'], parentNets as unknown as Json)
     tx.set(['graphs', graphId, 'reroutes'], parentReroutes as unknown as Json)
-    if (parent.valueSources !== undefined || selection.valueSourceIds.length > 0) {
-      tx.set(['graphs', graphId, 'valueSources'], parentValueSources as unknown as Json)
-    }
-    if (parent.selectors !== undefined || selection.selectorIds.length > 0) {
-      tx.set(['graphs', graphId, 'selectors'], parentSelectors as unknown as Json)
-    }
     if (parentBoundary !== undefined) tx.set(['graphs', graphId, 'boundary'], parentBoundary as unknown as Json)
     if (doc.view.graphs[graphId] === undefined) {
       tx.set(['view', 'graphs', graphId], {
         nodes: parentViewNodes,
         ...(Object.keys(parentViewReroutes).length > 0 ? { reroutes: parentViewReroutes } : {}),
-        ...(Object.keys(parentViewValueSources).length > 0 ? { valueSources: parentViewValueSources } : {}),
-        ...(Object.keys(parentViewSelectors).length > 0 ? { selectors: parentViewSelectors } : {}),
         ...(Object.keys(parentGroups).length > 0 ? { groups: parentGroups } : {}),
         ...(parentCollapsedNets.length > 0 ? { collapsedNets: parentCollapsedNets } : {}),
         ...(parentGuideNets.length > 0 ? { guideNets: parentGuideNets } : {}),
@@ -1046,8 +910,6 @@ const subgraphExtract: CommandDefinition = {
     } else {
       tx.set(['view', 'graphs', graphId, 'nodes'], parentViewNodes as unknown as Json)
       if (parentViewState.reroutes !== undefined) tx.set(['view', 'graphs', graphId, 'reroutes'], parentViewReroutes as unknown as Json)
-      if (parentViewState.valueSources !== undefined) tx.set(['view', 'graphs', graphId, 'valueSources'], parentViewValueSources as unknown as Json)
-      if (parentViewState.selectors !== undefined) tx.set(['view', 'graphs', graphId, 'selectors'], parentViewSelectors as unknown as Json)
       if (parentViewState.groups !== undefined) tx.set(['view', 'graphs', graphId, 'groups'], parentGroups as unknown as Json)
       if (selection.groupIds.length > 0) {
         tx.set(['view', 'graphs', graphId, 'groupSeq'], groupAllocationFloor(doc, graphId))
@@ -1073,12 +935,9 @@ function flattenBoundaryTargets(
   item: BoundaryItem,
   nodeIds: ReadonlyMap<string, string>,
   rerouteIds: ReadonlyMap<string, string>,
-  valueSourceIds: ReadonlyMap<string, string>,
-): readonly BoundaryBinding[] | undefined {
+): readonly BoundaryBinding[] {
   const bindings = [item.binds, ...(item.alsoBinds ?? [])]
-  if (bindings.some((binding) => isForwardingBinding(binding) ||
-    binding.kind === 'port' && (binding.members?.length ?? 0) > 0)) return undefined
-  return bindings.map((binding) => remapBinding(binding, nodeIds, rerouteIds, valueSourceIds))
+  return bindings.map((binding) => remapBinding(binding, nodeIds, rerouteIds))
 }
 
 function portFromBinding(binding: BoundaryBinding): PortRef {
@@ -1086,12 +945,10 @@ function portFromBinding(binding: BoundaryBinding): PortRef {
   return {
     node: binding.node,
     port: binding.port,
-    ...(binding.members !== undefined ? { members: binding.members } : {}),
   }
 }
 
 function endpointFromBinding(binding: BoundaryBinding): LinkEndpoint {
-  if (binding.kind === 'valueSource') return { valueSource: binding.valueSource }
   return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
     : binding.kind === 'port' && binding.viaReroute !== undefined
@@ -1116,7 +973,7 @@ function flattenRoutePlanFromJson(
         !Object.hasOwn(entry, 'id') || !Object.hasOwn(entry, 'route') ||
         entry.side !== address.side || entry.id !== address.id ||
         typeof entry.route !== 'string' ||
-        !['plain', 'plainWidget', 'widgetTap', 'combo', 'family', 'specialized', 'unresolved'].includes(entry.route) ||
+        !['plain', 'plainWidget', 'widgetTap', 'unresolved'].includes(entry.route) ||
         (entry.side === 'output' && entry.route === 'plainWidget')) return undefined
     const key = JSON.stringify([entry.side, entry.id])
     if (result.has(key)) return undefined
@@ -1134,9 +991,8 @@ function flattenStatePlanFromJson(
     return required.every((key) => Object.hasOwn(record, key)) && Object.keys(record).every((key) => allowed.has(key))
   }
   const controllerModes = new Set<ControllerMode>(['fixed', 'increment', 'decrement', 'randomize'])
-  const dynamicState = (entry: Json | undefined, depth = 0): boolean => {
-    if (!isObj(entry) || depth > MAX_DYNAMIC_STATE_DEPTH ||
-        !exactKeys(entry, [], ['members', 'memberLabels', 'selected', 'options', 'seq', 'memberState'])) return false
+  const dynamicState = (entry: Json | undefined): boolean => {
+    if (!isObj(entry) || !exactKeys(entry, [], ['members', 'memberLabels', 'selected', 'options', 'seq'])) return false
     if (entry.options !== undefined && (!Array.isArray(entry.options) || !entry.options.every(isComboValue))) return false
     if (entry.members !== undefined && (!Array.isArray(entry.members) ||
         !entry.members.every((member) => typeof member === 'string' && member.length > 0) ||
@@ -1145,17 +1001,7 @@ function flattenStatePlanFromJson(
     if (entry.memberLabels !== undefined && (!isObj(entry.memberLabels) ||
         !Object.entries(entry.memberLabels).every(([member, label]) =>
           member.length > 0 && typeof label === 'string' && label.length > 0))) return false
-    if (entry.seq !== undefined && (typeof entry.seq !== 'number' || !Number.isSafeInteger(entry.seq) || entry.seq < 0)) return false
-    if (entry.memberState !== undefined) {
-      if (!isObj(entry.memberState)) return false
-      for (const [member, constructs] of Object.entries(entry.memberState)) {
-        if (member.length === 0 || !isObj(constructs)) return false
-        for (const nested of Object.values(constructs)) {
-          if (!dynamicState(nested, depth + 1)) return false
-        }
-      }
-    }
-    return true
+    return entry.seq === undefined || typeof entry.seq === 'number' && Number.isSafeInteger(entry.seq) && entry.seq >= 0
   }
   const dynamicScope = (entry: Json | undefined): boolean => isObj(entry) &&
     Object.values(entry).every((state) => dynamicState(state))
@@ -1178,8 +1024,6 @@ function flattenStatePlanFromJson(
   const refusalCodes = new Set([
     'subgraph.flatten.stateUnresolved',
     'subgraph.flatten.dormantStateUnsupported',
-    'subgraph.flatten.nativeFamilyUnsupported',
-    'subgraph.flatten.specializedSlotUnsupported',
     'subgraph.lifecycle.boundaryUnresolved',
     'subgraph.lifecycle.idExhausted',
   ])
@@ -1192,98 +1036,28 @@ function flattenStatePlanFromJson(
         (value.refusal.boundaryId !== undefined && (typeof value.refusal.boundaryId !== 'string' || value.refusal.side === undefined)) ||
         (value.refusal.key !== undefined && typeof value.refusal.key !== 'string') ||
         (value.refusal.address !== undefined && (!isObj(value.refusal.address) ||
-          !exactKeys(value.refusal.address, ['port'], ['members']) || typeof value.refusal.address.port !== 'string' || value.refusal.address.port.length === 0 ||
-          (value.refusal.address.members !== undefined && (!Array.isArray(value.refusal.address.members) ||
-            !value.refusal.address.members.every((member) => typeof member === 'string' && member.length > 0)))))) return undefined
+          !exactKeys(value.refusal.address, ['port']) || typeof value.refusal.address.port !== 'string' || value.refusal.address.port.length === 0))) return undefined
     return value as unknown as FlattenStatePlan
   }
-  if (!exactKeys(value, ['version', 'status', 'source', 'nodes', 'familyScopes', 'addresses', 'routes', 'enclosingRewrites']) ||
-      !Array.isArray(value.nodes) || !Array.isArray(value.familyScopes) ||
-      !Array.isArray(value.addresses) ||
-      !Array.isArray(value.routes) || !Array.isArray(value.enclosingRewrites) ||
+  if (!exactKeys(value, ['version', 'status', 'source', 'nodes', 'routes', 'enclosingRewrites']) ||
+      !Array.isArray(value.nodes) || !Array.isArray(value.routes) || !Array.isArray(value.enclosingRewrites) ||
       value.nodes.length !== nodeIds.length) return undefined
   for (const [index, entry] of value.nodes.entries()) {
     if (!snapshot(entry) || !isObj(entry) || entry.node !== nodeIds[index] || entry.type !== body.nodes[nodeIds[index]!]!.type) return undefined
   }
-  const strings = (entry: Json | undefined): entry is string[] => Array.isArray(entry) &&
-    entry.every((item) => typeof item === 'string' && item.length > 0)
   const binding = (entry: Json | undefined): boolean => isObj(entry) && (
-    entry.kind === 'valueSource'
-      ? exactKeys(entry, ['kind', 'valueSource', 'type']) && validateBoundaryBindingShape(entry).length === 0
-      : entry.kind === 'widgetTap'
+    entry.kind === 'widgetTap'
       ? exactKeys(entry, ['kind', 'node', 'tap']) && typeof entry.node === 'string' &&
         typeof entry.tap === 'string' && entry.tap.length > 0
-      : exactKeys(entry, ['kind', 'node', 'port'], ['members', 'slots', 'viaReroute']) &&
-        (entry.kind === 'port' || entry.kind === 'family') && typeof entry.node === 'string' &&
+      : entry.kind === 'construct'
+      ? exactKeys(entry, ['kind', 'node', 'port']) && typeof entry.node === 'string' &&
+        typeof entry.port === 'string' && entry.port.length > 0
+      : exactKeys(entry, ['kind', 'node', 'port'], ['viaReroute']) &&
+        entry.kind === 'port' && typeof entry.node === 'string' &&
         typeof entry.port === 'string' && entry.port.length > 0 &&
-        (entry.members === undefined || strings(entry.members)) &&
-        (entry.slots === undefined || entry.kind === 'family' && strings(entry.slots)) &&
-        (entry.viaReroute === undefined || entry.kind === 'port' && entry.members === undefined &&
+        (entry.viaReroute === undefined ||
           typeof entry.viaReroute === 'string' && entry.viaReroute.length > 0)
   )
-  const scopeStep = (entry: Json | undefined): boolean => isObj(entry) &&
-    exactKeys(entry, ['construct', 'member', 'storage']) && typeof entry.construct === 'string' && entry.construct.length > 0 &&
-    typeof entry.member === 'string' && entry.member.length > 0 &&
-    (entry.storage === 'memberState' || entry.storage === 'pathSegment')
-  const scopeRef = (entry: Json | undefined, target = false): boolean => isObj(entry) &&
-    exactKeys(entry, target ? ['construct', 'ancestors', 'node'] : ['construct', 'ancestors']) &&
-    typeof entry.construct === 'string' && entry.construct.length > 0 && Array.isArray(entry.ancestors) && entry.ancestors.every(scopeStep) &&
-    (!target || typeof entry.node === 'string' && Object.hasOwn(body.nodes, entry.node))
-  const beforeAfter = (entry: Json | undefined): boolean => isObj(entry) &&
-    exactKeys(entry, ['members', 'memberStateKeys'], ['seq']) && strings(entry.members) && strings(entry.memberStateKeys) &&
-    (entry.seq === undefined || typeof entry.seq === 'number' && Number.isSafeInteger(entry.seq) && entry.seq >= 0)
-  const scopeIds = new Set<string>()
-  for (const [index, scope] of value.familyScopes.entries()) {
-    if (!isObj(scope) || !exactKeys(scope, ['id', 'source', 'target', 'policy', 'sourceMembers', 'targetBefore', 'members', 'targetAfter'], ['parent']) ||
-        typeof scope.id !== 'string' || scope.id !== `family-${index}` || scopeIds.has(scope.id) ||
-        !scopeRef(scope.source) || !scopeRef(scope.target, true) || !isObj(scope.policy) ||
-        !strings(scope.sourceMembers) || !beforeAfter(scope.targetBefore) || !beforeAfter(scope.targetAfter) ||
-        !Array.isArray(scope.members) || !scope.members.every((member) => isObj(member) &&
-          exactKeys(member, ['before', 'after']) && typeof member.before === 'string' && member.before.length > 0 &&
-          typeof member.after === 'string' && member.after.length > 0) ||
-        scope.members.length !== scope.sourceMembers.length) return undefined
-    if (scope.policy.kind === 'ordinal') {
-      if (!exactKeys(scope.policy, ['kind', 'materialization', 'prefix', 'min', 'max']) ||
-          (scope.policy.materialization !== 'ordinary' && scope.policy.materialization !== 'wire15') ||
-          typeof scope.policy.prefix !== 'string') return undefined
-    } else if (scope.policy.kind === 'names') {
-      if (!exactKeys(scope.policy, ['kind', 'materialization', 'vocabulary', 'min', 'max']) ||
-          scope.policy.materialization !== 'wire15' || !strings(scope.policy.vocabulary)) return undefined
-    } else return undefined
-    if (typeof scope.policy.min !== 'number' || !Number.isSafeInteger(scope.policy.min) || scope.policy.min < 0 ||
-        typeof scope.policy.max !== 'number' || !Number.isSafeInteger(scope.policy.max) || scope.policy.max < scope.policy.min) return undefined
-    if (scope.parent !== undefined && (!isObj(scope.parent) || !exactKeys(scope.parent, ['scope', 'beforeMember', 'afterMember']) ||
-        typeof scope.parent.scope !== 'string' || !scopeIds.has(scope.parent.scope) ||
-        typeof scope.parent.beforeMember !== 'string' || typeof scope.parent.afterMember !== 'string')) return undefined
-    scopeIds.add(scope.id)
-  }
-  const portAddress = (entry: Json | undefined): boolean => isObj(entry) && exactKeys(entry, ['port'], ['members']) &&
-    typeof entry.port === 'string' && entry.port.length > 0 && (entry.members === undefined || strings(entry.members))
-  const inputIdentity = (entry: Json | undefined): boolean => isObj(entry) && exactKeys(entry, ['address', 'valueKey', 'origin']) &&
-    portAddress(entry.address) && typeof entry.valueKey === 'string' && entry.valueKey.length > 0 &&
-    ['static', 'member', 'selector', 'branch', 'slot', 'dependent'].includes(entry.origin as string)
-  const addressKeys = new Set<string>()
-  const serializedAddresses = value.addresses
-  for (const address of serializedAddresses) {
-    if (!isObj(address) || !exactKeys(address, ['side', 'boundaryId', 'before', 'uses', 'targets'], ['input']) ||
-        (address.side !== 'input' && address.side !== 'output') || typeof address.boundaryId !== 'string' ||
-        !portAddress(address.before) || !Array.isArray(address.uses) || address.uses.length === 0 ||
-        !address.uses.every((use) => ['endpoint', 'value', 'controller', 'dynamic'].includes(use as string)) ||
-        new Set(address.uses).size !== address.uses.length ||
-        (address.input !== undefined && !inputIdentity(address.input)) || !Array.isArray(address.targets) || address.targets.length === 0) return undefined
-    const key = JSON.stringify([address.side, address.boundaryId, address.before])
-    if (addressKeys.has(key)) return undefined
-    addressKeys.add(key)
-    const bindingIndexes = new Set<number>()
-    for (const target of address.targets) {
-      if (!isObj(target) || !exactKeys(target, ['bindingIndex', 'binding'], ['input']) ||
-          typeof target.bindingIndex !== 'number' || !Number.isSafeInteger(target.bindingIndex) || target.bindingIndex < 0 ||
-          !isObj(target.binding) || target.binding.kind !== 'port' || typeof target.binding.node !== 'string' ||
-          typeof target.binding.port !== 'string' || (target.binding.members !== undefined && !strings(target.binding.members)) ||
-          (target.input !== undefined && !inputIdentity(target.input)) || bindingIndexes.has(target.bindingIndex)) return undefined
-      bindingIndexes.add(target.bindingIndex)
-    }
-  }
   const expected = [
     ...(body.boundary?.inputs ?? []).map((item) => ({ side: 'input', item })),
     ...(body.boundary?.outputs ?? []).map((item) => ({ side: 'output', item })),
@@ -1291,14 +1065,9 @@ function flattenStatePlanFromJson(
   if (value.routes.length !== expected.length) return undefined
   for (const [index, route] of value.routes.entries()) {
     const address = expected[index]!
-    if (!isObj(route) || !exactKeys(route, ['side', 'id', 'bindingCount', 'familyScopeIds', 'addressIndexes']) ||
+    if (!isObj(route) || !exactKeys(route, ['side', 'id', 'bindingCount']) ||
         route.side !== address.side || route.id !== address.item.id ||
-        route.bindingCount !== 1 + (address.item.alsoBinds?.length ?? 0) ||
-        !Array.isArray(route.familyScopeIds) || !route.familyScopeIds.every((id) => typeof id === 'string' && scopeIds.has(id)) ||
-        !Array.isArray(route.addressIndexes) || !route.addressIndexes.every((entryIndex) => typeof entryIndex === 'number' &&
-          Number.isSafeInteger(entryIndex) && entryIndex >= 0 && entryIndex < serializedAddresses.length &&
-          isObj(serializedAddresses[entryIndex]) && serializedAddresses[entryIndex]!.side === route.side &&
-          serializedAddresses[entryIndex]!.boundaryId === route.id)) return undefined
+        route.bindingCount !== 1 + (address.item.alsoBinds?.length ?? 0)) return undefined
   }
   const rewriteKeys = new Set<string>()
   for (const rewrite of value.enclosingRewrites) {
@@ -1320,42 +1089,11 @@ function flattenBodySelection(body: GraphDef, view: GraphViewState | undefined):
   return canonicalizeLifecycleSelection({
     nodeIds: Object.keys(body.nodes),
     rerouteIds: Object.keys(body.reroutes),
-    valueSourceIds: Object.keys(body.valueSources ?? {}),
-    selectorIds: Object.keys(body.selectors ?? {}),
     groupIds: Object.keys(view?.groups ?? {}),
   })
 }
 
-function flattenMaterializedIdentitiesContainNul(statePlan: Extract<FlattenStatePlan, { status: 'ready' }>): boolean {
-  const hasNul = (value: string): boolean => value.includes(String.fromCharCode(0))
-  for (const scope of statePlan.familyScopes) {
-    if (scope.source.ancestors.some((step) => hasNul(step.member)) ||
-        scope.target.ancestors.some((step) => hasNul(step.member)) ||
-        scope.sourceMembers.some(hasNul) || scope.targetBefore.members.some(hasNul) ||
-        scope.targetBefore.memberStateKeys.some(hasNul) || scope.targetAfter.members.some(hasNul) ||
-        scope.targetAfter.memberStateKeys.some(hasNul) ||
-        scope.members.some((member) => hasNul(member.before) || hasNul(member.after))) return true
-  }
-  for (const address of statePlan.addresses) {
-    if (address.before.members?.some(hasNul) === true ||
-        address.input?.address.members?.some(hasNul) === true ||
-        address.targets.some((target) => target.binding.members?.some(hasNul) === true ||
-          target.input?.address.members?.some(hasNul) === true)) return true
-  }
-  for (const rewrite of statePlan.enclosingRewrites) {
-    if (rewrite.before.members?.some(hasNul) === true || rewrite.after.some((binding) => binding.members?.some(hasNul) === true)) return true
-  }
-  return false
-}
-
-function stagedFlattenIdentitiesContainNul(
-  statePlan: Extract<FlattenStatePlan, { status: 'ready' }>,
-  staged: GraphDef,
-  body: GraphDef,
-  nodeIds: ReadonlyMap<string, string>,
-  clonedLinkIds: ReadonlySet<string>,
-  clonedNetIds: ReadonlySet<string>,
-): boolean {
+function stagedFlattenIdentitiesContainNul(statePlan: Extract<FlattenStatePlan, { status: 'ready' }>): boolean {
   const hasNul = (value: string): boolean => value.includes(String.fromCharCode(0))
   const sourceNodes = new Map(statePlan.source.bodyNodes.map((node) => [node.node, node]))
   const changedDynamicHasNul = (
@@ -1369,12 +1107,6 @@ function stagedFlattenIdentitiesContainNul(
       const afterMembers = new Set(afterState?.members ?? [])
       if ([...beforeMembers].some((member) => !afterMembers.has(member) && hasNul(member)) ||
           [...afterMembers].some((member) => !beforeMembers.has(member) && hasNul(member))) return true
-      const beforeNested = beforeState?.memberState
-      const afterNested = afterState?.memberState
-      for (const member of new Set([...Object.keys(beforeNested ?? {}), ...Object.keys(afterNested ?? {})])) {
-        if ((!Object.hasOwn(beforeNested ?? {}, member) || !Object.hasOwn(afterNested ?? {}, member)) && hasNul(member)) return true
-        if (changedDynamicHasNul(beforeNested?.[member], afterNested?.[member])) return true
-      }
     }
     return false
   }
@@ -1389,40 +1121,6 @@ function stagedFlattenIdentitiesContainNul(
     for (const key of new Set([...Object.keys(source.controllers ?? {}), ...Object.keys(node.controllers ?? {})])) {
       if ((!Object.hasOwn(source.controllers ?? {}, key) || !Object.hasOwn(node.controllers ?? {}, key) ||
           source.controllers?.[key] !== node.controllers?.[key]) && hasNul(key)) return true
-    }
-  }
-  const sourcePortKeys = new Set<string>()
-  const rememberSourcePort = (ref: PortRef): void => {
-    sourcePortKeys.add(JSON.stringify([ref.node, ref.port, ref.members ?? []]))
-  }
-  for (const link of Object.values(body.links)) {
-    if (isPortEndpoint(link.from)) rememberSourcePort(link.from)
-    if (isPortEndpoint(link.to)) rememberSourcePort(link.to)
-  }
-  for (const net of Object.values(body.nets)) {
-    rememberSourcePort(net.source)
-    for (const sink of net.sinks) rememberSourcePort(sink)
-  }
-  const sourceNodeByClone = new Map([...nodeIds].map(([source, clone]) => [clone, source]))
-  const portHasNul = (ref: PortRef, allowSourceIdentity: boolean): boolean => {
-    if (ref.members?.some(hasNul) !== true) return false
-    const sourceNode = sourceNodeByClone.get(ref.node)
-    return !allowSourceIdentity || sourceNode === undefined ||
-      !sourcePortKeys.has(JSON.stringify([sourceNode, ref.port, ref.members]))
-  }
-  for (const [id, link] of Object.entries(staged.links)) {
-    const allowSourceIdentity = clonedLinkIds.has(id)
-    if (isPortEndpoint(link.from) && portHasNul(link.from, allowSourceIdentity) ||
-        isPortEndpoint(link.to) && portHasNul(link.to, allowSourceIdentity)) return true
-  }
-  for (const [id, net] of Object.entries(staged.nets)) {
-    const allowSourceIdentity = clonedNetIds.has(id)
-    if (portHasNul(net.source, allowSourceIdentity) ||
-        net.sinks.some((sink) => portHasNul(sink, allowSourceIdentity))) return true
-  }
-  for (const item of [...(staged.boundary?.inputs ?? []), ...(staged.boundary?.outputs ?? [])]) {
-    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-      if (isNodeBoundaryBinding(binding) && sourceNodeByClone.has(binding.node) && binding.members?.some(hasNul) === true) return true
     }
   }
   return false
@@ -1528,7 +1226,7 @@ function validateFlattenDispatch(
   for (const [authoredType, schema] of Object.entries(snapshot)) {
     if (!boundAuthoredTypes.has(authoredType) || !isObj(schema as unknown as Json) ||
         typeof (schema as unknown as JsonObject).type !== 'string' ||
-        !Array.isArray((schema as unknown as JsonObject).items)) {
+        !Array.isArray((schema as unknown as JsonObject).body)) {
       return [err('params.invalid', 'subgraph.flatten: schema snapshot has invalid authored-type coverage')]
     }
   }
@@ -1564,7 +1262,7 @@ function validateFlattenDispatch(
   ]
   for (const { side, item } of expected) {
     const route = routes.get(JSON.stringify([side, item.id]))
-    if (route === 'plain' || route === 'plainWidget' || route === 'combo' || route === 'specialized') {
+    if (route === 'plain' || route === 'plainWidget') {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (!isNodeBoundaryBinding(binding)) continue
         const authoredType = body.nodes[binding.node]?.type
@@ -1584,7 +1282,7 @@ function validateFlattenDispatch(
     return [err('params.invalid', 'subgraph.flatten: statePlan does not match semantic recomputation')]
   }
   const plannedRoutes = [...routes.entries()]
-  const unsupportedRoutes = plannedRoutes.filter(([, route]) => route === 'specialized' || route === 'unresolved')
+  const unsupportedRoutes = plannedRoutes.filter(([, route]) => route === 'unresolved')
   if (statePlan.status === 'ready' && unsupportedRoutes.length > 0) {
     return [err('params.invalid', 'subgraph.flatten: ready statePlan cannot bypass a remainder refusal')]
   }
@@ -1592,17 +1290,9 @@ function validateFlattenDispatch(
     const refusalRoute = statePlan.refusal.side !== undefined && statePlan.refusal.boundaryId !== undefined
       ? routes.get(JSON.stringify([statePlan.refusal.side, statePlan.refusal.boundaryId]))
       : unsupportedRoutes[0]?.[1]
-    const expectedRefusal = refusalRoute === 'specialized'
-      ? 'subgraph.flatten.specializedSlotUnsupported'
-      : refusalRoute === 'unresolved' ? 'subgraph.flatten.stateUnresolved' : undefined
+    const expectedRefusal = refusalRoute === 'unresolved' ? 'subgraph.flatten.stateUnresolved' : undefined
     if (statePlan.refusal.boundaryId !== undefined && refusalRoute === undefined) {
       return [err('params.invalid', 'subgraph.flatten: planner refusal names no verified boundary route')]
-    }
-    const routeOnlyCode = statePlan.refusal.code === 'subgraph.flatten.nativeFamilyUnsupported' ||
-      statePlan.refusal.code === 'subgraph.flatten.specializedSlotUnsupported'
-    if (routeOnlyCode && expectedRefusal !== statePlan.refusal.code &&
-        !(refusalRoute === 'family' && routeOnlyCode)) {
-      return [err('params.invalid', 'subgraph.flatten: planner refusal code is incompatible with its verified boundary route')]
     }
     if (expectedRefusal !== undefined && statePlan.refusal.code !== expectedRefusal) {
       return [err('params.invalid', 'subgraph.flatten: planner refusal does not match the verified boundary routes')]
@@ -1692,7 +1382,7 @@ const subgraphFlatten: CommandDefinition = {
       )]
     }
     if (extractionIntersectsOccurrenceTopology(doc, graphId, {
-      nodeIds: [nodeId], rerouteIds: [], valueSourceIds: [], selectorIds: [], groupIds: [],
+      nodeIds: [nodeId], rerouteIds: [], groupIds: [],
     }, topologyKey)) {
       return [lifecycleError(
         'subgraph.flatten.occurrenceTopologyIntersection',
@@ -1755,9 +1445,6 @@ const subgraphFlatten: CommandDefinition = {
     }
     if (statePlan.status === 'refused') {
       return [lifecycleError(statePlan.refusal.code, `subgraph.flatten: ${statePlan.refusal.message}`, graphId, instancePath, nodeId)]
-    }
-    if (flattenMaterializedIdentitiesContainNul(statePlan)) {
-      return [lifecycleError('subgraph.flatten.stateUnresolved', 'subgraph.flatten: persisted family materialization produced a NUL identity', graphId, instancePath, nodeId)]
     }
     if (hasSelectedModePanelBinding(doc, graphId, canonicalizeLifecycleSelection({ nodeIds: [nodeId] }))) {
       return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', 'subgraph.flatten: a durable mode-panel binding targets the occurrence', graphId, instancePath, nodeId)]
@@ -1833,8 +1520,6 @@ const subgraphFlatten: CommandDefinition = {
       (Object.keys(body.links).length + Object.keys(body.nets).length)
     const projectedDeliveryCount = occurrencePlan?.projectedParentLinks.length ?? 0
     const requiredIds = Object.keys(body.nodes).length + Object.keys(body.reroutes).length +
-      Object.keys(body.valueSources ?? {}).length + Object.keys(body.selectors ?? {}).length +
-      Object.values(body.selectors ?? {}).reduce((sum, selector) => sum + selector.candidates.length, 0) +
       materializedDeliveryCount + projectedDeliveryCount + additionalDeliveries + netJunctionDeliveries
     const allocationStart = tx.actor === undefined ? parent.nextOrdinal : actorCursorOf(parent.actorCursors, tx.actor)
     if (!Number.isSafeInteger(allocationStart + requiredIds) || allocationStart + requiredIds > Number.MAX_SAFE_INTEGER) {
@@ -1849,16 +1534,6 @@ const subgraphFlatten: CommandDefinition = {
     const allocator = graphAllocator(tx, graphId, parent)
     const nodeIds = new Map<string, string>()
     for (const id of bodySelection.nodeIds) nodeIds.set(id, allocator.mint('n'))
-    const valueSourceIds = new Map<string, string>()
-    for (const id of bodySelection.valueSourceIds) valueSourceIds.set(id, allocator.mint('v'))
-    const selectorIds = new Map<string, string>()
-    const candidateIds = new Map<string, string>()
-    for (const id of bodySelection.selectorIds) {
-      selectorIds.set(id, allocator.mint('s'))
-      for (const candidate of [...body.selectors![id]!.candidates].sort((a, b) => compareStrings(a.id, b.id))) {
-        candidateIds.set(JSON.stringify([id, candidate.id]), allocator.mint('c'))
-      }
-    }
     const rerouteIds = new Map<string, string>()
     for (const id of bodySelection.rerouteIds) rerouteIds.set(id, allocator.mint('r'))
     const bodyLinkIds = new Map<string, string>()
@@ -1882,61 +1557,36 @@ const subgraphFlatten: CommandDefinition = {
         }
       }
     }
-    const ids: ExtractIdMaps = { nodes: nodeIds, reroutes: rerouteIds, valueSources: valueSourceIds, selectors: selectorIds, candidates: candidateIds }
-    const materializedAddresses = new Map(statePlan.addresses.map((entry) => [
-      JSON.stringify([entry.side, entry.boundaryId, { port: entry.before.port, ...(entry.before.members !== undefined ? { members: entry.before.members } : {}) }]),
-      entry,
-    ]))
-    const targetsFor = (
-      side: 'input' | 'output',
-      item: BoundaryItem,
-      address: { readonly port: string; readonly members?: readonly string[] },
-    ): readonly BoundaryBinding[] | undefined => {
-      const route = routePlan.get(JSON.stringify([side, item.id]))
-      if (route !== 'family') return flattenBoundaryTargets(item, nodeIds, rerouteIds, valueSourceIds)
-      const mapped = materializedAddresses.get(JSON.stringify([side, item.id, {
-        port: address.port,
-        ...(address.members !== undefined ? { members: address.members } : {}),
-      }]))
-      if (mapped === undefined || !mapped.uses.includes('endpoint')) return undefined
-      const targets = [...mapped.targets].sort((a, b) => a.bindingIndex - b.bindingIndex)
-      if (targets.length !== 1 + (item.alsoBinds?.length ?? 0)) return undefined
-      return targets.map((target) => remapBinding(target.binding, nodeIds))
+    const ids: ExtractIdMaps = { nodes: nodeIds, reroutes: rerouteIds }
+    const targetsFor = (item: BoundaryItem): readonly BoundaryBinding[] =>
+      flattenBoundaryTargets(item, nodeIds, rerouteIds)
+    // Where one of the subgraph node's ports lands: under a construct it
+    // shows whole, the matching row of each inner construct.
+    const plannedSchemas = params.schemaSnapshot as unknown as Readonly<Record<string, NodeSchema>>
+    const targetsAt = (item: BoundaryItem, outerPort: string): readonly BoundaryBinding[] | undefined => {
+      const targets = targetsFor(item)
+      if (item.binds.kind !== 'construct') return targets
+      const authored = [item.binds, ...(item.alsoBinds ?? [])]
+      const mapped = targets.map((target, index): BoundaryBinding | undefined => {
+        const binding = authored[index]!
+        if (binding.kind !== 'construct' || target.kind !== 'construct') return target
+        const port = innerConstructAddress(body, binding, item.id, outerPort, (node) => plannedSchemas[node.type])
+        return port === undefined ? undefined : { kind: 'port', node: target.node, port: asPortId(port) }
+      })
+      return mapped.every((target) => target !== undefined) ? mapped as BoundaryBinding[] : undefined
     }
 
-    const literalDrivers = new Map<string, LinkEndpoint>()
-    for (const item of body.boundary.inputs) {
-      if (item.binds.kind !== 'valueSource') continue
-      const input = parentPort(nodeId, item.id)
-      const driver = Object.values(parent.links).find((link) => sameEndpoint(link.to, input))?.from ??
-        Object.values(parent.nets).find((net) => net.sinks.some((sink) => sameEndpoint(sink, input)))?.source
-      if (driver !== undefined) literalDrivers.set(valueSourceIds.get(item.binds.valueSource)!, driver)
-    }
     const redirectFrom = (endpoint: LinkEndpoint, seen = new Set<string>()): LinkEndpoint | undefined => {
       const key = endpointKey(endpoint)
       if (seen.has(key)) return undefined
       seen.add(key)
-      if (isValueSourceRef(endpoint)) {
-        const driver = literalDrivers.get(endpoint.valueSource)
-        return driver === undefined ? endpoint : redirectFrom(driver, seen)
-      }
       if (isPortEndpoint(endpoint) && endpoint.node === nodeId) {
         const match = matchBoundaryItem(body.boundary!.outputs, endpoint)
-        const targets = match.ok ? targetsFor('output', match.item, endpoint) : undefined
+        const targets = match.ok ? targetsAt(match.item, endpoint.port) : undefined
         return targets?.length === 1 ? redirectFrom(endpointFromBinding(targets[0]!), seen) : undefined
       }
       return endpoint
     }
-    const redirectOutputBinding = (binding: BoundaryBinding): BoundaryBinding | undefined => {
-      if (binding.kind !== 'valueSource') return binding
-      const endpoint = redirectFrom(endpointFromBinding(binding))
-      if (endpoint === undefined) return undefined
-      if (isValueSourceRef(endpoint)) return { ...binding, valueSource: endpoint.valueSource }
-      if (isPortEndpoint(endpoint)) return { kind: 'port', ...endpoint }
-      if (isWidgetTapRef(endpoint)) return { kind: 'widgetTap', ...endpoint }
-      return undefined
-    }
-
     const nodes: Record<string, NodeData> = { ...parent.nodes }
     delete nodes[nodeId]
     const plannedNodes = new Map(statePlan.nodes.map((entry) => [entry.node, entry]))
@@ -1953,6 +1603,7 @@ const subgraphFlatten: CommandDefinition = {
         values: planned.values,
         ...(planned.controllers !== undefined ? { controllers: planned.controllers } : {}),
         ...(planned.dynamic !== undefined ? { dynamic: planned.dynamic } : {}),
+        ...(occurrence.mode === 'muted' ? { mode: 'muted' as const } : {}),
       }
     }
     const reroutes = { ...parent.reroutes }
@@ -1960,42 +1611,14 @@ const subgraphFlatten: CommandDefinition = {
       const id = rerouteIds.get(oldId)!
       reroutes[id] = { ...reroute, id: asRerouteId(id) }
     }
-    const valueSources = { ...(parent.valueSources ?? {}) }
-    for (const [oldId, source] of Object.entries(body.valueSources ?? {})) {
-      const id = valueSourceIds.get(oldId)!
-      const input = body.boundary.inputs.find((item) => item.promoted === true &&
-        item.binds.kind === 'valueSource' && item.binds.valueSource === oldId)
-      valueSources[id] = {
-        ...source,
-        id: asValueSourceId(id),
-        ...(input !== undefined && Object.hasOwn(occurrence.values, input.id) ? { value: occurrence.values[input.id]! } : {}),
-        ...(input !== undefined && Object.hasOwn(occurrence.controllers ?? {}, input.id) ? { controller: occurrence.controllers![input.id]! } : {}),
-      }
-    }
-    const selectors = { ...(parent.selectors ?? {}) }
-    for (const [oldId, selector] of Object.entries(body.selectors ?? {})) {
-      const id = selectorIds.get(oldId)!
-      const candidates = selector.candidates.map((candidate) => ({
-        ...candidate,
-        id: asSelectorCandidateId(candidateIds.get(JSON.stringify([oldId, candidate.id]))!),
-      }))
-      const fixed = selector.policy.kind === 'fixed'
-        ? candidateIds.get(JSON.stringify([oldId, selector.policy.candidate]))
-        : undefined
-      if (selector.policy.kind === 'fixed' && fixed === undefined) {
-        return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: selector '${oldId}' has an unmapped fixed candidate`, graphId, instancePath, nodeId)]
-      }
-      selectors[id] = {
-        ...selector,
-        id: asSelectorId(id),
-        candidates,
-        policy: selector.policy.kind === 'fixed'
-          ? { kind: 'fixed', candidate: asSelectorCandidateId(fixed!) }
-          : { kind: 'random' },
-      }
-    }
-
+    // A muted subgraph node gives its consumers nothing. Its nodes stay
+    // muted after flattening, but an outside wire it passes on has no mode,
+    // so flattening would start delivering it.
+    const flattenedNodes = new Set(nodeIds.values())
+    const mutedLeak = (from: LinkEndpoint): boolean =>
+      occurrence.mode === 'muted' && !((isPortEndpoint(from) || isWidgetTapRef(from)) && flattenedNodes.has(from.node))
     const links: Record<string, LinkData> = {}
+    const fromShellOutput = new Set<string>()
     for (const [id, link] of Object.entries(parent.links)) {
       if (occurrencePlan !== undefined && (
         isPortEndpoint(link.from) && link.from.node === nodeId ||
@@ -2003,8 +1626,9 @@ const subgraphFlatten: CommandDefinition = {
       )) continue
       let from = link.from
       if (isPortEndpoint(from) && from.node === nodeId) {
+        fromShellOutput.add(id)
         const match = matchBoundaryItem(body.boundary.outputs, from)
-        const targets = match.ok ? targetsFor('output', match.item, from) : undefined
+        const targets = match.ok ? targetsAt(match.item, from.port) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: output '${from.port}' has an unmapped materialized route`, graphId, instancePath, nodeId, from)]
         }
@@ -2013,7 +1637,7 @@ const subgraphFlatten: CommandDefinition = {
         }
         from = endpointFromBinding(targets[0]!)
       } else if (isWidgetTapRef(from) && from.node === nodeId) {
-        const target = targetsFor('input', boundaryInputs.get(from.tap)!, { port: from.tap })?.[0]
+        const target = targetsFor(boundaryInputs.get(from.tap)!)[0]
         if (target === undefined || !isNodeBoundaryBinding(target) || target.kind === 'widgetTap') {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: tap '${from.tap}' has no materialized target`, graphId, instancePath, nodeId)]
         }
@@ -2021,7 +1645,7 @@ const subgraphFlatten: CommandDefinition = {
       }
       if (isPortEndpoint(link.to) && link.to.node === nodeId) {
         const match = matchBoundaryItem(body.boundary.inputs, link.to)
-        const targets = match.ok ? targetsFor('input', match.item, link.to)?.filter((target) => target.kind !== 'valueSource') : undefined
+        const targets = match.ok ? targetsAt(match.item, link.to.port) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: input '${link.to.port}' has no materialized target`, graphId, instancePath, nodeId, link.to)]
         }
@@ -2057,8 +1681,6 @@ const subgraphFlatten: CommandDefinition = {
         if (endpointGraphId !== body.id) return endpoint
         if ((isPortEndpoint(endpoint) || isWidgetTapRef(endpoint)) && nodeIds.has(endpoint.node)) return remapEndpoint(endpoint, ids)
         if (isRerouteRef(endpoint) && rerouteIds.has(endpoint.reroute)) return remapEndpoint(endpoint, ids)
-        if (isValueSourceRef(endpoint) && valueSourceIds.has(endpoint.valueSource)) return remapEndpoint(endpoint, ids)
-        if (isSelectorRef(endpoint) && selectorIds.has(endpoint.selector)) return remapEndpoint(endpoint, ids)
         return endpoint
       }
       for (const [index, link] of occurrencePlan.projectedParentLinks.entries()) {
@@ -2075,14 +1697,14 @@ const subgraphFlatten: CommandDefinition = {
     const nets: Record<string, NamedNetData> = {}
     const netSourceRemap = new Map<string, PortRef>()
     const netSinkRemap = new Map<string, readonly PortRef[]>()
-    const occurrenceSinkKey = (netId: string, sink: { readonly port: string; readonly members?: readonly string[] }): string =>
-      JSON.stringify([netId, sink.port, sink.members ?? []])
+    const occurrenceSinkKey = (netId: string, sink: { readonly port: string }): string =>
+      JSON.stringify([netId, sink.port])
     for (const [id, net] of Object.entries(parent.nets)) {
       if (occurrencePlan !== undefined && net.source.node === nodeId) continue
       let source = net.source
       if (source.node === nodeId) {
         const match = matchBoundaryItem(body.boundary.outputs, source)
-        const targets = match.ok ? targetsFor('output', match.item, source) : undefined
+        const targets = match.ok ? targetsAt(match.item, source.port) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: net source '${source.port}' has no materialized target`, graphId, instancePath, nodeId, source)]
         }
@@ -2093,6 +1715,9 @@ const subgraphFlatten: CommandDefinition = {
         if (endpoint === undefined || !isPortEndpoint(endpoint)) {
           return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: net source '${source.port}' resolves to a structural producer, which named nets cannot represent`, graphId, instancePath, nodeId, source)]
         }
+        if (mutedLeak(endpoint)) {
+          return [lifecycleError('subgraph.flatten.modeUnsupported', `subgraph.flatten: muted output '${source.port}' passes on a value that is not muted`, graphId, instancePath, nodeId, source)]
+        }
         source = endpoint
         netSourceRemap.set(id, source)
       }
@@ -2102,13 +1727,12 @@ const subgraphFlatten: CommandDefinition = {
         else if (occurrencePlan !== undefined) continue
         else {
           const match = matchBoundaryItem(body.boundary.inputs, sink)
-          const targets = match.ok ? targetsFor('input', match.item, sink) : undefined
+          const targets = match.ok ? targetsAt(match.item, sink.port) : undefined
           if (targets === undefined) {
             return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: net sink '${sink.port}' has no materialized target`, graphId, instancePath, nodeId, sink)]
           }
           const expanded: PortRef[] = []
           for (const target of targets) {
-            if (target.kind === 'valueSource') continue
             const endpoint = endpointFromBinding(target)
             if (isRerouteRef(endpoint)) {
               const deliveryId = allocator.mint('l')
@@ -2155,10 +1779,7 @@ const subgraphFlatten: CommandDefinition = {
             entry.bindingIndex === bindingIndex && canonicalJson(entry.before) === canonicalJson(target))
           if (rewrite === undefined) return undefined
           for (const binding of rewrite.after) {
-            const mapped = remapBinding(binding, nodeIds, rerouteIds, valueSourceIds)
-            const redirected = side === 'output' ? redirectOutputBinding(mapped) : mapped
-            if (redirected === undefined) return undefined
-            expanded.push(redirected)
+            expanded.push(remapBinding(binding, nodeIds, rerouteIds))
           }
         }
         if (expanded.length === 0) return undefined
@@ -2189,6 +1810,9 @@ const subgraphFlatten: CommandDefinition = {
       if (from === undefined) {
         return [lifecycleError('subgraph.flatten.stateUnresolved', 'subgraph.flatten: literal input forwarding has no acyclic producer', graphId, instancePath, nodeId)]
       }
+      if (fromShellOutput.has(id) && mutedLeak(from)) {
+        return [lifecycleError('subgraph.flatten.modeUnsupported', `subgraph.flatten: muted output '${(parent.links[id]!.from as PortRef).port}' passes on a value that is not muted`, graphId, instancePath, nodeId)]
+      }
       links[id] = { ...link, from }
     }
 
@@ -2207,20 +1831,6 @@ const subgraphFlatten: CommandDefinition = {
       viewReroutes[rerouteIds.get(oldId)!] = {
         ...(bodyView?.reroutes?.[oldId] ?? {}),
         position: translatedPosition(translated, 'reroute', oldId),
-      }
-    }
-    const viewValueSources = { ...(parentView.valueSources ?? {}) }
-    for (const oldId of bodySelection.valueSourceIds) {
-      viewValueSources[valueSourceIds.get(oldId)!] = {
-        ...(bodyView?.valueSources?.[oldId] ?? {}),
-        position: translatedPosition(translated, 'valueSource', oldId),
-      }
-    }
-    const viewSelectors = { ...(parentView.selectors ?? {}) }
-    for (const oldId of bodySelection.selectorIds) {
-      viewSelectors[selectorIds.get(oldId)!] = {
-        ...(bodyView?.selectors?.[oldId] ?? {}),
-        position: translatedPosition(translated, 'selector', oldId),
       }
     }
     const groups = { ...(parentView.groups ?? {}) }
@@ -2242,8 +1852,6 @@ const subgraphFlatten: CommandDefinition = {
       ...parentView,
       nodes: viewNodes,
       ...(Object.keys(viewReroutes).length > 0 || parentView.reroutes !== undefined ? { reroutes: viewReroutes } : {}),
-      ...(Object.keys(viewValueSources).length > 0 || parentView.valueSources !== undefined ? { valueSources: viewValueSources } : {}),
-      ...(Object.keys(viewSelectors).length > 0 || parentView.selectors !== undefined ? { selectors: viewSelectors } : {}),
       ...(Object.keys(groups).length > 0 || parentView.groups !== undefined ? { groups } : {}),
       ...(groupCount > 0 ? { groupSeq: groupFloor + groupCount } : {}),
       ...(collapsedNets.length > 0 || parentView.collapsedNets !== undefined ? { collapsedNets } : {}),
@@ -2256,8 +1864,6 @@ const subgraphFlatten: CommandDefinition = {
       links,
       nets,
       reroutes,
-      ...(parent.valueSources !== undefined || body.valueSources !== undefined ? { valueSources } : {}),
-      ...(parent.selectors !== undefined || body.selectors !== undefined ? { selectors } : {}),
       ...(boundary !== undefined ? { boundary } : {}),
       ...(tx.actor === undefined
         ? { nextOrdinal: endingCursor }
@@ -2275,14 +1881,7 @@ const subgraphFlatten: CommandDefinition = {
         ? { occurrenceTopologies: remainingTopologies }
         : {}),
     }
-    if (stagedFlattenIdentitiesContainNul(
-      statePlan,
-      stagedParent,
-      body,
-      nodeIds,
-      new Set(bodyLinkIds.values()),
-      new Set(clonedNetIds.values()),
-    )) {
+    if (stagedFlattenIdentitiesContainNul(statePlan)) {
       return [lifecycleError('subgraph.flatten.stateUnresolved', 'subgraph.flatten: staged materialization produced a NUL identity', graphId, instancePath, nodeId)]
     }
     const stagedErrors = checkDocument(staged).filter((diagnostic) => diagnostic.severity === 'error')
@@ -2296,8 +1895,6 @@ const subgraphFlatten: CommandDefinition = {
     tx.set(['graphs', graphId, 'links'], links as unknown as Json)
     tx.set(['graphs', graphId, 'nets'], nets as unknown as Json)
     tx.set(['graphs', graphId, 'reroutes'], reroutes as unknown as Json)
-    if (parent.valueSources !== undefined || body.valueSources !== undefined) tx.set(['graphs', graphId, 'valueSources'], valueSources as unknown as Json)
-    if (parent.selectors !== undefined || body.selectors !== undefined) tx.set(['graphs', graphId, 'selectors'], selectors as unknown as Json)
     if (boundary !== undefined) tx.set(['graphs', graphId, 'boundary'], boundary as unknown as Json)
     tx.set(['view', 'graphs', graphId], stagedView as unknown as Json)
     if (occurrencePlan !== undefined) {

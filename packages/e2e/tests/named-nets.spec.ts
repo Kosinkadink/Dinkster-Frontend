@@ -143,7 +143,7 @@ async function openNetWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } }],
+        body: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } }],
       },
       {
         type: 'NetConsumer',
@@ -151,7 +151,7 @@ async function openNetWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
+        body: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
       },
     ])
     await app.openDocument(
@@ -324,7 +324,7 @@ test('collapsed mismatch tags keep the solver error visible beside a healthy del
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+      body: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
     }])
     const doc = structuredClone(app.activeTab()!.store.doc)
     doc.lineage = 'lineage-nets-mismatch'

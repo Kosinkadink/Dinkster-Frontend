@@ -92,10 +92,12 @@ describe('TooltipController', () => {
 describe('canvas tooltip provider', () => {
   const node = { node: { type: 'Sampler', values: { steps: 20 } }, layout: { title: 'Sampler' } }
   const schema = {
+    type: 'Sampler', displayName: 'Sampler', category: 'test', source: 'v3', isOutputNode: false,
     description: 'Samples a latent image.', pack: 'sampling-pack',
-    items: [
-      { kind: 'input', id: 'model', tooltip: 'Model used for sampling.' },
-      { kind: 'input', id: 'steps', tooltip: 'Number of sampling steps.' },
+    body: [
+      { kind: 'input', id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: false, tooltip: 'Model used for sampling.' },
+      { kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: false, tooltip: 'Number of sampling steps.',
+        widget: { widgetType: 'INT', options: {} } },
     ],
   }
   const context = { resolveSchema: () => schema, resolvePack: () => ({ displayName: 'Sampling Pack' }) }
@@ -272,6 +274,13 @@ describe('canvas tooltip provider', () => {
     expect(resolveCanvasTooltip(target, { detailed: true }, context)?.detail).toEqual([
       'min: 1', 'max: 100', 'step: 1', 'Number of sampling steps.',
     ])
+  })
+
+  it('titles a row inside its member box with its full name, as for a kept row', () => {
+    const row = { inputId: 'loras.lora0.name', valueKey: 'loras.lora0.name', label: 'name', name: 'lora 1 name', spec: { widgetType: 'STRING', options: {} } }
+    const node = { node: { type: 'Stack', values: {} } }
+    expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row } }, { detailed: false })?.title).toBe('lora 1 name')
+    expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row: { ...row, kept: 'Kept for its wire.' } } }, { detailed: false })?.title).toBe('lora 1 name')
   })
 
   it('exposes the full stored value and the intrinsic default for clipped numeric rows', () => {

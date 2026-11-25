@@ -14,6 +14,7 @@ import { logicalModelAssetRefOf, logicalModelCollectionSource, logicalModelEntry
 import { AssetEntryFallback } from '../asset-browser/presentation.js'
 import { isModel3dMime, model3dMimeFor } from '../model3d-mime.js'
 import { Model3dPosterImage } from '../Model3dPosterImage.js'
+import { PreviewDownload } from '../PreviewDownload.js'
 import { AudioRecorder } from '../AudioRecorder.js'
 import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
 import { ProductButton } from '../ProductControls.js'
@@ -62,7 +63,7 @@ function AssetVideoPreview(props: {
     onLoadedMetadata={() => {
       if (video.videoWidth > 0 && video.videoHeight > 0) props.onDimensions({ width: video.videoWidth, height: video.videoHeight })
     }}>
-    <a href={props.preview.src} download={props.preview.name}>Download video</a>
+    <PreviewDownload class="" download={props.preview} label="Download video" />
   </video>
 }
 
@@ -838,7 +839,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                     <Show when={!assetPreviewFailed()} fallback={
                       <div class="asset-preview asset-preview-fallback" data-testid="asset-image-fallback" role="status">
                         <span>Image preview unavailable.</span>
-                        <a href={preview().src} download={preview().name}>Open or download image</a>
+                        <PreviewDownload class="" download={preview()} label="Open or download image" />
                       </div>
                     }>
                       <img
@@ -856,7 +857,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                     <Show when={!assetPreviewFailed()} fallback={
                       <div class="asset-preview asset-preview-fallback" data-testid="asset-video-fallback" role="status">
                         <span>Video preview unavailable.</span>
-                        <a href={preview().src} download={preview().name}>Download video</a>
+                        <PreviewDownload class="" download={preview()} label="Download video" />
                       </div>
                     }>
                       <AssetVideoPreview

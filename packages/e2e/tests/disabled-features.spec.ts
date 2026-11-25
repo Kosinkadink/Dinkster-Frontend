@@ -9,7 +9,7 @@ test('disabled templates have no entry points or background requests', async ({ 
   })
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1,
-    dinkster: { version: 'disabled-feature-test', schemaWire: 1 },
+    dinkster: { version: 'disabled-feature-test', schemaWire: 2 },
     packs: {}, nodes: {},
   } }))
   await page.route('/api/settings', (route) => route.fulfill({ json: {

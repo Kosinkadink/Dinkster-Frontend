@@ -15,6 +15,7 @@ import {
   executionKey,
   isControlEvent,
   parseOccurrenceKey,
+  type AutomaticValueRecord,
   type CompileArtifact,
   type ConnectionId,
   type Diagnostic,
@@ -137,6 +138,8 @@ export interface ExecutionState {
   readonly jobRef?: string
   /** Content digest of the exact workflow document submitted for this run. */
   readonly sourceDocument?: string
+  /** What the run's automatic fields used, from the persisted run record. */
+  readonly automaticValues?: readonly AutomaticValueRecord[]
   readonly queuedAt: number
   readonly startedAt?: number
   readonly endedAt?: number
@@ -434,6 +437,7 @@ export class ExecutionStore {
     readonly outputs: Readonly<Record<string, Readonly<Record<string, unknown>>>>
     readonly artifacts: readonly ExecutionArtifact[]
     readonly submittedBy?: ExecutionSubmitter
+    readonly automaticValues?: readonly AutomaticValueRecord[]
     readonly jobRef: string
     readonly sourceDocument: string
     readonly queuedAt: number
@@ -462,6 +466,7 @@ export class ExecutionStore {
       logsDropped: 0,
       errors: [],
       ...(state.submittedBy === undefined ? {} : { submittedBy: state.submittedBy }),
+      ...(state.automaticValues === undefined || state.automaticValues.length === 0 ? {} : { automaticValues: state.automaticValues }),
       jobRef: state.jobRef,
       sourceDocument: state.sourceDocument,
       queuedAt: state.queuedAt,
@@ -828,6 +833,13 @@ export class ExecutionStore {
     const state = this.map.get(executionKey(ref))
     if (!state) return
     this.put({ ...state, artifacts: [...artifacts], artifactsHydrated: true })
+  }
+
+  /** Attach what the run's automatic fields used, from its persisted record. */
+  hydrateAutomaticValues(ref: ExecutionRef, automaticValues: readonly AutomaticValueRecord[]): void {
+    const state = this.map.get(executionKey(ref))
+    if (!state) return
+    this.put({ ...state, automaticValues })
   }
 
   /** Attach the server-authenticated principal that submitted this job. */

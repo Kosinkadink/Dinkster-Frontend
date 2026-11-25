@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { compile } from '../src/compile/compile.js'
 import type { Json, JsonObject } from '../src/format/document.js'
 import { importLitegraph } from '../src/format/import-litegraph.js'
-import { asConnectionId } from '../src/ids.js'
+import { asConnectionId, asNodeId } from '../src/ids.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
+import { solveGraphTypes } from '../src/schema/solve.js'
 import type {
+  BodyRow,
   InputSpec,
-  InterfaceItem,
   NodeSchema,
   TypeExpr,
 } from '../src/schema/model.js'
@@ -16,28 +17,27 @@ const nativeListSchemas = new Map<string, NodeSchema>([
   [
     'CreateList',
     parseDinksterSchema('CreateList', {
-      schemaVersion: 1,
-      interface: [
+      schemaVersion: 2,
+      body: [
         {
-          role: 'inputFamily',
+          kind: 'group',
           id: 'inputs',
-          required: true,
           minMembers: 1,
-          maxMembers: 10,
-          memberPrefix: 'input',
-          template: [
-            {
-              role: 'input',
-              id: 'input',
-              required: true,
-              type: { kind: 'wildcard' },
-            },
-          ],
+          optionalAfterMinimum: true,
+          grows: 'link',
+          keys: { numbered: { prefix: 'input', start: 0, pad: 0 } },
+          value: {
+            kind: 'input',
+            id: 'input',
+            required: true,
+            acceptsList: true,
+            type: { kind: 'variable', templateId: 'T' },
+          },
         },
         {
-          role: 'output',
+          kind: 'output',
           id: 'list',
-          type: { kind: 'list', element: { kind: 'wildcard' } },
+          type: { kind: 'list', element: { kind: 'variable', templateId: 'T' } },
         },
       ],
     }).schema!,
@@ -45,16 +45,16 @@ const nativeListSchemas = new Map<string, NodeSchema>([
   [
     'GetItemFromList',
     parseDinksterSchema('GetItemFromList', {
-      schemaVersion: 1,
-      interface: [
+      schemaVersion: 2,
+      body: [
         {
-          role: 'input',
+          kind: 'input',
           id: 'list',
           required: true,
           type: { kind: 'wildcard' },
         },
         {
-          role: 'input',
+          kind: 'input',
           id: 'index',
           required: true,
           default: 0,
@@ -62,9 +62,9 @@ const nativeListSchemas = new Map<string, NodeSchema>([
           type: { kind: 'concrete', types: ['INT'] },
         },
         {
-          role: 'output',
+          kind: 'output',
           id: 'item',
-          displayName: '*',
+          label: '*',
           type: { kind: 'wildcard' },
         },
       ],
@@ -82,7 +82,7 @@ const helperSchemas = new Map<string, NodeSchema>([
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'start',
@@ -122,7 +122,7 @@ const helperSchemas = new Map<string, NodeSchema>([
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'a',
@@ -151,7 +151,7 @@ const helperSchemas = new Map<string, NodeSchema>([
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'list',
@@ -174,7 +174,7 @@ const helperSchemas = new Map<string, NodeSchema>([
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'a',
@@ -215,7 +215,7 @@ const helperSchemas = new Map<string, NodeSchema>([
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'condition',
@@ -240,10 +240,6 @@ const helperSchemas = new Map<string, NodeSchema>([
           type: { kind: 'variable', templateId: 'T' },
         },
       ],
-      selector: {
-        input: 'condition',
-        branches: { false: 'on_false', true: 'on_true' },
-      },
     },
   ],
 ])
@@ -265,7 +261,7 @@ const typeExpr = (value: unknown): TypeExpr =>
     : { kind: 'concrete', name: value }
 
 const fixtureSchema = (node: JsonObject): NodeSchema => {
-  const items: InterfaceItem[] = []
+  const items: BodyRow[] = []
   for (const input of Array.isArray(node['inputs']) ? node['inputs'] : []) {
     if (input === null || typeof input !== 'object' || Array.isArray(input))
       continue
@@ -346,96 +342,94 @@ const fixtureSchema = (node: JsonObject): NodeSchema => {
     ...((node['type'] as string) === 'Issue408ExpandIncrement'
       ? { mayExpandGraph: true }
       : {}),
-    items,
+    body: items,
   }
 }
 
 describe('explicit imported list utilities', () => {
-  it.each([0, -1])(
-    'imports heterogeneous native collections using index %s',
-    (index) => {
-      const sink = parseDinksterSchema('Sink', {
-        schemaVersion: 1,
-        outputNode: true,
-        interface: [
-          {
-            role: 'input',
-            id: 'value',
-            required: true,
-            type: { kind: 'concrete', types: [index === 0 ? 'INT' : 'STRING'] },
-          },
-        ],
-      }).schema!
-      const resolve = (type: string) =>
-        type === 'Sink' ? sink : coreSchemas.get(type)
-      const workflow: JsonObject = {
-        nodes: [
-          {
-            id: 1,
-            type: 'PrimitiveInt',
-            outputs: [{ name: 'INT' }],
-            widgets_values: [7],
-          },
-          {
-            id: 2,
-            type: 'PrimitiveString',
-            outputs: [{ name: 'STRING' }],
-            widgets_values: ['label'],
-          },
-          {
-            id: 3,
-            type: 'CreateList',
-            inputs: [{ name: 'inputs.input0' }, { name: 'inputs.input1' }],
-            outputs: [{ name: 'list' }],
-          },
-          {
-            id: 4,
-            type: 'GetItemFromList',
-            inputs: [{ name: 'list' }],
-            outputs: [{ name: '*' }],
-            widgets_values: [index],
-          },
-          { id: 5, type: 'Sink', inputs: [{ name: 'value' }] },
-        ],
-        links: [
-          [1, 1, 0, 3, 0, 'INT'],
-          [2, 2, 0, 3, 1, 'STRING'],
-          [3, 3, 0, 4, 0, '*'],
-          [4, 4, 0, 5, 0, '*'],
-        ],
-      }
-      const imported = importLitegraph(workflow, resolve)
-      expect(
-        imported.diagnostics.filter((item) => item.severity === 'error'),
-      ).toEqual([])
-      expect(imported.document!.graphs.g0!.nodes.n3!.type).toBe('CreateList')
-      expect(imported.document!.graphs.g0!.nodes.n4!.type).toBe(
-        'GetItemFromList',
-      )
-      const compiled = compile({
-        document: imported.document!,
-        revision: 1,
-        resolve,
-        scope: { kind: 'full' },
-        connection: asConnectionId('tuple-import'),
-        schemaHash: 'tuple',
-        graphFeatures: ['regions', 'typedLiteral'],
+  const listWorkflow = (second: 'PrimitiveInt' | 'PrimitiveString', index: number): JsonObject => ({
+    nodes: [
+      { id: 1, type: 'PrimitiveInt', outputs: [{ name: 'INT' }], widgets_values: [7] },
+      second === 'PrimitiveInt'
+        ? { id: 2, type: 'PrimitiveInt', outputs: [{ name: 'INT' }], widgets_values: [9] }
+        : { id: 2, type: 'PrimitiveString', outputs: [{ name: 'STRING' }], widgets_values: ['label'] },
+      {
+        id: 3,
+        type: 'CreateList',
+        inputs: [{ name: 'inputs.input0' }, { name: 'inputs.input1' }],
+        outputs: [{ name: 'list' }],
+      },
+      {
+        id: 4,
+        type: 'GetItemFromList',
+        inputs: [{ name: 'list' }],
+        outputs: [{ name: '*' }],
+        widgets_values: [index],
+      },
+      { id: 5, type: 'Sink', inputs: [{ name: 'value' }] },
+    ],
+    links: [
+      [1, 1, 0, 3, 0, 'INT'],
+      [2, 2, 0, 3, 1, second === 'PrimitiveInt' ? 'INT' : 'STRING'],
+      [3, 3, 0, 4, 0, '*'],
+      [4, 4, 0, 5, 0, '*'],
+    ],
+  })
+  const intSink = parseDinksterSchema('Sink', {
+    schemaVersion: 2,
+    outputNode: true,
+    body: [{ kind: 'input', id: 'value', required: true, type: { kind: 'concrete', types: ['INT'] } }],
+  }).schema!
+  const listResolve = (type: string) => (type === 'Sink' ? intSink : coreSchemas.get(type))
+
+  it.each([0, -1])('imports a ComfyUI CreateList of one type as a typed list, reading index %s', (index) => {
+    const imported = importLitegraph(listWorkflow('PrimitiveInt', index), listResolve)
+    expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    const graph = imported.document!.graphs.g0!
+    expect(graph.nodes.n3!.type).toBe('CreateList')
+    expect(graph.nodes.n4!.type).toBe('GetItemFromList')
+    const solved = solveGraphTypes(graph, listResolve)
+    expect([...solved.linkVerdicts.values()]).toEqual(['ok', 'ok', 'ok', 'ok'])
+    expect(solved.portTypeOf(asNodeId('n3'), 'output', 'list')).toEqual({
+      kind: 'list',
+      element: { kind: 'concrete', name: 'INT' },
+    })
+    const compiled = compile({
+      document: imported.document!,
+      revision: 1,
+      resolve: listResolve,
+      scope: { kind: 'full' },
+      connection: asConnectionId('list-import'),
+      schemaHash: 'list',
+      graphFeatures: ['regions', 'typedLiteral'],
+    })
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+    if (compiled.ok) {
+      expect(compiled.artifact.dinksterGraph!.nodes.n3).toMatchObject({ nodeType: 'CreateList' })
+      expect(compiled.artifact.dinksterGraph!.nodes.n4).toMatchObject({
+        nodeType: 'GetItemFromList',
+        inputs: { list: { $link: { node: 'n3', output: 'list' } }, index },
       })
-      expect(
-        compiled.ok,
-        compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
-      ).toBe(true)
-      if (compiled.ok) {
-        expect(compiled.artifact.dinksterGraph!.nodes.n3).toMatchObject({
-          nodeType: 'CreateList',
-        })
-        expect(compiled.artifact.dinksterGraph!.nodes.n4).toMatchObject({
-          nodeType: 'GetItemFromList',
-          inputs: { list: { $link: { node: 'n3', output: 'list' } }, index },
-        })
-      }
-    },
-  )
+    }
+  })
+
+  it('marks a ComfyUI CreateList of mixed types as mismatched and types no joined list', () => {
+    // ComfyUI joins an INT and a STRING; Create List matches one type, so
+    // both wires into it mismatch and its list output gets no element type.
+    const imported = importLitegraph(listWorkflow('PrimitiveString', 0), listResolve)
+    const graph = imported.document!.graphs.g0!
+    expect(graph.nodes.n3!.type).toBe('CreateList')
+    const solved = solveGraphTypes(graph, listResolve)
+    const into = (port: string) =>
+      Object.values(graph.links).find(({ to }) => 'port' in to && to.node === 'n3' && to.port === port)!.id
+    expect(solved.linkVerdicts.get(into('inputs.input0'))).toBe('mismatch')
+    expect(solved.linkVerdicts.get(into('inputs.input1'))).toBe('mismatch')
+    expect(solved.resolutionOf(asNodeId('n3'), 'T')).toEqual({ kind: 'conflict' })
+    expect(solved.portTypeOf(asNodeId('n3'), 'output', 'list')).toEqual({
+      kind: 'list',
+      element: { kind: 'variable', templateId: 'T' },
+    })
+  })
 
   it.each([
     [false, 0, false],
@@ -450,13 +444,13 @@ describe('explicit imported list utilities', () => {
       const element: TypeExpr = heterogeneous ? { kind: 'wildcard' } : integer
       const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
       const list: TypeExpr = { kind: 'list', element: variable }
-      const schema = (type: string, items: InterfaceItem[]): NodeSchema => ({
+      const schema = (type: string, items: BodyRow[]): NodeSchema => ({
         type,
         displayName: type,
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items,
+        body: items,
       })
       const schemas = new Map<string, NodeSchema>([
         [
@@ -494,17 +488,12 @@ describe('explicit imported list utilities', () => {
           'std.list.concat',
           schema('std.list.concat', [
             {
-              kind: 'input',
+              kind: 'group',
               id: 'lists',
-              type: { kind: 'wildcard' },
-              optional: false,
-              dynamic: {
-                kind: 'autogrow',
-                template: [
-                  { kind: 'input', id: 'lists', type: list, optional: false },
-                ],
-                naming: { kind: 'prefix', prefix: 'lists', min: 1 },
-              },
+              value: { kind: 'input', id: 'lists', type: list, optional: false },
+              keys: { kind: 'numbered', prefix: 'lists', start: 0, pad: 0 },
+              grows: 'link',
+              minMembers: 1,
             },
             { kind: 'output', id: 'list', type: list },
           ]),
@@ -582,7 +571,7 @@ describe('explicit imported list utilities', () => {
           source: 'v3',
           category: 'test',
           isOutputNode: false,
-          items: [
+          body: [
             {
               kind: 'output',
               id: 'values',
@@ -599,7 +588,7 @@ describe('explicit imported list utilities', () => {
           source: 'v3',
           category: 'test',
           isOutputNode: true,
-          items: [
+          body: [
             { kind: 'input', id: 'value', type: integer, optional: false },
           ],
         },
@@ -658,7 +647,7 @@ describe('explicit imported list utilities', () => {
         source: 'v3',
         category: 'test',
         isOutputNode: false,
-        items: [
+        body: [
           {
             kind: 'output',
             id: 'values',
@@ -670,7 +659,7 @@ describe('explicit imported list utilities', () => {
       const add = schemas.get('std.math.add_ints')!
       schemas.set(add.type, {
         ...add,
-        items: add.items.map((item) =>
+        body: add.body.map((item) =>
           item.kind === 'input'
             ? { ...item, widget: { widgetType: 'INT', options: {} } }
             : item,
@@ -758,7 +747,7 @@ describe('explicit imported list utilities', () => {
         source: 'v3',
         category: 'test',
         isOutputNode: false,
-        items: [
+        body: [
           {
             kind: 'output',
             id: 'values',
@@ -770,7 +759,7 @@ describe('explicit imported list utilities', () => {
       const add = schemas.get('std.math.add_ints')!
       schemas.set(add.type, {
         ...add,
-        items: add.items.map((item) =>
+        body: add.body.map((item) =>
           item.kind === 'input' && item.id === 'b'
             ? { ...item, widget: { widgetType: 'INT', options: {} } }
             : item,
@@ -876,11 +865,11 @@ describe('explicit imported list utilities', () => {
       const list: TypeExpr = { kind: 'list', element: integer }
       const schema = (
         type: string,
-        items: InterfaceItem[],
+        items: BodyRow[],
         output = false,
       ): NodeSchema => ({
         type,
-        items,
+        body: items,
         source: 'v3',
         displayName: type,
         category: 'test',
@@ -892,7 +881,7 @@ describe('explicit imported list utilities', () => {
         type,
         optional: false,
       })
-      const output = (id: string, type: TypeExpr): InterfaceItem => ({
+      const output = (id: string, type: TypeExpr): BodyRow => ({
         kind: 'output',
         id,
         type,
