@@ -139,7 +139,15 @@ test('asset editing uses the product modal with focus, close, touchscreen, and n
   expect(bounds!.y).toBeGreaterThanOrEqual(0)
   expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(360)
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(300)
-  expect(await editor.evaluate((element) => getComputedStyle(element).overflowY)).toBe('auto')
+  const scroll = editor.locator('.asset-editor-scroll')
+  await scroll.hover({ position: { x: 5, y: 5 } })
+  await page.mouse.wheel(0, 2400)
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  const subfolder = editor.getByRole('textbox', { name: 'Subfolder (relative, optional)', exact: true })
+  await subfolder.scrollIntoViewIfNeeded()
+  await expect(subfolder).toBeInViewport({ ratio: 1 })
+  await expect(editor.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport({ ratio: 1 })
+  await expect(editor.getByTestId('asset-apply')).toBeInViewport({ ratio: 1 })
 
   // A real touch-capable Playwright context reaches the ordinary close control.
   const close = page.getByRole('button', { name: 'Close image asset editor' })
