@@ -575,7 +575,7 @@ class SharedDocumentSession implements DocumentSession {
     const prepared = store.prepareDispatch(stamped)
     if (!prepared.ok) return prepared
     // Keep schema-derived arrival folds in the intention: replay has no live schema authority.
-    const folds = prepared.forward.flatMap((op) => {
+    const folds = (definition?.replaysHistory ? [] : prepared.forward).flatMap((op) => {
       const [root, graphs, graphId, nodes, nodeId, editors, valueKey] = op.path
       if (op.op === 'remove' || op.path.length !== 7 || root !== 'view' || graphs !== 'graphs' ||
         nodes !== 'nodes' || editors !== 'editors' || typeof op.value !== 'object' || op.value === null ||
@@ -583,7 +583,11 @@ class SharedDocumentSession implements DocumentSession {
       return [{ command: 'view.setEditorUnfolded', params: { graphId: graphId!, nodeId: nodeId!, valueKey: valueKey!, unfolded: false } }]
     })
     const replayInvocation: CommandInvocation = folds.length === 0 ? stamped : {
-      ...stamped, command: 'batch', params: { invocations: [{ command: stamped.command, params: stamped.params }, ...folds] },
+      ...stamped, command: 'batch', params: { invocations: [
+        ...(stamped.command === 'batch' ? (stamped.params as JsonObject)['invocations'] as readonly Json[]
+          : [{ command: stamped.command, params: stamped.params }]),
+        ...folds,
+      ] },
     }
     const confirmedRevision = this.confirmedRevision
     const confirmed = this.confirmed
