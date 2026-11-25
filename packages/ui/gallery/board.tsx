@@ -1,7 +1,28 @@
 import { BoardStore, emptyBoard, type BoardAsset } from '@dinkster/core'
+import { createSignal, onCleanup } from 'solid-js'
+import {
+  CanvasCornerControls,
+  type CanvasCornerMenu,
+} from '../../app/src/CanvasChrome.js'
 import { ProductBoard, ProductSection } from '../src/index.js'
 
 export function BoardGallery() {
+  const [menu, setMenu] = createSignal<CanvasCornerMenu>()
+  let corner: HTMLDivElement | undefined
+  const dismiss = (event: PointerEvent | KeyboardEvent) => {
+    if (
+      event instanceof KeyboardEvent
+        ? event.key === 'Escape'
+        : !corner?.contains(event.target as Node)
+    )
+      setMenu(undefined)
+  }
+  window.addEventListener('pointerdown', dismiss)
+  window.addEventListener('keydown', dismiss)
+  onCleanup(() => {
+    window.removeEventListener('pointerdown', dismiss)
+    window.removeEventListener('keydown', dismiss)
+  })
   const store = new BoardStore(emptyBoard())
   const asset = (name: string, mediaType = 'image/jpeg'): BoardAsset => ({
     digest: `blake3:${'0'.repeat(64)}`,
@@ -72,6 +93,26 @@ export function BoardGallery() {
       <ProductBoard
         store={store}
         assetUrl={url}
+        viewControls={(view) => (
+          <CanvasCornerControls
+            ref={(element) => {
+              corner = element
+            }}
+            size="small"
+            minimapEnabled={false}
+            minimapVisible={false}
+            settings={{}}
+            zoom={view.zoom}
+            menu={menu()}
+            onToggleMinimap={() => undefined}
+            onToggleSetting={() => undefined}
+            onOpenMenu={setMenu}
+            onCloseMenu={() => setMenu(undefined)}
+            onFit={view.onFit}
+            onZoomBy={view.onZoomBy}
+            onZoomTo={view.onZoomTo}
+          />
+        )}
         onAddMedia={() =>
           store.dispatch({
             command: 'board.item.add',

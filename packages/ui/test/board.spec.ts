@@ -18,6 +18,9 @@ test('pictures move and resize without changing their shape, and edits undo and 
   await handle.focus()
   await page.keyboard.press('ArrowRight')
   await expect(picture).toHaveCSS('width', '320px')
+  await expect(picture.locator('.dinkster-board-caption')).toHaveText(
+    'Diner at night800 x 500',
+  )
   const resized = (await picture.boundingBox())!
   expect(resized.width / resized.height).toBeCloseTo(800 / 500, 2)
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
@@ -68,14 +71,42 @@ test('moving a section moves its contents, notes edit, and a new note is undoabl
   expect((await picture.boundingBox())!.x).toBeCloseTo(memberBeforeResize.x)
   await page.mouse.up()
   expect((await picture.boundingBox())!.y).toBeCloseTo(memberBeforeResize.y)
+  await expect(section.getByRole('textbox')).toHaveCount(0)
+  await section.locator('.dinkster-board-section-name').dblclick()
   const name = section.getByRole('textbox', { name: 'Section name' })
   await name.fill('Rain and light')
-  await name.press('Tab')
+  await name.press('Enter')
+  await expect(section.getByRole('textbox')).toHaveCount(0)
+  await expect(section.locator('.dinkster-board-section-name')).toHaveText(
+    'Rain and light',
+  )
+  await page.keyboard.press('Enter')
+  await name.fill('Discard this name')
+  await name.press('Escape')
+  await expect(section.locator('.dinkster-board-section-name')).toHaveText(
+    'Rain and light',
+  )
+  await expect(section).toHaveAttribute('data-selected', 'false')
+  await expect(section.locator('.dinkster-board-caption')).toHaveCount(0)
   const note = page.getByRole('textbox', { name: 'Note text' })
   await note.fill('Keep the reflections, not the camera angle.')
   await note.press('Tab')
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
   await expect(note).toHaveValue(/Reference for the light/)
+  await note.click()
+  await expect(page.locator('[data-board-item="note-1"]')).toHaveAttribute(
+    'data-selected',
+    'true',
+  )
+  await note.press('Escape')
+  await expect(page.locator('[data-selected="true"]')).toHaveCount(0)
+  await note.click()
+  const empty = (await page.locator('.dinkster-board').boundingBox())!
+  await page.mouse.click(empty.x + empty.width - 30, empty.y + 300)
+  await expect(page.locator('[data-selected="true"]')).toHaveCount(0)
+  await expect(
+    page.locator('[data-board-item="note-1"] .dinkster-board-caption'),
+  ).toHaveCount(0)
   await page.getByRole('button', { name: 'Add note', exact: true }).click()
   const board = (await page.locator('.dinkster-board').boundingBox())!
   await page.mouse.click(board.x + board.width - 60, board.y + 640)
@@ -163,12 +194,17 @@ test('two fingers pan and zoom the board without moving its items', async ({
   const after = (await picture.boundingBox())!
   expect(after.width).toBeCloseTo(before.width * 2)
   expect(after.x).toBeCloseTo((before.x - (x + 40)) * 2 + x + 100)
-  await page.getByRole('button', { name: 'Fit board', exact: true }).click()
+  await page.getByTestId('canvas-fit-view').click()
   await expect(picture).toBeVisible()
   expect((await picture.boundingBox())!.width).toBeLessThanOrEqual(before.width)
+  await expect(page.getByTestId('minimap-toggle')).toHaveCount(0)
+  await page.getByTestId('canvas-zoom-level').click()
+  await page.getByTestId('canvas-zoom-reset').click()
+  await expect(page.getByTestId('canvas-zoom-level')).toHaveText('100%')
+  await expect(page.getByTestId('canvas-zoom-menu')).toHaveCount(0)
 })
 
-test('unreadable audio reports the missing waveform without inventing one', async ({
+test('unreadable audio shows its name and reason without waveform or playback', async ({
   page,
 }) => {
   await page.route('**/board/chimes.wav', (route) =>
@@ -176,10 +212,10 @@ test('unreadable audio reports the missing waveform without inventing one', asyn
   )
   await page.goto('/#board')
   const sound = page.locator('[data-board-item="sound-1"]')
-  await expect(sound.getByText('Waveform unavailable')).toBeVisible()
-  await expect(sound.getByRole('img').locator('path')).toHaveAttribute('d', '')
-  await sound
-    .getByRole('button', { name: 'Play Reference chimes', exact: true })
-    .click()
-  await expect(sound.getByRole('status')).toHaveText('Playback unavailable')
+  await expect(sound.getByRole('status')).toHaveText(
+    'Reference chimesThis sound cannot be read',
+  )
+  await expect(sound.getByRole('img')).toHaveCount(0)
+  await expect(sound.getByRole('button')).toHaveCount(0)
+  await expect(sound).not.toContainText('--:--')
 })

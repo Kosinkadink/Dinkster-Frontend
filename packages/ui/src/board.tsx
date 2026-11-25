@@ -7,7 +7,6 @@ import {
   type JSX,
 } from 'solid-js'
 import {
-  Maximize,
   MousePointer2,
   Pause,
   Play,
@@ -16,8 +15,6 @@ import {
   SquareDashed,
   Type,
   Undo2,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-solid'
 import {
   BOARD_MIN_SIDE,
@@ -34,8 +31,6 @@ import {
   wheelNavigationViewport,
 } from '@dinkster/canvas'
 import {
-  ProductButton,
-  ProductIcon,
   ProductIconButton,
   ProductTextArea,
   ProductTextInput,
@@ -44,6 +39,12 @@ import {
 export interface ProductBoardProps {
   readonly store: BoardStore
   readonly assetUrl: (asset: BoardAsset) => string
+  readonly viewControls: (view: {
+    readonly zoom: number
+    readonly onFit: () => void
+    readonly onZoomBy: (factor: number) => void
+    readonly onZoomTo: (scale: number) => void
+  }) => JSX.Element
   readonly onAddMedia?: () => void
   readonly onDropMedia?: (
     event: DragEvent,
@@ -84,7 +85,21 @@ function resizedRect(
   }
 }
 
-function BoardMedia(props: { item: BoardMediaItem; src: string }) {
+function mediaLength(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value)) return ''
+  const seconds = Math.round(value)
+  return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`
+}
+
+function BoardMedia(props: {
+  item: BoardMediaItem
+  src: string
+  onMetadata: (metadata: {
+    width?: number
+    height?: number
+    duration: number
+  }) => void
+}) {
   const [playing, setPlaying] = createSignal(false)
   const [duration, setDuration] = createSignal(props.item.asset.duration)
   const [waveform, setWaveform] = createSignal('')
@@ -133,20 +148,15 @@ function BoardMedia(props: { item: BoardMediaItem; src: string }) {
             .join(' '),
         )
         setDuration(audio.duration)
+        props.onMetadata({ duration: audio.duration })
       } catch {
         if (live) setWaveformFailed(true)
       }
     })()
   })
-  onCleanup(() => media.pause())
-  const length = () => {
-    const value = duration()
-    if (value === undefined || !Number.isFinite(value)) return '--:--'
-    const seconds = Math.round(value)
-    return `${Math.floor(seconds / 60)}:${(seconds % 60)
-      .toString()
-      .padStart(2, '0')}`
-  }
+  onCleanup(() => media?.pause())
+  const unreadable = () =>
+    props.item.kind === 'sound' && (waveformFailed() || playFailed())
   const toggle = async () => {
     setPlayFailed(false)
     if (!media.paused) {
@@ -159,9 +169,24 @@ function BoardMedia(props: { item: BoardMediaItem; src: string }) {
       setPlayFailed(true)
     }
   }
-  const metadata = () => setDuration(media.duration)
+  const metadata = () => {
+    setDuration(media.duration)
+    props.onMetadata(
+      media instanceof HTMLVideoElement
+        ? {
+            width: media.videoWidth,
+            height: media.videoHeight,
+            duration: media.duration,
+          }
+        : { duration: media.duration },
+    )
+  }
   return (
-    <div class="dinkster-board-media" data-kind={props.item.kind}>
+    <div
+      class="dinkster-board-media"
+      data-kind={props.item.kind}
+      data-unreadable={unreadable()}
+    >
       <Show
         when={props.item.kind === 'video'}
         fallback={
@@ -173,23 +198,21 @@ function BoardMedia(props: { item: BoardMediaItem; src: string }) {
               src={props.src}
               preload="metadata"
               onLoadedMetadata={metadata}
+              onError={() => setPlayFailed(true)}
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
               onEnded={() => setPlaying(false)}
             />
-            <svg
-              class="dinkster-board-waveform"
-              viewBox="0 0 288 72"
-              preserveAspectRatio="none"
-              role="img"
-              aria-label={`Waveform of ${props.item.asset.name}`}
-            >
-              <path d={waveform()} />
-            </svg>
-            <Show when={waveformFailed() && !playFailed()}>
-              <span class="dinkster-board-media-message">
-                Waveform unavailable
-              </span>
+            <Show when={!unreadable()}>
+              <svg
+                class="dinkster-board-waveform"
+                viewBox="0 0 288 72"
+                preserveAspectRatio="none"
+                role="img"
+                aria-label={`Waveform of ${props.item.asset.name}`}
+              >
+                <path d={waveform()} />
+              </svg>
             </Show>
           </>
         }
@@ -207,24 +230,34 @@ function BoardMedia(props: { item: BoardMediaItem; src: string }) {
           onEnded={() => setPlaying(false)}
         />
       </Show>
-      <Show when={playFailed()}>
+      <Show when={unreadable()}>
+        <div class="dinkster-board-unreadable" role="status">
+          <span>{props.item.asset.name}</span>
+          <span>This sound cannot be read</span>
+        </div>
+      </Show>
+      <Show when={playFailed() && !unreadable()}>
         <span class="dinkster-board-media-message" role="status">
           Playback unavailable
         </span>
       </Show>
-      <div
-        class="dinkster-board-media-control"
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        <ProductIconButton
-          label={`${playing() ? 'Pause' : 'Play'} ${props.item.asset.name}`}
-          icon={playing() ? Pause : Play}
-          onClick={() => {
-            void toggle()
-          }}
-        />
-        <span>{length()}</span>
-      </div>
+      <Show when={!unreadable()}>
+        <div
+          class="dinkster-board-media-control"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <ProductIconButton
+            label={`${playing() ? 'Pause' : 'Play'} ${props.item.asset.name}`}
+            icon={playing() ? Pause : Play}
+            onClick={() => {
+              void toggle()
+            }}
+          />
+          <Show when={mediaLength(duration())}>
+            {(length) => <span>{length()}</span>}
+          </Show>
+        </div>
+      </Show>
     </div>
   )
 }
@@ -233,6 +266,7 @@ function BoardMedia(props: { item: BoardMediaItem; src: string }) {
 export function ProductBoard(props: ProductBoardProps) {
   const [document, setDocument] = createSignal(props.store.doc)
   const [selected, setSelected] = createSignal<string>()
+  const [editingSection, setEditingSection] = createSignal<string>()
   const [tool, setTool] = createSignal<'select' | 'note' | 'section'>('select')
   const [camera, setCamera] = createSignal({ x: 16, y: 80, scale: 1 })
   const [preview, setPreview] = createSignal<{
@@ -365,7 +399,7 @@ export function ProductBoard(props: ProductBoardProps) {
     if (event.button !== 0 && event.button !== 1) return
     if (
       (event.target as Element).closest(
-        '[data-board-item], .dinkster-board-toolbar, .dinkster-board-corner',
+        '[data-board-item], .dinkster-board-toolbar, .canvas-corner-controls',
       )
     )
       return
@@ -499,12 +533,23 @@ export function ProductBoard(props: ProductBoardProps) {
         )
       }}
       onKeyDown={(event) => {
-        if ((event.target as Element).closest('input, textarea, audio, video'))
-          return
         if (event.key === 'Escape') {
+          event.preventDefault()
           cancelGesture?.()
+          setEditingSection(undefined)
           setSelected(undefined)
           setTool('select')
+          surface.focus({ preventScroll: true })
+          return
+        }
+        if ((event.target as Element).closest('input, textarea, audio, video'))
+          return
+        if (
+          event.key === 'Enter' &&
+          document().items[selected() ?? '']?.kind === 'section'
+        ) {
+          event.preventDefault()
+          setEditingSection(selected())
         }
         if (
           (event.ctrlKey || event.metaKey) &&
@@ -534,6 +579,22 @@ export function ProductBoard(props: ProductBoardProps) {
           <For each={boardPaintOrder(document())}>
             {(item) => {
               let element!: HTMLDivElement
+              const [metadata, setMetadata] = createSignal<{
+                width?: number
+                height?: number
+                duration?: number
+              }>('asset' in item ? item.asset : {})
+              const facts = () => {
+                const value = metadata()
+                return [
+                  item.kind !== 'sound' && value.width && value.height
+                    ? `${value.width} x ${value.height}`
+                    : '',
+                  item.kind !== 'picture' ? mediaLength(value.duration) : '',
+                ]
+                  .filter(Boolean)
+                  .join(' / ')
+              }
               createEffect(() => {
                 const rect = itemRect(item)
                 element.style.width = `${rect.width}px`
@@ -563,6 +624,12 @@ export function ProductBoard(props: ProductBoardProps) {
                           alt={picture().asset.name}
                           draggable={false}
                           loading="lazy"
+                          onLoad={(event) =>
+                            setMetadata({
+                              width: event.currentTarget.naturalWidth,
+                              height: event.currentTarget.naturalHeight,
+                            })
+                          }
                         />
                       )}
                     </Show>
@@ -575,6 +642,7 @@ export function ProductBoard(props: ProductBoardProps) {
                         <BoardMedia
                           item={media()}
                           src={props.assetUrl(media().asset)}
+                          onMetadata={setMetadata}
                         />
                       )}
                     </Show>
@@ -598,15 +666,31 @@ export function ProductBoard(props: ProductBoardProps) {
                     </Show>
                     <Show when={item.kind === 'section' && item}>
                       {(section) => (
-                        <div class="dinkster-board-section-name">
+                        <div
+                          class="dinkster-board-section-name"
+                          onPointerDown={(event) => {
+                            event.stopPropagation()
+                            setSelected(item.id)
+                            if (!(event.target as Element).closest('input'))
+                              surface.focus({ preventScroll: true })
+                          }}
+                          onDblClick={() => setEditingSection(item.id)}
+                        >
                           <Show
-                            when={selected() === item.id}
+                            when={editingSection() === item.id}
                             fallback={section().name}
                           >
                             <ProductTextInput
                               aria-label="Section name"
                               value={section().name}
-                              onChange={(event) =>
+                              ref={(input) =>
+                                queueMicrotask(() => {
+                                  input.focus()
+                                  input.select()
+                                })
+                              }
+                              onBlur={(event) => {
+                                if (editingSection() !== item.id) return
                                 props.store.dispatch({
                                   command: 'board.section.rename',
                                   params: {
@@ -614,24 +698,31 @@ export function ProductBoard(props: ProductBoardProps) {
                                     name: event.currentTarget.value,
                                   },
                                 })
-                              }
+                                setEditingSection(undefined)
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault()
+                                  event.currentTarget.blur()
+                                  surface.focus({ preventScroll: true })
+                                }
+                              }}
                             />
                           </Show>
                         </div>
                       )}
                     </Show>
                     <Show when={selected() === item.id}>
-                      <div class="dinkster-board-caption">
-                        {'asset' in item
-                          ? item.asset.name
-                          : item.kind === 'note'
-                            ? 'Note'
-                            : 'Section'}{' '}
-                        <span>
-                          {Math.round(item.rect.width)} x{' '}
-                          {Math.round(item.rect.height)}
-                        </span>
-                      </div>
+                      <Show when={'asset' in item && item}>
+                        {(media) => (
+                          <div class="dinkster-board-caption">
+                            {media().asset.name}
+                            <Show when={facts()}>
+                              {(value) => <span>{value()}</span>}
+                            </Show>
+                          </div>
+                        )}
+                      </Show>
                       <For
                         each={
                           [
@@ -722,10 +813,12 @@ export function ProductBoard(props: ProductBoardProps) {
           onClick={() => setTool('section')}
         />
         <Show when={props.onAddMedia}>
-          <ProductButton intent="add" onClick={() => props.onAddMedia?.()}>
-            <ProductIcon icon={Plus} />
-            Add media
-          </ProductButton>
+          <ProductIconButton
+            label="Add media"
+            labelContent="Add media"
+            icon={Plus}
+            onClick={() => props.onAddMedia?.()}
+          />
         </Show>
         <ProductIconButton
           label="Undo"
@@ -740,20 +833,14 @@ export function ProductBoard(props: ProductBoardProps) {
           onClick={() => props.store.redo()}
         />
       </div>
-      <div class="dinkster-board-corner" role="toolbar" aria-label="Board view">
-        <ProductIconButton label="Fit board" icon={Maximize} onClick={fit} />
-        <ProductIconButton
-          label="Zoom out"
-          icon={ZoomOut}
-          onClick={() => zoom(1 / 1.2)}
-        />
-        <span>{Math.round(camera().scale * 100)}%</span>
-        <ProductIconButton
-          label="Zoom in"
-          icon={ZoomIn}
-          onClick={() => zoom(1.2)}
-        />
-      </div>
+      {props.viewControls({
+        get zoom() {
+          return camera().scale
+        },
+        onFit: fit,
+        onZoomBy: zoom,
+        onZoomTo: (scale) => zoom(scale / camera().scale),
+      })}
     </div>
   )
 }
