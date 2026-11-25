@@ -1,6 +1,6 @@
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import type { CommandOutcome } from '@dinkster/core'
-import { AppWindow, Bookmark, ChevronDown, CircleSlash2, Frame, Layers, Focus, Map as MapIcon, MessageCircleWarning, Palette, Route, Workflow, type LucideIcon } from 'lucide-solid'
+import { AppWindow, Bookmark, ChevronDown, Focus, Frame, Layers, Map as MapIcon, MessageCircleWarning, Palette, Route, Workflow, type LucideIcon } from 'lucide-solid'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from './editors.js'
 import { Icon } from './Icon.js'
 import { useAppMessage } from './locale.js'
@@ -148,11 +148,8 @@ export type CanvasCornerMenu = 'minimap' | 'zoom'
 /** The minimap settings switches, in menu order, by `canvas.minimap.<id>` setting. */
 export const MINIMAP_SWITCHES: readonly { readonly id: string; readonly icon: LucideIcon }[] = [
   { id: 'nodes', icon: Palette },
-  { id: 'bypass', icon: CircleSlash2 },
   { id: 'noodles', icon: Route },
-  { id: 'linkColors', icon: Route },
   { id: 'groups', icon: Frame },
-  { id: 'reroutes', icon: CircleSlash2 },
   { id: 'errors', icon: MessageCircleWarning },
 ]
 
@@ -206,7 +203,7 @@ export function CanvasCornerControls(props: {
     }
   }, { defer: true }))
   // Pressing the number lays a field over it, holding the number selected;
-  // a digit typed on the number starts the field with that digit.
+  // a typed digit starts the field with that digit.
   const startTyping = (first?: string): void => {
     setTyped(first ?? String(percent()))
     setTyping(true)
@@ -233,11 +230,8 @@ export function CanvasCornerControls(props: {
         classList={{ hidden: !props.minimapVisible }}
         data-testid="minimap"
         data-node-colors={props.settings['nodes']}
-        data-bypass={props.settings['bypass']}
         data-links={props.settings['noodles']}
-        data-link-colors={props.settings['linkColors']}
         data-groups={props.settings['groups']}
-        data-reroutes={props.settings['reroutes']}
         data-errors={props.settings['errors']}
         data-bookmarks={props.settings['bookmarks']}
       />
@@ -288,17 +282,17 @@ export function CanvasCornerControls(props: {
           </div>
         </Show>
         <Show when={props.menu === 'zoom'}>
-          <div ref={menuElement} class="canvas-zoom-menu" role="menu" aria-label={message('canvas.corner.zoomOptions')} data-testid="canvas-zoom-menu">
-            <div class="canvas-zoom-row" data-testid="canvas-zoom-row" onKeyDown={(event) => {
-              const onNumber = event.target instanceof Element && event.target.matches('.dinkster-canvas-closed-row-open')
-              if (onNumber && !event.ctrlKey && !event.metaKey && !event.altKey && /^[0-9.]$/.test(event.key)) {
-                event.preventDefault()
-                startTyping(event.key)
-              }
-            }}>
+          <div ref={menuElement} class="canvas-zoom-menu" role="menu" aria-label={message('canvas.corner.zoomOptions')} data-testid="canvas-zoom-menu" onKeyDown={(event) => {
+            // A digit typed anywhere in the menu starts the number field with it.
+            if (!typing() && !event.ctrlKey && !event.metaKey && !event.altKey && /^[0-9.]$/.test(event.key)) {
+              event.preventDefault()
+              startTyping(event.key)
+            }
+          }}>
+            <div class="canvas-zoom-row" data-testid="canvas-zoom-row">
               <Show when={typing()} fallback={
                 <CanvasClosedRow
-                  label=""
+                  label={message('canvas.corner.zoom')}
                   value={`${percent()}%`}
                   onOpen={() => startTyping()}
                   onStep={(direction) => props.onZoomBy(direction > 0 ? 1.2 : 1 / 1.2)}
@@ -309,6 +303,7 @@ export function CanvasCornerControls(props: {
                 />
               }>
                 <label class="dinkster-canvas-field-row dinkster-canvas-closed-row canvas-zoom-field">
+                  <span class="dinkster-canvas-field-label" aria-hidden="true">{message('canvas.corner.zoom')}</span>
                   <ProductTextInput
                     inputMode="decimal"
                     data-testid="canvas-zoom-input"

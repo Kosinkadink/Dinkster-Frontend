@@ -235,6 +235,11 @@ describe('canvas corner controls', () => {
     expect(zoomBy).toHaveBeenLastCalledWith(1.2)
     expect(menu()).toBe('zoom')
     expect(row().querySelector('.dinkster-canvas-closed-row-value')?.textContent).toBe('31%')
+    expect(row().querySelector('.dinkster-canvas-closed-row-open')?.getAttribute('aria-label')).toBe('Zoom: 31%')
+    zoomInRow.dispatchEvent(new KeyboardEvent('keydown', { key: '6', bubbles: true }))
+    expect(root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!.value).toBe('6')
+    setMenu(undefined)
+    setMenu('zoom')
     expect(root.querySelector('[data-testid="canvas-zoom-input"]')).toBeNull()
 
     click(row().querySelector('.dinkster-canvas-closed-row-open')!)

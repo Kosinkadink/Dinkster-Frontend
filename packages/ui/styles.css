@@ -695,7 +695,7 @@
 .canvas-chrome-divider { flex: none; width: 1px; height: 18px; margin: 0 3px; background: var(--dinkster-border-subtle); }
 .canvas-view-controls .canvas-lens-button { gap: 5px; padding: 0 5px 0 6px; }
 .canvas-view-controls .canvas-lens-button[data-lens-named='true'] { color: var(--dinkster-accent-foreground); }
-:is(.canvas-lens-button, .canvas-zoom-level, .canvas-corner-more) svg:last-child { width: 12px; height: 12px; color: var(--dinkster-text-muted); }
+:is(.canvas-lens-button, .canvas-zoom-level, .canvas-corner-more) svg:last-child { width: 12px; height: 12px; }
 .canvas-lens-button svg:first-child { width: 16px; height: 16px; }
 .canvas-corner-controls { position: absolute; right: 10px; bottom: 10px; z-index: 5; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; max-width: calc(100% - 20px); pointer-events: none; }
 /* An open menu paints over the stage's floating chrome (the top toolbar row sits at z-index 7 outside this stacking context), and over the minimap, which dims under it. */
@@ -706,14 +706,16 @@
 .canvas-corner-controls[data-minimap-size='medium'] .minimap { width: 196px; height: 118px; }
 .canvas-corner-controls[data-minimap-size='large'] .minimap { width: 256px; height: 150px; }
 .minimap.hidden { display: none; }
+/* A live icon or label on the canvas bars is the primary text colour; a control that is off is muted; accents stay. */
 .canvas-corner-bar .canvas-chrome-button[aria-pressed='true'] { color: var(--dinkster-accent-foreground); }
+.canvas-corner-bar .canvas-chrome-button[aria-pressed='false'] { color: var(--dinkster-text-muted); }
 .canvas-corner-split { display: inline-flex; border-radius: var(--dinkster-radius-control); }
 .canvas-corner-split[data-open='true'] { background: var(--dinkster-interaction-pressed); }
 .canvas-corner-bar .canvas-corner-split .canvas-chrome-button[aria-expanded='true'] { background: transparent; }
 .canvas-corner-bar .canvas-corner-more { min-width: 14px; width: 14px; margin-left: -3px; }
 .canvas-corner-bar .canvas-zoom-level { padding: 0 4px 0 6px; }
 /* Menus of the canvas chrome. The corner's open straight above the bar under the minimap, over the minimap, their right edge on the bar's; the host caps their height to the stage. */
-.minimap-menu, .lens-menu, .canvas-zoom-menu { position: absolute; font-size: var(--dinkster-type-body-size); line-height: normal; z-index: 8; display: flex; flex-direction: column; box-sizing: border-box; min-width: 210px; padding: var(--dinkster-space-12); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-card); box-shadow: var(--dinkster-elevation-high); }
+.minimap-menu, .lens-menu, .canvas-zoom-menu { position: absolute; font-size: var(--dinkster-type-body-size); line-height: normal; z-index: 8; display: flex; flex-direction: column; box-sizing: border-box; min-width: 210px; padding: var(--dinkster-space-12); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); box-shadow: var(--dinkster-elevation-high); }
 .minimap-menu, .canvas-zoom-menu { right: 0; bottom: calc(100% + 6px); overflow-y: auto; pointer-events: auto; }
 .minimap-menu { width: max-content; gap: 0; padding: var(--dinkster-space-4); }
 :is(.minimap-menu, .lens-menu, .canvas-zoom-menu) button { display: flex; align-items: center; box-sizing: border-box; width: 100%; min-height: 28px; padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 1px solid transparent; border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: transparent; font: inherit; text-align: left; cursor: pointer; user-select: none; }
@@ -736,13 +738,12 @@
 .canvas-zoom-row > :is(.dinkster-canvas-closed-row, .canvas-zoom-field) { display: flex; align-items: center; height: 28px; font-variant-numeric: tabular-nums; }
 .canvas-zoom-menu .canvas-zoom-row button { width: auto; min-height: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .canvas-zoom-menu .canvas-zoom-row .dinkster-canvas-field-step { display: grid; place-items: center; flex: none; width: var(--dinkster-space-24); color: var(--dinkster-text-secondary); }
-.canvas-zoom-menu .canvas-zoom-row .dinkster-canvas-closed-row-open { flex: 1; justify-content: center; min-width: 0; }
-.canvas-zoom-row .dinkster-canvas-field-label:empty { display: none; }
+.canvas-zoom-menu .canvas-zoom-row .dinkster-canvas-closed-row-open { flex: 1; min-width: 0; }
 .canvas-zoom-menu .canvas-zoom-row button:focus-visible { outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
-.canvas-zoom-row .dinkster-canvas-closed-row-value { margin-left: 0; }
-.canvas-zoom-field { justify-content: center; gap: 1px; box-sizing: border-box; padding: 0 var(--dinkster-space-24); color: var(--dinkster-text-muted); }
+.canvas-zoom-field { gap: 1px; box-sizing: border-box; padding: 0 var(--dinkster-space-24); color: var(--dinkster-text-muted); }
+.canvas-zoom-field .dinkster-canvas-field-label { padding-left: 0; }
 .canvas-zoom-field:focus-within { box-shadow: inset 0 0 0 1px var(--dinkster-border-focus); }
-.canvas-zoom-menu .canvas-zoom-field input, .canvas-zoom-menu .canvas-zoom-field input:focus-visible { flex: 0 1 auto; field-sizing: content; width: auto; min-width: 2ch; max-width: 100%; min-height: 0; height: 24px; padding: 0; border: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; text-align: right; outline: none; }
+.canvas-zoom-menu .canvas-zoom-field input, .canvas-zoom-menu .canvas-zoom-field input:focus-visible { flex: 0 1 auto; field-sizing: content; width: auto; min-width: 2ch; max-width: 100%; margin-left: auto; min-height: 0; height: 24px; padding: 0; border: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; text-align: right; outline: none; }
 .canvas-view-control > .lens-menu { top: calc(100% + 8px); left: -4px; }
 .lens-menu button { flex-direction: column; align-items: flex-start; }
 .lens-menu small { color: var(--dinkster-text-muted); }
@@ -790,7 +791,7 @@
   border-color: var(--dinkster-border-subtle);
   border-left: 0;
   border-radius: 0 var(--dinkster-radius-control) var(--dinkster-radius-control) 0;
-  color: var(--dinkster-text-secondary);
+  color: var(--dinkster-text-primary);
   background: var(--dinkster-surface-panel);
   font-size: var(--dinkster-type-metadata-size);
 }

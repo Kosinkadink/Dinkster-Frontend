@@ -791,9 +791,18 @@ test('the canvas corner bar keeps one width right-justified under the minimap, i
       runBackground: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-submit`).backgroundColor,
       listBackground: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-toggle`).backgroundColor,
     })
-    return { bar: style('[data-testid="canvas-chrome-corner-small"] .canvas-corner-bar').borderTopColor, ready: run('ready'), off: run('off') }
+    return {
+      bar: style('[data-testid="canvas-chrome-corner-small"] .canvas-corner-bar').borderTopColor,
+      menu: style('[data-testid="canvas-chrome-corner-settings"] .minimap-menu').borderTopColor,
+      fitColor: style('[data-testid="canvas-chrome-corner-small"] [data-testid="canvas-fit-view"]').color,
+      listColor: style('[data-testid="canvas-chrome-run-ready"] .workflow-queue-toggle').color,
+      ready: run('ready'),
+      off: run('off'),
+    }
   })
   expect(outlines.ready.list).toBe(outlines.bar)
+  expect(outlines.menu).toBe(outlines.bar)
+  expect(outlines.listColor).toBe(outlines.fitColor)
   expect(outlines.ready.run).not.toBe(outlines.bar)
   expect(outlines.off.list).toBe(outlines.ready.list)
   expect(outlines.off.listBackground).toBe(outlines.ready.listBackground)
@@ -809,7 +818,7 @@ test('the canvas corner bar keeps one width right-justified under the minimap, i
   await zoomMenu.getByRole('button', { name: 'Zoom in' }).click()
   await expect(zoomMenu).toBeVisible()
   await expect(zoomCell.getByTestId('canvas-zoom-level')).toHaveText('45%')
-  await zoomMenu.getByRole('button', { name: '45%' }).click()
+  await zoomMenu.getByRole('button', { name: 'Zoom: 45%' }).click()
   await expect(zoomCell.getByTestId('canvas-zoom-input')).toBeFocused()
   await expect(zoomCell.getByTestId('canvas-zoom-input')).toHaveValue('45')
   await page.keyboard.press('Escape')

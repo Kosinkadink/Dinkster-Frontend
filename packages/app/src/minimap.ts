@@ -118,8 +118,9 @@ export function setupMinimap(deps: {
           height: g.height,
           ...(g.color !== undefined ? { color: g.color } : {}),
         })),
+        // Colors off is the quiet minimap: no node or link colours and no
+        // title lines. Bypassed nodes and reroutes (with links) always draw.
         nodeColors: settings.get<boolean>('canvas.minimap.nodes'),
-        renderBypassState: settings.get<boolean>('canvas.minimap.bypass'),
         renderErrorState: settings.get<boolean>('canvas.minimap.errors'),
         visibility: { groups: settings.get<boolean>('canvas.minimap.groups') },
         links: settings.get<boolean>('canvas.minimap.noodles') ? sc.links.filter((link) => link.hidden !== true).map((link) => ({
@@ -127,8 +128,8 @@ export function setupMinimap(deps: {
           to: { x: link.x2, y: link.y2 },
           ...(link.typeName !== undefined ? { typeName: link.typeName } : {}),
         })) : [],
-        linkColors: settings.get<boolean>('canvas.minimap.linkColors'),
-        reroutes: settings.get<boolean>('canvas.minimap.reroutes') ? sc.reroutes.map((r) => ({ x: r.x, y: r.y })) : [],
+        linkColors: settings.get<boolean>('canvas.minimap.nodes'),
+        reroutes: settings.get<boolean>('canvas.minimap.noodles') ? sc.reroutes.map((r) => ({ x: r.x, y: r.y })) : [],
         viewport: {
           ...renderer.getViewport(),
           canvasWidth: mainCanvas.clientWidth,
