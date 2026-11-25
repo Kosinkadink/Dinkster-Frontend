@@ -142,7 +142,7 @@ async function plotPoint(editor: Locator, position: number, value: number): Prom
 
 const points = (editor: Locator) => editor.locator('circle.dinkster-canvas-curve-point')
 
-test('hides the histogram input and its wire in one undo step and keeps the override after reload', async ({ page }) => {
+test('hides the histogram input and its wire in one undo step and keeps the override after reload', async ({ page }, testInfo) => {
   const editor = await unfoldNodeEditor(page, 'editor', 'curve')
   const openMenu = async () => {
     const point = await page.evaluate(() => {
@@ -160,10 +160,19 @@ test('hides the histogram input and its wire in one undo step and keeps the over
   await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
   const height = (await editor.boundingBox())!.height
   await openMenu()
+  const menuScreenshot = await page.screenshot({ animations: 'disabled' })
+  await testInfo.attach('native-histogram-visibility-menu', { body: menuScreenshot, contentType: 'image/png' })
   await page.getByRole('menuitem', { name: 'Hide histogram input', exact: true }).click()
   await expect(editor.getByText('Histogram', { exact: true })).toHaveCount(0)
   expect(await hasWire()).toBe(false)
   expect(height - (await editor.boundingBox())!.height).toBe(26)
+  const hiddenScreenshot = await page.screenshot({ animations: 'disabled' })
+  await testInfo.attach('native-histogram-visibility-hidden', { body: hiddenScreenshot, contentType: 'image/png' })
+  if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
+    mkdirSync(evidenceGroupDir('issue-1268'), { recursive: true })
+    writeFileSync(evidencePath('issue-1268', 'native-histogram-visibility-menu.png'), menuScreenshot)
+    writeFileSync(evidencePath('issue-1268', 'native-histogram-visibility-hidden.png'), hiddenScreenshot)
+  }
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
   await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
   expect(await hasWire()).toBe(true)
