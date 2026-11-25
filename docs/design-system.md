@@ -1036,9 +1036,9 @@ For a text-only expanded label, it replaces the drawn text at the center while
 the label continues to supply the accessible name. No other control moves when
 an action becomes pending. Ordinary ProductButton presentation is unchanged.
 The actions slot also accepts a render function receiving a reactive `narrow`
-accessor. It switches below the fixed 460px available-content token
+accessor. It switches below the fixed 468px available-content token
 `toolbarFullRowWidth`, after native reservations, independently of account or
-execution state. The layout menu then holds the left, bottom and right panel
+execution state; 468px is the widest gallery row's measured need. The layout menu then holds the left, bottom and right panel
 switches together, followed by left bar, status bar and Reset layout. In the full
 row the three panel switches stay in the bar and are not repeated in the menu.
 `ProductMenuItem.checked` draws the shared checkmark and exposes

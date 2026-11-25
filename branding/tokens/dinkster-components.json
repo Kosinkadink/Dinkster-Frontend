@@ -32,7 +32,7 @@
   "layout": {
     "borderWidth": 1,
     "topBarHeight": 44,
-    "toolbarFullRowWidth": 460,
+    "toolbarFullRowWidth": 468,
     "toolbarExpandedRowWidth": 940,
     "toolbarMinimumWidthLinux": 384,
     "toolbarMinimumWidthMac": 464,
