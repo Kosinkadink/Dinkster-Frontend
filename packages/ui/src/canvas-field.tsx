@@ -747,12 +747,16 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
       const font = getComputedStyle(value)
       context.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
       const widest = Math.max(...labels.map((text) => context.measureText(text).width))
+      const labelFont = getComputedStyle(label)
+      context.font = `${labelFont.fontWeight} ${labelFont.fontSize} ${labelFont.fontFamily}`
+      const labelWidth = context.measureText(label.textContent ?? '').width +
+        parseFloat(labelFont.paddingLeft) + parseFloat(labelFont.paddingRight)
       const row = getComputedStyle(label.parentElement!)
       const inset = parseFloat(row.borderLeftWidth) + parseFloat(row.borderRightWidth) +
         parseFloat(row.paddingLeft) + parseFloat(row.paddingRight)
       // The shared row reserves at most half its width for the label.
-      line.style.minWidth = `${Math.ceil(inset + Math.max(label.scrollWidth * 2,
-        label.scrollWidth + widest + parseFloat(font.paddingLeft) + parseFloat(font.paddingRight) + chevron.offsetWidth))}px`
+      line.style.minWidth = `${Math.ceil(inset + Math.max(labelWidth * 2,
+        labelWidth + widest + parseFloat(font.paddingLeft) + parseFloat(font.paddingRight) + chevron.offsetWidth))}px`
     }
     queueMicrotask(size)
     void document.fonts.ready.then(size)

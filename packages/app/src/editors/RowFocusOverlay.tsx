@@ -44,6 +44,7 @@ export function RowFocusOverlay(props: {
   boundary: HTMLElement
   /** Switch the row's look; called only with a choice other than the current one. */
   onRepresentation: (id: string) => void
+  onClose: (restoreFocus: boolean) => void
 }) {
   const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
   const bounds = visibleCanvas(props.boundary)
@@ -53,27 +54,30 @@ export function RowFocusOverlay(props: {
     bounds(),
     sideSize(),
   ))
-  const side = createMemo(() => {
-    const { defaultText, help, representation, note } = props.focus
-    if (note !== undefined) return <CanvasSidePart>{note}</CanvasSidePart>
-    if (defaultText === undefined && help === undefined && representation === undefined) return undefined
-    return (
-      <CanvasSidePart
-        facts={defaultText === undefined ? [] : [{ key: 'default', value: defaultText }]}
-        {...(help === undefined ? {} : { help })}
-        {...(representation === undefined ? {} : { representation: {
-          choices: representation.choices,
-          selected: representation.selected,
-          ...(representation.note === undefined ? {} : { note: representation.note }),
-          onChoose: (id: string) => { if (id !== representation.selected) props.onRepresentation(id) },
-        } })}
-      />
-    )
-  })
+  // A scene refresh updates inspection in place, without remounting its open list.
+  const side = (
+    <CanvasSidePart
+      facts={props.focus.note !== undefined || props.focus.defaultText === undefined ? [] : [{ key: 'default', value: props.focus.defaultText }]}
+      {...(props.focus.note !== undefined || props.focus.help === undefined ? {} : { help: props.focus.help })}
+      {...(props.focus.note !== undefined || props.focus.representation === undefined ? {} : { representation: {
+        choices: props.focus.representation.choices,
+        selected: props.focus.representation.selected,
+        ...(props.focus.representation.note === undefined ? {} : { note: props.focus.representation.note }),
+        onChoose: (id: string) => { if (id !== props.focus.representation?.selected) props.onRepresentation(id) },
+      } })}
+    >{props.focus.note}</CanvasSidePart>
+  )
   let frame!: HTMLDivElement
   createEffect(() => placeRow(frame, placement()))
   return (
-    <div class="palette-layer widget-popover-layer" data-testid="row-focus">
+    <div class="palette-layer widget-popover-layer" data-testid="row-focus"
+      onFocusOut={(event) => {
+        if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) props.onClose(false)
+      }}
+      onKeyDown={(event) => {
+        if (event.isComposing) return
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); props.onClose(true) }
+      }}>
       <div ref={frame} class="widget-row-focus">
         <CanvasRowFocus
           rowWidth={placement().rowWidth}
@@ -84,7 +88,7 @@ export function RowFocusOverlay(props: {
           sideTop={placement().sideTop}
           {...(placement().sideMaxHeight === undefined ? {} : { sideMaxHeight: placement().sideMaxHeight! })}
           onSideSize={setSideSize}
-          {...(side() === undefined ? {} : { side: side()! })}
+          {...(props.focus.defaultText === undefined && props.focus.help === undefined && props.focus.representation === undefined && props.focus.note === undefined ? {} : { side })}
         />
       </div>
     </div>

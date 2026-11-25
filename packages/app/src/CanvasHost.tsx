@@ -5756,12 +5756,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       closedNote = focus?.note === undefined ? undefined : { nodeId: focus.nodeId, valueKey: focus.valueKey }
       setRowFocus(undefined)
     }
+    const onRowFocusBlur = (event: FocusEvent): void => {
+      // Inspection's Representation control takes focus without leaving the row.
+      if (event.relatedTarget instanceof Element && event.relatedTarget.closest('[data-testid="row-focus"]')) return
+      clearRowFocus()
+    }
     canvasEl.addEventListener('pointerdown', clearRowFocus, true)
-    canvasEl.addEventListener('blur', clearRowFocus)
+    canvasEl.addEventListener('blur', onRowFocusBlur)
     onCleanup(() => {
       canvasEl.removeEventListener('keydown', onRowFocusKey, true)
       canvasEl.removeEventListener('pointerdown', clearRowFocus, true)
-      canvasEl.removeEventListener('blur', clearRowFocus)
+      canvasEl.removeEventListener('blur', onRowFocusBlur)
     })
 
     // A native modal owns the trusted backdrop pointerdown. After it closes,
@@ -7721,7 +7726,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
 
       <Show when={rowFocus()}>
-        {(focus) => <RowFocusOverlay focus={focus()} viewport={editorViewport} boundary={canvasEl.parentElement!} onRepresentation={(id) => {
+        {(focus) => <RowFocusOverlay focus={focus()} viewport={editorViewport} boundary={canvasEl.parentElement!} onClose={(restoreFocus) => {
+          setRowFocus(undefined)
+          if (restoreFocus) canvasEl.focus()
+        }} onRepresentation={(id) => {
           const representation = focus().representation
           const tab = activeTab()
           if (representation === undefined || tab === undefined || tab.id !== focus().tabId) return

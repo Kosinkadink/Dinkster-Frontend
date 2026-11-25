@@ -33,7 +33,7 @@ async function openSampler(page: Page, access?: 'readOnly' | 'disabled'): Promis
       type: 'Sampler', displayName: 'Sampler', category: 'test', source: 'v3', isOutputNode: false,
       body: [
         {
-          ...widget('steps', 'INT', 20, { min: 1, max: 10000, step: 1, tooltip: 'How many denoising steps to run.' }),
+          ...widget('steps', access === undefined ? 'INT' : 'FLOAT', 20, { min: 1, max: 10000, step: 1, tooltip: 'How many denoising steps to run.' }),
           ...(access === undefined ? {} : { [access]: { formula: 'cfg > 8' }, disabledReason: 'Preset controls this field' }),
         },
         widget('cfg', 'FLOAT', 7, { min: 0, max: 100, step: 0.1 }),
@@ -93,6 +93,49 @@ for (const access of ['readOnly', 'disabled'] as const) {
       command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'steps', value: 24 },
     }))
     await expect.poll(() => value(page, 'steps')).toBe(24)
+  })
+
+  test(`a ${access} row can switch representation without changing its value`, async ({ page }, testInfo) => {
+    await openSampler(page, access)
+    await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'cfg', value: 9 },
+    }))
+    const steps = await rowPoint(page, 'n1', 'steps')
+    await page.mouse.click(steps.x, steps.y)
+    const focus = page.getByTestId('row-focus')
+    await focus.getByRole('button', { name: /Representation/ }).click()
+    await expect(focus.getByRole('combobox', { name: 'Representation', exact: true })).toBeFocused()
+    await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'cfg', value: 10 },
+    }))
+    await expect(focus.getByRole('combobox', { name: 'Representation', exact: true })).toBeFocused()
+    await expect.poll(() => focus.locator('.dinkster-canvas-side-representation-list .dinkster-canvas-field-label').evaluate((label) => {
+      const range = document.createRange()
+      range.selectNodeContents(label)
+      const style = getComputedStyle(label)
+      return range.getBoundingClientRect().width <= label.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    })).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath('blocked-representation-open.png') })
+    await focus.getByRole('option', { name: 'Slider', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => {
+      const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
+      return node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'steps')?.viewId
+    })).toBe('core.slider')
+    await expect.poll(() => value(page, 'steps')).toBe(20)
+    await expect(field(page)).toHaveCount(0)
+    await expect(focus).toContainText(access === 'readOnly' ? 'Read-only' : 'Preset controls this field')
+    await page.screenshot({ path: testInfo.outputPath('blocked-representation-selected.png') })
+    const trigger = focus.getByRole('button', { name: 'Representation Slider', exact: true })
+    await trigger.click()
+    const filter = focus.getByRole('combobox', { name: 'Representation', exact: true })
+    await filter.dispatchEvent('keydown', { key: 'Escape', isComposing: true })
+    await expect(filter).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(filter).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(focus).toHaveCount(0)
+    await expect(page.getByTestId('graph-canvas')).toBeFocused()
   })
 }
 
