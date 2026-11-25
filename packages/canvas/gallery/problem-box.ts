@@ -1,6 +1,7 @@
 import {
   defaultValuesOf,
   loadDocument,
+  type Diagnostic,
   type InputSpec,
   type Json,
   type NodeProgress,
@@ -55,6 +56,8 @@ export interface ProblemBoxGalleryCard {
   /** Run states, for a node that failed in the run. */
   readonly states?: Readonly<Record<string, NodeProgress>>
   readonly boxes: readonly ProblemBoxGalleryBox[]
+  /** Real solver problems, shown in both the panel and the node's box. */
+  readonly diagnostics?: readonly Diagnostic[]
   /** The row drawn highlighted with its line. */
   readonly highlight?: { readonly nodeId: string; readonly row: string }
   readonly width: number
@@ -255,7 +258,38 @@ export function problemBoxGallery(
   widgetMeasure: WidgetMeasure,
 ): readonly ProblemBoxGalleryCard[] {
   const scene = (nodes: readonly Placed[], wires: readonly Wire[] = []) => sceneOf(tokens, measure, widgetMeasure, nodes, wires)
+  const solverCard = (id: string, caption: string, nodes: readonly Placed[], wires: readonly Wire[]): ProblemBoxGalleryCard => {
+    const drawn = scene(nodes, wires)
+    const scale = nodes.length > 2 ? 0.8 : 1
+    return {
+      id, caption, scene: drawn, diagnostics: drawn.diagnostics.filter((diagnostic) => diagnostic.code.startsWith('solve.')),
+      badges: {}, rowMarks: {}, boxes: [], scale, width: column(nodes.length - 1) * scale + BOX_MAX + LEFT,
+    }
+  }
+  const latentSink = schema('GalleryDecode', 'Decode', [pin('samples', 'LATENT', 'samples')])
+  const matched = { kind: 'variable', templateId: 'T' } as const
+  const matchNode = schema('GalleryMatch', 'Switch', [
+    { ...pin('image', 'IMAGE', 'image'), type: matched },
+    { ...out('out', 'IMAGE', 'image'), type: matched },
+  ])
   return [
+    solverCard('type-warning', 'An image sent to samples that needs latent data. The same warning names the node in Problems and the row once in its own box. The wire and its handle are warning yellow.', [
+      { id: 'load', schema: loadImage, x: column(0) },
+      { id: 'decode', schema: latentSink, x: column(1) },
+    ], [[['load', 'image'], ['decode', 'samples']]]),
+    solverCard('type-matched', 'The matched type on Switch cannot satisfy both Load image and Decode. Both contributing wires warn; the problem belongs to Switch, with no type-variable name in its sentence.', [
+      { id: 'load', schema: loadImage, x: column(0) },
+      { id: 'switch', schema: matchNode, x: column(1) },
+      { id: 'decode', schema: latentSink, x: column(2) },
+    ], [[['load', 'image'], ['switch', 'image']], [['switch', 'out'], ['decode', 'samples']]]),
+    solverCard('type-list-error', 'A list sent to an input that needs one image stops the run. Its wire and handle, the receiving row and its Error tab use error red; the sentence is the same problem in both surfaces.', [
+      { id: 'load', schema: schema('GalleryLoadImages', 'Load images', [{ ...out('images', 'IMAGE', 'images'), type: { kind: 'list', element: concrete('IMAGE') } }]), x: column(0) },
+      { id: 'blur', schema: blurImage, x: column(1) },
+    ], [[['load', 'images'], ['blur', 'image']]]),
+    solverCard('type-group-warning', 'Different group lengths warn without blocking the run. The message names both lengths, without tuple syntax.', [
+      { id: 'group', schema: schema('GalleryMakeGroup', 'Make group', [{ ...out('values', 'IMAGE', 'values'), type: { kind: 'tuple', elements: [concrete('IMAGE'), concrete('MASK')] } }]), x: column(0) },
+      { id: 'combine', schema: schema('GalleryCombine', 'Combine values', [{ ...pin('values', 'IMAGE', 'values'), type: { kind: 'tuple', elements: [concrete('IMAGE'), concrete('MASK'), concrete('INT')] } }]), x: column(1) },
+    ], [[['group', 'values'], ['combine', 'values']]]),
     {
       id: 'at-rest',
       caption: 'At rest. Width and height are 0 and steps is 12000: two rows are outlined red and steps yellow, and nothing is drawn at the node\'s edge. The tabs read Error 2 and Warning. Selecting the node or pointing at it opens nothing. This part offers only actions that change no stored value, such as Edit field; fix buttons such as "Use 10000" on the steps line come with the later part that adds fixes.',

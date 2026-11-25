@@ -92,6 +92,16 @@ describe('problemDisplay', () => {
     expect(shown).toContain('output "Generated image" (image)')
   })
 
+  it('keeps a solver sentence already named for the reader without adding ids or a second title', () => {
+    const d = diag('warning', 'schema', 'solve.linkMismatch', 'My sampler: Model input needs MODEL, but Load image sends an image.', {
+      refs: [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'model', direction: 'input' }],
+      data: { nodeMessage: 'Model input needs MODEL, but Load image sends an image.' },
+    })
+    expect(problemDisplay(d, document('My sampler'), registry)).toBe(d.message)
+    expect(deriveProblemProjection({ diagnostics: [d], graphId: 'g0', instancePath: [] }).rows)
+      .toEqual({ 'n5-a1b2': { model: 'warning' } })
+  })
+
 })
 
 describe('groupProblemDiagnostics', () => {

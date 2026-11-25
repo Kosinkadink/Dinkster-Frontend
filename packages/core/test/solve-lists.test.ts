@@ -125,7 +125,7 @@ describe('typesCompatible with lists', () => {
 // ---------------------------------------------------------------------------
 
 describe('solver: closed lists as atoms', () => {
-  it('matching closed lists are ok; mismatched elements warn with canonical names', () => {
+  it('matching closed lists are ok; mismatched elements warn with type words', () => {
     const def = defOf({
       nodes: { src: { type: 'ListImageSrc' }, ok: { type: 'ListImageSink' }, bad: { type: 'ListLatentSink' } },
       links: {
@@ -138,8 +138,7 @@ describe('solver: closed lists as atoms', () => {
     expect(s.linkVerdicts.get('l1' as never)).toBe('mismatch')
     const d = s.diagnostics.find((x) => x.code === 'solve.linkMismatch')
     expect(d?.severity).toBe('warning')
-    expect(d?.message).toContain('list<IMAGE>')
-    expect(d?.message).toContain('list<LATENT>')
+    expect(d?.message).toBe('ListLatentSink: In needs a list of latent values, but ListImageSrc sends a list of images.')
   })
 
   it('nested closed lists compare by exact canonical identity', () => {
@@ -283,7 +282,7 @@ describe('solver: open lists peel the constructor', () => {
     expect(solved.diagnostics.filter((diagnostic) => diagnostic.code === 'solve.varConflict')).toEqual([
       expect.objectContaining({
         severity: 'error',
-        message: 'These inputs must be the same type: list is IMAGE, item is LATENT.',
+        message: 'Append: its inputs must be the same type, but the input list is an image and the input item is latent data.',
         anchor: { port: { node: 'append', port: 'item' }, link: 'l1' },
       }),
     ])

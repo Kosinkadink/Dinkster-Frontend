@@ -1,5 +1,5 @@
-import { For, createEffect, createSignal, onCleanup } from 'solid-js'
-import type { WidgetRegistry } from '@dinkster/core'
+import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
+import { createSignal as coreSignal, type Diagnostic, type WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
@@ -8,6 +8,9 @@ import {
   createRegistryPainter,
   defaultTokens,
   problemBoxPlacement,
+  problemBadge,
+  PROBLEM_ERROR_BADGE,
+  PROBLEM_WARNING_BADGE,
   type DesignTokens,
   type TextMeasurer,
   type WidgetMeasure,
@@ -21,7 +24,13 @@ import {
   problemBoxGallery,
   type ProblemBoxGalleryCard,
 } from '../../canvas/gallery/problem-box.js'
-import { ProblemBox } from '../src/index.js'
+import { ProblemBox, ProductPanel } from '../src/index.js'
+import { deriveProblemProjection } from '../../app/src/problem-display.js'
+import { problemBoxLines, problemBoxRows } from '../../app/src/problem-box.js'
+import { ProblemsPanel } from '../../app/src/ProblemsPanel.js'
+import type { AppState } from '../../app/src/app-state.js'
+import '../../app/src/styles/activity.css'
+import '../../app/src/styles/product-controls.css'
 
 /** Room under the nodes for their tabs, and under the lowest box, in px. */
 const TAB_ROOM = 24
@@ -44,6 +53,11 @@ function ProblemBoxCard(props: {
   let frame!: HTMLDivElement
   const [boxes, setBoxes] = createSignal<readonly PlacedBox[]>([])
   const [caption, setCaption] = createSignal('')
+  const [diagnostics, setDiagnostics] = createSignal<readonly Diagnostic[]>()
+  // No open document: the actual panel can disclose problems, but cannot navigate out of the gallery.
+  const panelApp = {
+    tabs: coreSignal([]), activeTabId: coreSignal(''), activeTab: () => undefined,
+  } as unknown as AppState
   const [highlighted, setHighlighted] = createSignal<Record<string, string | undefined>>({})
   let renderer: CanvasRenderer | undefined
   createEffect(() => {
@@ -62,6 +76,20 @@ function ProblemBoxCard(props: {
         colors: canvasColorsForTheme(theme),
       }
       const card = props.card(tokens)
+      setDiagnostics(card.diagnostics)
+      const projection = card.diagnostics === undefined ? undefined : deriveProblemProjection({
+        diagnostics: card.diagnostics,
+        graphId: card.scene.graphId,
+        instancePath: [],
+        portSideOf: (nodeId, port) => card.scene.nodes.find((node) => node.id === nodeId)?.layout.pins
+          .find((pin) => pin.portId === port)?.direction === 'out' ? 'output' : 'input',
+      })
+      const cardBoxes = projection === undefined ? card.boxes : card.scene.nodes.flatMap((node) => {
+        const problems = projection.nodes[node.id]
+        if (problems === undefined) return []
+        return [{ nodeId: node.id, nodeTitle: node.layout.title, lines: problemBoxLines(problems, problemBoxRows(node), (row) => row)
+          .map((line) => ({ ...line, actions: [] })) }]
+      })
       const nodesBottom = Math.max(...card.scene.nodes.map((node) => node.y + node.layout.height))
       const scale = card.scale ?? 1
       const height = nodesBottom * scale + TAB_ROOM
@@ -75,15 +103,20 @@ function ProblemBoxCard(props: {
       renderer.setGridVisible(false)
       renderer.setScene(card.scene)
       renderer.setNodeStates(card.states ?? {})
-      renderer.setBadges(card.badges)
-      renderer.setRowMarks(card.rowMarks)
+      renderer.setBadges(projection === undefined ? card.badges : Object.fromEntries(Object.entries(projection.nodes).map(([node, lines]) => [
+        node, (['error', 'warning'] as const).flatMap((kind) => {
+          const count = lines.filter((line) => line.kind === kind).length
+          return count === 0 ? [] : [problemBadge(kind === 'error' ? PROBLEM_ERROR_BADGE : PROBLEM_WARNING_BADGE, count)]
+        }),
+      ])))
+      renderer.setRowMarks(projection?.rows ?? card.rowMarks)
       renderer.setProblemRowHighlight(card.highlight)
       renderer.setViewport({ x: 0, y: 0, scale })
       renderer.renderNow()
       const viewport = renderer.getViewport()
       setCaption(card.caption)
       setHighlighted(Object.fromEntries(card.boxes.map((box) => [box.nodeId, box.highlighted])))
-      setBoxes(card.boxes.flatMap((box) => {
+      setBoxes(cardBoxes.flatMap((box) => {
         const node = card.scene.nodes.find((candidate) => candidate.id === box.nodeId)
         if (node === undefined) return []
         const at = problemBoxPlacement(node, renderer!.getNodeBadgeLayout(node), viewport, card.width)
@@ -139,6 +172,11 @@ function ProblemBoxCard(props: {
           )}
         </For>
       </div>
+      <Show when={diagnostics()}>
+        <ProductPanel>
+          <ProblemsPanel app={panelApp} diagnostics={() => diagnostics() ?? []} compatSkips={() => []} />
+        </ProductPanel>
+      </Show>
       <figcaption class="dinkster-metadata">{caption()}</figcaption>
     </figure>
   )

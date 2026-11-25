@@ -281,6 +281,7 @@ export function problemDisplay(
   document: WorkflowDocument | undefined,
   registry: ProblemSchemaRegistry | undefined,
 ): string {
+  if (typeof diagnostic.data?.['nodeMessage'] === 'string') return diagnostic.message
   if (document === undefined || registry === undefined || diagnostic.refs?.length === 0 || diagnostic.refs === undefined) {
     return diagnostic.message
   }
