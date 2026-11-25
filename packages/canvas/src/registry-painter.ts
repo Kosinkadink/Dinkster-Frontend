@@ -284,19 +284,17 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     // The mode icon always shows; the label and value share the rest of the row.
     const modeIconSize = paint.modeIconSize
     const modeIconReserve = modeIcon === undefined ? 0 : paint.modeIconLead + modeIconSize + paint.modeIconGap
-    let labelWidth = multiline
+    // An empty row that opens an editor keeps its label whole while it fits;
+    // what it asks for ("Choose image", "No clip") takes what is left and is
+    // cut first.
+    const emptyRow = (args.editorSummary?.placeholder ?? (RAISED_ROW_ICONS[row.viewId] === undefined
+      ? undefined
+      : (assetSummary ?? compactSummary(view, resolved, row.spec))?.placeholder)) === true
+    const labelWidth = multiline
       ? 0
-      : shareRowWidth(fieldWidth - modeIconReserve, naturalLabelWidth, naturalValueWidth, true)
-    if ((args.editorSummary?.placeholder ?? assetSummary?.placeholder) === true && valuePreview !== undefined) {
-      // The empty-state message takes priority even when opener controls leave
-      // less than the ordinary label floor. Round up for fitText's pixel floor.
-      const font = ctx.font
-      ctx.font = `italic ${font}`
-      const italicWidth = measureWidth(ctx, valuePreview)
-      ctx.font = font
-      const placeholderWidth = Math.ceil(Math.max(italicWidth, measureWidth(ctx, valuePreview))) + TEXT_PAD * 2
-      labelWidth = Math.min(labelWidth, Math.max(0, fieldWidth - placeholderWidth))
-    }
+      : emptyRow
+        ? Math.min(naturalLabelWidth, Math.max(0, fieldWidth - modeIconReserve))
+        : shareRowWidth(fieldWidth - modeIconReserve, naturalLabelWidth, naturalValueWidth, true)
     const paintLabel = () => {
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
@@ -450,8 +448,12 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               + (thumbnail !== undefined ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
             const iconReserve = markReserve + (marked ? wordReserve : 0)
             const fitWidth = Math.max(0, availableWidth - iconReserve)
-            const text = items !== undefined ? fitItems(ctx, items, fitWidth)
-              : ellipsize(ctx, run.split('\n')[0] ?? '', fitWidth)
+            const line = run.split('\n')[0] ?? ''
+            const fitted = items !== undefined ? fitItems(ctx, items, fitWidth) : ellipsize(ctx, line, fitWidth)
+            // An empty text cut to fewer than three letters before its
+            // ellipsis is not drawn at all.
+            const text = items === undefined && style['placeholder'] === true && fitted !== line
+              && fitted.slice(0, -'...'.length).replace(/\s/g, '').length < 3 ? '' : fitted
             // A folded curve's count sits beside its square, in the middle of the row.
             const centered = sketch !== undefined && style['role'] === 'widgetValue'
             const lineTop = centered ? chrome.y : y + ty * rowHeight + geometry.fieldInsetY
