@@ -3874,10 +3874,13 @@ export class DinksterConnection {
     readonly label?: string
     readonly limit?: number
     readonly cursor?: string
+    /** Only workflow documents of this project. */
+    readonly project?: string
   }): Promise<LibraryPage> {
     const params = new URLSearchParams({ scope: req.scope })
     if (req.query !== undefined && req.query !== '') params.set('q', req.query)
     if (req.label !== undefined) params.set('label', req.label)
+    if (req.project !== undefined) params.set('project', req.project)
     if (req.limit !== undefined) params.set('limit', String(req.limit))
     if (req.cursor !== undefined) params.set('cursor', req.cursor)
     const res = await this.fetchFn(`${this.baseUrl}/api/library?${params.toString()}`)
@@ -4246,6 +4249,8 @@ export class DinksterConnection {
     readonly mediaType: string
     readonly labels?: readonly string[]
     readonly folder?: string
+    /** The project the record belongs to; the engine records it for workflow documents. */
+    readonly project?: string
   }): Promise<LibraryRecord> {
     const res = await this.fetchFn(`${this.baseUrl}/api/library`, {
       method: 'POST',
@@ -4285,6 +4290,17 @@ export class DinksterConnection {
     const payload: unknown = await res.json()
     if (!isLibraryRecord(payload)) throw new Error('PATCH /api/library: malformed response')
     return { ok: true, record: payload }
+  }
+
+  /** Remove a record; the bytes it pointed at are not touched. False when it was already gone. */
+  async deleteLibraryRecord(id: string, scope: string): Promise<boolean> {
+    const res = await this.fetchFn(
+      `${this.baseUrl}/api/library/${encodeURIComponent(id)}?scope=${encodeURIComponent(scope)}`,
+      { method: 'DELETE' },
+    )
+    if (res.status === 404) return false
+    if (!res.ok) throw new Error(`DELETE /api/library/${id} failed: ${res.status}`)
+    return true
   }
 
   // -- Persistent execution history (GET/DELETE /api/history) ---------------
