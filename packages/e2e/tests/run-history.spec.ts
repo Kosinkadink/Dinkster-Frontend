@@ -240,6 +240,44 @@ test('a run\'s details name the workflow it was queued under, in both scopes, an
   await expect(workflowLine(unnamed.getByTestId('chosen-run-details'))).toHaveText('WorkflowNot recorded')
 })
 
+test('a run\'s row is named after the workflow it was queued under, through a rename and a reload, and keeps its state when none was recorded', async ({ page }) => {
+  const jobId = await queueAndComplete(page)
+  await expect.poll(async () => (await durableRecords()).some((record) => record.jobId === jobId)).toBe(true)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.renameTab(app.activeTabId.get(), 'Renamed afterwards')
+  })
+
+  await openRailPanel(page, 'Runs')
+  await chooseRunScope(page, 'workflow')
+  const row = page.getByTestId('runs-panel').getByTestId('execution-row').first()
+  await expect(row.locator('.run-row-name')).toHaveText('Run History')
+  await expect(row.getByRole('button', { name: 'More for Run History' })).toBeVisible()
+
+  await chooseRunScope(page, 'all')
+  await expect(entryFor(page, jobId).locator('.run-row-name')).toHaveText('Run History')
+
+  // After a reload the run is read back from the engine's record alone.
+  await page.reload()
+  await waitForWorkspaceReady(page)
+  await openRuns(page)
+  const stored = entryFor(page, jobId)
+  await expect(stored.locator('.run-row-name')).toHaveText('Run History')
+  await stored.click()
+  await expect(stored.getByRole('button', { name: 'More for Run History' })).toBeVisible()
+
+  // A record kept before names were stored keeps its state as its name.
+  await page.route('**/api/history?*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json() as { records: Record<string, unknown>[] }
+    await route.fulfill({ response, json: { ...body, records: body.records.map(({ workflowName: _name, ...record }) => record) } })
+  })
+  await page.reload()
+  await waitForWorkspaceReady(page)
+  await openRuns(page)
+  await expect(entryFor(page, jobId).locator('.run-row-name')).toHaveText('Completed run')
+})
+
 test('two cached runs collapse into one expandable no-op history row', async ({ page }) => {
   // Give this test a unique workflow digest, warm its engine cache once,
   // then clear only durable records. The next two submissions are both
