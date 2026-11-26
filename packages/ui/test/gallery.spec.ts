@@ -1147,6 +1147,7 @@ test('pending confirmation dismissal controls dim without a page root and recove
     await expect(dialog).toBeVisible()
   }
   await expect(action).toHaveAttribute('aria-busy', 'true')
+  await expect(action).toHaveCSS('opacity', '1')
   await expect(action.locator('.dinkster-spinner')).toBeVisible()
   for (let press = 0; press < 4; press += 1) await page.keyboard.press('Escape')
   await page.mouse.click(1, 1)
