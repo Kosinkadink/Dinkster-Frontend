@@ -18,6 +18,7 @@ import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
 import { useAppMessage } from './locale.js'
 import type { TooltipContent, VisibleTooltip } from './tooltips.js'
+import { ProductShortcut } from '@dinkster/ui'
 
 export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   const message = useAppMessage()
@@ -128,6 +129,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
       <div ref={content} role="tooltip">
         <Show when={displayed().title}><div class="app-tooltip-title">{displayed().title}</div></Show>
         <For each={displayed().lines}>{(line) => <div>{line}</div>}</For>
+        <Show when={displayed().shortcut}>{(keys) => <ProductShortcut keys={keys()} />}</Show>
         <Show when={props.tip.detailed}><For each={displayed().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
       </div>
     </aside>
@@ -169,7 +171,7 @@ export function ActivityBarButton(props: {
   readonly label: string
   readonly accessibleName: string
   readonly tooltip: string
-  readonly tooltipDetail?: string | undefined
+  readonly tooltipShortcut?: string | undefined
   readonly pressed: boolean | undefined
   readonly panelId?: string | undefined
   readonly testId?: string | undefined
@@ -185,7 +187,7 @@ export function ActivityBarButton(props: {
       data-testid={props.testId}
       data-panel-toggle={props.panelId}
       data-tooltip-label={tooltip()}
-      data-tooltip-detail={props.tooltipDetail}
+      data-tooltip-shortcut={props.tooltipShortcut}
       data-tooltip-immediate="true"
       aria-label={props.accessibleName === props.label ? props.label : `${props.label}: ${props.accessibleName}`}
       aria-pressed={props.pressed}
@@ -223,7 +225,7 @@ export function IconBar(props: {
         label={message('shell.panel.settings.title')}
         accessibleName={message('shell.panel.settings.title')}
         tooltip={message('shell.panel.settings.title')}
-        tooltipDetail="Ctrl+,"
+        tooltipShortcut="Ctrl+,"
         pressed={undefined}
         testId="settings-button"
         class="sidebar-settings-button"
@@ -283,7 +285,7 @@ export function ShellResizeHandle(props: {
   }
   return (
     <div
-      class={`${props.region === 'left' ? 'dock' : props.region === 'right' ? 'rail' : 'bottom'}-resize`}
+      class={`${props.region === 'left' ? 'dock' : props.region === 'right' ? 'rail' : 'bottom'}-resize panel-resize-handle`}
       data-testid={props.testId}
       role="separator"
       tabindex="0"
@@ -292,7 +294,13 @@ export function ShellResizeHandle(props: {
       aria-valuemin={props.min}
       aria-valuemax={props.max}
       aria-valuenow={props.value}
-      onPointerDown={props.onPointerDown}
+      onPointerMove={positionResizeGrip}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        positionResizeGrip(event)
+        event.currentTarget.setPointerCapture(event.pointerId)
+        props.onPointerDown(event)
+      }}
       onKeyDown={resizeFromKey}
     />
   )
@@ -310,6 +318,13 @@ export interface DockZoneSectionView {
 
 /** Keyboard resize step for the section divider, as a share of the zone. */
 export const DOCK_SECTION_SPLIT_STEP = 0.05
+
+function positionResizeGrip(event: PointerEvent & { currentTarget: HTMLDivElement }): void {
+  const element = event.currentTarget
+  const rect = element.getBoundingClientRect()
+  const horizontal = element.getAttribute('aria-orientation') === 'horizontal'
+  element.style.setProperty('--dinkster-resize-grip-position', `${horizontal ? event.clientX - rect.left : event.clientY - rect.top}px`)
+}
 
 /**
  * Draggable, keyboard-operable divider between a zone's two sections. The
@@ -369,7 +384,7 @@ function DockSectionDivider(props: {
   return (
     <div
       ref={divider}
-      class="dock-section-divider"
+      class="dock-section-divider panel-resize-handle"
       data-testid={`dock-section-divider-${props.zone}`}
       role="separator"
       tabindex="0"
@@ -378,7 +393,11 @@ function DockSectionDivider(props: {
       aria-valuemin={Math.round(MIN_ZONE_SPLIT * 100)}
       aria-valuemax={Math.round(MAX_ZONE_SPLIT * 100)}
       aria-valuenow={Math.round(props.split * 100)}
-      onPointerDown={beginDrag}
+      onPointerMove={positionResizeGrip}
+      onPointerDown={(event) => {
+        positionResizeGrip(event)
+        beginDrag(event)
+      }}
       onKeyDown={resizeFromKey}
     />
   )

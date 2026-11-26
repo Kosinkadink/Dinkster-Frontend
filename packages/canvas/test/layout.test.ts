@@ -1722,6 +1722,16 @@ describe('editors shown in the node', () => {
     const pinsOf = (layout: ReturnType<typeof lay>, id: string) =>
       layout.pins.filter((pin) => pin.portId === id && pin.direction === 'in').map((pin) => pin.y)
 
+    it('removes the interpolation row and moves the histogram pin up for a fixed curve', () => {
+      const fixed = schemaOf([editor('curve', 'CURVE', { unfolded: true, histogram: 'bins', interpolations: ['step'] }), histogram('bins'), histogram('gamma')])
+      const normal = lay(tied, ['in:bins'])
+      const restricted = lay(fixed, ['in:bins'])
+      expect(normal.height - restricted.height).toBe(defaultTokens.rowHeight)
+      expect(spaceOf(normal)!.height - spaceOf(restricted)!.height).toBe(defaultTokens.rowHeight)
+      expect(pinsOf(normal, 'bins')[0]! - pinsOf(restricted, 'bins')[0]!).toBe(defaultTokens.rowHeight)
+      expect(spaceOf(restricted)!.histogram).toEqual({ portId: 'bins', connected: true })
+    })
+
     it('draws the input the curve names as a pin on a line inside its editor, wired or not', () => {
       const untied = schemaOf([editor('curve', 'CURVE', { unfolded: true }), histogram('histogram'), histogram('gamma')])
       for (const connected of [[], ['in:bins']]) {

@@ -12,6 +12,7 @@ import { Dynamic } from 'solid-js/web'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
 import { useFieldFocus } from './field-focus.js'
+import { ProductShortcut, productShortcutKeys } from './shortcut.js'
 import githubMark from '../../../branding/providers/github-mark.svg?url'
 import googleMark from '../../../branding/providers/google-mark.svg?url'
 
@@ -184,9 +185,10 @@ export function ProductWindowAction(
         intent={local.intent ?? 'neutral'}
         pending={local.pending ?? false}
         aria-label={local.label}
-        title={
-          local.shortcut ? `${local.label} (${local.shortcut})` : local.label
-        }
+        title={local.shortcut ? undefined : local.label}
+        data-tooltip-label={local.label}
+        data-tooltip-shortcut={local.shortcut}
+        aria-description={local.shortcut ? productShortcutKeys(local.shortcut).join('+') : undefined}
       >
         <span class="dinkster-window-action-icon" aria-hidden="true">
           <ProductIcon icon={local.icon} />
@@ -196,7 +198,7 @@ export function ProductWindowAction(
         </span>
         <Show when={local.shortcut}>
           {(shortcut) => (
-            <kbd class="dinkster-window-action-shortcut">{shortcut()}</kbd>
+            <ProductShortcut keys={shortcut()} />
           )}
         </Show>
       </ProductButton>
@@ -303,26 +305,41 @@ export function ProductTextButton(
 export function ProductSegmented(props: {
   label: string
   value: string
-  options: readonly { value: string; label: string }[]
+  /**
+   * `disabled` is the reason an option cannot be chosen. The option keeps its
+   * place, and the reason is its accessible description and its tooltip.
+   */
+  options: readonly { value: string; label: string; disabled?: string | undefined }[]
   onChange: (value: string) => void
 }) {
   const name = createUniqueId()
   return (
     <div class="dinkster-segmented" role="radiogroup" aria-label={props.label}>
       <For each={props.options}>
-        {(option) => (
-          <label class="dinkster-segment">
-            <input
-              type="radio"
-              class="dinkster-visually-hidden"
-              name={name}
-              value={option.value}
-              checked={props.value === option.value}
-              onChange={() => props.onChange(option.value)}
-            />
-            <span>{option.label}</span>
-          </label>
-        )}
+        {(option) => {
+          const reasonId = createUniqueId()
+          return (
+            <>
+              <label class="dinkster-segment" data-tooltip-label={option.disabled}>
+                <input
+                  type="radio"
+                  class="dinkster-visually-hidden"
+                  name={name}
+                  value={option.value}
+                  checked={props.value === option.value}
+                  disabled={option.disabled !== undefined}
+                  aria-describedby={option.disabled === undefined ? undefined : reasonId}
+                  onChange={() => props.onChange(option.value)}
+                />
+                <span>{option.label}</span>
+              </label>
+              {/* Outside the label, so the reason never joins the option's name. */}
+              <Show when={option.disabled}>
+                {(reason) => <span id={reasonId} class="dinkster-visually-hidden">{reason()}</span>}
+              </Show>
+            </>
+          )
+        }}
       </For>
     </div>
   )

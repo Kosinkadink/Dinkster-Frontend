@@ -6,6 +6,7 @@ import {
   type NodeSchema,
   type WidgetRegistry,
   inputsOf,
+  typeExprFromTypeId,
 } from '@dinkster/core'
 import {
   CanvasRenderer,
@@ -20,7 +21,28 @@ import {
   type NodeLayout,
   type TextMeasurer,
   type WidgetMeasure,
+  typeIdDisplayLabel,
 } from '@dinkster/canvas'
+import type { PaletteEntry } from './NodePalette.js'
+
+/** Blueprint drawings use declared boundary hints, never fetch the stored body. */
+export function palettePreviewSchema(entry: PaletteEntry): NodeSchema | undefined {
+  if (entry.schema !== undefined) return entry.schema
+  const descriptor = entry.blueprint?.descriptor
+  if (descriptor === undefined) return undefined
+  return {
+    type: entry.type, displayName: entry.name, category: entry.category,
+    source: 'v3', isOutputNode: false,
+    body: [
+      ...(descriptor.boundaryInputs ?? []).map((type, index) => ({
+        kind: 'input' as const, id: `in-${index}`, displayName: typeIdDisplayLabel(type), type: typeExprFromTypeId(type), optional: false,
+      })),
+      ...(descriptor.boundaryOutputs ?? []).map((type, index) => ({
+        kind: 'output' as const, id: `out-${index}`, displayName: typeIdDisplayLabel(type), type: typeExprFromTypeId(type),
+      })),
+    ],
+  }
+}
 
 /** Build the display-only node used by the palette preview. */
 export function transientPreviewNode(schema: NodeSchema): NodeData {
