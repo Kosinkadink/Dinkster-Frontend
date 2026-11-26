@@ -417,7 +417,7 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
 
   const params = (node: string, port = 'in') => ({ graphId: 'sub', itemId: 'in', node, port })
 
-  it.each(['variable', 'inactive', 'nested', 'competing', 'competing-reordered'])('uses boundary-facing types even when inner ports are solved or inactive: %s', (scenario) => {
+  it.each(['variable', 'inactive', 'nested', 'competing', 'competing-reordered', 'competing-shared', 'competing-shared-reordered'])('uses boundary-facing types even when inner ports are solved or inactive: %s', (scenario) => {
     const competing = scenario.startsWith('competing')
     const inactive = !competing && scenario !== 'variable'
     const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
@@ -438,16 +438,16 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
     if (competing) local.Primary = {
       ...schemaOf('Primary', [input('value', { type: variable })]),
       body: [input('value', { type: variable }), { kind: 'choice', id: 'mode', required: true, shared: [], options: [
-        { key: 'a', rows: [{ kind: 'typeChoice', id: 'imagePicker', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'image', type: IMAGE, rows: [] }] }] },
-        { key: 'b', rows: [{ kind: 'typeChoice', id: 'floatPicker', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'float', type: FLOAT, rows: [] }] }] },
+        { key: 'a', rows: [{ kind: 'typeChoice', id: 'imagePicker', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'image', type: IMAGE, rows: [] }] }, input('value', { type: variable })] },
+        { key: 'b', rows: [{ kind: 'typeChoice', id: 'floatPicker', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'float', type: FLOAT, rows: [] }] }, input('value', { type: variable })] },
       ] }],
     }
     const selections = [['mode.imagePicker', { selected: 'image' }], ['mode.floatPicker', { selected: 'float' }]] as const
     const resolve = (type: string) => local[type]
     const doc = docOf({ g0: { nodes: {} }, sub: {
-      nodes: { primary: { type: 'Primary', ...(competing ? { dynamic: { mode: { selected: 'a' }, ...Object.fromEntries(scenario === 'competing-reordered' ? [...selections].reverse() : selections) } } : {}) }, consumer: { type: 'Consumer' }, target: { type: 'Target', values: { 'mode.source': 0.5 }, dynamic: { mode: { selected: 'a' }, 'mode.source': { selected: 'float' } } } },
+      nodes: { primary: { type: 'Primary', ...(competing ? { dynamic: { mode: { selected: 'a' }, ...Object.fromEntries(scenario.endsWith('reordered') ? [...selections].reverse() : selections) } } : {}) }, consumer: { type: 'Consumer' }, target: { type: 'Target', values: { 'mode.source': 0.5 }, dynamic: { mode: { selected: 'a' }, 'mode.source': { selected: 'float' } } } },
       links: competing ? [] : [[['primary', 'out'], ['consumer', 'value']]],
-      boundary: { inputs: [{ id: 'in', binds: bind('primary', 'value') }] },
+      boundary: { inputs: [{ id: 'in', binds: bind('primary', scenario.includes('shared') ? 'mode.value' : 'value') }] },
     } })
     const store = new DocumentStore(doc, coreCommandRegistry([], resolve), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
     const before = store.doc
