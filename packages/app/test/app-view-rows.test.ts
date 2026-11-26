@@ -229,6 +229,14 @@ describe('buildParamRows', () => {
       expect(rows().map((row) => live(row).value)).toEqual([0.2, 0.8, 'second text'])
       expect(store.redo()).toBe(true)
       expect(rows().map((row) => live(row).value)).toEqual([0.4, 0.8, 'second text'])
+      const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(buildParamRows(reopened, resolveBoundarySample).map((row) => live(row).value)).toEqual([0.4, 0.8, 'second text'])
+      const reopenedRun = compile({ document: reopened, revision: 1, resolve: resolveBoundarySample,
+        scope: { kind: 'full' }, connection: 'app-view' as never, schemaHash: 'boundary-sample' })
+      expect(reopenedRun.ok).toBe(true)
+      if (!reopenedRun.ok) throw new Error(JSON.stringify(reopenedRun.diagnostics))
+      expect(reopenedRun.artifact.prompt[`first.${prefix}sample`]!.inputs.strength).toBe(0.4)
+      expect(reopenedRun.artifact.prompt[`second.${prefix}sample`]!.inputs.strength).toBe(0.8)
       expect(store.dispatch({ command: 'boundary.setVisible', params: {
         graphId: 'detail', itemId: 'strength', formula: 'strength < 0',
       } }).ok).toBe(true)

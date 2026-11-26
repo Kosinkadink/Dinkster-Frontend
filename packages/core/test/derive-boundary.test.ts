@@ -1308,6 +1308,27 @@ describe('Boundary sample acceptance compilation', () => {
       expect(prompt(store.doc)[path]!.inputs.strength).toBe(0.9)
       const second = level === 1 ? 'second.sample' : 'second.detail.sample'
       expect(prompt(store.doc)[second]!.inputs.strength).toBe(0.8)
+      expect(store.doc.graphs.detail!.nodes.sample!.values.strength).toBe(0.3)
+      if (level === 2) expect(store.doc.graphs.portrait!.nodes.detail!.values.strength).toBe(0.6)
+      expect(store.undo()).toBe(true)
+      expect(prompt(store.doc)[path]!.inputs.strength).toBe(0.2)
+      expect(store.redo()).toBe(true)
+      const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(prompt(loaded)[path]!.inputs.strength).toBe(0.9)
+      expect(prompt(loaded)[second]!.inputs.strength).toBe(0.8)
+      const first = loaded.graphs.root!.nodes.first!
+      const absentOuter = { ...loaded, graphs: { ...loaded.graphs, root: { ...loaded.graphs.root!, nodes: {
+        ...loaded.graphs.root!.nodes, first: { ...first, values: {} },
+      } } } }
+      expect(prompt(absentOuter)[path]!.inputs.strength).toBe(level === 1 ? 0.3 : 0.6)
+      if (level === 2) {
+        const middle = loaded.graphs.portrait!.nodes.detail!
+        const absentMiddle = { ...absentOuter, graphs: { ...absentOuter.graphs, portrait: { ...loaded.graphs.portrait!,
+          nodes: { detail: { ...middle, values: {} } },
+        } } }
+        expect(prompt(absentMiddle)[path]!.inputs.strength).toBe(0.3)
+        expect(prompt(absentMiddle)[second]!.inputs.strength).toBe(0.8)
+      }
     })
 
     it(`boundary/plain-pin/${context}`, () => {
@@ -1495,15 +1516,26 @@ describe('Boundary sample acceptance compilation', () => {
   })
 
   it('boundary/plain-field/linked-outside', () => {
-    for (const [type, port, expected] of [
+    for (const level of [1, 2] as const) for (const [type, port, expected] of [
       ['dinkster.utilities.primitive_float', 'value', 0.9], ['FloatSource', 'number', ['outside', 0]],
     ] as const) {
-      const doc = boundarySample(2)
+      const doc = boundarySample(level)
+      const first = level === 1 ? 'first.sample' : 'first.detail.sample'
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
       Object.assign(doc.graphs.root!.nodes, { outside: { id: 'outside', type, values: { value: 0.9 } } })
       const store = storeFor(doc)
       edit(store, 'link.connect', { graphId: 'root', from: { node: 'outside', port }, to: { node: 'first', port: 'strength' } })
-      expect(prompt(store.doc)['first.detail.sample']!.inputs.strength).toEqual(expected)
-      expect(prompt(store.doc)['second.detail.sample']!.inputs.strength).toBe(0.8)
+      expect(prompt(store.doc)[first]!.inputs.strength).toEqual(expected)
+      expect(prompt(store.doc)[second]!.inputs.strength).toBe(0.8)
+      const link = Object.values(store.doc.graphs.root!.links).find((item) => 'port' in item.to && item.to.node === 'first' && item.to.port === 'strength')!
+      edit(store, 'link.disconnect', { graphId: 'root', linkId: link.id })
+      expect(prompt(store.doc)[first]!.inputs.strength).toBe(0.2)
+      expect(store.undo()).toBe(true)
+      expect(prompt(store.doc)[first]!.inputs.strength).toEqual(expected)
+      expect(store.redo()).toBe(true)
+      const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(prompt(loaded)[first]!.inputs.strength).toBe(0.2)
+      expect(prompt(loaded)[second]!.inputs.strength).toBe(0.8)
     }
   })
 
