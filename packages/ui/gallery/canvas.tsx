@@ -1,5 +1,10 @@
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
-import { registerCatalog, type WidgetRegistry } from '@dinkster/core'
+import {
+  registerCatalog,
+  type Json,
+  type WidgetRegistry,
+  type WidgetSpec,
+} from '@dinkster/core'
 import english from '../../app/src/locales/en.json'
 import {
   CanvasRenderer,
@@ -32,6 +37,11 @@ import {
 } from '../../canvas/gallery/fixtures.js'
 import { earlierWidgetRows } from '../../canvas/gallery/earlier-widget-rows.js'
 import {
+  earlierRowSummaries,
+  rowSummaryFocusSchema,
+  rowSummaryReadouts,
+} from '../../canvas/gallery/row-summaries.js'
+import {
   ProductButton,
   ProductDialog,
   ProductField,
@@ -44,9 +54,23 @@ import {
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
-import { RowEditingGallery } from './row-editing.js'
+import {
+  MARGIN,
+  NODE_WIDTH,
+  RowEditingExample,
+  RowEditingGallery,
+  SIDE_ROOM,
+} from './row-editing.js'
+import { InNodeEditorsGallery } from './in-node-editors.js'
+import { RowStatesGallery } from './row-states.js'
+import { EditorChoicePlacementGallery } from './editor-choice-placement.js'
+import { RowAutomaticGallery } from './row-automatic.js'
 import { RowListsGallery } from './row-lists.js'
+import { BoundaryTreeGallery } from './boundary-tree.js'
+import { SaveTargetBoxGallery } from './save-target-box.js'
+import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
+import { RowFilePreviewsGallery } from './row-file-previews.js'
 
 type Theme = 'dark' | 'light'
 
@@ -76,11 +100,20 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       [
         'widgets',
         'core-rows',
+        'declaration-rows',
         'row-editing',
+        'row-states',
+        'row-automatic',
         'row-lists',
+        'lookups',
         'color-editing',
+        'save-target-box',
         'collection-rows',
         'editor-rows',
+        'row-summaries',
+        'row-file-previews',
+        'in-node-editors',
+        'editor-choice-placement',
         'widget-driven',
         'widget-offered',
         'widget-companions',
@@ -89,8 +122,8 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'text-boxes',
       ],
     ],
-    ['Wires', ['types', 'structure']],
-    ['Subgraphs', ['boundary', 'boundary-names']],
+    ['Wires', ['types', 'structure', 'wire-looks']],
+    ['Subgraphs', ['boundary', 'boundary-names', 'boundary-tree', 'subgraph-icon']],
     ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
     ['Problems with fixes', ['problem-box']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
@@ -143,8 +176,10 @@ export function selectCanvasPage(href: string) {
 const pageNotes: Record<CanvasGalleryPage, string> = {
   anatomy:
     'The parts of a node: title bar with its minimize arrow, pins, value rows, a section open and closed, a subgraph node with its mark, and a node whose type is missing.',
+  lines:
+    'A shared line starts folded, with wired pins gathered at its ends. Unfolded, each field has its own row and pins beside a grouping rail. The last card shows the proposed pin list and Unfold action; these examples show the look, not working fold controls.',
   boxes:
-    'Sections, groups and choices drawn as boxes. A closed box shows how many rows it holds and marks a changed value with a dot. Its row carries the pins of the fields inside it, pressed together, at most three on a side with wired pins first; an unwired input is hollow, and a fourth wire ends on the last pin drawn. A wire held over a closed box names the field it would reach. Opening or closing a box moves neither its name nor any row above it. A member of a group that can be reordered has a grip: dragging it shows where the member would land and dims it in place, and its menu has Move up and Move down. The remove cross on a member of a group that grows by hand is shown here only; the editor leaves it off until pressing it removes the member.',
+    'Sections, groups and choices drawn as boxes. A closed box shows how many rows it holds and marks a changed value with a dot. Its row carries the pins of the fields inside it, pressed together, at most three on a side with wired pins first; an unwired input is hollow, and a fourth wire ends on the last pin drawn. A wire held over a closed box names the field it would reach. Opening or closing a box moves neither its name nor any row above it. A member of a group that can be reordered has a grip: dragging it shows where the member would land and dims it in place, and its menu has Move up and Move down. A stored member of a group the user grows has a remove cross; at the fewest members it stays dimmed, and offered members have none.',
   'idle-outline':
     'The outline of a node at rest, hovered and selected; hovering adds dots at the ends of the rows.',
   titles:
@@ -159,9 +194,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   previews:
     'Every node that can show a preview has a "Preview" caption row: before a picture, with one (open, and folded with the caption under the pointer), loading, failed, cached and estimated, and a text result open and folded. A minimized node keeps the caption folded while it has a picture or a text result; its caption opens the picture at its open height.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
-  lines:
-    'A line of fields declared side by side folds into one row, and starts folded. Folded, only a field with a wire keeps a pin, wires in pressed together at the middle of the line\'s left end and wires out at its right, the way a closed box carries them. Pointed at, a folded line lists its fields\' pins and Unfold. Unfolded, each field has its own row and pins, and a rail beside them folds the line again.',
-  tabs: 'Tabs above a node say what it is and tabs below say what happened, 3 px off the node and flush with its edges, drawn at 75 percent zoom; only the subgraph mark stays in the title bar. Icons: Queued clock, Running play, Finished check, Cached database, Skipped ban, Failed and Error circle-x, Unavailable unplug, Warning triangle-alert, Blocked lock, children list-tree, Log scroll-text, iteration repeat, Muted volume-x, Bypassed forward, Deprecated archive, subgraph boxes.',
+  tabs: 'Tabs above a node say what it is and tabs below say what happened, 3 px off the node and flush with its edges, drawn at 75 percent zoom; only the subgraph mark stays in the title bar. Icons: Queued clock, Running play, Finished check, Cached database, Skipped ban, Failed and Error circle-x, Unavailable unplug, Warning triangle-alert, Blocked lock, children list-tree, Log scroll-text, iteration repeat, Muted volume-x, Bypassed forward, Deprecated archive, subgraph framed workflow.',
   'tabs-content': 'The same tabs at 50 percent zoom.',
   states:
     'Every state a node can show: hover, selection, run states, problems, mode, color, a new title, minimized, the minimize arrow under the pointer and a bad value.',
@@ -173,18 +206,36 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'One row of every widget kind, with its default value; After raises the rows that open an editor and puts a color in an inset field.',
   'core-rows':
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
+  'declaration-rows':
+    'Read-only fields keep their contrast and show a lock; disabled fields are quiet without active fills. When both flags apply, disabled paint keeps the read-only lock. Declaration notes keep one quiet line, including unknown and empty text. Long and multiline text ellipsizes without stretching the row. Shared lines divide the visible fields, worded buttons and notes equally with a 4 px gap.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'row-states':
+    'What a row shows when a finished run proved that nothing arrives, for a skipped node, while a wired value is not known, for a promoted field, and the control at the end of the side part that switches how a field is drawn. Ready, disabled and busy Buttons keep the shared keyboard outline, with host and declaration reasons beside disabled rows.',
+  'row-automatic':
+    'A number whose value is automatic: closed, opened, stepped, while a lookup loads, and when it cannot be worked out.',
   'row-lists':
     'A choice, and a list a pack fills from a lookup, open one filtered list in their own row: the value becomes the filter, a check marks the stored option and the grey highlight the candidate. Opening, filtering, refreshing or Tab never changes the stored value; only Enter or a click picks. Model and media fields are asset fields and keep their own editor; a list of plain names is what a pack\'s own dropdown shows.',
+  lookups:
+    'Fields and notes a pack fills from a declared lookup, in every state, worked out by the production elaboration and drawn by the production renderer. Only an answer for exactly the current arguments is used; a closed row always shows its stored value, and nothing a lookup gives is ever stored.',
   'color-editing':
     'A color row becomes its own field when clicked, with a picker under it and what Enter stores beside it. Nothing is stored until the field is left. The saved color is a line in the side part beside the field, read here as the tooltip asked for, while the draft differs from it; nothing marks it by the name.',
+  'save-target-box':
+    'A save target row opens a box under it with the mount dropdown and the filename prefix. Nothing is stored until the box is left; Escape keeps the stored target.',
   'collection-rows':
-    'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
+    'Multi-choice, list and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
-    'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for.',
+    'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for. On a narrow node an empty row keeps its label whole and cuts what it asks for first.',
+  'row-summaries':
+    'What a closed row shows for its value, for the 15 kinds of field: empty or initial, set, and in a node too narrow for the whole value. Lists show values in stored order and then how many more, or only the count when not even one fits; a color keeps its square and code; Markdown shows its first line and how many lines it has; crop regions and video edits fall back to shorter forms. The save target row keeps its mount and last path segment when the full prefix does not fit. Rows that only open an editor say what they open. Resolution preview is removed by the node rewrite, where a note replaces it, and is shown unchanged. Pointing at a row lists its whole value, below. Known after a run and Nothing come from the row looks work and are not drawn here yet.',
+  'in-node-editors':
+    'The audio recorder, webcam, 3D viewer, image comparison, camera angle and curve fold out inside the node under their editor button row, and the rows below move down; clicking the row again folds them back. A folded row says what the editor holds. A palette is a group of color rows: it grows as colors are added and shows a limit only when its group declares one.',
+  'editor-choice-placement':
+    'Curve and Save target share the ordinary choice list. It opens outside the editor, flips above when needed, and stays inside the canvas.',
+  'row-file-previews':
+    'Closed file rows use the shared preview loader and production node renderer. The stored values, incoming values, empty fields and narrow fallbacks below never open an editor or change the document.',
   'widget-driven':
-    'A row whose value comes from a wire is dimmed and its stored value is struck through.',
+    'A wired row is dimmed and keeps its own widget look, with its stored value struck through until its arriving value is known.',
   'widget-offered':
     'Rows a node offers but does not have yet are dimmed until they are added.',
   'widget-companions':
@@ -198,22 +249,28 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   types:
     'The color of each data type on its pins and wires, and the pin of an input that accepts a list before and after its type is matched.',
   structure:
-    'What is drawn between nodes: groups, reroutes, notes, value sources, selectors and net tags.',
+    'What is drawn between nodes: groups, reroutes, notes and net tags.',
   boundary:
-    "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires; strength, the edge dropdown and the grain value source are shown on the node without a wire and carry the subgraph icon, as does the grain pill.",
+    "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires; strength and the edge dropdown are shown on the node without a wire and carry the subgraph icon.",
   'boundary-names':
     "The names on a subgraph's panels and on its collapsed node; After shows ids as written.",
+  'boundary-tree':
+    "The Boundary panel lists a subgraph node's rows as one ordered tree: rows, lines of fields, sections and whole groups and choices, in the order the node draws them, with the selected row's settings in the fixed area below. Click a row to select it, a section's arrow to open or close it.",
   zoom: 'Three nodes at 75 percent, the smallest zoom that still draws controls.',
   'zoom-content':
     'The same nodes at 50 percent, where text stays and controls are hidden.',
   'zoom-overview':
     'The same nodes just below 50 percent, where the canvas draws its overview.',
   minimap:
-    'The minimap: nodes colored by state, a bypassed node, groups, and the frame of the visible area.',
+    'The minimap: nodes outlined by state, a bypassed node, wires in their type colors, groups, and the frame of the visible area.',
   'switch-primitive':
-    'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
+    'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields.',
+  'subgraph-icon':
+    'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, the cyan mark on a field shown on the subgraph node, and the Create subgraph button on the toolbox over two plain nodes, which one selected subgraph node does not show. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
   'small-flow-nodes':
     'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
+  'wire-looks':
+    'Every look a wire has. A dashed wire means only that it may carry nothing; every other wire, including one being dragged, is solid. A wire whose source is switched off is faded.',
   'type-conflict':
     'Inputs that must share one type but are fed two different types: an error on the node, its wires and in Problems, and a refusal before the run. By hand such a wire is not accepted.',
 }
@@ -240,12 +297,15 @@ const rowsAfter: Variant = {
   id: 'raised-editors',
   caption: 'After',
 }
+const summariesBefore: Variant = {
+  id: 'earlier-summaries',
+  caption: 'Before',
+  tokens: (t) => t,
+  registry: earlierRowSummaries,
+}
 
 function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
   switch (page) {
-    case 'boxes':
-      // The page shows the remove cross the editor leaves off until it works.
-      return [{ ...current, tokens: (t) => ({ ...t, memberRemoveCross: true }) }]
     case 'idle-outline':
       return [
         {
@@ -300,6 +360,8 @@ function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
     case 'widget-companions':
     case 'widget-states':
       return [rowsBefore, rowsAfter]
+    case 'row-summaries':
+      return [summariesBefore, { ...current, id: 'summaries', caption: 'After' }]
     default:
       return [current]
   }
@@ -361,7 +423,8 @@ function ExampleCard(props: {
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
     renderer.setInactiveNodes(example.inactive)
-    renderer.setToolbox(fixture.toolbox)
+    renderer.setPresence(example.presence ?? [])
+    renderer.setToolbox(example.toolbox ?? fixture.toolbox)
     const image = document.createElement('canvas')
     image.width = 320
     image.height = 160
@@ -530,6 +593,7 @@ function ExampleCard(props: {
         links: fixture.scene.links.map((link) => ({
           from: { x: link.x1, y: link.y1 },
           to: { x: link.x2, y: link.y2 },
+          ...(link.typeName !== undefined ? { typeName: link.typeName } : {}),
         })),
         reroutes: fixture.scene.reroutes,
         viewport: {
@@ -572,10 +636,11 @@ function ExampleCard(props: {
 // Every face the canvas paints with, loaded as the editor does before its
 // first paint.
 const canvasFontsLoaded = () => {
-  const { fontSize, titleFontSize, fontFamily } = defaultTokens
+  const { fontSize, titleFontSize, fontFamily, fontMono } = defaultTokens
   const semibold = canvasPaintTokens.type.semiboldWeight
   return Promise.all([
     document.fonts.load(`${fontSize}px ${fontFamily}`),
+    document.fonts.load(`${fontSize}px ${fontMono}`),
     document.fonts.load(`${semibold} ${titleFontSize}px ${fontFamily}`),
     document.fonts.load(`italic ${semibold} ${titleFontSize}px ${fontFamily}`),
   ])
@@ -601,13 +666,20 @@ export function CanvasGallery() {
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
   registerCoreWidgets(widgetRegistrationDoors(registry))
+  const readoutLines = (spec: WidgetSpec, value: Json) => {
+    const kind = registry.kind(spec.widgetType)
+    const view = registry
+      .viewsFor(spec.widgetType)
+      .find((candidate) => candidate.id === kind?.defaultView(spec))
+    return view?.readout?.(value, spec) ?? []
+  }
   createEffect(() => {
     const currentTheme = theme()
     const currentPage = page()
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look' || currentPage === 'problem-box') return
+    if (currentPage === 'row-editing' || currentPage === 'row-states' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'editor-choice-placement' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -706,14 +778,38 @@ export function CanvasGallery() {
         <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
         </Show>
+        <Show when={fontsReady() && page() === 'row-states'}>
+          <RowStatesGallery theme={theme()} />
+        </Show>
         <Show when={fontsReady() && page() === 'row-lists'}>
           <RowListsGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'lookups'}>
+          <LookupsGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
         </Show>
+        <Show when={page() === 'boundary-tree'}>
+          <BoundaryTreeGallery />
+        </Show>
+        <Show when={fontsReady() && page() === 'save-target-box'}>
+          <SaveTargetBoxGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'row-automatic'}>
+          <RowAutomaticGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'in-node-editors'}>
+          <InNodeEditorsGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'editor-choice-placement'}>
+          <EditorChoicePlacementGallery />
+        </Show>
         <Show when={fontsReady() && page() === 'problem-box'}>
           <ProblemBoxGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'row-file-previews'}>
+          <RowFilePreviewsGallery theme={theme()} registry={registry} />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (
@@ -807,6 +903,54 @@ export function CanvasGallery() {
               )}
             </ProductField>
           </ProductPanel>
+        </ProductSection>
+      </Show>
+      <Show when={page() === 'row-summaries'}>
+        <ProductSection
+          title="Readout on pointing"
+          description="Pointing at a row shows its whole value in the canvas tooltip, without opening the editor and without changing anything: the summary, then each item with its position, at most 20 before a count of the rest."
+        >
+          <div class="dinkster-canvas-examples">
+            <For each={rowSummaryReadouts}>
+              {(readout) => (
+                <ProductPanel>
+                  <p class="dinkster-metadata">{readout.label}</p>
+                  <For each={readoutLines(readout.spec, readout.value)}>
+                    {(line) => <p class="dinkster-description">{line}</p>}
+                  </For>
+                </ProductPanel>
+              )}
+            </For>
+          </div>
+        </ProductSection>
+        <ProductSection
+          title="Values beside the open row"
+          description="A value the side part names, such as the field's default, reads as the closed row would read it, in full, and never as JSON."
+        >
+          <div class="dinkster-canvas-comparison">
+            <h3>The crop row has the keyboard; its side part names the default.</h3>
+            <div class="dinkster-canvas-examples">
+              <For each={[['Before', true], ['After', false]] as const}>
+                {([caption, jsonDefault]) => (
+                  <RowEditingExample
+                    example={{
+                      id: 'crop-default',
+                      caption,
+                      scale: 1,
+                      width: MARGIN + NODE_WIDTH + SIDE_ROOM,
+                      node: { x: MARGIN, y: MARGIN },
+                      focus: 'crop',
+                      schema: rowSummaryFocusSchema,
+                    }}
+                    theme={theme()}
+                    registry={jsonDefault ? earlierRowSummaries(registry) : registry}
+                    jsonDefault={jsonDefault}
+                    testIdPrefix={`row-summaries-focus-${caption.toLowerCase()}`}
+                  />
+                )}
+              </For>
+            </div>
+          </div>
         </ProductSection>
       </Show>
       <Show when={badgeDetails()}>

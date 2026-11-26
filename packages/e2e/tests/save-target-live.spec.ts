@@ -33,33 +33,32 @@ test('save destination writes the selected relative prefix through the real back
       return { x: bounds.left + node.x + node.layout.width / 2, y: bounds.top + node.y + row.y + row.height / 2 }
     }, { id, inputId })
     await page.mouse.click(point.x, point.y)
-    await expect(page.getByTestId('save-target-editor')).toBeVisible()
+    await expect(page.locator('.widget-in-row-field .dinkster-canvas-target-box')).toBeVisible()
   }
   const capture = async (name: string) => {
     const path = testInfo.outputPath(`${name}.png`)
-    await page.getByTestId('save-target-editor').screenshot({ path })
+    await page.locator('.dinkster-canvas-target-box').screenshot({ path })
     await testInfo.attach(name, { path, contentType: 'image/png' })
   }
   await open('save', 'target')
   await expect(page.locator('[data-editor-mode="raw"]')).toHaveCount(0)
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get().filter((problem) => problem.message.includes('SAVE_TARGET')))).toEqual([])
-  await expect(page.getByRole('combobox', { name: 'Writable mount' })).toBeEnabled()
+  const mount = page.locator('.dinkster-canvas-target-choice')
+  await expect(mount).toHaveAttribute('data-state', 'ready')
   await expect(page.getByRole('button', { name: 'Clear destination' })).toHaveCount(0)
   await capture('save-target-default')
-  await page.getByRole('combobox', { name: 'Writable mount' }).focus()
-  await page.keyboard.press('Enter')
-  await page.keyboard.press('End')
-  await page.keyboard.press('Enter')
+  await mount.click()
+  await page.getByRole('listbox', { name: 'Writable mount' }).getByRole('option', { name: chosenMount, exact: true }).click()
+  await expect(mount).toContainText(chosenMount)
   await page.getByRole('textbox', { name: 'Relative filename prefix' }).fill('../escape')
-  await expect(page.getByRole('button', { name: 'Apply destination' })).toBeDisabled()
+  await expect(page.getByRole('textbox', { name: 'Relative filename prefix' })).toHaveAttribute('aria-invalid', 'true')
   await capture('save-target-invalid')
   const prefix = `editor-proof/session-${Date.now()}`
   await page.getByRole('textbox', { name: 'Relative filename prefix' }).fill(prefix)
   await capture('save-target-edited')
   const before = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.save!.values)
-  await page.getByRole('button', { name: 'Apply destination' }).focus()
   await page.keyboard.press('Enter')
-  await expect(page.getByTestId('save-target-editor')).toHaveCount(0)
+  await expect(page.locator('.widget-in-row-field')).toHaveCount(0)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.save!.values.target)).toEqual({ mount: chosenMount, prefix })
   await page.evaluate(async () => { const app = window.__dinksterTest!.app; await app.queueSelection(app.activeTab()!, ['save']) })
   await expect(page.getByTestId('execution-row').first().locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
@@ -81,10 +80,41 @@ test('save destination writes the selected relative prefix through the real back
   expect(result[1]).toBe('blake3:e406c3047d1c2460457e21d4a3efde41e812eb249fc80646ed5a4761d22b4da8')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.save!.values)).toEqual(before)
+  // Project default stores the name without a mount.
   await open('gallery', 'destination')
-  await expect(page.getByRole('button', { name: 'Clear destination' })).toBeEnabled()
-  await capture('save-target-optional')
-  await page.getByRole('button', { name: 'Clear destination' }).focus()
+  await mount.click()
+  await page.getByRole('listbox', { name: 'Writable mount' }).getByRole('option').first().click()
+  await expect(mount).toContainText('Project default')
+  await page.getByRole('textbox', { name: 'Relative filename prefix' }).fill('gallery/proof')
+  await capture('save-target-project-default')
   await page.keyboard.press('Enter')
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.gallery!.values.destination)).toBeNull()
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.gallery!.values.destination)).toEqual({ prefix: 'gallery/proof' })
+})
+
+test('a chosen finished run shows a saved file that is not a picture as a tile that opens it', async ({ page }) => {
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  const text = `A diner at night, ${Date.now()}.`
+  await page.evaluate(async (text) => {
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'saved-text-tile', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Saved text', nodes: {
+        save: { id: 'save', type: 'dinkster.text.save_text', values: { text } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { save: { position: { x: 80, y: 100 } } } } } },
+    } as never, 'Saved text')
+  }, text)
+  await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
+  await page.getByTestId('queue-button').click()
+  const row = page.getByTestId('execution-row').first()
+  await expect(row.locator('.output-file-tile')).toBeVisible({ timeout: 30_000 })
+  const tile = row.locator('.output-file-tile')
+  await expect(tile).toHaveCount(1)
+  await expect(tile).toHaveText('TXT')
+  await expect(tile).toHaveAccessibleName(/^Open .+\.txt$/)
+  // The engine serves bytes untyped; the tile hands them to a new tab typed as text, so the tab shows the file.
+  const [opened] = await Promise.all([page.waitForEvent('popup'), tile.click()])
+  await expect.poll(() => opened.url(), { timeout: 15_000 }).toMatch(/^blob:/)
+  await expect(opened.locator('body')).toHaveText(text)
+  await opened.close()
 })

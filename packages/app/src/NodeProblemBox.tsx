@@ -11,6 +11,8 @@ import type { ProblemBoxAction, ProblemBoxLine } from './problem-box.js'
 export function NodeProblemBox(props: {
   readonly x: number
   readonly y: number
+  readonly maxWidth: number
+  readonly minWidth: number
   readonly nodeId: string
   readonly nodeTitle: string
   readonly lines: readonly ProblemBoxLine[]
@@ -23,11 +25,16 @@ export function NodeProblemBox(props: {
   const message = useAppMessage()
   const actionLabel = (action: ProblemBoxAction): string => action === 'edit-field'
     ? message('problemBox.editField')
+    : action === 'review-model' ? message('problems.action.reviewModel')
+    : action === 'model-management' ? message('problems.action.modelManagement')
+    : action === 'model-storage' ? message('problems.action.modelStorage')
     : message('problems.action.locateAsset')
   // A required input never given a value or a wire reads as the row's own sentence.
   const lineText = (line: ProblemBoxLine): string =>
     line.problem.diagnostic.code === 'compile.input.missing' && line.rowName !== undefined
-      ? message('problemBox.required', { label: line.rowName.charAt(0).toUpperCase() + line.rowName.slice(1) })
+      ? line.problem.diagnostic.hiddenRequiredField !== undefined
+        ? message('problemBox.requiredHidden')
+        : message('problemBox.required', { label: line.rowName.charAt(0).toUpperCase() + line.rowName.slice(1) })
       : line.message
   const viewLines = (): readonly ProblemBoxViewLine[] => props.lines.map((line) => ({
     key: line.key,
@@ -47,6 +54,8 @@ export function NodeProblemBox(props: {
       {...(props.highlighted === undefined ? {} : { highlighted: props.highlighted })}
       x={props.x}
       y={props.y}
+      maxWidth={props.maxWidth}
+      minWidth={props.minWidth}
       onPointLine={(view) => props.onPointLine(lineOf(view))}
       onAction={(view, action) => {
         const line = lineOf(view)

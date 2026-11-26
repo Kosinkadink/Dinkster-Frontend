@@ -26,6 +26,7 @@
  */
 
 import {
+  constructsOf,
   elaborateInterface,
   groupBoxKey,
   lineKeyOf,
@@ -34,7 +35,9 @@ import {
   resolveWidgetRepresentation,
   selectorBranchDisplay,
   selectorMembersOf,
+  t as translate,
   valueKeyOf,
+  type AutomaticState,
   type BoundaryRouteLeg,
   type ElaboratedInput,
   type ElaboratedInterface,
@@ -42,6 +45,8 @@ import {
   type ElaboratedOutput,
   type InputSpec,
   type Json,
+  type LookedState,
+  type LookupCallSpec,
   type MaterializeFrame,
   type NodeData,
   type NodeSchema,
@@ -50,16 +55,67 @@ import {
   type PortAddress,
   type SourceFilenameSpec,
   type TypeExpr,
+  type WidgetKind,
   type WidgetParts,
   type WidgetSpec,
 } from '@dinkster/core'
-import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { IN_NODE_EDITORS, canvasPaintTokens, type DesignTokens } from './tokens.js'
+
+/** The line under a lookup note's text: a spinner or an info mark, and its words. */
+export interface NoteLookupLine {
+  readonly tone: 'busy' | 'info'
+  readonly text: string
+  /** The call Try again asks for again, on its own row under the line. */
+  readonly retry?: LookupCallSpec
+}
+
+/**
+ * What a lookup note says under its text, or nothing when its answer is in
+ * use. `label` names the input an argument waits for.
+ */
+export function noteLookupLine(state: LookedState, label: (port: string) => string): NoteLookupLine | undefined {
+  switch (state.state) {
+    case 'ready':
+      return undefined
+    case 'loading':
+      return { tone: 'busy', text: translate('canvas.lookup.loading') }
+    case 'waiting':
+      return { tone: 'info', text: translate('canvas.lookup.waiting', { input: label(state.input) }) }
+    case 'paused':
+      return { tone: 'info', text: translate('canvas.lookup.paused') }
+    case 'off':
+      return { tone: 'info', text: translate('canvas.lookup.off') }
+    case 'stale':
+      return { tone: 'info', text: translate('canvas.lookup.couldNotRefresh'), retry: state.call }
+    case 'unavailable':
+      // A file the host has not checked yet is waited for, with no Try again.
+      if (state.reason === 'file-unchecked') return { tone: 'info', text: translate('canvas.lookup.fileUnchecked') }
+      return {
+        tone: 'info',
+        text: translate(state.reason === 'offline' ? 'canvas.lookup.offline' : 'canvas.lookup.noteFailed'),
+        ...(state.call === undefined ? {} : { retry: state.call }),
+      }
+  }
+}
+
+/** Rows a lookup note takes: its text, the state line, and Try again under that. */
+export const noteLookupRows = (line: NoteLookupLine): number =>
+  line.retry === undefined ? canvasPaintTokens.node.lookupNote.stateRows : canvasPaintTokens.node.lookupNote.retryRows
 
 /** Injected text measurement (canvas measureText in the app; approximate in tests). */
 export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'label' | 'value') => number
 
-/** Resolves the widget view for a spec: view id + compact row count. */
-export type WidgetMeasure = (spec: WidgetSpec) => { viewId: string; rows: number } | undefined
+/**
+ * How the host draws a widget: its view and rows. `editorControls`, for an
+ * editor shown in the node, is the height its own controls take when the
+ * host knows they differ from the editor's fixed rows, such as a recorder on
+ * a backend that cannot take uploads, which shows one sentence instead.
+ */
+export interface WidgetMeasure {
+  (spec: WidgetSpec): { viewId: string; rows: number; editorControls?: number } | undefined
+  /** Kind-owned alternatives, resolved through the same registry as measurement. */
+  representations?: WidgetKind['representations']
+}
 
 export interface DynamicEditOwner {
   readonly graphId: string
@@ -107,7 +163,10 @@ export interface DynamicAnnotations {
 
 export interface PortSlot extends DynamicAnnotations {
   readonly portId: string
+  /** The drawn label. */
   readonly label: string
+  /** The full name, when the drawn label is shorter: a row inside its member's box. */
+  readonly name?: string
   readonly type: TypeExpr
   readonly optional?: boolean
   readonly socketless?: true
@@ -127,6 +186,13 @@ export interface MemberGrip {
   readonly alone?: true
 }
 
+/** Direct removal of a stored member; absent on offered and count-driven members. */
+export interface MemberRemoval {
+  readonly construct: string
+  readonly member: string
+  readonly disabledReason?: string
+}
+
 export type LayoutRow =
   | {
       readonly kind: 'ports'
@@ -141,6 +207,7 @@ export type LayoutRow =
        * cross ends it, its right edge this far from the node's right edge.
        */
       readonly crossInset?: number
+      readonly remove?: MemberRemoval
       /** The row is a whole member that can be moved: its grip. */
       readonly reorder?: MemberGrip
     }
@@ -152,11 +219,14 @@ export type LayoutRow =
       readonly inset: number
       /** Explicit cell width for widgets sharing a horizontal line, or beside a remove cross. */
       readonly width?: number
+      /** An editor shown in the node is unfolded under this row (its caret points down). */
+      readonly unfolded?: true
       /**
        * The row is a whole member of a group that grows by hand: a remove
        * cross ends it, its right edge this far from the node's right edge.
        */
       readonly crossInset?: number
+      readonly remove?: MemberRemoval
       /** The row is a whole member that can be moved: its grip. */
       readonly reorder?: MemberGrip
       readonly inputId: string
@@ -166,7 +236,10 @@ export type LayoutRow =
        * Renderers/editors read and write THIS, never inputId.
        */
       readonly valueKey: string
+      /** The drawn label. */
       readonly label: string
+      /** The full name, when the drawn label is shorter: a row inside its member's box. */
+      readonly name?: string
       readonly type: TypeExpr
       readonly viewId: string
       readonly rows: number
@@ -174,6 +247,12 @@ export type LayoutRow =
       readonly spec: WidgetSpec
       /** Keep the editor and outgoing value tap without an incoming socket. */
       readonly socketless?: true
+      /** Declared `sent=False`: stored and edited, never sent, so no outgoing value tap. */
+      readonly unsent?: true
+      /** Limits direct user value edits, not wires or action writes. */
+      readonly readOnly?: true
+      readonly disabled?: true
+      readonly disabledReason?: string
       /** Wire-22 execution binding retained from the elaborated input. */
       readonly sourceFilename?: SourceFilenameSpec
       /** Effective named representation selected for this row (wire 17). */
@@ -182,7 +261,7 @@ export type LayoutRow =
       readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
       /**
        * Inside a subgraph: this field is on the subgraph node without a wire
-       * (BoundaryItem.wireHidden, or a value source shown as a field). Names
+       * (BoundaryItem.wireHidden). Names
        * the boundary input it became and that input's name on the subgraph
        * node; painted as the cyan subgraph icon before the field's name.
        */
@@ -193,6 +272,13 @@ export type LayoutRow =
        * option key). Renderers/editors read this instead of values.
        */
       readonly derivedValue?: Json
+      /**
+       * A field that declares `automatic` with nothing stored and no wire:
+       * the value it has in use, drawn after the word "auto", dimmed.
+       */
+      readonly automatic?: AutomaticState
+      /** A fixed value on a field that declares `automatic`: what it would work out to if emptied, for the open field. */
+      readonly automaticIfEmptied?: AutomaticState
       /** Structural menu state coordinate, independent of the selected value. */
       readonly optionsTarget?: {
         readonly construct: string
@@ -223,12 +309,37 @@ export type LayoutRow =
        */
       readonly editor?: true
       /**
-       * Set for an Inputs panel field whose value is a value source's own
-       * value: edits dispatch valueSource.setValue and
-       * valueSource.setController, never node.setValue.
+       * The input this curve's widget names as its histogram. Its pin stands
+       * on a line inside the unfolded editor; folded, on this row while wired.
        */
-      readonly valueSourceOwner?: { readonly graphId: string; readonly valueSourceId: string }
+      readonly histogram?: CurveHistogramPin
     } & DynamicAnnotations)
+  | {
+      /**
+       * The space an unfolded editor takes in the node, under the whole line
+       * of its editor button row. The canvas paints its panel; the editor's
+       * own controls are laid over it by the host.
+       */
+      readonly kind: 'editorSpace'
+      readonly y: number
+      /** With the band under the editor's outline, `fieldInsetY` high, that its controls leave free. */
+      readonly height: number
+      /** The editor row's left edge; the space is as wide as that row. */
+      readonly inset: number
+      /** The editor row's width when it is narrower than the node less both insets. */
+      readonly width?: number
+      /** How far above the space its editor row starts: the row and the space are one box. */
+      readonly rowAbove: number
+      readonly inputId: string
+      readonly valueKey: string
+      readonly viewId: string
+      /** The picture's top and height within the space; absent for an editor without one. */
+      readonly picture?: { readonly top: number; readonly height: number }
+      /** The editor's own sections that are open, by section id. */
+      readonly openSections?: readonly string[]
+      /** The curve declares a histogram: the editor has its line, whose pin is this input's. */
+      readonly histogram?: { readonly portId: string; readonly connected: boolean }
+    }
   | {
       /**
        * Grow-family affordance (ElaboratedGrowth): a nested-only autogrow
@@ -258,18 +369,27 @@ export type LayoutRow =
       readonly text: string
       /** The text is the note's "while unknown" answer. */
       readonly unknown?: true
-      /** Drawn dimmed: a remark about the rows, such as the members inside a subgraph. */
-      readonly quiet?: true
+      /** A lookup note's state line under the text, one row high. */
+      readonly lookup?: NoteLookupLine
     }
   | {
-      /** A button (ElaboratedButton): drawn and inert; its steps never run here. */
+      /** A button (ElaboratedButton); the host runs its steps when it is clicked. */
       readonly kind: 'button'
       readonly y: number
       readonly height: number
       readonly inset: number
       readonly width?: number
+      /** The member line's remove cross ends after this last cell. */
+      readonly crossInset?: number
+      readonly remove?: MemberRemoval
       readonly buttonId: string
       readonly label: string
+      /** The button's `enabled` worked out to false: drawn faded. */
+      readonly enabled?: false
+      /** A Lucide name from the engine's list; drawn before the label, or alone when the label does not fit. */
+      readonly icon?: string
+      /** The declared tooltip, worked out when it is a formula. */
+      readonly tooltip?: string
     }
   | {
       /**
@@ -309,6 +429,8 @@ export type LayoutRow =
       readonly top: number
       /** How many rows a section holds, or how many members a group shows. */
       readonly count: number
+      /** A group that declares a maximum: that maximum, shown after its count. */
+      readonly maxCount?: number
       /**
        * Count of MODIFIED widget values this box hides while collapsed
        * (derived via resettableWidgetsOf, never stored). Present only when
@@ -335,28 +457,31 @@ export type LayoutRow =
       readonly ghost?: true
       readonly inset: number
       readonly top: number
+      readonly remove?: MemberRemoval
+      readonly crossInset?: number
       /** The member can be moved: its grip in the header. */
       readonly reorder?: MemberGrip
     }
 
+/** The input a curve's widget names as its histogram, drawn as a pin and no row of its own. */
+export interface CurveHistogramPin extends DynamicAnnotations {
+  readonly portId: string
+  readonly label: string
+  readonly type: TypeExpr
+  readonly connected: boolean
+  readonly optional?: true
+}
+
 /** A port inside a closed box: a pin once a wire reaches it. */
 export type HiddenPort = Omit<PinLayout, 'y'>
 
-/**
- * A line of fields declared side by side. Folded, its fields share one row
- * and only wired fields keep a pin, gathered at each end; unfolded, each
- * field has its own row and a rail beside them folds the line again.
- */
+/** A shared field line and the rail beside its unfolded rows. */
 export interface LayoutLine {
-  /** Flattened id of the line's first field; keys its saved fold state. */
   readonly key: string
   readonly folded: boolean
-  /** Indexes of the line's first and last rows in `rows`. */
   readonly first: number
   readonly last: number
-  /** Unfolded: the rail's left edge, node-local. */
   readonly railInset?: number
-  /** The fields of the line in declared order, for the list a folded line shows. */
   readonly fields: readonly { readonly portId: string; readonly label: string; readonly type: TypeExpr }[]
 }
 
@@ -387,9 +512,9 @@ export interface PinLayout extends DynamicAnnotations {
    * it; the pins of one side press together around the row's middle.
    */
   readonly collapsedSection?: string
-  /** One of a folded line's pins, pressed together at an end of the line like a closed box's. */
+  /** Pin in a shared field line's compact cluster. */
   readonly pressed?: true
-  /** A wire's end under the last drawn pin of a full cluster: not drawn and not grabbed. */
+  /** A wire's end under the last drawn pin of a full closed-box cluster: not drawn and not grabbed. */
   readonly stacked?: true
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
   readonly minimized?: true
@@ -435,13 +560,14 @@ export interface NodeLayout {
   readonly titleSuffix?: string
   readonly rows: readonly LayoutRow[]
   readonly pins: readonly PinLayout[]
+  /** Room after the last body line for its transient button results, before output surfaces. */
+  readonly trailingButtonNoticeHeight?: number
   /** Body rows are hidden while title, compact preview, and endpoint anchors remain visible. */
   readonly minimized?: true
   /** On a minimized node: the preview region's height on the open node, which a caption-opened preview takes. */
   readonly openPreviewHeight?: number
   /** Boxes drawn around rows, outer boxes before the boxes inside them. */
   readonly boxes?: readonly LayoutBox[]
-  /** Lines of fields that fold, folded or not. */
   readonly lines?: readonly LayoutLine[]
   /**
    * Optional imagery area appended inside the node body after all rows: the
@@ -525,6 +651,28 @@ export function memberAt(layout: NodeLayout, y: number): { construct: string; me
   return found
 }
 
+/** The innermost removable member under node-local `y`, including its whole box. */
+export function memberRemovalAt(layout: NodeLayout, y: number): MemberRemoval | undefined {
+  let best: { remove: MemberRemoval; height: number } | undefined
+  for (const row of layout.rows) {
+    if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.remove === undefined) continue
+    const box = row.kind === 'member' ? layout.boxes?.find((box) => box.id === row.memberId) : undefined
+    const top = box?.y ?? row.y
+    const height = box?.height ?? row.height
+    if (y >= top && y < top + height && (best === undefined || height < best.height)) best = { remove: row.remove, height }
+  }
+  return best?.remove
+}
+
+/** Ends of a field's horizontal line that have no neighboring cell to cross. */
+export function rowSideEdges(rows: readonly LayoutRow[], row: LayoutRow): { readonly left: boolean; readonly right: boolean } {
+  const peers = rows.filter((other) => other.y === row.y && 'inset' in other)
+  return {
+    left: !peers.some((other) => 'inset' in other && 'inset' in row && other.inset < row.inset),
+    right: !peers.some((other) => 'inset' in other && 'inset' in row && other.inset > row.inset),
+  }
+}
+
 /** Shared visible bounds for registry widget chrome and its overlay states. */
 export function widgetChromeRect(x: number, rowY: number, width: number, rowHeight: number, insetY: number): {
   readonly x: number
@@ -583,7 +731,7 @@ const flexibleLineHeight = (layout: NodeLayout, row: LayoutRow, tokens: DesignTo
 
 /** Reflow text boxes back to their own heights, without any resize surplus. */
 const ownHeightRows = (layout: NodeLayout, tokens: DesignTokens): LayoutRow[] =>
-  reflowRows(layout, (row) => isTextBoxRow(row) ? flexibleLineHeight(layout, row, tokens) : row.height)
+  reflowRows(layout, (row) => isTextBoxRow(row) ? multilineWidgetHeight(row.rows, tokens) : row.height)
 
 const remappedPins = (layout: NodeLayout, rows: readonly LayoutRow[]): PinLayout[] =>
   layout.pins.map((pin) => {
@@ -626,6 +774,38 @@ export function projectTextBoxLines(
   }
 }
 
+/** A dragged editor picture's height, in whole units within the editor space's bounds. */
+export function clampPictureHeight(height: number): number {
+  const space = canvasPaintTokens.node.editorSpace
+  return Math.min(space.pictureMax, Math.max(space.pictureMin, Math.round(height)))
+}
+
+/**
+ * The layout after one unfolded editor's picture takes `height`, while every
+ * other row, the preview, and the text output keep their heights. Used for
+ * the live drag of a picture's bottom edge; the committed layout is the same.
+ */
+export function projectPictureHeight(layout: NodeLayout, valueKey: string, height: number): NodeLayout {
+  const index = layout.rows.findIndex((row) => row.kind === 'editorSpace' && row.valueKey === valueKey)
+  const space = layout.rows[index]
+  if (space?.kind !== 'editorSpace' || space.picture === undefined) return layout
+  const delta = clampPictureHeight(height) - space.picture.height
+  if (delta === 0) return layout
+  const reflowed = reflowRows(layout, (row, rowIndex) => rowIndex === index ? row.height + delta : row.height)
+  const rows = reflowed.map((row, rowIndex) => rowIndex === index && row.kind === 'editorSpace' && row.picture !== undefined
+    ? { ...row, picture: { ...row.picture, height: row.picture.height + delta } } : row)
+  return {
+    ...layout,
+    height: layout.height + delta,
+    minHeight: layout.minHeight + delta,
+    rows,
+    pins: remappedPins(layout, rows),
+    ...projectedBoxes(layout, rows),
+    ...(layout.preview === undefined ? {} : { preview: { ...layout.preview, y: layout.preview.y + delta } }),
+    ...(layout.textOutput === undefined ? {} : { textOutput: { ...layout.textOutput, y: layout.textOutput.y + delta } }),
+  }
+}
+
 /**
  * Reflow physical lines without separating widgets that share one line. The
  * space between lines, where a box's outline and padding sit, is kept.
@@ -660,9 +840,9 @@ const projectedBoxes = (
   return {
     boxes: layout.boxes.map((box) => {
       const first = layout.rows[box.first]!
-      const last = layout.rows[box.last]!
       const top = box.y + rows[box.first]!.y - first.y
-      const bottom = box.y + box.height + (rows[box.last]!.y + rows[box.last]!.height) - (last.y + last.height)
+      const bottomOf = (rs: readonly LayoutRow[]): number => Math.max(...rs.slice(box.first, box.last + 1).map((row) => row.y + row.height))
+      const bottom = box.y + box.height + bottomOf(rows) - bottomOf(layout.rows)
       return { ...box, y: top, height: bottom - top }
     }),
   }
@@ -766,7 +946,7 @@ export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): Nod
     ? Math.max(minHeight, layout.height)
     : boxedMinHeight(layout, tokens) + tokens.previewGap + previewPanelDefaultHeight(tokens)
   const rows = ownHeightRows(layout, tokens)
-  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight)
+  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight) + (layout.trailingButtonNoticeHeight ?? 0)
   return {
     ...layout,
     height,
@@ -821,7 +1001,7 @@ export function withTextOutputRegion(
       : Math.max(minRows, Math.min(maxRows, Math.trunc(lineCount)))
   const regionHeight = tokens.previewCaptionHeight + tokens.rowHeight * rowCount
   const rows = ownHeightRows(open, tokens)
-  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), open.headerHeight)
+  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), open.headerHeight) + (open.trailingButtonNoticeHeight ?? 0)
   return {
     ...open,
     height: captionBottom + tokens.rowHeight * rowCount,
@@ -889,7 +1069,9 @@ export function projectNodeLayoutHeight(
   const flexibleIndexes = flexibleTextRowIndexes(layout)
   if (flexibleIndexes.length === 0) return { ...layout, height }
   const rows = reflowRows(layout, (row, index) => isTextBoxRow(row)
-    ? flexibleLineHeight(layout, row, tokens) + (flexibleIndexes.includes(index) ? extra : 0)
+    ? extra > 0 && flexibleIndexes.includes(index)
+      ? flexibleLineHeight(layout, row, tokens) + extra
+      : multilineWidgetHeight(row.rows, tokens)
     : row.height)
   const textOutput = layout.textOutput === undefined
     ? undefined
@@ -929,6 +1111,18 @@ export interface LayoutOptions {
   readonly widgetRepresentations?: Readonly<Record<string, string>>
   /** Height in lines of each text box the user sized, by value key (view.setTextBoxLines). */
   readonly textBoxLines?: Readonly<Record<string, number>>
+  /** Per-editor fold overrides by value key (view.setEditorUnfolded). */
+  readonly editorUnfolded?: Readonly<Record<string, boolean>>
+  /** Per-curve histogram visibility overrides; connected inputs are always visible. */
+  readonly histogramVisibility?: Readonly<Record<string, boolean>>
+  /** Editors start folded whatever their declaration says, as on the Inputs panel. */
+  readonly editorsStartFolded?: true
+  /** Height of each unfolded editor's picture the user dragged, by value key (view.setPictureHeight). */
+  readonly pictureHeights?: Readonly<Record<string, number>>
+  /** Measured result-box heights in world space, by elaborated button id; never stored. */
+  readonly buttonNoticeHeights?: Readonly<Record<string, number>>
+  /** Measured controls height, excluding the shared editor's padding, by value key. */
+  readonly editorControls?: Readonly<Record<string, number>>
   /**
    * Ports with a link/net attached, keyed by connectedPortKey over ELAB
    * KEYS. A CONNECTED port inside a collapsed section keeps a pin (anchored
@@ -946,6 +1140,19 @@ export interface LayoutOptions {
 }
 
 const displayLabel = (spec: InputSpec | OutputSpec): string => spec.displayName ?? spec.id
+
+/**
+ * The label a visible row draws, and its full name where that is longer: a
+ * row inside its member's box draws only its own label, since the box names
+ * the member; tooltips and the problem box keep the full name.
+ */
+const rowLabels = (item: ElaboratedInput | ElaboratedOutput): { label: string; name?: string } =>
+  item.ownLabel !== undefined ? { label: item.ownLabel, name: displayLabel(item.spec) } : { label: displayLabel(item.spec) }
+
+const histogramPinAt = (pin: CurveHistogramPin, y: number): PinLayout => ({
+  ...annotationsOf(pin), portId: pin.portId, label: pin.label, direction: 'in', y, type: pin.type,
+  ...(pin.optional ? { optional: true as const } : {}),
+})
 
 /** Pick just the DynamicAnnotations fields (pins copy them from their slot/row). */
 const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
@@ -988,6 +1195,7 @@ export function layoutNode(
     /** Keys of the declared boxes around this one, outermost first. */
     readonly parents: readonly string[]
     readonly members?: number
+    readonly maxMembers?: number
     readonly construct?: string
     readonly ordinal?: number
     readonly ghost?: true
@@ -998,12 +1206,13 @@ export function layoutNode(
   /** A whole member's grip before its place is known. */
   type PendingGrip = Omit<MemberGrip, 'gripX'>
   interface PendingRow {
-    kind: 'ports' | 'widget' | 'section' | 'member' | 'growth' | 'note' | 'button'
+    kind: 'ports' | 'widget' | 'section' | 'member' | 'growth' | 'note' | 'button' | 'editorSpace'
     /** Keys of the declared boxes around the row, outermost first. */
     boxes: readonly string[]
     input?: PortSlot
     output?: PortSlot & { index: number }
     removable?: true
+    remove?: MemberRemoval
     reorder?: PendingGrip
     /** The spare member of a group that can be reordered: room where a grip would stand, none drawn. */
     gripSpace?: true
@@ -1012,16 +1221,20 @@ export function layoutNode(
       : never
     header?: BoxDecl
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
-    note?: { noteId: string; text: string; unknown?: true; quiet?: true }
-    button?: { buttonId: string; label: string }
+    note?: { noteId: string; text: string; unknown?: true; lookup?: NoteLookupLine }
+    button?: { buttonId: string; label: string; enabled?: false; icon?: string; tooltip?: string }
+    editorSpace?: Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>
   }
   /** A `Row` cell's text, which sets its share of the line's width. */
   const cellLabel = (row: PendingRow): string =>
     row.widget?.label ?? row.note?.text ?? row.button?.label ?? ''
   const pending: PendingRow[] = []
+  const editorControlHeights = new Map<string, number>()
   const outputs: {
     slot: PortSlot & { index: number }
     boxes: readonly string[]
+    remove?: MemberRemoval
+    removable?: true
   }[] = []
 
   const elaborated = options.elaborated ?? elaborateInterface(schema, node)
@@ -1079,6 +1292,7 @@ export function layoutNode(
         parents: item.boxes ?? [],
         construct: item.construct,
         ...(item.members !== undefined ? { members: item.members } : {}),
+        ...(item.maxMembers !== undefined ? { maxMembers: item.maxMembers } : {}),
         ...(item.ordinal !== undefined ? { ordinal: item.ordinal } : {}),
         ...(item.ghost ? { ghost: true as const } : {}),
         ...(item.byHand ? { byHand: true as const } : {}),
@@ -1101,10 +1315,24 @@ export function layoutNode(
   const closedAt = (chain: readonly string[]): string | undefined =>
     options.minimized === true ? undefined : chain.find((id) => decls.get(id)!.closed)
   const isHidden = (chain: readonly string[]): boolean => closedAt(chain) !== undefined
-  /** A row that is a whole member of a group growing by hand, with no member box of its own. */
-  const removable = (item: ElaboratedInput, chain: readonly string[]): boolean =>
-    tokens.memberRemoveCross && item.origin.kind === 'member' && chain.at(-1) === groupBoxKey(item.origin.construct) &&
-    decls.get(chain.at(-1)!)!.byHand === true
+  const constructs = constructsOf(schema, node.dynamic)
+  const removalOf = (construct: string, member: string): MemberRemoval | undefined => {
+    const spec = constructs.get(construct)
+    const members = node.dynamic?.[construct]?.members ?? []
+    if (spec?.kind !== 'group' || typeof spec.grows !== 'string' || !members.includes(member)) return undefined
+    return { construct, member, ...(members.length <= spec.minMembers ? { disabledReason: 'The group already has its fewest members.' } : {}) }
+  }
+  const rowRemoval = (item: ElaboratedInput | ElaboratedOutput, chain: readonly string[]): { remove?: MemberRemoval } => {
+    if (item.kind === 'input' && item.kept !== undefined || item.origin.kind !== 'member' || item.origin.ghost === true || chain.at(-1) !== groupBoxKey(item.origin.construct)) return {}
+    const remove = removalOf(item.origin.construct, item.origin.key)
+    return remove === undefined ? {} : { remove }
+  }
+  /** Reserve the cross's place on offered members too, so their fields align. */
+  const removable = (item: ElaboratedInput | ElaboratedOutput, chain: readonly string[]): boolean => {
+    if (!tokens.memberRemoveCross || item.kind === 'input' && item.kept !== undefined || item.origin.kind !== 'member' || chain.at(-1) !== groupBoxKey(item.origin.construct)) return false
+    const spec = constructs.get(item.origin.construct)
+    return spec?.kind === 'group' && typeof spec.grows === 'string'
+  }
   /** A stored member of a group that can be reordered, from its group's declaration. */
   const gripOf = (construct: string, member: string): PendingGrip | undefined => {
     const group = decls.get(groupBoxKey(construct))
@@ -1166,8 +1394,7 @@ export function layoutNode(
     }
   }
 
-  // Ports hidden by a closed box whose pins the open box shows at rest:
-  // they gather on its closed row.
+  // Wired ports and required wire-only inputs gather on a closed box's row.
   const collapsedPins: ({ sectionId: string; portId: string; label: string; direction: 'in' | 'out'; type: TypeExpr; connected: boolean; optional?: true; maybeAbsent?: true; widgetTap?: true } & DynamicAnnotations)[] = []
   const hiddenPorts = new Map<string, HiddenPort[]>()
   const hidePort = (at: string, port: HiddenPort): void => {
@@ -1186,6 +1413,39 @@ export function layoutNode(
     const counts = portsHeld.get(parent) ?? { inputs: 0, outputs: 0 }
     counts[side] += 1
     portsHeld.set(parent, counts)
+  }
+
+  // A curve's widget names the input beside it that is its histogram; beside
+  // means in the same scope, so its flattened id has the curve's prefix.
+  const histogramOfCurve = new Map<string, ElaboratedInput>()
+  const curveHistograms = new Set<string>()
+  {
+    const inputsById = new Map<string, ElaboratedInput>()
+    for (const item of items) if (item.kind === 'input') inputsById.set(item.spec.id, item)
+    for (const item of inputsById.values()) {
+      const name = item.spec.widget?.options['histogram']
+      if (typeof name !== 'string' || name === '') continue
+      const id = item.spec.id
+      const target = inputsById.get(`${id.slice(0, id.lastIndexOf('.') + 1)}${name}`)
+      if (target === undefined) continue
+      histogramOfCurve.set(id, target)
+      curveHistograms.add(target.spec.id)
+    }
+  }
+  const curveHistogramPin = (item: ElaboratedInput): CurveHistogramPin => ({
+    ...annotate(item), portId: item.spec.id, label: displayLabel(item.spec), type: item.spec.type,
+    connected: isConnected('in', item.spec.id), ...(item.spec.optional ? { optional: true as const } : {}),
+  })
+
+  const saveTargetInputs = new Map<string, ElaboratedInput[]>()
+  const saveTargetParts = new Set<string>()
+  for (const item of items) {
+    if (item.kind !== 'editor' || widgetMeasure(item.widget)?.viewId !== 'core.saveTarget') continue
+    const inputs = ['mount', 'name'].map((part) => items.find((input): input is ElaboratedInput =>
+      input.kind === 'input' && input.spec.id === item.parts.writes[part]))
+    if (!inputs.every((input) => input !== undefined)) continue
+    saveTargetInputs.set(item.id, inputs)
+    for (const input of inputs) saveTargetParts.add(input.spec.id)
   }
 
   let outputIndex = 0
@@ -1222,7 +1482,11 @@ export function layoutNode(
       const measured = widgetMeasure(item.widget) ?? { viewId: 'core.unknown', rows: 1 }
       // The compact view shows the one row the editor writes, when it writes exactly one.
       const written = Object.values(item.parts.writes)
-      const shown = written.length === 1 ? node.values[written[0]!] : undefined
+      const mapped = saveTargetInputs.get(item.id)
+      const shown = mapped === undefined ? written.length === 1 ? node.values[written[0]!] : undefined
+        : { ...(node.values[mapped[0]!.spec.id] == null ? {} : { mount: node.values[mapped[0]!.spec.id]! }), prefix: node.values[mapped[1]!.spec.id] ?? '' }
+      if (measured.editorControls !== undefined && Number.isFinite(measured.editorControls))
+        editorControlHeights.set(item.id, Math.max(0, measured.editorControls))
       const ghost = (item.origin.kind === 'member' && item.origin.ghost === true) || item.ancestry?.some((a) => a.ghost) === true
       pending.push({
         kind: 'widget',
@@ -1254,8 +1518,23 @@ export function layoutNode(
         kind: item.kind,
         boxes: chain,
         ...(item.kind === 'note'
-          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}), ...(item.quiet ? { quiet: true as const } : {}) } }
-          : { button: { buttonId: item.id, label: item.label } }),
+          ? { note: {
+              noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}),
+              ...(item.lookup === undefined ? {} : (() => {
+                const line = noteLookupLine(item.lookup, (port) => {
+                  const input = items.find((other): other is ElaboratedInput => other.kind === 'input' && other.spec.id === port)
+                  return input?.spec.displayName ?? port
+                })
+                return line === undefined ? {} : { lookup: line }
+              })()),
+            } }
+          : { button: {
+              buttonId: item.id,
+              label: item.label,
+              ...(item.enabled === false ? { enabled: false as const } : {}),
+              ...(item.spec.icon !== undefined ? { icon: item.spec.icon } : {}),
+              ...(item.tooltip !== undefined ? { tooltip: item.tooltip } : {}),
+            } }),
       })
       continue
     }
@@ -1268,22 +1547,34 @@ export function layoutNode(
           ...annotate(item), portId: spec.id, label: displayLabel(spec), direction: 'out', type: spec.type,
           ...(spec.optional ? { maybeAbsent: true as const } : {}),
         })
-        collapsedPins.push({
+        if (isConnected('out', spec.id)) collapsedPins.push({
           sectionId: closedAt(chain)!, portId: spec.id, label: displayLabel(spec), direction: 'out', type: spec.type,
-          connected: isConnected('out', spec.id), ...(spec.optional ? { maybeAbsent: true as const } : {}), ...annotate(item),
+          connected: true, ...(spec.optional ? { maybeAbsent: true as const } : {}), ...annotate(item),
         })
         continue
       }
+      const slot = {
+        portId: spec.id,
+        ...rowLabels(item),
+        type: spec.type,
+        index: outputIndex++,
+        ...(spec.optional ? { maybeAbsent: true as const } : {}),
+        ...annotate(item),
+      }
+      if (schema.source === 'subgraph') {
+        // A subgraph node's outputs keep the place the author gave them: an
+        // output shares the line of the pin-only input directly above it in
+        // the same box, unless it is kept on a line of its own.
+        const above = pending.at(-1)
+        if (!spec.ownRow && above?.kind === 'ports' && above.input !== undefined &&
+          above.output === undefined && chainKey(above.boxes) === chainKey(chain)) above.output = slot
+        else pending.push({ kind: 'ports', boxes: chain, output: slot })
+        continue
+      }
       outputs.push({
-        boxes: chain,
-        slot: {
-          portId: spec.id,
-          label: displayLabel(spec),
-          type: spec.type,
-          index: outputIndex++,
-          ...(spec.optional ? { maybeAbsent: true as const } : {}),
-          ...annotate(item),
-        },
+        boxes: chain, slot,
+        ...rowRemoval(item, chain),
+        ...(removable(item, chain) ? { removable: true as const } : {}),
       })
       continue
     }
@@ -1303,9 +1594,8 @@ export function layoutNode(
           ...(widget && !spec.forceInput ? { widgetBacked: true as const } : {}),
         })
       }
-      // A field's input pin shows at rest only while wired; a socket's always.
       const inputWired = isConnected('in', spec.id)
-      if (!spec.socketless && (asSocket || inputWired)) {
+      if (!spec.socketless && (inputWired || (asSocket && !spec.optional))) {
         collapsedPins.push({
           sectionId: at, portId: spec.id, label: displayLabel(spec), direction: 'in', type: spec.type, connected: inputWired,
           ...(spec.optional ? { optional: true as const } : {}), ...annotate(item),
@@ -1322,19 +1612,22 @@ export function layoutNode(
       }
       continue
     }
+    // Its editor draws the input's pin beside the corresponding control.
+    if (curveHistograms.has(spec.id) || saveTargetParts.has(spec.id)) continue
     if (asSocket) {
       pending.push({
         kind: 'ports',
         boxes: chain,
         input: {
           portId: spec.id,
-          label: displayLabel(spec),
+          ...rowLabels(item),
           type: spec.type,
           ...(spec.socketless ? { socketless: true as const } : {}),
           ...(spec.optional ? { optional: true } : {}),
           ...annotate(item),
         },
         ...(removable(item, chain) ? { removable: true as const } : {}),
+        ...rowRemoval(item, chain),
         ...withGrip(rowGrip(item, chain)),
         ...spareGrip(item, chain),
       })
@@ -1344,8 +1637,10 @@ export function layoutNode(
     const representation = resolveWidgetRepresentation(
       widget,
       options.widgetRepresentations?.[valueKey],
+      widgetMeasure.representations?.(widget),
     )
-    const measured = widgetMeasure(representation.spec) ?? { viewId: 'core.unknown', rows: 1 }
+    const { editorControls, ...measured } = widgetMeasure(representation.spec) ?? { viewId: 'core.unknown', rows: 1 }
+    if (editorControls !== undefined && Number.isFinite(editorControls)) editorControlHeights.set(valueKey, Math.max(0, editorControls))
     // Widget measures are host-supplied: a zero, negative, fractional, or
     // non-finite row count would fold rows onto each other and poison every
     // downstream y coordinate. Normalize to a positive whole number of rows.
@@ -1362,17 +1657,19 @@ export function layoutNode(
       kind: 'widget',
       boxes: chain,
       ...(removable(item, chain) ? { removable: true as const } : {}),
+      ...rowRemoval(item, chain),
       ...withGrip(rowGrip(item, chain)),
       ...spareGrip(item, chain),
       widget: {
         inputId: spec.id,
         valueKey,
-        label: displayLabel(spec),
+        ...rowLabels(item),
         type: spec.type,
         viewId: w.viewId,
         rows: w.rows,
         spec: representation.spec,
         ...(spec.socketless ? { socketless: true as const } : {}),
+        ...(spec.sent === false ? { unsent: true as const } : {}),
         ...(spec.sourceFilename !== undefined ? { sourceFilename: spec.sourceFilename } : {}),
         ...(representation.id !== undefined ? { representationId: representation.id } : {}),
         ...(options.seedControllerEnabled !== false && representation.spec.controller !== undefined
@@ -1380,10 +1677,16 @@ export function layoutNode(
           : {}),
         ...(spec.optional ? { optional: true } : {}),
         ...(item.derivedValue !== undefined ? { derivedValue: item.derivedValue } : {}),
+        ...(item.automatic !== undefined ? { automatic: item.automatic } : {}),
+        ...(item.automaticIfEmptied !== undefined ? { automaticIfEmptied: item.automaticIfEmptied } : {}),
+        ...(item.readOnly ? { readOnly: true as const } : {}),
+        ...(item.disabled ? { disabled: true as const } : {}),
+        ...(item.disabledReason !== undefined ? { disabledReason: item.disabledReason } : {}),
         // A menu's state lives under its flattened id, members included.
         ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
         ...(selector !== undefined ? { selector, lead: true as const } : {}),
         ...(item.parts !== undefined ? { parts: item.parts } : {}),
+        ...(histogramOfCurve.has(spec.id) ? { histogram: curveHistogramPin(histogramOfCurve.get(spec.id)!) } : {}),
         ...annotate(item),
       },
     })
@@ -1407,7 +1710,10 @@ export function layoutNode(
     const rest = list.slice(next)
     if (rest.length === 0) continue
     const chain = rest[0]!.boxes
-    const extra = rest.map((output): PendingRow => ({ kind: 'ports', boxes: chain, output: output.slot }))
+    const extra = rest.map((output): PendingRow => ({ kind: 'ports', boxes: chain, output: output.slot,
+      ...(output.remove === undefined ? {} : { remove: output.remove }),
+      ...(output.removable ? { removable: true as const } : {}),
+    }))
     if (chain.length === 0) {
       // A node's own outputs beyond its pin rows get rows of their own after
       // every row, but before the boxes ending the node that hold only outputs.
@@ -1469,8 +1775,6 @@ export function layoutNode(
   for (const row of pending) emit(row)
   pending.splice(0, pending.length, ...positioned)
 
-  // A line folds by hand; it starts folded. Unfolded, each of its fields
-  // takes its own row. A line with no field has nothing to fold.
   const foldable: { key: string; line: PendingRow[]; folded: boolean }[] = []
   const unfolded = new Set<PendingRow>()
   for (const line of new Set(lines.values())) {
@@ -1485,8 +1789,64 @@ export function layoutNode(
     }
   }
 
+  // An unfolded editor takes its space under the whole line of its row. A
+  // declaration may start it unfolded; a growing group's members start folded.
+  const space = canvasPaintTokens.node.editorSpace
+  const withSpaces: PendingRow[] = []
+  /** An editor space's histogram pin and the control row of its line. */
+  const spaceHistograms = new Map<PendingRow, { pin: CurveHistogramPin; line: number }>()
+  for (const row of pending) {
+    withSpaces.push(row)
+    const line = lines.get(row)!
+    if (line.at(-1) !== row) continue
+    for (const cell of line) {
+      const w = cell.widget
+      const editor = w === undefined ? undefined : IN_NODE_EDITORS[w.viewId]
+      if (w === undefined || editor === undefined) continue
+      const declared = options.editorsStartFolded !== true && w.familyMember !== true && w.spec.options['unfolded'] === true
+      if (!(options.editorUnfolded?.[w.valueKey] ?? declared)) continue
+      // Unfolded, the row is the editor's one-row header: what the folded row
+      // shows in small (the curve's sketch) is the editor itself under it.
+      cell.widget = { ...w, unfolded: true, rows: 1 }
+      const stored = options.pictureHeights?.[w.valueKey]
+      const pictureHeight = editor.picture === undefined ? undefined
+        : stored !== undefined && Number.isFinite(stored)
+          ? clampPictureHeight(stored)
+          : editor.picture
+      const openSections = (editor.sections ?? []).filter((section) =>
+        options.sectionOverrides?.[`${w.valueKey}.${section.id}`] === false)
+      const histogram = editor.histogramLine !== undefined &&
+        (w.histogram?.connected === true || (options.histogramVisibility?.[w.valueKey] ?? w.spec.options['histogramVisible']) !== false)
+        ? w.histogram : undefined
+      const fixedCurve = w.viewId === 'core.curve' && Array.isArray(w.spec.options['interpolations']) && w.spec.options['interpolations'].length === 1
+      const controls = options.editorControls?.[w.valueKey] ?? editorControlHeights.get(w.valueKey) ??
+        (editor.controlRows - (fixedCurve ? 1 : 0) + (histogram !== undefined ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
+      const spaceRow: PendingRow = {
+        kind: 'editorSpace',
+        boxes: cell.boxes,
+        editorSpace: {
+          inputId: w.inputId,
+          valueKey: w.valueKey,
+          viewId: w.viewId,
+          ...(openSections.length > 0 ? { openSections: openSections.map((section) => section.id) } : {}),
+          ...(histogram !== undefined ? { histogram: { portId: histogram.portId, connected: histogram.connected } } : {}),
+          // The editor's outline stops `fieldInsetY` above the space's bottom,
+          // as every row's box does; its controls fill the space above that.
+          height: space.pad * 2 + controls + (pictureHeight === undefined ? 0 : pictureHeight + space.gap) + tokens.rowGeometry.fieldInsetY,
+          ...(pictureHeight !== undefined ? { picture: { top: space.pad, height: pictureHeight } } : {}),
+        },
+      }
+      if (histogram !== undefined) spaceHistograms.set(spaceRow, { pin: histogram, line: editor.histogramLine! - (fixedCurve ? 1 : 0) })
+      lines.set(spaceRow, [spaceRow])
+      withSpaces.push(spaceRow)
+    }
+  }
+  pending.splice(0, pending.length, ...withSpaces)
+
   const rowBaseHeight = (row: PendingRow): number => row.kind === 'ports'
     ? tokens.rowGeometry.portRowHeight
+    : row.note?.lookup !== undefined
+    ? tokens.rowHeight * noteLookupRows(row.note.lookup)
     : row.kind !== 'widget' || row.widget === undefined
     ? tokens.rowHeight
     : (row.widget!.viewId === 'core.text'
@@ -1516,20 +1876,31 @@ export function layoutNode(
     const rowIndex = new Map<PendingRow, number>()
     const open: { decl: BoxDecl; top: number; first: number }[] = []
     let flexibleIndex = 0
+    let noticeHeight = 0
+    let trailingNoticeHeight = 0
     let y = tokens.headerHeight + stackInsets.top
     let slack = 0
     // Room under the last thing placed before the outline closing below it:
     // as much as at a box's sides, so a field's inset under a field and a
     // box's step under an outline (an inner box or an add row).
     let under: number = box.bottomGap
+    // A member box just closed, so a member box after it keeps `memberGap` away.
+    let afterMember = false
+    // A box's outline just ended, open or closed: what follows keeps `boxGap` away.
+    let afterOutline = false
     const push = (row: LayoutRow, depth: number): void => {
       rows.push(row)
       rowDepth.push(depth)
+      afterMember = false
+      afterOutline = false
     }
     const close = (depth: number): void => {
       while (open.length > depth) {
         const done = open.pop()!
-        const bottom = y + under - slack + box.stroke
+        afterMember = done.decl.kind === 'member'
+        afterOutline = true
+        const bottomGap = done.decl.kind === 'member' ? Math.max(under, box.fieldGap) : under
+        const bottom = y + bottomGap - slack + box.stroke
         boxes.push({
           id: done.decl.id,
           kind: done.decl.kind,
@@ -1547,6 +1918,16 @@ export function layoutNode(
         under = box.step
       }
     }
+    /**
+     * Where a box header's outline starts: `headerGap` under a field or pin
+     * row, `memberGap` under a member box, `boxGap` under any other box, and
+     * just under the header of the box it opens in.
+     */
+    const headerTop = (): number =>
+      afterMember ? y + box.memberGap
+        : slack > 0 ? y - slack + box.headerGap
+        : afterOutline ? y + box.boxGap
+        : y + verticalInset
     /** Close the boxes the row is not in and open the option boxes it is in. */
     const enter = (chain: readonly string[]): void => {
       let shared = 0
@@ -1565,18 +1946,22 @@ export function layoutNode(
       }
     }
     for (const row of pending) {
+      trailingNoticeHeight = 0
       if (row.header !== undefined) {
         const decl = row.header
         enter(row.boxes)
         const depth = open.length + 1
         const index = rows.length
         if (decl.kind === 'member') {
-          const top = y + verticalInset - slack
+          const top = headerTop()
           const height = top + box.stroke + headerHeight - y
           const grip = decl.member !== undefined && !decl.ghost ? gripOf(decl.construct!, decl.member) : undefined
+          const remove = decl.member === undefined || decl.ghost ? undefined : removalOf(decl.construct!, decl.member)
           push({
             kind: 'member', y, height, construct: decl.construct!, memberId: decl.id, label: decl.label,
             ordinal: decl.ordinal ?? 0, ...(decl.ghost ? { ghost: true as const } : {}), inset: outlineX(depth), top,
+            ...(remove === undefined ? {} : { remove }),
+            ...(tokens.memberRemoveCross && remove !== undefined ? { crossInset: outlineX(depth) + box.stroke + box.cross.fieldGap } : {}),
             ...(grip ? { reorder: { ...grip, gripX: outlineX(depth) + box.stroke + box.labelGap + box.gripWidth / 2 } } : {}),
           }, depth)
           open.push({ decl, top, first: index })
@@ -1595,11 +1980,12 @@ export function layoutNode(
           collapsed: decl.closed,
           inset: outlineX(depth),
           count,
+          ...(decl.kind === 'group' && decl.maxMembers !== undefined ? { maxCount: decl.maxMembers } : {}),
           ...(decl.closed && modified !== undefined ? { hiddenModified: modified } : {}),
           ...(decl.closed && hiddenPorts.has(decl.id) ? { hiddenPorts: hiddenPorts.get(decl.id)! } : {}),
         }
         if (decl.closed) {
-          const top = y + verticalInset - slack
+          const top = headerTop()
           push({ ...header, y, height: top + closedHeight - y, top }, depth)
           boxes.push({
             id: decl.id, kind: decl.kind, depth, x: outlineX(depth), y: top, width: 0, height: closedHeight,
@@ -1609,6 +1995,7 @@ export function layoutNode(
           y = top + closedHeight
           under = box.step
           slack = 0
+          afterOutline = true
           continue
         } else if (decl.tab) {
           const top = y + box.tabGap - slack
@@ -1616,7 +2003,7 @@ export function layoutNode(
           open.push({ decl, top, first: index })
           y = top + box.stroke + box.tabPad
         } else {
-          const top = y + verticalInset - slack
+          const top = headerTop()
           push({ ...header, y, height: top + box.stroke + headerHeight - y, top }, depth)
           open.push({ decl, top, first: index })
           y = top + box.stroke + headerHeight
@@ -1627,19 +2014,50 @@ export function layoutNode(
       }
       enter(row.boxes)
       const depth = open.length
-      if (row.kind === 'growth') {
+      // A field or pin row after a box has its face `boxGap` under the outline.
+      if (afterOutline && row.kind !== 'growth' && row.kind !== 'editorSpace') y += box.boxGap - verticalInset
+      if (row.kind === 'editorSpace') {
+        const editorSpace = row.editorSpace!
+        push({ kind: 'editorSpace', y, inset: fieldInset(depth), rowAbove: 0, ...editorSpace }, depth)
+        const histogram = spaceHistograms.get(row)
+        if (histogram !== undefined) {
+          const controlsTop = space.pad + (editorSpace.picture === undefined ? 0 : editorSpace.picture.height + space.gap)
+          pins.push(histogramPinAt(histogram.pin, y + controlsTop + (histogram.line + 0.5) * tokens.rowHeight))
+        }
+        for (const [line, input] of (saveTargetInputs.get(editorSpace.inputId) ?? []).entries()) {
+          const center = y + space.pad + (line + 0.5) * tokens.rowHeight
+          pins.push(histogramPinAt(curveHistogramPin(input), center))
+          if (input.spec.widget !== undefined && input.spec.sent !== false) pins.push({
+            ...histogramPinAt(curveHistogramPin(input), center), direction: 'out', widgetTap: true,
+          })
+        }
+        y += editorSpace.height
+      } else if (row.kind === 'growth') {
         const g = row.growth!
         const height = tokens.rowHeight
+        // As much room above the add row as the outline closing below leaves
+        // under it, from whatever ends above it: an outline, a field, a
+        // header, or the outline of a group drawn without its name.
+        const previous = rows.at(-1)
+        const above = previous?.kind === 'section' && previous.tab ? box.tabPad : slack
+        y += box.step - verticalInset * 2 - above
         push({ kind: 'growth', y, height, inset: outlineX(depth + 1), construct: g.construct, label: g.label, frames: g.frames }, depth)
         y += height
       } else if (row.kind === 'note' || row.kind === 'button') {
         const line = lines.get(row)!
-        const height = lineBaseHeight(line)
+        const height = rowBaseHeight(row)
         const inset = fieldInset(depth) + (unfolded.has(row) ? canvasPaintTokens.node.line.railReserve : 0)
+        const member = row.kind === 'button' && line.at(-1) === row
+          ? line.find((cell) => cell.removable)
+          : undefined
         rowIndex.set(row, rows.length)
         push(row.note
           ? { kind: 'note', y, height, inset, ...row.note }
-          : { kind: 'button', y, height, inset, ...row.button! }, depth)
+          : {
+              kind: 'button', y, height, inset, ...row.button!,
+              ...(member === undefined ? {} : { crossInset: crossInset(depth) }),
+              ...(member?.remove === undefined ? {} : { remove: member.remove }),
+            }, depth)
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
         if (line.at(-1) === row) y = lineBottoms.get(line)!
       } else if (row.kind === 'ports') {
@@ -1652,20 +2070,21 @@ export function layoutNode(
           ...(depth > 0 ? { nameInset: nameInset(depth) } : {}),
           ...(row.input ? { input: row.input } : {}),
           ...(row.output ? { output: row.output } : {}),
-          ...(row.removable && !row.output ? { crossInset: crossInset(depth) } : {}),
+          ...(row.removable ? { crossInset: crossInset(depth) } : {}),
+          ...(row.remove === undefined ? {} : { remove: row.remove }),
           // The grip's place on the row is set once the node's width is known.
           ...(row.reorder && !row.output ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
-        if (row.input && !row.input.socketless) pins.push({ ...annotationsOf(row.input), portId: row.input.portId, label: row.input.label, direction: 'in', y: y + height / 2, type: row.input.type, ...(row.input.optional ? { optional: true as const } : {}) })
-        if (row.output) pins.push({ ...annotationsOf(row.output), portId: row.output.portId, label: row.output.label, direction: 'out', y: y + height / 2, type: row.output.type, ...(row.output.maybeAbsent ? { maybeAbsent: true as const } : {}) })
+        if (row.input && !row.input.socketless) pins.push({ ...annotationsOf(row.input), portId: row.input.portId, label: row.input.name ?? row.input.label, direction: 'in', y: y + height / 2, type: row.input.type, ...(row.input.optional ? { optional: true as const } : {}) })
+        if (row.output) pins.push({ ...annotationsOf(row.output), portId: row.output.portId, label: row.output.name ?? row.output.label, direction: 'out', y: y + height / 2, type: row.output.type, ...(row.output.maybeAbsent ? { maybeAbsent: true as const } : {}) })
         y += height
       } else {
         const w = row.widget!
         const flexible = flexibleRows.includes(row)
-        const baseHeight = lineBaseHeight(lines.get(row)!)
-        const height = baseHeight + (flexible
+        const extra = flexible
           ? flexibleShare + (flexibleIndex === flexibleRows.length - 1 ? flexibleRemainder : 0)
-          : 0)
+          : 0
+        const height = (extra > 0 ? lineBaseHeight(lines.get(row)!) : rowBaseHeight(row)) + extra
         if (flexible) flexibleIndex += 1
         // Keep the capsule and its edge controls clear of sockets on either
         // border. The symmetric side also reserves space for output widgets.
@@ -1678,36 +2097,67 @@ export function layoutNode(
         const line = lines.get(row)!
         push({
           kind: 'widget', y, height, inset, ...w, ...(row.removable && line.at(-1) === row ? { crossInset: crossInset(depth) } : {}),
+          ...(row.remove === undefined ? {} : { remove: row.remove }),
           ...(row.reorder && line[0] === row ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
         // Socketless controls keep their editor and outgoing value tap; an
         // editor row has no pin.
+        // A folded curve shows its histogram's pin while it has a wire,
+        // pressed together with the curve's own as on a closed box's row.
+        const pressed = w.histogram !== undefined && w.histogram.connected && w.unfolded !== true && w.kept === undefined
+        const pitch = pressed ? box.clusterPitch.two / 2 : 0
         if (!w.socketless && w.editor !== true && w.kept === undefined) pins.push({
-          ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
+          ...annotationsOf(w), portId: w.inputId, label: w.name ?? w.label, direction: 'in', y: y + tokens.rowHeight / 2 - pitch, type: w.type,
           ...(w.optional ? { optional: true as const } : {}),
           widgetBacked: true as const,
         })
+        if (pressed) pins.push({ ...histogramPinAt(w.histogram!, y + tokens.rowHeight / 2 + pitch), collapsedSection: w.valueKey })
+        if (w.unfolded !== true && saveTargetInputs.has(w.inputId)) {
+          for (const direction of ['in', 'out'] as const) {
+            const connected = saveTargetInputs.get(w.inputId)!.filter((input) =>
+              isConnected(direction, input.spec.id) && (direction === 'in' || input.spec.widget !== undefined && input.spec.sent !== false))
+            for (const [index, input] of connected.entries()) {
+              pins.push({
+                ...histogramPinAt(curveHistogramPin(input), y + tokens.rowHeight / 2 + (index - (connected.length - 1) / 2) * box.clusterPitch.two),
+                direction, collapsedSection: w.inputId,
+                ...(direction === 'out' ? { widgetTap: true as const } : {}),
+              })
+            }
+          }
+        }
         // A widget can also produce its effective value. The duplicate
         // right-edge anchor deliberately shares the input's flattened id.
-        if (w.editor !== true) pins.push({
-          ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
+        if (w.editor !== true && w.unsent !== true) pins.push({
+          ...annotationsOf(w), portId: w.inputId, label: w.name ?? w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
         })
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
         if (line.at(-1) === row) y = lineBottoms.get(line)!
+      }
+      const line = lines.get(row)
+      if (line?.at(-1) === row) {
+        for (const cell of line) {
+          const notice = cell.button === undefined ? undefined : options.buttonNoticeHeights?.[cell.button.buttonId]
+          if (notice !== undefined) {
+            const height = notice + verticalInset * 2
+            y += height
+            noticeHeight += height
+            trailingNoticeHeight += height
+          }
+        }
       }
       slack = verticalInset
       under = row.kind === 'growth' ? box.step : box.bottomGap
     }
     const endsInBox = open.length > 0
     close(0)
-    return { rows, pins, boxes, rowDepth, anchorY, rowIndex, bottom: y, endsInBox }
+    return { rows, pins, boxes, rowDepth, anchorY, rowIndex, bottom: y, endsInBox, noticeHeight, trailingNoticeHeight }
   }
 
   const natural = place(0, 0)
   const naturalHeight = natural.bottom + (natural.endsInBox ? boxEndInset(tokens) : stackInsets.bottom)
   const requestedExtra = options.size === undefined
     ? 0
-    : Math.max(0, options.size.height - naturalHeight)
+    : Math.max(0, options.size.height + natural.noticeHeight - naturalHeight)
   const flexibleShare = flexibleRows.length === 0 ? 0 : Math.floor(requestedExtra / flexibleRows.length)
   const flexibleRemainder = flexibleRows.length === 0
     ? 0
@@ -1718,10 +2168,6 @@ export function layoutNode(
   // A closed box's row carries the pins of the fields inside it, each side
   // pressed together around the row's middle. Wired pins come first and at
   // most `clusterMax` are drawn; a further wire ends on the last drawn pin.
-  /**
-   * Offset from the cluster's middle of the `index`th of `count` pins pressed
-   * together, and whether it is past the last drawn pin.
-   */
   const pressed = (index: number, count: number): { dy: number; stacked: boolean } => {
     const drawn = Math.min(count, box.clusterMax)
     const pitch = drawn === 2 ? box.clusterPitch.two : box.clusterPitch.three
@@ -1769,13 +2215,30 @@ export function layoutNode(
       // '+ label' text plus capsule padding.
       content = measure(`+ ${row.label}`, 'label') + canvasPaintTokens.node.growthWidthPadding + (row.inset - tokens.padX) * 2
     } else if (row.kind === 'note') {
-      content = measure(row.text, 'label') + row.inset * 2
+      // The state line's words follow a mark about as wide as a letter and a gap.
+      const line = row.lookup === undefined ? 0 : measure(row.lookup.text, 'label') + tokens.fontSize + canvasPaintTokens.node.lookupNote.textGap
+      content = Math.max(measure(row.text, 'label'), line) + row.inset * 2
     } else if (row.kind === 'button') {
       content = measure(row.label, 'label') + canvasPaintTokens.node.growthWidthPadding + extra
+    } else if (row.kind === 'editorSpace') {
+      // The space is as wide as its row, which a member's grip and cross shorten.
+      const editorRow = rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === row.valueKey)
+      const room = editorRow?.kind !== 'widget' ? 0
+        : (editorRow.crossInset === undefined ? 0 : box.cross.size + box.cross.fieldGap) +
+          (editorRow.reorder === undefined ? 0 : box.gripWidth + box.cross.fieldGap)
+      content = canvasPaintTokens.node.editorSpace.minWidth + extra + room
     } else {
       // Label + a value area floor; widget content depth lives in the
       // expanded editor, so rows never force extreme widths.
       content = measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + extra
+      if (row.kind === 'widget' && row.viewId === 'core.curve' && !row.unfolded && tokens.widgetRowLook === 'raised-editors') {
+        // Reserve the picture beside the count as well as the header's icon
+        // and name; the interpolation shares the name's column below it.
+        const curve = canvasPaintTokens.widget.curve
+        const label = measure(row.label, 'label')
+        content += widgetChromeRect(0, 0, 0, row.height, tokens.rowGeometry.fieldInsetY).height - curve.inset + curve.gap +
+          Math.max(canvasPaintTokens.widget.opener.iconReserve + label, canvasPaintTokens.node.widgetValueMinWidth) - label
+      }
     }
     if (row.kind === 'widget' || row.kind === 'note' || row.kind === 'button') fieldDepth = Math.max(fieldDepth, depth)
     width = Math.max(width, content + tokens.padX * 2)
@@ -1788,7 +2251,7 @@ export function layoutNode(
   // on a node of the least width.
   const depthExtra = (fieldInset(fieldDepth) - fieldInset(0)) * 2
   const columns = Math.max(1, ...[...lines.values()].map((line) => line.length))
-  const cellGap = canvasPaintTokens.node.widgetColumnGap
+  const cellGap = canvasPaintTokens.node.lineCellGap
   const minWidth = columns * tokens.nodeMinWidth + (columns - 1) * cellGap + depthExtra
   for (const line of new Set(lines.values())) {
     if (line.length < 2) continue
@@ -1801,35 +2264,43 @@ export function layoutNode(
   if (sizeOverride) {
     width = Math.max(minWidth, sizeOverride.width)
   }
-  const height = sizeOverride ? Math.max(minHeight, sizeOverride.height) : naturalHeight
+  const height = sizeOverride ? Math.max(minHeight, sizeOverride.height + natural.noticeHeight) : naturalHeight
 
   for (const line of new Set(lines.values())) {
     if (line.length < 2) continue
     const gap = cellGap
-    const compactWidth = tokens.nodeMinWidth
-    // Cells share the width between the boxes around the line.
-    const boxInset = fieldInset(rowDepth[rowIndex.get(line[0]!)!]!) - fieldInset(0)
-    const lineWidth = width - boxInset * 2
-    let left = boxInset
+    // The line takes the field inset once. Grip and cross room is shared
+    // before division so the visible fields still have equal widths.
+    const inset = fieldInset(rowDepth[rowIndex.get(line[0]!)!]!)
+    const first = rows[rowIndex.get(line[0]!)!] as Extract<LayoutRow, { kind: 'widget' | 'note' | 'button' }>
+    const last = rows[rowIndex.get(line.at(-1)!)!] as typeof first
+    const gripRoom = first.kind === 'widget' && (first.reorder !== undefined || line[0]!.gripSpace)
+      ? box.cross.fieldGap * 2 + box.gripWidth - box.fieldGap : 0
+    const crossRoom = (last.kind === 'widget' || last.kind === 'button') && last.crossInset !== undefined
+      ? last.crossInset + box.cross.size + box.cross.fieldGap - inset : 0
+    const icons = new Set(line.some((row) => row.kind === 'widget') ? line.filter((row) => row.button?.icon !== undefined) : [])
+    const iconWidth = (row: PendingRow): number => rowBaseHeight(row) - tokens.rowGeometry.fieldInsetY * 2
+    const sharedWidth = (width - inset * 2 - gripRoom - crossRoom - (line.length - 1) * gap - [...icons].reduce((sum, row) => sum + iconWidth(row), 0)) /
+      (line.length - icons.size)
+    let left = inset
     for (const [column, pendingRow] of line.entries()) {
       const index = rowIndex.get(pendingRow)!
       const row = rows[index] as Extract<LayoutRow, { kind: 'widget' | 'note' | 'button' }>
-      const cellInset = row.inset - boxInset
-      const cellWidth = column === 0 ? lineWidth - (line.length - 1) * (compactWidth + gap) : compactWidth
-      rows[index] = { ...row, inset: left + cellInset, width: cellWidth - cellInset * 2 }
+      const cellWidth = (icons.has(pendingRow) ? iconWidth(pendingRow) : sharedWidth) +
+        (column === 0 ? gripRoom : 0) + (column === line.length - 1 ? crossRoom : 0)
+      rows[index] = { ...row, inset: left, width: cellWidth }
       left += cellWidth + gap
     }
-    // Folded, only a field with a wire keeps a pin: wires in at the line's
-    // left end, wires out at its right, each side pressed together at the
-    // middle the way a closed box's are.
+    // Only wired fields keep pins on a shared line, clustered at its ends
+    // without making the fields taller. Real outputs retain their own rows.
     const fields = new Set(line.flatMap((row) => row.widget ? [row.widget.inputId] : []))
     const center = rows[rowIndex.get(line[0]!)!]!.y + tokens.rowHeight / 2
     for (const direction of ['in', 'out'] as const) {
       const own = (pin: PinLayout): boolean => fields.has(pin.portId) && pin.direction === direction &&
         (direction === 'in' ? pin.widgetBacked === true : pin.widgetTap === true)
       const wired = pins.filter((pin) => own(pin) && isConnected(direction, pin.portId))
-      pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...wired.map((pin, k) => {
-        const { dy, stacked } = pressed(k, wired.length)
+      pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...wired.map((pin, index) => {
+        const { dy, stacked } = pressed(index, wired.length)
         return { ...pin, y: center + dy, pressed: true as const, ...(stacked ? { stacked: true as const } : {}) }
       }))
     }
@@ -1842,12 +2313,13 @@ export function layoutNode(
     row.gripSpace && lines.get(row)![0] === row ? [rowIndex.get(row)] : []))
   const gap = box.cross.fieldGap
   for (const [index, row] of rows.entries()) {
-    if (row.kind !== 'widget' && row.kind !== 'ports') continue
-    const gripRoom = row.reorder === undefined && !gripSpaces.has(index) ? 0 : gap + box.gripWidth + gap - box.fieldGap
+    if (row.kind !== 'widget' && row.kind !== 'ports' && row.kind !== 'button') continue
+    const grip = row.kind === 'button' ? undefined : row.reorder
+    const gripRoom = grip === undefined && !gripSpaces.has(index) ? 0 : gap + box.gripWidth + gap - box.fieldGap
     if (row.crossInset === undefined && gripRoom === 0) continue
     // The inner side of the group's outline.
-    const outline = (row.kind === 'widget' ? row.inset : fieldInset(rowDepth[index]!)) - box.fieldGap
-    const reorder = row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: outline + gap + box.gripWidth / 2 } }
+    const outline = (row.kind === 'ports' ? fieldInset(rowDepth[index]!) : row.inset) - box.fieldGap
+    const reorder = grip === undefined ? {} : { reorder: { ...grip, gripX: outline + gap + box.gripWidth / 2 } }
     if (row.kind === 'ports') {
       rows[index] = { ...row, nameInset: (row.nameInset ?? 0) + gripRoom, ...reorder }
       continue
@@ -1857,13 +2329,23 @@ export function layoutNode(
       : width - row.crossInset - box.cross.size - gap
     rows[index] = { ...row, inset: row.inset + gripRoom, width: right - row.inset - gripRoom, ...reorder }
   }
-  // An unfolded line's fields move right for its rail; their right edge stays.
-  const railReserve = canvasPaintTokens.node.line.railReserve
   for (const row of unfolded) {
     const index = rowIndex.get(row)!
     const placedRow = rows[index]!
     if ((placedRow.kind === 'widget' || placedRow.kind === 'note' || placedRow.kind === 'button') && placedRow.width === undefined)
-      rows[index] = { ...placedRow, width: width - placedRow.inset * 2 + railReserve }
+      rows[index] = { ...placedRow, width: width - placedRow.inset * 2 + canvasPaintTokens.node.line.railReserve }
+  }
+  // An unfolded editor and its row are one box: the space takes the row's
+  // place and width, so a member's grip and cross stay beside both.
+  const editorRows = new Map<string, Extract<LayoutRow, { kind: 'widget' }>>()
+  for (const [index, row] of rows.entries()) {
+    if (row.kind === 'widget' && row.unfolded) editorRows.set(row.valueKey, row)
+    const editorRow = row.kind === 'editorSpace' ? editorRows.get(row.valueKey) : undefined
+    if (row.kind !== 'editorSpace' || editorRow === undefined) continue
+    rows[index] = {
+      ...row, inset: editorRow.inset, rowAbove: row.y - editorRow.y,
+      ...(editorRow.width !== undefined ? { width: editorRow.width } : {}),
+    }
   }
 
   if (options.minimized) {
@@ -1898,10 +2380,7 @@ export function layoutNode(
     const indexes = line.map((row) => rowIndex.get(row)!)
     const first = rows[indexes[0]!]!
     return {
-      key,
-      folded,
-      first: Math.min(...indexes),
-      last: Math.max(...indexes),
+      key, folded, first: Math.min(...indexes), last: Math.max(...indexes),
       ...(!folded && 'inset' in first
         ? { railInset: first.inset - canvasPaintTokens.node.line.railReserve - canvasPaintTokens.node.line.railOverhang }
         : {}),
@@ -1926,6 +2405,7 @@ export function layoutNode(
     ...(elaborated.titleSuffix !== undefined ? { titleSuffix: elaborated.titleSuffix } : {}),
     rows,
     pins,
+    ...(placed.trailingNoticeHeight > 0 ? { trailingButtonNoticeHeight: placed.trailingNoticeHeight } : {}),
     ...(boxes.length > 0 ? { boxes } : {}),
     ...(layoutLines.length > 0 ? { lines: layoutLines } : {}),
   }
@@ -1996,7 +2476,9 @@ export interface BoundarySlotInfo {
    * the first.
    */
   readonly fields?: readonly Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>[]
-  /** Fields drawn without their wire, or a value source's field: no pin. */
+  /** Inputs panel only: the space of each unfolded editor among the fields, by its row's value key. */
+  readonly editorSpaces?: Readonly<Record<string, Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>>>
+  /** Fields drawn without their wire: no pin. */
   readonly pinless?: true
   /** Inputs panel only: the input takes one value or a whole list. */
   readonly acceptsList?: true
@@ -2042,6 +2524,12 @@ export function layoutBoundaryNode(
         const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
         rows.push({ ...field, ...(index === 0 ? { label: slot.label } : {}), kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
         y += height
+        // An unfolded editor hangs under its field, and the panel grows downward.
+        const space = slot.editorSpaces?.[field.valueKey]
+        if (space !== undefined) {
+          rows.push({ ...space, kind: 'editorSpace', y, inset: tokens.rowGeometry.fieldInsetX, rowAbove: height })
+          y += space.height
+        }
       }
       continue
     }
@@ -2093,6 +2581,10 @@ export function layoutBoundaryNode(
     if (row.kind === 'widget') {
       const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
       width = Math.max(width, mark + measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + tokens.padX * 2)
+      continue
+    }
+    if (row.kind === 'editorSpace') {
+      width = Math.max(width, canvasPaintTokens.node.editorSpace.minWidth + row.inset * 2)
       continue
     }
     if (row.kind !== 'ports') continue

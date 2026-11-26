@@ -6,10 +6,12 @@ import { semanticHashOf } from '../src/compile/hash.js'
 import { loadDocument } from '../src/format/migrate.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { netViewPositions } from '../src/format/net-views.js'
-import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, asSelectorCandidateId, asSelectorId, asValueSourceId } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId } from '../src/ids.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { initialDynamicStateOf } from '../src/schema/body.js'
+import { boundaryOf, boundaryItems } from '../src/format/document.js'
+import type { NodeSchema } from '../src/schema/model.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 
@@ -620,6 +622,22 @@ describe('DocumentStore.dispatch', () => {
     expect(store.doc.graphs.g0!.nodes.n1!.values.seed).toBe(9)
   })
 
+  it('node.setValues clears stored values in the same undo step', () => {
+    const store = makeStore()
+    store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { seed: 7, steps: 30 } } })
+    const out = store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { seed: 8 }, unset: ['steps', 'cfg'] } })
+    expect(out.ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ seed: 8 })
+    expect(store.revision).toBe(2)
+    store.undo()
+    expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ seed: 7, steps: 30 })
+    // Unsetting a key with nothing stored is a no-op with no undo entry.
+    const revision = store.revision
+    expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: {}, unset: ['cfg'] } }).ok).toBe(true)
+    expect(store.revision).toBe(revision)
+    expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { seed: 1 }, unset: ['seed'] } }).ok).toBe(false)
+  })
+
   it('node.setValues rejects unknown nodes and non-object values', () => {
     const store = makeStore()
     expect(
@@ -758,15 +776,15 @@ describe('DocumentStore.dispatch', () => {
   it('selection.move updates different movable kinds as ONE undo step', () => {
     const store = makeStore()
     const added = store.dispatch({
-      command: 'valueSource.add',
-      params: { graphId: 'g0', value: 1, position: { x: 1, y: 2 } },
+      command: 'reroute.add',
+      params: { graphId: 'g0', position: { x: 1, y: 2 } },
     })
     expect(added.ok).toBe(true)
     expect(store.dispatch({
       command: 'view.createGroup',
       params: { graphId: 'g0', title: 'mixed', bounds: { x: 0, y: 0, width: 100, height: 100 } },
     }).ok).toBe(true)
-    const valueSourceId = Object.keys(store.doc.graphs.g0!.valueSources ?? {})[0]!
+    const rerouteId = Object.keys(store.doc.graphs.g0!.reroutes)[0]!
     const groupId = Object.keys(store.doc.view.graphs.g0!.groups ?? {})[0]!
     const beforeMove = store.doc
     const out = store.dispatch({
@@ -774,13 +792,13 @@ describe('DocumentStore.dispatch', () => {
       params: {
         graphId: 'g0',
         nodes: { n1: { x: 5, y: 6 } },
-        valueSources: { [valueSourceId]: { x: 7, y: 8 } },
+        reroutes: { [rerouteId]: { x: 7, y: 8 } },
         groups: { [groupId]: { x: 9, y: 10 } },
       },
     })
     expect(out.ok).toBe(true)
     expect(store.doc.view.graphs.g0!.nodes.n1!.position).toEqual({ x: 5, y: 6 })
-    expect(store.doc.view.graphs.g0!.valueSources![valueSourceId]!.position).toEqual({ x: 7, y: 8 })
+    expect(store.doc.view.graphs.g0!.reroutes![rerouteId]!.position).toEqual({ x: 7, y: 8 })
     expect(store.doc.view.graphs.g0!.groups![groupId]!.bounds).toEqual({ x: 9, y: 10, width: 100, height: 100 })
     expect(store.undo()).toBe(true)
     expect(store.doc).toEqual(beforeMove)
@@ -1190,6 +1208,125 @@ describe('view.setTextBoxLines', () => {
       expect(store.dispatch(invocation(lines)).ok).toBe(false)
     }
     expect(store.dispatch({ ...invocation(4), params: { ...invocation(4).params, nodeId: 'missing' } }).ok).toBe(false)
+  })
+})
+
+describe('view.setEditorUnfolded and view.setPictureHeight', () => {
+  const unfold = (nodeId: string, valueKey: string, unfolded: boolean | null) =>
+    ({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', nodeId, valueKey, unfolded } })
+
+  it.each(['link.connect', 'link.rewire', 'net.connectInput'])('folds on %s arrival, keeps later choices and restores the open state on undo', (command) => {
+    const schema: NodeSchema = {
+      type: 'Editor', displayName: 'Editor', category: '', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'curve', type: { kind: 'concrete', name: 'CURVE' }, optional: true,
+          widget: { widgetType: 'CURVE', options: { unfolded: true } } },
+        { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: true },
+        { kind: 'editor', id: 'compare', widget: { widgetType: 'IMAGE_COMPARE', options: { unfolded: true }, reads: { image_a: 'image' } } },
+      ],
+    }
+    const initial = doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1'), n2: node('n2', 'Editor') },
+      links: command === 'link.rewire' ? { l1: { id: asLinkId('l1'), from: port('n1', 'out'), to: port('n2', 'other') } } : {},
+      nets: { net1: { id: asNetId('net1'), name: 'source', source: port('n1', 'out'), sinks: [] } },
+    }) })
+    const store = new DocumentStore(initial, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => (type) => type === 'Editor' ? schema : undefined }))
+    const send = (portId: string) => store.dispatch({ command, params: { graphId: 'g0', from: port('n1', 'out'), to: port('n2', portId), linkId: 'l1', netId: 'net1' } })
+    expect(send('curve').ok).toBe(true)
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toBeUndefined()
+    expect(store.redo()).toBe(true)
+    expect(store.dispatch(unfold('n2', 'curve', true)).ok).toBe(true)
+    expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'value', value: 9 } }).ok).toBe(true)
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: true })
+    const links = Object.keys(store.doc.graphs.g0!.links)
+    expect(store.dispatch(command === 'net.connectInput'
+      ? { command: 'net.disconnectInput', params: { graphId: 'g0', to: port('n2', 'curve') } }
+      : { command: 'link.disconnect', params: { graphId: 'g0', linkId: links[0]! } }).ok).toBe(true)
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: true })
+    if (command !== 'link.rewire') {
+      expect(send('image').ok).toBe(true)
+      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: false })
+      expect(store.dispatch(unfold('n2', 'compare', false)).ok).toBe(true)
+      expect(store.dispatch(command === 'net.connectInput'
+        ? { command: 'net.disconnectInput', params: { graphId: 'g0', to: port('n2', 'image') } }
+        : { command: 'link.disconnect', params: { graphId: 'g0', linkId: Object.keys(store.doc.graphs.g0!.links)[0]! } }).ok).toBe(true)
+      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: false })
+    }
+  })
+
+  it('saves each curve histogram override independently and undoes it without changing computation', () => {
+    const store = makeStore()
+    const set = (valueKey: string, visible: boolean) => ({
+      command: 'view.setHistogramVisible', params: { graphId: 'g0', nodeId: 'n1', valueKey, visible },
+    })
+    const beforeHash = semanticHashOf(store.doc)
+    expect(store.dispatch(set('curves.1.curve', false)).ok).toBe(true)
+    expect(store.dispatch(set('curves.2.curve', true)).ok).toBe(true)
+    expect(semanticHashOf(store.doc)).toBe(beforeHash)
+    const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc)))
+    expect(loaded.document!.view.graphs.g0!.nodes.n1!.histogramVisibility).toEqual({
+      'curves.1.curve': false, 'curves.2.curve': true,
+    })
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1!.histogramVisibility).toEqual({ 'curves.1.curve': false })
+    expect(store.redo()).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1!.histogramVisibility?.['curves.2.curve']).toBe(true)
+    expect(store.dispatch({ ...set('', false) }).ok).toBe(false)
+    expect(store.dispatch({ command: 'view.setHistogramVisible', params: { ...set('curve', false).params, visible: 'false' } }).ok).toBe(false)
+  })
+
+  it('keeps each editor fold per node through undo and a save and load, outside the semantic hash', () => {
+    const store = makeStore({
+      ...doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1'), n2: node('n2') } }) }),
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 10, y: 20 } } } } } },
+    })
+    const beforeHash = semanticHashOf(store.doc)
+    expect(store.dispatch(unfold('n1', 'frame', true)).ok).toBe(true)
+    expect(store.dispatch(unfold('n1', 'clip', false)).ok).toBe(true)
+    expect(store.dispatch(unfold('n2', 'frame', false)).ok).toBe(true)
+    expect(store.dispatch({ command: 'view.setPictureHeight', params: { graphId: 'g0', nodeId: 'n1', valueKey: 'frame', height: 240 } }).ok).toBe(true)
+    expect(semanticHashOf(store.doc)).toBe(beforeHash)
+    expect(store.undo()).toBe(true)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1!.editors).toEqual({ frame: { unfolded: true }, clip: { unfolded: false } })
+    expect(store.doc.view.graphs.g0!.nodes.n2?.editors).toBeUndefined()
+    expect(store.redo()).toBe(true)
+    expect(store.redo()).toBe(true)
+    const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!.view.graphs.g0!.nodes
+    expect(loaded.n1).toMatchObject({ editors: { frame: { unfolded: true }, clip: { unfolded: false } }, pictureHeights: { frame: 240 } })
+    expect(loaded.n2?.editors).toEqual({ frame: { unfolded: false } })
+    expect(store.dispatch(unfold('n1', 'frame', null)).ok).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1!.editors).toEqual({ clip: { unfolded: false } })
+  })
+
+  it('refuses a fold that is not true, false or null, or names no editor', () => {
+    const store = makeStore()
+    expect(store.dispatch({ ...unfold('n1', 'frame', true), params: { ...unfold('n1', 'frame', true).params, unfolded: 'yes' } }).ok).toBe(false)
+    expect(store.dispatch(unfold('n1', '', true)).ok).toBe(false)
+    expect(store.dispatch(unfold('missing', 'frame', true)).ok).toBe(false)
+  })
+
+  it('keeps the Inputs panel\'s folds apart from the subgraph node outside', () => {
+    const store = makeStore({
+      ...doc({
+        g0: graph({ id: 'g0', nodes: { sub: node('sub', '#g1') } }),
+        g1: graph({
+          id: 'g1', name: 'sub', boundary: { body: [] }, nodes: { m1: node('m1') },
+        }),
+      }),
+    })
+    const set = (command: string, params: Record<string, unknown>) => store.dispatch({ command, params: { graphId: 'g1', ...params } } as never)
+    expect(set('view.setEditorUnfolded', { inputsPanel: true, valueKey: 'curve', unfolded: true }).ok).toBe(true)
+    expect(set('view.setPictureHeight', { inputsPanel: true, valueKey: 'curve', height: 300 }).ok).toBe(true)
+    const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!.view
+    expect(loaded.graphs.g1!.inputsPanel).toEqual({ editors: { curve: { unfolded: true } }, pictureHeights: { curve: 300 } })
+    expect(loaded.graphs.g0?.nodes.sub?.editors).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g1?.inputsPanel).toBeUndefined()
+    expect(store.dispatch({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', inputsPanel: true, valueKey: 'curve', unfolded: true } }).ok).toBe(false)
   })
 })
 
@@ -1676,7 +1813,7 @@ describe('named net commands', () => {
           nodes: { n1: node('n1') },
           nets: { t9: { id: asNetId('t9'), name: 'ctx', source: port('n1', 'out0'), sinks: [] } },
         }),
-        g1: graph({ id: 'g1', name: 'sub', boundary: { inputs: [], outputs: [] }, nodes: { m1: node('m1') } }),
+        g1: graph({ id: 'g1', name: 'sub', boundary: boundaryOf([], []), nodes: { m1: node('m1') } }),
       }),
       coreCommandRegistry(),
     )
@@ -1829,66 +1966,6 @@ describe('group commands (view-only)', () => {
     expect(undone.nodes.n2!.position).toEqual({ x: 100, y: 100 })
   })
 
-  it('view.moveGroup carries value sources and selectors in the same undo step', () => {
-    const store = makeStore(doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { n1: node('n1') },
-        valueSources: { v1: { id: asValueSourceId('v1'), value: 7 } as never },
-        selectors: {
-          s1: {
-            id: asSelectorId('s1'),
-            candidates: [{ id: asSelectorCandidateId('ca') }],
-            policy: { kind: 'fixed', candidate: asSelectorCandidateId('ca') },
-          } as never,
-        },
-      }),
-    }))
-    expect(createGroup(store).ok).toBe(true)
-    const out = store.dispatch({
-      command: 'view.moveGroup',
-      params: {
-        graphId: 'g0',
-        groupId: 'grp0',
-        bounds: { x: 200, y: 200 },
-        positions: { n1: { x: 250, y: 250 } },
-        valueSources: { v1: { x: 260, y: 260 } },
-        selectors: { s1: { x: 270, y: 270 } },
-      },
-    })
-    expect(out.ok).toBe(true)
-    const view = store.doc.view.graphs.g0!
-    expect(view.nodes.n1!.position).toEqual({ x: 250, y: 250 })
-    expect(view.valueSources?.v1?.position).toEqual({ x: 260, y: 260 })
-    expect(view.selectors?.s1?.position).toEqual({ x: 270, y: 270 })
-
-    // ONE undo step covers the rectangle plus everything it carried.
-    expect(store.undo()).toBe(true)
-    const undone = store.doc.view.graphs.g0!
-    expect(undone.groups!.grp0!.bounds).toEqual(bounds)
-    expect(undone.valueSources?.v1?.position).toBeUndefined()
-    expect(undone.selectors?.s1?.position).toBeUndefined()
-  })
-
-  it('view.moveGroup rejects atomically on unknown value source or selector', () => {
-    const store = makeStore()
-    expect(createGroup(store).ok).toBe(true)
-    const rev = store.revision
-    const badSource = store.dispatch({
-      command: 'view.moveGroup',
-      params: { graphId: 'g0', groupId: 'grp0', bounds: { x: 1, y: 1 }, positions: {}, valueSources: { ghost: { x: 0, y: 0 } } },
-    })
-    expect(badSource.ok).toBe(false)
-    if (!badSource.ok) expect(badSource.diagnostics[0]!.code).toBe('valueSource.missing')
-    const badSelector = store.dispatch({
-      command: 'view.moveGroup',
-      params: { graphId: 'g0', groupId: 'grp0', bounds: { x: 1, y: 1 }, positions: {}, selectors: { ghost: { x: 0, y: 0 } } },
-    })
-    expect(badSelector.ok).toBe(false)
-    if (!badSelector.ok) expect(badSelector.diagnostics[0]!.code).toBe('selector.missing')
-    expect(store.revision).toBe(rev)
-  })
-
   it('view.setGroupBounds resizes; rejects non-positive size', () => {
     const store = makeStore()
     expect(createGroup(store).ok).toBe(true)
@@ -2029,7 +2106,7 @@ describe('group commands (view-only)', () => {
     const store = new DocumentStore(
       doc({
         g0: graph({ id: 'g0', nodes: { n1: node('n1') } }),
-        g1: graph({ id: 'g1', name: 'sub', boundary: { inputs: [], outputs: [] }, nodes: { m1: node('m1') } }),
+        g1: graph({ id: 'g1', name: 'sub', boundary: boundaryOf([], []), nodes: { m1: node('m1') } }),
       }),
       coreCommandRegistry(),
     )
@@ -2060,10 +2137,10 @@ describe('view.moveBoundaryNode', () => {
           id: 'sub',
           name: 'sub',
           nodes: { m1: node('m1') },
-          boundary: {
-            inputs: [{ id: 'weird.id', binds: { kind: 'port', ...port('m1', 'model') } }],
-            outputs: [{ id: 'image', binds: { kind: 'port', ...port('m1', 'out0') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: 'weird.id', binds: { kind: 'port', ...port('m1', 'model') } }],
+            [{ id: 'image', binds: { kind: 'port', ...port('m1', 'out0') } }],
+          ),
         }),
       }),
       coreCommandRegistry(),
@@ -2110,7 +2187,7 @@ describe('view.moveBoundaryNode', () => {
     expect(store.dispatch(move('inputs', { x: 1, y: 2 })).ok).toBe(true)
     expect(store.dispatch(move('outputs', { x: 3, y: 4 })).ok).toBe(true)
     expect(semanticHashOf(store.doc)).toBe(before)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.id).toBe('weird.id')
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.id).toBe('weird.id')
   })
 
   it('rejects a graph without a boundary (not a subgraph definition)', () => {
@@ -2147,7 +2224,7 @@ describe('view bookmarks (numbered camera shortcuts, view-only)', () => {
           id: 'sub',
           name: 'sub',
           nodes: { m1: node('m1') },
-          boundary: { inputs: [], outputs: [] },
+          boundary: boundaryOf([], []),
         }),
       }),
       coreCommandRegistry(),

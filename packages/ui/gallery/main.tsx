@@ -13,20 +13,20 @@ import { render } from 'solid-js/web'
 import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
-  ChevronDown,
   CircleAlert,
+  Download,
   Ellipsis,
   LayoutList,
-  FolderOpen,
   PanelLeft,
   PanelBottom,
   PanelRight,
   MousePointer,
   Search,
-  Square,
   Plus,
   Settings,
+  SlidersHorizontal,
   Trash2,
+  TriangleAlert,
   User,
   Users,
 } from 'lucide-solid'
@@ -35,6 +35,8 @@ import {
   ProductWindowChrome,
   ProductWindowToolbar,
   ProductWindowAction,
+  ProductShortcut,
+  ProductShortcutText,
   ProductAccountMenu,
   ProductSignInControl,
   ProductBrandMark,
@@ -55,6 +57,7 @@ import {
   ProductIcon,
   ProductRunIcon,
   ProductRunActivity,
+  ProductCancelButton,
   ProductIconButton,
   ProductLink,
   ProductList,
@@ -62,19 +65,24 @@ import {
   ProductLoading,
   ProductMenu,
   ProductNotice,
+  ProductProgress,
+  ProductProjectMenu,
   ProductPage,
   ProductRadio,
   ProductSection,
+  ProductSegmented,
   ProductSelect,
   ProductShell,
   ProductSpinner,
   ProductStringsProvider,
   ProductTable,
   ProductTextArea,
+  ProductTextButton,
   ProductTextInput,
   ProductToast,
   reportProductEvent,
   type ProductRole,
+  type ProductAttention,
 } from '../src/index.js'
 import '../dist/dinkster.css'
 import {
@@ -84,7 +92,19 @@ import {
   canvasPageHref,
   selectCanvasPage,
 } from './canvas.js'
+import { ContextMenuGallery } from './context-menus.js'
+import { PageLoadingGallery, ProjectLoadingGallery } from './page-loading.js'
+import { CanvasChromeGallery } from './canvas-chrome.js'
+import { RunControlsGallery } from './run-controls.js'
 import { SiteGallery } from './site.js'
+import { EditorBarGallery } from './editor-bar.js'
+import { ProjectsGallery } from './projects.js'
+import { TemplatesGallery } from './templates.js'
+import { EngineStatesGallery } from './engine-states.js'
+import { PageTabsGallery } from './page-tabs.js'
+import { SearchGallery } from './search.js'
+import { NodeSearchGallery } from './node-search.js'
+import { ModelsGallery } from './models.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -115,11 +135,35 @@ function Section(props: {
   )
 }
 
+/** Choices that cannot be chosen keep their place, dimmed, with the reason as their description. */
+function SegmentedStates() {
+  const [scope, setScope] = createSignal('all')
+  const [range, setRange] = createSignal('day')
+  return (
+    <Section title="Unavailable choices" components="ProductSegmented">
+      <div><ProductSegmented label="Runs scope" value={scope()} onChange={setScope} options={[
+        { value: 'workflow', label: 'This workflow', disabled: 'A page is in front, not a workflow.' },
+        { value: 'all', label: 'All workflows' },
+      ]} /></div>
+      <div><ProductSegmented label="History range" value={range()} onChange={setRange} options={[
+        { value: 'day', label: 'Day' },
+        { value: 'week', label: 'Week', disabled: 'Not enough history yet.' },
+        { value: 'month', label: 'Month' },
+      ]} /></div>
+      <div><ProductSegmented label="Chosen but unavailable" value="workflow" onChange={() => {}} options={[
+        { value: 'workflow', label: 'This workflow', disabled: 'A page is in front, not a workflow.' },
+        { value: 'all', label: 'All workflows' },
+      ]} /></div>
+    </Section>
+  )
+}
+
 function Gallery() {
   const [route, setRoute] = createSignal(window.location.hash || '#controls')
   const [toast, setToast] = createSignal<{ readonly message: string }>()
   const [error, setError] = createSignal(true)
   const [dialog, setDialog] = createSignal(false)
+  const [wideDialog, setWideDialog] = createSignal(false)
   const [pending, setPending] = createSignal(false)
   const [fail, setFail] = createSignal(false)
   const [invalid, setInvalid] = createSignal(false)
@@ -127,6 +171,11 @@ function Gallery() {
   const [nameTaken, setNameTaken] = createSignal(false)
   const [activity, setActivity] = createSignal('No action yet')
   const [loading, setLoading] = createSignal(false)
+  const [quietType, setQuietType] = createSignal('Any type')
+  const [serverOpen, setServerOpen] = createSignal(false)
+  const [progressOpen, setProgressOpen] = createSignal(false)
+  const [versionSelected, setVersionSelected] = createSignal(false)
+  let versionButton: HTMLButtonElement | undefined
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
@@ -159,7 +208,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={route() === '#canvas' ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -175,14 +224,14 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#resource-usage' ? 'Resource usage' : 'Buttons and fields'))
+              (route() === '#models' ? 'Models' : route() === '#project-loading' ? 'Project loading' : route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#node-search'}
       >
         <Show
           when={!loading()}
@@ -191,10 +240,84 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#page-loading'}>
+              <PageLoadingGallery activity={activity()} />
+            </Match>
+            <Match when={route() === '#segmented-states'}>
+              <SegmentedStates />
+            </Match>
+            <Match when={route() === '#project-loading'}>
+              <ProjectLoadingGallery />
+            </Match>
+            <Match when={route() === '#menu-filter'}>
+              <Section title="Filtered menu" components="ProductMenu, ProductTextInput">
+                <ProductMenu
+                  label="Choose a format"
+                  filter={{ label: 'Filter formats', placeholder: 'Find a format' }}
+                  items={[
+                    { label: 'Image', checked: true, onSelect: () => setActivity('Image selected') },
+                    { label: 'Image file', description: 'An image stored in a file.', checked: false, onSelect: () => setActivity('Image file selected') },
+                    { label: 'Image sequence', description: 'Not available for this example.', disabled: true, onSelect: () => setActivity('Unavailable format selected') },
+                    'separator',
+                    { label: 'Audio', description: 'A sound recording.', onSelect: () => setActivity('Audio selected') },
+                    { label: 'Video', onSelect: () => setActivity('Video selected') },
+                  ]}
+                />
+              </Section>
+            </Match>
+            <Match when={route() === '#menu-alignment'}>
+              <Section title="Trigger edges" components="ProductMenu">
+                <div class="dinkster-actions">
+                  <ProductMenu label="End actions" align="end" fill="quiet" items={[
+                    { label: 'Recommended build', description: 'Matches the detected graphics card.', checked: true, onSelect: () => complete('Recommended build selected') },
+                    { label: 'Alternative build', description: 'Use an earlier runtime for this driver.', checked: false, onSelect: () => complete('Alternative build selected') },
+                  ]} />
+                  <ProductMenu label="Start actions" items={[
+                    { label: 'View package', onSelect: () => complete('Package viewed') },
+                    { label: 'Unavailable action', disabled: true, onSelect: () => {} },
+                  ]} />
+                </div>
+              </Section>
+            </Match>
+            <Match when={route() === '#setup-components'}>
+              <Section title="Progress" components="ProductProgress">
+                <For each={[
+                  { label: 'Not started', value: 0 },
+                  { label: 'Downloading', value: 0.37 },
+                  { label: 'Complete', value: 1 },
+                  { label: 'Preparing' },
+                ]}>
+                  {(progress) => (
+                    <div class="dinkster-stack">
+                      <span>{progress.label}</span>
+                      <ProductProgress label={progress.label} value={progress.value} />
+                    </div>
+                  )}
+                </For>
+              </Section>
+              <Section title="Standing notices" components="ProductNotice">
+                <ProductNotice>Choose a folder for the installation.</ProductNotice>
+                <ProductNotice tone="warning">Another Dinkster installation is running. Stop it, then check again.</ProductNotice>
+                <ProductNotice tone="error">Setup failed. Check the connection, then try again.</ProductNotice>
+              </Section>
+              <Section title="Choice descriptions" components="ProductMenu">
+                <ProductMenu
+                  label="Change build"
+                  fill="quiet"
+                  items={[
+                    { label: 'Recommended build', description: 'Matches the detected graphics card.', checked: true, onSelect: () => setActivity('Recommended build selected') },
+                    { label: 'Alternative build', description: 'Use this build when your driver requires an earlier runtime.', checked: false, onSelect: () => setActivity('Alternative build selected') },
+                    { label: 'View build information', onSelect: () => setActivity('Build information selected') },
+                  ]}
+                />
+              </Section>
+            </Match>
             <Match when={route() === '#resource-usage'}>
               <Section title="Card memory" components="ProductResourceUsage">
                 <For each={[false, true]}>
                   {(compact) => (
+                    <section class="dinkster-resource-card">
+                    <header class="dinkster-resource-card-heading"><strong>{compact ? 'RTX 3090' : 'RTX 4090'}</strong><span class="dinkster-resource-total"><strong>12.0</strong> <span>of 24.0 GB</span></span></header>
                     <ProductResourceUsage
                       label={compact ? 'Compact card memory' : 'Card memory'}
                       total={24}
@@ -216,8 +339,23 @@ function Gallery() {
                       limitLabel="Limit"
                       compact={compact}
                     />
+                    <dl class="dinkster-resource-live"><div><dt>Busy</dt><dd>73%</dd></div><div><dt>Temperature</dt><dd>61 C</dd></div><div><dt>Power</dt><dd>310 W</dd></div></dl>
+                    </section>
                   )}
                 </For>
+              </Section>
+              <Section title="Loaded model actions" components="ProductButton">
+                <For each={[false, true]}>{(inUse) => (
+                  <div class="dinkster-resource-model">
+                    <span>Flux model</span><span>3.0 GB</span>
+                    <span class="dinkster-resource-model-action">
+                      <span aria-hidden="true">Unload</span>
+                      <Show when={inUse} fallback={<ProductButton intent="remove" fill="quiet" data-resource-release>Unload</ProductButton>}>
+                        <span>In use</span>
+                      </Show>
+                    </span>
+                  </div>
+                )}</For>
               </Section>
               <Section
                 title="Partial telemetry"
@@ -243,6 +381,11 @@ function Gallery() {
                 <ProductLink href="#window-toolbar">
                   Inspect responsive window toolbar
                 </ProductLink>
+                <ProductLink href="#editor-bar">
+                  Inspect the editor bar and left bar
+                </ProductLink>
+                <ProductLink href="#projects">Inspect the projects page</ProductLink>
+                <ProductLink href="#templates">Inspect the templates page</ProductLink>
                 <For each={['win32', 'linux', 'darwin'] as const}>
                   {(platform) => {
                     const [error, setError] = createSignal(true)
@@ -308,6 +451,35 @@ function Gallery() {
             </Match>
             <Match when={route() === '#canvas'}>
               <CanvasGallery />
+            </Match>
+            <Match when={route() === '#canvas-chrome'}>
+              <Section title="Canvas corner, view bar and Run" components="CanvasCornerControls, CanvasViewControls, WorkflowQueueControl">
+                <CanvasChromeGallery />
+              </Section>
+            </Match>
+            <Match when={route() === '#engine-states'}>
+              <Section title="Engine states" components="EngineRunControl, WorkflowQueueControl">
+                <EngineStatesGallery />
+              </Section>
+            </Match>
+            <Match when={route() === '#search'}>
+              <SearchGallery />
+            </Match>
+            <Match when={route() === '#node-search'}>
+              <NodeSearchGallery />
+            </Match>
+            <Match when={route() === '#models'}>
+              <ModelsGallery />
+            </Match>
+            <Match when={route() === '#run-controls'}>
+              <Section title="Run controls" components="RunActivityControl, WorkflowQueueControl, RunRow, RunSection, ProductCancelButton">
+                <RunControlsGallery />
+              </Section>
+            </Match>
+            <Match when={route() === '#context-menus'}>
+              <Section title="Context menus" components="ContextMenu">
+                <ContextMenuGallery />
+              </Section>
             </Match>
             <Match when={route() === '#controls'}>
               <Section
@@ -670,6 +842,43 @@ function Gallery() {
               </ProductForm>
             </Match>
             <Match when={route() === '#lists'}>
+              <Section title="Grouped expandable rows" components="ProductList, ProductListRow, ProductFacts, ProductMenu">
+                <ProductList label="Backend servers" variant="grouped">
+                  <ProductListRow
+                    title="This computer"
+                    trailing="Dinkster, 70 node types"
+                    expanded={serverOpen()}
+                    onToggle={setServerOpen}
+                    action={<ProductMenu label="Server actions" icon={Ellipsis} iconOnly fill="quiet" items={[{ label: 'Change access token', onSelect: () => complete('Change access token chosen') }]} />}
+                  >
+                    <ProductFacts label="This computer" items={[{ label: 'Address', value: 'This computer' }, { label: 'Engine', value: 'Running' }]} />
+                    <ProductTextButton label="Restart engine" onClick={() => complete('Restart engine chosen')} />
+                  </ProductListRow>
+                  <ProductListRow title="Studio" trailing="Not connected" />
+                </ProductList>
+              </Section>
+              <Section title="Plain navigation rows" components="ProductList, ProductListRow">
+                <ProductList label="Asset folders" variant="plain">
+                  <ProductListRow title="Renders" description={<code>/home/name/Portraits/renders</code>} trailing="24 files" onActivate={() => complete('Renders opened')} />
+                </ProductList>
+              </Section>
+              <Section title="Rows with progress" components="ProductList, ProductListRow, ProductProgress">
+                <ProductList label="Model downloads" variant="plain">
+                  <ProductListRow title="Studio checkpoint" description="Checkpoint" trailing="42%" expanded={progressOpen()} onToggle={setProgressOpen}
+                    status={<ProductProgress label="Downloading Studio checkpoint" value={0.42} />}>
+                    <p class="dinkster-metadata">Download continues when details are closed.</p>
+                  </ProductListRow>
+                  <ProductListRow title="Pending checkpoint" description="Checkpoint, not downloaded"
+                    action={<ProductTextButton icon={Download} label="7.1 GB" aria-label="Download Pending checkpoint, 7.1 GB" intent="add" onClick={() => complete('Checkpoint download chosen')} />} />
+                </ProductList>
+              </Section>
+              <Section title="Selectable rows" components="ProductList, ProductListRow, ProductTextButton">
+                <ProductTextButton label="Focus version" onClick={() => versionButton?.focus()} />
+                <ProductList label="Model versions" variant="plain">
+                  <ProductListRow title="Studio checkpoint fp16" ref={(element) => { versionButton = element }} tabIndex={-1}
+                    pressed={versionSelected()} onActivate={() => setVersionSelected(!versionSelected())} />
+                </ProductList>
+              </Section>
               <Section title="Storage folders" components="ProductDisclosure, ProductMenu">
                 <div class="storage-folders">
                   <div class="storage-group-heading"><h3>Models</h3><ProductButton intent="add" onClick={() => complete('Add models folder chosen')}>Add</ProductButton></div>
@@ -729,6 +938,36 @@ function Gallery() {
                     }
                   />
                 </ProductList>
+              </Section>
+              <Section
+                title="Rows to pick from"
+                components=".dinkster-list-rows, .dinkster-list-row"
+              >
+                <ul class="dinkster-list-rows" aria-label="Recent workflows">
+                  <li class="dinkster-list-row">
+                    <span class="dinkster-list-row-name">Portrait upscale</span>
+                    <span class="dinkster-list-row-detail">Edited 2 hours ago</span>
+                  </li>
+                  <li class="dinkster-list-row" aria-current="true">
+                    <span class="dinkster-list-row-name">Product shots, studio light</span>
+                    <span class="dinkster-list-row-detail">Open now</span>
+                  </li>
+                  <li class="dinkster-list-row" data-state="opening">
+                    <span class="dinkster-list-row-name">Landscape batch</span>
+                    <span class="dinkster-list-row-detail">Opening...</span>
+                  </li>
+                  <li class="dinkster-list-row" data-state="failed">
+                    <span class="dinkster-list-row-name">Old inpainting setup</span>
+                    <span class="dinkster-list-row-detail">
+                      <ProductIcon icon={TriangleAlert} />
+                      Could not open: a node pack is missing
+                    </span>
+                  </li>
+                  <li class="dinkster-list-row">
+                    <span class="dinkster-list-row-name">A workflow with a much longer name that wraps onto a second line in a narrow panel</span>
+                    <span class="dinkster-list-row-detail">Edited yesterday</span>
+                  </li>
+                </ul>
               </Section>
               <Section title="Table" components="ProductTable">
                 <ProductTable
@@ -830,6 +1069,15 @@ function Gallery() {
                     name="Alex Morgan"
                     email="alex@example.test"
                     onSignOut={() => complete('Signed out')}
+                  />
+                  <ProductMenu
+                    label={`Type: ${quietType().toLowerCase()}`}
+                    fill="quiet"
+                    items={['Any type', 'Image', 'String'].map((type) => ({
+                      label: type,
+                      checked: type === quietType(),
+                      onSelect: () => setQuietType(type),
+                    }))}
                   />
                 </div>
               </Section>
@@ -982,6 +1230,9 @@ function Gallery() {
                 <ProductButton intent="remove" onClick={() => setDialog(true)}>
                   Review removal
                 </ProductButton>
+                <ProductButton onClick={() => setWideDialog(true)}>
+                  Open wide dialog
+                </ProductButton>
               </Section>
               <Section
                 title="Replaced built-in text"
@@ -1000,7 +1251,7 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <Show when={route() !== '#canvas'}>
+        <Show when={route() !== '#canvas' && route() !== '#page-loading' && route() !== '#project-loading'}>
           <p class="dinkster-metadata" role="status">
             {activity()}
           </p>
@@ -1032,6 +1283,18 @@ function Gallery() {
           />
         </ProductDialog>
       </Show>
+      <Show when={wideDialog()}>
+        <ProductDialog
+          title="Diagnostics"
+          size="wide"
+          onDismiss={() => setWideDialog(false)}
+        >
+          <ProductCodeBlock
+            label="Output"
+            value="Startup complete. All services are available and ready to accept requests."
+          />
+        </ProductDialog>
+      </Show>
     </ProductShell>
   )
 }
@@ -1055,6 +1318,15 @@ function WindowToolbarGallery() {
   const [brand, setBrand] = createSignal('menu')
   const [projectName, setProjectName] = createSignal('Sample project')
   const [account, setAccount] = createSignal('none')
+  const [rightAttention, setRightAttention] = createSignal('none')
+  const rightPanelAttention = (): ProductAttention | undefined =>
+    rightAttention() === 'info'
+      ? { count: 1, tone: 'info', label: '1 message' }
+      : rightAttention() === 'warning'
+        ? { count: 2, tone: 'warning', label: '2 warnings' }
+        : rightAttention() === 'problem'
+          ? { count: 3, tone: 'problem', label: '3 problems' }
+          : undefined
   const [visible, setVisible] = createSignal<Record<string, boolean>>({
     'Left panel': true,
     'Bottom panel': false,
@@ -1081,6 +1353,28 @@ function WindowToolbarGallery() {
         <ProductLink href="#desktop-about">
           Back to Desktop information
         </ProductLink>
+        <ProductSection title="Shortcut keys">
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Compact</span>
+            <div class="dinkster-search-row-keys">
+              <ProductShortcut keys="Ctrl+Shift+O" />
+              <ProductShortcut keys="Cmd+," />
+              <ProductShortcut keys={['Alt', '+']} />
+            </div>
+          </div>
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Settings</span>
+            <ProductShortcut keys="Ctrl+Shift+O" size="settings" />
+          </div>
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Two presses in sequence</span>
+            <div class="dinkster-search-row-keys">
+              <ProductShortcut keys="Ctrl+K" />
+              <ProductShortcut keys="Ctrl+C" />
+            </div>
+          </div>
+          <p class="dinkster-description"><ProductShortcutText text="Pan moves the canvas; `Ctrl+wheel` zooms. `Cmd+,` opens settings." /></p>
+        </ProductSection>
         <ProductField label="Execution state">
           {(attributes) => (
             <ProductSelect
@@ -1151,6 +1445,20 @@ function WindowToolbarGallery() {
             </ProductSelect>
           )}
         </ProductField>
+        <ProductField label="Right panel attention">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={rightAttention()}
+              onChange={(event) => setRightAttention(event.currentTarget.value)}
+            >
+              <option value="none">None</option>
+              <option value="info">One message</option>
+              <option value="warning">Two warnings</option>
+              <option value="problem">Three problems</option>
+            </ProductSelect>
+          )}
+        </ProductField>
         <ProductField label="Search shortcut">
           {(attributes) => (
             <ProductSelect
@@ -1158,8 +1466,8 @@ function WindowToolbarGallery() {
               value={shortcut()}
               onChange={(event) => setShortcut(event.currentTarget.value)}
             >
-              <option value="Ctrl+K">Ctrl+K</option>
-              <option value="Alt+K">Alt+K</option>
+              <option value="Ctrl+K">Default binding</option>
+              <option value="Alt+K">Alternate binding</option>
               <option value="">No shortcut</option>
             </ProductSelect>
           )}
@@ -1238,36 +1546,49 @@ function WindowToolbarGallery() {
                         </Show>
                       }
                       brand={
-                        <Show
-                          when={brand() === 'wordmark'}
-                          fallback={
-                            <ProductMenu
-                              label="Dinkster"
-                              triggerName="Dinkster menu"
-                              icon={() => <ProductBrandMark />}
-                              items={[
-                                {
-                                  label: 'Projects',
-                                  onSelect: () =>
-                                    setActivity('Projects opened'),
-                                },
-                              ]}
-                            />
-                          }
-                        >
-                          <ProductWindowAction
-                            label="Dinkster menu"
-                            labelContent={
-                              <>
-                                <ProductBrandMark />
-                                <ProductIcon icon={ChevronDown} />
-                              </>
+                        <>
+                          <Show
+                            when={brand() === 'wordmark'}
+                            fallback={
+                              <ProductMenu
+                                label="Dinkster"
+                                triggerName="Dinkster menu"
+                                icon={() => <ProductBrandMark />}
+                                iconOnly
+                                items={[
+                                  {
+                                    label: 'Projects',
+                                    onSelect: () =>
+                                      setActivity('Projects opened'),
+                                  },
+                                ]}
+                              />
                             }
-                            icon={() => <ProductBrandMark />}
-                            pending={state() === 'pending'}
-                            onClick={() => setActivity('Dinkster opened')}
+                          >
+                            <ProductWindowAction
+                              label="Dinkster menu"
+                              labelContent={<ProductBrandMark />}
+                              icon={() => <ProductBrandMark />}
+                              pending={state() === 'pending'}
+                              onClick={() => setActivity('Dinkster opened')}
+                            />
+                          </Show>
+                          <ProductProjectMenu
+                            name={projectName()}
+                            projects={[
+                              { id: 'teapot', name: 'Teapot product shots' },
+                              { id: 'valley', name: 'Valley matte paintings' },
+                            ]}
+                            onSwitch={() => setActivity('Project switched')}
+                            onOpenWindow={() =>
+                              setActivity('Project opened in a window')
+                            }
+                            onAllProjects={() => setActivity('Projects opened')}
+                            onNewProject={() =>
+                              setActivity('New project opened')
+                            }
                           />
-                        </Show>
+                        </>
                       }
                       search={
                         <ProductWindowAction
@@ -1279,15 +1600,34 @@ function WindowToolbarGallery() {
                       }
                       actions={(narrow) => (
                         <>
-                          <Show when={runCounts().running > 0}>
-                            <ProductRunActivity
-                              {...runCounts()}
-                              label={runSummary()}
-                            />
+                          <Show when={runCounts().running > 0 || state() !== 'idle'}>
+                            <span class="run-activity-control">
+                              <Show when={runCounts().running > 0}>
+                                <ProductRunActivity
+                                  {...runCounts()}
+                                  label={runSummary()}
+                                />
+                              </Show>
+                              <Show when={state() !== 'idle'}>
+                                <ProductCancelButton
+                                  label="Cancel Long run"
+                                  pending={state() === 'pending'}
+                                  onClick={() => setActivity('Run cancelled')}
+                                />
+                              </Show>
+                            </span>
                           </Show>
+                          <ProductIconButton
+                            label="Collaboration"
+                            icon={Users}
+                            onClick={() => setActivity('Collaboration opened')}
+                          />
                           <ProductMenu
                             label="Customize layout"
-                            icon={Settings}
+                            icon={SlidersHorizontal}
+                            attention={
+                              narrow() ? rightPanelAttention() : undefined
+                            }
                             items={[
                               ...[
                                 ...(narrow()
@@ -1298,6 +1638,10 @@ function WindowToolbarGallery() {
                               ].map((label) => ({
                                 label,
                                 checked: visible()[label]!,
+                                attention:
+                                  label === 'Right panel'
+                                    ? rightPanelAttention()
+                                    : undefined,
                                 onSelect: () => toggle(label),
                               })),
                               {
@@ -1327,33 +1671,6 @@ function WindowToolbarGallery() {
                               )}
                             </For>
                           </Show>
-                          <Show when={state() !== 'idle'}>
-                            <ProductWindowAction
-                              label="Cancel run"
-                              icon={Square}
-                              intent="remove"
-                              pending={state() === 'pending'}
-                              onClick={() => setActivity('Run cancelled')}
-                            />
-                          </Show>
-                          <ProductWindowAction
-                            label={projectName()}
-                            labelContent={
-                              <span class="dinkster-window-project-label">
-                                <ProductIcon icon={FolderOpen} />
-                                <span class="dinkster-window-project-name">
-                                  {projectName()}
-                                </span>
-                              </span>
-                            }
-                            icon={FolderOpen}
-                            onClick={() => setActivity('Projects opened')}
-                          />
-                          <ProductIconButton
-                            label="Collaboration"
-                            icon={Users}
-                            onClick={() => setActivity('Collaboration opened')}
-                          />
                         </>
                       )}
                     />
@@ -1373,11 +1690,13 @@ function GalleryRoot() {
   const [narrow, setNarrow] = createSignal(narrowQuery.matches)
   // The site pages use the site form throughout. The gallery uses the Canvas
   // page's frame, except that below the breakpoint its other pages keep the
-  // site form's narrow frame; their content always uses the site form.
+  // site form's narrow frame. Their content uses the site form, except the
+  // Canvas and canvas chrome pages, which show app controls at the app's size.
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : route() !== '#canvas' && route() !== '#window-toolbar' && narrow()
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs', '#models'].includes(route()) &&
+          narrow()
         ? 'site'
         : 'app'
   })
@@ -1395,9 +1714,23 @@ function GalleryRoot() {
     <Show
       when={route().startsWith('#site-')}
       fallback={
-        <Show when={route() === '#window-toolbar'} fallback={<Gallery />}>
-          <WindowToolbarGallery />
-        </Show>
+        <Switch fallback={<Gallery />}>
+          <Match when={route() === '#window-toolbar'}>
+            <WindowToolbarGallery />
+          </Match>
+          <Match when={route() === '#editor-bar'}>
+            <EditorBarGallery />
+          </Match>
+          <Match when={route() === '#projects'}>
+            <ProjectsGallery />
+          </Match>
+          <Match when={route() === '#templates'}>
+            <TemplatesGallery />
+          </Match>
+          <Match when={route() === '#page-tabs'}>
+            <PageTabsGallery />
+          </Match>
+        </Switch>
       }
     >
       <SiteGallery

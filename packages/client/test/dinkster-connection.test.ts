@@ -439,6 +439,56 @@ describe('model download planning and owned jobs', () => {
   }
   const active = { ...selected, jobId: 'owned / job', status: 'downloading', received: 307 }
 
+  it('reads ordered model presence in bounded project-local batches without planning', async () => {
+    const requested = Array.from({ length: 257 }, (_, index) => ({ name: `model-${index}.safetensors`, kind: 'model/vae' }))
+    const statuses = [
+      { status: 'local' }, { status: 'model-hidden' },
+      { status: 'folder-disabled', disabledLocations: ['studio', 'archive'] },
+      { status: 'duplicate' }, { status: 'missing', plannable: true },
+      { status: 'missing', plannable: false },
+    ]
+    const responses = requested.map((requirement, index) => ({ ...requirement, ...statuses[index % statuses.length] }))
+    const batches: unknown[] = []
+    let offset = 0
+    const controller = new AbortController()
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test', project: 'studio',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        expect(url).toBe('/engine/api/models/presence')
+        expect(init?.method).toBe('POST')
+        expect(init?.signal).toBe(controller.signal)
+        expect(init?.cache).toBe('no-store')
+        const body = JSON.parse(String(init?.body)) as { models: unknown[] }
+        batches.push(body)
+        const rows = responses.slice(offset, offset + body.models.length)
+        offset += body.models.length
+        return jsonResponse(200, { models: rows })
+      } })
+    expect(await connection.checkModelPresence(requested, controller.signal)).toEqual(responses)
+    expect(batches).toEqual([
+      { project: 'studio', scope: 'local', models: requested.slice(0, 256) },
+      { project: 'studio', scope: 'local', models: requested.slice(256) },
+    ])
+    expect(await connection.checkModelPresence([])).toEqual([])
+    expect(batches).toHaveLength(2)
+  })
+
+  it('rejects incomplete, mismatched and malformed presence rather than inventing a missing model', async () => {
+    const requirement = { name: 'missing.safetensors', kind: 'model/checkpoint' }
+    let payload: unknown
+    let status = 200
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(status, payload) })
+    for (payload of [null, { models: [] }, { models: [{ ...requirement, name: 'other', status: 'local' }] },
+      { models: [{ ...requirement, kind: 'model/vae', status: 'local' }] },
+      { models: [{ ...requirement, status: 'missing' }] },
+      { models: [{ ...requirement, status: 'folder-disabled', disabledLocations: [3] }] },
+      { models: [{ ...requirement, status: 'consent-required' }] }]) {
+      await expect(connection.checkModelPresence([requirement])).rejects.toThrow()
+    }
+    status = 403
+    await expect(connection.checkModelPresence([requirement])).rejects.toThrow('POST /api/models/presence failed: 403')
+  })
+
   it('keeps immutable planning separate from explicit consent and recovers existing jobs without starting them', async () => {
     const calls: { url: string; method: string; body: unknown }[] = []
     let payload: unknown = { ...selected, status: 'consent-required', planId: 'opaque-plan' }
@@ -494,6 +544,7 @@ describe('model download planning and owned jobs', () => {
 
   it.each([
     { status: 'local', name: selected.name, kind: selected.kind },
+    { status: 'duplicate' },
     { status: 'destination-required' },
     { status: 'folder-disabled', disabledLocations: ['studio'], detail: 'Folder not enabled for this project' },
     { status: 'picker-required', sources: ['https://huggingface.co/first', 'https://huggingface.co/second'] },
@@ -2520,12 +2571,14 @@ describe('reconcileDinksterExecutions', () => {
     const outputs = { save: { images: {
       typeId: 'IMAGE', fingerprint: 'saved-image', meta: { shape: [2, 48, 64, 3] },
     } } }
-    Object.assign(job, { state: 'completed', outputs, artifacts: [] })
+    Object.assign(job, { state: 'completed', outputs, artifacts: [],
+      automaticValues: [{ nodeId: 'save', inputId: 'fps', value: 24, source: 'default' }] })
     conn.ingest({ type: 'job_state', jobId: 'j1', state: 'completed' })
     expect(store.get(ref('j1'))!.status).toBe('completed')
     await hydrateDinksterCompletedExecution(conn, store, ref('j1'))
     expect(store.get(ref('j1'))!.outputs).toEqual(outputs)
     expect(store.get(ref('j1'))!.artifactsHydrated).toBe(true)
+    expect(store.get(ref('j1'))!.automaticValues).toEqual([{ runtimeNodeId: 'save', inputId: 'fps', value: 24, workedOut: false }])
   })
 
   it('completes a run whose terminal event was missed, hydrating output descriptors', async () => {
@@ -2545,6 +2598,10 @@ describe('reconcileDinksterExecutions', () => {
         outputs,
         artifacts,
         submittedBy: { principalId: 'queue-agent', kind: 'agent' },
+        automaticValues: [
+          { nodeId: 'n1', inputId: 'b', value: 24, source: 'default', reason: 'lookup-timeout' },
+          { nodeId: 'n1', inputId: 'a', value: 3, source: 'worked-out' },
+        ],
       },
     })
     seedRunning('j1')
@@ -2555,6 +2612,10 @@ describe('reconcileDinksterExecutions', () => {
     expect(state.artifacts).toEqual(artifacts)
     expect(state.artifactsHydrated).toBe(true)
     expect(state.submittedBy).toEqual({ principalId: 'queue-agent', kind: 'agent' })
+    expect(state.automaticValues).toEqual([
+      { runtimeNodeId: 'n1', inputId: 'b', value: 24, workedOut: false },
+      { runtimeNodeId: 'n1', inputId: 'a', value: 3, workedOut: true },
+    ])
   })
 
   it('hydrates a completed run when reconnect lands after run_finished but before job_state', async () => {
@@ -3385,6 +3446,19 @@ describe('workflow library wire', () => {
     await expect(conn.activeEnvironment()).rejects.toThrow('Malformed active environment')
   })
 
+  it.each([['p-film', { project: 'p-film' }], [undefined, {}]] as const)(
+    'creates a library record in the window project (%s), or leaves the project to the engine without one',
+    async (project, sent) => {
+      const record = { id: 'r1', scope: 'local', name: 'Grain', digest: `blake3:${'a'.repeat(64)}`, mediaType: 'application/x-dinkster-workflow+json',
+        labels: ['workflow'], folder: '', created: 1, modified: 1, revision: 1 }
+      const { conn, requests } = submitHarness(() => jsonResponse(201, record), project)
+      await conn.createLibraryRecord({ scope: 'local', name: 'Grain', digest: record.digest, mediaType: record.mediaType, labels: ['workflow'] })
+      expect(JSON.parse(String(requests[0]!.init?.body))).toEqual({
+        scope: 'local', name: 'Grain', digest: record.digest, mediaType: record.mediaType, labels: ['workflow'], ...sent,
+      })
+    },
+  )
+
   it.each([
     undefined,
     null,
@@ -3409,6 +3483,60 @@ describe('workflow library wire', () => {
     expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 7, patch: { name: 'Renamed' } })
     const { conn: stale } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
     await expect(stale.renameProject('p-film', 'Other', 6)).rejects.toThrow('changed elsewhere')
+  })
+
+  it('reads sanitized account choices and links or unlinks only the revision-selected local project', async () => {
+    const accountId = '48bb018e-5b17-4e68-bd81-c6412c4bcd72'
+    const issuer = 'https://identity.example.test'
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 8, deleted: false }
+    const { conn, requests } = submitHarness((_url, init) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string) as { accountProject: string | null }
+        return jsonResponse(200, { project: { ...project, accountProject: body.accountProject === null ? null : { issuer, id: accountId, privateField: 'not-public' } } })
+      }
+      return jsonResponse(200, { issuer, privateField: 'not-public', projects: [{ id: accountId, displayName: 'Film cloud', privateField: 'not-public' }, { id: 'ffffffff-ffff-4fff-bfff-ffffffffffff', displayName: null }] })
+    })
+    const controller = new AbortController()
+    expect(await conn.accountProjects(controller.signal)).toEqual({ issuer, projects: [{ id: accountId, displayName: 'Film cloud' }, { id: 'ffffffff-ffff-4fff-bfff-ffffffffffff', displayName: null }] })
+    expect(requests[0]).toEqual({ url: 'http://test/api/account/projects', init: { method: 'GET', cache: 'no-store', signal: controller.signal } })
+    expect(await conn.setProjectAccountLink('p-film', accountId, 7, controller.signal)).toEqual({ ...project, accountProject: { issuer, id: accountId } })
+    expect(requests[1]?.url).toBe('http://test/api/account/projects/p-film')
+    expect(requests[1]?.init).toEqual({ method: 'PUT', cache: 'no-store', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: 7, accountProject: accountId }) })
+    expect(await conn.setProjectAccountLink('p-film', null, 8)).toEqual({ ...project, accountProject: null })
+    expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 8, accountProject: null })
+    for (const [status, error] of [[409, 'project-changed'], [403, 'operator-required'], [503, 'account-projects-unavailable']] as const) {
+      const { conn: refused, requests: attempts } = submitHarness(() => jsonResponse(status, { error }))
+      await expect(refused.setProjectAccountLink('p-film', accountId, 7)).rejects.toThrow(error)
+      expect(attempts).toHaveLength(1)
+    }
+    const { conn: wrongProject } = submitHarness(() => jsonResponse(200, { project: { ...project, id: 'other', accountProject: null } }))
+    await expect(wrongProject.setProjectAccountLink('p-film', null, 8)).rejects.toThrow('another project')
+    for (const accountProject of [undefined, null, { issuer, id: 'ffffffff-ffff-4fff-bfff-ffffffffffff' }]) {
+      const { conn: wrongLink } = submitHarness(() => jsonResponse(200, { project: { ...project, accountProject } }))
+      await expect(wrongLink.setProjectAccountLink('p-film', accountId, 7)).rejects.toThrow('another account link')
+    }
+    const { conn: empty } = submitHarness(() => jsonResponse(200, { issuer, projects: [] }))
+    expect(await empty.accountProjects()).toEqual({ issuer, projects: [] })
+  })
+
+  it.each([
+    {}, { issuer: '', projects: [] }, { issuer: 'https://identity.test', projects: null },
+    { issuer: 'https://identity.test', projects: [{ id: 'not-a-uuid', displayName: 'Film' }] },
+    { issuer: 'https://identity.test', projects: [{ id: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', displayName: 1 }] },
+  ])('refuses malformed account choices rather than offering an invalid link', async (body) => {
+    const { conn } = submitHarness(() => jsonResponse(200, body))
+    await expect(conn.accountProjects()).rejects.toThrow('Malformed account project choices')
+  })
+
+  it.each([undefined, null, { issuer: 'https://identity.test', id: '48bb018e-5b17-4e68-bd81-c6412c4bcd72' }])('preserves explicit account links and older missing fields in project reads (%j)', async (accountProject) => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false, ...(accountProject === undefined ? {} : { accountProject }) }
+    const { conn } = submitHarness(() => jsonResponse(200, { project }))
+    expect(await conn.getProject('p-film')).toEqual(project)
+  })
+
+  it.each([[], 'not-a-link', { issuer: 'https://identity.test', id: 'bad-id' }, { issuer: '', id: '48bb018e-5b17-4e68-bd81-c6412c4bcd72' }])('rejects malformed saved account links instead of treating them as unlinked', async (accountProject) => {
+    const { conn } = submitHarness(() => jsonResponse(200, { project: { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false, accountProject } }))
+    await expect(conn.getProject('p-film')).rejects.toThrow('Malformed library project account link')
   })
 
   it('reads project needs without dropping unknown workflows and enables only the revision-reviewed project', async () => {
@@ -3647,6 +3775,17 @@ describe('persistent history wire', () => {
     const records = (await conn.listHistory({ scope: 'local' })).records
     expect(records).toEqual([interrupted])
     expect(records[0]?.error?.['phase']).toBe('running')
+  })
+
+  it('keeps a record\'s workflow name and rejects a record whose name is malformed', async () => {
+    const named = { ...run, runId: 'run-named', workflowName: 'Portrait pass' }
+    const { conn } = submitHarness(() => jsonResponse(200, { records: [
+      named, run,
+      { ...run, runId: 'run-empty-name', workflowName: '' },
+      { ...run, runId: 'run-number-name', workflowName: 42 },
+      { ...run, runId: 'run-null-name', workflowName: null },
+    ] }))
+    expect((await conn.listHistory({ scope: 'local' })).records).toEqual([named, run])
   })
 
   it('keeps valid image/video thumbnails and omits malformed optional media without losing history', async () => {

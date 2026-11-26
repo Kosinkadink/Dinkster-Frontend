@@ -100,7 +100,7 @@ test('creates an empty subgraph from universal search and drills into it', async
   const rootControlsY = (await page.getByTestId('views-switcher').boundingBox())!.y
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('> Create empty subgraph')
-  await page.locator('[data-provider="core.commands"] [data-testid="search-result-row"]', { hasText: 'Create empty subgraph' }).click()
+  await page.locator('[data-group="core.commands"] [role="option"]', { hasText: 'Create empty subgraph' }).click()
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   const drilledControls = (await page.getByTestId('views-switcher').boundingBox())!
   const breadcrumb = (await page.getByTestId('graph-breadcrumb').boundingBox())!
@@ -164,7 +164,7 @@ test('previews and removes root-unreachable subgraph definitions', async ({ page
 
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('> Manage subgraph definitions')
-  await page.locator('[data-provider="core.commands"] [data-testid="search-result-row"]', { hasText: 'Manage subgraph definitions' }).click()
+  await page.locator('[data-group="core.commands"] [role="option"]', { hasText: 'Manage subgraph definitions' }).click()
   const dialog = page.locator('[data-modal="subgraph-definitions"]')
   await expect(dialog).toBeVisible()
   const unused = page.getByTestId('unused-subgraph-list')
@@ -270,7 +270,7 @@ test('previews and removes root-unreachable subgraph definitions', async ({ page
 
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('> Manage subgraph definitions')
-  await page.locator('[data-provider="core.commands"] [data-testid="search-result-row"]', { hasText: 'Manage subgraph definitions' }).click()
+  await page.locator('[data-group="core.commands"] [role="option"]', { hasText: 'Manage subgraph definitions' }).click()
   const emptyDialog = page.locator('[data-modal="subgraph-definitions"]')
   await expect(emptyDialog.locator('[data-state="empty"] strong')).toHaveText('No unused definitions')
   await expect(emptyDialog).toContainText('Every subgraph definition is reachable')
@@ -291,7 +291,7 @@ test('extract commits immediately with deterministic collision-safe names and un
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'SubgraphLifecycleE2E', displayName: 'Subgraph Lifecycle', category: 'test', source: 'v3', isOutputNode: false,
-      items: [],
+      body: [],
     }])
     await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'subgraph-lifecycle-e2e', root: 'root',
@@ -346,14 +346,14 @@ test('extracts an Int widget-output fan-out and flattens it back to exact taps',
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'LifecycleInt', displayName: 'Int', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'value', displayName: 'Value',
         type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 0 },
       }],
     }, {
       type: 'LifecycleMathExpression', displayName: 'Math Expression', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'a', displayName: 'A', type: { kind: 'concrete', name: 'INT' }, optional: false },
         { kind: 'input', id: 'b', displayName: 'B', type: { kind: 'concrete', name: 'INT' }, optional: false },
       ],
@@ -396,18 +396,18 @@ test('extracts an Int widget-output fan-out and flattens it back to exact taps',
     const occurrence = Object.values(root.nodes).find((node) => node.type.startsWith('#'))!
     const body = tab.store.doc.graphs[occurrence.type.slice(1)]! as unknown as {
       nodes: Record<string, unknown>
-      boundary?: { outputs: readonly unknown[] }
+      boundary?: { body: readonly { kind: string }[] }
     }
     return {
       occurrence: occurrence.id,
       bodyNodes: Object.keys(body.nodes),
-      outputs: body.boundary?.outputs,
+      outputs: body.boundary?.body.filter((entry) => entry.kind === 'output'),
       links: root.links,
     }
   })
   expect(extracted.bodyNodes).toHaveLength(1)
   expect(extracted.outputs).toEqual([{
-    id: 'value', binds: { kind: 'widgetTap', node: extracted.bodyNodes[0], tap: 'value' },
+    kind: 'output', id: 'value', binds: { kind: 'widgetTap', node: extracted.bodyNodes[0], tap: 'value' },
   }])
   expect(extracted.links).toEqual({
     firstTap: { id: 'firstTap', from: { node: extracted.occurrence, port: 'value' }, to: { node: 'first', port: 'a' } },
@@ -562,6 +562,53 @@ test('opens a subgraph from the selection toolbar and from the node menu', async
   await expect(breadcrumbButtons).toHaveCount(2)
 })
 
+const subgraphToolboxButtons = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getToolboxLayout()!.buttons
+  .filter((entry) => ['core.openSubgraph', 'core.extractSubgraph', 'core.flattenSubgraph'].includes(entry.button.id))
+  .map((entry) => ({ id: entry.button.id, icon: entry.button.icon, label: entry.button.label, disabled: entry.button.disabled === true })))
+
+const graphCount = (page: Page) => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs).length)
+
+test('the toolbox draws create for several nodes and open and flatten for one subgraph node, the menu offers flatten only for one subgraph node, and the menu and shortcut create from one node', async ({ page }) => {
+  await ready(page)
+  const before = await graphCount(page)
+  await selectNode(page, 0)
+  await expect.poll(() => subgraphToolboxButtons(page)).toEqual([])
+
+  const point = await nodePoint(page, 0)
+  await page.mouse.click(point.x, point.y, { button: 'right' })
+  const create = page.locator('[data-item-id="core.subgraph.extract"]')
+  await expect(create).toContainText('Create subgraph')
+  await expect(create.locator('[data-testid="menu-icon"] svg')).toBeVisible()
+  await expect(page.locator('[data-item-id="core.subgraph.flatten"]')).toHaveCount(0)
+  await create.click()
+  await expect.poll(() => graphCount(page)).toBe(before + 1)
+  await expect.poll(() => subgraphToolboxButtons(page)).toEqual([
+    { id: 'core.openSubgraph', icon: 'group', label: 'Open subgraph', disabled: false },
+    { id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph', disabled: false },
+  ])
+  const occurrence = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.findIndex((node) => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    return tab.store.doc.graphs[tab.store.doc.root]!.nodes[node.id]!.type.startsWith('#')
+  }))
+  const occurrencePoint = await nodePoint(page, occurrence)
+  await page.mouse.click(occurrencePoint.x, occurrencePoint.y, { button: 'right' })
+  await expect(page.locator('[data-item-id="core.subgraph.flatten"]')).toHaveAttribute('aria-disabled', 'false')
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Control+Z')
+  await expect.poll(() => graphCount(page)).toBe(before)
+
+  await selectNode(page, 0)
+  await extractSelected(page)
+  await page.keyboard.press('Control+Z')
+  await expect.poll(() => graphCount(page)).toBe(before)
+
+  await selectNode(page, 0)
+  await selectNode(page, 1, ['Control'])
+  await expect.poll(() => subgraphToolboxButtons(page)).toEqual([
+    { id: 'core.extractSubgraph', icon: 'subgraph', label: 'Create subgraph', disabled: false },
+  ])
+})
+
 test('flatten is one undoable and redoable operation', async ({ page }) => {
   await ready(page)
   await selectNode(page)
@@ -585,7 +632,7 @@ test('region occurrence flatten refusal is displayed with its code and anchor', 
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'RegionLifecycleE2E', displayName: 'Region lifecycle', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'item', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
         { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'FLOAT' }, list: false },
       ],
@@ -610,10 +657,12 @@ test('region occurrence flatten refusal is displayed with its code and anchor', 
             id: 'regionBody',
             name: 'Region Body',
             nodes: { n0: { id: 'n0', type: template.type, values: {} } },
-            links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
+            links: {}, nets: {}, reroutes: {},
             boundary: {
-              inputs: [{ id: 'item', binds: { kind: 'port', node: 'n0', port: 'item' } }],
-              outputs: [{ id: 'result', binds: { kind: 'port', node: 'n0', port: 'result' } }],
+              body: [
+                { kind: 'input', id: 'item', binds: { kind: 'port', node: 'n0', port: 'item' } },
+                { kind: 'output', id: 'result', binds: { kind: 'port', node: 'n0', port: 'result' } },
+              ],
             },
             nextOrdinal: 1,
           },

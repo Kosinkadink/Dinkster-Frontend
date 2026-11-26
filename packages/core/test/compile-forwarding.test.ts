@@ -3,7 +3,7 @@
  *
  * Contract under test: a subgraph boundary item forwards one inner input or
  * output by its flattened id (a static port or one member of a group), per
- * occurrence; chained boundaries, promoted values, reroutes, value sources,
+ * occurrence; chained boundaries, promoted values, reroutes, primitives,
  * bypassed shells and partial execution compose through it. Every test
  * asserts EXACT prompt wiring or output indexes, not just `ok`.
  */
@@ -11,10 +11,12 @@ import { describe, expect, it } from 'vitest'
 import type { ExecutionScope } from '../src/compile/artifact.js'
 import { compile, documentResolver, type CompileInput } from '../src/compile/compile.js'
 import { definitionPick, occurrenceDynamicView } from '../src/compile/occurrence-view.js'
-import { elaborateInterface } from '../src/schema/elaborate.js'
-import type { WorkflowDocument } from '../src/format/document.js'
+import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
+import { boundaryOf } from '../src/format/document.js'
+import type { BoundaryItem, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
+import { withPrimitives } from './fixtures/primitive-schemas.js'
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -63,16 +65,15 @@ const schemas: Record<string, NodeSchema> = {
   Split: schemaOf('Split', [input('src', { optional: true }), group('outs', 'o', output('o')), output('last')]),
   FallbackRelay: schemaOf('FallbackRelay', [input('fallback', { optional: true }), output('out')]),
 }
-const resolve = (type: string) => schemas[type]
+const resolve = withPrimitives((type: string) => schemas[type])
 
 // ---------------------------------------------------------------------------
-// Document builder (subgraph links, reroutes, value sources, nets)
+// Document builder (subgraph links, reroutes, nets)
 // ---------------------------------------------------------------------------
 
 type End =
   | [node: string, port: string]
   | { reroute: string }
-  | { valueSource: string }
   | { node: string; tap: string }
 type NodeSpec = {
   type: string
@@ -84,7 +85,6 @@ type GraphSpec = {
   nodes: Record<string, NodeSpec>
   links?: [from: End, to: End][]
   reroutes?: string[]
-  valueSources?: Record<string, unknown>
   nets?: Record<string, { source: End; sinks: End[] }>
   boundary?: { inputs?: unknown[]; outputs?: unknown[] }
 }
@@ -120,15 +120,8 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
         ]),
       ),
       reroutes: Object.fromEntries((g.reroutes ?? []).map((r) => [r, { id: r }])),
-      ...(g.valueSources
-        ? {
-            valueSources: Object.fromEntries(
-              Object.entries(g.valueSources).map(([vid, value]) => [vid, { id: vid, value }]),
-            ),
-          }
-        : {}),
       nextOrdinal: 100,
-      ...(g.boundary ? { boundary: { inputs: g.boundary.inputs ?? [], outputs: g.boundary.outputs ?? [] } } : {}),
+      ...(g.boundary ? { boundary: boundaryOf((g.boundary.inputs ?? []) as BoundaryItem[], (g.boundary.outputs ?? []) as BoundaryItem[]) } : {}),
     }
   }
   return {
@@ -350,20 +343,19 @@ describe('failure safety', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Mixed integration: reroutes + value sources + forwarding + partial
+// Mixed integration: reroutes + primitives + forwarding + partial
 // execution composed in single documents.
 // ---------------------------------------------------------------------------
 
 describe('mixed integration', () => {
-  it('value source -> reroute chain -> a forwarded group member (baked, beats the member default)', () => {
+  it('primitive -> reroute chain -> a forwarded group member (baked, beats the member default)', () => {
     const prompt = okPrompt(
       docOf({
         g0: {
-          nodes: { s: { type: '#sub' } },
+          nodes: { s: { type: '#sub' }, p: { type: 'dinkster.utilities.primitive_float', values: { value: 0.75 } } },
           reroutes: ['r0', 'r1'],
-          valueSources: { v0: 0.75 },
           links: [
-            [{ valueSource: 'v0' }, { reroute: 'r0' }],
+            [['p', 'value'], { reroute: 'r0' }],
             [{ reroute: 'r0' }, { reroute: 'r1' }],
             [{ reroute: 'r1' }, ['s', 'w']],
           ],
@@ -621,11 +613,14 @@ describe('whole constructs shown on a subgraph node', () => {
     expect(prompt['first.d.n']!.slotVariants).toEqual({ src: 'mask' })
     // Nothing stored outside: the middle definition's value is used.
     expect(prompt['second.d.n']!.inputs).toEqual({ src: ['b', 0], 'src.sharpen': 3 })
-    expect(prompt['second.d.n']!.slotVariants).toEqual({ src: 'image' })    // A subgraph node that stores no variant shows, and runs, the one its definition picks.
+    expect(prompt['second.d.n']!.slotVariants).toEqual({ src: 'image' })
+    // A disconnected instance keeps its definition's pick without sending it.
     const third = { ...doc, graphs: { ...doc.graphs, g0: { ...doc.graphs.g0!, links: {}, nodes: { third: { id: asNodeId('third'), type: '#outer', values: {} } } } } }
     const shown = documentResolver(third, (type) => constructSchemas[type])('#outer')!
-    expect(elaborateInterface(shown, { values: {} }).choices).toEqual({ pick: 'image' })
-    expect(okConstructPrompt(third)['third.d.n']!.slotVariants).toEqual({ src: 'image' })
+    const disconnected = elaborateInterface(shown, { values: {} })
+    expect(elabInputsOf(disconnected).find((input) => input.address.port === 'pick')?.origin).toMatchObject({ selected: 'image' })
+    expect(disconnected.choices).toBeUndefined()
+    expect(okConstructPrompt(third)['third.d.n']!.slotVariants).toBeUndefined()
   })
 
   it('a whole described row keeps each instance\'s description and values through two boundaries', () => {

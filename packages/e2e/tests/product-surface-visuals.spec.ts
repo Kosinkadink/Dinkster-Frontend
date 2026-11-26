@@ -1,4 +1,4 @@
-import { expect, nativeAppViewTest as test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, subgraphMarkPoint, waitForWorkspaceReady, type Page, chooseRunScope } from './fixtures.js'
 import type { Route } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
@@ -54,6 +54,29 @@ for (const theme of ['dark', 'light'] as const) {
       const id = await inactive.getAttribute('data-tab-id')
       await inactive.click()
       await expect(panel.locator(`[data-tab-id="${id}"]`)).toHaveAttribute('aria-selected', 'true')
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      const focused = panel.locator(`[data-tab-id="${id}"]`)
+      await expect(focused).toBeFocused()
+      expect(await focused.evaluate((element) => element.matches(':focus-visible'))).toBe(true)
+      const clipped = await focused.evaluate((element) => {
+        const bounds = element.getBoundingClientRect()
+        const style = getComputedStyle(element)
+        const extent = Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset)
+        const failures: string[] = []
+        for (let ancestor = element.parentElement; ancestor !== null; ancestor = ancestor.parentElement) {
+          const clip = getComputedStyle(ancestor)
+          const box = ancestor.getBoundingClientRect()
+          const left = box.left + ancestor.clientLeft
+          const top = box.top + ancestor.clientTop
+          if (/hidden|clip|auto|scroll/.test(clip.overflowX) &&
+              (bounds.left - extent < left || bounds.right + extent > left + ancestor.clientWidth)) failures.push(`${ancestor.className}: horizontal`)
+          if (/hidden|clip|auto|scroll/.test(clip.overflowY) &&
+              (bounds.top - extent < top || bounds.bottom + extent > top + ancestor.clientHeight)) failures.push(`${ancestor.className}: vertical`)
+        }
+        return failures
+      })
+      expect(clipped).toEqual([])
       await panel.locator(`[data-tab-id="${id}"]`).blur()
       await page.mouse.move(600, 400)
       await expect(page.getByTestId('app-tooltip')).toBeHidden()
@@ -76,6 +99,20 @@ const closeGallery = async (page: Page): Promise<void> => {
 }
 
 for (const theme of ['dark', 'light'] as const) {
+  test(`a load starts on the saved ${theme} theme's frame colour before any script`, async ({ page }) => {
+    await page.addInitScript((selected) => {
+      localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
+    }, theme)
+    await page.route(/\.(js|css)(\?.*)?$/, (route) => route.abort())
+    const frame = theme === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)'
+    const other = theme === 'dark' ? 'light' : 'dark'
+    await page.goto('/')
+    await expect(page.locator('body')).toHaveCSS('background-color', frame)
+    // A page that sends the browser here names the theme on screen, over the saved one.
+    await page.goto(`/?dinksterTheme=${other}`)
+    await expect(page.locator('body')).toHaveCSS('background-color', other === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)')
+  })
+
   test(`brand assets and persisted ${theme} theme`, async ({ page }) => {
     await page.addInitScript((selected) => {
       localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
@@ -108,8 +145,8 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(trigger).toHaveAccessibleName('Dinkster')
     await expect(trigger.locator('img:visible')).toHaveAttribute('src', /dinkster-symbol-color\.svg/)
     await expect(trigger.locator('.dinkster-wordmark')).toHaveCount(0)
-    const expectedCanvas = theme === 'dark' ? 'rgb(14, 20, 20)' : 'rgb(247, 248, 250)'
-    await expect(page.locator('body')).toHaveCSS('background-color', expectedCanvas)
+    const expectedFrame = theme === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)'
+    await expect(page.locator('body')).toHaveCSS('background-color', expectedFrame)
     const manifest = await (await page.request.get('/manifest.webmanifest')).json()
     expect(manifest.name).toBe('Dinkster')
     for (const icon of manifest.icons) {
@@ -132,14 +169,17 @@ for (const theme of ['dark', 'light'] as const) {
     await page.evaluate((selected) => {
       window.__dinksterTest!.app.settings.set('dinkster.theme', selected === 'dark' ? 'light' : 'dark')
     }, theme)
-    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(247, 248, 250)' : 'rgb(14, 20, 20)')
+    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(237, 239, 242)' : 'rgb(9, 13, 13)')
     await expect(trigger.locator('img:visible')).toHaveAttribute('src', /dinkster-symbol-color\.svg/)
     await page.addStyleTag({ content: '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }' })
     const header = page.locator('.dinkster-window-toolbar-host')
     await header.evaluate((node) => { (node as HTMLElement).dataset['platform'] = 'win32' })
     await page.setViewportSize({ width: 390, height: 900 })
     await expect(trigger).toHaveAccessibleName('Dinkster')
-    expect((await trigger.boundingBox())!.width).toBe(44)
+    // The D symbol alone, filling the left bar's 54px column inside the bar's 12px padding.
+    expect((await trigger.boundingBox())!.width).toBe(30)
+    // The panel switches leave once the toolbar observes its new width.
+    await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
     for (const control of await header.locator('button:visible').all()) {
       const box = (await control.boundingBox())!
       expect(box.x).toBeGreaterThanOrEqual(12)
@@ -150,23 +190,22 @@ for (const theme of ['dark', 'light'] as const) {
       const app = window.__dinksterTest!.app
       app.reportProblems(app.activeTab()!.id, [{ severity: 'error', origin: 'runtime', code: 'toolbar.attention', message: 'Toolbar attention fixture.' }])
     })
-    const rail = page.getByTestId('rail-toggle')
-    const attention = rail.locator('.panel-indicator')
-    await expect(attention).toBeVisible()
-    await expect(attention).toHaveCSS('position', 'absolute')
-    // The keyed badge can be replaced by a problem-list publication between protocol calls.
-    const { railBox, iconBox, badgeBox } = await page.evaluate(() => {
-      const element = document.querySelector('[data-testid="rail-toggle"]')!
-      return {
-        railBox: element.getBoundingClientRect().toJSON(),
-        iconBox: element.querySelector('svg')!.getBoundingClientRect().toJSON(),
-        badgeBox: element.querySelector('.panel-indicator')!.getBoundingClientRect().toJSON(),
-      }
-    })
-    expect(iconBox.width).toBe(20)
-    expect(iconBox.height).toBe(18)
-    expect(badgeBox.y).toBeLessThan(railBox.y)
-    expect(badgeBox.x).toBeGreaterThan(iconBox.x)
+    // The narrow row keeps the right panel switch in the layout menu, so the layout button and
+    // its Right panel item carry the attention, and both names read it after the control's name.
+    await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
+    const layout = page.getByRole('button', { name: /^Customize layout, 1 problem/ })
+    const attention = layout.locator('.dinkster-attention')
+    await expect(attention).toHaveText('1')
+    await expect(attention).toHaveAttribute('data-tone', 'problem')
+    const layoutBox = (await layout.boundingBox())!
+    const badgeBox = (await attention.boundingBox())!
+    expect(badgeBox.y).toBeLessThan(layoutBox.y)
+    expect(badgeBox.x + badgeBox.width).toBeGreaterThan(layoutBox.x + layoutBox.width)
+    await layout.click()
+    const right = page.getByRole('menuitemcheckbox', { name: /^Right panel, 1 problem/ })
+    await expect(right.locator('.dinkster-attention')).toHaveText('1')
+    await page.keyboard.press('Escape')
+    await expect(layout).toBeFocused()
     await trigger.click()
     await expect(trigger).toHaveAttribute('aria-expanded', 'true')
     await page.keyboard.press('Escape')
@@ -298,13 +337,12 @@ test('stored run outputs load only after selection and retain their original ide
   await boot(page)
   await closeGallery(page)
   await openRail(page, 'Runs')
-  await page.getByTestId('runs-scope').click()
-  await page.getByRole('option', { name: 'All workflows', exact: true }).click()
+  await chooseRunScope(page, 'all')
   const rows = page.getByTestId('collection-entry')
   await expect(rows).toHaveCount(3)
   expect(jobs).toEqual([])
   await expect(page.locator('.runs-output-thumbnails')).toHaveCount(0)
-  const good = rows.filter({ hasText: 'shared-j' }).nth(0)
+  const good = rows.nth(0)
   await good.click()
   await expect(good).toContainText('Loading retained outputs...')
   await page.mouse.move(600, 400)
@@ -331,10 +369,8 @@ test('stored run outputs load only after selection and retain their original ide
   await page.keyboard.press('Escape')
   await page.screenshot({ path: testInfo.outputPath('stored-run-error.png'), animations: 'disabled' })
   await page.route('**/api/history?*', (route) => route.fulfill({ json: { records: [] } }))
-  await page.getByTestId('runs-scope').click()
-  await page.getByRole('option', { name: 'This workflow', exact: true }).click()
-  await page.getByTestId('runs-scope').click()
-  await page.getByRole('option', { name: 'All workflows', exact: true }).click()
+  await chooseRunScope(page, 'workflow')
+  await chooseRunScope(page, 'all')
   const empty = page.getByTestId('runs-panel').getByTestId('collection-empty')
   await expect(empty).toHaveText('No finished runs are stored')
   await page.screenshot({ path: testInfo.outputPath('stored-runs-empty.png'), animations: 'disabled' })
@@ -370,7 +406,7 @@ test('App view validation and remote failures keep editable controls', async ({ 
     }, 'App feedback')
   })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await page.getByTestId('app-view-number').fill('invalid')
   await page.getByTestId('app-view-number').press('Enter')
   await expect(page.getByTestId('app-view-error')).toHaveText('Enter an exact integer from -9223372036854775808 to 18446744073709551615.')
@@ -402,7 +438,8 @@ test('backend add error and Resources rows at desktop and compact widths', async
     await page.setViewportSize({ width, height })
     await openDock(page, 'backends-sidebar-toggle')
     const backends = page.getByTestId('backends-panel')
-    await expect(backends.getByRole('heading', { name: 'Backend connections', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Backends', exact: true })).toBeVisible()
+    await expect(backends).toHaveAccessibleName('Backends')
     if (!await backends.getByTestId('backend-url-input').isVisible()) await backends.getByRole('button', { name: 'Add backend', exact: true }).click()
     await backends.getByTestId('backend-url-input').fill('http://127.0.0.1:1')
     await backends.getByTestId('backend-add').click()
@@ -448,7 +485,7 @@ test('Boundary is hidden at root and shows definition empty states at desktop an
         },
         sub: {
           id: 'sub', name: 'Nested workflow', nodes: {}, links: {}, nets: {}, reroutes: {},
-          boundary: { inputs: [], outputs: [] }, nextOrdinal: 1,
+          boundary: { body: [] }, nextOrdinal: 1,
         },
       },
       view: { graphs: {
@@ -463,9 +500,8 @@ test('Boundary is hidden at root and shows definition empty states at desktop an
     await page.mouse.dblclick(mark.x, mark.y)
     await openRail(page, 'Boundary')
     await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
-    await expect(page.getByTestId('boundary-empty')).toHaveCount(2)
-    await expect(page.getByTestId('boundary-empty').first()).toContainText('No workflow inputs are exposed.')
-    await expect(page.getByTestId('boundary-empty').last()).toContainText('No workflow outputs are exposed.')
+    await expect(page.getByTestId('boundary-empty')).toHaveCount(1)
+    await expect(page.getByTestId('boundary-empty')).toContainText('No rows yet.')
     await screenshot(page, `boundary-empty-sections-${width}`)
   }
 })
@@ -509,7 +545,7 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
     }
     await openDock(page, 'backends-sidebar-toggle')
     const card = page.locator('[data-testid="backend-row"]').filter({ hasText: 'Offline visual' })
-    if (!await card.getByTestId('backend-schema-retry').isVisible()) await card.locator('summary').first().click()
+    if (!await card.getByTestId('backend-schema-retry').isVisible()) await card.locator('button[aria-controls]').click()
     await expect(card.getByTestId('backend-schema-retry')).toBeEnabled()
     await expect(card.getByTestId('output-mount-settings')).toHaveCount(0)
     await card.getByTestId('backend-schema-retry').scrollIntoViewIfNeeded()
@@ -597,6 +633,328 @@ test('Library Assets and Runs use shared empty and loading states', async ({ pag
     await expect(page.getByTestId('app-tooltip')).toBeHidden()
     await screenshot(page, `assets-outputs-empty-${width}`)
   }
+})
+
+test('A reopened workflow shows no missing node until the node definitions arrive without its type', async ({ page }) => {
+  let release!: () => void
+  const released = new Promise<void>((resolve) => { release = resolve })
+  await page.route('/api/nodes*', async (route) => {
+    await released
+    await route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'visual-fixture', schemaWire: 2 },
+      packs: { visual: { displayName: 'Visual' } },
+      nodes: {
+        'visual.Source': {
+          schemaVersion: 2, nodeType: 'visual.Source', displayName: 'Source', category: 'visual', pack: 'visual', signature: 'source',
+          body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+        },
+        'visual.Sink': {
+          schemaVersion: 2, nodeType: 'visual.Sink', displayName: 'Sink', category: 'visual', pack: 'visual', signature: 'sink',
+          body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+        },
+      },
+    } })
+  })
+  const document = {
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'definitions-pending', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'root', nodes: {
+      source: { id: 'source', type: 'visual.Source', values: {} },
+      sink: { id: 'sink', type: 'visual.Sink', values: {} },
+      absent: { id: 'absent', type: 'visual.Absent', values: {} },
+    }, links: {
+      l0: { id: 'l0', from: { node: 'source', port: 'image' }, to: { node: 'sink', port: 'image' } },
+      l1: { id: 'l1', from: { node: 'source', port: 'image' }, to: { node: 'absent', port: 'image' } },
+    }, nets: {}, reroutes: {}, nextOrdinal: 3 } },
+    view: { graphs: { g0: { nodes: {
+      source: { position: { x: 160, y: 200 } },
+      sink: { position: { x: 480, y: 120 } },
+      absent: { position: { x: 480, y: 300 } },
+    } } } },
+  }
+  await page.addInitScript((doc) => {
+    localStorage.setItem('dinkster.openTabs', JSON.stringify({
+      v: 1, active: doc.lineage, tabs: [{ title: 'Definitions pending', doc, documentRevision: 0 }],
+    }))
+  }, document)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  // The test bridge appears after startup begins, so read it optionally and let the poll retry.
+  const drawn = () => page.evaluate(() => ({
+    schemas: window.__dinksterTest?.app.backends.get()[0]?.schemaState.get().status,
+    nodes: Object.fromEntries((window.__dinksterTest?.renderer?.getScene().nodes ?? []).map((node) => [
+      node.id, node.unrecognized === true ? 'missing' : node.schemaPending === true ? 'pending' : 'resolved',
+    ])),
+    problems: window.__dinksterTest?.app.problems.get().filter((problem) => problem.code === 'schema.unresolvedType').length,
+  }))
+  await expect.poll(drawn, { timeout: 30_000 }).toEqual({
+    schemas: 'loading', nodes: { source: 'pending', sink: 'pending', absent: 'pending' }, problems: 0,
+  })
+  await expect(page.getByTestId('graph-canvas')).toHaveScreenshot('node-definitions-pending-1440.png', {
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.002,
+  })
+  release()
+  await expect.poll(drawn).toEqual({
+    schemas: 'ready', nodes: { source: 'resolved', sink: 'resolved', absent: 'missing' }, problems: 1,
+  })
+})
+
+test('A reopened workflow draws from the kept node definitions until the real ones arrive', async ({ page }) => {
+  const image = { kind: 'concrete', types: ['comfy.IMAGE'] }
+  const node = (nodeType: string, displayName: string, body: readonly unknown[]) => ({
+    schemaVersion: 2, nodeType, displayName, category: 'visual', pack: 'visual', signature: `${nodeType}:${body.length}`, body,
+  })
+  const table = (nodes: Record<string, unknown>) => ({
+    schemaVersion: 1, epoch: 7, dinkster: { version: 'visual-fixture', schemaWire: 2 }, packs: { visual: { displayName: 'Visual' } }, nodes,
+  })
+  const source = node('visual.Source', 'Source', [{ kind: 'output', id: 'image', type: image }])
+  // Pick is in no workflow: it is placed from search, and its choices come from the engine.
+  const pick = node('visual.Pick', 'Pick', [{
+    kind: 'input', id: 'model', required: true, type: { kind: 'concrete', types: ['COMBO'] }, default: 'kept.safetensors',
+    widget: { type: 'COMBO', options: [], remote: { route: '/api/choices/visual-models' } },
+  }])
+  // The kept copy: Sink has one input and Gone still exists; Late is unknown.
+  const kept = table({
+    'visual.Source': source,
+    'visual.Sink': node('visual.Sink', 'Sink', [{ kind: 'input', id: 'image', type: image }]),
+    'visual.Gone': node('visual.Gone', 'Gone', [{ kind: 'input', id: 'image', type: image }]),
+    'visual.Pick': pick,
+  })
+  // The real table: Sink gained a field row, Gone was removed and Late was added.
+  const real = table({
+    'visual.Source': source,
+    'visual.Sink': node('visual.Sink', 'Sink', [
+      { kind: 'input', id: 'strength', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
+      { kind: 'input', id: 'image', type: image },
+    ]),
+    'visual.Late': node('visual.Late', 'Late', [{ kind: 'input', id: 'image', type: image }]),
+    'visual.Pick': pick,
+  })
+  let answer: unknown = kept
+  let held: Promise<void> | undefined
+  let release!: () => void
+  await page.route('/api/nodes*', async (route) => {
+    if (held !== undefined) await held
+    await route.fulfill(answer === undefined ? { status: 500, body: 'engine error' } : { json: answer })
+  })
+  await page.route('**/api/choices/visual-models*', (route) => route.fulfill({ status: 503, body: 'engine not ready' }))
+  const link = (id: string, to: string) => ({ id, from: { node: 'source', port: 'image' }, to: { node: to, port: 'image' } })
+  const workflow = {
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'kept-definitions', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'root', nodes: {
+      source: { id: 'source', type: 'visual.Source', values: {} },
+      sink: { id: 'sink', type: 'visual.Sink', values: {} },
+      gone: { id: 'gone', type: 'visual.Gone', values: {} },
+      late: { id: 'late', type: 'visual.Late', values: {} },
+    }, links: { l0: link('l0', 'sink'), l1: link('l1', 'gone'), l2: link('l2', 'late') }, nets: {}, reroutes: {}, nextOrdinal: 4 } },
+    view: { graphs: { g0: { nodes: {
+      source: { position: { x: 160, y: 220 } },
+      sink: { position: { x: 480, y: 100 } },
+      gone: { position: { x: 480, y: 240 } },
+      late: { position: { x: 480, y: 380 } },
+    } } } },
+  }
+  await page.addInitScript((doc) => {
+    if (localStorage.getItem('dinkster.openTabs') !== null) return
+    localStorage.setItem('dinkster.openTabs', JSON.stringify({
+      v: 1, active: doc.lineage, tabs: [{ title: 'Kept definitions', doc, documentRevision: 0 }],
+    }))
+  }, workflow)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  const keptNodeTypes = () => page.evaluate(() => new Promise<readonly string[]>((resolve) => {
+    const request = indexedDB.open('dinkster-kept-schemas')
+    request.onsuccess = () => {
+      const database = request.result
+      if (!database.objectStoreNames.contains('tables')) { database.close(); return resolve([]) }
+      const all = database.transaction('tables').objectStore('tables').getAll()
+      all.onsuccess = () => {
+        database.close()
+        resolve(all.result.flatMap((payload: { nodes: Record<string, unknown> }) => Object.keys(payload.nodes)).sort())
+      }
+    }
+    request.onerror = () => resolve([])
+  }))
+  await expect.poll(keptNodeTypes).toEqual(['visual.Gone', 'visual.Pick', 'visual.Sink', 'visual.Source'])
+
+  answer = real
+  held = new Promise<void>((resolve) => { release = resolve })
+  await page.reload()
+  const drawn = () => page.evaluate(() => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    const backend = window.__dinksterTest!.app.backendForTab(tab)
+    return {
+      schemas: backend.schemaState.get().status,
+      registry: backend.registry.get() !== undefined,
+      run: (document.querySelector('[data-testid=queue-button]') as HTMLButtonElement | null)?.disabled,
+      nodes: Object.fromEntries((window.__dinksterTest?.renderer?.getScene().nodes ?? []).map((node) => [
+        node.id,
+        node.unrecognized === true ? 'missing' : node.schemaPending === true ? 'pending' : node.layout.title,
+      ])),
+      rows: (window.__dinksterTest?.renderer?.getScene().nodes ?? []).find((node) => node.id === 'sink')?.layout.rows.length,
+      problems: window.__dinksterTest!.app.problems.get().filter((problem) => problem.code === 'schema.unresolvedType').length,
+    }
+  })
+  // The first scene after the reload already draws from the kept copy.
+  await page.waitForFunction(() => (window.__dinksterTest?.renderer?.getScene().nodes.length ?? 0) === 4)
+  const first = await drawn()
+  expect(first.nodes).toEqual({ source: 'Source', sink: 'Sink', gone: 'Gone', late: 'pending' })
+  await expect.poll(drawn).toEqual({
+    schemas: 'loading', registry: false, run: true, problems: 0, rows: first.rows,
+    nodes: { source: 'Source', sink: 'Sink', gone: 'Gone', late: 'pending' },
+  })
+  await expect(page.getByTestId('graph-canvas')).toHaveScreenshot('node-definitions-kept-1440.png', {
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.002,
+  })
+  // Renaming starts from the copy's display name, not the type id.
+  const title = await (await page.waitForFunction(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const sink = renderer.getScene().nodes.find((node) => node.id === 'sink')!
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: rect.left + (sink.x + 40) * viewport.scale + viewport.x, y: rect.top + (sink.y + sink.layout.headerHeight / 2) * viewport.scale + viewport.y }
+  })).jsonValue() as { x: number; y: number }
+  await page.mouse.click(title.x, title.y, { button: 'right' })
+  await page.getByRole('menuitem', { name: /^Rename/ }).click()
+  await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.value)).toBe('Sink')
+  await page.keyboard.press('Escape')
+  // What waits for the engine says why on a plain hover.
+  const tooltip = page.getByTestId('app-tooltip')
+  await page.getByTestId('queue-button').hover()
+  await expect(tooltip).toHaveText('The engine is still starting')
+  await page.mouse.click(title.x, title.y, { button: 'right' })
+  const upTo = page.getByTestId('context-menu-item').filter({ hasText: 'Execute up to selection' })
+  await expect(upTo).toHaveAttribute('aria-disabled', 'true')
+  await upTo.hover()
+  await expect(tooltip).toHaveText('The engine is still starting')
+  await page.keyboard.press('Escape')
+  // Search lists the copy's types, and placing one adds it with the copy's defaults.
+  await page.getByTestId('topbar-search').click()
+  await page.getByTestId('universal-search-input').fill('@ Pick')
+  await page.locator('[data-group="core.nodes"] [role="option"]', { hasText: 'Pick' }).click()
+  const canvas = (await page.getByTestId('graph-canvas').boundingBox())!
+  await page.mouse.click(canvas.x + 900, canvas.y + 160)
+  const placed = () => page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes)
+    .filter((node) => node.type === 'visual.Pick').map((node) => ({ id: node.id, values: node.values })))
+  await expect.poll(placed).toEqual([{ id: expect.any(String), values: { model: 'kept.safetensors' } }])
+  const pickId = (await placed())[0]!.id
+  // A field whose choices come from the engine says why it has none and still offers the stored value.
+  const field = await (await page.waitForFunction((id) => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === id && candidate.schemaPending !== true)
+    const row = node?.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'model')
+    if (node === undefined || row === undefined) return undefined
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x, y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y }
+  }, pickId)).jsonValue() as { x: number; y: number }
+  await page.mouse.click(field.x, field.y)
+  const dropdown = page.getByTestId('combo-dropdown')
+  await expect(dropdown).toHaveAttribute('data-remote', 'unavailable')
+  await expect(dropdown.locator('.combo-status')).toHaveText('The engine is still starting')
+  await expect(dropdown.getByRole('option', { name: 'kept.safetensors' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  release()
+  await expect.poll(drawn).toEqual({
+    schemas: 'ready', registry: true, run: false, problems: 1, rows: first.rows! + 1,
+    nodes: { source: 'Source', sink: 'Sink', gone: 'missing', late: 'Late', [pickId]: 'Pick' },
+  })
+  await expect(page.getByTestId('queue-button')).toHaveAttribute('data-tooltip-label', 'Run workflow')
+
+  // After the engine fails to answer, the same places say so.
+  answer = undefined
+  held = undefined
+  await page.reload()
+  await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.schemaState.get().status === 'error')
+  await expect(page.getByTestId('queue-button')).toBeDisabled()
+  await page.getByTestId('queue-button').hover()
+  await expect(tooltip).toHaveText('The engine is not answering')
+})
+
+test('A reopened workflow draws from the engine\'s recorded node definitions unless the browser kept newer ones', async ({ page }) => {
+  const image = { kind: 'concrete', types: ['comfy.IMAGE'] }
+  const node = (nodeType: string, displayName: string, body: readonly unknown[]) => ({
+    schemaVersion: 2, nodeType, displayName, category: 'visual', pack: 'visual', signature: `${nodeType}:${body.length}`, body,
+  })
+  const header = { schemaVersion: 1, dinkster: { version: 'visual-fixture', schemaWire: 2 }, packs: { visual: { displayName: 'Visual' } } }
+  const source = node('visual.Source', 'Source', [{ kind: 'output', id: 'image', type: image }])
+  // The always-on process's record names the sink apart from the real table, which also gives it a field row.
+  const recorded = (recordedAt: number) => ({ ...header, provisional: true, recordedAt, nodes: {
+    'visual.Source': source, 'visual.Sink': node('visual.Sink', 'Recorded sink', [{ kind: 'input', id: 'image', type: image }]),
+  } })
+  const real = { ...header, epoch: 7, nodes: {
+    'visual.Source': source, 'visual.Sink': node('visual.Sink', 'Sink', [
+      { kind: 'input', id: 'strength', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
+      { kind: 'input', id: 'image', type: image },
+    ]),
+  } }
+  let record = recorded(Date.now())
+  let held: Promise<void> = Promise.resolve()
+  let release = () => {}
+  const hold = () => { held = new Promise<void>((resolve) => { release = resolve }) }
+  await page.route('/api/nodes/provisional*', (route) => route.fulfill({ json: record }))
+  await page.route('/api/nodes*', async (route) => {
+    await held
+    await route.fulfill({ json: real })
+  })
+  await page.addInitScript(() => {
+    if (localStorage.getItem('dinkster.openTabs') !== null) return
+    const doc = {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'recorded-definitions', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        source: { id: 'source', type: 'visual.Source', values: {} },
+        sink: { id: 'sink', type: 'visual.Sink', values: {} },
+      }, links: { l0: { id: 'l0', from: { node: 'source', port: 'image' }, to: { node: 'sink', port: 'image' } } },
+      nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { source: { position: { x: 160, y: 220 } }, sink: { position: { x: 480, y: 180 } } } } } },
+    }
+    localStorage.setItem('dinkster.openTabs', JSON.stringify({
+      v: 1, active: doc.lineage, tabs: [{ title: 'Recorded definitions', doc, documentRevision: 0 }],
+    }))
+  })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const drawn = () => page.evaluate(() => {
+    const app = window.__dinksterTest!.app, backend = app.backendForTab(app.activeTab()!)
+    const nodes = window.__dinksterTest?.renderer?.getScene().nodes ?? []
+    return {
+      registry: backend.registry.get() !== undefined,
+      run: (document.querySelector('[data-testid=queue-button]') as HTMLButtonElement | null)?.disabled,
+      nodes: Object.fromEntries(nodes.map((node) => [node.id, node.schemaPending === true ? 'pending' : node.layout.title])),
+      rows: nodes.find((node) => node.id === 'sink')?.layout.rows.length,
+    }
+  })
+  const firstScene = async () => {
+    await page.waitForFunction(() => (window.__dinksterTest?.renderer?.getScene().nodes.length ?? 0) === 2)
+    return drawn()
+  }
+
+  // No copy in this browser yet: the first frame draws every node from the record, and Run waits for the engine.
+  hold()
+  await page.goto('/')
+  const first = await firstScene()
+  expect(first.nodes).toEqual({ source: 'Source', sink: 'Recorded sink' })
+  await expect.poll(drawn).toEqual({ registry: false, run: true, nodes: { source: 'Source', sink: 'Recorded sink' }, rows: first.rows })
+  await page.screenshot({ path: test.info().outputPath('recorded-definitions-first-frame.png') })
+  release()
+  await expect.poll(drawn).toEqual({ registry: true, run: false, nodes: { source: 'Source', sink: 'Sink' }, rows: first.rows! + 1 })
+
+  // The browser has now kept the real table; a record from before it does not replace it.
+  record = recorded(1)
+  hold()
+  await page.reload()
+  expect((await firstScene()).nodes).toEqual({ source: 'Source', sink: 'Sink' })
+  release()
+
+  // A record made after the browser's copy is the one drawn.
+  record = recorded(Date.now() + 60_000)
+  hold()
+  await page.reload()
+  expect((await firstScene()).nodes).toEqual({ source: 'Source', sink: 'Recorded sink' })
+  expect((await drawn()).registry).toBe(false)
+  release()
+  await expect.poll(drawn).toEqual({ registry: true, run: false, nodes: { source: 'Source', sink: 'Sink' }, rows: first.rows! + 1 })
 })
 
 test('Storage settings distinguish accounting policy and permission failures', async ({ page }) => {
@@ -751,7 +1109,7 @@ test('App view explains an empty flow and an empty arrangement group', async ({ 
     }, 'Empty app')
   })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await expect(page.getByTestId('app-view-empty')).toContainText('Nothing is exposed yet.')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
@@ -957,89 +1315,10 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
   await page.evaluate(() => (window as unknown as { disposeBadgeVisual(): void }).disposeBadgeVisual())
 })
 
-test('Canvas badge popovers explain removed sources and selectors', async ({ page }) => {
-  await boot(page)
-  await closeGallery(page)
-  await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    const diagnostics = (await app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'missing-badge-visual', root: 'root',
-      graphs: { root: { id: 'root', name: 'Badge targets', nodes: {}, links: {}, nets: {}, reroutes: {},
-        valueSources: { source: { id: 'source', value: 12, spec: { widgetType: 'INT', options: {} } } },
-        selectors: { selector: { id: 'selector', title: 'Choice', candidates: [{ id: 'first' }, { id: 'second' }], policy: { kind: 'fixed', candidate: 'first' } } },
-        nextOrdinal: 4 } },
-      view: { graphs: { root: { nodes: {}, valueSources: { source: { position: { x: 48, y: 80 } } }, selectors: { selector: { position: { x: 48, y: 180 } } } } } },
-    }, 'Badge targets'))
-    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
-  const clickBadge = async (kind: 'valueSources' | 'selectors'): Promise<void> => {
-    await page.waitForFunction((kind) => window.__dinksterTest!.renderer!.getScene()[kind].length > 0, kind)
-    const point = await page.evaluate((kind) => {
-      const renderer = window.__dinksterTest!.renderer!
-      const scene = renderer.getScene()
-      const item = scene[kind][0]!
-      const viewport = renderer.getViewport()
-      const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-      const height = kind === 'selectors' ? scene.selectors[0]!.headerHeight : item.height
-      return { x: canvas.left + viewport.x + (item.x + item.width - 13) * viewport.scale,
-        y: canvas.top + viewport.y + (item.y + height / 2) * viewport.scale }
-    }, kind)
-    await page.mouse.click(point.x, point.y)
-  }
-  await clickBadge('valueSources')
-  const source = page.getByTestId('value-source-popover')
-  await expect(source).toContainText('Value Source:')
-  await expect(source).toBeFocused()
-  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
-    command: 'graph.deleteItems', params: { graphId: 'root', valueSourceIds: ['source'] },
-  }))
-  await expect(source).toHaveText('Value source missing.')
-  await expect(source).toBeFocused()
-  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-    await page.setViewportSize({ width, height })
-    await page.mouse.move(0, 0)
-    await screenshot(page, `canvas-source-missing-${width}`)
-  }
-  await page.getByTestId('rail-toggle').focus()
-  await expect(source).toBeHidden()
-  await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): { id: string }
-      tabs: { get(): { id: string }[]; set(tabs: unknown[]): void }
-    }
-    const id = app.activeTab().id
-    app.tabs.set(app.tabs.get().map((tab) => tab.id === id ? { ...tab, execution: { connection: 'visual', prompt: 'visual' } } : tab))
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
-  await clickBadge('selectors')
-  const selector = page.getByTestId('selector-exec-popover')
-  await expect(selector).toContainText('Selector: Choice')
-  await expect(selector).toBeFocused()
-  await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): { store: { dispatch(command: unknown): unknown } }
-      tabs: { get(): object[]; set(tabs: unknown[]): void }
-    }
-    app.activeTab().store.dispatch({ command: 'graph.deleteItems', params: { graphId: 'root', selectorIds: ['selector'] } })
-    app.tabs.set(app.tabs.get().map((tab) => ({ ...tab })))
-  })
-  await expect(selector).toHaveText('Selector missing.')
-  await expect(selector).toBeFocused()
-  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-    await page.setViewportSize({ width, height })
-    await page.mouse.move(0, 0)
-    await screenshot(page, `canvas-selector-missing-${width}`)
-  }
-  await page.getByTestId('rail-toggle').focus()
-  await expect(selector).toBeHidden()
-})
-
-test('Editor host and target fallbacks explain unavailable editors', async ({ page }) => {
+test('Editor host fallback explains an unavailable editor', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
   for (const [kind, text] of [
-    ['curve', 'No curve target is active.'],
     ['unregistered-editor', "No editor registered for kind 'unregistered-editor'"],
   ] as const) {
     await page.evaluate((kind) => {
@@ -1268,15 +1547,15 @@ test('Saved connection rows retain actions, credential editing and connection fa
   })
   const fixture = page.getByRole('region', { name: 'Saved connections fixture' })
   const row = fixture.getByTestId('backend-row').filter({ hasText: 'Studio render server' })
-  await row.locator('summary').click()
-  await expect(row.getByTestId('profile-credential-badge')).toBeVisible()
+  await row.locator('button[aria-controls]').click()
+  await expect(row.getByTestId('profile-connect')).toBeVisible()
   const capture = async (state: string): Promise<void> => {
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
       const lastAction = state === 'token-editor' ? row.getByTestId('profile-token-save') : row.getByRole('button', { name: 'Actions for Studio render server', exact: false })
       await lastAction.scrollIntoViewIfNeeded()
       await expect(lastAction).toBeInViewport()
-      const identity = await row.locator('summary').boundingBox()
+      const identity = await row.locator('button[aria-controls]').boundingBox()
       expect(identity!.width).toBeGreaterThan(200)
       const area = await fixture.boundingBox()
       for (const action of await row.getByRole('button').all()) {
@@ -1284,12 +1563,24 @@ test('Saved connection rows retain actions, credential editing and connection fa
         expect(bounds!.x).toBeGreaterThanOrEqual(area!.x)
         expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(area!.x + area!.width)
       }
+      const selectedAddress = await row.locator('code.backend-address').evaluate((address) => {
+        const selection = window.getSelection()!
+        const range = document.createRange()
+        range.selectNodeContents(address)
+        selection.removeAllRanges()
+        selection.addRange(range)
+        const text = selection.toString()
+        selection.removeAllRanges()
+        return text
+      })
+      expect(selectedAddress).toBe('https://render-studio.example.test:8443/team/production')
       await page.mouse.move(0, 0)
       await screenshot(page, `connection-profile-${state}-${width}`)
     }
   }
   await capture('ready')
-  await row.getByTestId('profile-token-edit').click()
+  await row.getByRole('button', { name: 'Actions for Studio render server', exact: false }).click()
+  await row.getByRole('menuitem', { name: 'Change access token', exact: true }).click()
   await expect(row.getByTestId('profile-token-editor-input')).toHaveAttribute('type', 'password')
   await expect(row.getByTestId('profile-token-save')).toBeDisabled()
   await capture('token-editor')
@@ -1322,7 +1613,9 @@ test('Saved connection rows retain actions, credential editing and connection fa
   await fixture.getByTestId('backend-add').click()
   await expect(fixture.locator('#backend-add-error')).toHaveCount(0)
   await expect(fixture.getByTestId('backend-row')).toHaveCount(3)
-  await expect(fixture.getByTestId('backend-row').filter({ hasText: 'Recovered source' })).toContainText('https://recovered.example.test')
+  const recovered = fixture.getByTestId('backend-row').filter({ hasText: 'Recovered source' })
+  await recovered.locator('button[aria-controls]').click()
+  await expect(recovered).toContainText('https://recovered.example.test')
   await page.evaluate(() => (window as unknown as { connectionVisual: { dispose(): void } }).connectionVisual.dispose())
 })
 
@@ -1340,6 +1633,7 @@ test('Project rows preserve names, rename drafts and host actions', async ({ pag
       ['p-audio', { id: 'p-audio', name: 'Audio experiments', revision: 1 }],
     ])
     const connection = {
+      accountStatus: async () => ({ available: false }),
       listProjects: async () => ({ items: [...records.values()], cursor: null }),
       registerProject: async (id: string, name: string) => {
         const project = records.get(id) ?? { id, name, revision: 1 }

@@ -55,7 +55,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import type { GraphDef, LinkData, NodeData } from '../format/document.js'
 import { asPortId, isPortEndpoint, type LinkId, type NodeId, type PortRef } from '../ids.js'
 import { buildRerouteIndex, traceEndpointAll } from '../reroute.js'
-import { assetCoercible, atomNamesOf, coercionTargetsOf, typesCompatible } from './type-relations.js'
+import { admittedInputType, assetCoercible, atomNamesOf, coercionTargetsOf, typesCompatible } from './type-relations.js'
 import type { SchemaResolver } from './derive-boundary.js'
 import {
   buildGraphConnectivity,
@@ -65,7 +65,37 @@ import {
   type Connectivity,
   type ElaborateOptions,
 } from './elaborate.js'
-import { canonicalTypeIdOf, cardinalityOf, effectiveAbsentPolicy, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type NodeSchema, type NodeSelectorSpec, type TypeExpr } from './model.js'
+import { canonicalTypeIdOf, cardinalityOf, effectiveAbsentPolicy, inputsOf, outputsOf, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type NodeSchema, type NodeSelectorSpec, type TypeExpr } from './model.js'
+
+/** Type words used by solver problems on every surface; never a type variable's storage name. */
+export function typeProblemWords(type: TypeExpr, form: 'value' | 'name' | 'plural' | 'one' = 'value'): string {
+  if (type.kind === 'concrete') {
+    const parsed = typeExprFromTypeId(type.name)
+    if (parsed.kind !== 'concrete') return typeProblemWords(parsed, form)
+    const words: Readonly<Record<string, readonly [string, string, string]>> = {
+      IMAGE: ['image', 'an image', 'images'], MASK: ['mask', 'a mask', 'masks'],
+      STRING: ['text', 'text', 'text values'], INT: ['whole number', 'a whole number', 'whole numbers'],
+      FLOAT: ['number', 'a number', 'numbers'], LATENT: ['latent data', 'latent data', 'latent values'],
+      BOOLEAN: ['true/false value', 'a true/false value', 'true/false values'],
+    }
+    const shown = type.name === 'comfy.IMAGE' ? 'IMAGE' : type.name === 'comfy.MASK' ? 'MASK' : type.name
+    const [name, value, plural] = Object.hasOwn(words, shown) ? words[shown]! : [shown, shown, `${shown} values`]
+    return form === 'name' ? name : form === 'plural' ? plural : form === 'one'
+      ? `one ${shown === 'LATENT' ? 'latent value' : shown === 'STRING' ? 'text value' : name}` : value
+  }
+  if (type.kind === 'union') return type.names.map((name) => typeProblemWords(typeExprFromTypeId(name), form)).join(' or ')
+  if (type.kind === 'variable') return type.allowedTypes?.length
+    ? type.allowedTypes.map((allowed) => typeProblemWords(allowed, form)).join(' or ')
+    : 'any type'
+  if (type.kind === 'wildcard') return 'any type'
+  if (type.kind === 'tuple_element') return type.element === undefined ? 'a value from a group' : typeProblemWords(type.element, form)
+  if (type.kind === 'tuple') return `${form === 'plural' ? 'groups' : form === 'name' ? 'group' : 'a group'} of ${type.elements.length} values`
+  if (type.kind === 'asset') {
+    const element = typeProblemWords(type.element, form === 'plural' ? 'plural' : 'name')
+    return `${form === 'plural' || form === 'name' || element === 'latent data' || element === 'text' ? 'stored' : 'a stored'} ${element}`
+  }
+  return `${form === 'plural' ? `${type.kind}s` : form === 'name' ? type.kind : `a ${type.kind}`} of ${typeProblemWords(type.element, 'plural')}`
+}
 
 /** Every variable occurring in `t`, including inside list/asset elements. */
 function* nestedVariablesOf(t: TypeExpr): Generator<TypeExpr & { kind: 'variable' }> {
@@ -303,6 +333,7 @@ export function solveGraphTypes(
   // warns where they meet (legal, but worth surfacing: solve.maybeAbsent).
   const connectivityOf = options.connectivityOf ?? buildGraphConnectivity(def)
   const portTypes = new Map<NodeId, PortTypes>()
+  const declaredPortTypes = new Map<NodeId, PortTypes>()
   const specializedSlots: {
     node: NodeId
     ref: PortRef
@@ -312,6 +343,9 @@ export function solveGraphTypes(
   const failInputs = new Map<NodeId, Set<string>>()
   const wholeListInputs = new Map<NodeId, Set<string>>()
   const inputLabels = new Map<NodeId, Map<string, string>>()
+  const outputLabels = new Map<NodeId, Map<string, string>>()
+  const schemas = new Map<NodeId, NodeSchema>()
+  const nodeTitles = new Map<NodeId, string>()
   const knownOutputs = new Map<NodeId, Set<string>>()
   const selectors = new Map<NodeId, NodeSelectorSpec>()
   for (const node of Object.values(def.nodes) as NodeData[]) {
@@ -320,6 +354,8 @@ export function solveGraphTypes(
       ? resolve(node.type)
       : options.resolveNode(node)
     if (!schema) continue // structural validators own "unresolvable type"
+    schemas.set(node.id, schema)
+    nodeTitles.set(node.id, node.title ?? schema.displayName)
     const e = elaborateInterface(schema, node, connectivityOf(node.id), options)
     const inputs = new Map<string, TypeExpr>()
     const outputs = new Map<string, TypeExpr>()
@@ -375,6 +411,9 @@ export function solveGraphTypes(
       options.onWork?.('port')
       const key = item.address.port
       outputs.set(key, item.spec.type)
+      let labels = outputLabels.get(node.id)
+      if (!labels) outputLabels.set(node.id, (labels = new Map()))
+      labels.set(key, item.spec.displayName ?? item.spec.id)
       if (item.spec.knownValue !== undefined) {
         let set = knownOutputs.get(node.id)
         if (!set) knownOutputs.set(node.id, (set = new Set()))
@@ -404,6 +443,7 @@ export function solveGraphTypes(
       const typeId = canonicalTypeIdOf(binding.type)
       if (typeId !== undefined) vars.bind(key, typeId, binding.source)
     }
+    declaredPortTypes.set(node.id, { inputs: new Map(inputs), outputs: new Map(outputs) })
     if (slotBindings.length > 0) {
       const bindings = new Map(slotBindings.map(({ templateId, type }) => [templateId, type]))
       for (const [key, type] of inputs) inputs.set(key, substituteTypeBindings(type, bindings))
@@ -411,6 +451,28 @@ export function solveGraphTypes(
     }
     portTypes.set(node.id, { inputs, outputs })
   }
+
+  const rowLabel = (ref: PortRef, side: 'input' | 'output'): string => {
+    const label = (side === 'input' ? inputLabels : outputLabels).get(ref.node)?.get(ref.port)
+    if (label !== undefined) return label
+    const schema = schemas.get(ref.node)
+    const spec = schema === undefined ? undefined : (side === 'input' ? inputsOf(schema) : outputsOf(schema)).find((row) => row.id === ref.port)
+    return spec?.displayName ?? `a connected ${side}`
+  }
+  const capitalized = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
+  const sourceName = (ref: PortRef, side: 'input' | 'output' = 'output'): string =>
+    (side === 'output' ? outputLabels : inputLabels).get(ref.node)?.size === 1
+      ? nodeTitles.get(ref.node) ?? 'the connected node'
+      : `the ${side} ${rowLabel(ref, side)} of ${nodeTitles.get(ref.node) ?? 'the connected node'}`
+  const problem = (
+    severity: Diagnostic['severity'], code: string, ref: PortRef, side: 'input' | 'output',
+    nodeMessage: string, rest: Pick<Diagnostic, 'anchor' | 'data'> = {},
+  ): Diagnostic => diag(severity, 'schema', code, `${nodeTitles.get(ref.node) ?? 'Node'}: ${nodeMessage}`, {
+    ...rest,
+    anchor: { ...rest.anchor, port: ref },
+    refs: [{ graphId: def.id, nodeId: ref.node, portId: ref.port, direction: side }],
+    data: { ...rest.data, nodeMessage },
+  })
 
   const typeAt = (ref: PortRef, side: 'input' | 'output'): TypeExpr | undefined => {
     const entry = portTypes.get(ref.node)
@@ -470,20 +532,24 @@ export function solveGraphTypes(
     readonly from?: VarKey
   }
   const feeds: Feed[] = []
+  type TypeEdge = { from: PortRef; to: PortRef; fromType: TypeExpr; toType: TypeExpr; fromSide: 'input' | 'output'; source: EdgeSource }
+  const typeEdges = new Map<string, TypeEdge[]>()
+  const rememberEdge = (edge: TypeEdge): void => {
+    const key = sourceKey(edge.source)
+    let edges = typeEdges.get(key)
+    if (!edges) typeEdges.set(key, (edges = []))
+    edges.push(edge)
+  }
   /** Links whose consumer sees several possible producers (selector candidates). */
   const branchingLinks = new Set<LinkId>()
 
-  const admittedInputType = (
+  const admittedTypeAt = (
     from: TypeExpr | undefined,
     to: PortRef,
     type: TypeExpr | undefined,
   ): TypeExpr | undefined =>
-    type !== undefined &&
-    type.kind !== 'list' &&
-    from !== undefined &&
-    cardinalityOf(from) === 'list' &&
-    wholeListInputs.get(to.node)?.has(to.port)
-      ? { kind: 'list', element: type }
+    type !== undefined && from !== undefined
+      ? admittedInputType(type, wholeListInputs.get(to.node)?.has(to.port) === true, cardinalityOf(from))
       : type
 
   const constrain = (
@@ -493,7 +559,7 @@ export function solveGraphTypes(
     fromSide: 'input' | 'output' = 'output',
   ): void => {
     const fromType = typeAt(from, fromSide)
-    const toType = admittedInputType(fromType, to, typeAt(to, 'input'))
+    const toType = admittedTypeAt(fromType, to, typeAt(to, 'input'))
     if (fromType !== undefined && toType !== undefined && hasTuple(fromType))
       dependentEdges.push({ fromType, toType, from, to, source })
     if (fromType === undefined || toType === undefined) {
@@ -503,7 +569,7 @@ export function solveGraphTypes(
         // The node elaborated but this port does not currently exist
         // (inactive branch, removed member, renamed schema port).
         diagnostics.push(
-          diag('info', 'schema', 'solve.portMissing', `${missing.node}.${missing.port}: connected port is unavailable`, {
+          problem('info', 'solve.portMissing', missing, fromType === undefined ? fromSide : 'input', `${capitalized(rowLabel(missing, fromType === undefined ? fromSide : 'input'))} no longer exists on this node, but a wire is still connected to it.`, {
             anchor: source.kind === 'link' ? { link: source.id, port: missing } : { port: missing },
           }),
         )
@@ -519,12 +585,13 @@ export function solveGraphTypes(
     const toKey = to.port
     if (fromSide === 'output' && optionalOutputs.get(from.node)?.has(fromKey) && failInputs.get(to.node)?.has(toKey)) {
       diagnostics.push(
-        diag('warning', 'schema', 'solve.maybeAbsent', `${to.node}.${to.port}: required value comes from optional output ${from.node}.${from.port}`, {
+        problem('warning', 'solve.maybeAbsent', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs a value, but ${sourceName(from, fromSide)} may send nothing.`, {
           anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
         }),
       )
     }
 
+    rememberEdge({ from, to, fromType, toType, fromSide, source })
     unify(fromType, toType, from, to, source)
   }
 
@@ -560,6 +627,8 @@ export function solveGraphTypes(
     fromVariableKeys?: ReadonlyMap<string, VarKey>,
   ): void => {
     options.onWork?.('constraint')
+    const origin = typeEdges.get(sourceKey(source))?.find((edge) => edge.from.node === from.node && edge.from.port === from.port)
+    const producer = source.kind === 'projectedInput' ? 'the outer input' : sourceName(from, origin?.fromSide)
     if (fromType.kind === 'wildcard' || toType.kind === 'wildcard') {
       setVerdict(source, 'ok') // no constraint, no capture
       return
@@ -568,7 +637,7 @@ export function solveGraphTypes(
     if (fromType.kind === 'tuple' && toType.kind === 'tuple') {
       if (fromType.elements.length !== toType.elements.length) {
         setVerdict(source, 'mismatch')
-        diagnostics.push(diag('warning', 'schema', 'solve.tupleArity', 'Tuple positions must have the same length.', { anchor: { port: to } }))
+        diagnostics.push(problem('warning', 'solve.tupleArity', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs a group of ${toType.elements.length} values, but ${producer} sends a group of ${fromType.elements.length}.`, { anchor: { ...(source.kind === 'link' ? { link: source.id } : {}) } }))
       } else {
         fromType.elements.forEach((element, index) => unify(element, toType.elements[index]!, from, to, source, allowCoercion, fromVariableKeys))
       }
@@ -605,12 +674,9 @@ export function solveGraphTypes(
         }
       }
       setVerdict(source, 'mismatch')
-      const [code, msg] =
-        cf === 'list'
-          ? ['solve.listIntoScalar', `expects one value but is driven by a list; apply the node per element with a Map region, reduce the list, or pick one element explicitly`]
-          : ['solve.scalarIntoList', `expects a list but is driven by one value; collect values into a list explicitly`]
+      const code = cf === 'list' ? 'solve.listIntoScalar' : 'solve.scalarIntoList'
       diagnostics.push(
-        diag('error', 'schema', code, `[${def.id}] ${sourceLabel(source)}: input '${to.port}' on node '${to.node}' ${msg}`, {
+        problem('error', code, to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${typeProblemWords(toType, ct === 'list' ? 'value' : 'one')}, but ${producer} sends ${typeProblemWords(fromType, cf === 'list' ? 'value' : 'one')}.`, {
           anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
         }),
       )
@@ -707,8 +773,9 @@ export function solveGraphTypes(
           // Mixed-cardinality union with no matching members left: mismatch.
           setVerdict(source, 'mismatch')
           diagnostics.push(
-            diag('warning', 'schema', 'solve.linkMismatch', `${to.node}.${to.port}: no ${structured.kind}-typed candidate matches this input`, {
+            problem('warning', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${typeProblemWords(origin?.toType ?? toType)}, but ${producer} sends ${typeProblemWords(origin?.fromType ?? fromType)}.`, {
               anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
+              data: { sourceNode: from.node, sourcePort: from.port },
             }),
           )
           return
@@ -731,21 +798,17 @@ export function solveGraphTypes(
     }
     setVerdict(source, 'mismatch')
     diagnostics.push(
-      diag('warning', 'schema', 'solve.linkMismatch', `${to.node}.${to.port}: ${a.join(',')} cannot feed ${b.join(',')}`, {
+      problem('warning', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${typeProblemWords(origin?.toType ?? toType)}, but ${producer} sends ${typeProblemWords(origin?.fromType ?? fromType)}.`, {
         anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
+        data: { sourceNode: from.node, sourcePort: from.port },
       }),
     )
   }
 
   const rerouteIndex = buildRerouteIndex(def)
   for (const link of Object.values(def.links) as LinkData[]) {
-    if (!isPortEndpoint(link.to)) continue // structural feed into a reroute/selector
-    // A consumer fed by a selector OUTPUT constrains against EVERY candidate
-    // branch's producer - policy can change at any moment, so editing-time
-    // compatibility must hold for all of them (a selector is a type-agnostic
-    // passthrough, never a type variable). Non-selector chains yield exactly
-    // one trace, preserving prior behavior. Value sources carry values, not
-    // types; undriven/cyclic branches constrain nothing.
+    if (!isPortEndpoint(link.to)) continue // structural feed into a reroute
+    // Undriven and cyclic chains constrain nothing.
     const traces = [...traceEndpointAll(def, link.from, rerouteIndex)]
     if (traces.length > 1) branchingLinks.add(link.id)
     for (const trace of traces) {
@@ -768,7 +831,7 @@ export function solveGraphTypes(
   }
   const projectedVariablesBySource = new Map<symbol, Map<string, VarKey>>()
   for (const [index, projected] of (options.projectedInputs ?? []).entries()) {
-    const toType = admittedInputType(
+    const toType = admittedTypeAt(
       projected.type,
       projected.to,
       typeAt(projected.to, 'input'),
@@ -776,7 +839,7 @@ export function solveGraphTypes(
     if (toType === undefined) {
       if (portTypes.has(projected.to.node)) {
         diagnostics.push(
-          diag('info', 'schema', 'solve.portMissing', `${projected.to.node}.${projected.to.port}: connected port is unavailable`, {
+          problem('info', 'solve.portMissing', projected.to, 'input', `${capitalized(rowLabel(projected.to, 'input'))} no longer exists on this node, but a wire is still connected to it.`, {
             anchor: { port: projected.to },
           }),
         )
@@ -799,12 +862,14 @@ export function solveGraphTypes(
       }
       vars.ensure(key, variable, { kind: 'projected', to: projected.to, templateId: variable.templateId })
     }
-    unify(projected.type, toType, externalRef, projected.to, {
+    const source: EdgeSource = {
       kind: 'projectedInput',
       index,
       to: projected.to,
       ...(projected.label === undefined ? {} : { label: projected.label }),
-    }, true, projectedVariableKeys)
+    }
+    rememberEdge({ from: externalRef, to: projected.to, fromType: projected.type, toType, fromSide: 'input', source })
+    unify(projected.type, toType, externalRef, projected.to, source, true, projectedVariableKeys)
   }
 
   // Tuple construction and projection depend on upstream bindings, not edge order.
@@ -826,7 +891,11 @@ export function solveGraphTypes(
     for (const [port, type] of ports.outputs) {
       const resolved = substitute(type, node)
       if (resolved.kind !== 'tuple_element' || resolved.element === undefined || atomNamesOf(resolved.element) === undefined) continue
-      diagnostics.push(diag('error', 'schema', 'solve.tupleProjection', `Tuple output '${port}' requires a tuple source and an in-range literal index.`, { anchor: { port: { node, port: asPortId(port) } } }))
+      const ref = { node, port: asPortId(port) }
+      const message = resolved.element.kind === 'tuple' && typeof resolved.index === 'number'
+        ? `Position ${resolved.index} was chosen, but the group has ${resolved.element.elements.length} values.`
+        : `${capitalized(rowLabel(ref, 'output'))} needs a group and a fixed position in it.`
+      diagnostics.push(problem('error', 'solve.tupleProjection', ref, 'output', message))
     }
   }
 
@@ -893,8 +962,8 @@ export function solveGraphTypes(
       const labels = inputLabels.get(node)
       const named = [...brought]
         .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
-        .map(([port, types]) => `${labels?.get(port) ?? port} is ${[...types].join(' or ')}`)
-      return { key, node, into, message: `These inputs must be the same type: ${named.join(', ')}.` }
+        .map(([port, types]) => `the input ${labels?.get(port) ?? port} is ${[...types].map((type) => typeProblemWords(typeExprFromTypeId(type))).join(' or ')}`)
+      return { key, node, into, message: `The inputs must be the same type, but ${named.join(' and ')}.` }
     })
   }
   const refused = new Set<VarRecord>()
@@ -907,7 +976,7 @@ export function solveGraphTypes(
   }
   for (const conflict of conflicts(unbranched.filter((feed) => !storedPickBranch(feed)))) {
     refused.add(vars.find(conflict.key))
-    diagnostics.push(diag('error', 'schema', 'solve.varConflict', conflict.message, onNode(conflict)))
+    diagnostics.push(problem('error', 'solve.varConflict', conflict.into.at(-1)!.to, 'input', conflict.message, onNode(conflict)))
   }
   // A Switch with a stored or known pick runs only the picked branch, so
   // branches of different types are a warning on the Switch, worded as the
@@ -917,7 +986,7 @@ export function solveGraphTypes(
     const root = vars.find(conflict.key)
     if (refused.has(root) || warned.has(root) || !conflict.into.some(storedPickBranch)) continue
     warned.add(root)
-    diagnostics.push(diag('warning', 'schema', 'solve.varConflict', conflict.message, onNode(conflict)))
+    diagnostics.push(problem('warning', 'solve.varConflict', conflict.into.at(-1)!.to, 'input', conflict.message, onNode(conflict)))
   }
 
   // -- 4. Other conflicted classes: mark every contributing edge, one warning each.
@@ -928,14 +997,34 @@ export function solveGraphTypes(
     const firstLink = root.sources.find((s): s is Extract<EdgeSource, { kind: 'link' }> => s.kind === 'link')
     const firstProjected = root.sources.find((s): s is Extract<EdgeSource, { kind: 'projectedInput' }> => s.kind === 'projectedInput')
     const firstSlotBinding = root.slotBindings[0]
-    const subject = root.owner.kind === 'node'
-      ? `${root.owner.node}.${root.owner.templateId}`
-      : `${root.owner.to.node}.${root.owner.to.port}`
-    const message = firstSlotBinding !== undefined
-      ? `${subject}: connected types conflict with selected variant '${firstSlotBinding.variant}'`
-      : `${subject}: connected types have no common match`
+    const sources = new Set(root.sources.map(sourceKey))
+    const edges = [...sources].flatMap((source) => typeEdges.get(source) ?? [])
+    const ownerNode = root.owner.kind === 'node' ? root.owner.node : root.owner.to.node
+    const incoming = edges.find((edge) => edge.to.node === ownerNode)
+    const outgoing = edges.find((edge) => edge.from.node === ownerNode && edge.to.node !== ownerNode)
+    const ref = firstSlotBinding?.ref ?? incoming?.to ?? outgoing?.from ?? firstProjected?.to
+    const ownerPorts = declaredPortTypes.get(ownerNode)
+    const declared = ownerPorts === undefined ? undefined : [...ownerPorts.inputs].find(([, type]) =>
+      [...nestedVariablesOf(type)].some((variable) => vars.find(varKeyOf(ownerNode, variable.templateId)) === root))
+    const target = ref ?? { node: ownerNode, port: asPortId(declared?.[0] ?? '') }
+    const side = incoming !== undefined || firstSlotBinding !== undefined || outgoing === undefined ? 'input' : 'output'
+    let message: string
+    if (firstSlotBinding !== undefined) {
+      const selected = specializedSlots.find((slot) => slot.ref.node === target.node && slot.ref.port === target.port)!.selectedType
+      const origin = incoming === undefined ? undefined : incoming.source.kind === 'projectedInput' ? 'the outer input' : sourceName(incoming.from, incoming.fromSide)
+      message = `${capitalized(rowLabel(target, 'input'))} is set to ${typeProblemWords(selected, 'name')}, but ${incoming === undefined
+        ? `the input ${declared === undefined ? rowLabel(target, 'input') : rowLabel({ node: ownerNode, port: asPortId(declared[0]) }, 'input')} needs ${typeProblemWords(declared?.[1] ?? { kind: 'wildcard' }, 'name')}`
+        : `${origin} sends ${typeProblemWords(incoming.fromType)}`}.`
+    } else if (incoming !== undefined && outgoing !== undefined) {
+      message = `${capitalized(rowLabel(incoming.to, 'input'))} receives ${typeProblemWords(incoming.fromType)}, but its output feeds the input ${rowLabel(outgoing.to, 'input')} of ${nodeTitles.get(outgoing.to.node)}, which needs ${typeProblemWords(outgoing.toType)}.`
+    } else if (incoming !== undefined) {
+      const origin = incoming.source.kind === 'projectedInput' ? 'the outer input' : sourceName(incoming.from, incoming.fromSide)
+      message = `${capitalized(rowLabel(target, 'input'))} needs ${typeProblemWords(incoming.toType)}, but ${origin} sends ${typeProblemWords(incoming.fromType)}.`
+    } else {
+      message = `${capitalized(rowLabel(target, side))} must match the connected inputs, but ${edges.map((edge) => `the input ${rowLabel(edge.to, 'input')} of ${nodeTitles.get(edge.to.node)} needs ${typeProblemWords(edge.toType)}`).join(' and ')}.`
+    }
     diagnostics.push(
-      diag('warning', 'schema', 'solve.varConflict', message, {
+      problem('warning', 'solve.varConflict', target, side, message, {
         ...(firstLink ? { anchor: { link: firstLink.id } } : firstProjected ? { anchor: { port: firstProjected.to } } : firstSlotBinding ? { anchor: { port: firstSlotBinding.ref } } : {}),
         data: {
           edges: root.sources.map(sourceLabel),
@@ -962,8 +1051,9 @@ export function solveGraphTypes(
       if (declared === undefined) continue
       const solved = substitute(declared, trace.ref.node)
       if (!isKnown(solved) || typesCompatible(solved, slot.selectedType)) continue
-      diagnostics.push(diag('warning', 'schema', 'solve.slot.staleSpecialization', `${slot.node}.${slot.ref.port}: slot variant is incompatible with ${trace.ref.node}.${trace.ref.port}`, {
+      diagnostics.push(problem('warning', 'solve.slot.staleSpecialization', slot.ref, 'input', `${capitalized(rowLabel(slot.ref, 'input'))} is set to ${typeProblemWords(slot.selectedType, 'name')}, but ${sourceName(trace.ref)} sends ${typeProblemWords(solved)}.`, {
         anchor: { port: slot.ref },
+        data: { sourceNode: trace.ref.node, sourcePort: trace.ref.port },
       }))
     }
   }
@@ -986,7 +1076,8 @@ export function solveGraphTypes(
     },
     linkVerdicts,
     netSinkVerdicts,
-    diagnostics,
+    // Dependent structured edges can be checked again after tuple substitution.
+    diagnostics: [...new Map(diagnostics.map((diagnostic) => [JSON.stringify(diagnostic), diagnostic])).values()],
   }
 }
 
@@ -996,3 +1087,7 @@ const sourceLabel = (s: EdgeSource): string =>
     : s.kind === 'net'
       ? `net '${s.id}' sink ${s.sinkIndex}`
       : s.label ?? `projected input ${s.index}`
+
+const sourceKey = (source: EdgeSource): string => JSON.stringify(source.kind === 'link'
+  ? [source.kind, source.id]
+  : source.kind === 'net' ? [source.kind, source.id, source.sinkIndex] : [source.kind, source.index])

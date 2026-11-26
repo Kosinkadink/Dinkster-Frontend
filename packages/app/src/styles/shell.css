@@ -7,6 +7,11 @@
   gap: var(--dinkster-space-4);
 }
 
+/* Holds the layout menu so a command can open it; it takes no box of its own. */
+.app-layout-menu { display: contents; }
+
+.dinkster-window-toolbar-host { position: relative; z-index: 1; }
+
 .services-badge {
   flex-shrink: 0;
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
@@ -16,166 +21,6 @@
   background: var(--dinkster-surface-panel);
   font-size: 12px;
   white-space: nowrap;
-}
-
-.tab-strip {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--dinkster-space-8);
-  min-width: 0;
-  min-height: 40px;
-  padding: var(--dinkster-space-4) var(--dinkster-space-8) 0;
-  background: var(--dinkster-surface-frame);
-}
-
-.workflow-tabs {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  gap: var(--dinkster-space-4);
-  overflow: hidden;
-}
-
-.workflow-tablist {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  gap: var(--dinkster-space-4);
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.tab,
-.tab-new {
-  display: inline-flex;
-  flex: 0 1 auto;
-  align-items: center;
-  min-height: 36px;
-  padding: var(--dinkster-space-4) var(--dinkster-space-8);
-  color: var(--dinkster-text-secondary);
-  background: transparent;
-  border: 1px solid transparent;
-  border-bottom: 0;
-  border-radius: var(--dinkster-radius-control) var(--dinkster-radius-control) 0 0;
-  cursor: pointer;
-  touch-action: pan-y;
-  user-select: none;
-  white-space: nowrap;
-}
-
-.tab:hover,
-.tab-new:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
-
-/* A crowded tab reserves the kind icon, about three title letters plus
-   ellipsis, and the close button before the strip scrolls horizontally. */
-.tab {
-  min-width: calc(2 * var(--dinkster-space-8) + 2px + 5ch + var(--dinkster-space-16) + var(--dinkster-space-8) + var(--dinkster-space-4) + 24px);
-  max-width: 220px;
-}
-
-.tab.active {
-  position: relative;
-  z-index: 1;
-  color: var(--dinkster-text-primary);
-  background: var(--dinkster-surface-canvas);
-}
-
-.tab.dragging {
-  position: relative;
-  z-index: 2;
-  opacity: var(--dinkster-interaction-disabled-opacity);
-  box-shadow: inset var(--dinkster-focus-ring-width) 0 var(--dinkster-border-focus);
-  cursor: grabbing;
-}
-
-.tab.dragging::before {
-  position: absolute;
-  inset: var(--dinkster-space-4) auto var(--dinkster-space-4) 0;
-  width: var(--dinkster-focus-ring-width);
-  border-radius: var(--dinkster-radius-small);
-  background: var(--dinkster-border-focus);
-  content: '';
-}
-
-.tab.frozen { border-color: var(--dinkster-border-subtle); }
-
-.tab-select {
-  display: flex;
-  align-items: center;
-  gap: var(--dinkster-space-8);
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  padding: 0;
-  color: inherit;
-  background: transparent;
-  border: 0;
-  font: inherit;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.tab-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab .tab-rename { min-width: 0; width: 100%; flex: 1; min-height: var(--dinkster-control-compact-height); padding-block: 0; }
-
-.tab-select:focus-visible,
-.tab-close:focus-visible,
-.tab-new:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
-  outline-offset: -1px;
-}
-
-.tab-affordance {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin-left: var(--dinkster-space-4);
-}
-
-.tab-close {
-  position: absolute;
-  inset: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  padding: 0;
-  color: var(--dinkster-text-muted);
-  background: transparent;
-  border: 0;
-  border-radius: var(--dinkster-radius-small);
-  cursor: pointer;
-}
-
-.tab:hover .tab-close,
-.tab:focus-within .tab-close,
-.tab-close:focus-visible { opacity: 1; }
-.tab-close:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
-
-.tab-dirty {
-  width: var(--dinkster-space-8);
-  height: var(--dinkster-space-8);
-  border-radius: var(--dinkster-radius-capsule);
-  background: var(--dinkster-text-secondary);
-}
-
-.tab-select .dinkster-run-icon[data-result]::after { box-shadow: 0 0 0 2px var(--dinkster-surface-raised); }
-.tab.active .dinkster-run-icon[data-result]::after { box-shadow: 0 0 0 2px var(--dinkster-surface-canvas); }
-.tab:hover .dinkster-run-icon[data-result]::after { box-shadow: 0 0 0 2px var(--dinkster-interaction-hover); }
-
-.tab:hover .tab-dirty,
-.tab:focus-within .tab-dirty { display: none; }
-
-.tab-new {
-  min-width: var(--dinkster-control-compact-height);
-  flex: none;
-  justify-content: center;
-  padding-inline: var(--dinkster-space-8);
 }
 
 .sidebar-button {
@@ -205,7 +50,7 @@
 }
 
 .sidebar-button:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: -1px;
 }
 
@@ -222,9 +67,13 @@
 
 .shell-region-icon-panel[data-active='true'] { fill: currentColor; }
 
+/* The bar is the whole frame strip left of the first panel: it takes the row's
+   6px gap into itself, so its buttons are centred in that strip. Its width is
+   the iconBarWidth token the top bar centres the logo on. */
 .left-sidebar {
-  width: 48px;
-  flex: 0 0 48px;
+  width: 54px;
+  flex: 0 0 54px;
+  margin-right: -6px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -245,7 +94,7 @@
 }
 
 .sidebar-toggle-stack::-webkit-scrollbar { display: none; }
-.sidebar-toggle-group { display: flex; flex-direction: column; gap: var(--dinkster-space-4); width: 100%; }
+.sidebar-toggle-group { display: flex; flex-direction: column; align-items: center; gap: var(--dinkster-space-4); width: 100%; }
 
 .sidebar-button {
   position: relative;
@@ -262,6 +111,15 @@
 .sidebar-button-icon { display: inline-flex; align-items: center; justify-content: center; }
 .sidebar-button-icon svg { width: 20px; height: 20px; stroke-width: 1.5; }
 .sidebar-settings-button { flex: 0 0 auto; margin-top: var(--dinkster-space-4); }
+.sidebar-logo { display: flex; justify-content: center; margin-bottom: var(--dinkster-space-4); }
+.sidebar-logo .dinkster-window-action > .dinkster-button { width: 40px; height: 40px; padding: 0; border-color: transparent; background: transparent; }
+.sidebar-logo .dinkster-window-action > .dinkster-button:is(:hover, [aria-expanded='true']) { background: var(--dinkster-interaction-hover); }
+.sidebar-logo .dinkster-brand-mark { width: 22px; height: 22px; }
+.sidebar-account { display: flex; justify-content: center; margin-top: var(--dinkster-space-4); }
+.sidebar-account:empty { display: none; }
+/* The Dinkster menu's account rows, shown while the left bar is hidden. */
+.menu-item.disabled[data-item-id='account.identity'] { color: var(--dinkster-text-primary); }
+.menu-item[data-item-id='account.signOut'] { color: var(--dinkster-danger-foreground); }
 
 .view-toggle-cluster { display: inline-flex; align-items: center; margin-right: var(--dinkster-space-4); }
 .view-toggle-button {
@@ -344,7 +202,7 @@
 .shell-panel-close:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .dock-close:focus-visible,
 .shell-panel-header-action:not(.product-button):focus-visible,
-.shell-panel-close:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
+.shell-panel-close:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: -1px; }
 
 .rail-panel-body { min-height: 0; padding: var(--dinkster-space-12); }
 
@@ -408,33 +266,23 @@
 
 .learn-guide-list {
   display: grid;
-  gap: var(--dinkster-space-8);
 }
 
 .learn-guide-card {
   align-items: flex-start;
-  background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-subtle);
-  border-radius: var(--dinkster-radius-control);
-  color: var(--dinkster-text-primary);
   cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: var(--dinkster-space-4);
-  padding: var(--dinkster-space-12);
   text-align: left;
   width: 100%;
-}
-
-.learn-guide-card:hover {
-  background: var(--dinkster-interaction-hover);
 }
 
 .learn-guide-card:focus-visible,
 .learn-back:focus-visible,
 .learn-load-more:focus-visible,
 .dinkster-markdown-template button:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: 1px;
 }
 
@@ -549,28 +397,35 @@
 .rail-resize { left: -6px; }
 .bottom-resize { top: -6px; left: 0; width: 100%; height: 6px; cursor: row-resize; }
 
-.dock-resize::after,
-.rail-resize::after,
-.bottom-resize::after { position: absolute; background: transparent; content: ''; }
-.dock-resize::after,
-.rail-resize::after { top: 0; bottom: 0; left: 2px; width: 3px; }
-.bottom-resize::after { right: 0; bottom: 2px; left: 0; height: 3px; }
-.dock-resize:hover::after,
-.rail-resize:hover::after,
-.bottom-resize:hover::after,
-.dock-resize:focus-visible::after,
-.rail-resize:focus-visible::after,
-.bottom-resize:focus-visible::after { background: var(--dinkster-border-focus); }
-.dock-resize:focus-visible,
-.rail-resize:focus-visible,
-.bottom-resize:focus-visible { outline: none; }
+.panel-resize-handle { --dinkster-resize-grip-position: 50%; touch-action: none; }
+.panel-resize-handle::before,
+.panel-resize-handle::after { position: absolute; pointer-events: none; background: transparent; content: ''; }
+.panel-resize-handle::after { top: 0; bottom: 0; left: 2px; width: var(--dinkster-border-width); }
+.panel-resize-handle::before {
+  z-index: 1;
+  top: clamp(var(--dinkster-space-24), var(--dinkster-resize-grip-position, 50%), calc(100% - var(--dinkster-space-24)));
+  left: var(--dinkster-border-width);
+  width: calc(var(--dinkster-border-width) * 3);
+  height: calc(var(--dinkster-space-32) + var(--dinkster-space-8));
+  border-radius: var(--dinkster-radius-small);
+  transform: translateY(-50%);
+}
+.panel-resize-handle[aria-orientation='horizontal']::after { top: 2px; right: 0; bottom: auto; left: 0; width: auto; height: var(--dinkster-border-width); }
+.panel-resize-handle[aria-orientation='horizontal']::before {
+  top: var(--dinkster-border-width);
+  left: clamp(var(--dinkster-space-24), var(--dinkster-resize-grip-position, 50%), calc(100% - var(--dinkster-space-24)));
+  width: calc(var(--dinkster-space-32) + var(--dinkster-space-8));
+  height: calc(var(--dinkster-border-width) * 3);
+  transform: translateX(-50%);
+}
+.panel-resize-handle:is(:hover, :active, :focus-visible)::after { background: var(--dinkster-border-hover); }
+.panel-resize-handle:is(:hover, :active, :focus-visible)::before { background: var(--dinkster-text-secondary); }
+.panel-resize-handle:focus-visible { outline: none; }
 
 /* Tabbed dock zone host (#105): one tab row with host-owned actions, one
    visible body. Hidden bodies stay mounted, so the panels keep state.
-   Tab overflow strategy (#121): tabs shrink to an ellipsis floor (full
-   title via product tooltip) and the actions keep their size; the strip
-   never scrolls, so no native scrollbar can render inside the row. Tabs
-   beyond the last complete floor are hidden and remain in the all-tabs menu. */
+   Complete titles and badges fit together or move to the all-tabs menu;
+   the active tab stays visible. The strip never scrolls. */
 .dock-zone { display: flex; flex: 1; min-height: 0; flex-direction: column; border-radius: inherit; background: var(--dinkster-surface-frame); }
 .dock-zone[data-zone='bottom'] { flex-direction: row; }
 .dock-zone-section { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; border-radius: 8px; background: var(--dinkster-surface-panel); }
@@ -588,12 +443,6 @@
   height: auto;
   cursor: col-resize;
 }
-.dock-section-divider::after { position: absolute; background: transparent; content: ''; }
-.dock-section-divider::after { top: 2px; right: 0; left: 0; height: 3px; }
-.dock-zone[data-zone='bottom'] .dock-section-divider::after { top: 0; bottom: 0; left: 2px; width: 3px; height: auto; }
-.dock-section-divider:hover::after,
-.dock-section-divider:focus-visible::after { background: var(--dinkster-border-focus); }
-.dock-section-divider:focus-visible { outline: none; }
 .dock-zone-tabs { display: flex; flex: 1; min-height: 0; flex-direction: column; }
 .dock-zone-tabs .product-tabs-header {
   display: flex;
@@ -603,16 +452,17 @@
 .dock-zone-tabs .product-tabs-header .product-tablist {
   flex: 1;
   min-width: 0;
+  padding: var(--dinkster-space-4);
   overflow: hidden;
   border-bottom: 0;
 }
-.dock-zone-tabs .product-tab { position: relative; min-width: 64px; border-radius: var(--dinkster-radius-control); background: transparent; border-color: transparent; }
+.dock-zone-tabs .product-tab { position: relative; flex: none; min-width: 64px; border-radius: var(--dinkster-radius-control); background: transparent; border-color: transparent; }
 .dock-zone-tabs .product-tab[aria-selected='true'] { color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); }
 .dock-zone-tabs .product-tab[aria-selected='true']::after { content: ''; position: absolute; right: 10px; bottom: -2px; left: 10px; height: 3px; border-radius: 3px; background: var(--dinkster-accent-foreground); pointer-events: none; }
 .dock-zone-tabs .product-tab:disabled { display: none; }
-/* Truncate the title text, never the attention badge beside it. */
-.dock-zone-tabs .tab-title { display: flex; align-items: center; }
-.dock-zone-tabs .tab-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Keep the whole title and its attention badge in the measured tab width. */
+.dock-zone-tabs .tab-title { display: flex; align-items: center; justify-content: center; }
+.dock-zone-tabs .tab-title-text { white-space: nowrap; }
 .dock-zone-tabs .tab-title .panel-indicator { flex: none; }
 .dock-zone-title-only > .product-tabs-header > .product-tablist { display: none; }
 .dock-zone-title-only > .product-tabs-header > .dock-zone-actions {
@@ -630,7 +480,7 @@
   padding-right: var(--dinkster-space-4);
 }
 .dock-zone-overflow { position: relative; display: flex; }
-.dock-zone-overflow-menu { top: calc(100% + 4px); right: 0; left: auto; min-width: 180px; }
+.lens-menu.dock-zone-overflow-menu { top: calc(100% + 4px); right: 0; left: auto; min-width: 180px; }
 .dock-zone-overflow-menu button[aria-checked='true'] { color: var(--dinkster-accent-foreground); background: var(--dinkster-interaction-selected); }
 .dock-zone-tabs .product-tabpanel {
   flex: 1;
@@ -770,9 +620,6 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
 }
 
 @media (max-width: 520px) {
-  .dinkster-window-toolbar-actions [data-testid='left-panel-toggle'],
-  .dinkster-window-toolbar-actions [data-testid='bottom-panel-toggle'],
-  .dinkster-window-toolbar-actions [data-testid='customize-layout-button'] { display: none; }
   .modal-surface { min-width: 0; max-width: calc(100vw - var(--dinkster-space-32)); }
   .modal-surface[data-modal='settings'] { min-width: 0; width: calc(100vw - var(--dinkster-space-32)); max-width: calc(100vw - var(--dinkster-space-32)); height: calc(100vh - var(--dinkster-space-32)); max-height: calc(100vh - var(--dinkster-space-32)); }
   .settings-searchbar { padding: var(--dinkster-space-8); }
@@ -794,11 +641,11 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
     bottom: 0;
     z-index: 20;
     min-width: 0;
-    width: calc(100vw - var(--dinkster-space-32) - var(--dinkster-space-16)) !important;
-    max-width: calc(100vw - var(--dinkster-space-32) - var(--dinkster-space-16));
+    width: calc(100vw - 54px) !important;
+    max-width: calc(100vw - 54px);
     box-shadow: var(--dinkster-elevation-high);
   }
-  .dock-panel { left: calc(var(--dinkster-space-32) + var(--dinkster-space-16)); }
+  .dock-panel { left: 54px; }
   .rail { right: 0; }
   /* Overlaid dock/rail surfaces cover the editors, but each group's tab
      strip must stay visible and reachable. Hide only the stages and
@@ -822,7 +669,6 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .engine-spinner { animation-duration: var(--dinkster-motion-reduced); }
   .canvas-file-drop-icon svg { animation: none !important; }
 }
 
@@ -871,7 +717,7 @@ section.editor-group:not(:only-of-type):not([data-focused='true']) .tab.active {
   color: var(--dinkster-text-secondary);
 }
 
-.editor-group[data-focused='false'] :is(.canvas-view-control, .extension-toolbar-panel, .tab-target, .minimap, .canvas-corner-bar, .sync-chip, .frozen-banner, .breadcrumb):not(:hover):not(:focus-within) {
+.editor-group[data-focused='false'] :is(.canvas-view-controls, .extension-toolbar-panel, .tab-target, .minimap, .canvas-corner-bar, .frozen-banner, .breadcrumb):not(:hover):not(:focus-within) {
   opacity: var(--dinkster-interaction-unfocused-opacity);
 }
 
@@ -886,8 +732,8 @@ section.editor-group:not(:only-of-type):not([data-focused='true']) .tab.active {
 }
 .editor-split-divider[data-direction='row'] { cursor: col-resize; }
 .editor-split-divider[data-direction='column'] { cursor: row-resize; }
-.editor-split-divider:hover,
-.editor-split-divider:focus-visible { background: var(--dinkster-border-focus); outline: none; }
+.editor-split-divider:hover { background: var(--dinkster-border-focus); }
+.editor-split-divider:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
 
 .editor-split-drop-preview {
   position: absolute;
@@ -921,7 +767,7 @@ section.editor-group:not(:only-of-type):not([data-focused='true']) .tab.active {
 }
 
 .activity-log-list:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: -2px;
 }
 

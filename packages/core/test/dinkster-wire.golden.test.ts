@@ -4,6 +4,7 @@ import { importLitegraph, resolveImportedAssetLiterals } from '../src/format/imp
 import { asConnectionId, asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterNodes, parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { inputsOf } from '../src/schema/model.js'
+import { PRIMITIVE_SCHEMAS, withPrimitives } from './fixtures/primitive-schemas.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
@@ -12,6 +13,22 @@ const SELECTION_DEFAULTS: Record<string, string> = {
 }
 
 describe('Dinkster schema wire', () => {
+
+  it('keeps portable Mount inputs and their legacy string union without accepting other sockets', () => {
+    const decode = (type: unknown) => parseDinksterSchema('Save', { body: [
+      { kind: 'input', id: 'mount', type, required: false, default: null, widget: { type: 'MOUNT' } },
+    ] } as never)
+    for (const type of [concrete('MOUNT'), concrete('STRING'),
+      { kind: 'union', types: ['MOUNT', 'STRING'] }, { kind: 'union', types: ['STRING', 'MOUNT'] }]) {
+      const { schema, diagnostics } = decode(type)
+      expect(diagnostics).toEqual([])
+      expect(inputsOf(schema!)[0]).toMatchObject({ id: 'mount', widget: { widgetType: 'MOUNT', default: null } })
+    }
+    for (const type of [concrete('INT'), { kind: 'union', types: ['MOUNT', 'INT'] },
+      { kind: 'union', types: ['MOUNT', 'STRING', 'INT'] }, { kind: 'list', element: concrete('MOUNT') }]) {
+      expect(decode(type).schema).toBeUndefined()
+    }
+  })
 
   it('decodes a Switch selector as its pick and group of branches, and refuses the two-branch form', () => {
     // The engine's schema_to_wire output for a Switch.
@@ -59,6 +76,25 @@ describe('Dinkster schema wire', () => {
     expect(count!['displayName']).toBeUndefined()
     expect(plain).toMatchObject({ displayName: 'Plain', visible: false })
     expect(out).toMatchObject({ labelFormula: { formula: 'mode' }, visible: false })
+  })
+
+  it('keeps read-only, disabled and the reason on an input as declared, literal or formula', () => {
+    const { schema, diagnostics } = parseDinksterSchema('Blocked', { body: [
+      { kind: 'input', id: 'x', type: concrete('INT'), readOnly: { formula: 'locked' } },
+      { kind: 'input', id: 'y', type: concrete('INT'), disabled: true, disabledReason: 'Set by the preset' },
+      { kind: 'input', id: 'z', type: concrete('INT'), disabled: { formula: 'x > 0' }, disabledReason: { formula: 'reason' } },
+      { kind: 'input', id: 'plain', type: concrete('INT') },
+    ] } as never)
+    expect(diagnostics).toEqual([])
+    const [x, y, z, plain] = schema!.body as unknown as Record<string, unknown>[]
+    expect(x).toMatchObject({ readOnly: { formula: 'locked' } })
+    expect(x).not.toHaveProperty('disabled')
+    expect(y).toMatchObject({ disabled: true, disabledReason: 'Set by the preset' })
+    expect(y).not.toHaveProperty('readOnly')
+    expect(z).toMatchObject({ disabled: { formula: 'x > 0' }, disabledReason: { formula: 'reason' } })
+    for (const key of ['readOnly', 'disabled', 'disabledReason']) expect(plain).not.toHaveProperty(key)
+    const wrong = parseDinksterSchema('Wrong', { body: [{ kind: 'input', id: 'x', type: concrete('INT'), readOnly: 'yes' }] } as never)
+    expect(wrong.schema).toBeUndefined()
   })
 
   it.each([
@@ -122,6 +158,40 @@ describe('Dinkster schema wire', () => {
     ] as const) {
       expect(parse(limits, valueType, rows as unknown[] | undefined).schema, JSON.stringify([limits, valueType])).toBeUndefined()
     }
+  })
+
+  it('keeps options, completions and number limits given by a formula or a lookup apart from the literals', () => {
+    const lookup = (name: string, ...args: string[]) => ({ lookup: `pack.${name}`, args })
+    const { schema, diagnostics } = parseDinksterSchema('Picker', { body: [
+      { kind: 'input', id: 'category', type: concrete('COMBO'), pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl'] } },
+      { kind: 'input', id: 'lora', type: concrete('COMBO'), widget: { type: 'COMBO', options: lookup('loras_in', 'category') } },
+      { kind: 'input', id: 'frames', type: concrete('INT'),
+        widget: { type: 'NUMBER', min: 0, max: { formula: 'count * 4' }, step: 4, offset: lookup('frame_start', 'category') } },
+      { kind: 'input', id: 'trigger', type: concrete('STRING'), widget: { type: 'STRING', completions: lookup('words', 'lora') } },
+    ] } as never)
+    expect(diagnostics).toEqual([])
+    const [category, lora, frames, trigger] = inputsOf(schema!)
+    expect(category).toMatchObject({ socketless: true, sent: false })
+    expect(lora!.widget).toMatchObject({ widgetType: 'COMBO', options: {}, looked: { options: { lookup: 'pack.loras_in', args: ['category'] } } })
+    expect(frames!.widget).toMatchObject({
+      options: { min: 0, step: 4 },
+      looked: { max: { formula: 'count * 4' }, offset: { lookup: 'pack.frame_start', args: ['category'] } },
+    })
+    expect(frames!.widget!.options).not.toHaveProperty('max')
+    expect(trigger!.widget).toMatchObject({ looked: { completions: { lookup: 'pack.words', args: ['lora'] } } })
+    expect(trigger!.widget).not.toHaveProperty('textCompletions')
+    // The field that is not sent is drawn but never reaches the run.
+    const inputs = elabInputsOf(elaborateInterface(schema!, { values: {} }))
+    expect(inputs.map((input) => [input.spec.id, input.apiName])).toEqual([
+      ['category', undefined], ['lora', 'lora'], ['frames', 'frames'], ['trigger', 'trigger'],
+    ])
+    // A field that is not sent cannot have a pin; a looked list takes no other option source.
+    expect(parseDinksterSchema('Bad', { body: [
+      { kind: 'input', id: 'x', type: concrete('INT'), sent: false },
+    ] } as never).schema).toBeUndefined()
+    expect(parseDinksterSchema('Bad', { body: [
+      { kind: 'input', id: 'x', type: concrete('COMBO'), widget: { type: 'COMBO', options: lookup('f'), remote: { route: '/api/choices/x' } } },
+    ] } as never).schema).toBeUndefined()
   })
 
   it('keeps an editor row and the rows a widget writes and reads, apart from its params', () => {
@@ -204,11 +274,11 @@ describe('Dinkster schema wire', () => {
         const linked = importLitegraph({ nodes: [
           { id: 1, type: 'SourceSelection', inputs: [{ name: 'source', type: 'COMBO', link: 7 }], widgets_values: [source, 'ordinary.vae'] },
           { id: 2, type: 'PrimitiveNode', outputs: [{ name: 'COMBO', type: 'COMBO', links: [7] }], widgets_values: [source] },
-        ], links: [[7, 2, 0, 1, 0, 'COMBO']] }, (nodeType) => nodeType === 'SourceSelection' ? result.schema : undefined)
+        ], links: [[7, 2, 0, 1, 0, 'COMBO']] }, withPrimitives(resolve), undefined, [], PRIMITIVE_SCHEMAS)
         expect(linked.document).toBeDefined()
-        const linkedResolved = resolveImportedAssetLiterals(linked.document!, resolve, () => descriptor)
+        const linkedResolved = resolveImportedAssetLiterals(linked.document!, withPrimitives(resolve), () => descriptor)
         expect(linkedResolved.unresolved).toEqual([])
-        expect(Object.values(linkedResolved.document.graphs.g0!.valueSources!)[0]!.value).toBe(source)
+        expect(linkedResolved.document.graphs.g0!.nodes.n2!.values).toEqual({ value: source })
       }
     }
   })
@@ -364,7 +434,7 @@ describe('Dinkster schema wire', () => {
     const nested = { ...imported.document!, graphs: {
       g0: { ...graph, nodes: { a: instance('a', ['Detailed', 'Quick']), b: instance('b', ['Fine', 'Detailed']) } },
       soften: { ...graph, id: asGraphDefId('soften'), name: 'soften', nodes: { inner }, boundary: {
-        inputs: [{ id: 'choice', binds: { kind: 'port', node: 'inner', port: 'choice' }, promoted: true }], outputs: [],
+        body: [{ kind: 'input', id: 'choice', binds: { kind: 'port', node: 'inner', port: 'choice' }, promoted: true }],
       } },
     } }
     const compiledNested = compile({ document: nested as never, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('authored'), schemaHash: 'authored' })
@@ -604,6 +674,58 @@ describe('Dinkster schema wire', () => {
       expect(rejected.diagnostics).toEqual([expect.objectContaining({
         severity: 'error', message: expect.stringContaining('outputStrip must be two lower-case #rrggbb colors'),
       })])
+    }
+  })
+
+  it('carries the input a curve names as its histogram to its widget options', () => {
+    const curve = (id: string, widget: Record<string, unknown>) =>
+      ({ kind: 'input', id, type: concrete('CURVE'), required: true, widget: { type: 'CURVE', ...widget } })
+    const decoded = parseDinksterSchema('Curves', {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      body: [
+        curve('tied', { histogram: 'bins', inputStrip: ['#000000', '#ffffff'] }),
+        curve('plain', {}),
+        { kind: 'input', id: 'bins', type: concrete('HISTOGRAM'), required: false },
+      ],
+    })
+    expect(decoded.diagnostics).toEqual([])
+    const [tied, plain] = inputsOf(decoded.schema!)
+    expect(tied!.widget!.options).toEqual({ inputStrip: ['#000000', '#ffffff'], histogram: 'bins' })
+    expect(plain!.widget!.options).toEqual({})
+    for (const interpolations of [['step'], ['step', 'linear']]) {
+      const restricted = parseDinksterSchema('RestrictedCurve', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('curve', { interpolations })],
+      })
+      expect(restricted.diagnostics).toEqual([])
+      expect(inputsOf(restricted.schema!)[0]!.widget!.options).toEqual({ interpolations })
+    }
+    for (const interpolations of [null, 'step', [], ['step', 'step'], ['unknown'], [1]]) {
+      const rejected = parseDinksterSchema('BadCurve', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('curve', { interpolations })],
+      })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('interpolations must be distinct supported kinds') })])
+    }
+    for (const histogramVisible of [false, true]) {
+      const visible = parseDinksterSchema('Curves', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+        body: [curve('curve', { histogram: 'bins', histogramVisible }),
+          { kind: 'input', id: 'bins', type: concrete('HISTOGRAM'), required: false }],
+      })
+      expect(visible.diagnostics).toEqual([])
+      expect(inputsOf(visible.schema!)[0]!.widget!.options).toEqual({ histogram: 'bins', histogramVisible })
+    }
+    for (const histogramVisible of [null, 0, 1, 'false']) {
+      const rejected = parseDinksterSchema('BadCurve', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('curve', { histogramVisible })],
+      })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('histogramVisible must be a boolean') })])
+    }
+    for (const bad of ['', 3]) {
+      const rejected = parseDinksterSchema('BadCurve', { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('c', { histogram: bad })] })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('histogram must name an input') })])
     }
   })
 

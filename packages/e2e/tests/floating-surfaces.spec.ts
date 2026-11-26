@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
-import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeTest as test, setShellRegion, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_FLOATING_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -81,7 +81,7 @@ test.beforeEach(async ({ page }) => {
       category: 'proof',
       source: 'v3',
       isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input',
         id: 'choice',
         type: { kind: 'concrete', name: 'COMBO' },
@@ -128,24 +128,35 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole('button', { name: 'Hide minimap' }).click()
 })
 
-test('menus, selects, and widget popovers share contained semantic chrome', async ({ page }, testInfo) => {
+test('menus and selects share contained semantic chrome, and a choice row list stays in the canvas', async ({ page }, testInfo) => {
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     if (viewport.width === 360) {
-      const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
-      if (await railToggle.getAttribute('aria-pressed') === 'true') await railToggle.click()
+      await setShellRegion(page, 'right', false)
     }
     await moveProofNodeToEdge(page)
 
     const widgetPoint = await nodePoint(page, 'widget')
     await page.mouse.click(widgetPoint.x, widgetPoint.y)
-    const widget = page.getByTestId('combo-dropdown')
+    const widget = page.locator('[data-editor-surface="in-row-list"] .dinkster-canvas-field')
     await expect(widget).toBeVisible()
-    const search = page.getByTestId('combo-search')
+    const search = widget.getByRole('combobox')
     for (let index = 0; index < 13; index += 1) await search.press('ArrowDown')
     await expectContained(page, widget, true)
-    await expect(widget).toHaveClass(/floating-surface/)
-    await capture(page, testInfo, `${viewport.name}-widget-popover`)
+    const active = widget.getByRole('option', { selected: true })
+    await expect(active).toContainText('Option 14 ')
+    await capture(page, testInfo, `${viewport.name}-row-list`)
+    await expect.soft(active).toBeInViewport({ ratio: 1 })
+    const side = widget.locator('.dinkster-canvas-field-side')
+    const sideBox = (await side.boundingBox())!
+    const stageBox = (await page.locator('.canvas-stage').boundingBox())!
+    expect.soft(sideBox.x).toBeGreaterThanOrEqual(stageBox.x)
+    expect.soft(sideBox.x + sideBox.width).toBeLessThanOrEqual(stageBox.x + stageBox.width)
+    expect.soft(sideBox.y).toBeGreaterThanOrEqual(stageBox.y)
+    expect.soft(sideBox.y + sideBox.height).toBeLessThanOrEqual(stageBox.y + stageBox.height)
+    for (let index = 0; index < 13; index += 1) await search.press('ArrowUp')
+    await expect(active).toContainText('Option 1 ')
+    await expect(active).toBeInViewport({ ratio: 1 })
     await search.press('Escape')
     await expect(page.getByTestId('graph-canvas')).toBeFocused()
 

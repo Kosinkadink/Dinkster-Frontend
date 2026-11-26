@@ -219,11 +219,11 @@ test('node cards show intent controls without provider, arm, or pack leakage', a
   const collapsedAdvanced = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'advanced')!
     return {
-      group: node.layout.advancedGroup,
+      box: node.layout.boxes?.find((box) => box.id === 'advanced'),
       pins: node.layout.pins.filter((pin) => ['policy', 'reference_image'].includes(pin.portId)),
     }
   })
-  expect(collapsedAdvanced.group).toBeUndefined()
+  expect(collapsedAdvanced.box?.closed).toBe(true)
   expect(collapsedAdvanced.pins).toHaveLength(1)
   expect(collapsedAdvanced.pins[0]).toMatchObject({ portId: 'reference_image', collapsedSection: 'advanced' })
   expect(initial.badgeGlyphs).not.toEqual(expect.arrayContaining(['NATIVE', 'N + C', 'COMFYUI', 'DN', 'DG']))
@@ -254,17 +254,17 @@ test('node cards show intent controls without provider, arm, or pack leakage', a
   })).toContain('policy')
   expect(await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'advanced')!
-    const group = node.layout.advancedGroup
+    const box = node.layout.boxes?.find((box) => box.id === 'advanced')
     const policy = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'policy')
     const reference = node.layout.rows.find((row) => row.kind === 'ports' && row.input?.portId === 'reference_image')
     return {
-      bounded: group !== undefined
+      bounded: box !== undefined && box.closed !== true
         && policy !== undefined
         && reference !== undefined
-        && policy.y >= group.y
-        && policy.y + policy.height <= group.y + group.height
-        && reference.y >= group.y
-        && reference.y + reference.height <= group.y + group.height,
+        && policy.y >= box.y
+        && policy.y + policy.height <= box.y + box.height
+        && reference.y >= box.y
+        && reference.y + reference.height <= box.y + box.height,
       pinCount: node.layout.pins.filter((pin) => pin.portId === 'policy').length,
       referencePinCount: node.layout.pins.filter((pin) => pin.portId === 'reference_image').length,
     }

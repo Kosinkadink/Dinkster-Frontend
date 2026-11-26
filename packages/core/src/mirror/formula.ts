@@ -85,6 +85,10 @@ export interface FormulaScope {
 /** The state a formula is evaluated against. A missing name is unknown. */
 export interface FormulaValues {
   readonly values?: ReadonlyMap<string, FormulaValue | Unknown>
+  /** A lazy read; availability checks must not start work to obtain a value. */
+  readonly read?: (name: string, availability: boolean) => FormulaValue | Unknown | undefined
+  /** Observe a row or fact dependency; availability is true inside `known()`. */
+  readonly onRead?: (name: string, fact?: string, availability?: boolean) => void
   readonly linked?: ReadonlyMap<string, boolean>
   readonly linkedTypes?: ReadonlyMap<string, string | null>
   readonly groupSizes?: ReadonlyMap<string, number>
@@ -1325,6 +1329,11 @@ export class Formula {
     return new Evaluator(this.scope, values, new Map()).outcome(this)
   }
 
+  /** Inspect all required operands, even when an earlier strict operand is unavailable. Lazy branches stay lazy. */
+  inspectReads(values: FormulaValues): FormulaOutcome {
+    return new Evaluator(this.scope, values, new Map(), new Map(), true).outcome(this)
+  }
+
   /**
    * The row names and the functions this formula reads, its derived formulas
    * included. Comprehension names and table names are not rows.
@@ -1421,11 +1430,14 @@ function blankTextLiterals(source: string): string {
 
 class Evaluator {
   private readonly locals = new Map<string, Value>()
+  private checkingAvailability = false
 
   constructor(
     private readonly scope: FormulaScope,
     private readonly values: FormulaValues,
     private readonly derivedResults: Map<string, FormulaOutcome>,
+    private readonly availabilityResults = new Map<string, FormulaOutcome>(),
+    private readonly inspectingReads = false,
   ) {}
 
   outcome(formula: Formula): FormulaOutcome {
@@ -1445,21 +1457,40 @@ class Evaluator {
     if (this.locals.has(name)) return this.locals.get(name)!
     const derived = formula.derivedFormula(name)
     if (derived !== undefined) {
-      if (!this.derivedResults.has(name)) {
-        this.derivedResults.set(name, new Evaluator(this.scope, this.values, this.derivedResults).outcome(derived))
+      const results = this.checkingAvailability ? this.availabilityResults : this.derivedResults
+      if (!results.has(name)) {
+        const evaluator = new Evaluator(this.scope, this.values, this.derivedResults, this.availabilityResults, this.inspectingReads)
+        evaluator.checkingAvailability = this.checkingAvailability
+        results.set(name, evaluator.outcome(derived))
       }
-      const result = this.derivedResults.get(name)!
+      const result = results.get(name)!
       if (result.kind !== 'value') throw new Stop(result)
       return result.value
     }
     const table = this.scope.tables?.get(name)
     if (table !== undefined) return table
     const kind = this.scope.names.get(name)!
+    this.values.onRead?.(name)
     // A stored None is a value; only a missing name is unknown.
-    const stored = this.values.values?.get(name)
+    const stored = this.values.read === undefined ? this.values.values?.get(name) : this.values.read(name, this.checkingAvailability)
     const value = bind(kind, stored === undefined ? UNKNOWN : stored)
     if (value === UNKNOWN) throw STOP_UNKNOWN
     return check(value)
+  }
+
+  private operands<T, R>(items: readonly T[], evaluate: (item: T) => R): R[] {
+    let failure: { error: unknown } | undefined
+    const values: R[] = []
+    for (const item of items) {
+      try {
+        values.push(evaluate(item))
+      } catch (error) {
+        if (!this.inspectingReads) throw error
+        if (failure === undefined || (failure.error instanceof Stop && !(error instanceof Stop))) failure = { error }
+      }
+    }
+    if (failure !== undefined) throw failure.error
+    return values
   }
 
   private eval(node: Node, formula: Formula): Value {
@@ -1469,9 +1500,8 @@ class Evaluator {
       case 'constant':
         return check(node.value)
       case 'binary': {
-        const left = this.eval(node.left, formula)
-        const right = this.eval(node.right, formula)
-        return check(arith(node.op, left, right))
+        const [left, right] = this.operands([node.left, node.right], (item) => this.eval(item, formula))
+        return check(arith(node.op, left!, right!))
       }
       case 'unary': {
         const operand = this.eval(node.operand, formula)
@@ -1493,9 +1523,10 @@ class Evaluator {
         return result
       }
       case 'compare': {
-        let left = this.eval(node.left, formula)
+        const first = this.operands([node.left, node.comparators[0]!], (item) => this.eval(item, formula))
+        let left: Value = first[0]!
         for (let index = 0; index < node.ops.length; index += 1) {
-          const right = this.eval(node.comparators[index]!, formula)
+          const right = index === 0 ? first[1]! : this.eval(node.comparators[index]!, formula)
           const op = node.ops[index]!
           let holds: boolean
           if (op === '==' || op === '!=') {
@@ -1512,16 +1543,15 @@ class Evaluator {
       case 'if':
         return this.eval(truthy(this.eval(node.test, formula)) ? node.body : node.orelse, formula)
       case 'subscript': {
-        const container = this.eval(node.value, formula)
-        const index = this.eval(node.index, formula)
-        return check(subscript(container, index))
+        const [container, index] = this.operands([node.value, node.index], (item) => this.eval(item, formula))
+        return check(subscript(container!, index!))
       }
       case 'list':
-        return check(Object.freeze(node.items.map((item) => listItem(this.eval(item, formula)))))
+        return check(Object.freeze(this.operands(node.items, (item) => listItem(this.eval(item, formula)))))
       case 'comprehension': {
         const items = list(this.eval(node.iterable, formula), 'a comprehension')
         const results: FormulaScalar[] = []
-        for (const item of items) {
+        this.operands(items, (item) => {
           this.locals.set(node.target, item)
           try {
             if (node.conditions.every((condition) => truthy(this.eval(condition, formula)))) {
@@ -1530,7 +1560,7 @@ class Evaluator {
           } finally {
             this.locals.delete(node.target)
           }
-        }
+        })
         return check(Object.freeze(results))
       }
       case 'call':
@@ -1545,6 +1575,7 @@ class Evaluator {
     const name = (node.func as Extract<Node, { type: 'name' }>).name
     if (NAME_FACTS.has(name)) {
       const target = dotted(node.args[0]!)!
+      this.values.onRead?.(target, name, this.checkingAvailability)
       if (name === 'linked') return this.values.linked?.get(target) ?? false
       if (name === 'linked_type') return this.values.linkedTypes?.get(target) ?? null
       const fact = this.values.facts?.get(`${name}(${target})`)
@@ -1558,29 +1589,34 @@ class Evaluator {
     }
     if (name === 'previous') {
       if (this.values.previous === undefined) throw STOP_UNKNOWN
-      const before = new Evaluator(this.scope, this.values.previous, new Map())
+      const before = new Evaluator(this.scope, this.values.previous, new Map(), new Map(), this.inspectingReads)
       for (const [local, value] of this.locals) before.locals.set(local, value)
       return before.eval(node.args[0]!, formula)
     }
     if (name === 'known') {
+      const previous = this.checkingAvailability
+      this.checkingAvailability = true
       try {
         this.eval(node.args[0]!, formula)
       } catch (error) {
         if (error instanceof Stop) return false
         if (error instanceof ExpressionMirrorError) return false
         throw error
+      } finally {
+        this.checkingAvailability = previous
       }
       return true
     }
     if (name === 'len') {
       const target = dotted(node.args[0]!)
       if (target !== undefined && this.scope.names.get(target) === 'group') {
+        this.values.onRead?.(target)
         const size = this.values.groupSizes?.get(target)
         if (size === undefined) throw STOP_UNKNOWN
         return BigInt(size)
       }
     }
-    const args = node.args.map((argument) => this.eval(argument, formula))
+    const args = this.operands(node.args, (argument) => this.eval(argument, formula))
     return check(FUNCTIONS[name]!(...args))
   }
 }

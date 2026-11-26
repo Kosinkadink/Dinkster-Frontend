@@ -37,8 +37,13 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 ## Source of truth
 
 The dark palette uses cyan-tinted greys: canvas `#0E1414`, panel `#141C1D`,
-raised `#1E292A`, hover `#283537`, and subtle border `#324143`. The frame role
+raised `#1E292A`, hover `#283537`, pressed `#324143`, and subtle border `#324143`
+(the light theme's pressed is `#D3D9DE`, one step past its hover `#E4E8EC`). The frame role
 is `#090D0D`, exposed as `surface.frame` and `--dinkster-surface-frame`.
+The active workflow tab's top tint, `rgba(120, 205, 210, 0.08)` in both
+themes, is the translucent `interaction.activeTabTint`
+(`--dinkster-interaction-active-tab-tint`); it is not a surface, because text
+never sits on it alone.
 Light-theme colors remain unchanged. The app grid uses the light palette's
 `#D3D9DE` dots rather than retaining the dark constructor color. Queued and
 skipped node outlines keep their existing light values through dedicated
@@ -89,7 +94,7 @@ portable distribution includes it in the SHA-256 manifest.
 App action labels, settings categories and panel headings use sentence case.
 Canvas context-menu actions set their labels at the registry source, including
 reset actions and plural counts. Proper names, acronyms and user-authored node,
-net and selector branch names retain their original capitalization.
+net and Switch branch names retain their original capitalization.
 
 `@dinkster/ui` exports the script-enabled components from `packages/ui/src`.
 They use only the shared stylesheet, not app-specific CSS. Import the stylesheet
@@ -97,6 +102,22 @@ alongside the components. `pnpm --filter @dinkster/ui dev` serves the live dark
 component gallery on loopback port 5276 after `pnpm build:ui`; production gallery
 files are in `packages/ui/dist/gallery`. The gallery is an isolated reference,
 not an account service or a replacement for the app.
+
+The standalone `#page-tabs` gallery uses `WorkflowTabs` and the shared
+`createPageTabHost` from `packages/app/src/page-tabs.tsx`. A registered page
+has an id, title, icon and component; opening it again focuses its existing
+tab without replacing its opening parameters. The caller owns the mixed
+tab list and active id. `PageTabPanel` renders page content without a workflow
+document, and its context can close the page or replace it with a workflow
+at the same active position. Disabled or unregistered pages close; dirty,
+save and snapshot callbacks stay owned by each page.
+
+The app uses that same host as `app.pages`: register a descriptor, then call
+`app.pages.open(id, parameters)`. The shell renders its component beside real
+workflow tabs and confirms closing dirty pages. Pages remain session-only;
+`app.tabs`, workflow persistence and execution contain only documents. A page
+context's `replaceWithWorkflow(tab)` takes the real tab returned by a workflow
+open and retains the page's position in its editor group, including splits.
 
 The Canvas pages include Tabs at controls and content zoom in both themes:
 the subgraph mark in the title bar, tabs above and below the node, crowded
@@ -129,6 +150,32 @@ every core tab once.
   focused. Navigation retains real link targets.
   `ProductPage` owns the page title and the normal/table content width;
   `ProductSection` owns a titled section inside it.
+- `createPageLoad` accepts one async read containing every fact that decides
+  the page, such as a `Promise.all` of independent requests. Before the first
+  result, `loading` stays false for 200ms; once true it stays visible for at
+  least 300ms, including on failure. `ProductPageLoad` draws the content area:
+  blank waiting, centred loading, or a failure notice with a retry button above
+  any retained answer. Pass the helper as `page`, the retry `read`, a
+  `loadingLabel` and a content render function. Its parent supplies the content
+  area's height; arriving content fades and rises 6px over 240ms unless motion
+  is reduced.
+  For other regions fed by the same `page`, `ProductPageAnswer` takes that
+  helper and a content render function, showing only the retained or arriving
+  answer without another loading sign, error or retry. Keep known headings and
+  actions outside both pieces so they stay mounted through reads and refreshes.
+  Both accept `arrival="fade"` (200ms) or `arrival="rise"` (240ms, 6px upward
+  settling). Both default to rise; callers do not need to choose an arrival.
+  Reduced motion disables both animations.
+  `pending` covers the whole read, `value` retains the previous answer during
+  refresh, and `error` exposes a failed read. A newer `load` supersedes an older
+  completion; Solid owner disposal cancels timers and ignores late answers.
+  A project list can use `ProductProjectListHeader` with an `id` outside the
+  loading region and `ProductProjectRows` with that `labelledBy` inside it;
+  `ProductProjectList` composes both for callers that load them together.
+  Both loading components also accept persistent JSX children that read
+  `page.value()` reactively, preserving interactive rows and focus through
+  refresh completion; render functions instead replace the complete answer.
+  Project fact values also accept these shared answer regions.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as
   solid/outline, and accepts native button attributes. `ProductIconButton` is
   the quiet, square icon-only control with a required accessible label and the
@@ -154,13 +201,15 @@ every core tab once.
   messages are off; field problems are shown by `ProductField`.
   Changing to another record mounts a new form.
 - `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
-  keyboard item movement and opener focus restoration. Disabled items are
+  keyboard item movement and opener focus restoration; optional `filter={{ label, placeholder }}` opens with a shared text field that matches item labels case-insensitively. The first enabled match is highlighted; Up/Down move that highlight and Enter selects, while focus stays in the field. Descriptions do not affect matches, Home/End retain text editing in the field, and reopening clears the query. `fill="quiet"` gives its text trigger the shared borderless quiet fill and retains its hover fill while open, while absent preserves the outlined trigger. Items keep their buttons
+  by position, so a host that passes new item objects while the menu is open
+  (a count arriving) does not move focus or close it. Disabled items are
   skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
-  to its trigger's left edge, or to its right edge when it would not fit, and
+  to its trigger's left edge by default, or to its right edge with `align="end"` or when it would not fit, and
   then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
   to clamp and to flip above when needed. Scroll outside or resize dismisses
   the menu rather than leaving a stale anchor. Its document listeners exist
-  only while it is open. Item text follows its intent. Removal callbacks open a
+  only while it is open. Item text follows its intent; optional non-interactive `labelContent` replaces visible trigger or item text while `label` and `triggerName` retain their accessible names, and `title` supplies the trigger tooltip. Optional `description` is a muted second line associated as the item's accessible description, without changing its label. Removal callbacks open a
   confirmation. Use `iconOnly` with an icon for compact folder actions; the
   label remains the trigger and menu's accessible name. `ProductAccountMenu` shows the person's initial and name on a
   borderless trigger (the initial alone below the breakpoint), reads out name
@@ -170,13 +219,20 @@ every core tab once.
   repeated secondary identity lines are omitted; the trigger's accessible name
   follows the same primary line.
 - `ProductNotice` is standing information without a dismiss button, including
-  its warning tone for QA environments.
+  its warning tone for conditions the person clears and its error tone for failures. Error notices use the error icon and alert role; information and warning retain their note role.
   `ProductErrorBanner` is dismissed explicitly or by the caller after success.
   `ProductToast` is the corner region for success feedback. Keep one mounted
   and pass each success as a new `notification` object, so the region exists
   before its text. A notification can be dismissed at once and otherwise
   leaves after five seconds, counted from when the pointer and keyboard focus
   have both left it.
+  Every message kind (error, warning, information, success) has one look:
+  its text and icon in the meaning's colour, over that colour at 7% inside a
+  1 px outline of it at 38% (the `quiet-background` and `quiet-border`
+  tokens). A link inside a message stays primary and its close button
+  secondary, so the strip is not one colour. The toast puts the message on
+  the raised surface because it floats over other content.
+- `ProductProgress` takes a required accessible `label` and optional fractional `value` from 0 to 1. Zero is determinate; omission sweeps without exposing a current value. Reduced motion replaces the sweep with a full static fill at 45% opacity, distinct from completion. The host owns phase wording, amounts and spacing. The address-only `#setup-components` gallery shows progress, notice tones and described menu choices together.
 - `ProductConfirmation` orders the title, consequence, solid action and Cancel.
   Sites use it as page content. Inside `ProductDialog`, omit the confirmation's
   duplicate title and let the dialog provide it. `ProductDialog` provides native modal inertness,
@@ -189,8 +245,9 @@ every core tab once.
   `ProductRunIcon` keeps a supplied Lucide kind icon visible while running,
   breathing in cyan over a 2.4-second cycle. Reduced motion leaves it still
   and cyan. Queued work stays cyan without motion. Its optional
-  `finished`/`failed` result adds a lower-right cyan or
-  coral dot, hidden while running. Tabs and the status bar use this same export.
+  `finished`/`failed` result adds a 6 px lower-right cyan or coral dot with a
+  2 px ring in the colour behind it, hidden while running. Tabs and the status
+  bar use this same export.
   `ProductRunActivity` shows separate numeric running and waiting activity:
   a turning cyan ring always carries the running count, including one, and a
   still secondary-text clock always carries the waiting count. Zero counts
@@ -356,9 +413,7 @@ definitions and no retained definitions without private success-border styling.
 The Settings result-count announcement and Escape-to-clear behavior remain
 independent of the empty presentation.
 
-Canvas value-source and execution-selector popovers use ProductEmptyState when
-their target is unavailable. The popover keeps its focus and anchor until focus
-leaves it. Problems uses the shared empty card without a private color override.
+Problems uses the shared empty card without a private color override.
 
 Collaboration discovery uses ProductEmptyState for unavailable, loading, empty
 and error results, and for a workflow that is not shared. Loading announces
@@ -528,7 +583,7 @@ not grow. This inventory is a migration queue, not a second component system.
 | Surface     | canvas, panel, inset, raised, selected                                                          |
 | Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
 | Border      | subtle, hover, strong, focus, selected                                                          |
-| Meaning     | accent, success, warning, danger, info; each has foreground, background, and border             |
+| Meaning     | accent, success, warning, danger, info; each has foreground, background, border, rest border, quiet border, quiet background, wash and pressed wash |
 | Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only   |
 | Interaction | 32 px compact control, 40 px primary input, 24 px canvas input, 2 px focus ring, hover, pressed, selected, disabled |
 | Motion      | fast, standard, reduced-motion duration, one product easing curve                               |
@@ -538,6 +593,24 @@ Canvas code receives space, relevant type roles, surfaces, text, borders,
 meaning, shapes, and bounded interaction state. It does not receive DOM
 elevation or motion tokens. DOM surfaces consume the generated
 `--dinkster-*` variables.
+
+A control's fill gets stronger at each step: at rest, under the pointer
+(`interaction-hover`), then pressed (`interaction-pressed`, one step past
+hover). No pressed fill is weaker than its hover. A neutral outline follows
+the same order: subtle at rest, the hover outline under the pointer and
+strong only while pressed or open. A control whose outline is a meaning
+colour (an add or remove outline button, Run, an outlined danger action)
+keeps its text in full colour. Its outline rests at 55% of that colour
+(`rest-border`) and is full strength under the pointer and while pressed,
+where it also fills with a quiet wash of that colour: 12% under the pointer
+(`wash`) and 20% while pressed (`wash-pressed`). Plain controls keep the
+neutral hover grey, and solid buttons keep their own fill. A disabled solid
+button turns neutral: the raised fill, the subtle outline and secondary text.
+
+Each screen and each dialog shows at most one solid coloured button, the one
+that does its main job. Its other actions are outline buttons of their role.
+A popover or dialog counts on its own, and so does a confirmation step that
+replaces the button that opened it.
 
 Every scrolling surface in the app, the gallery and the site uses one scrollbar
 from the shared stylesheet: `scrollbar-size` (8 px) with no track or arrows, so
@@ -658,7 +731,7 @@ shape, label, line style, icon, or other non-color cue.
 The document and core model own graph/product semantics. `scene.ts` owns the
 immutable document-to-scene projection and `layout.ts` owns world geometry.
 The app host owns runtime-derived presentation state: progress, diagnostics,
-mode, companions, previews, badges, selector resolutions, remote presence,
+mode, companions, previews, badges, remote presence,
 and focused/transient controls. Command and undo ownership do not move into
 the renderer.
 
@@ -677,7 +750,7 @@ not re-derive semantic truth. In particular:
   committed scene after dispatch.
 
 The main renderer's fixed paint phases are groups, links, reroutes/net views,
-nodes and boundary nodes, value sources/selectors, selection/gesture
+nodes and boundary nodes, selection/gesture
 adornments, and screen-sized toolbox chrome. Host-owned bookmark state is
 painted as minimap marker descriptors, outside the main renderer. Changes may
 insert only into a named phase and must preserve occlusion and matching hit
@@ -786,23 +859,37 @@ family members, propagated values and diagnostics. The widget-state page selects
 each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
 cover controls, content and overview detail. The minimap includes groups, links and reroutes.
 Core widget rows compares selected, empty and long values for the core kinds.
+Closed row summaries draws each kind's closed row empty, populated and in a
+narrow node, with incoming values, problems and the pointer readout.
 The default `widgetRowLook: 'raised-editors'` keeps a value typed in its row,
 color included, in an inset field, and raises every row that opens an editor:
 asset, recording, camera, 3D model, crop, compare, save target, video edit,
-list, colors, curve, camera angle and resolution preview. A raised row has a
+list, colors, curve and camera angle. A raised row has a
 lucide icon for its kind and an opening chevron; an output mount is drawn as a
 choice row. A row whose editor is parked (`PARKED_EDITOR_VIEWS`, today the
 compositor's layers) opens nothing, so it is drawn inset with its summary as
 plain text and no hover wash; its icon stays listed for when an editor
 returns. A color's 10 px square sits directly before its code, over a
-checker pattern when the color has opacity. A list shows as many values as fit,
-separated by a comma, then `+N`, each number written as stored in the shortest
-text that reads back as the same number, never rounded to the element's step;
-colors show as many squares as fit, then `+N`.
+checker pattern when the color has opacity. A list, several choices or several
+files show as many values as fit, in stored order and separated by a comma,
+then `+N`, each number written as stored in the shortest text that reads back
+as the same number, never rounded to the element's step; a choice reads as its
+option label, an empty item as `""`. When none fits whole the first is cut,
+unless less of it would stay visible than the count, which then stands alone
+(`3 selected`, `3 items`, `3 assets`). Markdown shows its first line
+with text and its line count, `# Heading (3 lines)`. A crop region reads
+`x 8, y 12; 512 x 768` and a video edit its trim and crop numbers, each with
+a shorter form for a narrow row (`8, 12 / 512 x 768`, `Trim + crop`); a value that fails its kind's
+validation reads `Invalid value` with its problem outline. The 3D, image
+comparison and camera angle rows say what they open (`Open 3D viewport`,
+`Open image comparison`, `Open camera angle`). Pointing at a row shows its
+summary and each item with its position in the tooltip, at most 20 and then
+how many more, fewer when the window is too short to hold them; the tooltip
+opens above the row when it does not fit below.
 A curve is drawn on its row's second line from the row's start, clear of the
 row's edges. An empty row says what it asks for ("Choose image", "Choose
-model", "Record audio", "Capture frame", "No edits", "Default output", "Empty",
-"No colors"); an empty number shows its declared `placeholder` or nothing. A
+model", "No clip", "No frame", "No edits", "Default output", "Empty",
+"No selections"); an empty number shows its declared `placeholder` or nothing. A
 value passed down a wire shows the same text, square or squares its own row
 would. The widget pages (Widget kinds, Core widget rows, Collection widget rows,
 Rows that open an editor, and the link-driven, offered, propagated and state
@@ -820,8 +907,8 @@ field under a choice's option is lost on copy and paste and on replacing the
 node, and a subgraph's face cannot offer it. A card may carry its own pointer
 state, the same overlay the interaction controller sets for that gesture.
 
-Switch and Primitive, under Flow nodes, draws the proposed Switch and Primitive
-nodes that replace the value source pill and the selector box, one card per
+Switch and Primitive, under Flow nodes, draws the Switch and Primitive nodes,
+one card per
 state, each painted from its own document at the top level or inside a subgraph
 entered through one subgraph node. The Switch cards show a pick known before the
 run with the branch not picked dimmed, a pick arriving on a wire, a picked
@@ -833,8 +920,7 @@ Primitive cards show a range worked out from the fields it feeds, fields that
 share no value, typed and pinned limits, the typed Int, Float, Text, Boolean and
 Choice primitives beside the general one, the Inputs panel with and without a
 subgraph node, a value arriving on a wire, refused edits and plugging in that
-narrows the range. The first card shows today's pill and selector box for
-comparison. A card may carry its own scene, run states, companions, row marks
+narrows the range. A card may carry its own scene, run states, companions, row marks
 and dimmed nodes. Captions name what the canvas does not draw yet: "Not run" and
 "Nothing plugged in" text, and "Not known yet" in place of a wired field's
 struck-through stored value.
@@ -1025,8 +1111,11 @@ screenshot baselines do not use fallback text.
 ## Desktop information
 
 `ProductWindowChrome` reserves the native title-bar overlay area and the
-macOS traffic-light inset, uses the shared 44px bar and palette, and marks
-its empty background draggable while its contents remain non-draggable.
+macOS traffic-light inset (neither when the host passes `fullScreen`, since
+full screen hides the window buttons), uses the shared 44px bar and palette,
+and marks its empty background draggable while its contents remain
+non-draggable. The shared toolbar does the same: its grid cells are
+draggable and the controls inside them are not.
 The host supplies the exact title and platform. Optional `qa` and `development`
 flags add `ProductWindowIdentity` inside the bar. The visible Development label
 has the full unpublished-project explanation as its title. QA and development
@@ -1078,11 +1167,25 @@ execution, account and project-name changes. In the expanded row Search takes
 spare grid width and gives it back first. Search keeps an unfilled outline, is
 capped at the 480px `toolbarSearchMaxWidth`, and centers on the window when the
 surrounding controls leave room; otherwise it stays within its available grid
-slot. The app-menu button uses the D symbol and chevron at every width, not a
-wordmark or a three-line menu icon. Its accessible name is unchanged. Project labels compose
-`.dinkster-window-project-label` through `labelContent`, with a folder icon and
-`.dinkster-window-project-name` limiting visible text to 160px with an end ellipsis; the required full `label` retains the accessible
-name and tooltip. Service and development become a single
+slot. The app-menu button uses the D symbol alone at every width, with no
+chevron, not a wordmark or a three-line menu icon. Its accessible name is
+unchanged. Off macOS it is centred over the 54px `iconBarWidth` column of the
+editor's left icon bar, which spans the frame strip up to the first panel, and
+the next control in the brand slot starts at that column's edge, where the
+panels start. On macOS the editor moves it to the top
+of the left icon bar, below the bar's row, and the project follows the window
+buttons; while the left bar is hidden it returns to the bar after the window
+buttons. The editor reads the platform from the bar's `data-platform`, which
+Desktop sets.
+The brand slot may follow it with `ProductProjectMenu`: a folder, the project's
+name and a chevron at every width. The chevron uses the muted text color at rest
+and the normal color on hover, keyboard focus and while the menu is open. The name shows at most 160px and shortens to 64px
+before anything else in the slot gives way, ending in an ellipsis; the full
+name is the trigger's accessible name and tooltip. Its menu lists the current
+project checked, up to 8 other projects in the order given, each with an
+open-in-window action shown on hover and keyboard focus, then All projects and
+New project; it opens at once and the other projects fill in when they arrive,
+or one muted line says they could not be loaded. Service and development become a single
 bold warning-colored marking after actions, before the account slot: QA, Custom,
 Dev, QA Dev or Custom Dev. `serviceKind` supplies the stable QA/custom meaning
 independently of the localized full `service` label. Full words remain in the
@@ -1097,17 +1200,18 @@ An optional `labelContent` replaces the expanded visible label. The required
 string `label` still owns the accessible name and title; rich content must be
 non-interactive. Compact mode clips action content and shows the action's icon
 without changing activation or menu ownership, except for the app-menu brand
-slot, which retains its D symbol and chevron at every width. Pending toolbar
+slot, which retains its D symbol at every width. Pending toolbar
 actions retain their exact non-pending width and shared disabled/focus behavior.
 The spinner replaces the compact icon, the leading icon in an expanded rich
-label, or the app-menu D symbol while keeping its chevron.
+label, or the app-menu D symbol.
 For a text-only expanded label, it replaces the drawn text at the center while
 the label continues to supply the accessible name. No other control moves when
 an action becomes pending. Ordinary ProductButton presentation is unchanged.
 The actions slot also accepts a render function receiving a reactive `narrow`
-accessor. It switches below the fixed 460px available-content token
+accessor. It switches below the fixed 406px available-content token
 `toolbarFullRowWidth`, after native reservations, independently of account or
-execution state. The layout menu then holds the left, bottom and right panel
+execution state; 406px is the widest gallery row's measured need with the
+project in the brand slot and no account. The layout menu then holds the left, bottom and right panel
 switches together, followed by left bar, status bar and Reset layout. In the full
 row the three panel switches stay in the bar and are not repeated in the menu.
 `ProductMenuItem.checked` draws the shared checkmark and exposes
@@ -1116,7 +1220,9 @@ navigation and dismissal. The host owns visibility and commands in either place.
 Compact and narrow brand triggers show the bundled 22px color D symbol inside
 32px controls, with the accessible name Dinkster menu. Toolbar icon buttons are
 unboxed at rest; hover and pressed use shared interaction fills. Cancel run
-retains its coral outline. Collaboration uses the two-person Users icon.
+retains its coral outline. Collaboration uses the two-person Users icon and
+comes before the layout menu and the panel switches, which then sit next to the
+window buttons on every platform.
 `ProductMenu.triggerName` separates the accessible trigger name from its drawn
 label and menu name when needed.
 
@@ -1132,7 +1238,9 @@ Cancel sign-in. Changing pending state closes the menu. A host-provided
 The host supplies authoritative account availability and owns all network,
 start/cancel/popup and error handling. ProductButton pending activation remains
 unchanged. Signed-in account triggers use the shared 28px filled avatar in this
-toolbar, with existing name/email/person fallbacks.
+toolbar, with existing name/email/person fallbacks. With `rail`, both account
+controls draw the same circle in a side bar, as the app's left bar does above
+Settings, and their menus open beside the trigger with bottom edges aligned.
 
 The gallery's Window toolbar page demonstrates plain menu and rich brand
 presentations across production and QA/custom services, all three platforms,

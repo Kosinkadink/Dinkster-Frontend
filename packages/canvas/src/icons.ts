@@ -23,8 +23,6 @@ import ArrowUp from 'lucide/dist/esm/icons/arrow-up.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import ArrowDown from 'lucide/dist/esm/icons/arrow-down.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
-import Boxes from 'lucide/dist/esm/icons/boxes.mjs'
-// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import FolderOpen from 'lucide/dist/esm/icons/folder-open.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Group from 'lucide/dist/esm/icons/group.mjs'
@@ -50,9 +48,15 @@ import Info from 'lucide/dist/esm/icons/info.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Image from 'lucide/dist/esm/icons/image.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import AudioLines from 'lucide/dist/esm/icons/audio-lines.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import File from 'lucide/dist/esm/icons/file.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Palette from 'lucide/dist/esm/icons/palette.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import ChevronRight from 'lucide/dist/esm/icons/chevron-right.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ChevronDown from 'lucide/dist/esm/icons/chevron-down.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import List from 'lucide/dist/esm/icons/list.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
@@ -97,7 +101,18 @@ import Repeat from 'lucide/dist/esm/icons/repeat.mjs'
 import type { ToolboxButton } from './toolbox.js'
 import { canvasPaintTokens } from './tokens.js'
 
-type IconNode = readonly (readonly [string, Readonly<Record<string, string>>])[]
+export type IconNode = readonly (readonly [string, Readonly<Record<string, string>>])[]
+
+/**
+ * The subgraph icon in Lucide's 24-unit element form, so DOM menus draw the
+ * same picture: the workflow drawing, smaller, inside a frame. Not a Lucide icon.
+ */
+export const SUBGRAPH_ICON: IconNode = [
+  ['rect', { x: '2', y: '2', width: '20', height: '20', rx: '3' }],
+  ['rect', { x: '6', y: '6', width: '5', height: '5', rx: '1' }],
+  ['path', { d: 'M8.5 11v3.5a1 1 0 0 0 1 1H13' }],
+  ['rect', { x: '13', y: '13', width: '5', height: '5', rx: '1' }],
+]
 
 export type SeedControllerMode = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
@@ -126,8 +141,11 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   'triangle-alert': TriangleAlert,
   info: Info,
   image: Image,
+  'audio-lines': AudioLines,
+  file: File,
   palette: Palette,
   'chevron-right': ChevronRight,
+  'chevron-down': ChevronDown,
   list: List,
   'list-checks': ListChecks,
   spline: Spline,
@@ -163,7 +181,7 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   'folder-open': FolderOpen,
   group: Group,
   ungroup: Ungroup,
-  boxes: Boxes,
+  subgraph: SUBGRAPH_ICON,
   'sliders-horizontal': SlidersHorizontal,
   'panel-top-close': PanelTopClose,
   'panel-top-open': PanelTopOpen,
@@ -203,7 +221,7 @@ export function paintToolboxIcon(
     ctx.restore()
     return
   }
-  paintIcon(ctx, ICONS[icon], x, y, size, color)
+  paintIconNodes(ctx, ICONS[icon], x, y, size, color)
 }
 
 /** Paint the icon-only status for an after-generate controller chip. */
@@ -215,7 +233,7 @@ export function paintSeedControllerIcon(
   size: number,
   color: string,
 ): void {
-  paintIcon(ctx, CONTROLLER_ICONS[mode], x, y, size, color)
+  paintIconNodes(ctx, CONTROLLER_ICONS[mode], x, y, size, color)
 }
 
 /** Paint a seed's after-run mode as drawn before the value of an in-row number. */
@@ -227,10 +245,11 @@ export function paintSeedModeIcon(
   size: number,
   color: string,
 ): void {
-  paintIcon(ctx, SEED_MODE_ICONS[mode], x, y, size, color)
+  paintIconNodes(ctx, SEED_MODE_ICONS[mode], x, y, size, color)
 }
 
-function paintIcon(ctx: CanvasRenderingContext2D, nodes: IconNode, x: number, y: number, size: number, color: string): void {
+/** Paint Lucide's 24px SVG node data, `size` pixels square at (x, y). */
+export function paintIconNodes(ctx: CanvasRenderingContext2D, nodes: IconNode, x: number, y: number, size: number, color: string): void {
   const scale = size / canvasPaintTokens.icon.viewBoxSize
   ctx.save()
   ctx.translate(x, y)

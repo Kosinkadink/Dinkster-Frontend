@@ -1,4 +1,4 @@
-import { expect, mockProjectPacks, waitForWorkspaceReady, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
+import { expect, inspectRun, mockProjectPacks, waitForWorkspaceReady, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const descriptors = {
@@ -63,7 +63,7 @@ test('inspects every media kind through the owning value API without mutating th
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
   }, descriptors)
   await page.locator('.dock-zone').getByRole('tab', { name: 'Runs', exact: true }).click()
-  await page.getByTestId('runs-panel').locator('.runs-details > summary').click()
+  await inspectRun(page.getByTestId('runs-panel').getByTestId('execution-row').first())
   await expect(page.locator('.media-value-inspector')).toHaveCount(4)
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const outputs = await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'media-metadata-run')!.outputs)
@@ -254,7 +254,7 @@ test(`shows transparent pixels without changing source bytes, server conversion 
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const outputs = await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'transparent-media-run')!.outputs)
   await page.locator('.dock-zone').getByRole('tab', { name: 'Runs', exact: true }).click()
-  await page.getByTestId('runs-panel').locator('.runs-details > summary').click()
+  await inspectRun(page.getByTestId('runs-panel').getByTestId('execution-row').first())
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews()['image']?.width)).toBe(320)
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews()['image']?.colorTransform)).toBe(colorTransform)
   await page.screenshot({ path: testInfo.outputPath('transparent-canvas-output.png') })
@@ -266,7 +266,7 @@ test(`shows transparent pixels without changing source bytes, server conversion 
     await page.keyboard.press('Escape')
   }
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const preview = page.getByTestId('app-preview-image')
   await expect(preview).toBeVisible()
   await expect(preview).toHaveCSS('background-image', /conic-gradient/)

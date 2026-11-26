@@ -3,7 +3,6 @@ import { documentNodeResolver } from '../compile/compile.js'
 import { canonicalJson } from '../compile/hash.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { suppressedDeliveryKey, type DynamicPortState, type Json, type JsonObject, type OccurrenceLinkData, type OccurrenceLinkEndpoint, type OccurrenceTopology, type SuppressedDelivery, type WorkflowDocument } from '../format/document.js'
-import { validateBoundaryBindingShape } from '../format/validate.js'
 import { actorCursorOf, asLinkId, formatAllocatedId, guardOrdinal, isPortEndpoint, occurrenceKey, sameEndpoint, type OccurrenceRef } from '../ids.js'
 import { lifecycleCanonicalHash } from '../lifecycle/planner.js'
 import { isComboValue } from '../schema/combo-options.js'
@@ -11,6 +10,7 @@ import type { SchemaResolver } from '../schema/derive-boundary.js'
 import type { NodeSchema } from '../schema/model.js'
 import { elaborateInterface, elabInputsOf, elabOutputsOf, materializeFramesOf, type MaterializeFrame } from '../schema/elaborate.js'
 import { createTransactionBuilder, type CommandDefinition, type CommandInvocation, type TransactionBuilder } from './contract.js'
+import { boundaryItems as itemsOf } from '../format/document.js'
 
 const PLAN_VERSION = 'occurrence-link-plan-v1'
 const DIGEST_VERSION = 'occurrence-link-plan-digest-v1'
@@ -31,18 +31,12 @@ const stringArray = (value: Json | undefined, empty = true): value is readonly s
 function validLinkEndpoint(value: Json | undefined): boolean {
   if (!isObj(value)) return false
   if (value.reroute !== undefined) return exactKeys(value, ['reroute']) && nonEmptyString(value.reroute)
-  if (value.valueSource !== undefined) return exactKeys(value, ['valueSource']) && nonEmptyString(value.valueSource)
-  if (value.selector !== undefined)
-    return exactKeys(value, ['selector'], ['candidate']) && nonEmptyString(value.selector) &&
-      (value.candidate === undefined || nonEmptyString(value.candidate))
   if (value.tap !== undefined) return exactKeys(value, ['node', 'tap']) && nonEmptyString(value.node) && nonEmptyString(value.tap)
   return exactKeys(value, ['node', 'port'], ['kind']) && (value.kind === undefined || value.kind === 'port') &&
     nonEmptyString(value.node) && nonEmptyString(value.port)
 }
 
 function validBinding(value: Json | undefined): boolean {
-  if (isObj(value) && value.kind === 'valueSource')
-    return exactKeys(value, ['kind', 'valueSource', 'type']) && validateBoundaryBindingShape(value).length === 0
   return isObj(value) && exactKeys(value, ['kind', 'node', 'port']) &&
     value.kind === 'port' && nonEmptyString(value.node) && nonEmptyString(value.port)
 }
@@ -269,7 +263,7 @@ function occurrenceTopologyProjection(
     [delivery.from.authored, delivery.to.authored].flatMap((endpoint) => endpoint.kind === 'boundary'
       ? endpoint.route.map((leg) => {
           const definition = doc.graphs[leg.graph]
-          const item = [...(definition?.boundary?.inputs ?? []), ...(definition?.boundary?.outputs ?? [])]
+          const item = [...itemsOf(definition?.boundary, 'inputs'), ...itemsOf(definition?.boundary, 'outputs')]
             .find((candidate) => candidate.id === leg.boundaryId)
           return { graph: leg.graph, boundaryId: leg.boundaryId, item: item ?? null }
         })
@@ -369,12 +363,7 @@ function buildPlan(
       const current = byIdentity.get(identityKey(identity))
       if (!current) return undefined
       if (identity.kind === 'parent' || identity.kind === 'parentNetSink') return undefined
-      if (identity.kind === 'parentLeg') {
-        const legCount = effective.projectedParentLinks.filter((link) =>
-          link.identity.kind === 'parentLeg' && canonicalJson(link.identity.delivery) === canonicalJson(identity.delivery),
-        ).length
-        if (legCount <= 1 || intent.command !== 'occurrence.link.disconnect') return undefined
-      }
+      if (identity.kind === 'parentLeg' && intent.command !== 'occurrence.link.disconnect') return undefined
       if ((identity.kind === 'definition' || identity.kind === 'definitionNetSink') &&
           ((intent.command === 'occurrence.link.rewire' && intent.to?.kind === 'body') ||
            (intent.command === 'occurrence.link.rewireSource' && intent.from?.kind === 'body'))) return undefined

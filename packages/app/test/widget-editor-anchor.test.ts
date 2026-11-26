@@ -66,6 +66,10 @@ describe('tabDocumentUnchanged', () => {
 })
 
 describe('widgetEditorAnchorAlive', () => {
+  it.each(['readOnly', 'disabled'] as const)('discards an unfinished asset picker when its row becomes %s', (flag) => {
+    expect(widgetEditorAnchorAlive(editorState(), [node([widgetRow({ [flag]: true })])], 't0', 'g0', undefined, true)).toBe(false)
+  })
+
   it('keeps the editor when the same static row survives the rebuild', () => {
     expect(widgetEditorAnchorAlive(editorState(), [node([widgetRow()])], 't0', 'g0', undefined)).toBe(true)
   })
@@ -153,20 +157,6 @@ describe('widgetEditorAnchorAlive', () => {
     const ed = editorState({ spec, declaredType: type, multiline: true })
     const nodes = [node([widgetRow({ spec, type } as never)])]
     expect(widgetEditorAnchorAlive(ed, nodes, 't0', 'g0', undefined, false)).toBe(true)
-  })
-
-  it('retains value-source drafts only with the same effective widget contract', () => {
-    const spec: WidgetSpec = { widgetType: 'VIDEO_EDIT', options: { features: ['trim'] } }
-    const ed = editorState({ target: { kind: 'valueSource', valueSourceId: 'v0' }, spec })
-    const type: TypeExpr = { kind: 'concrete', name: 'VIDEO_EDIT' }
-    const sources = [{ id: 'v0', effective: { spec, type, consumers: [], diagnostics: [] } }]
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, true, sources)).toBe(true)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, false, sources)).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, true, [])).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't1', 'g0', undefined, true, sources)).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g1', undefined, true, sources)).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, true,
-      [{ ...sources[0]!, effective: { ...sources[0]!.effective, spec: assetSpec } }])).toBe(false)
   })
 
   it('closes when a registry change flips the multi-select decision', () => {

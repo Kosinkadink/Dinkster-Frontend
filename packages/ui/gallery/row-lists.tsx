@@ -42,6 +42,7 @@ import {
   canvasListLayout,
   canvasSideLayout,
   type CanvasListAction,
+  type CanvasListLayout,
   type CanvasListOption,
   type CanvasListStatus,
 } from '../src/index.js'
@@ -336,11 +337,11 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
       },
       {
         id: 'paused',
-        title: 'Rate limited',
+        title: 'Paused',
         caption: 'Paused, under the list beside Refresh: the list keeps what it shows and the filter. Refresh can be tried by hand; nothing retries on a timer.',
         node: 'preset',
         open: 'preset',
-        list: { options: presets(), highlight: 0, status: { tone: 'notice', text: 'Rate limited' }, actions: refresh },
+        list: { options: presets(), highlight: 0, status: { tone: 'notice', text: 'Paused' }, actions: refresh },
         side: presetSide,
       },
       {
@@ -661,8 +662,8 @@ export function RowListExample(props: { example: ListExample; theme: 'dark' | 'l
     }
     const nodeBelow = ((node.y + node.layout.height) * s - screen.y) / zoom + MARGIN / 2
     const nodeAbove = (screen.y - node.y * s) / zoom + MARGIN / 2
-    const layout = example().list === undefined
-      ? { ...canvasSideLayout(screen, bounds, sideSize(), s, nodeBelow, nodeAbove), listPlace: 'below' as const }
+    const layout: CanvasListLayout = example().list === undefined
+      ? { ...canvasSideLayout(screen, bounds, sideSize(), s, nodeBelow, nodeAbove), listPlace: 'below', sideMaxWidth: bounds.width / zoom }
       : canvasListLayout(screen, bounds, listSize(), sideSize(), s, nodeBelow, nodeAbove)
     return { row, rowWidth, screen, ...layout }
   }
@@ -732,6 +733,8 @@ export function RowListExample(props: { example: ListExample; theme: 'dark' | 'l
               zoomed={scale() > 1}
               place={current().place}
               sideTop={current().sideTop}
+              {...(current().sideLeft === undefined ? {} : { sideLeft: current().sideLeft! })}
+              sideMaxWidth={current().sideMaxWidth}
               {...(current().sideMaxHeight !== undefined ? { sideMaxHeight: current().sideMaxHeight! } : {})}
               listPlace={current().listPlace}
               {...(current().listMaxHeight !== undefined ? { listMaxHeight: current().listMaxHeight! } : {})}

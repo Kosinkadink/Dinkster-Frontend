@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { asGraphDefId, asLineageId, asNodeId, asPortId, coreCommandRegistry, DocumentStore, occurrenceKey, type NodeSchema, type OccurrenceRef, type WorkflowDocument } from '@dinkster/core'
+import { asGraphDefId, asLineageId, asNodeId, asPortId, coreCommandRegistry, DocumentStore, occurrenceKey, type NodeSchema, type OccurrenceRef, type WorkflowDocument, boundaryOf } from '@dinkster/core'
 import type { OccurrenceLinkEndpoint } from '@dinkster/core'
 
 vi.mock('lucide-solid', () => ({
-  ArrowDown: {}, ArrowUp: {}, Ban: {}, Check: {}, CirclePlay: {}, Copy: {}, CopyPlus: {}, Dice5: {}, Eye: {},
-  FolderOpen: {}, Group: {}, Lock: {}, Palette: {}, SlidersHorizontal: {}, Trash2: {}, Ungroup: {}, VolumeX: {}, X: {},
+  ArrowDown: {}, ArrowUp: {}, Ban: {}, Camera: {}, Check: {}, Circle: {}, CirclePlay: {}, CircleSlash2: {}, Frame: {}, MessageCircleWarning: {}, Route: {}, Copy: {}, CopyPlus: {}, Dice5: {}, DraftingCompass: {}, Eye: {},
+  FolderOpen: {}, Group: {}, Lock: {}, Maximize2: {}, Minimize2: {}, Palette: {}, Pencil: {}, Play: {}, RotateCcw: {}, SlidersHorizontal: {}, Square: {}, SquareDashed: {}, Trash2: {}, Ungroup: {}, VolumeX: {}, X: {},
 }))
 
 import { coreOccurrencePlanner, dispatchOccurrenceIntention } from '../src/CanvasHost.js'
@@ -52,10 +52,7 @@ function fixtureDocument(): WorkflowDocument {
           },
         },
         nets: {}, reroutes: {}, nextOrdinal: 2,
-        boundary: {
-          inputs: [],
-          outputs: [{ id: 'feed' as never, binds: binding() }],
-        },
+        boundary: boundaryOf([], [{ id: 'feed' as never, binds: binding() }]),
       },
     },
     view: { graphs: {} },

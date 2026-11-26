@@ -2,8 +2,9 @@
  * The node's problem box, drawn as a part of the node: one row-high line per
  * problem with the kind's icon, its row's name, the message and its action at
  * the right end, the action drawn as a list status line's action. Only the
- * icon and the message take the problem's color. It hangs below the
- * node at one screen size; the caller places it.
+ * icon and the message take the problem's color. It hangs below the node
+ * as wide as its longest line up to a limit, where its lines wrap; the caller
+ * places it and sets the limit.
  */
 import { createEffect, For, Show } from 'solid-js'
 import { CircleX, TriangleAlert } from 'lucide-solid'
@@ -37,6 +38,10 @@ export function ProblemBox(props: {
   /** Top-left corner in the positioned parent's px. */
   readonly x: number
   readonly y: number
+  /** Widest the box gets in the same px, where its lines wrap; up to it, the box is as wide as its longest line. */
+  readonly maxWidth: number
+  /** Narrowest the box gets in the same px. */
+  readonly minWidth: number
   readonly onPointLine?: (line: ProblemBoxViewLine | undefined) => void
   readonly onAction?: (line: ProblemBoxViewLine, action: string) => void
   readonly ref?: (element: HTMLDivElement) => void
@@ -46,6 +51,8 @@ export function ProblemBox(props: {
     if (element === undefined) return
     element.style.left = `${props.x}px`
     element.style.top = `${props.y}px`
+    element.style.maxWidth = `${props.maxWidth}px`
+    element.style.minWidth = `${props.minWidth}px`
   })
   const strongest = (): ProblemBoxKind =>
     props.lines.some((line) => line.kind === 'error') ? 'error' : 'warning'
@@ -69,6 +76,7 @@ export function ProblemBox(props: {
             class="problem-box-line"
             data-testid="problem-box-line"
             data-kind={line.kind}
+            data-stacked-actions={line.actions.length > 1 ? 'true' : undefined}
             data-row={line.row}
             data-highlighted={props.highlighted === line.key ? 'true' : undefined}
             onPointerEnter={() => props.onPointLine?.(line)}
@@ -85,18 +93,22 @@ export function ProblemBox(props: {
               </Show>
               <span class="problem-box-message">{line.message}</span>
             </p>
-            <For each={line.actions}>
-              {(action) => (
-                <button
-                  type="button"
-                  class="problem-box-action"
-                  data-testid={`problem-box-${action.id}`}
-                  onClick={() => props.onAction?.(line, action.id)}
-                >
-                  {action.label}
-                </button>
-              )}
-            </For>
+            <Show when={line.actions.length > 0}>
+              <div class="problem-box-actions">
+                <For each={line.actions}>
+                  {(action) => (
+                    <button
+                      type="button"
+                      class="problem-box-action"
+                      data-testid={`problem-box-${action.id}`}
+                      onClick={() => props.onAction?.(line, action.id)}
+                    >
+                      {action.label}
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
           </div>
         )}
       </For>

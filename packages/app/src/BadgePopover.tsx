@@ -58,7 +58,10 @@ export function BadgePopover(props: {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) props.onClose()
       }}
     >
-      <Show when={props.anchor.badge.id === 'core.error'}>
+      <Show when={props.anchor.badge.id === 'core.error' || props.anchor.badge.id === 'core.error.lastRun'}>
+        <Show when={props.anchor.badge.id === 'core.error.lastRun'}>
+          <p class="badge-popover-line" data-testid="badge-last-run">{message('problems.lastRun.changedSince')}</p>
+        </Show>
         <div class="badge-popover-title">Execution errors: {props.anchor.nodeId}</div>
         <For each={props.errors(props.anchor.nodeId)} fallback={<ProductEmptyState title="No error details recorded." />}>
           {(d) => (

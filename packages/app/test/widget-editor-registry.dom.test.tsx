@@ -1,12 +1,307 @@
 import { render } from 'solid-js/web'
+import { createSignal as createSolidSignal } from 'solid-js'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createWidgetRegistry } from '@dinkster/widgets'
-import { asLinkId, asNodeId, asPortId, coreCommandRegistry, createSignal, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema, type CompileArtifact } from '@dinkster/core'
+import { asLinkId, asNodeId, asPortId, coreCommandRegistry, createSignal, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema, type CompileArtifact, type Json } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import type { AppState, Tab } from '../src/app-state.js'
 import { WidgetEditor, type WidgetEditorProps, type WidgetEditorState } from '../src/WidgetEditor.js'
+import { CurveSpace, SaveTargetSpace } from '../src/InNodeEditorSpaces.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it.each([false, true])('commits arithmetic in a local in-row editor on Tab (reverse: %s)', async (reverse) => {
+  const registry = createWidgetRegistry()
+  const app = { widgetRegistryForTab: () => registry } as unknown as AppState
+  let value: unknown = 1
+  let closed = false
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{
+    tab: {} as Tab, graphId: 'g0', label: 'Amount',
+    target: { kind: 'local', commit: (next) => { value = next }, cancel: () => {} },
+    spec: { widgetType: 'INT', options: { min: 0, max: 100, step: 1 }, default: 1 },
+    multiline: false, initial: 1,
+    rect: { x: 0, y: 0, width: 180, height: 24 },
+    inRow: { look: 'flat-title', nodeTop: 0, nodeBottom: 100, storedAtOpen: 1 },
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => { closed = true }} />, root)
+  try {
+    const input = root.querySelector<HTMLInputElement>('input')!
+    input.value = '13+6'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: reverse, bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(closed).toBe(true))
+    expect(value).toBe(19)
+  } finally { dispose() }
+})
+
+it('edits only unwired mapped Save parts and discards a draft when that part becomes blocked', async () => {
+  const [mode, setMode] = createSolidSignal<'name-wired' | 'mount-unknown' | 'readOnly' | 'disabled'>('name-wired')
+  const changes: Json[] = []
+  const dispose = render(() => <SaveTargetSpace value={undefined} wired={false}
+    parts={{
+      mount: { value: mode() === 'mount-unknown' ? undefined : 'archive', declared: null,
+        wired: mode() === 'mount-unknown', readOnly: false, disabled: false },
+      name: { value: mode() === 'name-wired' ? 'arriving/name' : 'stored/name', declared: 'declared/name',
+        wired: mode() === 'name-wired', readOnly: mode() === 'readOnly', disabled: mode() === 'disabled' },
+    }}
+    fetchMounts={async () => ({ activeOutputMount: 'output', mountChangesAllowed: false, mounts: [
+      { id: 'output', mode: 'readwrite', state: 'ready' }, { id: 'archive', mode: 'readwrite', state: 'ready' },
+    ] })} commit={async (value) => { changes.push(value); return true }} queue={() => {}} />, document.body)
+  try {
+    const name = document.querySelector('input')!
+    const mount = document.querySelector('button')!
+    const reset = () => [...document.querySelectorAll('button')].find((button) => button.textContent === 'Reset to default')!
+    await vi.waitFor(() => expect(mount.textContent).toContain('archive'))
+    expect(name.value).toBe('arriving/name')
+    expect(name.readOnly).toBe(true)
+    reset().click()
+    expect(name.value).toBe('arriving/name')
+    expect(mount.textContent).toContain('Project default')
+    mount.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    await vi.waitFor(() => expect(changes).toEqual([{ mount: null }]))
+    setMode('mount-unknown')
+    expect(mount.textContent).toContain('Not known yet')
+    expect(name.value).toBe('stored/name')
+    expect(name.readOnly).toBe(false)
+    name.value = 'new/name'; name.dispatchEvent(new Event('input', { bubbles: true }))
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await vi.waitFor(() => expect(changes).toEqual([{ mount: null }, { prefix: 'new/name' }]))
+    for (const state of ['readOnly', 'disabled'] as const) {
+      setMode('mount-unknown')
+      name.value = 'discard/name'; name.dispatchEvent(new Event('input', { bubbles: true }))
+      setMode(state)
+      expect(name.value).toBe('stored/name')
+      expect(name.readOnly).toBe(true)
+      name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await Promise.resolve()
+      expect(changes).toHaveLength(2)
+    }
+  } finally { dispose() }
+})
+
+it('drops an open Save target draft when access changes and keeps its stored name selectable without writing', async () => {
+  const root = document.createElement('div'); document.body.append(root)
+  const [access, setAccess] = createSolidSignal<'editable' | 'readOnly' | 'disabled'>('editable')
+  const commit = vi.fn(async () => true)
+  const queue = vi.fn()
+  const preview = vi.fn()
+  const dispose = render(() => <SaveTargetSpace value={{ mount: 'output', prefix: 'stored/name' }} wired={false}
+    readOnly={access() === 'readOnly'} disabled={access() === 'disabled'} preview={preview}
+    fetchMounts={async () => ({ activeOutputMount: 'output', mountChangesAllowed: false,
+      mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }] })}
+    commit={commit} queue={queue} />, root)
+  try {
+    const name = root.querySelector('input')!
+    const mount = root.querySelector('button')!
+    await vi.waitFor(() => expect(mount.textContent).toContain('output'))
+    for (const state of ['readOnly', 'disabled'] as const) {
+      name.value = 'uncommitted/name'
+      name.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      mount.click()
+      expect(document.querySelector('[role="listbox"]')).not.toBeNull()
+      setAccess(state)
+      expect(name.value).toBe('stored/name')
+      expect(name.readOnly).toBe(true)
+      expect(mount.getAttribute('aria-disabled')).toBe('true')
+      expect(document.querySelector('[role="listbox"]')).toBeNull()
+      name.focus(); name.select()
+      expect([name.selectionStart, name.selectionEnd]).toEqual([0, 11])
+      name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+      name.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      await Promise.resolve()
+      expect(commit).not.toHaveBeenCalled()
+      expect(queue).not.toHaveBeenCalled()
+      expect(preview).toHaveBeenLastCalledWith(undefined)
+      setAccess('editable')
+      expect(name.readOnly).toBe(false)
+      expect(name.value).toBe('stored/name')
+    }
+  } finally { dispose() }
+})
+
+it('keeps mount recovery and declared-default reset inside the Save target editor without changing a wired target', async () => {
+  const root = document.createElement('div'); document.body.append(root)
+  const [wired, setWired] = createSolidSignal(false)
+  const [requestState, setRequestState] = createSolidSignal(0)
+  const [value, setValue] = createSolidSignal<Json>({ mount: 'usb1', prefix: 'shots/shot_042' })
+  const commit = vi.fn(async () => true)
+  const dispose = render(() => <SaveTargetSpace value={value()} wired={wired()}
+    declared={{ prefix: 'ComfyUI' }} help="Relative name only"
+    fetchMounts={async () => {
+      requestState()
+      return { activeOutputMount: 'output', mountChangesAllowed: false,
+        mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }] }
+    }}
+    commit={commit} queue={() => {}} />, root)
+  const button = (label: string) => [...root.querySelectorAll('button')].find((entry) => entry.textContent === label)
+  try {
+    await vi.waitFor(() => expect(root.querySelector('.dinkster-canvas-editor-note')?.textContent).toContain('usb1 not found.'))
+    expect(root.querySelector('.dinkster-canvas-target-value-text')?.textContent).toBe('usb1')
+    setRequestState(1)
+    expect(button('Use project default')).toBeUndefined()
+    expect(root.querySelector('.dinkster-canvas-target-name')?.getAttribute('title')).toBe('Relative name only')
+    button('Details')!.click()
+    const recovery = document.querySelector('[role="dialog"] button') as HTMLButtonElement
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('usb1 is not on this machine.')
+    recovery.focus()
+    const recoverKey = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    recovery.dispatchEvent(recoverKey)
+    expect(recoverKey.defaultPrevented).toBe(false)
+    recovery.click()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(root.querySelector('.dinkster-canvas-editor-note')).toBeNull()
+    setValue({ mount: 'usb1', prefix: 'shots/shot_042' })
+    expect(root.querySelector('.dinkster-canvas-target-value-text')?.textContent).toBe('Project default')
+    expect(root.querySelector('input')!.value).toBe('shots/shot_042')
+    expect(document.activeElement).toBe(root.querySelector('input'))
+    expect(commit).not.toHaveBeenCalled()
+    expect(button('Reset to default')).toBeDefined()
+    button('Reset to default')!.focus()
+    const resetKey = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    button('Reset to default')!.dispatchEvent(resetKey)
+    expect(resetKey.defaultPrevented).toBe(false)
+    button('Reset to default')!.click()
+    expect(root.querySelector('input')!.value).toBe('ComfyUI')
+    expect(button('Reset to default')).toBeUndefined()
+    expect(document.activeElement).toBe(root.querySelector('input'))
+    expect(commit).not.toHaveBeenCalled()
+    setWired(true)
+    expect(button('Use project default')).toBeUndefined()
+    expect(button('Reset to default')).toBeUndefined()
+    expect(root.querySelector('input')!.readOnly).toBe(true)
+  } finally { dispose() }
+})
+
+it('selects the save name on opening and queues the atomically stored target only after commit succeeds', async () => {
+  const root = document.createElement('div'); document.body.append(root)
+  let saved: Json = { mount: 'output', prefix: 'before' }
+  const queued: Json[] = []
+  const preview = vi.fn()
+  let finish!: (ok: boolean) => void
+  const [wired, setWired] = createSolidSignal(false)
+  const dispose = render(() => <SaveTargetSpace value={saved} wired={wired()}
+    fetchMounts={async () => ({ activeOutputMount: 'output', mountChangesAllowed: false, mounts: [
+      { id: 'output', mode: 'readwrite', state: 'ready' }, { id: 'archive', mode: 'readwrite', state: 'ready' },
+    ] })}
+    commit={async (value) => {
+      const ok = await new Promise<boolean>((resolve) => { finish = resolve })
+      if (ok) saved = value
+      return ok
+    }} queue={() => queued.push(saved)} preview={preview} />, root)
+  try {
+    const name = root.querySelector('input')!
+    const mount = root.querySelector('button')!
+    await vi.waitFor(() => expect(document.activeElement).toBe(name))
+    expect([name.selectionStart, name.selectionEnd]).toEqual([0, 6])
+    await vi.waitFor(() => expect(mount.textContent).toContain('output'))
+    mount.focus()
+    mount.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull()
+    Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent === 'archive')!.click()
+    name.focus()
+    name.value = 'after'; name.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(saved).toEqual({ mount: 'output', prefix: 'before' })
+    expect(preview).toHaveBeenLastCalledWith({ mount: 'archive', prefix: 'after' })
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(preview).toHaveBeenLastCalledWith(undefined)
+    mount.focus()
+    mount.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent === 'archive')!.click()
+    name.value = 'after'; name.dispatchEvent(new Event('input', { bubbles: true }))
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+    expect(queued).toEqual([])
+    finish(true)
+    await vi.waitFor(() => expect(queued).toEqual([{ mount: 'archive', prefix: 'after' }]))
+    name.value = 'refused'; name.dispatchEvent(new Event('input', { bubbles: true }))
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }))
+    finish(false)
+    await Promise.resolve(); await Promise.resolve()
+    expect(queued).toEqual([{ mount: 'archive', prefix: 'after' }])
+    setWired(true)
+    expect(preview).toHaveBeenLastCalledWith(undefined)
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+    await Promise.resolve()
+    expect(saved).toEqual({ mount: 'archive', prefix: 'after' })
+    expect(queued).toHaveLength(1)
+  } finally { dispose() }
+  expect(preview).toHaveBeenLastCalledWith(undefined)
+})
+
+it('stores Step interpolation without changing points', async () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'linear' as const, points: [
+    { position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.9, value: 0.3 },
+  ] }
+  const commit = vi.fn()
+  const root = document.createElement('div'); document.body.append(root)
+  const mount = (interpolation: 'linear' | 'step') => render(() => <CurveSpace
+    value={{ ...value, interpolation }} options={{}} histogram={undefined} histogramInput="none" commit={commit}
+  />, root)
+  let dispose = mount('linear')
+  try {
+    const choice = root.querySelector('.dinkster-canvas-editor-field-slot')!
+    ;(choice.querySelector('button') as HTMLButtonElement).click()
+    const step = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent?.trim() === 'Step')!
+    expect(step).toBeDefined()
+    step.click()
+    expect(commit).toHaveBeenCalledExactlyOnceWith({ ...value, interpolation: 'step' })
+    dispose()
+    dispose = mount('step')
+    expect(root.textContent).toContain('Step')
+    expect(root.textContent).not.toContain('Histogram')
+  } finally { dispose() }
+})
+
+it('draws a Step-only curve without a selector or a ramp even for an incoming linear value', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'linear' as const, points: [
+    { position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.9, value: 0.3 },
+  ] }
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn()
+  const dispose = render(() => <CurveSpace value={value} options={{ interpolations: ['step'] }}
+    histogram={undefined} histogramInput="none" commit={commit} />, root)
+  try {
+    expect(root.textContent).not.toContain('Interpolation')
+    expect(root.textContent).not.toContain('Histogram')
+    const vertices = root.querySelector('.dinkster-canvas-curve-line[data-held="false"]')!.getAttribute('points')!
+      .split(' ').map((point) => point.split(',').map(Number))
+    let jumps = 0
+    for (let index = 1; index < vertices.length; index++) {
+      const [x, y] = vertices[index]!
+      const [beforeX, beforeY] = vertices[index - 1]!
+      expect(x === beforeX || y === beforeY).toBe(true)
+      if (y !== beforeY) { expect(x).toBe(beforeX); jumps++ }
+    }
+    expect(jumps).toBe(2)
+    expect(commit).not.toHaveBeenCalled()
+    expect(value.interpolation).toBe('linear')
+  } finally { dispose() }
+})
+
+it('bounds an expanded Step plot without changing extreme source points', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'step' as const, points: [
+    { position: -1e308, value: -2 }, { position: 0.25, value: 0.4 },
+    { position: 0.75, value: 2 }, { position: 1e308, value: 0.8 },
+  ] }
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn()
+  const dispose = render(() => <CurveSpace value={value} options={{}} histogram={undefined} histogramInput="none" commit={commit} />, root)
+  try {
+    const vertices = Array.from(root.querySelectorAll('.dinkster-canvas-curve-line')).flatMap((line) =>
+      line.getAttribute('points')!.split(' ').map((point) => point.split(',').map(Number)))
+    const expected = [[8.5, 171.5], [84.25, 171.5], [84.25, 106.3], [235.75, 106.3], [235.75, 8.5], [311.5, 8.5]]
+    expect(vertices).toHaveLength(expected.length)
+    vertices.forEach((point, index) => point.forEach((coordinate, axis) => expect(coordinate).toBeCloseTo(expected[index]![axis]!)))
+    const handles = root.querySelectorAll('.dinkster-canvas-curve-point')
+    expect(handles).toHaveLength(1)
+    expect(Number(handles[0]!.getAttribute('cx'))).toBeCloseTo(84.25)
+    expect(Number(handles[0]!.getAttribute('cy'))).toBeCloseTo(106.3)
+    expect(commit).not.toHaveBeenCalled()
+    expect(value.points[0]!.position).toBe(-1e308)
+  } finally { dispose() }
+})
 
 it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {
   const schema = parseDinksterSchema('SaveTargetFixture', { body: [
@@ -65,166 +360,6 @@ it.each([false, true])('edits structured save destinations with writable grants 
   }
 })
 
-it('previews resolution with half-even rounding and edits descriptor-named siblings as one undo', async () => {
-  const schema = parseDinksterSchema('ResolutionFixture', { body: [
-    { kind: 'input', id: 'ratio', type: { kind: 'concrete', types: ['COMBO'] }, default: '1:1 (Square)', widget: { type: 'COMBO', options: ['1:1 (Square)', '16:9 (Widescreen)'] } },
-    { kind: 'input', id: 'mp', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
-    { kind: 'input', id: 'step', type: { kind: 'concrete', types: ['INT'] }, default: 8 },
-    { kind: 'input', id: 'preview', type: { kind: 'concrete', types: ['RESOLUTION_PREVIEW'] }, default: null, widget: { type: 'RESOLUTION_PREVIEW', ratio_widget: 'ratio', megapixels_widget: 'mp', multiple_widget: 'step' } },
-  ] }).schema!
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
-  const store = new DocumentStore(imported.document!, coreCommandRegistry())
-  const before = store.doc.graphs.g0!.nodes.n1!.values
-  const tab = { store } as unknown as Tab
-  const registry = createWidgetRegistry()
-  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    registryForTab: () => ({ resolve: () => schema }),
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
-  } as unknown as AppState
-  const root = document.createElement('div'); document.body.append(root)
-  const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'preview' }, label: 'Preview',
-    spec: inputsOf(schema)[3]!.widget, multiline: false, initial: null,
-    rect: { x: 0, y: 0, width: 180, height: 24 },
-  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  const input = (field: string, value: string) => {
-    const element = root.querySelector<HTMLInputElement>(`#resolution-${field}`)!
-    expect(element.getAttribute('aria-labelledby')).toBeTruthy()
-    element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
-  }
-  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply resolution')!
-  expect(root.querySelector('output')!.textContent).toBe('1,024 x 1,024 pixels')
-  input('megapixels', '0.2539215087890625')
-  expect(root.querySelector('output')!.textContent).toBe('512 x 512 pixels')
-  input('megapixels', '0.2618560791015625')
-  expect(root.querySelector('output')!.textContent).toBe('528 x 528 pixels')
-  for (const value of ['', '0.09', '16.1', 'NaN']) { input('megapixels', value); expect(apply.disabled).toBe(true) }
-  input('megapixels', '1.3')
-  for (const value of ['', '7', '129', '8.5']) { input('multiple', value); expect(apply.disabled).toBe(true) }
-  input('multiple', '64')
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  apply.click()
-  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, ratio: '1:1 (Square)', mp: 1.3, step: 64 }))
-  expect(store.undo()).toBe(true)
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  dispose()
-})
-
-it('edits camera siblings atomically with schema defaults, validation and undo without changing view', async () => {
-  const schema = parseDinksterSchema('CameraFixture', { body: [
-    { kind: 'input', id: 'horizontal_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
-    { kind: 'input', id: 'vertical_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
-    { kind: 'input', id: 'zoom', type: { kind: 'concrete', types: ['FLOAT'] }, default: 5 },
-    { kind: 'input', id: 'view', type: { kind: 'concrete', types: ['STRING'] }, default: '', widget: { type: 'CAMERA_ANGLE_VIEW' } },
-  ] }).schema!
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
-  const store = new DocumentStore(imported.document!, coreCommandRegistry())
-  const before = store.doc.graphs.g0!.nodes.n1!.values
-  const tab = { store } as unknown as Tab
-  const registry = createWidgetRegistry()
-  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    registryForTab: () => ({ resolve: () => schema }),
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
-  } as unknown as AppState
-  const root = document.createElement('div'); document.body.append(root)
-  const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', label: 'View',
-    target: { kind: 'input', nodeId: 'n1', valueKey: 'view', parts: { reads: {},
-      writes: { horizontal_angle: 'horizontal_angle', vertical_angle: 'vertical_angle', zoom: 'zoom' } } },
-    spec: inputsOf(schema)[3]!.widget, multiline: false, initial: '',
-    rect: { x: 0, y: 0, width: 180, height: 24 },
-  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  const input = (field: string, value: string) => {
-    const element = root.querySelector<HTMLInputElement>(`#camera-angle-${field}`)!
-    expect(element.getAttribute('aria-labelledby')).toBeTruthy()
-    element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
-  }
-  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply camera angle')!
-  expect(root.querySelector<HTMLInputElement>('#camera-angle-zoom')!.value).toBe('5')
-  for (const value of ['', '-1', '361', '90.5']) { input('horizontal_angle', value); expect(apply.disabled).toBe(true) }
-  input('horizontal_angle', '90')
-  input('vertical_angle', '30')
-  input('zoom', '7.5')
-  expect(apply.disabled).toBe(false)
-  expect(root.querySelector('output')!.textContent).toContain('X 5.20, Y 3.00, Z 0.00')
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  apply.click()
-  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, horizontal_angle: 90, vertical_angle: 30, zoom: 7.5 }))
-  expect(store.undo()).toBe(true)
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  dispose()
-})
-
-it('shows a wired camera angle only when its wire carries a readable value and writes only unwired named rows', async () => {
-  const schema = parseDinksterSchema('CameraRowsFixture', { body: [
-    { kind: 'input', id: 'yaw', type: { kind: 'concrete', types: ['INT'] }, default: 10 },
-    { kind: 'input', id: 'pitch', type: { kind: 'concrete', types: ['INT'] }, default: 20 },
-    { kind: 'input', id: 'zoom', type: { kind: 'concrete', types: ['FLOAT'] }, default: 5 },
-    { kind: 'input', id: 'view', type: { kind: 'concrete', types: ['STRING'] }, default: '', widget: { type: 'CAMERA_ANGLE_VIEW' } },
-  ] }).schema!
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema).document!
-  const graph = imported.graphs.g0!
-  // pitch is wired from a literal value of 45; zoom, when wired, comes from a node that has not run.
-  const open = (zoomWired: boolean, writes: Readonly<Record<string, string>>) => {
-    const store = new DocumentStore({ ...imported, graphs: { g0: { ...graph,
-      nodes: { ...graph.nodes, source: { id: asNodeId('source'), type: 'Source', values: {} } },
-      valueSources: { v0: { id: 'v0', value: 45, type: { kind: 'concrete', types: ['INT'] } } },
-      links: {
-        pitch: { id: asLinkId('pitch'), from: { valueSource: 'v0' }, to: { node: asNodeId('n1'), port: asPortId('pitch') } },
-        ...(zoomWired ? { zoom: { id: asLinkId('zoom'), from: { node: asNodeId('source'), port: asPortId('FLOAT') },
-          to: { node: asNodeId('n1'), port: asPortId('zoom') } } } : {}),
-      },
-    } } } as never, coreCommandRegistry())
-    const tab = { store } as unknown as Tab
-    const registry = createWidgetRegistry()
-    const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
-      registryForTab: () => ({ resolve: () => schema }),
-      dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
-    } as unknown as AppState
-    const root = document.createElement('div'); document.body.append(root)
-    const dispose = render(() => <WidgetEditor app={app} ed={{
-      tab, graphId: 'g0', label: 'View', target: { kind: 'input', nodeId: 'n1', valueKey: 'view', parts: { reads: {}, writes } },
-      spec: inputsOf(schema)[3]!.widget, multiline: false, initial: '',
-      rect: { x: 0, y: 0, width: 180, height: 24 },
-    }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-    return { root, store, dispose }
-  }
-  const field = (root: HTMLElement, name: string) => root.querySelector<HTMLInputElement>(`#camera-angle-${name}`)!
-  const button = (root: HTMLElement, text: string) => Array.from(root.querySelectorAll('button')).find((item) => item.textContent === text)
-  const allRows = { horizontal_angle: 'yaw', vertical_angle: 'pitch', zoom: 'zoom' }
-
-  // A readable wired value is shown, not editable, and drawn into the picture.
-  const readable = open(false, allRows)
-  expect(field(readable.root, 'vertical_angle').value).toBe('45')
-  expect(field(readable.root, 'vertical_angle').disabled).toBe(true)
-  expect(field(readable.root, 'horizontal_angle').disabled).toBe(false)
-  expect(readable.root.querySelector('output')!.textContent).toBe('Camera position: X 0.74, Y 4.24, Z 4.18')
-  const before = readable.store.doc.graphs.g0!.nodes.n1!.values
-  const revision = readable.store.revision
-  button(readable.root, 'Cancel')!.click()
-  readable.dispose()
-  expect(readable.store.revision).toBe(revision)
-
-  // An unreadable wired value shows no number, never the stored one, and the picture is not drawn.
-  const unreadable = open(true, allRows)
-  expect(field(unreadable.root, 'zoom').value).toBe('')
-  expect(field(unreadable.root, 'zoom').placeholder).toBe('Linked')
-  expect(field(unreadable.root, 'zoom').disabled).toBe(true)
-  expect(unreadable.root.querySelector('output')).toBeNull()
-  expect(unreadable.root.textContent).toContain('No value for Zoom (0-10) here, so the preview is not drawn.')
-  field(unreadable.root, 'horizontal_angle').value = '90'
-  field(unreadable.root, 'horizontal_angle').dispatchEvent(new Event('input', { bubbles: true }))
-  button(unreadable.root, 'Apply camera angle')!.click()
-  await vi.waitFor(() => expect(unreadable.store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, yaw: 90 }))
-  unreadable.dispose()
-
-  // With nothing editable, Apply is not offered.
-  const none = open(true, { zoom: 'zoom' })
-  expect(fields(none.root).every((input) => input.disabled)).toBe(true)
-  expect(button(none.root, 'Apply camera angle')).toBeUndefined()
-  none.dispose()
-})
-
 it.each([
   { node: 'dinkster.video.video_trim', id: 'trim', feature: 'trim', stored: { trim: { start_time: 2, duration: 3 } },
     shown: { 'video-trim-start-seconds': '2', 'video-trim-duration-seconds': '3' } },
@@ -265,14 +400,12 @@ it.each([
   dispose()
 })
 
-const fields = (root: HTMLElement) => ['horizontal_angle', 'vertical_angle', 'zoom'].map((name) => root.querySelector<HTMLInputElement>(`#camera-angle-${name}`)!)
-
-it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews and releases late results', async (kind) => {
-  const inputId = kind === 'BOUNDING_BOX' ? 'crop_region' : 'compare_view'
-  const initial = kind === 'BOUNDING_BOX' ? { x: 0, y: 0, width: 12, height: 7 } : null
+it('bounds decoded crop previews and releases late results', async () => {
+  const inputId = 'crop_region'
+  const initial = { x: 0, y: 0, width: 12, height: 7 }
   const schema = parseDinksterSchema('PreviewFixture', { body: [
     { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-    { kind: 'input', id: inputId, type: { kind: 'concrete', types: [kind] }, default: initial, widget: { type: kind } },
+    { kind: 'input', id: inputId, type: { kind: 'concrete', types: ['BOUNDING_BOX'] }, default: initial, widget: { type: 'BOUNDING_BOX' } },
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [initial] }], links: [] }, () => schema).document!
   const graph = imported.graphs.g0!
@@ -288,7 +421,7 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
   } as unknown as CompileArtifact
   const execution = { key: 'preview', status: 'completed', ref: { connection: 'native', prompt: 'job' },
     artifact, nodes: {}, outputs: { source: {} },
-    previews: { n1: { image_a: { channel: 'image/png', payload: new ArrayBuffer(1), timestamp: 1 } } },
+    previews: {},
   } as unknown as ExecutionState
   const registry = createWidgetRegistry()
   const backend = { id: 'native', protocol: 'dinkster', connection: { values: () => ({
@@ -315,7 +448,7 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <WidgetEditor app={app} ed={{
       tab, graphId: 'g0', label: 'Preview', target: { kind: 'input', nodeId: 'n1', valueKey: inputId,
-        parts: { writes: {}, reads: kind === 'BOUNDING_BOX' ? { image: 'image' } : { image_a: 'image_a' } } },
+        parts: { writes: {}, reads: { image: 'image' } } },
       spec: inputsOf(schema)[1]!.widget, multiline: false, initial,
       rect: { x: 0, y: 0, width: 180, height: 24 },
     }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -328,7 +461,7 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
       if (accepted) {
         await vi.waitFor(() => expect(context.drawImage).toHaveBeenCalled())
         expect(bitmap.close).not.toHaveBeenCalled()
-        if (kind === 'BOUNDING_BOX') expect([canvas.width, canvas.height]).toEqual([width, height])
+        expect([canvas.width, canvas.height]).toEqual([width, height])
       } else {
         await vi.waitFor(() => expect(bitmap.close).toHaveBeenCalledOnce())
         expect(context.drawImage).not.toHaveBeenCalled()

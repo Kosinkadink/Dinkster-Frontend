@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, selectProductOption, openRailPanel, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForWorkspaceReady, type Page, chooseRunScope } from './fixtures.js'
 
 const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XxW8WQAAAABJRU5ErkJggg==', 'base64')
 const proofDir = '/tmp/preview-retention-whole-run'
@@ -14,7 +14,7 @@ async function openDoc(page: Page): Promise<void> {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'PreviewRetentionTest', displayName: 'Image Result', category: 'test', source: 'v3', isOutputNode: false,
-      items: [widget('count', 'INT', 5, { min: 0, max: 100, step: 1 })],
+      body: [widget('count', 'INT', 5, { min: 0, max: 100, step: 1 })],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'preview-retention', root: 'g0',
@@ -199,7 +199,7 @@ test('history: entry admitted from mid-run chatter is labeled unconfirmed', asyn
   })
   await openRailPanel(page, 'Runs')
   const runs = page.getByTestId('runs-panel')
-  await selectProductOption(page, runs.getByTestId('runs-scope'), 'all')
+  await chooseRunScope(page, 'all')
   const entry = runs.getByTestId('execution-row')
   await expect(entry).toHaveCount(1)
   await expect(entry.locator('.execution-status')).toHaveText('Unconfirmed')

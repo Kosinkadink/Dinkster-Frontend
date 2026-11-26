@@ -11,7 +11,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { DinksterConnection } from '@dinkster/client'
-import { asConnectionId } from '@dinkster/core'
+import { asConnectionId, boundaryOf } from '@dinkster/core'
 import {
   coreCommandRegistry,
   DocumentStore,
@@ -43,7 +43,7 @@ const validBody = {
       nets: {},
       reroutes: {},
       nextOrdinal: 1,
-      boundary: { inputs: [], outputs: [] },
+      boundary: boundaryOf([], []),
     },
   },
   view: { graphs: { g0: { nodes: { n0: { position: { x: 0, y: 0 } } } } } },
@@ -258,10 +258,7 @@ describe('insertBlueprintIntoTab', () => {
           nets: {},
           reroutes: {},
           nextOrdinal: 1,
-          boundary: {
-            inputs: [{ id: 'seed', binds: { kind: 'port', node: 'n0', port: 'seed' }, promoted: true }],
-            outputs: [],
-          },
+          boundary: { body: [{ kind: 'input', id: 'seed', binds: { kind: 'port', node: 'n0', port: 'seed' }, promoted: true }] },
         },
       },
       view: { graphs: { g0: { nodes: { n0: { position: { x: 0, y: 0 } } } } } },

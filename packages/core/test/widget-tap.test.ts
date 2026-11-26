@@ -5,7 +5,7 @@ import { DocumentStore } from '../src/commands/store.js'
 import { compile } from '../src/compile/compile.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { validateDocumentShape } from '../src/format/validate.js'
-import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asRerouteId, asValueSourceId } from '../src/ids.js'
+import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asRerouteId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 import { buildRerouteIndex, traceEndpoint } from '../src/reroute.js'
 import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterNodes } from '../src/schema/dinkster-wire.js'
@@ -141,21 +141,15 @@ const compileGraph = (parts: {
   nodes?: GraphDef['nodes']
   links?: GraphDef['links']
   reroutes?: GraphDef['reroutes']
-  valueSources?: GraphDef['valueSources']
 }): GraphDef => ({
   id: asGraphDefId('g0'), name: 'g',
   nodes: parts.nodes ?? {}, links: parts.links ?? {}, nets: {}, reroutes: parts.reroutes ?? {}, nextOrdinal: 20,
-  ...(parts.valueSources ? { valueSources: parts.valueSources } : {}),
 })
 const typedNode = (id: string, type = 'ValueNode', values: Record<string, Json> = {}, mode?: 'muted') => ({
   id: asNodeId(id), type, values, ...(mode ? { mode } : {}),
 })
 const link = (id: string, from: object, to: object) =>
   ({ id: asLinkId(id), from, to }) as GraphDef['links'][string]
-/** One INT-widget value source 'vs' (the PrimitiveNode replacement). */
-const intValueSources = (value = 7): GraphDef['valueSources'] => ({
-  vs: { id: asValueSourceId('vs'), value, spec: { widgetType: 'INT' } },
-})
 
 describe('widget intrinsic defaults at compile (required inputs, not taps)', () => {
   it('lowers one ordered MULTI_COMBO array and preserves duplicates and OOV values', () => {
@@ -381,59 +375,6 @@ describe('$typed lowering (graphFeatures typedLiteral)', () => {
     if (result.ok) expect(result.artifact.prompt['w']!.inputs['source']).toEqual({ $typed: { type: 'INT', value: 42 } })
   })
 
-  it('a DIRECT value-source link into a wildcard input refuses even with the capability', () => {
-    // The direct value-source branch must apply the same non-concrete guard
-    // as the bypass path. The diagnostic reuses
-    // compile.tap.nonConcreteTarget deliberately - it is
-    // the established "literal into non-concrete input" refusal, anchored to
-    // the destination, regardless of which literal path reached it.
-    const result = compileDoc(compileGraph({
-      nodes: { w: typedNode('w', 'WildcardSink') },
-      valueSources: intValueSources(),
-      links: { l1: link('l1', { valueSource: 'vs' }, port('w', 'source')) },
-    }), TYPED)
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      const d = result.diagnostics.find((x) => x.code === 'compile.tap.nonConcreteTarget')
-      expect(d).toBeDefined()
-      expect(d?.anchor?.port?.node).toBe('w')
-      expect(d?.anchor?.port?.port).toBe('source')
-    }
-  })
-
-  it('a tap DRIVEN BY a value source into a wildcard input refuses: the trace lands on the value source', () => {
-    // tap(a.value) traces through its driver to the value source, so the
-    // value-source branch handles it - same guard, no silent plain literal.
-    const result = compileDoc(compileGraph({
-      nodes: { a: typedNode('a'), w: typedNode('w', 'WildcardSink') },
-      valueSources: intValueSources(),
-      links: {
-        l1: link('l1', { valueSource: 'vs' }, port('a', 'value')),
-        l2: link('l2', tap('a', 'value'), port('w', 'source')),
-      },
-    }), TYPED)
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.diagnostics.map((d) => d.code)).toContain('compile.tap.nonConcreteTarget')
-  })
-
-  it('a value-source bake into a wildcard input still refuses: no runtime type to stamp, no guessing', () => {
-    // DeclaredSpec carries a widget kind, not a runtime type - a value
-    // source baked through a bypass into a non-concrete input has nothing
-    // to stamp, so it keeps the loud compile error even with the capability.
-    const result = compileDoc(compileGraph({
-      nodes: {
-        b: { ...typedNode('b'), mode: 'bypassed' } as GraphDef['nodes'][string],
-        w: typedNode('w', 'WildcardSink'),
-      },
-      valueSources: intValueSources(),
-      links: {
-        l1: link('l1', { valueSource: 'vs' }, port('b', 'value')),
-        l2: link('l2', port('b', 'out0'), port('w', 'source')),
-      },
-    }), TYPED)
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.diagnostics.map((d) => d.code)).toContain('compile.tap.nonConcreteTarget')
-  })
 })
 
 describe('widget tap companion values', () => {

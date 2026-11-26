@@ -8,10 +8,15 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
+import type { BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
+import { compile } from '../src/compile/compile.js'
+import { asConnectionId } from '../src/ids.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
-import { inputsOf, outputsOf, type NodeSchema } from '../src/schema/model.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
+import { inputsOf, outputsOf, type GroupSpec, type NodeSchema } from '../src/schema/model.js'
+import { boundaryOf } from '../src/format/document.js'
+import { MAX_GROUP_MEMBERS, memberLimitOf } from '../src/schema/body.js'
 
 /** Build a GraphDef from a plain literal (branded ids make literals noisy). */
 const asDef = (d: unknown): GraphDef => d as GraphDef
@@ -194,10 +199,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
   it('derives a widget output from one exact widget-backed input and fails closed otherwise', () => {
     const tapped = asDef({
       ...def,
-      boundary: {
-        inputs: [],
-        outputs: [{ id: 'seedValue', binds: { kind: 'widgetTap', node: 'n0', tap: 'seed' } }],
-      },
+      boundary: { body: [{ kind: 'output', id: 'seedValue', binds: { kind: 'widgetTap', node: 'n0', tap: 'seed' } }] },
     })
     const valid = deriveBoundarySchema(tapped, (type) => innerSchemas[type])
     expect(outputsOf(valid.schema!)).toEqual([
@@ -207,10 +209,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
 
     const missing = asDef({
       ...tapped,
-      boundary: {
-        inputs: [],
-        outputs: [{ id: 'missing', binds: { kind: 'widgetTap', node: 'n0', tap: 'unknown' } }],
-      },
+      boundary: { body: [{ kind: 'output', id: 'missing', binds: { kind: 'widgetTap', node: 'n0', tap: 'unknown' } }] },
     })
     const invalid = deriveBoundarySchema(missing, (type) => innerSchemas[type])
     expect(invalid.schema).toBeUndefined()
@@ -243,10 +242,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
     for (const { code, tap, schema: malformedSchema } of malformed) {
       const malformedDef = asDef({
         ...tapped,
-        boundary: {
-          inputs: [],
-          outputs: [{ id: 'invalid', binds: { kind: 'widgetTap', node: 'n0', tap } }],
-        },
+        boundary: { body: [{ kind: 'output', id: 'invalid', binds: { kind: 'widgetTap', node: 'n0', tap } }] },
       })
       const result = deriveBoundarySchema(malformedDef, () => malformedSchema as NodeSchema)
       expect(result.schema).toBeUndefined()
@@ -262,7 +258,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
     const withMembers = (members: string[]) => asDef({
       ...def,
       nodes: { ...def.nodes, n0: { ...def.nodes.n0!, dynamic: { seeds: { members } } } },
-      boundary: { inputs: [], outputs: [{ id: 'second', binds: { kind: 'widgetTap', node: 'n0', tap: 'seeds.seed1' } }] },
+      boundary: { body: [{ kind: 'output', id: 'second', binds: { kind: 'widgetTap', node: 'n0', tap: 'seeds.seed1' } }] },
     })
     const valid = deriveBoundarySchema(withMembers(['seed0', 'seed1']), () => grouped)
     expect(valid.diagnostics).toEqual([])
@@ -283,7 +279,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
       name: 'outer',
       nodes: { inst: { id: 'inst', type: '#g1', values: {} } },
       links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-      boundary: { inputs: [], outputs: [] },
+      boundary: boundaryOf([], []),
     })
     const nested = deriveBoundarySchema(outer, (type) => type === '#g1' ? direct.schema : flagged(type))
     expect(nested.schema!.emitsPreviews).toBe(true)
@@ -302,7 +298,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
       name: 'outer',
       nodes: { inst: { id: 'inst', type: '#g1', values: {} } },
       links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-      boundary: { inputs: [], outputs: [] },
+      boundary: boundaryOf([], []),
     })
     const nested = deriveBoundarySchema(outer, (type) => type === '#g1' ? direct.schema : flagged(type))
     expect(nested.schema!.mayExpandGraph).toBe(true)
@@ -320,10 +316,7 @@ describe('widget promotion vs socket-only', () => {
     },
     links: {},
     nets: {},
-    boundary: {
-      inputs: [{ id: 'seed', binds: { kind: 'port', node: 'n0', port: 'seed' }, ...(promoted ? { promoted: true } : {}) } as never],
-      outputs: [],
-    },
+    boundary: boundaryOf([{ id: 'seed', binds: { kind: 'port', node: 'n0', port: 'seed' }, ...(promoted ? { promoted: true } : {}) } as never], []),
     nextOrdinal: 1,
   })
 
@@ -348,9 +341,13 @@ describe('widget promotion vs socket-only', () => {
           items: { members: ['item0', 'item1'] },
           'items.item0': { options: ['sibling'] }, 'items.item1': { options: choices },
         } : { choice: { options: choices } },
-      } }, links: {}, nets: {}, nextOrdinal: 1, boundary: { inputs: [{ id: 'menu', promoted: true,
-        binds: { kind: 'port', node: 'n0', port: nested ? 'items.item1' : 'choice' },
-      }], outputs: [] } })
+      } }, links: {}, nets: {}, nextOrdinal: 1, boundary: {
+        body: [
+          { kind: 'input', id: 'menu', promoted: true,
+            binds: { kind: 'port', node: 'n0', port: nested ? 'items.item1' : 'choice' },
+          },
+        ],
+      } })
       const before = JSON.stringify(graph)
       const { schema, diagnostics } = deriveBoundarySchema(graph, (type) => type === inner.type ? inner : undefined)
       expect(diagnostics.filter((item) => item.severity === 'error')).toEqual([])
@@ -376,13 +373,11 @@ describe('type variables cross the boundary', () => {
     boundary: {
       // Group members bind by flattened id ('<group>.<key>'); the derived
       // port carries the member's type.
-      inputs: [
-        { id: 'a', binds: { kind: 'port', node: 'n0', port: 'input.input0' } },
-        { id: 'b', binds: { kind: 'port', node: 'n1', port: 'input.input0' } },
-      ],
-      outputs: [
-        { id: 'outA', binds: { kind: 'port', node: 'n0', port: 'out0' } },
-        { id: 'outB', binds: { kind: 'port', node: 'n1', port: 'out0' } },
+      body: [
+        { kind: 'input', id: 'a', binds: { kind: 'port', node: 'n0', port: 'input.input0' } },
+        { kind: 'input', id: 'b', binds: { kind: 'port', node: 'n1', port: 'input.input0' } },
+        { kind: 'output', id: 'outA', binds: { kind: 'port', node: 'n0', port: 'out0' } },
+        { kind: 'output', id: 'outB', binds: { kind: 'port', node: 'n1', port: 'out0' } },
       ],
     },
     nextOrdinal: 2,
@@ -416,7 +411,7 @@ describe('group member forwarding', () => {
       nodes,
       links: {},
       nets: {},
-      boundary: { inputs, outputs },
+      boundary: boundaryOf(inputs as BoundaryItem[], outputs as BoundaryItem[]),
       nextOrdinal: 1,
     })
 
@@ -458,7 +453,7 @@ describe('boundary structural identity and presentation', () => {
     const def = asDef({
       id: 'gResize', name: 'Resize', links: {}, nets: {}, nextOrdinal: 1,
       nodes: { n0: { id: 'n0', type: 'Resize', values: { 'mode.longer_size': 1024 }, dynamic: { mode: { selected: 'longer' } } } },
-      boundary: { inputs: [{ id: 'size', binds: { kind: 'port', node: 'n0', port: 'mode.longer_size' }, promoted: true }], outputs: [] },
+      boundary: { body: [{ kind: 'input', id: 'size', binds: { kind: 'port', node: 'n0', port: 'mode.longer_size' }, promoted: true }] },
     })
     const result = deriveBoundarySchema(def, () => schema)
     expect(result.diagnostics).toEqual([])
@@ -467,7 +462,7 @@ describe('boundary structural identity and presentation', () => {
     })])
     const inactive = deriveBoundarySchema(asDef({
       ...def,
-      boundary: { inputs: [{ id: 'size', binds: { kind: 'port', node: 'n0', port: 'mode.width' }, promoted: true }], outputs: [] },
+      boundary: { body: [{ kind: 'input', id: 'size', binds: { kind: 'port', node: 'n0', port: 'mode.width' }, promoted: true }] },
     }), () => schema)
     expect(inactive.schema).toBeUndefined()
     expect(inactive.diagnostics).toContainEqual(expect.objectContaining({ code: 'boundary.branchInactive' }))
@@ -498,10 +493,7 @@ describe('boundary structural identity and presentation', () => {
       nodes: { n0: { id: 'n0', type: schema.type, values: {} } },
       links: {},
       nets: {},
-      boundary: {
-        inputs: [{ id: 'in', binds: binding }],
-        outputs: [{ id: 'out', binds: binding }],
-      },
+      boundary: boundaryOf([{ id: 'in', binds: binding }], [{ id: 'out', binds: binding }]),
       nextOrdinal: 1,
     })
 
@@ -534,13 +526,14 @@ describe('boundary structural identity and presentation', () => {
       id: 'gExact', name: 'Exact', nextOrdinal: 1,
       nodes: { n0: { id: 'n0', type: schema.type, values: {} } },
       links: {}, nets: {},
-      boundary: Object.fromEntries(['inputs', 'outputs'].map((side) => [side,
+      boundary: { body: ['inputs', 'outputs'].flatMap((side) =>
         labels.map(({ id }, index) => ({
+          kind: side === 'inputs' ? 'input' : 'output',
           id: `${side}_${index}`,
           ...(id === 'fourth' ? { displayName: 'Custom_name_m7' } : {}),
           binds: { kind: 'port', node: 'n0', port: id },
         })),
-      ])),
+      ) },
     })
     const result = deriveBoundarySchema(def, (type) => type === schema.type ? schema : undefined)
     expect(result.diagnostics).toEqual([])
@@ -560,10 +553,7 @@ describe('boundary structural identity and presentation', () => {
       nodes: { n0: { id: 'n0', type: 'KSampler', values: {} } },
       links: {},
       nets: {},
-      boundary: {
-        inputs: [{ id: 'images.images_m0', binds: { kind: 'port', node: 'n0', port: 'latent_image' } }],
-        outputs: [],
-      },
+      boundary: { body: [{ kind: 'input', id: 'images.images_m0', binds: { kind: 'port', node: 'n0', port: 'latent_image' } }] },
       nextOrdinal: 1,
     })
 
@@ -592,10 +582,7 @@ describe('type choice boundary bindings', () => {
         id: `link-${id}`, from: { node: 'src', port: 'out0' }, to: { node: id, port: 'model' },
       }])),
       nets: {},
-      boundary: {
-        inputs: ids.map((id) => ({ id, binds: { kind: 'port', node: id, port: 'model.strength' } })),
-        outputs: [],
-      },
+      boundary: { body: ids.map((id) => ({ kind: 'input', id, binds: { kind: 'port', node: id, port: 'model.strength' } })) },
       nextOrdinal: 3,
     })
   }
@@ -612,10 +599,10 @@ describe('type choice boundary bindings', () => {
       },
       nets: {},
       boundary: {
-        inputs: [{ id: 'copy', binds: { kind: 'port', node: 'matched', port: 'source.copy' } }],
-        outputs: [
-          { id: 'out', binds: { kind: 'port', node: 'matched', port: 'out' } },
-          { id: 'batch', binds: { kind: 'port', node: 'matched', port: 'batch' } },
+        body: [
+          { kind: 'input', id: 'copy', binds: { kind: 'port', node: 'matched', port: 'source.copy' } },
+          { kind: 'output', id: 'out', binds: { kind: 'port', node: 'matched', port: 'out' } },
+          { kind: 'output', id: 'batch', binds: { kind: 'port', node: 'matched', port: 'batch' } },
         ],
       },
       nextOrdinal: 2,
@@ -638,7 +625,7 @@ describe('type choice boundary bindings', () => {
 
 describe('whole constructs on the subgraph node', () => {
   const defWith = (nodes: Record<string, unknown>, inputs: readonly unknown[], outputs: readonly unknown[] = []): GraphDef =>
-    asDef({ id: 'gW', name: 'whole', nodes, links: {}, nets: {}, boundary: { inputs, outputs }, nextOrdinal: 1 })
+    asDef({ id: 'gW', name: 'whole', nodes, links: {}, nets: {}, boundary: boundaryOf(inputs as BoundaryItem[], outputs as BoundaryItem[]), nextOrdinal: 1 })
   const errors = (def: GraphDef) => deriveBoundarySchema(def, resolve).diagnostics.filter((d) => d.severity === 'error').map((d) => d.code)
 
   it('a whole group keeps its template, growth and the definition members inside, and nested members stay per member', () => {
@@ -662,13 +649,26 @@ describe('whole constructs on the subgraph node', () => {
     // Type variables in the template stay the inner node's own.
     expect(elabInputsOf(elab).find((input) => input.spec.id === 'stack.item0.sub.sub0')!.spec.type)
       .toEqual({ kind: 'variable', templateId: 'n0:T' })
-    // The face numbers its own members after the two inside, which one quiet line names first.
-    expect(elab.items.filter((item) => item.kind === 'note')).toMatchObject([{ text: '1 to 2 are inside', quiet: true }])
-    expect(elabInputsOf(elab).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName))
-      .toEqual(['item 3 name', 'item 4 name'])
+    // The face numbers its own members from 1 and says nothing about the two inside.
+    const names = (e: typeof elab) => elabInputsOf(e).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName)
+    expect(elab.items.filter((item) => item.kind === 'note')).toEqual([])
+    expect(names(elab)).toEqual(['item 1 name', 'item 2 name'])
+    // A label worked out by a formula reads the same numbering.
+    const byFormula = elaborateInterface({ ...schema!, body: [{ ...row, memberLabel: { formula: 'str(index())' } } as typeof row, ...schema!.body.slice(1)] }, {
+      values: {}, dynamic: { stack: { members: ['item0', 'item1'] } },
+    })
+    expect(names(byFormula)).toEqual(['0 name', '1 name'])
+    // The header counts this node's members, and the add row stops at what it
+    // may hold: the limit of five less the two inside.
+    const header = (e: typeof elab) => e.items.find((item) => item.kind === 'box' && item.construct === 'stack')
+    expect(header(elab)).toMatchObject({ members: 2 })
+    expect(elab.items.some((item) => item.kind === 'growth')).toBe(true)
+    const full = elaborateInterface(schema!, { values: {}, dynamic: { stack: { members: ['item0', 'item1', 'item2'] } } })
+    expect(header(full)).toMatchObject({ members: 3 })
+    expect(full.items.some((item) => item.kind === 'growth')).toBe(false)
   })
 
-  it('a group shown again on an outer subgraph node counts the members inside every level', () => {
+  it('a group shown again on an outer subgraph node keeps the limit through every level and numbers its own from 1', () => {
     const inner = defWith(
       { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0', 'item1'] } } } },
       [{ id: 'stack', binds: { kind: 'construct', node: 'n0', port: 'items' } }],
@@ -677,16 +677,143 @@ describe('whole constructs on the subgraph node', () => {
     const outer = asDef({
       id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
       nodes: { s0: { id: 's0', type: '#gW', values: {}, dynamic: { stack: { members: ['item0'] } } } },
-      boundary: { inputs: [{ id: 'again', binds: { kind: 'construct', node: 's0', port: 'stack' } }], outputs: [] },
+      boundary: { body: [{ kind: 'input', id: 'again', binds: { kind: 'construct', node: 's0', port: 'stack' } }] },
     })
     const { schema, diagnostics } = deriveBoundarySchema(outer, (type) => (type === '#gW' ? innerSchema : resolve(type)))
     expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
     // Five at most: two in the definition and one on the inner subgraph node leave two.
     expect(schema!.body[0]).toMatchObject({ kind: 'group', maxMembers: 2, interiorMembers: 3 })
     const elab = elaborateInterface(schema!, { values: {}, dynamic: { again: { members: ['item0'] } } })
-    expect(elab.items.filter((item) => item.kind === 'note')).toMatchObject([{ text: '1 to 3 are inside' }])
+    // Each level counts its own members from 1.
+    expect(elab.items.filter((item) => item.kind === 'note')).toEqual([])
     expect(elabInputsOf(elab).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName))
-      .toEqual(['item 4 name'])
+      .toEqual(['item 1 name'])
+  })
+
+  it("a field's lookup on a subgraph node two levels out reads that node's rows, else the definition's values", () => {
+    const { schema: picker } = parseDinksterSchema('Picker', { body: [
+      { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] }, pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl'] } },
+      { kind: 'input', id: 'lora', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', options: { lookup: 'pack.loras', args: ['category'] } } },
+    ] } as never)
+    const port = (id: string, node: string, at: string) => ({ id, binds: { kind: 'port', node, port: at }, promoted: true })
+    const inner = defWith({ p0: { id: 'p0', type: 'Picker', values: { category: 'sd' } } }, [port('kind', 'p0', 'category'), port('pick', 'p0', 'lora')])
+    const innerSchema = deriveBoundarySchema(inner, (type) => (type === 'Picker' ? picker : resolve(type))).schema!
+    const outerOf = (shown: readonly unknown[]) => deriveBoundarySchema(asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: { kind: 'sdxl' } } },
+      boundary: boundaryOf(shown as BoundaryItem[], []),
+    }), (type) => (type === '#gW' ? innerSchema : resolve(type))).schema!
+    const callOf = (schema: NodeSchema, values: Record<string, Json>, wired: readonly string[] = []) => {
+      const elab = elaborateInterface(schema, { values }, {
+        isInputConnected: (id) => wired.includes(id), isOutputConnected: () => false, inputPorts: () => [...wired], outputPorts: () => [],
+      }, { lookupAnswers: () => undefined })
+      return elabInputsOf(elab).find((input) => input.spec.id === 'list')!.looked!.options
+    }
+    const both = outerOf([port('category', 's0', 'kind'), port('list', 's0', 'pick')])
+    // Two instances with their own category each ask for their own list; the face's row ids differ from the inner node's.
+    expect(callOf(both, { category: 'sd' })).toMatchObject({ state: 'loading', call: { args: ['sd'] } })
+    expect(callOf(both, { category: 'sdxl' })).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+    // A wire into the category from outside is not known, so nothing is called.
+    expect(callOf(both, { category: 'sd' }, ['category'])).toMatchObject({ state: 'waiting' })
+    // Not shown on this node: the inner subgraph node's stored category is used.
+    expect(callOf(outerOf([port('list', 's0', 'pick')]), {})).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+  })
+
+  it('an automatic field shown on a subgraph node is worked out in the inner node with this instance\'s values', () => {
+    const float = (id: string, extra: Record<string, unknown> = {}) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', types: ['FLOAT'] }, default: 1, widget: { type: 'FLOAT' }, ...extra })
+    const { schema: retime } = parseDinksterSchema('Retime', { body: [
+      float('rate', { default: 48 }),
+      float('fps', { default: 24, automatic: { formula: 'rate / 4' } }),
+    ] } as never)
+    const port = (id: string, node: string, at: string) => ({ id, binds: { kind: 'port', node, port: at }, promoted: true })
+    const withRetime: SchemaResolver = (type) => (type === 'Retime' ? retime : resolve(type))
+    const faceOf = (stored: Record<string, Json>, shown: readonly unknown[], links: Record<string, unknown> = {}, nodes: Record<string, unknown> = {}) =>
+      deriveBoundarySchema(asDef({
+        id: 'gW', name: 'whole', links, nets: {}, nextOrdinal: 1, boundary: boundaryOf(shown as BoundaryItem[], []),
+        nodes: { r0: { id: 'r0', type: 'Retime', values: stored }, ...nodes },
+      }), withRetime).schema!
+    const fpsOf = (schema: NodeSchema, values: Record<string, Json>) => {
+      const elab = elaborateInterface(schema, { values })
+      return { row: elabInputsOf(elab).find((input) => input.spec.id === 'speed')!, warned: elab.diagnostics.some((d) => d.code === 'automatic.default') }
+    }
+    const both = faceOf({}, [port('pace', 'r0', 'rate'), port('speed', 'r0', 'fps')])
+    // Two instances each work out their own value from their own rate.
+    expect(fpsOf(both, { pace: 100 }).row.automatic).toEqual({ value: 25, state: 'worked-out' })
+    expect(fpsOf(both, { pace: 60 }).row.automatic).toEqual({ value: 15, state: 'worked-out' })
+    // A value on the instance is fixed; emptying it would give this instance's value.
+    const fixed = fpsOf(both, { pace: 100, speed: 30 }).row
+    expect(fixed.automatic).toBeUndefined()
+    expect(fixed.automaticIfEmptied).toEqual({ value: 25, state: 'worked-out' })
+    // Compiled, an instance with the field left out sends its inner node
+    // without it; that node, worked out as a plain node, gives the row's value.
+    const shownBoth = [port('pace', 'r0', 'rate'), port('speed', 'r0', 'fps')]
+    const compiled = compile({
+      document: {
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'automatic-instances', root: 'g0',
+        graphs: {
+          g0: { id: 'g0', name: 'root', links: {}, nets: {}, reroutes: {}, nextOrdinal: 3, nodes: {
+            a: { id: 'a', type: '#gW', values: { pace: 100 } },
+            b: { id: 'b', type: '#gW', values: { pace: 60 } },
+            c: { id: 'c', type: '#gW', values: { pace: 60, speed: 30 } },
+          } },
+          gW: { id: 'gW', name: 'whole', links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+            nodes: { r0: { id: 'r0', type: 'Retime', values: {} } }, boundary: boundaryOf(shownBoth as BoundaryItem[], []) },
+        },
+        view: { graphs: {} },
+      } as never,
+      revision: 1, resolve: withRetime, scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'test',
+    })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) return
+    for (const [instance, pace] of [['a', 100], ['b', 60]] as const) {
+      const inputs = compiled.artifact.prompt[`${instance}.r0`]!.inputs
+      expect(inputs).not.toHaveProperty('fps')
+      const plain = elabInputsOf(elaborateInterface(retime!, { values: inputs as Record<string, Json> }))
+      expect(plain.find((input) => input.spec.id === 'fps')!.automatic).toEqual(fpsOf(both, { pace }).row.automatic)
+    }
+    expect(compiled.artifact.prompt['c.r0']!.inputs).toMatchObject({ fps: 30 })
+    // A rate not shown on the subgraph node is the definition's.
+    expect(fpsOf(faceOf({ rate: 80 }, [port('speed', 'r0', 'fps')]), {}).row.automatic).toEqual({ value: 20, state: 'worked-out' })
+    // A value the definition stores is the row's value, not automatic.
+    const stored = fpsOf(faceOf({ fps: 12 }, [port('speed', 'r0', 'fps')]), {}).row
+    expect(stored.automatic).toBeUndefined()
+    expect(stored.spec.widget?.default).toBe(12)
+    // A rate wired inside the definition is not known: the default, with the warning.
+    const wired = fpsOf(faceOf({}, [port('speed', 'r0', 'fps')],
+      { l0: { id: 'l0', from: { node: 'n0', port: 'out' }, to: { node: 'r0', port: 'rate' } } },
+      { n0: { id: 'n0', type: 'Retime', values: {} } }), {})
+    expect(wired.row.automatic).toMatchObject({ value: 24, state: 'default' })
+    expect(wired.warned).toBe(true)
+    // Two levels out, the outer subgraph node's rate decides.
+    const outer = deriveBoundarySchema(asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: {} } },
+      boundary: boundaryOf([port('tempo', 's0', 'pace'), port('speed', 's0', 'speed')] as BoundaryItem[], []),
+    }), (type) => (type === '#gW' ? both : withRetime(type))).schema!
+    expect(fpsOf(outer, { tempo: 200 }).row.automatic).toEqual({ value: 50, state: 'worked-out' })
+  })
+
+  it('a group with no declared maximum gets none on the subgraph node, and its members inside still share the cap', () => {
+    const { maxMembers: _declared, ...items } = innerSchemas['Stack']!.body[0] as GroupSpec
+    const open: SchemaResolver = (type) => (type === 'Stack' ? { ...innerSchemas['Stack']!, body: [items, ...innerSchemas['Stack']!.body.slice(1)] } : resolve(type))
+    const inner = defWith(
+      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0', 'item1'] } } } },
+      [{ id: 'stack', binds: { kind: 'construct', node: 'n0', port: 'items' } }],
+    )
+    const innerRow = deriveBoundarySchema(inner, open).schema!.body[0] as GroupSpec
+    // No maximum for a header to show; the add row stops where the run's cap does.
+    expect(innerRow.maxMembers).toBeUndefined()
+    expect(memberLimitOf(innerRow)).toBe(MAX_GROUP_MEMBERS - 2)
+    const outer = asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: {}, dynamic: { stack: { members: ['item0'] } } } },
+      boundary: { body: [{ kind: 'input', id: 'again', binds: { kind: 'construct', node: 's0', port: 'stack' } }] },
+    })
+    const innerSchema = deriveBoundarySchema(inner, open).schema!
+    const outerRow = deriveBoundarySchema(outer, (type) => (type === '#gW' ? innerSchema : open(type))).schema!.body[0] as GroupSpec
+    expect(outerRow.maxMembers).toBeUndefined()
+    expect(memberLimitOf(outerRow)).toBe(MAX_GROUP_MEMBERS - 3)
   })
 
   it('a whole choice starts on the option the definition stores and carries every option', () => {
@@ -731,7 +858,7 @@ describe('derivation failures produce diagnostics, never partial schemas', () =>
     nodes: { n0: { id: 'n0', type: 'KSampler', values: {} } },
     links: {},
     nets: {},
-    boundary: { inputs: [], outputs: [] },
+    boundary: boundaryOf([], []),
     nextOrdinal: 1,
   })
 
@@ -739,7 +866,7 @@ describe('derivation failures produce diagnostics, never partial schemas', () =>
     const result = deriveBoundarySchema(asDef({
       ...base,
       nodes: { n0: { id: 'n0', type: 'ComboNode', values: {} } },
-      boundary: { inputs: [{ id: 'x', binds: { kind: 'port', node: 'n0', port: 'mode.x' } }], outputs: [] },
+      boundary: { body: [{ kind: 'input', id: 'x', binds: { kind: 'port', node: 'n0', port: 'mode.x' } }] },
     }), resolve)
     expect(result.diagnostics).toEqual([])
     expect(result.schema?.body[0]).toMatchObject({ kind: 'input', id: 'x', optional: false })
@@ -749,7 +876,7 @@ describe('derivation failures produce diagnostics, never partial schemas', () =>
     const nested: GraphDef = asDef({
       ...base,
       nodes: { n0: { id: 'n0', type: '#gInner', values: {} } },
-      boundary: { inputs: [], outputs: [] },
+      boundary: boundaryOf([], []),
     })
     const resolveNested: SchemaResolver = (t) =>
       t === '#gInner'

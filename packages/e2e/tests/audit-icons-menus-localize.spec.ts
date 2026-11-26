@@ -44,7 +44,7 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
         },
         shared: {
           id: 'shared', name: 'Shared', nodes: {}, links: {}, nets: {}, reroutes: {},
-          boundary: { inputs: [], outputs: [] }, nextOrdinal: 0,
+          boundary: { body: [] }, nextOrdinal: 0,
         },
         loopBody: {
           id: 'loopBody', name: 'Loop body',
@@ -54,10 +54,10 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
           },
           links: {}, nets: {}, reroutes: {},
           boundary: {
-            inputs: [{ id: 'state', binds: { kind: 'port', node: 'state', port: 'value' } }],
-            outputs: [
-              { id: 'result', binds: { kind: 'port', node: 'state', port: 'FLOAT' } },
-              { id: 'continue', binds: { kind: 'port', node: 'condition', port: 'BOOLEAN' } },
+            body: [
+              { kind: 'input', id: 'state', binds: { kind: 'port', node: 'state', port: 'value' } },
+              { kind: 'output', id: 'result', binds: { kind: 'port', node: 'state', port: 'FLOAT' } },
+              { kind: 'output', id: 'continue', binds: { kind: 'port', node: 'condition', port: 'BOOLEAN' } },
             ],
           },
           nextOrdinal: 2,
@@ -81,16 +81,15 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(3)
 
   const linked = await page.evaluate(() => (window.__dinksterTest!.renderer!.getBadges().first?.[0] as any))
-  expect(linked).toMatchObject({ id: 'core.subgraph', icon: 'boxes', placement: 'title', count: 2 })
+  expect(linked).toMatchObject({ id: 'core.subgraph', icon: 'subgraph', placement: 'title', count: 2 })
 
   await page.mouse.click(...Object.values(await nodePoint(page, 'first')) as [number, number])
   const toolbox = await page.evaluate(() => window.__dinksterTest!.renderer!.getToolboxLayout()!.buttons
     .filter((entry) => ['core.openSubgraph', 'core.extractSubgraph', 'core.flattenSubgraph'].includes(entry.button.id))
     .map((entry) => ({ id: entry.button.id, icon: entry.button.icon, name: entry.button.label })))
   expect(toolbox).toEqual([
-    { id: 'core.openSubgraph', icon: 'folder-open', name: 'Open subgraph' },
-    { id: 'core.extractSubgraph', icon: 'group', name: 'Extract as subgraph' },
-    { id: 'core.flattenSubgraph', icon: 'ungroup', name: 'Flatten subgraph one level' },
+    { id: 'core.openSubgraph', icon: 'group', name: 'Open subgraph' },
+    { id: 'core.flattenSubgraph', icon: 'ungroup', name: 'Flatten subgraph' },
   ])
 
   await page.mouse.click(...Object.values(await nodePoint(page, 'first')) as [number, number], { button: 'right' })
@@ -104,13 +103,13 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.nodes.first!.type))
     .not.toBe('#shared')
   const unlinked = await page.evaluate(() => (window.__dinksterTest!.renderer!.getBadges().first?.[0] as any))
-  expect(unlinked).toMatchObject({ id: 'core.subgraph', icon: 'boxes', placement: 'title' })
+  expect(unlinked).toMatchObject({ id: 'core.subgraph', icon: 'subgraph', placement: 'title' })
   expect(unlinked.count).toBeUndefined()
   await page.keyboard.press('Control+z')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.nodes.first!.type))
     .toBe('#shared')
   expect(await page.evaluate(() => (window.__dinksterTest!.renderer!.getBadges().first?.[0] as any)))
-    .toMatchObject({ id: 'core.subgraph', icon: 'boxes', placement: 'title', count: 2 })
+    .toMatchObject({ id: 'core.subgraph', icon: 'subgraph', placement: 'title', count: 2 })
 
   const loop = await nodePoint(page, 'loop')
   await page.mouse.move(loop.x, loop.y)

@@ -8,8 +8,14 @@ while windows on different projects are fully isolated from each other.
 ## Using projects
 
 Open **Projects** from the app toolbar (folder icon, workspace windows only)
-to create, rename, or switch projects in the selected engine's library. The
-list comes from the engine, including every page, rather than browser storage.
+to create, rename, switch, or link projects in the selected engine's library.
+**Account link** is shown when account services are configured and the project
+has a persistent library identity. Sign in from the top bar, choose an account
+project, and save. Links apply to new account-backed remote runs, not jobs already
+running, local execution, or file synchronization. Removing a link requires
+confirmation and works while signed out. A changed project or refused save
+requires Refresh before retrying; there is no default account choice.
+The list comes from the engine, including every page, rather than browser storage.
 Every library starts with a **Default** project that carries pre-project state.
 Loading and request failures are shown without substituting a local project list.
 

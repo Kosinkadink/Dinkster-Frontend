@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeTest as test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 
 async function rowPoint(page: Page, nodeId: string, inputId: string, at = 0.5): Promise<{ x: number; y: number }> {
@@ -14,7 +14,7 @@ async function rowPoint(page: Page, nodeId: string, inputId: string, at = 0.5): 
   }, { nodeId, inputId, at })
 }
 
-async function openSampler(page: Page): Promise<void> {
+async function openSampler(page: Page, access?: 'readOnly' | 'disabled'): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'inrow-fixture', schemaWire: 2, graphFeatures: ['decimalInt'] }, nodes: {},
   } }))
@@ -24,7 +24,7 @@ async function openSampler(page: Page): Promise<void> {
   const close = page.locator('.template-gallery-close')
   if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
   else await page.evaluate(() => (window.__dinksterTest!.app as unknown as { templateGalleryOpen: { set(v: boolean): void } }).templateGalleryOpen.set(false))
-  await page.evaluate(async () => {
+  await page.evaluate(async (access) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
@@ -32,7 +32,11 @@ async function openSampler(page: Page): Promise<void> {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'Sampler', displayName: 'Sampler', category: 'test', source: 'v3', isOutputNode: false,
       body: [
-        widget('steps', 'INT', 20, { min: 1, max: 10000, step: 1, tooltip: 'How many denoising steps to run.' }),
+        {
+          ...widget('steps', access === undefined ? 'INT' : 'FLOAT', 20, { min: 1, max: 10000, step: 1, tooltip: 'How many denoising steps to run.' }),
+          tooltip: 'How many denoising steps to run.',
+          ...(access === undefined ? {} : { [access]: { formula: 'cfg > 8' }, disabledReason: 'Preset controls this field' }),
+        },
         widget('cfg', 'FLOAT', 7, { min: 0, max: 100, step: 0.1 }),
         widget('prefix', 'STRING', 'Dinkster'),
         widget('denoise', 'FLOAT', 1, { min: 0, max: 1, step: 0.01, display: 'slider' }),
@@ -48,12 +52,616 @@ async function openSampler(page: Page): Promise<void> {
       view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 } } } } } },
     } as never, 'Sampler')
     window.__dinksterTest!.renderer!.setViewport({ x: 200, y: 150, scale: 1 })
-  })
+  }, access)
 }
 
 const value = (page: Page, key: string) => page.evaluate((key) => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values[key], key)
 const openLabel = (page: Page) => page.locator('.widget-in-row-field input').getAttribute('aria-label')
 const field = (page: Page) => page.locator('.widget-in-row-field input')
+
+for (const [key, type, draft, stored, incoming] of [['steps', 'INT', '31', 20, 7], ['notes', 'STRING', 'unfinished text', 'first', 'arriving text']] as const) for (const known of [false, true]) {
+  test(`a new ${known ? 'known' : 'unknown'} wire discards the ${key} draft without changing its stored value`, async ({ page }, testInfo) => {
+    await openSampler(page)
+    await page.evaluate(({ type, known, incoming }) => {
+      const app = window.__dinksterTest!.app
+      app.registerSchemas([{
+        type: 'WireSource', displayName: 'Wire source', category: 'test', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'source', type: { kind: 'concrete', name: type }, optional: true },
+          { kind: 'output', id: 'value', type: { kind: 'concrete', name: type }, ...(known ? { knownValue: { input: 'source' } } : {}) },
+        ],
+      }] as never)
+      const result = app.activeTab()!.store.dispatch({ command: 'node.add', params: {
+        graphId: 'g0', type: 'WireSource', position: { x: -100, y: 100 }, values: { source: incoming },
+      } })
+      if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    }, { type, known, incoming })
+    const point = await rowPoint(page, 'n1', key)
+    await page.mouse.click(point.x, point.y)
+    const input = key === 'notes' ? page.locator('[data-editor-surface="in-node"] textarea') : field(page)
+    await input.fill(draft)
+    await page.evaluate((key) => {
+      const tab = window.__dinksterTest!.app.activeTab()!
+      const source = Object.values(tab.store.doc.graphs.g0!.nodes).find((node) => node.type === 'WireSource')!
+      const result = tab.store.dispatch({ command: 'link.connect', params: {
+        graphId: 'g0', from: { node: source.id, port: 'value' }, to: { node: 'n1', port: key },
+      } })
+      if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    }, key)
+    await expect(input).toHaveCount(0)
+    await expect.poll(() => value(page, key)).toBe(stored)
+    const inspection = page.getByTestId('row-focus')
+    await expect(inspection).toContainText('A wire now feeds this field. Your edit was not kept.')
+    await expect(inspection).toContainText(known ? `The wire brings ${incoming}.` : 'The wire has no known value yet; this does not mean nothing.')
+    await expect(inspection).toContainText(`Stored ${stored}, used again when the wire is removed.`)
+    await page.screenshot({ path: testInfo.outputPath('new-wire-draft-cancelled.png') })
+    await page.keyboard.press('Escape')
+    await expect(inspection).toHaveCount(0)
+    const wiredPoint = await rowPoint(page, 'n1', key)
+    await page.mouse.click(wiredPoint.x, wiredPoint.y)
+    await expect(inspection).toBeVisible()
+    await expect(input).toHaveCount(0)
+    await expect.poll(() => value(page, key)).toBe(stored)
+    await expect(inspection).not.toContainText('Your edit was not kept.')
+    await expect(inspection).toContainText(`Stored ${stored}, used again when the wire is removed.`)
+    await expect(inspection.getByRole('button', { name: /Display/ })).toHaveCount(key === 'notes' ? 1 : 0)
+    await page.keyboard.press('Control+z')
+    await expect.poll(() => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links).length)).toBe(0)
+    await expect.poll(() => value(page, key)).toBe(stored)
+  })
+}
+
+for (const known of [false, true]) test(`a ${known ? 'known' : 'unknown'} wire outside the subgraph discards an Inputs panel draft without writing the outer value`, async ({ page }, testInfo) => {
+  await openSampler(page)
+  await page.evaluate(async (known) => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'WireSource', displayName: 'Wire source', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'source', type: { kind: 'concrete', name: 'INT' }, optional: true },
+        { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'INT' }, ...(known ? { knownValue: { input: 'source' } } : {}) },
+      ],
+    }])
+    const sampler = app.activeTab()!.store.doc.graphs.g0!.nodes.n1!
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-wire', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'root', nodes: {
+          outer: { id: 'outer', type: '#sub', values: { steps: 20 } },
+          source: { id: 'source', type: 'WireSource', values: { source: 7 } },
+        }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 },
+        sub: { id: 'sub', name: 'Sampler inputs', nodes: { n1: sampler }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+          boundary: { body: [{ kind: 'input', id: 'steps', binds: { kind: 'port', node: 'n1', port: 'steps' }, promoted: true }] } },
+      },
+      view: { graphs: {
+        g0: { nodes: { outer: { position: { x: 300, y: 100 } }, source: { position: { x: 0, y: 100 } } } },
+        sub: { nodes: { n1: { position: { x: 450, y: 150 } } } },
+      } },
+    } as never, 'Inputs panel wire')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  }, known)
+  const mark = await subgraphMarkPoint(page, 'outer')
+  await page.mouse.dblclick(mark.x, mark.y)
+  await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
+  const point = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    renderer.setViewport({ x: 250, y: 150, scale: 1 })
+    const panel = renderer.getScene().boundaryNodes.find((node) => node.side === 'inputs')!
+    const row = panel.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'steps')!
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: rect.left + panel.x + panel.layout.width / 2 + 250, y: rect.top + panel.y + row.y + row.height / 2 + 150 }
+  })
+  await page.mouse.click(point.x, point.y)
+  await field(page).fill('31')
+  await page.evaluate(() => {
+    const result = window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'link.connect', params: {
+      graphId: 'g0', from: { node: 'source', port: 'value' }, to: { node: 'outer', port: 'steps' },
+    } })
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+  })
+  await expect(field(page)).toHaveCount(0)
+  const inspection = page.getByTestId('row-focus')
+  await expect(inspection).toContainText('A wire now feeds this field. Your edit was not kept.')
+  await expect(inspection).toContainText(known ? 'The wire brings 7.' : 'The wire has no known value yet; this does not mean nothing.')
+  await expect(inspection).toContainText('Stored 20, used again when the wire is removed.')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.outer!.values.steps)).toBe(20)
+  await page.screenshot({ path: testInfo.outputPath('panel-wire-draft-cancelled.png') })
+  await page.keyboard.press('Escape')
+  await expect(inspection).toHaveCount(0)
+  await page.mouse.click(point.x, point.y)
+  await expect(inspection).toContainText(known ? 'The wire brings 7.' : 'The wire has no known value yet; this does not mean nothing.')
+  await expect(inspection).not.toContainText('Your edit was not kept.')
+  await expect(inspection).toContainText('Stored 20, used again when the wire is removed.')
+  await expect(field(page)).toHaveCount(0)
+  await page.mouse.move(point.x, point.y)
+  await page.mouse.down()
+  await page.mouse.move(point.x + 45, point.y)
+  await page.mouse.up()
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.outer!.values.steps)).toBe(20)
+})
+
+test('promoted representations and Inputs edits stay with the entered instance through a nested boundary', async ({ page }, testInfo) => {
+  await openSampler(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const sampler = app.activeTab()!.store.doc.graphs.g0!.nodes.n1!
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'nested-row-views', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'root', nodes: {
+          first: { id: 'first', type: '#sub', values: { radius: 12, caption: 'first caption' } },
+          second: { id: 'second', type: '#sub', values: { radius: 24, caption: 'second caption' } },
+        }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 },
+        sub: { id: 'sub', name: 'Outer', nodes: { nested: { id: 'nested', type: '#leaf', values: { radius: 6, caption: 'definition caption' } } },
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+          boundary: { body: [
+            { kind: 'input', id: 'radius', binds: { kind: 'port', node: 'nested', port: 'radius' }, promoted: true, wireHidden: true },
+            { kind: 'input', id: 'caption', binds: { kind: 'port', node: 'nested', port: 'caption' }, promoted: true, wireHidden: true },
+          ] } },
+        leaf: { id: 'leaf', name: 'Inner', nodes: { n1: sampler }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+          boundary: { body: [
+            { kind: 'input', id: 'radius', binds: { kind: 'port', node: 'n1', port: 'cfg' }, promoted: true, wireHidden: true },
+            { kind: 'input', id: 'caption', binds: { kind: 'port', node: 'n1', port: 'prefix' }, promoted: true, wireHidden: true },
+          ] } },
+      },
+      view: { graphs: {
+        g0: { nodes: { first: { position: { x: 100, y: 100 } }, second: { position: { x: 550, y: 100 } } } },
+        sub: { nodes: { nested: { position: { x: 450, y: 150 } } } },
+        leaf: { nodes: { n1: { position: { x: 450, y: 150 } } } },
+      } },
+    } as never, 'Nested row views')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const enter = async (node: string) => {
+    const mark = await subgraphMarkPoint(page, node)
+    await page.mouse.dblclick(mark.x, mark.y)
+    await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 250, y: 150, scale: 1 }))
+  }
+  const panelRow = (key = 'radius') => page.evaluate((key) => {
+    const panel = window.__dinksterTest!.renderer!.getScene().boundaryNodes.find((node) => node.side === 'inputs')!
+    const row = panel.layout.rows.find((item) => item.kind === 'widget' && item.inputId === key)!
+    return { value: panel.fields!.node.values[key], view: row.viewId, owner: row.familyOwner }
+  }, key)
+  const openPanel = async (key = 'radius') => {
+    const point = await page.evaluate((key) => {
+      const renderer = window.__dinksterTest!.renderer!
+      const panel = renderer.getScene().boundaryNodes.find((node) => node.side === 'inputs')!
+      const row = panel.layout.rows.find((item) => item.kind === 'widget' && item.inputId === key)!
+      const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      const viewport = renderer.getViewport()
+      return { x: rect.left + panel.x + panel.layout.width / 2 + viewport.x, y: rect.top + panel.y + row.y + row.height / 2 + viewport.y }
+    }, key)
+    await page.mouse.click(point.x, point.y)
+  }
+  await enter('first')
+  await expect.poll(panelRow).toMatchObject({ value: 12, view: 'core.number', owner: { graphId: 'g0', nodeId: 'first', valueKey: 'radius' } })
+  await openPanel()
+  await page.getByRole('button', { name: 'Display Number', exact: true }).click()
+  await page.getByRole('option', { name: 'Slider', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await expect.poll(panelRow).toMatchObject({ value: 12, view: 'core.slider' })
+  await openPanel('caption')
+  await page.getByRole('button', { name: 'Display Single line', exact: true }).click()
+  await page.getByRole('option', { name: 'Multiline', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await enter('nested')
+  await expect.poll(panelRow).toMatchObject({ value: 12, view: 'core.slider', owner: { graphId: 'g0', nodeId: 'first', valueKey: 'radius' } })
+  await expect.poll(() => panelRow('caption')).toMatchObject({ value: 'first caption', view: 'core.text', owner: { graphId: 'g0', nodeId: 'first', valueKey: 'caption' } })
+  await page.screenshot({ path: testInfo.outputPath('nested-instance-slider.png') })
+  const inner = await rowPoint(page, 'n1', 'cfg')
+  await page.mouse.click(inner.x, inner.y)
+  await expect(field(page)).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await openPanel()
+  await page.getByRole('button', { name: 'Display Slider', exact: true }).click()
+  await page.getByRole('option', { name: 'Number', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await openPanel()
+  await field(page).fill('18')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Escape')
+  await page.screenshot({ path: testInfo.outputPath('nested-instance-inputs.png') })
+  await page.getByTestId('graph-breadcrumb').getByRole('button').first().click()
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+  await enter('second')
+  await expect.poll(panelRow).toMatchObject({ value: 24, view: 'core.number', owner: { graphId: 'g0', nodeId: 'second' } })
+  await expect.poll(() => panelRow('caption')).toMatchObject({ value: 'second caption', view: 'core.line', owner: { graphId: 'g0', nodeId: 'second', valueKey: 'caption' } })
+  await expect.poll(() => page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return { first: doc.graphs.g0!.nodes.first!.values.radius, second: doc.graphs.g0!.nodes.second!.values.radius,
+      default: doc.graphs.sub!.nodes.nested!.values.radius, inner: doc.graphs.leaf!.nodes.n1!.values.cfg,
+      firstView: doc.view.graphs.g0!.nodes.first!.views, secondView: doc.view.graphs.g0!.nodes.second!.views }
+  })).toEqual({ first: 18, second: 24, default: 6, inner: 7, firstView: { radius: 'number', caption: 'multiline' } })
+  await openPanel()
+  await page.getByRole('button', { name: 'Display Number', exact: true }).click()
+  await page.getByRole('option', { name: 'Slider', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    await app.openDocument(JSON.parse(JSON.stringify(app.exportDocument(app.activeTab()!.id)!)), 'Reopened nested row views')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const outside = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.map((node) => ({
+    id: node.id, rows: node.layout.rows.flatMap((row) => row.kind === 'widget'
+      ? [{ view: row.viewId, marked: row.subgraphMark !== undefined }] : []),
+  })))
+  expect(outside).toEqual([
+    { id: 'first', rows: [{ view: 'core.number', marked: false }, { view: 'core.text', marked: false }] },
+    { id: 'second', rows: [{ view: 'core.slider', marked: false }, { view: 'core.line', marked: false }] },
+  ])
+  await enter('second')
+  await enter('nested')
+  await expect.poll(panelRow).toMatchObject({ value: 24, view: 'core.slider', owner: { graphId: 'g0', nodeId: 'second' } })
+  await expect.poll(() => panelRow('caption')).toMatchObject({ value: 'second caption', view: 'core.line' })
+  await page.getByTestId('graph-breadcrumb').getByRole('button').first().click()
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+  await enter('first')
+  await enter('nested')
+  await expect.poll(panelRow).toMatchObject({ value: 18, view: 'core.number', owner: { graphId: 'g0', nodeId: 'first' } })
+  await expect.poll(() => panelRow('caption')).toMatchObject({ value: 'first caption', view: 'core.text' })
+  await expect.poll(() => page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return [doc.graphs.g0!.nodes.first!.values.caption, doc.graphs.g0!.nodes.second!.values.caption,
+      doc.graphs.sub!.nodes.nested!.values.caption, doc.graphs.leaf!.nodes.n1!.values.prefix]
+  })).toEqual(['first caption', 'second caption', 'definition caption', 'Dinkster'])
+})
+
+test('a kept promoted disabled row restores its boundary by undo and by choosing its option again', async ({ page }, testInfo) => {
+  await openSampler(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'RetainedRadius', displayName: 'Retained radius', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'choice', id: 'mode', displayName: 'Mode', required: true, shared: [], options: [
+        { key: 'fast', label: 'Fast', rows: [] },
+        { key: 'fine', label: 'Fine', rows: [{
+          kind: 'input', id: 'radius', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+          disabled: true, disabledReason: 'Preset controls this field',
+          widget: { widgetType: 'FLOAT', options: { min: 0, max: 100 }, default: 7 },
+        }] },
+      ] }],
+    }, {
+      type: 'RadiusSink', displayName: 'Radius sink', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'retained-promoted-disabled', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'root', nodes: { outer: { id: 'outer', type: '#sub', values: { radius: 12 } } },
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 },
+        sub: { id: 'sub', name: 'Retained radius', nodes: {
+          radius: { id: 'radius', type: 'RetainedRadius', values: { 'mode.radius': 7 }, dynamic: { mode: { selected: 'fine' } } },
+          sink: { id: 'sink', type: 'RadiusSink', values: {} },
+        }, links: { l1: { id: 'l1', from: { node: 'radius', tap: 'mode.radius' }, to: { node: 'sink', port: 'value' } } },
+          nets: {}, reroutes: {}, nextOrdinal: 3,
+          boundary: { body: [{ kind: 'input', id: 'radius', binds: { kind: 'port', node: 'radius', port: 'mode.radius' }, promoted: true, wireHidden: true }] } },
+      },
+      view: { graphs: {
+        g0: { nodes: { outer: { position: { x: 100, y: 100 } } } },
+        sub: { nodes: { radius: { position: { x: 300, y: 100 }, size: { width: 320, height: 0 } }, sink: { position: { x: 700, y: 100 } } } },
+      } },
+    } as never, 'Retained promoted disabled')
+    await app.enableWorkspaceAuthority()
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const mark = await subgraphMarkPoint(page, 'outer')
+  await page.mouse.dblclick(mark.x, mark.y)
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 150, scale: 0.9 }))
+  const snapshot = () => page.evaluate(() => {
+    const scene = window.__dinksterTest!.renderer!.getScene()
+    const node = scene.nodes.find((node) => node.id === 'radius')!
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return {
+      row: node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'mode.radius'),
+      links: scene.links,
+      fields: scene.boundaryNodes.find((node) => node.side === 'inputs')?.layout.rows
+        .filter((row) => row.kind === 'widget').map((row) => row.inputId),
+      binding: doc.graphs.sub!.boundary, storedLinks: doc.graphs.sub!.links,
+      projected: (node as unknown as { node: { values: Record<string, unknown> } }).node.values,
+      values: { outer: doc.graphs.g0!.nodes.outer!.values, inner: doc.graphs.sub!.nodes.radius!.values },
+    }
+  })
+  const choose = async (option: string) => {
+    const mode = await rowPoint(page, 'radius', 'mode')
+    await page.mouse.click(mode.x, mode.y)
+    await page.getByRole('option', { name: option, exact: true }).click()
+    await page.keyboard.press('Escape')
+  }
+  const before = await snapshot()
+  expect(before.row).toMatchObject({ subgraphMark: { item: 'radius' }, disabled: true })
+  expect(before.fields).toEqual(['radius'])
+  expect(before.links).toHaveLength(2)
+  expect(before.links).toContainEqual(expect.objectContaining({
+    from: { kind: 'boundary', side: 'inputs', item: 'radius' },
+    to: { kind: 'port', node: 'radius', port: 'mode.radius' },
+    boundary: true, hidden: true,
+  }))
+  expect(before.values).toEqual({ outer: { radius: 12 }, inner: { 'mode.radius': 7 } })
+  expect(before.projected).toEqual({ 'mode.radius': 12 })
+  for (const restore of ['undo', 'choose']) {
+    await choose('Fast')
+    const after = await snapshot()
+    expect(after.row).toMatchObject({ subgraphMark: { item: 'radius' }, disabled: true,
+      inactive: true, kept: 'Not used while Mode is Fast. Its wire gives nothing.' })
+    expect(after.links).toMatchObject([{ id: 'l1', dimmed: true }])
+    expect(after.fields ?? []).toEqual([])
+    expect(after.values).toEqual(before.values)
+    expect(after.binding).toEqual(before.binding)
+    expect(after.storedLinks).toEqual(before.storedLinks)
+    expect(after.projected).toEqual(before.projected)
+    const kept = await rowPoint(page, 'radius', 'mode.radius')
+    await page.mouse.click(kept.x, kept.y)
+    await expect(field(page)).toHaveCount(0)
+    await page.mouse.move(kept.x, kept.y)
+    await expect(page.getByRole('tooltip')).toContainText('Not used while Mode is Fast. Its wire gives nothing.')
+    await page.screenshot({ path: testInfo.outputPath(`retained-promoted-disabled-${restore}.png`) })
+    if (restore === 'undo') {
+      await page.getByTestId('graph-canvas').focus()
+      await page.keyboard.press('Control+z')
+    } else await choose('Fine')
+    await expect.poll(snapshot).toEqual(before)
+  }
+})
+
+for (const access of ['readOnly', 'disabled'] as const) {
+  test(`a ${access} flag discards the draft and explains the row without preventing non-UI writes`, async ({ page }, testInfo) => {
+    await openSampler(page, access)
+    const steps = await rowPoint(page, 'n1', 'steps')
+    await page.mouse.click(steps.x, steps.y)
+    await field(page).fill('31')
+    await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'cfg', value: 9 },
+    }))
+    await expect(field(page)).toHaveCount(0)
+    await expect.poll(() => value(page, 'steps')).toBe(20)
+    const reason = access === 'readOnly' ? 'Read-only' : 'Preset controls this field'
+    await expect(page.getByTestId('row-focus')).toContainText(reason)
+    await page.keyboard.type('44')
+    await page.keyboard.press('Enter')
+    await expect(field(page)).toHaveCount(0)
+    for (const at of [0.07, 0.5, 0.93]) {
+      const point = await rowPoint(page, 'n1', 'steps', at)
+      await page.mouse.click(point.x, point.y)
+    }
+    await page.mouse.move(steps.x, steps.y)
+    await page.mouse.down()
+    await page.mouse.move(steps.x + 40, steps.y)
+    await page.mouse.up()
+    await expect.poll(() => value(page, 'steps')).toBe(20)
+    await page.mouse.click(steps.x, steps.y)
+    await expect(page.getByTestId('row-focus')).toContainText(reason)
+    await page.screenshot({ path: testInfo.outputPath('access-reason.png') })
+    await page.keyboard.press('Tab')
+    await expect.poll(() => openLabel(page)).toBe('cfg')
+    await page.keyboard.press('Escape')
+    await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'steps', value: 24 },
+    }))
+    await expect.poll(() => value(page, 'steps')).toBe(24)
+    await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      app.registerSchemas([{
+        type: 'BlockedSource', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false },
+          { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' }, knownValue: { input: 'value' } },
+        ],
+      }] as never)
+      const store = app.activeTab()!.store
+      const added = store.dispatch({ command: 'node.add', params: {
+        graphId: 'g0', type: 'BlockedSource', position: { x: -150, y: 100 }, values: { value: 37 },
+      } })
+      if (!added.ok) throw new Error(JSON.stringify(added.diagnostics))
+      const source = Object.values(store.doc.graphs.g0!.nodes).find((node) => node.type === 'BlockedSource')!
+      const linked = store.dispatch({ command: 'link.connect', params: {
+        graphId: 'g0', from: { node: source.id, port: 'out' }, to: { node: 'n1', port: 'steps' },
+      } })
+      if (!linked.ok) throw new Error(JSON.stringify(linked.diagnostics))
+    })
+    const wired = await rowPoint(page, 'n1', 'steps')
+    await page.mouse.click(wired.x, wired.y)
+    await expect(page.getByTestId('row-focus')).toContainText('The wire brings 37.0.')
+    await expect(page.getByTestId('row-focus')).toContainText('Stored 24.0, used again when the wire is removed.')
+    await expect(page.getByTestId('row-focus')).toContainText(reason)
+    await expect(page.getByTestId('row-focus')).not.toContainText('How many denoising steps to run.')
+    await expect(page.getByTestId('row-focus')).not.toContainText('Default')
+    await expect(field(page)).toHaveCount(0)
+    await expect.poll(() => value(page, 'steps')).toBe(24)
+    await page.screenshot({ path: testInfo.outputPath('blocked-wire-reason.png') })
+  })
+
+  test(`a ${access} row can switch representation without changing its value`, async ({ page }, testInfo) => {
+    await openSampler(page, access)
+    await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'cfg', value: 9 },
+    }))
+    const steps = await rowPoint(page, 'n1', 'steps')
+    await page.mouse.click(steps.x, steps.y)
+    const focus = page.getByTestId('row-focus')
+    await focus.getByRole('button', { name: /Display/ }).click()
+    await expect(focus.getByRole('combobox', { name: 'Display', exact: true })).toBeFocused()
+    await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'cfg', value: 10 },
+    }))
+    await expect(focus.getByRole('combobox', { name: 'Display', exact: true })).toBeFocused()
+    await expect.poll(() => focus.locator('.dinkster-canvas-side-representation-list .dinkster-canvas-field-label').evaluate((label) => {
+      const range = document.createRange()
+      range.selectNodeContents(label)
+      const style = getComputedStyle(label)
+      return range.getBoundingClientRect().width <= label.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    })).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath('blocked-representation-open.png') })
+    await focus.getByRole('option', { name: 'Slider', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => {
+      const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
+      return node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'steps')?.viewId
+    })).toBe('core.slider')
+    await expect.poll(() => value(page, 'steps')).toBe(20)
+    await expect(field(page)).toHaveCount(0)
+    await expect(focus).toContainText(access === 'readOnly' ? 'Read-only' : 'Preset controls this field')
+    await page.screenshot({ path: testInfo.outputPath('blocked-representation-selected.png') })
+    const trigger = focus.getByRole('button', { name: 'Display Slider', exact: true })
+    await trigger.click()
+    const filter = focus.getByRole('combobox', { name: 'Display', exact: true })
+    await filter.dispatchEvent('keydown', { key: 'Escape', isComposing: true })
+    await expect(filter).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(filter).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(focus).toHaveCount(0)
+    await expect(page.getByTestId('graph-canvas')).toBeFocused()
+  })
+}
+
+for (const [draft, stored] of [['not-a-number', 7], ['150', 100]] as const) test(`Display settles ${draft} like Enter before switching`, async ({ page }) => {
+  await openSampler(page)
+  const point = await rowPoint(page, 'n1', 'cfg')
+  await page.mouse.click(point.x, point.y)
+  await field(page).fill(draft)
+  await page.getByRole('button', { name: 'Display Number', exact: true }).click()
+  await page.getByRole('option', { name: 'Slider', exact: true }).click()
+  await expect(field(page)).toHaveCount(0)
+  await expect.poll(() => value(page, 'cfg')).toBe(stored)
+  await expect.poll(() => page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
+    return node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'cfg')?.viewId
+  })).toBe('core.slider')
+  await expect.poll(() => value(page, 'steps')).toBe(20)
+})
+
+test('a selected automatic Slider explains its Number fallback and returns when the formula range is known', async ({ page }, testInfo) => {
+  await openSampler(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'FormulaRange', displayName: 'Formula range', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'known', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false,
+          widget: { widgetType: 'BOOLEAN', options: {}, default: true } },
+        { kind: 'input', id: 'cfg', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, readOnly: true,
+          widget: { widgetType: 'FLOAT', options: { min: 0 }, looked: { max: { formula: '100 if known else 1 // 0' } }, default: 7 } },
+      ],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'formula-range', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'FormulaRange', values: { cfg: 7, known: true } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 }, views: { cfg: 'slider' } } } } } },
+    } as never, 'Formula range')
+    window.__dinksterTest!.renderer!.setViewport({ x: 200, y: 150, scale: 1 })
+  })
+  const rowView = () => page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
+    return node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'cfg')?.viewId
+  })
+  await expect.poll(rowView).toBe('core.slider')
+  const point = await rowPoint(page, 'n1', 'cfg')
+  await page.mouse.click(point.x, point.y)
+  const inspection = page.getByTestId('row-focus')
+  await expect(inspection.getByRole('button', { name: 'Display Slider', exact: true })).toBeVisible()
+  const setKnown = (known: boolean) => page.evaluate((known) => {
+    const result = window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n1', inputId: 'known', value: known,
+    } })
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+  }, known)
+  await setKnown(false)
+  await expect.poll(rowView).toBe('core.number')
+  await expect(inspection).toContainText('Showing Number until the range is known.')
+  await expect(inspection.getByRole('button', { name: 'Display Slider', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('slider-range-unknown.png') })
+  await setKnown(true)
+  await expect.poll(rowView).toBe('core.slider')
+  await expect(inspection).not.toContainText('Showing Number until the range is known.')
+  await expect.poll(() => value(page, 'cfg')).toBe(7)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.view.graphs.g0!.nodes.n1!.views!.cfg)).toBe('slider')
+  await page.screenshot({ path: testInfo.outputPath('slider-range-restored.png') })
+})
+
+test('a removed pack alternative falls back without losing the saved preference and returns when available', async ({ page }) => {
+  await openSampler(page)
+  const point = await rowPoint(page, 'n1', 'prefix')
+  await page.mouse.click(point.x, point.y)
+  await page.getByRole('button', { name: 'Display Single line', exact: true }).click()
+  await page.getByRole('option', { name: 'Multiline', exact: true }).click()
+  const rowView = () => page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
+    return node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'prefix')?.viewId
+  })
+  await expect.poll(rowView).toBe('core.text')
+  const original = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const schema = app.backends.get()[0]!.registry.get()!.schemas.get('Sampler') as import('@dinkster/core').NodeSchema
+    app.registerSchemas([{ ...schema, body: schema.body.map((item) => item.kind !== 'input' || item.id !== 'prefix' ? item : {
+      ...item, widget: { ...item.widget!, representations: {
+        default: 'single-line', userSwitchable: true, representations: [
+          { id: 'single-line', displayName: 'Single line', widget: { widgetType: 'STRING', options: { multiline: false } } },
+        ],
+      } },
+    }) }])
+    return JSON.stringify(schema)
+  })
+  await expect.poll(rowView).toBe('core.line')
+  await expect.poll(() => value(page, 'prefix')).toBe('Dinkster')
+  const savedChoice = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.view.graphs.g0!.nodes.n1!.views!.prefix)
+  await expect.poll(savedChoice).toBe('multiline')
+  await page.evaluate((schema) => window.__dinksterTest!.app.registerSchemas([JSON.parse(schema)]), original)
+  await expect.poll(rowView).toBe('core.text')
+  await expect.poll(savedChoice).toBe('multiline')
+  await expect.poll(() => value(page, 'prefix')).toBe('Dinkster')
+})
+
+test('valueless editor openers omit a default fact without changing their stored data', async ({ page }, testInfo) => {
+  await page.route('**/api/**', route => route.fulfill({ status: 503, json: { error: 'Offline fixture' } }))
+  await page.route('/api/nodes*', route => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'opener-defaults', schemaWire: 2, graphFeatures: ['decimalInt'] }, nodes: {},
+  } }))
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    ;(app as unknown as { templateGalleryOpen: { set(value: boolean): void } }).templateGalleryOpen.set(false)
+    const widget = (id: string, widgetType: string, value: unknown, tooltip?: string) => ({
+      kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
+      widget: { widgetType, options: {}, default: value }, ...(tooltip === undefined ? {} : { tooltip }),
+    })
+    app.registerSchemas([{
+      type: 'Opener defaults', displayName: 'Opener defaults', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        widget('steps', 'INT', 20),
+        widget('viewport', 'LOAD_3D', { camera: { fov: 35 } }, 'Inspect the 3D viewport.'),
+        widget('angle', 'CAMERA_ANGLE_VIEW', 'front', 'Choose the viewing direction.'),
+      ],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'opener-defaults', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'Opener defaults', values: { steps: 20, viewport: { camera: { fov: 35 } }, angle: 'front' } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 } } } } } },
+    } as never, 'Opener defaults')
+    window.__dinksterTest!.renderer!.setViewport({ x: 160, y: 100, scale: 1 })
+  })
+  const before = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
+  const steps = await rowPoint(page, 'n1', 'steps')
+  for (const theme of ['dark', 'light'] as const) {
+    await page.evaluate(theme => window.__dinksterTest!.app.settings.set('dinkster.theme', theme), theme)
+    await page.mouse.click(steps.x, steps.y)
+    await expect(field(page)).toBeVisible()
+    await expect(page.locator('.dinkster-canvas-side-facts')).toContainText('20')
+    for (const [name, help] of [['viewport', 'Inspect the 3D viewport.'], ['angle', 'Choose the viewing direction.']] as const) {
+      await page.keyboard.press('Tab')
+      await expect(page.getByTestId('row-focus')).toBeVisible()
+      await expect(page.locator('.dinkster-canvas-side-help')).toHaveText(help)
+      await expect(page.locator('.dinkster-canvas-side-facts')).toHaveCount(0)
+      await page.screenshot({ path: testInfo.outputPath(`opener-default-${name}-${theme}.png`) })
+    }
+  }
+  expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
+})
 
 test('a click on each other row stores the open field and opens that row', async ({ page }) => {
   await openSampler(page)
@@ -77,6 +685,50 @@ test('a click on each other row stores the open field and opens that row', async
   }
   await expect(page.locator('[data-editor-surface="in-node"] textarea')).toBeFocused()
   await expect(field(page)).toHaveCount(0)
+})
+
+test('opening cells on a shared line never joins a side part across another cell', async ({ page }, testInfo) => {
+  await openSampler(page)
+  await page.setViewportSize({ width: 1800, height: 900 })
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'Offset', displayName: 'Offset', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: ['x', 'y', 'z'].map((id, index) => ({
+        kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: false,
+        tooltip: `${id} offset`, widget: { widgetType: 'INT', options: {}, default: [8, 12, 24][index] },
+      })) }],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'shared-line', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'Offset', values: { x: 8, y: 12, z: 24 } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 400, y: 100 }, width: 420 } } } } },
+    } as never, 'Shared line')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 80, scale: 1 })
+  })
+  for (const [id, place, stored] of [['y', 'below-node', 12], ['z', 'right', 24], ['x', 'left', 8]] as const) {
+    const point = await page.evaluate((id) => {
+      const renderer = window.__dinksterTest!.renderer!
+      const node = renderer.getScene().nodes.find((item) => item.id === 'n1')!
+      const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === id)! as
+        { inset: number; width?: number; y: number; height: number }
+      const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      const viewport = renderer.getViewport()
+      return {
+        x: canvas.left + (node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2) / 2) * viewport.scale + viewport.x,
+        y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
+      }
+    }, id)
+    await page.mouse.click(point.x, point.y)
+    await expect(page.getByTestId('canvas-row-field')).toHaveAttribute('data-place', place)
+    await expect(field(page)).toHaveValue(String(stored))
+    await page.screenshot({ path: testInfo.outputPath(`shared-line-${id}.png`) })
+    await page.keyboard.press('Escape')
+    await expect(field(page)).toHaveCount(0)
+    await expect.poll(() => value(page, id)).toBe(stored)
+  }
 })
 
 test('past a limit the side part says what Enter stores; the field follows the canvas and flips its side part at the right edge', async ({ page }) => {
@@ -215,6 +867,50 @@ test('a draft survives a document change such as a finishing run', async ({ page
   })
   await expect(page.getByRole('textbox', { name: 'steps', exact: true })).toHaveCount(0)
   expect(await value(page, 'steps')).toBe(55)
+})
+
+test('automatic: typing the value in use fixes the field; leaving a fixed empty text unchanged stores nothing', async ({ page }) => {
+  await openSampler(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const widget = (id: string, widgetType: string, defaultValue: unknown, formula: string) => ({
+      kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
+      widget: { widgetType, options: {}, default: defaultValue }, automatic: { formula },
+    })
+    app.registerSchemas([{
+      type: 'Automatic', displayName: 'Automatic', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'rate', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 12 } },
+        widget('frames', 'INT', 1, 'rate * 2'),
+        widget('caption', 'STRING', 'none', '"auto caption"'),
+      ],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'automatic', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'Automatic', values: { rate: 12, caption: '' } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 } } } } } },
+    } as never, 'Automatic')
+    window.__dinksterTest!.renderer!.setViewport({ x: 200, y: 150, scale: 1 })
+  })
+  const frames = await rowPoint(page, 'n1', 'frames')
+  await page.mouse.click(frames.x, frames.y)
+  await expect(field(page)).toHaveValue('')
+  await expect(field(page)).toHaveAttribute('placeholder', '24')
+  await page.keyboard.type('24')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => value(page, 'frames')).toBe(24)
+  // A text field that stores '' is fixed; opening and leaving it changes nothing.
+  const revision = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
+  const before = await revision()
+  const caption = await rowPoint(page, 'n1', 'caption')
+  await page.mouse.click(caption.x, caption.y)
+  await expect.poll(() => openLabel(page)).toBe('caption')
+  await page.mouse.click(caption.x + 400, caption.y + 200)
+  await expect(field(page)).toHaveCount(0)
+  expect(await value(page, 'caption')).toBe('')
+  expect(await revision()).toBe(before)
 })
 
 test('slider: a drag puts the value under the pointer; Escape in the open field keeps it', async ({ page }) => {
@@ -360,7 +1056,7 @@ test('multiline box: Tab stores and moves on; Ctrl+Enter stores then runs', asyn
   await expect.poll(() => page.evaluate(() => (window as unknown as { queuedNotes?: unknown }).queuedNotes)).toBe('third')
 })
 
-async function openMixed(page: Page): Promise<void> {
+async function openMixed(page: Page, buttons = false, hostDisabled?: 'unknown' | 'wired'): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'inrow-mixed', schemaWire: 2, graphFeatures: ['decimalInt'] }, nodes: {},
   } }))
@@ -369,7 +1065,7 @@ async function openMixed(page: Page): Promise<void> {
   await waitForWorkspaceReady(page)
   const close = page.locator('.template-gallery-close')
   if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
-  await page.evaluate(async () => {
+  await page.evaluate(async ({ buttons, hostDisabled }) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
@@ -378,21 +1074,245 @@ async function openMixed(page: Page): Promise<void> {
       type: 'Mixed', displayName: 'Mixed', category: 'test', source: 'v3', isOutputNode: false,
       body: [
         { ...widget('steps', 'INT', 20, { min: 1, max: 10000, step: 1 }), tooltip: 'How many denoising steps to run.' },
+        ...(buttons ? [
+          { kind: 'button', id: 'increment', label: hostDisabled === 'wired' ? 'Set steps' : 'Add a step', steps: [{ step: 'set', field: 'steps', value: hostDisabled === 'wired' ? { value: 99 } : { formula: 'steps + 1' } }] },
+          { kind: 'button', id: 'disabled', label: 'Use preset', enabled: false, disabledReason: 'Choose a preset before using this button.', steps: [{ step: 'set', field: 'steps', value: { value: 99 } }] },
+          { kind: 'button', id: 'working', label: 'Prepare', steps: [
+            { step: 'set', field: 'steps', value: { value: 88 } },
+            { step: 'call', function: 'test.prepare', args: [], writes: ['prefix'] },
+          ] },
+        ] : []),
         { ...widget('enabled', 'BOOLEAN', true), tooltip: 'Turn the pass on or off.' },
         widget('sampler', 'COMBO', 'euler', { options: ['euler', 'dpmpp_2m', 'uni_pc'] }),
         widget('prefix', 'STRING', 'Dinkster'),
+        ...(buttons ? [{ kind: 'button', id: 'ask', label: 'Choose pass', steps: [
+          { step: 'ask', title: 'Choose pass settings', rows: [
+            { id: 'enabled_pass', type: { kind: 'concrete', types: ['BOOLEAN'] }, required: true, default: true },
+            { id: 'start', type: { kind: 'concrete', types: ['FLOAT'] }, required: true, default: 0 },
+            { id: 'end', type: { kind: 'concrete', types: ['FLOAT'] }, required: true, default: 1 },
+            { id: 'count', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 5, widget: { type: 'NUMBER', min: 1 } },
+          ] },
+          { step: 'set', field: 'enabled', value: { formula: 'enabled_pass' } },
+          { step: 'set', field: 'steps', value: { formula: 'count' } },
+        ] }] : []),
+        ...(hostDisabled === 'unknown' ? [
+          widget('incoming', 'INT', 7),
+          { kind: 'button', id: 'needs_input', label: 'Needs input', steps: [{ step: 'call', function: 'test.prepare', args: ['incoming'], writes: ['prefix'] }] },
+        ] : []),
       ],
+    }] as never)
+    if (hostDisabled !== undefined) window.__dinksterTest!.app.registerSchemas([{
+      type: 'UnknownSource', displayName: 'Unknown source', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name: 'INT' } }],
     }] as never)
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'inrow-mixed', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n1: { id: 'n1', type: 'Mixed', values: { steps: 20, enabled: true, sampler: 'euler', prefix: 'Dinkster' } },
-      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+        ...(hostDisabled === undefined ? {} : { source: { id: 'source', type: 'UnknownSource', values: {} } }),
+      }, links: hostDisabled === undefined ? {} : {
+        wired: { id: 'wired', from: { node: 'source', port: 'value' }, to: { node: 'n1', port: hostDisabled === 'unknown' ? 'incoming' : 'steps' } },
+      }, nets: {}, reroutes: {}, nextOrdinal: 3 } },
       view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 } } } } } },
     } as never, 'Mixed')
     window.__dinksterTest!.renderer!.setViewport({ x: 200, y: 150, scale: 1 })
-  })
+  }, { buttons, hostDisabled })
 }
+
+for (const reason of ['unknown', 'wired'] as const) test(`a host-disabled Button keeps keyboard reason inspection when ${reason}`, async ({ page }) => {
+  let calls = 0
+  await page.route('**/api/node-functions/call', (route) => { calls++; return route.fulfill({ json: { answer: {} } }) })
+  await openMixed(page, true, reason)
+  const prefix = await rowPoint(page, 'n1', 'prefix')
+  await page.mouse.click(prefix.x, prefix.y)
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Tab')
+  const focus = page.getByTestId('row-focus')
+  const message = reason === 'unknown' ? 'Needs incoming, which is not known until a run.' : 'Every field this would set has a wire.'
+  await expect(focus).toHaveAccessibleName(reason === 'unknown' ? 'Needs input' : 'Set steps')
+  await expect(focus).toHaveAttribute('aria-disabled', 'true')
+  await expect(focus).toHaveAccessibleDescription(message)
+  await expect(focus).toContainText(message)
+  await page.keyboard.press('Enter')
+  await page.keyboard.press(' ')
+  expect(await value(page, 'steps')).toBe(20)
+  expect(await value(page, 'prefix')).toBe('Dinkster')
+  expect(calls).toBe(0)
+  expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links))).toEqual(['wired'])
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
+})
+
+test('a keyboard-started Ask Button gives its form the keyboard and applies one undoable edit', async ({ page }) => {
+  await openMixed(page, true)
+  await page.evaluate(() => window.__dinksterTest!.app.enableWorkspaceAuthority())
+  const steps = await rowPoint(page, 'n1', 'steps')
+  await page.mouse.click(steps.x, steps.y)
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByTestId('row-focus')).toHaveAccessibleName('Choose pass')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('button-ask-enabled_pass')).toBeFocused()
+  await page.keyboard.press(' ')
+  await expect(page.getByTestId('button-ask-enabled_pass')).toHaveAttribute('aria-pressed', 'false')
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('button-ask-start')).toBeFocused()
+  await expect(page.getByTestId('button-ask-start')).toHaveText('start0.0')
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('button-ask-end')).toBeFocused()
+  await expect(page.getByTestId('button-ask-end')).toHaveText('end1.0')
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('button-ask-count')).toBeFocused()
+  await page.getByRole('button', { name: 'Increase count', exact: true }).click()
+  await expect(page.getByTestId('button-ask-count')).toHaveText('count6')
+  expect(await value(page, 'steps')).toBe(20)
+  expect(await value(page, 'enabled')).toBe(true)
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('button-ask-cancel')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('button-ask-apply')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('button-ask-form')).toHaveCount(0)
+  await expect.poll(() => value(page, 'enabled')).toBe(false)
+  await expect.poll(() => value(page, 'steps')).toBe(6)
+  await page.getByTestId('graph-canvas').focus()
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => value(page, 'enabled')).toBe(true)
+  await expect.poll(() => value(page, 'steps')).toBe(20)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
+  await page.mouse.click(steps.x, steps.y)
+  await page.keyboard.press('Shift+Tab')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('button-ask-enabled_pass')).toBeFocused()
+  await page.keyboard.press(' ')
+  await page.getByRole('button', { name: 'Increase count', exact: true }).click()
+  await expect(page.getByTestId('button-ask-count')).toHaveText('count6')
+  await page.getByTestId('button-ask-cancel').click()
+  await expect(page.getByTestId('button-ask-form')).toHaveCount(0)
+  expect(await value(page, 'enabled')).toBe(true)
+  expect(await value(page, 'steps')).toBe(20)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
+})
+
+test('a failed Button keeps its warning until the next press and success is one undo step', async ({ page }, testInfo) => {
+  let fail = true
+  await page.route('**/api/node-functions/call', (route) => route.fulfill({
+    contentType: 'application/x-ndjson',
+    body: fail ? '{"error":"function-failed","message":"No sheet named video in this file."}\n' : '{"answer":{"prefix":"prepared"}}\n',
+  }))
+  await openMixed(page, true)
+  const steps = await rowPoint(page, 'n1', 'steps')
+  await page.mouse.click(steps.x, steps.y)
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Tab')
+  const focus = page.getByTestId('row-focus')
+  await expect(focus).toHaveAccessibleName('Prepare')
+  await page.keyboard.press('Enter')
+  const warning = page.getByTestId('button-box')
+  await expect(warning).toHaveAttribute('role', 'alert')
+  await expect(warning).toHaveText('Nothing was changed. No sheet named video in this file.')
+  expect(await value(page, 'steps')).toBe(20)
+  expect(await value(page, 'prefix')).toBe('Dinkster')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
+  await page.evaluate(() => window.__dinksterTest!.app.enableWorkspaceAuthority())
+  await expect(warning).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('button-failed-result.png') })
+  await page.keyboard.press('Tab')
+  await expect(warning).toBeVisible()
+  await page.keyboard.press('Shift+Tab')
+  fail = false
+  await page.keyboard.press('Enter')
+  await expect.poll(() => value(page, 'steps')).toBe(88)
+  expect(await value(page, 'prefix')).toBe('prepared')
+  await expect(warning).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => value(page, 'steps')).toBe(20)
+  expect(await value(page, 'prefix')).toBe('Dinkster')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
+  fail = true
+  await page.mouse.click(steps.x, steps.y)
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Tab')
+  await page.keyboard.press('Enter')
+  await expect(warning).toBeVisible()
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const document = structuredClone(tab.store.doc)
+    app.closeTab(tab.id)
+    await app.openDocument(document, 'Reopened Mixed')
+  })
+  await expect(warning).toHaveCount(0)
+})
+
+test('Buttons keep their row-cycle stops, disabled reason and atomic keyboard cancellation', async ({ page }, testInfo) => {
+  let finishCall!: () => void
+  let calls = 0
+  await page.route('**/api/node-functions/call', async (route) => {
+    calls++
+    await new Promise<void>((resolve) => { finishCall = resolve })
+    await route.fulfill({ contentType: 'application/x-ndjson', body: '{"answer":{"prefix":"prepared"}}\n' }).catch(() => {})
+  })
+  await openMixed(page, true)
+  const focus = page.getByTestId('row-focus')
+  const steps = await rowPoint(page, 'n1', 'steps')
+  await page.mouse.click(steps.x, steps.y)
+  await page.keyboard.press('Tab')
+  await expect(focus).toHaveAccessibleName('Add a step')
+  await expect(focus).toBeFocused()
+  await page.screenshot({ path: testInfo.outputPath('focused-ready-button.png') })
+  await page.keyboard.down('Enter')
+  await page.keyboard.down('Enter')
+  await page.keyboard.up('Enter')
+  await expect.poll(() => value(page, 'steps')).toBe(21)
+  await page.keyboard.press(' ')
+  await expect.poll(() => value(page, 'steps')).toBe(22)
+  await page.keyboard.press('Tab')
+  await expect(focus).toHaveAccessibleName('Use preset')
+  await expect(focus).toHaveAttribute('aria-disabled', 'true')
+  await expect(focus).toHaveAccessibleDescription('Choose a preset before using this button.')
+  await expect(focus).toContainText('Choose a preset before using this button.')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press(' ')
+  expect(await value(page, 'steps')).toBe(22)
+  await page.screenshot({ path: testInfo.outputPath('focused-disabled-button.png') })
+  await page.keyboard.press('Shift+Tab')
+  await expect(focus).toHaveAccessibleName('Add a step')
+  await page.keyboard.press('Shift+Tab')
+  await expect.poll(() => openLabel(page)).toBe('steps')
+  for (const cancel of ['Enter', ' ']) {
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    await expect(focus).toHaveAccessibleName('Prepare')
+    await page.keyboard.press('Enter')
+    await expect(focus).toHaveAccessibleName('Cancel Prepare')
+    await expect.poll(() => calls).toBe(cancel === 'Enter' ? 1 : 2)
+    if (cancel === 'Enter') await page.screenshot({ path: testInfo.outputPath('focused-busy-button.png') })
+    await page.keyboard.press(cancel)
+    await expect(focus).toHaveAccessibleName('Prepare')
+    finishCall()
+    expect(await value(page, 'steps')).toBe(22)
+    expect(await value(page, 'prefix')).toBe('Dinkster')
+    await page.keyboard.press('Tab')
+    await expect(focus).not.toHaveAttribute('role', 'button')
+    await expect(page.getByTestId('graph-canvas')).toBeFocused()
+    await page.keyboard.press(' ')
+    await expect.poll(() => value(page, 'enabled')).toBe(false)
+    await page.keyboard.press(' ')
+    await expect.poll(() => value(page, 'enabled')).toBe(true)
+    await page.keyboard.press('Shift+Tab')
+    await expect(focus).toHaveAccessibleName('Prepare')
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Shift+Tab')
+    await expect.poll(() => openLabel(page)).toBe('steps')
+  }
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Control+z')
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => value(page, 'steps')).toBe(21)
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => value(page, 'steps')).toBe(20)
+})
 
 test('the keyboard on a row: toggle and choice stops, Enter and Escape keep the row', async ({ page }) => {
   await openMixed(page)

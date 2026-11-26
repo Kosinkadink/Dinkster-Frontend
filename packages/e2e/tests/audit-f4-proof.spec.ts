@@ -48,6 +48,7 @@ async function openAsset(page: Page): Promise<void> {
 
 test('proves product upload control and hidden workflow picker lifecycle', async ({ page }) => {
   await page.route(/\/api\/.*/, (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
+  await page.route('/api/account', (route) => route.fulfill({ json: { available: false, canStartSignIn: false, signInUnavailableReason: 'account-unavailable', signedIn: false, profile: null, signIn: { state: 'idle' } } }))
   await mockProjectPacks(page)
   await page.route('/api/models/downloads?scope=local', (route) => {
     expect(route.request().method()).toBe('GET')
@@ -57,6 +58,7 @@ test('proves product upload control and hidden workflow picker lifecycle', async
   await page.route('/api/settings', (route) => route.fulfill({ json: { categories: { granted: [], available: [] }, settings: {} } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: catalog }))
+  await page.route('/api/nodes/provisional?project=default', (route) => route.fulfill({ status: 404 }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'proof' }, devices: [] } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/api/composition', (route) => route.fulfill({ json: { packs: {} } }))

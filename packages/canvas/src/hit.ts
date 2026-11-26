@@ -5,19 +5,15 @@
  */
 
 import type { TypeExpr } from '@dinkster/core'
-import type { LayoutRow, MemberGrip, PinLayout } from './layout.js'
+import type { LayoutRow, MemberGrip, MemberRemoval, PinLayout } from './layout.js'
 import { canvasPaintTokens, defaultTokens, type CanvasDetailLevel } from './tokens.js'
+import { noteLookupRows } from './layout.js'
 import {
   boundaryFieldNode,
   GROUP_HEADER_HEIGHT,
   REROUTE_RADIUS,
   REROUTE_SOCKET_OFFSET,
   REROUTE_SOCKET_RADIUS,
-  selectorBadgeRect,
-  selectorCandidatePinPosition,
-  selectorOutPinPosition,
-  valueSourceBadgeRect,
-  valueSourcePinPosition,
   type Scene,
   type SceneBoundaryNode,
   type SceneGroup,
@@ -25,8 +21,6 @@ import {
   type SceneNetStub,
   type SceneNode,
   type SceneReroute,
-  type SceneSelector,
-  type SceneValueSource,
 } from './scene.js'
 
 /** World-space pin grab radius (generous: pins are small targets). */
@@ -97,6 +91,18 @@ export type Hit =
       readonly row: Extract<LayoutRow, { kind: 'section' }>
     }
   | {
+      /** A declared button; a click presses it. The rect is the button in world space. */
+      readonly kind: 'button'
+      readonly node: SceneNode
+      readonly row: Extract<LayoutRow, { kind: 'button' }>
+      readonly x: number
+      readonly y: number
+      readonly width: number
+      readonly height: number
+      /** Pointer offset from the button's left edge. */
+      readonly localX: number
+    }
+  | {
       /** Grow-family affordance row: click materializes the offered member. */
       readonly kind: 'growth'
       readonly node: SceneNode
@@ -107,6 +113,17 @@ export type Hit =
       readonly kind: 'grip'
       readonly node: SceneNode
       readonly grip: MemberGrip
+    }
+  | {
+      readonly kind: 'memberRemove'
+      readonly node: SceneNode
+      readonly remove: MemberRemoval
+    }
+  /** A lookup note's Try again: asks for the note's call again. */
+  | {
+      readonly kind: 'lookupRetry'
+      readonly node: SceneNode
+      readonly row: Extract<LayoutRow, { kind: 'note' }>
     }
   /** The bottom edge of a multiline text box: dragging it sets the box's height in lines. */
   | {
@@ -140,42 +157,6 @@ export type Hit =
       readonly x: number
       readonly y: number
     }
-  /** A value source's single output pin (link-drag start). */
-  | {
-      readonly kind: 'valueSourceOut'
-      readonly valueSource: SceneValueSource
-      /** Pin center, world coords. */
-      readonly x: number
-      readonly y: number
-      readonly type: TypeExpr
-    }
-  /** A value source's spec badge (declared/derived/conflict details). */
-  | { readonly kind: 'valueSourceBadge'; readonly valueSource: SceneValueSource }
-  /** A value source's pill body (select/drag/edit). */
-  | { readonly kind: 'valueSource'; readonly valueSource: SceneValueSource }
-  /** One candidate's branch input pin (link-drag target/source). */
-  | {
-      readonly kind: 'selectorIn'
-      readonly selector: SceneSelector
-      readonly candidate: string
-      /** Pin center, world coords. */
-      readonly x: number
-      readonly y: number
-      readonly type: TypeExpr
-    }
-  /** A selector's single output pin (link-drag start). */
-  | {
-      readonly kind: 'selectorOut'
-      readonly selector: SceneSelector
-      /** Pin center, world coords. */
-      readonly x: number
-      readonly y: number
-      readonly type: TypeExpr
-    }
-  /** A selector's policy badge (fixed/random details + menu). */
-  | { readonly kind: 'selectorBadge'; readonly selector: SceneSelector }
-  /** A selector's box body (select/drag/menu). */
-  | { readonly kind: 'selector'; readonly selector: SceneSelector }
   | { readonly kind: 'netStub'; readonly stub: SceneNetStub }
   /** A group's title band: drag handle + menu surface. */
   | { readonly kind: 'group-header'; readonly group: SceneGroup }
@@ -303,6 +284,20 @@ export function gripAt(node: SceneNode, wx: number, wy: number): MemberGrip | un
   return undefined
 }
 
+/** The remove cross at a member line's end or in its box header. */
+function memberRemoveAt(node: SceneNode, wx: number, wy: number): MemberRemoval | undefined {
+  const box = canvasPaintTokens.node.box
+  for (const row of node.layout.rows) {
+    if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports' && row.kind !== 'button') || row.crossInset === undefined || row.remove === undefined) continue
+    const right = node.x + node.layout.width - row.crossInset
+    const cy = node.y + (row.kind === 'member'
+      ? row.top + (defaultTokens.rowHeight - defaultTokens.rowGeometry.fieldInsetY * 2) / 2
+      : row.y + defaultTokens.rowHeight / 2)
+    if (wx >= right - box.cross.size - box.cross.fieldGap / 2 && wx <= right + box.cross.fieldGap / 2 && Math.abs(wy - cy) <= defaultTokens.rowHeight / 2) return row.remove
+  }
+  return undefined
+}
+
 /** The minimize arrow's square target at the left end of a node's title bar. */
 export function minimizeArrowRect(node: SceneNode): { x: number; y: number; width: number; height: number } {
   const { left, target } = canvasPaintTokens.node.minimizeArrow
@@ -337,17 +332,8 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
   const pinHitRadius = overviewHitRadius(PIN_HIT_RADIUS, canvasPaintTokens.hit.overviewPinRadius, opts)
   const linkHitRadius = overviewHitRadius(LINK_HIT_RADIUS, canvasPaintTokens.hit.overviewLinkRadius, opts)
   const rerouteHitRadius = overviewHitRadius(REROUTE_HIT_RADIUS, canvasPaintTokens.hit.overviewRerouteRadius, opts)
-  // Pin passes run in reverse paint order (selectors paint above value
-  // sources, which paint above boundary nodes, which paint above nodes), so
-  // where pins overlap across layers the topmost painted pin wins.
-
-  // Selector pins overhang their box edges like node pins do.
-  const selPin = hitTestSelectorPin(scene, wx, wy, pinHitRadius)
-  if (selPin) return selPin
-
-  // Value source output pins overhang their pill edge like node pins do.
-  const vsPin = hitTestValueSourcePin(scene, wx, wy, pinHitRadius)
-  if (vsPin) return vsPin
+  // Pin passes run in reverse paint order (boundary nodes paint above
+  // nodes), so where pins overlap across layers the topmost painted pin wins.
 
   // Boundary pseudo-node pins overhang like node pins do.
   const bPin = hitTestBoundaryPin(scene, wx, wy, pinHitRadius)
@@ -375,36 +361,6 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
   const pin = hitTestPin(scene, wx, wy, opts?.pinRevealed, pinHitRadius)
   if (pin && (tap === undefined || Math.hypot(wx - pin.x, wy - pin.y) < tapDistance)) return pin
   if (tap) return tap
-
-  // Body passes also run in reverse paint order: selector boxes and value
-  // source pills paint ABOVE boundary and regular nodes, so they must win
-  // clicks where they overlap.
-
-  // Selector boxes: badge wins over body (policy click before drag).
-  for (let i = scene.selectors.length - 1; i >= 0; i--) {
-    const sel = scene.selectors[i]!
-    if (wx < sel.x || wx > sel.x + sel.width || wy < sel.y || wy > sel.y + sel.height) continue
-    if (contentDetail) {
-      const badge = selectorBadgeRect(sel)
-      if (wx >= badge.x && wx <= badge.x + badge.width && wy >= badge.y && wy <= badge.y + badge.height) {
-        return { kind: 'selectorBadge', selector: sel }
-      }
-    }
-    return { kind: 'selector', selector: sel }
-  }
-
-  // Value source pills: badge wins over body (details click before drag).
-  for (let i = scene.valueSources.length - 1; i >= 0; i--) {
-    const vs = scene.valueSources[i]!
-    if (wx < vs.x || wx > vs.x + vs.width || wy < vs.y || wy > vs.y + vs.height) continue
-    if (contentDetail) {
-      const badge = valueSourceBadgeRect(vs)
-      if (wx >= badge.x && wx <= badge.x + badge.width && wy >= badge.y && wy <= badge.y + badge.height) {
-        return { kind: 'valueSourceBadge', valueSource: vs }
-      }
-    }
-    return { kind: 'valueSource', valueSource: vs }
-  }
 
   // Boundary pseudo-nodes draw ABOVE regular nodes, so they hit first.
   for (let i = scene.boundaryNodes.length - 1; i >= 0; i--) {
@@ -471,10 +427,20 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       if (previewCaptionAt(node, wx, wy) && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
         return { kind: 'preview-caption', node }
       }
+      const remove = memberRemoveAt(node, wx, wy)
+      if (remove !== undefined) return { kind: 'memberRemove', node, remove }
       const grip = gripAt(node, wx, wy)
       if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button' || row.kind === 'member') continue
+        if (row.kind === 'note' && row.lookup?.retry !== undefined) {
+          // Try again is the note's last row.
+          const unit = row.height / noteLookupRows(row.lookup)
+          const ry = node.y + row.y + row.height - unit
+          if (wy >= ry && wy <= ry + unit && wx >= node.x + row.inset && wx <= node.x + row.inset + (row.width ?? l.width - row.inset * 2)) {
+            return { kind: 'lookupRetry', node, row }
+          }
+        }
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'member') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
         if (row.kind === 'section') {
@@ -483,8 +449,13 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
           return { kind: 'section', node, row }
         }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
+        // An unfolded editor's own controls lie over its space; the rest of it is the node's body.
+        if (row.kind === 'editorSpace') continue
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
+        if (row.kind === 'button') {
+          return { kind: 'button', node, row, x: node.x + row.inset, y: ry, width, height: row.height, localX: wx - node.x - row.inset }
+        }
         return {
           kind: 'widget', node, row,
           x: node.x + row.inset, y: ry, width,
@@ -499,10 +470,20 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (!inside && !minimizedProxy) continue
     if (wy <= node.y + l.headerHeight) return { kind: 'header', node }
     if (contentDetail) {
+      const remove = memberRemoveAt(node, wx, wy)
+      if (remove !== undefined) return { kind: 'memberRemove', node, remove }
       const grip = gripAt(node, wx, wy)
       if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button' || row.kind === 'member') continue
+        if (row.kind === 'note' && row.lookup?.retry !== undefined) {
+          // Try again is the note's last row.
+          const unit = row.height / noteLookupRows(row.lookup)
+          const ry = node.y + row.y + row.height - unit
+          if (wy >= ry && wy <= ry + unit && wx >= node.x + row.inset && wx <= node.x + row.inset + (row.width ?? l.width - row.inset * 2)) {
+            return { kind: 'lookupRetry', node, row }
+          }
+        }
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'member') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
         if (row.kind === 'section') {
@@ -511,8 +492,13 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
           return { kind: 'section', node, row }
         }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
+        // An unfolded editor's own controls lie over its space; the rest of it is the node's body.
+        if (row.kind === 'editorSpace') continue
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
+        if (row.kind === 'button') {
+          return { kind: 'button', node, row, x: node.x + row.inset, y: ry, width, height: row.height, localX: wx - node.x - row.inset }
+        }
         return {
           kind: 'widget',
           node,
@@ -970,63 +956,6 @@ export function hitTestBoundaryPin(
       if (d <= bestDist) {
         bestDist = d
         best = { kind: 'boundary-pin', bnode, item: pin.portId, direction: pin.direction, x: px, y: py, type: pin.type, ...(pin.regionIndex ? { regionIndex: true } : {}) }
-      }
-    }
-  }
-  return best
-}
-
-/** Nearest value-source output pin within PIN_HIT_RADIUS of the point. */
-export function hitTestValueSourcePin(
-  scene: Scene,
-  wx: number,
-  wy: number,
-  hitRadius = PIN_HIT_RADIUS,
-): Extract<Hit, { kind: 'valueSourceOut' }> | undefined {
-  let best: Extract<Hit, { kind: 'valueSourceOut' }> | undefined
-  let bestDist = hitRadius
-  for (let i = scene.valueSources.length - 1; i >= 0; i--) {
-    const vs = scene.valueSources[i]!
-    const pin = valueSourcePinPosition(vs)
-    const d = Math.hypot(wx - pin.x, wy - pin.y)
-    if (d <= bestDist) {
-      bestDist = d
-      best = { kind: 'valueSourceOut', valueSource: vs, x: pin.x, y: pin.y, type: vs.effective.type }
-    }
-  }
-  return best
-}
-
-/**
- * Nearest selector pin (candidate input or the output) within PIN_HIT_RADIUS.
- * Pin types are advisory: the traced concrete type when known, else wildcard
- * (a selector is a type-agnostic passthrough).
- */
-export function hitTestSelectorPin(
-  scene: Scene,
-  wx: number,
-  wy: number,
-  hitRadius = PIN_HIT_RADIUS,
-): Extract<Hit, { kind: 'selectorIn' | 'selectorOut' }> | undefined {
-  let best: Extract<Hit, { kind: 'selectorIn' | 'selectorOut' }> | undefined
-  let bestDist = hitRadius
-  for (let i = scene.selectors.length - 1; i >= 0; i--) {
-    const sel = scene.selectors[i]!
-    const out = selectorOutPinPosition(sel)
-    const dOut = Math.hypot(wx - out.x, wy - out.y)
-    if (dOut <= bestDist) {
-      bestDist = dOut
-      const type: TypeExpr = sel.typeName ? { kind: 'concrete', name: sel.typeName } : { kind: 'wildcard' }
-      best = { kind: 'selectorOut', selector: sel, x: out.x, y: out.y, type }
-    }
-    for (const c of sel.candidates) {
-      const pin = selectorCandidatePinPosition(sel, c.id)
-      if (!pin) continue
-      const d = Math.hypot(wx - pin.x, wy - pin.y)
-      if (d <= bestDist) {
-        bestDist = d
-        const type: TypeExpr = c.typeName ? { kind: 'concrete', name: c.typeName } : { kind: 'wildcard' }
-        best = { kind: 'selectorIn', selector: sel, candidate: c.id, x: pin.x, y: pin.y, type }
       }
     }
   }

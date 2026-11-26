@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEPRECATED_BADGE, executionErrorBadge, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
-import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { buildScene, defaultTokens, DEPRECATED_BADGE, executionErrorBadge, LAST_RUN_BADGE, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
+import { asConnectionId, asGraphDefId, asLinkId, asNodeId, asPortId, compile, documentNodeResolver, documentPrimitiveResolver, inputsOf, occurrenceKey, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
-import { applyNodeDecorations, deriveSceneOverlays, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
+import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, representedPreviewAssetForNode, withRecordedAutomaticValues, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
 import type { PreviewLoader, PreviewSource } from '../src/node-previews.js'
 
 // The derivation reads scene.nodes (id/isSubgraph/node.type), execution
@@ -659,7 +659,6 @@ describe('retainProvenExecution', () => {
   it.each([
     ['different backend', { connection: 'backend-b' }],
     ['schema change', { schemaHash: 'schema-b' }],
-    ['random selector', { choices: [{ graph: 'root', selector: 's', policy: 'random', candidate: 'x' }] }],
     ['missing provenance', { provenance: { toSource: {}, fromSource: {} } }],
   ])('rejects retention for %s', (_name, change) => {
     const live = artifact()
@@ -688,28 +687,6 @@ describe('retainProvenExecution', () => {
     expect(retained.execution.nodes.a).toBeUndefined()
     expect(retained.execution.nodes.b?.state).toBe('cached')
     expect(retained.retainedRuntimeIds).toEqual(new Set(['b']))
-  })
-
-  it('retains an independent branch while rejecting a random selector cone', () => {
-    const random = {
-      choices: [{ graph: 'root', selector: 's', policy: 'random', candidate: 'x' }],
-      provenance: {
-        toSource: { a: 'a', b: 'b' },
-        fromSource: { a: ['a'], b: ['b'] },
-        randomSelectorInputs: { b: ['value'] },
-      },
-    } as Partial<CompileArtifact>
-    const live = artifact(random)
-    const current = execution('n+1', 20, artifact({ ...random, scope: { kind: 'partial', targets: [] }, prompt: {} }))
-    const prior = execution('n', 10, artifact(random), {
-      nodes: {
-        a: { state: 'done', outputs: { out: { typeId: 'INT', value: 1 } } },
-        b: { state: 'done', outputs: { out: { typeId: 'INT', value: 2 } } },
-      },
-    })
-    const retained = retainProvenExecution(current, [prior, current], live, [], resolveSchema)
-    expect(retained.execution.nodes.a).toMatchObject({ state: 'cached' })
-    expect(retained.execution.nodes.b).toBeUndefined()
   })
 
   it('rejects recyclable V1 filenames while retaining digest assets and in-memory frames', () => {
@@ -942,6 +919,21 @@ describe('deriveSceneOverlays', () => {
     expect(m.ownRuntimeIds!('n1')).toEqual(['n1'])
   })
 
+  it('draws a finished run\'s done, cached and skipped outlines only in the frozen view, and its errors live', () => {
+    const nodes = { n1: { state: 'done' }, n2: { state: 'cached' }, n3: { state: 'skipped' }, n4: { state: 'error' } }
+    const runScene = scene([{ id: 'n1' }, { id: 'n2' }, { id: 'n3' }, { id: 'n4' }, { id: 'n5' }])
+    const shown = (status: string, frozen: boolean) => Object.fromEntries(Object.entries(deriveSceneOverlays({
+      ...base, scene: runScene, frozen, exec: exec({ status, nodes, errors: [runError('n4')] }),
+    }).states).map(([id, progress]) => [id, progress.state]))
+    const all = { n1: 'done', n2: 'cached', n3: 'skipped', n4: 'error' }
+    for (const status of ['completed', 'error', 'interrupted', 'cancelled']) {
+      expect(shown(status, false)).toEqual({ n4: 'error' })
+      expect(shown(status, true)).toEqual(all)
+    }
+    // While the run is still going, the live editor shows its progress.
+    expect(shown('running', false)).toEqual(all)
+  })
+
   it('applies decorations in id order and rolls back a failing contribution', () => {
     const target = scene([{ id: 'proof' }, { id: 'other' }])
     const results: Array<readonly [string, unknown?]> = []
@@ -1025,6 +1017,122 @@ describe('deriveSceneOverlays', () => {
     expect(m.companions).toEqual({ sink: { number: { value: 0 }, text: { value: '' } } })
   })
 
+  it('shows and sends the first fed field value or default for an empty primitive without changing stored values', () => {
+    const variable = { kind: 'variable', templateId: 'value' }
+    const curve = { interpolation: 'monotone_cubic', points: [[0, 0], [1, 1]] }
+    const twoPoints = { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }
+    const input = (id: string, types: string[], extra: Record<string, unknown>) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', types }, required: true, ...extra })
+    const output = (id: string, types: string[], extra: Record<string, unknown> = {}) =>
+      ({ kind: 'output', id, type: { kind: 'concrete', types }, ...extra })
+    const wire = (nodeType: string, body: unknown[]) =>
+      [nodeType, { schemaVersion: 2, nodeType, version: 1, displayName: nodeType, category: 'test', body }]
+    const { schemas } = parseDinksterNodes({
+      schemaVersion: 2,
+      dinkster: { schemaWire: 2 },
+      nodes: Object.fromEntries([
+        wire('test.primitive', [
+          { kind: 'input', id: 'value', type: variable, required: true },
+          { kind: 'output', id: 'value', type: variable, knownValue: { input: 'value' } },
+        ]),
+        wire('test.int', [
+          input('value', ['INT'], { widget: { type: 'NUMBER', min: -1000, max: 1000 } }),
+          output('INT', ['INT'], { knownValue: { input: 'value' } }),
+        ]),
+        wire('test.count', [input('count', ['INT'], { default: 50, widget: { type: 'NUMBER', min: 1, max: 100 } }), output('count', ['INT'])]),
+        wire('test.small', [input('count', ['INT'], { default: 3, widget: { type: 'NUMBER', min: 1, max: 100 } }), output('count', ['INT'])]),
+        wire('test.curve', [input('curve', ['CURVE'], { default: curve, widget: { type: 'CURVE' } }), output('curve', ['CURVE'])]),
+      ]),
+    } as never)
+    const node = (id: string, type: string) => [id, { id, type, values: {} }]
+    const link = (id: string, from: string, port: string, to: string, input: string) =>
+      [id, { id, from: { node: from, port }, to: { node: to, port: input } }]
+    // `number` feeds a and then b, whose defaults are 50 and 3: the first, a, decides.
+    const def = {
+      id: 'g0', name: 'root', nets: {}, reroutes: {}, nextOrdinal: 20,
+      nodes: Object.fromEntries([node('number', 'test.primitive'), node('int', 'test.int'), node('shape', 'test.primitive'),
+        node('a', 'test.count'), node('b', 'test.small'), node('c', 'test.count'), node('editor', 'test.curve')]),
+      links: Object.fromEntries([link('l1', 'number', 'value', 'a', 'count'), link('l2', 'number', 'value', 'b', 'count'),
+        link('l3', 'int', 'INT', 'c', 'count'), link('l4', 'shape', 'value', 'editor', 'curve')]),
+    } as unknown as GraphDef
+    const doc = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'empty-primitives', root: 'g0', graphs: { g0: def }, view: { graphs: {} } } as unknown as WorkflowDocument
+    const resolveSchema = (type: string) => schemas.get(type)
+
+    const compiled = compile({ document: doc, revision: 1, resolve: resolveSchema, scope: { kind: 'full' },
+      connection: asConnectionId('c0'), schemaHash: 'h', graphFeatures: ['regions', 'typedLiteral'] })
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (!compiled.ok) return
+    const sent = compiled.artifact.dinksterGraph!.nodes as Record<string, { inputs: Record<string, unknown> }>
+    expect(sent['number']!.inputs).toEqual({ value: { $typed: { type: 'INT', value: 50 } } })
+    expect(sent['c']!.inputs).toEqual({ count: 50 })
+    expect(sent['shape']!.inputs).toEqual({ value: { $typed: { type: 'CURVE', value: twoPoints } } })
+
+    expect(deriveSceneOverlays({ ...base, doc, def, resolveSchema }).companions).toEqual({
+      a: { count: { value: 50 } },
+      b: { count: { value: 50 } },
+      c: { count: { value: 50 } },
+      editor: { curve: { value: twoPoints } },
+    })
+
+    const storedDef: GraphDef = { ...def, nodes: { ...def.nodes,
+      a: { ...def.nodes['a']!, values: { count: 12 } },
+      b: { ...def.nodes['b']!, values: { count: 27 } },
+      c: { ...def.nodes['c']!, values: { count: 0 } },
+    } }
+    const storedDoc = { ...doc, graphs: { g0: storedDef } }
+    const resolved = documentNodeResolver(storedDoc, resolveSchema, documentPrimitiveResolver(storedDoc, resolveSchema))
+    expect(inputsOf(resolved('g0', storedDef.nodes['number']!)!).find((field) => field.id === 'value')?.widget?.default).toBe(12)
+    expect(inputsOf(resolved('g0', storedDef.nodes['int']!)!).find((field) => field.id === 'value')?.widget?.default).toBe(1)
+    expect(deriveSceneOverlays({ ...base, doc: storedDoc, def: storedDef, resolveSchema }).companions).toMatchObject({
+      a: { count: { value: 12 } }, b: { count: { value: 12 } }, c: { count: { value: 1 } },
+    })
+    const storedRun = compile({ document: storedDoc, revision: 2, resolve: resolveSchema, scope: { kind: 'full' },
+      connection: asConnectionId('c0'), schemaHash: 'h', graphFeatures: ['regions', 'typedLiteral'] })
+    expect(storedRun.ok).toBe(true)
+    if (!storedRun.ok) return
+    const storedSent = storedRun.artifact.dinksterGraph!.nodes as Record<string, { inputs: Record<string, unknown> }>
+    expect(storedSent['number']!.inputs).toEqual({ value: { $typed: { type: 'INT', value: 12 } } })
+    expect(storedSent['c']!.inputs).toEqual({ count: 1 })
+    expect(storedDef.nodes['a']!.values).toEqual({ count: 12 })
+    expect(storedDef.nodes['b']!.values).toEqual({ count: 27 })
+    expect(storedDef.nodes['c']!.values).toEqual({ count: 0 })
+  })
+
+  it('shows on a field a tap feeds the automatic value the tapped field has in use, as a run sends it', () => {
+    const number = (id: string, extra: Record<string, unknown>) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', types: ['FLOAT'] }, required: true, widget: { type: 'NUMBER', min: 0, max: 1000 }, ...extra })
+    const wire = (nodeType: string, body: unknown[]) =>
+      [nodeType, { schemaVersion: 2, nodeType, version: 1, displayName: nodeType, category: 'test', body }]
+    const { schemas } = parseDinksterNodes({
+      schemaVersion: 2,
+      dinkster: { schemaWire: 2 },
+      nodes: Object.fromEntries([
+        // fps declares 24 and works out to rate / 4 = 12 while nothing is stored.
+        wire('test.retime', [number('rate', { default: 48 }), number('fps', { default: 24, automatic: { formula: 'rate / 4' } }),
+          { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['FLOAT'] } }]),
+        wire('test.sink', [number('rate', { default: 1 }), { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['FLOAT'] } }]),
+      ]),
+    } as never)
+    const def = {
+      id: 'g0', name: 'root', nets: {}, reroutes: {}, nextOrdinal: 5,
+      nodes: { src: { id: 'src', type: 'test.retime', values: {} }, sink: { id: 'sink', type: 'test.sink', values: {} } },
+      links: { l1: { id: 'l1', from: { node: 'src', tap: 'fps' }, to: { node: 'sink', port: 'rate' } } },
+    } as unknown as GraphDef
+    const doc = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'automatic-tap', root: 'g0', graphs: { g0: def }, view: { graphs: {} } } as unknown as WorkflowDocument
+    const resolveSchema = (type: string) => schemas.get(type)
+
+    const compiled = compile({ document: doc, revision: 1, resolve: resolveSchema, scope: { kind: 'full' },
+      connection: asConnectionId('c0'), schemaHash: 'h' })
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (!compiled.ok) return
+    const sent = compiled.artifact.prompt['sink']!.inputs['rate']
+    expect(sent).toBe(12)
+
+    const built = buildScene({ document: doc, graphId: 'g0', resolve: resolveSchema, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }) })
+    expect(deriveSceneOverlays({ ...base, scene: built, doc, def, resolveSchema }).companions).toEqual({ sink: { rate: { value: sent } } })
+  })
+
   it('adds counted document problem tabs without replacing the runtime error badge', () => {
     const cause = (kind: 'error' | 'warning', code: string) => ({
       kind, diagnostic: { severity: kind, origin: 'compile' as const, code, message: code },
@@ -1069,6 +1177,65 @@ describe('deriveSceneOverlays', () => {
     })
 
     expect(m.badges['n1']).toEqual([executionErrorBadge(1)])
+  })
+
+  it('draws a run problem without color once its node has changed since the run', () => {
+    const runtimeRow = { kind: 'error' as const, row: 'seed', diagnostic: { severity: 'error' as const, origin: 'runtime' as const, code: 'runtime.X', message: 'failed' } }
+    const compileRow = { kind: 'warning' as const, row: 'steps', diagnostic: { severity: 'warning' as const, origin: 'compile' as const, code: 'c', message: 'c' } }
+    const asked: [string, readonly string[]][] = []
+    const derive = (changed: boolean, frozen = false) => deriveSceneOverlays({
+      ...base,
+      frozen,
+      scene: scene([{ id: 'n1' }, { id: 'n2' }]),
+      exec: exec({ nodes: { n1: { state: 'error' }, n2: { state: 'error' } }, errors: [runError('n1'), runError('n2')] }),
+      nodeProblems: { n1: [runtimeRow, compileRow], n2: [runtimeRow] },
+      rowProblems: { n1: { seed: 'error', steps: 'warning' }, n2: { seed: 'error' } },
+      runChanged: (id, runtimeIds) => { asked.push([id, runtimeIds]); return changed && id === 'n1' },
+    })
+
+    const changed = derive(true)
+    expect(asked).toContainEqual(['n1', ['n1']])
+    expect(changed.states['n1']).toBeUndefined()
+    expect(changed.badges['n1']).toEqual([LAST_RUN_BADGE, PROBLEM_WARNING_BADGE])
+    expect(changed.rowProblems['n1']).toEqual({ steps: 'warning' })
+    expect([...changed.lastRunNodes]).toEqual(['n1'])
+    // The run's details stay readable from the gray tab.
+    expect(changed.runErrorsByNode.get('n1')).toHaveLength(1)
+    // An unchanged node keeps its color.
+    expect(changed.states['n2']?.state).toBe('error')
+    expect(changed.badges['n2']).toEqual([executionErrorBadge(1)])
+    expect(changed.rowProblems['n2']).toEqual({ seed: 'error' })
+
+    const same = derive(false)
+    expect(same.states['n1']?.state).toBe('error')
+    expect(same.badges['n1']).toEqual([executionErrorBadge(1), PROBLEM_WARNING_BADGE])
+    expect(same.rowProblems['n1']).toEqual({ seed: 'error', steps: 'warning' })
+
+    // A frozen tab shows the run as it ran.
+    expect(derive(true, true).badges['n1']).toEqual([executionErrorBadge(1), PROBLEM_WARNING_BADGE])
+  })
+
+  it('judges a subgraph node by the failed nodes inside it', () => {
+    const failedA = occurrenceKey({ instancePath: [asNodeId('sub1')], node: asNodeId('a') })
+    const failedB = occurrenceKey({ instancePath: [asNodeId('sub1')], node: asNodeId('b') })
+    const fine = occurrenceKey({ instancePath: [asNodeId('sub1')], node: asNodeId('c') })
+    const asked: (readonly string[])[] = []
+    const derive = (changed: (ids: readonly string[]) => boolean) => deriveSceneOverlays({
+      ...base,
+      scene: scene([{ id: 'sub1', isSubgraph: true, type: '#def' }]),
+      exec: exec({
+        nodes: { [failedA]: { state: 'error' }, [fine]: { state: 'done' } },
+        errors: [
+          runError('a', ['sub1'], { data: { runtimeId: failedA } }),
+          runError('b', ['sub1'], { data: { runtimeId: failedB } }),
+        ],
+      }),
+      runChanged: (_id, runtimeIds) => { asked.push(runtimeIds); return changed(runtimeIds) },
+    })
+    // An edit to the node that did not fail is not asked about.
+    expect(derive(() => false).badges['sub1']).toContainEqual(executionErrorBadge(2))
+    expect([...asked[0]!].sort()).toEqual([failedA, failedB].sort())
+    expect(derive(() => true).badges['sub1']).toContainEqual(LAST_RUN_BADGE)
   })
 
   it('derives bottom warning and info badges from node-attributed log records', () => {
@@ -1289,31 +1456,8 @@ describe('deriveSceneOverlays', () => {
       scene: scene([{ id: 'first', isSubgraph: true, type: '#shared' }]),
     })
     expect(model.badges.first).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'core.subgraph', count: 2, icon: 'boxes', placement: 'title' }),
+      expect.objectContaining({ id: 'core.subgraph', count: 2, icon: 'subgraph', placement: 'title' }),
     ]))
-  })
-
-  it('resolves recorded selector choices on frozen tabs only, filtered to the current graph', () => {
-    const artifact = {
-      choices: [
-        { graph: 'g0', selector: 'sel', candidate: 'c1' },
-        { graph: 'other', selector: 'x', candidate: 'y' },
-      ],
-      provenance: {},
-    }
-    const frozen = deriveSceneOverlays({ ...base, frozen: true, exec: exec({ artifact }) })
-    expect(frozen.selectorResolutions).toEqual(new Map([['sel', 'c1']]))
-    // Live tabs never get resolutions - the document is editable.
-    const live = deriveSceneOverlays({ ...base, frozen: false, exec: exec({ artifact }) })
-    expect(live.selectorResolutions).toBeUndefined()
-    // No choice in this graph: undefined, not an empty map.
-    const elsewhere = deriveSceneOverlays({
-      ...base,
-      frozen: true,
-      graphId: 'g9',
-      exec: exec({ artifact }),
-    })
-    expect(elsewhere.selectorResolutions).toBeUndefined()
   })
 
   it('wraps a decoded retained preview as cached without mutating the shared decode', () => {
@@ -1806,5 +1950,131 @@ describe('glsl image estimate overlay', () => {
       expect(m.previews['a1']).toBeUndefined()
       expect(estimate).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('last run automatic warnings', () => {
+  // A scene node with automatic rows, as layout draws them.
+  const automaticScene = (nodes: Record<string, Record<string, 'worked-out' | 'default' | undefined>>): Scene =>
+    ({
+      nodes: Object.entries(nodes).map(([id, rows]) => ({
+        id,
+        layout: {
+          rows: Object.entries(rows).map(([key, state]) => ({
+            kind: 'widget', inputId: key, valueKey: key, label: key.replace('_', ' '),
+            ...(state === undefined ? {} : { automatic: { value: 30, state } }),
+          })),
+        },
+      })),
+    }) as unknown as Scene
+  const run = (toSource: Record<string, string>, automaticValues: readonly unknown[], graphs: Record<string, unknown> = {}) =>
+    ({ artifact: { provenance: { toSource }, snapshot: { root: 'g0', graphs } }, automaticValues }) as unknown as ExecutionState
+
+  it('warns on a field the run filled with its default only while the editor works it out', () => {
+    const view = automaticScene({
+      a: { frame_rate: 'worked-out', other: 'worked-out', fixed: undefined },
+      b: { frame_rate: 'default' },
+    })
+    const execution = run({ r1: 'a', r2: 'b' }, [
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
+      { runtimeNodeId: 'r1', inputId: 'other', value: 5, workedOut: true },
+      { runtimeNodeId: 'r1', inputId: 'fixed', value: 1, workedOut: false },
+      { runtimeNodeId: 'r2', inputId: 'frame_rate', value: 24, workedOut: false },
+    ])
+
+    const found = lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] })
+
+    expect(found.map((d) => [d.severity, d.message, d.anchor?.port])).toEqual([
+      ['warning', 'The last run could not work out frame rate and used the default, 24.', { node: 'a', port: 'frame_rate' }],
+    ])
+  })
+
+  it('warns on a field whose value a node got at compile time when the run worked out another', () => {
+    const view = automaticScene({ a: { frame_rate: 'worked-out', delay: 'worked-out', fixed: undefined } })
+    const execution = {
+      ...run({ r1: 'a' }, [
+        { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 30, workedOut: true },
+        { runtimeNodeId: 'r1', inputId: 'delay', value: 2, workedOut: true },
+        { runtimeNodeId: 'r1', inputId: 'fixed', value: 1, workedOut: true },
+      ]),
+    } as unknown as { artifact: Record<string, unknown> }
+    const tap = (inputId: string, value: number, receiverRuntimeId: string, receiver: string) =>
+      ({ runtimeNodeId: 'r1', inputId, value, receiverRuntimeId, receiver })
+    const found = (taps: readonly unknown[]) => {
+      execution.artifact = { ...execution.artifact, automaticTaps: taps }
+      return lastRunAutomaticDiagnostics({ scene: view, execution: execution as unknown as ExecutionState, instancePath: [] })
+        .map((d) => [d.code, d.message, d.anchor?.port])
+    }
+    const frameRate = { node: 'a', port: 'frame_rate' }
+
+    // Agreeing values and a field fixed since give no warning.
+    expect(found([tap('frame_rate', 30, 'n2', 'Retime 2'), tap('delay', 2.0, 'n2', 'Retime 2'), tap('fixed', 7, 'n2', 'Retime 2')])).toEqual([])
+    expect(found([tap('frame_rate', 24, 'n2', 'Retime 2')])).toEqual([
+      ['automatic.lastRunTapDiffers', 'The last run used 30 for frame rate, but Retime 2 got 24.', frameRate],
+    ])
+    // One warning for the field, naming the nodes; a node fed through two inputs counts once.
+    expect(found([tap('frame_rate', 24, 'n2', 'Retime 2'), tap('frame_rate', 24, 'n3', 'Retime 3'), tap('frame_rate', 24, 'n3', 'Retime 3')])).toEqual([
+      ['automatic.lastRunTapDiffers', 'The last run used 30 for frame rate, but Retime 2 and Retime 3 got 24.', frameRate],
+    ])
+    expect(found([tap('frame_rate', 24, 'n2', 'Retime'), tap('frame_rate', 24, 'n3', 'Retime'), tap('frame_rate', 24, 'n4', 'Retime')])).toEqual([
+      ['automatic.lastRunTapDiffers', 'The last run used 30 for frame rate, but 3 nodes got 24.', frameRate],
+    ])
+  })
+
+  it('maps runtime ids through provenance to the viewed instance only', () => {
+    const view = automaticScene({ inner: { frame_rate: 'worked-out' } })
+    const execution = run({ r1: 'sub.inner', r2: 'other.inner' }, [
+      { runtimeNodeId: 'r2', inputId: 'frame_rate', value: 12, workedOut: false },
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
+    ])
+
+    expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: ['sub'] }).map((d) => d.message))
+      .toEqual(['The last run could not work out frame rate and used the default, 24.'])
+    expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] })).toEqual([])
+  })
+
+  it('finds a field promoted to a subgraph node through each boundary it crosses', () => {
+    const view = { ...automaticScene({ sub: { fps: 'worked-out', frame_rate: 'worked-out' } }), diagnostics: [] } as unknown as Scene
+    const port = (id: string, node: string, inner: string) => ({ kind: 'input', id, binds: { kind: 'port', node, port: inner } })
+    const execution = run({ r1: 'sub.mid.inner' }, [
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
+    ], {
+      g0: { nodes: { sub: { type: '#outer' } } },
+      outer: { nodes: { mid: { type: '#middle' } }, boundary: { body: [port('fps', 'mid', 'rate')] } },
+      middle: { nodes: { inner: { type: 'Video' } }, boundary: { body: [port('rate', 'inner', 'frame_rate')] } },
+    })
+
+    expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] }).map((d) => d.anchor?.port))
+      .toEqual([{ node: 'sub', port: 'fps' }])
+    const rows = withRecordedAutomaticValues(view, execution, []).nodes[0]!.layout.rows as readonly { valueKey: string; automatic?: unknown }[]
+    expect(Object.fromEntries(rows.map((row) => [row.valueKey, row.automatic]))).toEqual({
+      fps: { value: 24, state: 'default' },
+      frame_rate: { value: 30, state: 'worked-out' },
+    })
+  })
+
+  it('shows in a frozen view the value each field used in its run, not one worked out now', () => {
+    const view = {
+      ...automaticScene({ a: { frame_rate: 'worked-out', other: 'default', fixed: undefined } }),
+      diagnostics: [{ severity: 'warning', origin: 'schema', code: 'automatic.default', message: 'now',
+        anchor: { port: { node: 'a', port: 'other' } }, data: { input: 'other' } }],
+    } as unknown as Scene
+    const execution = run({ r1: 'a' }, [
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
+      { runtimeNodeId: 'r1', inputId: 'other', value: 12, workedOut: true },
+      { runtimeNodeId: 'r1', inputId: 'fixed', value: 1, workedOut: true },
+    ])
+
+    const frozen = withRecordedAutomaticValues(view, execution, [])
+
+    const rows = frozen.nodes[0]!.layout.rows as readonly { valueKey: string; automatic?: unknown }[]
+    expect(Object.fromEntries(rows.map((row) => [row.valueKey, row.automatic ?? null]))).toEqual({
+      frame_rate: { value: 24, state: 'default' },
+      other: { value: 12, state: 'worked-out' },
+      fixed: null,
+    })
+    expect(frozen.diagnostics.map((d) => [d.code, d.message])).toEqual([
+      ['automatic.default', 'Could not work out frame rate. Using the default, 24.'],
+    ])
   })
 })

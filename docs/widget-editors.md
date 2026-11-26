@@ -5,19 +5,26 @@ and open the color picker. The picker accepts six-digit `#rrggbb` colors and
 commits the corresponding integer, retaining the INT socket and numeric saved
 value. Numeric bounds still apply. App View retains its numeric input.
 
-SAVE_TARGET opens a ready writable mount selector and relative filename prefix.
-The writer adds the descriptor's suffix and numbering; no host path is stored
-in the graph. Empty, absolute, dot-segment and backslash prefixes cannot apply.
-Unavailable current mounts stay visible but cannot apply. The optional gallery
-destination also offers Clear destination; required save targets do not.
-Mount grants are checked again by the backend when it writes.
+SAVE_TARGET opens a box under its row with a mount dropdown and a relative
+filename prefix; the row shows them together as they would be stored. The
+dropdown's first entry is Project default, stored as `{"prefix": ...}` with
+no mount, so each project saves it to its own default output mount; the
+other entries are this machine's ready writable mounts. An empty target opens
+on Project default with the input's default name. Enter, Tab or a click
+outside store mount and prefix as one value; Escape stores nothing. The
+writer adds the descriptor's suffix and numbering; no host path is stored in
+the graph. Empty, absolute, dot-segment and backslash prefixes cannot be
+stored, nor can a target while the mounts load, when none is ready or
+when they cannot be read. The closed row names the mount Project default
+means here, the project's active output mount, in italics. A stored mount
+this machine lacks is struck through on the closed row, followed by that
+mount in italics, and stays stored until another entry or Use project
+default is picked. Mount grants are checked again by the backend when it
+writes.
 
-RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
-from the node's aspect ratio, megapixels and rounding multiple. The named
-controls update that preview as a draft; Apply resolution writes the three
-real inputs as one undoable edit without writing the ignored preview value.
-Dimensions use the backend's 1024-based megapixels and ties-to-even rounding.
-Connected inputs disable this composer instead of showing invented dimensions.
+Resolution Selector edits aspect ratio, megapixels and rounding multiple in
+place. Its read-only Note follows those inputs with the computed pixel size,
+or "Not known until a run" while an input is unknown.
 
 CAMERA_ANGLE_VIEW opens a top-down orbit and side elevation preview with named
 horizontal angle, vertical angle and zoom fields. Each field edits the row its
@@ -348,9 +355,6 @@ Named numeric representations use the same binding. Mixed nonnumeric unions
 and list-of-union widgets are not numeric editor domains. Concrete INT inputs
 retain their exact-integer editor and decimal-string precision handling.
 
-A forced concrete FLOATS input may carry NUMBER presentation while retaining
-its FLOATS socket, default, bounds, step, and connection requirement. Unforced
-FLOATS, list wrappers and mixed FLOATS unions are not numeric editor domains.
 COLOR widgets accept concrete COLOR or STRING inputs without rewriting the
 socket or stored hexadecimal value. Named representations obey the same rules.
 
@@ -686,10 +690,10 @@ and hit testing derive from the same rectangle. Companion-driven rows keep the
 shared read-only companion treatment and omit the chevron. Every row keeps its
 compact value preview. Compact rows preserve a short complete value by shrinking and
 ellipsizing the label first; values too long to fit beside the 44px label floor
-retain proportional sharing. The ASSET `no asset` placeholder uses muted italic
-text and remains complete at ordinary and minimum node widths. Its measured
-text and padding take priority over the label floor after opener icons reserve
-their space; the label may disappear if even its ellipsis cannot fit. Long asset
+retain proportional sharing. An empty row's text ("Choose image", "Choose model")
+uses muted italic type. The row's label keeps its whole width while it fits and
+the empty text takes what is left, cut with an ellipsis and down to nothing on
+a narrow node; the label is cut only when it alone does not fit. Long asset
 names retain the ordinary proportional split and ellipsize within the row. Activating the
 row body opens optional expanded controls only when
 more deliberate editing is useful. INT, FLOAT and single-line STRING are
@@ -711,13 +715,12 @@ fake expanded surface. User dismissal and commit paths restore keyboard focus
 to the graph canvas.
 
 Popover fields never commit merely because focus moves. Numeric and single-line
-text commit on Enter or Commit, value-source multiline text and raw JSON on
-Ctrl+Enter or Commit, COLOR on Enter or Commit, COMBO on a deliberate option
+text commit on Enter or Commit, raw JSON on Ctrl+Enter or Commit, COLOR on Enter or Commit, COMBO on a deliberate option
 activation, and MOUNT on Apply. An outside pointer commits a changed,
 valid INT, FLOAT, single-line STRING, COLOR, or raw-JSON field
 through that same command path and then closes; unchanged or invalid text
 closes without a write. COMBO still commits only a deliberately activated
-option, and value-source multiline STRING closes without committing its draft.
+option.
 Cancel and Escape discard uncommitted state. The in-node
 multiline editor continues to commit changed text on Ctrl+Enter (which then
 also runs the workflow) or click-away/blur, cancel on Escape, and close without a write when unchanged.
@@ -797,20 +800,6 @@ state refuses late bytes and new playback; closing does not release the retained
 owner. A native backend is
 required for upload. Browser codec, duration and byte limits are the same as
 the existing ASSET audio recorder.
-
-## COLORS editor
-
-COLORS stores an ordered string array with a copied schema default or an empty
-palette. `core.colors` shows up to four compact swatches and the total count.
-The expanded palette uses ProductColorInput and exact hex ProductTextInput
-fields with keyboard-accessible Up, Down and Remove actions. Add color appends
-white until there are 16 entries; longer imported arrays remain intact.
-Text accepts `#rgb`, `#rrggbb` and `#rrggbbaa` without normalizing case or alpha.
-The RGB picker preserves an existing alpha pair. Invalid drafts stay visible
-and cannot commit. Commit writes the ordered array as one undoable change;
-Cancel, Escape and outside dismissal discard staged edits, additions, removals
-and reorders. Empty palettes are valid. No server palette or color-space
-conversion is inferred.
 
 ## MARKDOWN editor
 
@@ -928,10 +917,8 @@ by single-line and scalar widgets.
 Opening the field replaces the painted multiline surface with a DOM textarea
 over the exact widget rectangle rather than detaching the text into a popover.
 This preserves the node's spatial context and removes the visual jump between
-reading and editing. Value-source multiline editors and the raw JSON fallback
-remain popovers because they are separate source controls rather than
-node-owned text regions; all other widget families retain their dispositions
-above.
+reading and editing. The raw JSON fallback remains a popover; all other
+widget families retain their dispositions above.
 
 The overlay derives its position from the widget's world rectangle and the
 renderer viewport signal. Camera pan and zoom update its screen position and
@@ -1054,17 +1041,22 @@ The schema can declare a finite `REPRESENTATIONS` set around one canonical
 widget value/socket. Each alternative has a stable id, display name, and closed
 widget descriptor. The schema's declared default chooses the initial compact
 and expanded presentation. If and only if the schema sets `userSwitchable`,
-the widget row context menu exposes a **Representation** submenu with the
+the widget row context menu exposes a **Display** submenu with the
 current choice checked. For example, CLIP Text Encode defaults to Multiline and
 also offers Single line.
 
 An ordinary STRING without an explicit representation set receives compatible
 Single line and Multiline views automatically. Its `multiline` hint chooses the
-default, not the only available editor. An explicit representation set remains
+default, not the only available editor. A whole number declared with
+`display: color` likewise offers Color, its default, and Number, the ordinary
+number row with steppers. These integer alternatives come from the registered
+`WidgetKind.representations(spec)` hook; FLOAT and STRING retain their automatic
+choices. An explicit representation set remains
 authoritative: omitting an alternative restricts it, and setting
 `userSwitchable` to `false` locks the declared default. Switchable rows expose
-their choices only through the **Representation** submenu in the right-click
-context menu; they do not paint a dedicated switch button.
+their choices through the **Display** control at the end of the open
+row's side part and the **Display** submenu in the right-click context
+menu. Frozen run views do not offer the side-part control.
 
 The `core.text` compact representation has a two-line natural minimum made of
 one 18px floating-label band, two 20px content lines, and 6px top/bottom content
@@ -1127,7 +1119,7 @@ intentional and the UI must not infer backend behavior or synthetic limits.
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `INT`           | `core.number`: right-aligned exact integer, finite-bounds range fill for safe numeric ranges, independent immediate edge steppers, and optional controller chip/menu                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Anchored exact-text popover with visible min/max/step summary, validation, and commit/cancel; no duplicate +/- or controller controls                                                                                                                                                                                                                                    | `default`, exact `min`, `max`, and positive `step` from signed 64-bit minimum through unsigned 64-bit maximum, display name, after-generate controller and initial mode                                                                                                                                                                | `core/test/dinkster-wire33.golden.test.ts`, `core/test/numeric-step.test.ts`, `widgets/test/widgets.test.ts`, `canvas/test/interaction.test.ts`, `app/test/ProductNumberInput.dom.test.tsx`, `app/test/widget-commit.test.ts`, `app/test/controller-advancement.test.ts`, `e2e/widget-editors.spec.ts`, `e2e/seed-controller.spec.ts`                                                                                                                                                                                                              |
 | `FLOAT`         | `core.number` or bounded `core.slider`: precision-formatted text, slider range fill, and independent immediate edge steppers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Anchored full-precision text popover; slider view adds ProductSlider draft editing, with shared validation and Commit/Cancel                                                                                                                                                                                                                                             | `default`, `min`, `max`, positive `step`, `display`, `round`, optional WidgetSpec `precision`, display name, after-generate controller and initial mode                                                                                                                                                                                | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/interaction.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/combo-search.dom.test.tsx`, `e2e/widget-editors.spec.ts`                                                                                                                                                                                                                                                                                    |
-| `STRING`        | Fixed-height `core.line` or vertically flexible multiline `core.text`; ordinary strings synthesize both views and use `multiline` only as the default hint. `core.text` floats its label in an 18px band above a 14px/20px/6px-padded content strip with a permanent 8px scrollbar gutter, paints the display name as a muted italic placeholder only when the canonical value is empty, and supports measured wrapping plus live preview-height growth. Overflow hover paints a non-interactive scrollbar indicator inside the chrome. Explicit representation sets can restrict or lock the choices; switchable rows use only the context-menu submenu | `core.line` uses the standard anchored single-line popover. Node-input `core.text` uses a live camera-tracked textarea with matching floating-label, gutter, and content metrics, bounded vertical overflow, no native resize/outline chrome, and a zoom-scaled 6px product scrollbar. Both use the same completion path. Value-source text and raw JSON remain popovers | `default`, `multiline`, display name; optional stable representation ids/default/userSwitchable; optional completion items and dynamic input-family sources; no schema max-length constraint exists                                                                                                                                    | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `widgets/test/text-editor-extension.test.ts`, `canvas/test/layout.test.ts`, `canvas/test/interaction.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/renderer-paint.test.ts`, `core/test/dinkster-wire17.golden.test.ts`, `core/test/dinkster-wire36.golden.test.ts`, `app/test/menu-target.test.ts`, `app/test/text-completion.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/widget-representations-wire17.spec.ts`, `e2e/text-completion.spec.ts` |
+| `STRING`        | Fixed-height `core.line` or vertically flexible multiline `core.text`; ordinary strings synthesize both views and use `multiline` only as the default hint. `core.text` floats its label in an 18px band above a 14px/20px/6px-padded content strip with a permanent 8px scrollbar gutter, paints the display name as a muted italic placeholder only when the canonical value is empty, and supports measured wrapping plus live preview-height growth. Overflow hover paints a non-interactive scrollbar indicator inside the chrome. Explicit representation sets can restrict or lock the choices; switchable rows use only the context-menu submenu | `core.line` uses the standard anchored single-line popover. Node-input `core.text` uses a live camera-tracked textarea with matching floating-label, gutter, and content metrics, bounded vertical overflow, no native resize/outline chrome, and a zoom-scaled 6px product scrollbar. Both use the same completion path. Raw JSON remains a popover | `default`, `multiline`, display name; optional stable representation ids/default/userSwitchable; optional completion items and dynamic input-family sources; no schema max-length constraint exists                                                                                                                                    | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `widgets/test/text-editor-extension.test.ts`, `canvas/test/layout.test.ts`, `canvas/test/interaction.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/renderer-paint.test.ts`, `core/test/dinkster-wire17.golden.test.ts`, `core/test/dinkster-wire36.golden.test.ts`, `app/test/menu-target.test.ts`, `app/test/text-completion.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/widget-representations-wire17.spec.ts`, `e2e/text-completion.spec.ts` |
 | `BOOLEAN`       | `core.toggle` with a state-bearing track/thumb and optional true/false labels                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Undoable inline toggle; explicit **no-modal** disposition because there is no additional complete control to present                                                                                                                                                                                                                                                     | `default`, `labelOn`, `labelOff`, display name                                                                                                                                                                                                                                                                                         | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts`                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `COLOR`         | `core.color`: filled square swatch and exact hex value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Edited in its row: typed code, saturation/value square, hue strip, opacity strip on a field declaring `alpha: true`, workflow swatches; the anchored card remains outside in-row editing                                                                                                                                                                                 | `default`, display name; typed hex, CSS names and `rgb()`/`rgba()` are stored as lower-case `#rrggbb`, or `#rrggbbaa` on a field declaring `alpha: true`; no backend color-space semantics exist                                                                                                                                       | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts`                                                                                                                                                                                                                                                                                                                                                                                             |
 | `COMPOSITOR`    | `core.compositor`: saved command count, or a run-first prompt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | No expanded editor                                                                                                                                                                                                                                                                                                                                                       | Exact fieldless descriptor on concrete `COMPOSITOR`; version 2 commands bound to the runtime document digest and at most 50 layers                                                                                                                                                                                                     | `core/test/compositor.test.ts`, `core/test/dinkster-wire41.golden.test.ts`, `widgets/test/widgets.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -1137,8 +1129,8 @@ intentional and the UI must not infer backend behavior or synthetic limits.
 
 Unavailable widget kinds use the raw JSON fallback; registered views without
 `editorUi` use the generic shared text popover. A registered `editorUi` uses
-the host-decoded path above; it never executes provider DOM. Schema-less
-value sources also use the raw JSON fallback. An unavailable-kind draft
+the host-decoded path above; it never executes provider DOM. An
+unavailable-kind draft
 survives scene refreshes while its document and declared row contract remain
 unchanged; document, schema, target, or extension changes still invalidate it.
 

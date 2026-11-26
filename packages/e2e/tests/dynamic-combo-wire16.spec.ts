@@ -165,7 +165,7 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
 
   await page.mouse.dblclick(700, 500)
   await page.getByTestId('palette-search').fill('Resize Image/Mask')
-  await page.locator('[data-node-type="comfy.ResizeImageMaskNode"]').click()
+  await page.locator('[data-key="entry:comfy.ResizeImageMaskNode"]').click()
   await page.mouse.click(700, 500)
   await expect.poll(() => page.evaluate(() => Object.values(
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes,

@@ -187,7 +187,7 @@ test('a node wired after the run renders its producer\'s output before ever exec
   await page.locator('[data-item-id="core.canvas.addNode"]').click()
   await expect(page.getByTestId('node-palette')).toBeVisible()
   await page.getByTestId('palette-search').fill('Invert Image')
-  await page.locator('[data-node-type="dev.image.invert"]').click()
+  await page.locator('[data-key="entry:dev.image.invert"]').click()
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
   await page.mouse.click(700, 500)
   const invId = await page.evaluate(() => {

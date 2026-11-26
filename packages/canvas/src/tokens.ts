@@ -3,7 +3,7 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { canvasSemanticTokens, DIM_FILL_SHARE, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
@@ -39,9 +39,7 @@ export const canvasPaintTokens = {
   scene: {
     nodeFallbackX: 40,
     nodeFallbackStepY: 120,
-    valueSourceFallbackStepY: 60,
     rerouteFallbackStepY: 60,
-    selectorFallbackStepY: 100,
     emptyGraphWidth: 320,
     boundaryGap: 120,
     fallbackValueMaxCharacters: 42,
@@ -68,10 +66,12 @@ export const canvasPaintTokens = {
       iconGap: 4,
       /** Gap in screen px between the node's lowest tab and its open problem box. */
       problemBoxGap: 4,
+      /** Widest an open problem box gets, in screen px, and the room it keeps from each side of the canvas pane. */
+      problemBox: { maxWidth: 400, paneMargin: 16 },
       maxLabelWidth: 120,
       stroke: 1,
       /** Shares of the tab's color: its fill over the canvas, its line over the canvas, its words over the title color. */
-      fillMix: 0.16,
+      fillMix: DIM_FILL_SHARE,
       hoverFillMix: 0.3,
       lineMix: 0.65,
       textMix: 0.7,
@@ -99,11 +99,9 @@ export const canvasPaintTokens = {
     groupSelection: { world: [6, 4], screen: [4, 3] },
     ghost: { world: [6, 4], screen: [4, 3] },
     maybeAbsentLink: { world: [9, 5], screen: [5, 3] },
-    netGuide: { world: [7, 5], screen: [7, 5] },
     selectionUnion: { world: [5, 4], screen: [4, 3] },
     marquee: { world: [4, 3], screen: [3, 2] },
     remote: [6, 4],
-    growth: [3, 3],
     companionUnderline: [1, 2],
     running: { world: [13, 9], screen: [9, 6] },
     boundary: { world: [5, 3], screen: [4, 3] },
@@ -123,27 +121,50 @@ export const canvasPaintTokens = {
     pairedPortGap: canvasSemanticTokens.space[24],
     sectionWidthPadding: 18,
     growthWidthPadding: 18,
+    /** A lookup note's state line: its mark (spinner or info), the words after it, and Try again under it. */
+    lookupNote: {
+      /** Rows a note takes with a state line, and with Try again under that too. */
+      stateRows: 2,
+      retryRows: 3,
+      markMinRadius: 3,
+      /** The mark's radius as a share of the font size. */
+      markRadiusScale: 0.45,
+      markStroke: 1,
+      /** The info mark's letter as a share of the mark's radius. */
+      glyphScale: 1.6,
+      glyphNudge: 0.5,
+      textGap: canvasSemanticTokens.space[4] + 2,
+      hoverInset: 2,
+    },
     widgetLabelPadding: canvasSemanticTokens.space[12],
     widgetValueMinWidth: 90,
-    widgetColumnGap: 20,
+    lineCellGap: canvasSemanticTokens.space[4],
     /** Rows an open text result shows by default at most; the node's bottom edge sizes it past that. */
     textOutputMaxRows: 6,
     /** Rows an open text result shows at least. */
     textOutputMinRows: 2,
     /**
-     * The bar on the bottom edge of a node whose preview is open: the text
-     * box's bar (`widget.textBoxEdge`), its top `barRise` above the node's
-     * edge so it sits on the edge, and a band around the edge that drags it.
-     * Arrow keys on a pressed bar step a picture's height by `keyStep`; a text
-     * result steps one row.
+     * The bar of a node whose preview is open: the text box's bar
+     * (`widget.textBoxEdge`), its top `barRise` above the node's bottom edge
+     * so it sits inside the node under the preview, as a text box's bar sits
+     * inside its box, and a band around the edge that drags it. Arrow keys on
+     * a pressed bar step a picture's height by `keyStep`; a text result steps
+     * one row.
      */
-    previewEdge: { barRise: 1, hitAbove: 5, hitBelow: 5, keyStep: 10 },
+    previewEdge: { barRise: 5, hitAbove: 5, hitBelow: 5, keyStep: 10 },
     missing: { portLabelPadding: 4, pairedPortGap: 16, tapLabelPadding: 20 },
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
     modeOpacity: canvasSemanticTokens.interaction.disabledOpacity,
+    /** Rows of a node a run skipped: it gave nothing, so its rows are quiet. */
+    skippedRowOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     /** `crisp` is the idle outline of a node look with crisp edges. */
     outline: { idle: 1.25, crisp: 1, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
+    /**
+     * A node that ran, in the frozen view: 2 px in its state's colour at half
+     * strength. A cached node takes the same 2 px, dashed, in the neutral outline.
+     */
+    ranOutline: { stroke: 2, opacity: 0.5 },
     identityBodyTint: 0.18,
     identityHeaderTint: 0.72,
     errorBodyTint: 0.2,
@@ -160,6 +181,32 @@ export const canvasPaintTokens = {
     drop: { outset: 2, opacity: 0.65, stroke: 1.5 },
     scope: { outset: 5, stroke: 2.5, minScreenStroke: 2 },
     progress: { height: 3, minScreenHeight: 1.5 },
+    /** An unfolded field line's rail and a folded line's pin list. */
+    line: {
+      railReserve: 12,
+      railOverhang: 1,
+      railWidth: 11,
+      railRadius: 3,
+      chevron: { top: 3, width: 5, height: 2.5, stroke: 1.5 },
+      railLineTop: 13,
+      railLineBottom: 3,
+      list: { gap: 10, rowHeight: 22, padY: 3, padX: 6, pinSize: 11, labelGap: 5, radius: 5, fontSize: 11, actionGap: 3 },
+    },
+    /**
+     * The space an editor shown in the node takes under its editor button
+     * row when unfolded: a padded picture, then rows of its own controls.
+     */
+    editorSpace: {
+      /** An unfolded editor keeps the node at least this wide. */
+      minWidth: 260,
+      pad: 6,
+      gap: 6,
+      /** A dragged picture height is kept within these. */
+      pictureMin: 60,
+      pictureMax: 1200,
+      /** Height of the bar on a picture's bottom edge that is dragged. */
+      resizeBar: 6,
+    },
     /**
      * Sections, groups, members and a choice's option rows drawn as boxes.
      * Horizontal values step in from the node's edge; vertical ones sit on
@@ -169,17 +216,24 @@ export const canvasPaintTokens = {
       stroke: 1,
       radius: 5,
       /** Each box inside a box steps in this far from the outline around it. */
-      step: 6,
+      step: 8,
       /**
        * A field inside a box sits this far inside its outline, and the
        * outline's inner side lines up with a field outside any box, so a
-       * field in one box is this much narrower on each side.
+       * field in one box is this much narrower on each side. Equal to
+       * `step`, so a field is as wide as a box beside it in the same box.
        */
-      fieldGap: 3,
+      fieldGap: 8,
       /** The open header is this much shorter than the closed row, inside the outline. */
       headerShrink: 2,
       /** From the last field in a box to its outline. */
-      bottomGap: 3,
+      bottomGap: 4,
+      /** Between two member boxes, so their outlines do not read as one thick line. */
+      memberGap: 4,
+      /** From a field or pin row to the outline of a box header under it. */
+      headerGap: 4,
+      /** From a box's outline to the box header, field or pin row after it. */
+      boxGap: 4,
       /** An open box with no name: room above its outline for the tab, and below it. */
       tabGap: 6,
       tabPad: 4,
@@ -209,20 +263,6 @@ export const canvasPaintTokens = {
       clusterRing: 1.5,
       /** Most pins drawn at one end of a closed box. */
       clusterMax: 3,
-    },
-    /** A line of fields: the rail beside an unfolded line, and the list a folded one shows. */
-    line: {
-      /** How far an unfolded line's fields move right for the rail. */
-      railReserve: 12,
-      /** The rail starts this far left of where the fields would start. */
-      railOverhang: 1,
-      railWidth: 11,
-      railRadius: 3,
-      /** The rail's chevron, and where its line starts and ends. */
-      chevron: { top: 3, width: 5, height: 2.5, stroke: 1.5 },
-      railLineTop: 13,
-      railLineBottom: 3,
-      list: { gap: 10, rowHeight: 22, padY: 3, padX: 6, pinSize: 11, labelGap: 5, radius: 5, fontSize: 11, actionGap: 3 },
     },
     section: {
       horizontalInset: 1,
@@ -268,7 +308,7 @@ export const canvasPaintTokens = {
     /** A pointed pin's radius grows by this many pixels, so an 11px disc becomes 13px on the same whole-pixel center. */
     hoverGrowth: 1,
     statusRingGap: 3.5,
-    statusRingStroke: canvasSemanticTokens.interaction.focusRingWidth,
+    statusRingStroke: canvasSemanticTokens.interaction.indicatorWidth,
     outlineStroke: 1,
     optionalMinRadius: 1.5,
     optionalRadiusRatio: 0.32,
@@ -276,16 +316,22 @@ export const canvasPaintTokens = {
     ghostStroke: 1.5,
     ghostMinScreenStroke: 1,
   },
+  /**
+   * The running node: a steady 2 px outline in the running colour at 90%, and
+   * a glow around it, as a box shadow of 1 px spread would draw it, that
+   * breathes on a sine from 12 px blur at 32% to 17 px at 47%. Reduced
+   * motion holds the midpoint.
+   */
   running: {
+    outlineStroke: 2,
+    outlineOpacity: 0.9,
     pulsePeriodMs: 1400,
     reducedMotionPulse: 0.5,
-    glowOpacity: 0.48,
-    glowPulseOpacity: 0.22,
-    glowOutset: 2,
-    glowStroke: 4.5,
-    glowMinScreenStroke: 3,
-    glowBlur: canvasSemanticTokens.space[8],
+    glowOpacity: 0.32,
+    glowPulseOpacity: 0.15,
+    glowBlur: 12,
     glowPulseBlur: 5,
+    glowSpread: 1,
     accentStroke: 1.5,
     accentMinScreenStroke: 1.5,
     dashSpeed: 0.032,
@@ -301,7 +347,7 @@ export const canvasPaintTokens = {
     separatorWidth: 1,
     separatorHeightRatio: 0.6,
     nodeSelectionOutset: 3,
-    selectionStroke: canvasSemanticTokens.interaction.focusRingWidth,
+    selectionStroke: canvasSemanticTokens.interaction.indicatorWidth,
     selectionMinScreenStroke: 2,
     cullScreenPadding: 1,
     boundarySelectionOutset: 2,
@@ -331,40 +377,9 @@ export const canvasPaintTokens = {
     labelPinGap: canvasSemanticTokens.space[4],
     /** Space between the panel title and the quieter text naming whose values its fields carry. */
     subtitleGap: canvasSemanticTokens.space[4],
-  },
-  valueSource: {
-    heightPadding: 8,
-    minWidth: 90,
-    badgeSize: 14,
-    badgeInset: 6,
-    stroke: 1,
-    strongStroke: 2,
-    badgeGap: canvasSemanticTokens.space[4],
-    valueGap: canvasSemanticTokens.space[8],
-    baselineOffset: 0.5,
-    badgeRadiusInset: 2,
-    badgeFontWeight: 700,
-    badgeFontReduction: 2,
-    badgeStroke: 1.5,
-  },
-  selector: {
-    widthPadding: canvasSemanticTokens.space[8],
-    minWidth: 110,
-    badgeSize: 14,
-    badgeInset: 6,
-    selectionOutset: 3,
-    selectionStroke: 2,
-    stroke: 1.25,
-    minScreenStroke: 1,
-    badgeGap: canvasSemanticTokens.space[4],
-    badgeRadius: 3,
-    badgeStroke: 1,
-    badgeFontSize: 9,
-    baselineOffset: 0.5,
-    accentInset: 1.5,
-    accentVerticalInset: 3,
-    accentWidth: 2.5,
-    labelPinGap: canvasSemanticTokens.space[4],
+    /** The row of the boundary item selected in the Boundary panel. */
+    focusInset: 2,
+    focusStroke: 1.5,
   },
   net: {
     gap: 10,
@@ -446,6 +461,7 @@ export const canvasPaintTokens = {
   },
   preview: {
     palette: { availableWidthPadding: 16, maxHeight: 240, inset: 6 },
+    search: { inset: 16, maxScale: 1.5 },
     appWidgetFallbackWidth: 320,
     unknownPlacement: { width: 180, height: 88 },
     stroke: 1,
@@ -526,14 +542,24 @@ export const canvasPaintTokens = {
     /**
      * A row that opens an editor: `iconSize` is the drawn size of its kind icon
      * and chevron, `iconInset` the kind icon's distance from the row's left
-     * edge and `trailingInset` the chevron's from its right edge.
+     * edge and `trailingInset` the chevron's from its right edge. `iconReserve`
+     * is the room before the name's label inset, so the name starts 8 px (the
+     * mode icon gap) after the kind icon: iconInset + iconSize + 8 - labelInset.
      */
-    opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
+    opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 20, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
     /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
     subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
-    curve: { sourceRows: 2, inset: 4, insetX: 6, minSampleHeight: 1 },
+    readOnlyMark: { size: 14, gap: canvasSemanticTokens.space[4] },
+    /**
+     * A folded curve in the raised look: a square before its count, `inset`
+     * inside the row and as tall as the row allows, `gap` before the count;
+     * the plot sits `plotInset` inside its frame.
+     */
+    curve: { inset: 5, gap: 8, plotInset: 3, lineWidth: 1.5, pointRadius: 1.75, dash: [2, 2], lineStep: 16, edge: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
-    valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3, edge: 1 },
+    valueSwatch: { size: 10, radius: 2, gap: 6, checkerCell: 3, edge: 1 },
+    /** A folded editor's small picture before its value, such as the stored frame. */
+    valueThumbnail: { size: 16, radius: 2, gap: 6, fileNameGap: 4, entryGap: 8 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,
@@ -549,7 +575,9 @@ export const canvasPaintTokens = {
     valueWidthPadding: canvasSemanticTokens.space[16],
     swatchReserve: canvasSemanticTokens.space[16],
     toggleReserve: canvasSemanticTokens.space[12],
-    /** Room between a word about a value ("wired") and the value. */
+    /** An automatic value's dot, drawn before "auto" when the default is used. */
+    automaticDot: { radius: 3, gap: canvasSemanticTokens.space[4] },
+    /** Room between a word about a value ("auto", "inactive") and the value: the open field's room between auto and its hint. */
     valueWordGap: canvasSemanticTokens.space[8],
     toggle: {
       trailingInset: 22,
@@ -606,7 +634,24 @@ export const canvasPaintTokens = {
     companion: { stroke: 1, underlineOffset: canvasSemanticTokens.space[4] },
     fallbackValueWidthPadding: canvasSemanticTokens.space[8],
     fallback: { opacity: 0.75, textInset: 4, labelRatio: 0.45, valueRatio: 0.5 },
-    growth: { stroke: 1, verticalInset: 3, textPadding: canvasSemanticTokens.space[8] },
+    /**
+     * A button on a node (a group's add row, a declared button): its outline,
+     * the room kept beside its words, how far a disabled one fades, and a
+     * declared button's icon, working spinner and Cancel.
+     */
+    button: {
+      stroke: 1,
+      textPadding: canvasSemanticTokens.space[8],
+      disabledOpacity: canvasSemanticTokens.interaction.disabledOpacity,
+      iconSize: 12,
+      iconGap: canvasSemanticTokens.space[4],
+      spinnerRadius: 5,
+      spinnerStroke: 1.5,
+      cancelUnderlineOffset: 7,
+      cancelUnderlineDash: [1, 2],
+      cancelUnderlineStroke: 1,
+      labelGap: 6,
+    },
   },
   minimap: {
     fallbackWidth: 160,
@@ -614,15 +659,44 @@ export const canvasPaintTokens = {
     margin: canvasSemanticTokens.space[8],
     maxScale: 0.25,
     viewportInset: 2,
-    linkStroke: 0.3,
-    stateStroke: 0.3,
+    /** Wires: one stroke width; type colors nearly opaque, the one grey quieter. */
+    linkStroke: 1,
+    linkOpacity: 0.9,
+    quietLinkOpacity: 0.55,
+    /** Node boxes: corner radius (at most this share of a small box's side), outline width, and the outline of a run state. */
+    nodeRadius: 2,
+    nodeRadiusShare: 0.25,
+    nodeStroke: 0.75,
+    stateStroke: 1,
+    /**
+     * A box smaller than this on either side draws as a plain block with no
+     * outline, and when most boxes are that small the wires draw straight.
+     */
+    roundedMinSize: 3,
+    /** The title line: drawn only on a box at least this large, inset, and this tall. */
+    titleMinWidth: 9,
+    titleMinHeight: 6,
+    titleInset: 2,
+    titleHeight: 1.4,
+    titleWidthRatio: 0.55,
+    /** Groups: a faint fill and a thin outline in the group's color. */
+    groupRadius: 2.5,
+    groupStroke: 0.75,
+    groupFillOpacity: 0.1,
+    groupStrokeOpacity: 0.38,
     minPointRadius: 0.5,
     minNodeSize: 2,
     bypassFill: 'rgba(75, 24, 75, 0.9)',
     remoteStroke: 1.5,
     remoteOpacity: 0.8,
+    /** The area outside the current view is dimmed by the canvas color at this opacity. */
+    outsideViewOpacity: 0.34,
+    /** The view area: filled with its outline's color at this opacity, so it reads as a lit window. */
     viewportFillOpacity: 0.06,
-    viewportStrokeOpacity: 0.5,
+    viewportStrokeOpacity: 0.4,
+    /** While the pointer is over the minimap the view's fill and outline are a little stronger, so the minimap reads as live. */
+    viewportFillHoverOpacity: 0.1,
+    viewportStrokeHoverOpacity: 0.6,
     viewportStroke: 1,
     viewportRadius: 3,
     markerRadius: 7,
@@ -631,6 +705,52 @@ export const canvasPaintTokens = {
     markerFontSize: 9,
   },
 } as const
+
+/**
+ * The editors that fold out in the node, by widget view id: the picture's own
+ * height (absent for an editor without one) and how many rows of controls sit
+ * under it. The rows are fixed for each editor, so the node does not change
+ * height when the editor's state changes; a host that knows the controls
+ * differ for good, such as a recorder on a backend that cannot take uploads,
+ * gives their height in the widget's measure.
+ */
+export const IN_NODE_EDITORS: Readonly<Record<string, {
+  readonly picture?: number
+  readonly controlRows: number
+  /**
+   * The editor's own sections, closed at first, each one of the control rows
+   * when closed and `rows` more when open. Their open state is kept with the
+   * node's sections, under `<value key>.<section id>`.
+   */
+  readonly sections?: readonly { readonly id: string; readonly rows: number }[]
+  /**
+   * Where a curve that declares a histogram has one more control row, counted
+   * from the first control row: the histogram's line, with its input's pin.
+   * The row is there whether or not the input has a wire, so the height
+   * follows the declaration and not a run.
+   */
+  readonly histogramLine?: number
+}>> = {
+  // Record strip (two rows), Microphone, Limit, the stored clip's line.
+  'core.audioRecord': { controlRows: 5 },
+  // Start camera or Capture frame and Stop; the stored frame's line.
+  'core.webcam': { picture: 180, controlRows: 2 },
+  // Camera projection, Field of view, then Model placement and Animation closed.
+  'core.load3d': {
+    picture: 200,
+    controlRows: 4,
+    // Model position, rotation and scale; Animation clip, its time, its speed, Play.
+    sections: [{ id: 'placement', rows: 3 }, { id: 'animation', rows: 4 }],
+  },
+  // Wipe divider, Image A frame, Image B frame.
+  'core.imageCompare': { picture: 180, controlRows: 3 },
+  // The camera position under the orbit and elevation pictures.
+  'core.cameraAngle': { picture: 150, controlRows: 1 },
+  // Interpolation; Position; Value; Delete point; and, for a curve that declares a histogram,
+  // the histogram's line after them.
+  'core.curve': { picture: 180, controlRows: 4, histogramLine: 4 },
+  'core.saveTarget': { controlRows: 2 },
+}
 
 /** Minimum zoom for text detail and transient media DOM. */
 export const CANVAS_DETAIL_MIN_SCALE = canvasPaintTokens.detailMinScale
@@ -693,6 +813,7 @@ export interface DesignTokens {
   readonly pinRadius: number
   readonly cornerRadius: number
   readonly fontFamily: string
+  readonly fontMono: string
   readonly fontSize: number
   readonly titleFontSize: number
   /**
@@ -705,10 +826,7 @@ export interface DesignTokens {
    * curve described in text and a passed structured value shown as code.
    */
   readonly widgetRowLook: 'inset-raised' | 'raised-editors'
-  /**
-   * A remove cross on each member of a group that grows by hand. Off until
-   * pressing it removes the member: nothing is drawn that does nothing.
-   */
+  /** A remove cross on each stored member of a group that grows by hand. */
   readonly memberRemoveCross: boolean
   /**
    * How number, single-line text and seed rows are edited: in a card under
@@ -754,6 +872,8 @@ export interface DesignTokens {
     readonly skippedOutline: string
     readonly nodeBody: string
     readonly nodeHeader: string
+    readonly nodeSelectedHeader: string
+    readonly nodeSelectedEdge: string
     /** Face of a raised opener row, lighter than the node body. */
     readonly widgetRaised: string
     /** Rule under a title bar drawn in the body's own color. */
@@ -793,6 +913,8 @@ export interface DesignTokens {
     readonly dropTarget: string
     /** Subtle dot marking non-default values hidden by a collapsed section. */
     readonly modifiedIndicator: string
+    /** A link drawn in a row, such as a lookup note's Try again. */
+    readonly rowLink: string
     /** The cyan subgraph icon on a field shown on the subgraph node without a wire. */
     readonly subgraphMark: string
     /** A box's outline, and the outline of a box inside a box. */
@@ -804,6 +926,14 @@ export interface DesignTokens {
     readonly boxCount: string
     /** The dot on a closed box that holds a value that is not its default. */
     readonly boxChanged: string
+    /** A button's face at rest, under the pointer and held down. */
+    readonly buttonFace: string
+    readonly buttonHover: string
+    readonly buttonPressed: string
+    /** The lit top edge of a button that is not pressed. */
+    readonly buttonLitEdge: string
+    /** The dark line under a button that is not pressed. */
+    readonly buttonShade: string
     /**
      * Companion (propagated) value text: what a link-driven input WOULD
      * execute with, rendered read-only in neutral italic text in place of
@@ -839,6 +969,8 @@ export interface DesignTokens {
      * document-level problems the solver proved, independent of execution.
      */
     readonly error: string
+    /** The dot before a row's value that could not be worked out, so its default is used. */
+    readonly warningMark: string
   }
   /** Data-type -> pin/link color. Unknown types get a stable hashed hue. */
   readonly typeColors: Readonly<Record<string, string>>
@@ -894,10 +1026,11 @@ export const defaultTokens: DesignTokens = {
   pinRadius: 5.5,
   cornerRadius: 6,
   fontFamily: canvasSemanticTokens.type.fontFamily,
+  fontMono: canvasSemanticTokens.type.fontMono,
   fontSize: 12,
   titleFontSize: 13,
   widgetRowLook: 'raised-editors',
-  memberRemoveCross: false,
+  memberRemoveCross: true,
   widgetEditing: 'in-row',
   nodeLook: 'flat-title',
   crispEdges: true,
@@ -981,6 +1114,8 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     // keeps its original surfaces.
     nodeBody: theme === 'dark' ? tokens.surface.panel : tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
+    nodeSelectedHeader: tokens.surface.selected,
+    nodeSelectedEdge: tokens.text.secondary,
     widgetRaised: theme === 'dark' ? tokens.surface.raised : tokens.surface.panel,
     nodeHeaderRule: tokens.border.divider,
     nodeOutline: tokens.border.strong,
@@ -1011,16 +1146,23 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     // The dot on a closed section that hides changed values. Yellow is kept
     // for problems.
     modifiedIndicator: tokens.meaning.accent.foreground,
+    rowLink: tokens.meaning.accent.foreground,
     subgraphMark: tokens.meaning.accent.foreground,
     companionValue: tokens.text.secondary,
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,
     error: tokens.meaning.danger.border,
-    boxOutline: theme === 'dark' ? '#343A41' : tokens.border.subtle,
+    warningMark: tokens.meaning.warning.border,
+    boxOutline: tokens.border.box,
     boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
     boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,
     boxCount: tokens.text.muted,
     boxChanged: tokens.meaning.accent.border,
+    buttonFace: tokens.button.face,
+    buttonHover: tokens.button.faceHover,
+    buttonPressed: tokens.button.facePressed,
+    buttonLitEdge: tokens.button.litEdge,
+    buttonShade: tokens.button.shade,
   }
 }
 

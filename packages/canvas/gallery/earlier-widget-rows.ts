@@ -2,8 +2,8 @@
  * The gallery's Before for widget rows: wraps a registry so its views draw
  * a row the way they did before the `raised-editors` look, for side by side
  * comparison. A color's square sits by the name, a list shows its code,
- * colors show four squares and a count, empty rows keep their earlier
- * messages, and an empty number reads "null". Only gallery pages use it.
+ * empty rows keep their earlier messages, and an empty number reads "null".
+ * Only gallery pages use it.
  */
 
 import {
@@ -36,7 +36,6 @@ function earlierView(view: WidgetView): WidgetView {
           if (style['role'] !== 'widgetValue') return ctx.text(x, y, run, style)
           const {
             swatch,
-            swatches,
             items: _items,
             placeholder,
             ...plain
@@ -51,19 +50,6 @@ function earlierView(view: WidgetView): WidgetView {
           if (square !== undefined) {
             ctx.rect(0, 0.2, 0.12, 0.6, { fill: square, fixedAspect: 'square' })
             return ctx.text(x, y, run, { ...plain, reserveLeft: 16 })
-          }
-          if (view.id === 'core.colors') {
-            const colors = Array.isArray(swatches) ? (swatches as string[]) : []
-            for (const [index, color] of colors.slice(0, 4).entries()) {
-              ctx.rect(index * 0.14, 0.2, 0.12, 0.6, {
-                fill: color,
-                fixedAspect: 'square',
-              })
-            }
-            return ctx.text(x, y, `${colors.length} colors`, {
-              ...plain,
-              reserveLeft: 64,
-            })
           }
           if (view.id === 'core.list')
             return ctx.text(x, y, JSON.stringify(value), plain)

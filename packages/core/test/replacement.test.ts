@@ -21,6 +21,7 @@ import { planReplacement, REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY, type NodeReplac
 import { createReplacementRegistry } from '../src/replace/registry.js'
 import { registerSchemaRules, replacementInvocation, scanReplacements } from '../src/replace/scan.js'
 import type { BodyRow, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
+import { boundaryOf, boundaryItems } from '../src/format/document.js'
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -183,6 +184,19 @@ const basicRule: ReplacementRule = {
 // ---------------------------------------------------------------------------
 
 describe('isReplacementRule', () => {
+  it('accepts a rule that changes the type, renames inputs and outputs and moves a stored value', () => {
+    const rule = {
+      from: 'ForeignSwitch',
+      migration: { historicalInputs: ['switch', 'on_false', 'on_true'] },
+      cases: [
+        { when: { kind: 'valueEquals', input: 'switch', value: true }, to: 'Switch',
+          inputs: { pick: { kind: 'constant', value: 'b2' }, first: { kind: 'copy', input: 'on_false' } }, outputs: { value: 'output' } },
+        { to: 'Switch', inputs: { pick: { kind: 'value', input: 'switch' }, first: { kind: 'copy', input: 'on_false' } }, outputs: { value: 'output' } },
+      ],
+    }
+    expect(isReplacementRule(JSON.parse(JSON.stringify(rule)))).toBe(true)
+    expect(isReplacementRule({ ...rule, migration: { historicalInputs: [] } })).toBe(false)
+  })
 
   it('rejects malformed predicates, transforms, and mappings', () => {
     expect(isReplacementRule({ from: 'A', cases: [{ when: { kind: 'nope' }, to: 'B' }] })).toBe(false)
@@ -519,10 +533,7 @@ describe('planReplacement rewires', () => {
         g1: graph({
           id: 'g1',
           nodes: { old: node('old', 'OldNode') },
-          boundary: {
-            inputs: [{ id: 'bi', binds: { kind: 'port' as const, ...port('old', 'in_mask') } }],
-            outputs: [],
-          },
+          boundary: boundaryOf([{ id: 'bi', binds: { kind: 'port' as const, ...port('old', 'in_mask') } }], []),
         }),
       },
       'g0',
@@ -1331,10 +1342,7 @@ describe('1-to-N replacement planning and apply', () => {
       g0: graph({
         id: 'g0',
         nodes: { old: node('old', 'OldNode') },
-        boundary: {
-          inputs: [{ id: 'bound', binds: { kind: 'port' as const, ...port('old', 'in_image') } }],
-          outputs: [],
-        },
+        boundary: boundaryOf([{ id: 'bound', binds: { kind: 'port' as const, ...port('old', 'in_image') } }], []),
       }),
     })
     const boundaryRule: ReplacementRule = {
@@ -1544,8 +1552,8 @@ describe('node.replace', () => {
         g1: graph({
           id: 'g1',
           nodes: { keep: node('keep', 'Other'), old: node('old', 'OldNode', { amount: 0.5 }) },
-          boundary: {
-            inputs: [{
+          boundary: boundaryOf(
+            [{
               id: 'bi',
               binds: { kind: 'port' as const, ...port('old', 'in_image') },
               promoted: false,
@@ -1558,8 +1566,8 @@ describe('node.replace', () => {
               id: 'unused',
               binds: { kind: 'unbound', type: { kind: 'concrete', name: 'INT' } },
             }],
-            outputs: [{ id: 'bo', binds: { kind: 'port' as const, ...port('old', 'out_image') } }],
-          },
+            [{ id: 'bo', binds: { kind: 'port' as const, ...port('old', 'out_image') } }],
+          ),
         }),
       },
       'g0',
@@ -1578,15 +1586,16 @@ describe('node.replace', () => {
     expect(store.dispatch({ command: 'node.replace', params: { plan: out.plan! } as unknown as Record<string, Json> }).ok).toBe(true)
 
     const b = store.doc.graphs.g1!.boundary!
-    expect(b.inputs[0]).toEqual({ id: 'bi', binds: { kind: 'port', ...port('old', 'image') }, promoted: false })
-    expect(b.inputs[1]).toEqual({
+    expect(boundaryItems(b, 'inputs')[0]).toEqual({ kind: 'input', id: 'bi', binds: { kind: 'port', ...port('old', 'image') }, promoted: false })
+    expect(boundaryItems(b, 'inputs')[1]).toEqual({
+      kind: 'input',
       id: 'bi2',
       displayName: 'Fan out',
       binds: { kind: 'port', ...port('keep', 'in_image') }, // untouched: other node
       alsoBinds: [{ kind: 'port', ...port('old', 'image') }],
     })
-    expect(b.inputs[2]).toEqual(before.graphs.g1!.boundary!.inputs[2])
-    expect(b.outputs[0]).toEqual({ id: 'bo', binds: { kind: 'port', ...port('old', 'image') } })
+    expect(boundaryItems(b, 'inputs')[2]).toEqual(boundaryItems(before.graphs.g1!.boundary, 'inputs')[2])
+    expect(boundaryItems(b, 'outputs')[0]).toEqual({ kind: 'output', id: 'bo', binds: { kind: 'port', ...port('old', 'image') } })
     expect(store.doc.graphs.g1!.nodes.old!.type).toBe('NewNode')
     expect(checkDocument(store.doc)).toEqual([])
 
@@ -1606,10 +1615,10 @@ describe('node.replace', () => {
         ...d.graphs,
         g1: {
           ...g1,
-          boundary: {
-            inputs: [{ id: 'bi', binds: { kind: 'port' as const, ...port('keep', 'in_image') } }, g1.boundary!.inputs[1]!],
-            outputs: g1.boundary!.outputs,
-          },
+          boundary: boundaryOf(
+            [{ id: 'bi', binds: { kind: 'port' as const, ...port('keep', 'in_image') } }, boundaryItems(g1.boundary, 'inputs')[1]!],
+            boundaryItems(g1.boundary, 'outputs'),
+          ),
         },
       },
     }
@@ -1670,6 +1679,44 @@ describe('scanReplacements', () => {
       expect(reopened.graphs.g0!.nodes.old).toMatchObject({ type: 'RenamedPorts', values: { scale: 37 } })
       expect(scanReplacements(reopened, registry, resolve)).toEqual([])
     }
+  })
+
+  it.each([[true, 'b2'], [false, 'b1']])('opens a saved node of an uninstalled type with stored %s as the type a rule names, keeping every wire', (stored, pick) => {
+    const value: TypeExpr = { kind: 'variable', templateId: 'value' }
+    const switchSchema = schemaOf('Switch', [
+      widgetInput('pick', undefined, { type: { kind: 'concrete', name: 'STRING' }, optional: true }),
+      { kind: 'group', id: 'branch', value: input('value', { type: value, optional: true }),
+        keys: { kind: 'named', names: ['b1', 'b2'] }, grows: 'link', minMembers: 0 },
+      { kind: 'output', id: 'value', type: value },
+    ])
+    const branches = { branch: { kind: 'members' as const, members: [
+      { suffix: 'b1', inputs: { value: { kind: 'copy' as const, input: 'on_false' } } },
+      { suffix: 'b2', inputs: { value: { kind: 'copy' as const, input: 'on_true' } } },
+    ] } }
+    const rule: ReplacementRule = { from: 'RetiredSwitch', cases: [
+      { when: { kind: 'valueEquals', input: 'switch', value: true }, to: 'Switch', inputs: { pick: { kind: 'constant', value: 'b2' } }, inputFamilies: branches, outputs: { value: 'output' } },
+      { to: 'Switch', inputs: { pick: { kind: 'constant', value: 'b1' } }, inputFamilies: branches, outputs: { value: 'output' } },
+    ] }
+    const saved = doc({ g0: graph({ id: 'g0',
+      nodes: { a: node('a', 'OldNode'), b: node('b', 'OldNode'), old: node('old', 'RetiredSwitch', { switch: stored }), use: node('use', 'NewNode') },
+      links: {
+        l1: link('l1', port('a', 'out'), port('old', 'on_false')),
+        l2: link('l2', port('b', 'out'), port('old', 'on_true')),
+        l3: link('l3', port('old', 'output'), port('use', 'image')),
+      },
+    }) })
+    const loaded = JSON.parse(JSON.stringify(saved)) as WorkflowDocument
+    const resolveOpen = (type: string) => type === 'Switch' ? switchSchema : resolve(type)
+    const items = scanReplacements(loaded, registryWith(rule), resolveOpen)
+    const store = new DocumentStore(loaded, coreCommandRegistry())
+    expect(store.dispatch(replacementInvocation(items, loaded, resolveOpen)!).ok).toBe(true)
+    const opened = store.doc.graphs.g0!
+    expect(opened.nodes.old).toMatchObject({ type: 'Switch', values: { pick } })
+    expect(Object.values(opened.links).map((entry) => [entry.from, entry.to])).toEqual([
+      [port('a', 'out'), port('old', 'branch.b1')],
+      [port('b', 'out'), port('old', 'branch.b2')],
+      [port('old', 'value'), port('use', 'image')],
+    ])
   })
 
   it('finds every migratable node across graphs; skips others', () => {

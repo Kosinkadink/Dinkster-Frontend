@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test, type Page } from "@playwright/test";
 import { evidenceGroupDir, evidencePath } from "./evidence-output.js";
-import { waitForWorkspaceReady } from "./fixtures.js";
+import { inspectRun, waitForWorkspaceReady } from "./fixtures.js";
 
 const backend = process.env["DINKSTER_NATIVE_BACKEND"];
 if (!backend)
@@ -180,7 +180,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     { timeout: 15_000 },
   );
   await page.getByRole("tab", { name: "Runs", exact: true }).click();
-  await page.getByTestId("execution-row").first().locator(".runs-details > summary").click();
+  await inspectRun(page.getByTestId("execution-row").first());
   await page.getByTestId("rail-resize").press("End");
   await expect(page.getByTestId("runs-panel")).toContainText(
     "mounts/output/output-mount-proof_00001_.png",
@@ -228,7 +228,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   await page.getByTestId("storage-sidebar-toggle").click();
   await queueAndWait(page, 1);
   await page.getByRole("tab", { name: "Runs", exact: true }).click();
-  await page.getByTestId("execution-row").first().locator(".runs-details > summary").click();
+  await inspectRun(page.getByTestId("execution-row").first());
   await expect(page.getByTestId("runs-panel")).toContainText(
     "mounts/renders/output-mount-proof_00001_.png",
   );

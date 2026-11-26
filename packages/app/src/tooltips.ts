@@ -1,11 +1,14 @@
 import { defaultTokens, presentedType, typeIdDisplayLabel } from '@dinkster/canvas'
 import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, t as translate } from '@dinkster/core'
-import type { InputSpec, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr } from '@dinkster/core'
+import type { InputSpec, Json, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr, WidgetSpec } from '@dinkster/core'
 
 export interface TooltipContent {
   readonly title?: string
   readonly lines: readonly string[]
   readonly detail?: readonly string[]
+  readonly shortcut?: string
+  /** Refit whole readout items using the rendered width and available height. */
+  readonly fit?: (lines: number, measure: (text: string) => number) => TooltipContent
 }
 
 export interface TooltipResolveOptions { readonly detailed: boolean }
@@ -13,7 +16,19 @@ export interface TooltipProvider {
   readonly id: string
   resolve(target: unknown, opts: TooltipResolveOptions): TooltipContent | undefined
 }
-export interface TooltipAnchor { readonly x: number; readonly y: number; readonly element?: HTMLElement }
+/**
+ * Where a tooltip opens. `element` is the target it sits beside; a painted
+ * target has none, and gives `above`, the y the tooltip's bottom edge takes
+ * when it does not fit below `y`.
+ */
+export interface TooltipAnchor {
+  readonly x: number
+  readonly y: number
+  readonly above?: number
+  readonly element?: HTMLElement
+  readonly paintedRect?: () => DOMRectReadOnly
+  readonly boundary?: HTMLElement
+}
 export interface VisibleTooltip extends TooltipContent, TooltipAnchor { readonly detailed: boolean }
 
 /** One tooltip policy boundary shared by DOM chrome and the painted canvas. */
@@ -119,7 +134,7 @@ export class TooltipController {
   private emit(): void { for (const listener of this.listeners) listener() }
 }
 
-export interface DomTooltipTarget { readonly kind: 'dom'; readonly label: string; readonly detail?: readonly string[] }
+export interface DomTooltipTarget { readonly kind: 'dom'; readonly label: string; readonly detail?: readonly string[]; readonly shortcut?: string }
 
 /** Time a visible tooltip may bridge empty space inside one hover session. */
 export const DOM_TOOLTIP_SESSION_GRACE_MS = 300
@@ -130,6 +145,39 @@ const isDomTooltipTarget = (target: unknown): target is DomTooltipTarget =>
 export interface CanvasTooltipContext {
   readonly resolveSchema?: (type: string) => any
   readonly resolvePack?: (id: string) => any
+  /** The row view's whole-value readout lines, when the view writes one. */
+  readonly widgetReadout?: (row: { readonly viewId: string; readonly spec: WidgetSpec }, value: Json) => readonly string[] | undefined
+  /** Text lines the tooltip holds while staying wholly on screen. */
+  readonly tooltipLines?: number
+  readonly measureLine?: (text: string) => number
+}
+
+/** Items a widget readout lists before it says how many more there are. */
+export const WIDGET_READOUT_ITEMS = 20
+
+/**
+ * A row value's readout: its summary line, then up to WIDGET_READOUT_ITEMS
+ * more lines and a count of the rest, using at most `room` lines in all so
+ * a long list never runs off screen. Empty when the row has no value of its
+ * own to read.
+ */
+function widgetValueLines(readout: readonly string[], context: CanvasTooltipContext, room: number, prefix: string): readonly string[] {
+  const measure = context.measureLine ?? (() => 1)
+  const [head, ...items] = readout
+  if (head === undefined) return []
+  const heading = `${prefix}${head}`
+  let used = measure(heading)
+  if (used > room) return []
+  let shown = 0
+  while (shown < Math.min(items.length, WIDGET_READOUT_ITEMS)) {
+    const next = measure(items[shown]!)
+    const remainder = shown + 1 < items.length ? measure(translate('widgetSummary.more', { count: items.length - shown - 1 })) : 0
+    if (used + next + remainder > room) break
+    used += next
+    shown++
+  }
+  const more = translate('widgetSummary.more', { count: items.length - shown })
+  return [heading, ...items.slice(0, shown), ...(shown < items.length && used + measure(more) <= room ? [more] : [])]
 }
 
 const joinedPorts = (ports: readonly string[] | undefined): string => ports?.join(', ') || 'its inputs'
@@ -254,6 +302,9 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
         : `Only successful runs advance literal, submitted values. Linked values are not changed. ${t.connected ? 'Connected controls are inert.' : 'Click to choose a mode.'}`] } : {}),
     }
   }
+  if (t.kind === 'button') return { lines: [t.hit.row.label, ...(t.hit.row.tooltip ? [t.hit.row.tooltip] : [])] }
+  if (t.kind === 'note') return t.row.text === '' ? undefined : { lines: [t.row.text] }
+  if (t.kind === 'memberRemove') return { lines: [t.hit.remove.disabledReason ?? 'Remove member'] }
   if (t.kind === 'reroute') {
     const rerouteTypeName: string | undefined = t.hit.reroute.typeName
     return { title: 'Reroute', lines: [rerouteTypeName !== undefined ? typeIdDisplayLabel(rerouteTypeName) : 'Any'] }
@@ -301,11 +352,11 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const row = t.hit.node.layout.rows.find((candidate: any) =>
       candidate.kind === 'widget' && candidate.inputId === t.hit.input)
     return {
-      title: `Output: ${row?.label ?? t.hit.pin.label ?? t.hit.input}`,
+      title: `Output: ${row?.name ?? row?.label ?? t.hit.pin.label ?? t.hit.input}`,
       lines: [type.tooltip],
     }
   }
-  if (t.kind === 'widget' && t.hit.row.kept !== undefined) return { title: t.hit.row.label, lines: [t.hit.row.kept] }
+  if (t.kind === 'widget' && t.hit.row.kept !== undefined) return { title: t.hit.row.name ?? t.hit.row.label, lines: [t.hit.row.kept] }
   if (t.kind === 'widget') {
     const row = t.hit.row
     const options = row.spec.options ?? {}
@@ -315,27 +366,53 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       : effectiveWidgetDefault(row.spec)
     const schema = context.resolveSchema?.(t.hit.node.node.type)
     const input = portSpecOf(schema, t.hit.node.node, 'input', row.inputId)
+    const saveTarget = row.viewId === 'core.saveTarget'
     const detail = [
       ...['min', 'max', 'step'].filter((key) => options[key] !== undefined).map((key) => `${key}: ${options[key]}`),
-      ...(input?.tooltip ? [input.tooltip] : []),
+      ...(!saveTarget && input?.tooltip ? [input.tooltip] : []),
     ]
-    const text = formatWidgetValue(t.companion?.value ?? value, row.spec)
+    const measure = context.measureLine ?? (() => 1)
+    const room = (context.tooltipLines ?? Infinity) - measure(row.name ?? row.label) -
+      (opts.detailed ? detail.reduce((sum, line) => sum + measure(line), 0) : 0)
     const state = t.companion?.state ?? (t.companion?.stale ? 'stale' : t.companion ? 'expected' : undefined)
-    const line = state === 'expected'
-      ? `Current expected value: ${text}`
+    const absence = state === 'nothing' ? 'Nothing: the node feeding this wire was skipped'
+      : state === 'unknown' ? 'The wire has no known value yet' : undefined
+    const prefix = absence !== undefined ? '' : state === 'expected'
+      ? 'Arriving: '
       : state === 'cached'
-        ? `Retained last-resolved value: ${text}`
+        ? 'Retained last-resolved value: '
         : state === 'stale'
-          ? `Stale/unproven value: ${text}`
+          ? 'Stale/unproven value: '
           : state === 'estimate'
-            ? `Mirrored estimate (computed locally, not executed): ${text}`
+            ? 'Mirrored estimate (computed locally, not executed): '
             : t.connected
-              ? `Dormant stored value under connection: ${text}`
-              : `Value: ${text}`
+              ? 'Stored: '
+              : 'Value: '
+    const storedPrefix = 'Stored: '
+    const incomingValue = t.companion?.value ?? value
+    const incomingReadout = absence === undefined
+      ? context.widgetReadout?.(row, incomingValue) ?? [formatWidgetValue(incomingValue, row.spec)] : [absence]
+    const storedReadout = t.companion && t.connected
+      ? (context.widgetReadout?.(row, value) ?? [formatWidgetValue(value, row.spec)])
+        .map((text, index) => index === 0 ? `${text}. Used again when the wire is removed.` : text) : []
+    const storedMinimum = storedReadout.length === 0 ? 0 : measure(`${storedPrefix}${storedReadout[0]}`) +
+      (storedReadout.length > 1 ? measure(translate('widgetSummary.more', { count: storedReadout.length - 1 })) : 0)
+    const incomingMinimum = incomingReadout.length === 0 ? 0 : measure(`${prefix}${incomingReadout[0]}`)
+    // Reserve the stored summary and remainder before spending room on incoming items.
+    const storedRoom = Math.min(storedMinimum, Math.max(0, room - incomingMinimum))
+    const incoming = widgetValueLines(incomingReadout, context, room - storedRoom, prefix)
     const stored = t.companion && t.connected
-      ? [`Dormant stored value under connection: ${formatWidgetValue(value, row.spec)}`]
-      : []
-    return { title: row.label, lines: [line, ...stored], ...(opts.detailed && detail.length ? { detail } : {}) }
+      ? widgetValueLines(storedReadout, context, room - incoming.reduce((sum, line) => sum + measure(line), 0), storedPrefix) : []
+    return {
+      title: row.name ?? row.label,
+      lines: [...incoming, ...stored, ...(!t.connected && saveTarget ? [
+        ...(input?.tooltip ? [input.tooltip] : []),
+        translate('saveTargetWidget.naming', { suffix: typeof options['suffix'] === 'string' ? options['suffix'] : '' }),
+      ] : [])],
+      ...(opts.detailed && detail.length ? { detail } : {}),
+      ...(context.measureLine === undefined && (incomingReadout.length > 1 || storedReadout.length > 1) ? { fit: (lines: number, measureLine: (text: string) => number) =>
+        resolveCanvasTooltip(target, opts, { ...context, tooltipLines: lines, measureLine })! } : {}),
+    }
   }
   if (t.kind === 'header') {
     if (t.hit.node.node.region !== undefined) return regionContractTooltip(t.hit.node.node.region)
@@ -365,6 +442,8 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
   let sessionGrace: ReturnType<typeof setTimeout> | undefined
   let hovered: HTMLElement | undefined
   let shown: HTMLElement | undefined
+  let navigationFocus = false
+  let keyboardFocused: HTMLElement | undefined
   // Stateful controls rewrite data-tooltip-label from click handlers that run
   // after the focus-driven show has already captured the old text. Watching
   // the shown element's tooltip attributes keeps the visible tooltip current.
@@ -381,7 +460,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     if (shown === element) return
     shown = element
     labelObserver.disconnect()
-    labelObserver.observe(element, { attributes: true, attributeFilter: ['data-tooltip-label', 'data-tooltip-detail'] })
+    labelObserver.observe(element, { attributes: true, attributeFilter: ['data-tooltip-label', 'data-tooltip-detail', 'data-tooltip-shortcut', 'aria-expanded', 'aria-haspopup'] })
     labelObserver.observe(root, { childList: true, subtree: true })
   }
   const releaseShown = (): void => {
@@ -413,19 +492,27 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
   const tooltipTargetOf = (target: EventTarget | null) =>
     (target instanceof Element ? target : undefined)?.closest<HTMLElement>('[data-tooltip-label]')
   const elementAt = (event: Event) => tooltipTargetOf(event.target)
-  const focusedElement = () => document.activeElement instanceof HTMLElement && document.activeElement.matches('[data-tooltip-label]')
-    ? document.activeElement
-    : undefined
+  const focusedElement = () => document.activeElement === keyboardFocused ? keyboardFocused : undefined
+  const hasOpenSurface = (element: HTMLElement) => element.matches('[aria-haspopup]:not([aria-haspopup="false"])[aria-expanded="true"]')
+  const hasVisibleLabel = (element: HTMLElement) => {
+    const label = element.querySelector<HTMLElement>('[data-tooltip-visible-label]')
+    if (label === null || label.textContent?.trim() !== element.dataset['tooltipLabel']) return false
+    // Compact window actions clip their label to a 1px box.
+    const rect = label.getBoundingClientRect()
+    return rect.width > 1 && rect.height > 1
+  }
   const sessionOf = (element: Element | null | undefined) => element?.closest<HTMLElement>('[data-tooltip-session]')
   const domTargetOf = (element: HTMLElement) => {
     const rect = element.getBoundingClientRect()
     const detail = element.dataset['tooltipDetail']?.split('|').filter(Boolean)
+    const shortcut = element.dataset['tooltipShortcut']
     return {
-      target: { kind: 'dom', label: element.dataset['tooltipLabel']!, ...(detail ? { detail } : {}) },
+      target: { kind: 'dom', label: element.dataset['tooltipLabel']!, ...(detail ? { detail } : {}), ...(shortcut ? { shortcut } : {}) },
       anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 8, element },
     }
   }
   const showForElement = (element: HTMLElement, detailed?: boolean, immediate = false): void => {
+    if (hasOpenSurface(element) || hasVisibleLabel(element)) { hideNow(); return }
     const { target, anchor } = domTargetOf(element)
     observeShown(element)
     controller.show(target, anchor, detailed, immediate)
@@ -433,7 +520,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
   const refreshShown = (): void => {
     const element = shown
     if (element === undefined) return
-    if (!element.isConnected || element.dataset['tooltipLabel'] === undefined) { hideNow(); return }
+    if (!element.isConnected || element.dataset['tooltipLabel'] === undefined || hasOpenSurface(element) || hasVisibleLabel(element)) { hideNow(); return }
     if (hovered !== element && document.activeElement !== element) return
     const { target, anchor } = domTargetOf(element)
     controller.showInSession(target, anchor)
@@ -443,6 +530,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     if (!element || (event.relatedTarget instanceof Node && element.contains(event.relatedTarget))) return
     hovered = element
     clearSessionGrace()
+    if (hasOpenSurface(element) || hasVisibleLabel(element)) { hideNow(); return }
     const related = event.relatedTarget instanceof Element ? event.relatedTarget : undefined
     const session = sessionOf(element)
     const sharedSession = session !== undefined && session === sessionOf(related)
@@ -463,7 +551,8 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     }
     if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return
     if (hovered === element) hovered = undefined
-    if (document.activeElement === element) return
+    if (element.dataset['tooltipTrigger'] === 'hover') { hideNow(); return }
+    if (focusedElement() === element) return
     const focused = focusedElement()
     if (focused !== undefined) { showForElement(focused, undefined, true); return }
     const session = sessionOf(element)
@@ -471,24 +560,37 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     else if (!tooltipTargetOf(event.relatedTarget)) hideAfterSessionGrace()
   }
   const focusIn = (event: FocusEvent) => {
+    const arrivedByNavigation = navigationFocus
+    navigationFocus = false
     const element = elementAt(event)
-    if (element && event.target === element) { clearSessionGrace(); showForElement(element, undefined, true) }
+    keyboardFocused = arrivedByNavigation && element && event.target === element && element.dataset['tooltipTrigger'] !== 'hover' ? element : undefined
+    if (keyboardFocused) { clearSessionGrace(); showForElement(keyboardFocused, undefined, true) }
   }
   const focusOut = (event: FocusEvent) => {
     const element = elementAt(event)
     if (!element || event.target !== element) return
+    if (keyboardFocused === element) keyboardFocused = undefined
     if (hovered !== undefined) showForElement(hovered, undefined, true)
     else hideNow()
   }
-  const down = () => hideNow()
-  const keydown = (event: KeyboardEvent) => { if (event.key === 'Alt') controller.setDetailed(true); if (event.key === 'Escape') hideNow() }
-  const keyup = (event: KeyboardEvent) => { if (event.key === 'Alt') controller.setDetailed(false) }
+  const down = () => { navigationFocus = false; keyboardFocused = undefined; hovered = undefined; hideNow() }
+  const keydown = (event: KeyboardEvent) => {
+    navigationFocus = !event.altKey && !event.ctrlKey && !event.metaKey &&
+      ['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)
+    if (event.key === 'Alt') controller.setDetailed(true)
+    if (event.key === 'Escape') { keyboardFocused = undefined; hideNow() }
+  }
+  const keyup = (event: KeyboardEvent) => {
+    navigationFocus = false
+    if (event.key === 'Alt') controller.setDetailed(false)
+  }
   root.addEventListener('pointerover', enter)
   root.addEventListener('pointerout', leave)
   root.addEventListener('focusin', focusIn)
   root.addEventListener('focusout', focusOut)
-  root.addEventListener('pointerdown', down)
-  window.addEventListener('keydown', keydown)
+  window.addEventListener('pointerdown', down, true)
+  window.addEventListener('keydown', keydown, true)
   window.addEventListener('keyup', keyup)
-  return () => { clearSessionGrace(); releaseShown(); controller.hideMatching(isDomTooltipTarget); root.removeEventListener('pointerover', enter); root.removeEventListener('pointerout', leave); root.removeEventListener('focusin', focusIn); root.removeEventListener('focusout', focusOut); root.removeEventListener('pointerdown', down); window.removeEventListener('keydown', keydown); window.removeEventListener('keyup', keyup) }
+  window.addEventListener('resize', refreshShown)
+  return () => { clearSessionGrace(); releaseShown(); controller.hideMatching(isDomTooltipTarget); root.removeEventListener('pointerover', enter); root.removeEventListener('pointerout', leave); root.removeEventListener('focusin', focusIn); root.removeEventListener('focusout', focusOut); window.removeEventListener('pointerdown', down, true); window.removeEventListener('keydown', keydown, true); window.removeEventListener('keyup', keyup); window.removeEventListener('resize', refreshShown) }
 }

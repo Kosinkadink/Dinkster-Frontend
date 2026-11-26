@@ -41,7 +41,7 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await page.getByTestId('rail-toggle').click()
   await page.getByTestId('settings-button').click()
 

@@ -55,14 +55,16 @@ import {
   type TypeChoiceSpec,
   type TypeExpr,
 } from '../schema/model.js'
-import type {
-  InputFamilyMapping,
-  MappingSource,
-  ReplacementCase,
-  ReplacementPredicate,
-  ReplacementRule,
+import {
+  isSameTypeMigration,
+  type InputFamilyMapping,
+  type MappingSource,
+  type ReplacementCase,
+  type ReplacementPredicate,
+  type ReplacementRule,
 } from './model.js'
 import type { ReplacementScanItem } from './scan.js'
+import { boundaryItems } from '../format/document.js'
 
 // ---------------------------------------------------------------------------
 // Plan shape (command params for node.replace - plain Json by construction)
@@ -591,7 +593,17 @@ export function planReplacement(
   rule: ReplacementRule,
   resolve: ReplacementSchemaResolver,
 ): ReplacementPlanResult {
-  return planReplacementForCase(document, graphId, nodeId, rule, resolve)
+  return planReplacementForCase(document, graphId, nodeId, ordinaryUnlessSameType(rule), resolve)
+}
+
+/**
+ * A rule that changes the type plans as an ordinary replacement: its
+ * historical inputs only tell an importer how to read the saved source node.
+ */
+const ordinaryUnlessSameType = (rule: ReplacementRule): ReplacementRule => {
+  if (rule.migration === undefined || isSameTypeMigration(rule)) return rule
+  const { migration: _historical, ...ordinary } = rule
+  return ordinary
 }
 
 /** Only validated batch composition may retain a previously selected case. */
@@ -649,7 +661,7 @@ function planReplacementForCase(
     : Object.keys(document.view.graphs[graphId]?.nodes[nodeId]?.views ?? {})
       .filter((input) => migrationHistoricalInputs.has(input))
   const historicalViews = document.view.graphs[graphId]?.nodes[nodeId]?.views ?? {}
-  const boundaryHasHistoricalInput = (def.boundary?.inputs ?? []).some((item) =>
+  const boundaryHasHistoricalInput = (boundaryItems(def.boundary, 'inputs') ?? []).some((item) =>
     [item.binds, ...(item.alsoBinds ?? [])].some((binding) =>
       binding.kind !== 'widgetTap' && binding.node === nodeId && migrationHistoricalInputs.has(binding.port),
     ),
@@ -662,7 +674,7 @@ function planReplacementForCase(
       const inputPorts = [
         ...Object.values(def.links).flatMap((link) => isPortEndpoint(link.to) ? [link.to] : []),
         ...Object.values(def.nets).flatMap((net) => net.sinks),
-        ...(def.boundary?.inputs ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
+        ...(boundaryItems(def.boundary, 'inputs') ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
           .flatMap((binding) => binding.kind === 'port' ? [binding] : []),
       ].filter((endpoint) => endpoint.node === nodeId).map((endpoint) => endpoint.port as string)
       historicalFamilyMembers.set(mapping, memberKeysEvidenced(
@@ -787,9 +799,7 @@ function planReplacementForCase(
     def.nodes[id] !== undefined ||
     def.links[id] !== undefined ||
     def.nets[id] !== undefined ||
-    def.reroutes[id] !== undefined ||
-    def.valueSources?.[id] !== undefined ||
-    def.selectors?.[id] !== undefined
+    def.reroutes[id] !== undefined
   for (const [localId, helper] of Object.entries(matched.nodes ?? {})) {
     if (helper.type.startsWith('#')) {
       errors.push(diag('error', 'replace.target.subgraph', `replace: helper '${localId}' cannot target a subgraph instance`))
@@ -1303,7 +1313,9 @@ function planReplacementForCase(
       continue
     }
     const writesValue = mapping.kind === 'constant' || mapping.kind === 'value' || mapping.kind === 'copy'
-    if (writesValue && spec.widget === undefined && mapping.kind !== 'copy') {
+    // A selector input stores its pick without a widget.
+    const holdsValue = spec.widget !== undefined || address.schema.selector?.input === address.port
+    if (writesValue && !holdsValue && mapping.kind !== 'copy') {
       errors.push(diag('error', 'replace.target.notWidget', `replace: target input '${targetInput}' has no widget; cannot write a value`))
       continue
     }
@@ -1787,7 +1799,7 @@ function planReplacementForCase(
     if (to.port !== b.port)
       boundaryRewires.push({ item: itemId, side, fromPort: b.port, port: to.port, ...(alsoIndex !== undefined ? { alsoIndex } : {}) })
   }
-  for (const item of def.boundary?.inputs ?? []) {
+  for (const item of boundaryItems(def.boundary, 'inputs') ?? []) {
     migrateBinding('input', item.id, item.binds)
     if (item.binds.node === nodeId && item.promoted === true) {
       const to = item.binds.kind === 'port'
@@ -1800,10 +1812,10 @@ function planReplacementForCase(
     }
     item.alsoBinds?.forEach((a, i) => migrateBinding('input', item.id, a, i))
   }
-  for (const item of def.boundary?.outputs ?? []) migrateBinding('output', item.id, item.binds)
+  for (const item of boundaryItems(def.boundary, 'outputs') ?? []) migrateBinding('output', item.id, item.binds)
 
   const boundaryGuard: NonNullable<NodeReplacePlan['boundaryGuard']>[number][] = []
-  for (const item of def.boundary?.inputs ?? []) {
+  for (const item of boundaryItems(def.boundary, 'inputs') ?? []) {
     if (item.binds.node === nodeId && item.binds.kind === 'port') {
       boundaryGuard.push({ item: item.id, side: 'input', port: item.binds.port,
         ...(item.promoted === true ? { promoted: true } : {}) })
@@ -1814,7 +1826,7 @@ function planReplacementForCase(
       }
     })
   }
-  for (const item of def.boundary?.outputs ?? []) {
+  for (const item of boundaryItems(def.boundary, 'outputs') ?? []) {
     if (item.binds.node === nodeId && item.binds.kind === 'port') {
       boundaryGuard.push({ item: item.id, side: 'output', port: item.binds.port })
     }
@@ -2194,7 +2206,7 @@ export function replacementInvocation(
   for (const item of items) {
     for (const hop of item.hops) {
       if (scratch.graphs[item.graphId]?.nodes[item.nodeId]?.type !== hop.plan.from) return undefined
-      const planned = planReplacementForCase(scratch, item.graphId, item.nodeId, hop.rule, resolve, hop.plan.caseIndex)
+      const planned = planReplacementForCase(scratch, item.graphId, item.nodeId, ordinaryUnlessSameType(hop.rule), resolve, hop.plan.caseIndex)
       if (planned.plan === undefined) return undefined
       // Archive the originally reviewed source, but guard against the exact
       // intermediate state that this hop will see inside the atomic batch.

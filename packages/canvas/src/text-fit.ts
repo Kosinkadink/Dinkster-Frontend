@@ -26,6 +26,23 @@ export function multilineLineHeight(fontSize: number): number {
   return Math.ceil(fontSize * canvasPaintTokens.type.multilineLeadingNumerator / canvasPaintTokens.type.multilineLeadingDenominator)
 }
 
+/** Center Noto Sans capitals without moving the row's marks or geometry. */
+export function paintCenteredText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  centerY: number,
+  fontSize: number,
+  maxWidth?: number,
+): void {
+  const previous = ctx.textBaseline
+  ctx.textBaseline = 'alphabetic'
+  const baseline = centerY + fontSize * canvasPaintTokens.type.capHeight / 2
+  if (maxWidth === undefined) ctx.fillText(text, x, baseline)
+  else ctx.fillText(text, x, baseline, maxWidth)
+  ctx.textBaseline = previous
+}
+
 interface FontCache {
   readonly widths: Map<string, number>
   readonly fits: Map<string, string>

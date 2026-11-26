@@ -8,11 +8,11 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { elabInputsOf, elabOutputsOf, elaborateInterface, type Connectivity } from '../src/schema/elaborate.js'
-import { canonicalTypeIdOf } from '../src/schema/model.js'
+import { canonicalTypeIdOf, type NodeSchema } from '../src/schema/model.js'
 import type { DynamicPortState, Json } from '../src/format/document.js'
 
 const FIXTURE = new URL('./fixtures/flatten_v2.json', import.meta.url)
-const FIXTURE_SHA256 = '3c95c96f05190c97c909783ee4126b9b334f496d3876014f5c74d6d2d6f26402'
+const FIXTURE_SHA256 = 'dea223325eee9947905b7a76210642c0df663b2d3658c195613cf039386f40dd'
 
 interface FlattenCase {
   readonly id: string
@@ -25,6 +25,10 @@ interface FlattenCase {
   readonly inputs?: readonly (readonly [string, string, boolean, Json])[]
   readonly outputs?: readonly string[]
   readonly chose?: Readonly<Record<string, string>>
+  /** Each automatic field with nothing stored and no wire: its value in use and where it came from. */
+  readonly automatic?: Readonly<Record<string, readonly [Json, 'worked-out' | 'default']>>
+  /** The automatic fields whose lookup is called. */
+  readonly lookupCalls?: readonly string[]
 }
 
 const bytes = readFileSync(FIXTURE)
@@ -35,7 +39,7 @@ const cases = (JSON.parse(bytes.toString('ascii')) as { cases: FlattenCase[] }).
  * a group's member keys in the order the run names them (its member list
  * first, then keys found only in stored ids, the engine's discovery rule), and each choice's key.
  */
-function documentOf(testCase: FlattenCase): {
+function documentOf(testCase: FlattenCase, schema: NodeSchema): {
   values: Record<string, Json>
   dynamic: Record<string, DynamicPortState>
   connectivity: Connectivity
@@ -63,6 +67,15 @@ function documentOf(testCase: FlattenCase): {
     if (found.length > 0) dynamic[path] = { members: found }
   }
   for (const [path, key] of Object.entries(testCase.choices)) dynamic[path] = { ...dynamic[path], selected: key }
+  // These are keys already submitted to the engine, not inert editor picks.
+  // A submitted type choice has an active pin in the editor that produced it.
+  const census = elaborateInterface(schema, { values, dynamic }, {
+    isInputConnected: (port) => wired.has(port), isOutputConnected: () => false,
+  }, { includeDormant: true })
+  for (const input of elabInputsOf(census)) {
+    if (input.origin.kind === 'slot' && input.origin.variants !== undefined && testCase.choices[input.address.port] !== undefined)
+      wired.add(input.address.port)
+  }
   return {
     values,
     dynamic,
@@ -84,7 +97,7 @@ describe('flattening cases shared with the engine', () => {
         return
       }
       expect(parsed.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-      const { values, dynamic, connectivity } = documentOf(testCase)
+      const { values, dynamic, connectivity } = documentOf(testCase, parsed.schema!)
       const elaborated = elaborateInterface(parsed.schema!, { values, dynamic }, connectivity, { promoteGhosts: false })
       const errors = elaborated.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message)
       if (testCase.outcome === 'refused') {
@@ -105,6 +118,15 @@ describe('flattening cases shared with the engine', () => {
       const outputs = elabOutputsOf(elaborated).filter((output) => output.wireable !== false).map((output) => output.spec.id)
       expect([...outputs].sort()).toEqual([...testCase.outputs!].sort())
       expect(elaborated.choices ?? {}).toEqual(testCase.chose)
+      if (testCase.automatic !== undefined) {
+        const automatic = Object.fromEntries(elabInputsOf(elaborated).flatMap((input) =>
+          input.automatic === undefined ? [] : [[input.address.port, [input.automatic.value, input.automatic.state === 'worked-out' ? 'worked-out' : 'default']]]))
+        expect(automatic).toEqual(testCase.automatic)
+      }
+      if (testCase.lookupCalls !== undefined) {
+        expect(elabInputsOf(elaborated).filter((input) => input.automatic?.call !== undefined).map((input) => input.address.port))
+          .toEqual(testCase.lookupCalls)
+      }
     })
   }
 })

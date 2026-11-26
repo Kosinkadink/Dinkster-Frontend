@@ -39,6 +39,7 @@ import {
   toolboxButton,
   toolboxSeparator,
   type BadgeMap,
+  type PresenceActor,
   type NodeBadge,
   type CompanionMap,
   type RowMarkMap,
@@ -55,10 +56,14 @@ import {
   boundaryNamesGalleryScene,
   structuralGalleryScene,
 } from './structure.js'
+import { boundaryTreeGallery } from './boundary-tree.js'
 import { smallFlowNodesGallery } from './small-flow-nodes.js'
+import { subgraphIconGallery } from './subgraph-icon.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
 import { typeConflictGallery } from './type-conflict.js'
+import { wireLooksGallery } from './wire-looks.js'
 import { widgetTapGallery } from './widget-taps.js'
+import { rowSummariesGallery } from './row-summaries.js'
 
 export const canvasGalleryPages = [
   ['anatomy', 'Node anatomy'],
@@ -74,15 +79,25 @@ export const canvasGalleryPages = [
   ['run-editable', 'Editable workflow run states'],
   ['run-frozen', 'Frozen run states'],
   ['types', 'Pins and links'],
+  ['wire-looks', 'Wire looks'],
   ['widgets', 'Widget kinds'],
   ['core-rows', 'Core widget rows'],
+  ['declaration-rows', 'Declaration notes and lines'],
   ['row-editing', 'Editing in the row proposal'],
+  ['row-states', 'Declaration row states: Display, nothing and skipped'],
+  ['row-automatic', 'Automatic values proposal'],
   ['row-lists', 'Lists in the row proposal'],
+  ['lookups', 'Lookup states'],
   ['color-editing', 'Color in the row'],
+  ['save-target-box', 'Save target in the row'],
   ['node-look', 'Original and new node look'],
   ['problem-box', 'The node\'s problem box'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
+  ['row-summaries', 'Closed row summaries'],
+  ['row-file-previews', 'Thumbnails in closed file rows'],
+  ['in-node-editors', 'Editors in the node'],
+  ['editor-choice-placement', 'Choices over the canvas'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
   ['widget-companions', 'Propagated values'],
@@ -92,6 +107,8 @@ export const canvasGalleryPages = [
   ['structure', 'Structural parts'],
   ['boundary', 'Subgraph boundaries'],
   ['boundary-names', 'Subgraph names'],
+  ['boundary-tree', 'Subgraph boundary tree'],
+  ['subgraph-icon', 'Subgraph icon'],
   ['badges', 'Badges and toolbar'],
   ['previews', 'Previews'],
   ['zoom', 'Controls zoom'],
@@ -144,6 +161,9 @@ const sample = schema('Sampling', [
   }),
 ])
 
+/** Widget kinds of the editors shown in the node. */
+const EDITOR_KINDS = new Set(['CURVE', 'AUDIO_RECORD', 'WEBCAM', 'LOAD_3D', 'IMAGECOMPARE', 'CAMERA_ANGLE_VIEW'])
+
 export const galleryWidgetInputs: readonly InputSpec[] = [
   widget('integer', 'INT', 20, { min: 1, max: 10000 }),
   sample.body[2] as InputSpec,
@@ -178,7 +198,6 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
     },
   },
   widget('color', 'COLOR', '#3366cc80'),
-  widget('colors', 'COLORS', ['#32E6C5', '#FF7468', '#FFD166']),
   widget('curve', 'CURVE', {
     points: [
       { position: 0, value: 0 },
@@ -207,7 +226,6 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
   widget('markdown', 'MARKDOWN', '# Heading\nBody text'),
   widget('compare', 'IMAGECOMPARE', null),
   widget('camera_angle', 'CAMERA_ANGLE_VIEW', ''),
-  widget('resolution', 'RESOLUTION_PREVIEW', null),
   widget('save_target', 'SAVE_TARGET', null),
   widget('bounding_box', 'BOUNDING_BOX', {
     x: 8,
@@ -230,15 +248,14 @@ interface BoxedNode {
     readonly ports: Readonly<Record<string, string>>
     readonly at: { readonly x: number; readonly y: number }
   }
-  /** Fields whose value a sink node reads, by field id, with the wire's type. */
   readonly tapped?: {
     readonly ports: Readonly<Record<string, string>>
     readonly at: { readonly x: number; readonly y: number }
   }
-  /** View fold state per line of fields: false unfolds it. */
   readonly folds?: Readonly<Record<string, boolean>>
   readonly textLines?: Readonly<Record<string, number>>
   readonly height?: number
+  readonly width?: number
 }
 
 export interface CanvasGalleryFixture {
@@ -271,6 +288,8 @@ export interface CanvasGalleryFixture {
     rowMarks?: RowMarkMap
     inactive?: ReadonlySet<string>
     badges?: BadgeMap
+    presence?: readonly PresenceActor[]
+    toolbox?: readonly ToolboxRow[]
   }[]
 }
 
@@ -455,11 +474,10 @@ function subgraphAcceptsListScenes(
           single: { type: 'Single', title: 'One image' },
         }),
         boundary: {
-          inputs: [
-            { id: 'lists', displayName: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
-            { id: 'mixed', displayName: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
+          body: [
+            { kind: 'input', id: 'lists', displayName: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
+            { kind: 'input', id: 'mixed', displayName: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
           ],
-          outputs: [],
         },
       },
     },
@@ -497,8 +515,6 @@ export function createCanvasGalleryFixture(
       nodes: [],
       links: [],
       reroutes: [],
-      valueSources: [],
-      selectors: [],
       netStubs: [],
       groups: [],
       boundaryNodes: [],
@@ -554,15 +570,9 @@ export function createCanvasGalleryFixture(
     )
     const sourced = driven || wired.length > 0
     const tapped = Object.entries(extra.tapped?.ports ?? {})
-    const sink = schema(
-      'Sink',
-      tapped.map(([port, type]) => ({
-        kind: 'input' as const,
-        id: port,
-        type: concrete(type),
-        optional: false,
-      })),
-    )
+    const sink = schema('Sink', tapped.map(([port, type]) => ({
+      kind: 'input' as const, id: port, type: concrete(type), optional: false,
+    })))
     const loaded = loadDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
@@ -620,11 +630,7 @@ export function createCanvasGalleryFixture(
                 ]),
                 ...tapped.map(([port]) => [
                   `${id}-tap-${port}`,
-                  {
-                    id: `${id}-tap-${port}`,
-                    from: { node: id, tap: port },
-                    to: { node: `${id} sink`, port },
-                  },
+                  { id: `${id}-tap-${port}`, from: { node: id, tap: port }, to: { node: `${id} sink`, port } },
                 ]),
               ])
             : driven
@@ -662,16 +668,11 @@ export function createCanvasGalleryFixture(
                   }
                 : {}),
               ...(tapped.length > 0
-                ? {
-                    [`${id} sink`]: {
-                      position: extra.tapped!.at,
-                      size: { width: 160, height: 0 },
-                    },
-                  }
+                ? { [`${id} sink`]: { position: extra.tapped!.at, size: { width: 160, height: 0 } } }
                 : {}),
               [id]: {
                 position: { x, y },
-                size: { width: id === 'Narrow' ? 112 : id === 'Suffix narrow' ? 200 : 280, height: extra.height ?? 0 },
+                size: { width: extra.width ?? (id === 'Narrow' ? 112 : id === 'Suffix narrow' ? 200 : 280), height: extra.height ?? 0 },
                 ...(extra.textLines !== undefined ? { textLines: extra.textLines } : {}),
                 ...(id.startsWith('Minimized') || id === 'Long minimized'
                   ? { collapsed: true }
@@ -734,27 +735,18 @@ export function createCanvasGalleryFixture(
   }
   if (page === 'collection-rows') {
     const collection = galleryWidgetInputs.filter((item) =>
-      ['multi_choice', 'list', 'colors', 'curve'].includes(item.id),
+      ['multi_choice', 'list', 'curve'].includes(item.id),
     )
     const definition = schema('Collection widgets', collection)
     add('Selected values', definition)
     add('Empty and minimal values', definition, {
       multi_choice: [],
       list: [],
-      colors: [],
       curve: { points: [{ position: 0, value: 0.25 }] },
     })
     add('Long and varied values', definition, {
       multi_choice: ['red', 'green', 'blue', 'alpha'],
       list: [0.125, 1.5, 12.75, 256.25, 4096.875],
-      colors: [
-        '#32e6c5',
-        '#ff7468',
-        '#ffd166',
-        '#3366cc80',
-        '#cc66ff',
-        '#ffffff',
-      ],
       curve: {
         interpolation: 'monotone_cubic',
         points: [
@@ -801,10 +793,8 @@ export function createCanvasGalleryFixture(
         'save_target',
         'video_edit',
         'list',
-        'colors',
         'curve',
         'camera_angle',
-        'resolution',
       ].includes(item.id),
     )
     const checkpoint: InputSpec = {
@@ -846,7 +836,7 @@ export function createCanvasGalleryFixture(
       save_target: { mount: 'output', prefix: 'portraits/take' },
       video_edit: { trim: { start_time: 2, duration: 5 } },
     })
-    add('Empty values', definition, {
+    const empty = {
       checkpoint: null,
       asset: null,
       recording: null,
@@ -854,14 +844,55 @@ export function createCanvasGalleryFixture(
       save_target: null,
       video_edit: {},
       list: [],
-      colors: [],
       curve: {
         points: [
           { position: 0, value: 0 },
           { position: 1, value: 1 },
         ],
       },
-    })
+    }
+    add('Empty values', definition, empty)
+    add('Empty values, narrow node', definition, empty, undefined, false, { width: 180 })
+    add('Empty values, narrower node', definition, empty, undefined, false, { width: 140 })
+  } else if (page === 'declaration-rows') {
+    const width = widget('width', 'INT', 512, { min: 16, max: 8192 })
+    const height = widget('height', 'INT', 768, { min: 16, max: 8192 })
+    const note = (text: string): NodeSchema['body'][number] => ({ kind: 'note', id: 'result', text })
+    const accessFields = [
+      width,
+      widget('strength', 'FLOAT', 0.65, { min: 0, max: 1, display: 'slider' }),
+      widget('enabled', 'BOOLEAN', true),
+      widget('color', 'INT', 0x31e6c5, { display: 'color' }),
+    ]
+    for (const [label, access] of [
+      ['Ordinary fields', {}],
+      ['Read-only fields', { readOnly: true }],
+      ['Disabled fields', { disabled: true, disabledReason: 'Preset controls these fields' }],
+      ['Read-only and disabled fields', { readOnly: true, disabled: true, disabledReason: 'Preset controls these fields' }],
+    ] as const) {
+      add(label, schema('Field access', accessFields.map((field) => ({ ...field, ...access }))))
+    }
+    add('Read-only fields, narrow', schema('Field access', accessFields.map((field) => ({ ...field, readOnly: true }))), {}, undefined, false, { width: 180 })
+    add('Read-only folded curve', schema('Curve access', galleryWidgetInputs.filter((field) => field.id === 'curve').map((field) => ({ ...field, readOnly: true }))))
+    add('Known note', schema('Resize image', [width, note('Result: 512 x 768, 1 image'), height]))
+    add('Unknown note, supplied text', schema('Resize image', [width, {
+      kind: 'note', id: 'result', text: { formula: 'missing_result' }, unknown: 'Result is not known yet',
+    }, height]))
+    add('Empty note keeps its row', schema('Resize image', [width, note(''), height]))
+    add('Long multiline note, narrow', schema('Resize image', [width,
+      note('Result: 512 x 768, 128 images\nfrom the selected batch'), height]), {}, undefined, false, { width: 180 })
+    add('Two fields', schema('Resize image', [{ kind: 'row', rows: [width, height] }]), {}, undefined, false, { width: 600 })
+    add('Three fields', schema('Offset', [{ kind: 'row', rows: [
+      widget('x', 'INT', 8), widget('y', 'INT', 12), widget('z', 'INT', 0),
+    ] }]), {}, undefined, false, { width: 817 })
+    add('Four fields, one disabled', schema('Crop', [{ kind: 'row', rows: [
+      widget('x', 'INT', 8),
+      { ...widget('y', 'INT', 12), disabled: true, disabledReason: 'The preset controls the vertical offset.' },
+      width, height,
+    ] }]), {}, undefined, false, { width: 817 })
+    add('Field, worded button and note', schema('Resize image', [{ kind: 'row', rows: [
+      width, { kind: 'button', id: 'reset', label: 'Reset width', steps: [] }, { kind: 'note', id: 'units', text: 'px' },
+    ] }]), {}, undefined, false, { width: 817 })
   } else if (page === 'core-rows') {
     const core = galleryWidgetInputs.filter((item) =>
       [
@@ -942,9 +973,11 @@ export function createCanvasGalleryFixture(
             item.id,
             {
               value: (item.widget?.default ?? null) as Json,
-              state: (['expected', 'cached', 'estimate', 'stale'] as const)[
-                i % 4
-              ]!,
+              // An editor shown in the node is passed a value only by a
+              // Primitive or a widget tap, which is always known exactly.
+              state: EDITOR_KINDS.has(item.widget?.widgetType ?? '')
+                ? 'expected'
+                : (['expected', 'cached', 'estimate', 'stale'] as const)[i % 4]!,
             },
           ]),
         )
@@ -985,8 +1018,6 @@ export function createCanvasGalleryFixture(
       nodes: [...scene.nodes],
       links: [...scene.links],
       reroutes: [...scene.reroutes],
-      valueSources: [...scene.valueSources],
-      selectors: [...scene.selectors],
       netStubs: [...scene.netStubs],
       groups: [...scene.groups],
       boundaryNodes: [...scene.boundaryNodes],
@@ -1026,12 +1057,29 @@ export function createCanvasGalleryFixture(
     fixture.scene.links = [...first.links]
     fixture.scene.boundaryNodes = [...first.boundaryNodes]
     examples.push(...cards)
+  } else if (page === 'boundary-tree') {
+    const cards = boundaryTreeGallery(tokens, measure, widgetMeasure)
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
+    fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
+  } else if (page === 'subgraph-icon') {
+    const cards = subgraphIconGallery(tokens, measure, widgetMeasure)
+    fixture.scene.nodes = [...cards[0]!.scene.nodes]
+    examples.push(...cards)
   } else if (page === 'small-flow-nodes') {
     const cards = smallFlowNodesGallery(tokens, measure, widgetMeasure)
     const first = cards[0]!.scene
     fixture.scene.nodes = [...first.nodes]
     fixture.scene.links = [...first.links]
     fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
+  } else if (page === 'wire-looks') {
+    const cards = wireLooksGallery(tokens, measure, widgetMeasure)
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
     examples.push(...cards)
   } else if (page === 'type-conflict') {
     const cards = typeConflictGallery(tokens, measure, widgetMeasure)
@@ -1044,6 +1092,13 @@ export function createCanvasGalleryFixture(
     fixture.scene.nodes = [...gallery.scene.nodes]
     fixture.scene.links = [...gallery.scene.links]
     fixture.companions = gallery.companions
+    examples.push(...gallery.examples)
+  } else if (page === 'row-summaries') {
+    const gallery = rowSummariesGallery(tokens, measure, widgetMeasure)
+    fixture.scene.nodes = [...gallery.scene.nodes]
+    fixture.scene.links = [...gallery.scene.links]
+    fixture.companions = gallery.companions
+    fixture.rowMarks = gallery.rowMarks
     examples.push(...gallery.examples)
   } else if (page === 'title-suffix') {
     const suffixed: NodeSchema = { ...sample, titleSuffix: { formula: 'str(steps) + " steps, " + sampler_name' } }
@@ -1393,18 +1448,6 @@ export function createCanvasGalleryFixture(
           id: 'core.mode',
           icon: 'sliders-horizontal',
           label: 'Choose mode',
-        }),
-        toolboxButton({
-          id: 'core.extractSubgraph',
-          icon: 'group',
-          label: 'Extract as subgraph',
-        }),
-        toolboxButton({
-          id: 'core.flattenSubgraph',
-          icon: 'ungroup',
-          label: 'Flatten subgraph one level',
-          disabled: true,
-          reason: 'Select exactly one subgraph occurrence.',
         }),
         toolboxSeparator(),
         toolboxButton({
@@ -1891,6 +1934,35 @@ export function createCanvasGalleryFixture(
       caption: 'Room under the last thing in a box',
       nodes: examples.slice(-4).flatMap((example) => example.nodes ?? []),
     })
+    // A group's add row and a button the node declares stand raised, in
+    // each state. An add row is never disabled: it goes at the group's most.
+    nextRow()
+    const raised = (enabled?: false) => schema('LoRA stack', [
+      loras('loras', 'LoRAs'),
+      {
+        kind: 'button',
+        id: 'clear',
+        label: 'Clear LoRAs',
+        steps: [],
+        ...(enabled === false ? { enabled } : {}),
+      },
+    ])
+    const buttonStates: readonly [string, number, OverlayState, false?][] = [
+      ['Buttons at rest', 0, {}],
+      ['Add row pointed at', 1, { hoveredButton: { nodeId: 'Add row pointed at', key: 'growth:loras' } }],
+      ['Add row pressed', 2, { pressedButton: { nodeId: 'Add row pressed', key: 'growth:loras' } }],
+      ['Button pointed at', 0, { hoveredButton: { nodeId: 'Button pointed at', key: 'button:clear' } }],
+      ['Button pressed', 1, { pressedButton: { nodeId: 'Button pressed', key: 'button:clear' } }],
+      ['Button disabled', 2, {}, false],
+    ]
+    for (const [caption, at, overlay, enabled] of buttonStates) {
+      if (at === 0 && caption !== 'Buttons at rest') nextRow()
+      add(caption, raised(enabled), {}, 30, false, {
+        at: column(at),
+        dynamic: { loras: { members: ['lora0'] } },
+      })
+      examples[examples.length - 1] = { ...examples[examples.length - 1]!, overlay }
+    }
     const dragging = fixture.scene.nodes.find((node) => node.id === 'Dragging lora 1 below lora 2')!
     const draggedGrip = dragging.layout.rows.flatMap((row) =>
       row.kind === 'member' && row.reorder?.member === 'lora0' ? [row.reorder] : [])[0]!
@@ -1930,28 +2002,13 @@ export function createCanvasGalleryFixture(
         ...fixture.scene.nodes.map((node) => node.y + node.layout.height),
       ) + 40
   } else if (page === 'lines') {
-    const field = (input: InputSpec, displayName: string): InputSpec => ({
-      ...input,
-      displayName,
-    })
+    const field = (input: InputSpec, displayName: string): InputSpec => ({ ...input, displayName })
     const line = (n: number, name: string, strength: number) => ({
       kind: 'row' as const,
       rows: [
         field(widget(`on_${n}`, 'BOOLEAN', true), 'on'),
-        field(
-          widget(`lora_${n}`, 'COMBO', name, {
-            options: ['detail_tweaker', 'film_grain', 'soft_light'],
-          }),
-          'lora',
-        ),
-        field(
-          widget(`strength_${n}`, 'FLOAT', strength, {
-            min: -4,
-            max: 4,
-            step: 0.05,
-          }),
-          'strength',
-        ),
+        field(widget(`lora_${n}`, 'COMBO', name, { options: ['detail_tweaker', 'film_grain', 'soft_light'] }), 'lora'),
+        field(widget(`strength_${n}`, 'FLOAT', strength, { min: -4, max: 4, step: 0.05 }), 'strength'),
       ],
     })
     const loader = schema('LoRA loader', [
@@ -1961,32 +2018,17 @@ export function createCanvasGalleryFixture(
       line(2, 'film_grain', 1),
     ])
     const wires = (y: number) => ({
-      wired: {
-        ports: { on_1: 'BOOLEAN', strength_1: 'FLOAT' },
-        at: { x: 24, y: y + 40 },
-      },
+      wired: { ports: { on_1: 'BOOLEAN', strength_1: 'FLOAT' }, at: { x: 24, y: y + 40 } },
       tapped: { ports: { lora_1: 'COMBO' }, at: { x: 760, y: y + 40 } },
     })
-    add('Folded line, wired in and out', loader, {}, 0, false, {
-      at: { x: 232, y: 54 },
-      ...wires(54),
-    })
-    const below = (gap: number) =>
-      Math.max(
-        ...fixture.scene.nodes.map((node) => node.y + node.layout.height),
-      ) + gap
+    add('Folded line, wired in and out', loader, {}, 0, false, { at: { x: 232, y: 54 }, ...wires(54) })
+    const below = (gap: number) => Math.max(...fixture.scene.nodes.map((node) => node.y + node.layout.height)) + gap
     const unfoldedY = below(64)
     add('Unfolded line, wired in and out', loader, {}, 1, false, {
-      at: { x: 232, y: unfoldedY },
-      folds: { on_1: false },
-      ...wires(unfoldedY),
+      at: { x: 232, y: unfoldedY }, folds: { on_1: false }, ...wires(unfoldedY),
     })
-    add('Folded line, pointed at', loader, {}, 2, false, {
-      at: { x: 232, y: below(64) },
-    })
-    fixture.overlay = {
-      hoveredLine: { nodeId: 'Folded line, pointed at', key: 'on_1' },
-    }
+    add('Folded line, pointed at', loader, {}, 2, false, { at: { x: 232, y: below(64) } })
+    fixture.overlay = { hoveredLine: { nodeId: 'Folded line, pointed at', key: 'on_1' } }
     fixture.height = below(40)
   } else if (page === 'previews') {
     // Rows of three: each row's height in the gallery.
@@ -2255,16 +2297,17 @@ export const rowFocusSchema: NodeSchema = schema('Sample settings', [
   },
 ])
 
-/** The node of the row-editing page's keyboard examples. */
+/** The node of a keyboard example: the row-editing page's, or `definition`. */
 export function createRowFocusScene(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
   position: { x: number; y: number },
   width = 280,
+  definition: NodeSchema = rowFocusSchema,
 ): Scene {
   return singleNodeScene(
-    rowFocusSchema,
+    definition,
     {},
     { position, size: { width, height: 0 } },
     tokens,
@@ -2295,7 +2338,7 @@ export const nodeLookExamples = [
     'A collapsed section with a changed value, and the open Advanced section with its wash.',
   ],
   ['collapsed', 'Collapsed', 'A collapsed node is its title bar alone.'],
-  ['selected', 'Selected', 'The selection outline.'],
+  ['selected', 'Selected', 'A thin edge and a lifted title bar.'],
   ['running', 'Running', 'Running, 45 percent done.'],
   ['error', 'Error', 'The run failed on this node.'],
   ['muted', 'Muted', 'A muted node is dimmed.'],

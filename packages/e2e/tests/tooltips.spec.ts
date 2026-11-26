@@ -81,23 +81,26 @@ test('icon-only activity items show immediate name-first help on hover and focus
   await expect(tooltip).toHaveText(libraryHelp)
 })
 
-test('Settings keeps immediate help, Alt detail, and hover-out', async ({ page }) => {
+test('Settings keeps immediate help, shortcut keys, and hover-out', async ({ page }) => {
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('tooltips.delayMs', 3000))
   const settings = page.getByTestId('settings-button')
   await settings.hover()
-  await expect(page.getByTestId('app-tooltip')).toHaveText('Settings', { timeout: 250 })
+  const tooltip = page.getByTestId('app-tooltip')
+  await expect(tooltip).toHaveText('Settings Ctrl+,', { timeout: 250 })
+  await expect(tooltip.locator('kbd')).toHaveText('Ctrl+,')
   await page.mouse.move(600, 400)
   await expect(page.getByTestId('app-tooltip')).toBeHidden()
 
   await page.keyboard.down('Alt')
   await settings.hover()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Ctrl+,', { timeout: 250 })
+  await expect(page.getByTestId('app-tooltip')).toHaveText('Settings Ctrl+,', { timeout: 250 })
   await page.keyboard.up('Alt')
-  await expect(page.getByTestId('app-tooltip')).not.toContainText('Ctrl+,')
+  await expect(page.getByTestId('app-tooltip')).toHaveText('Settings Ctrl+,')
 })
 
 test('top-right tooltip uses its real width and follows content changes', async ({ page }, testInfo) => {
-  const target = page.getByTestId('customize-layout-button')
+  const target = page.getByTestId('left-panel-toggle')
   const tooltip = page.getByTestId('app-tooltip')
   await target.focus()
   await expect(tooltip).toBeVisible()
@@ -110,6 +113,9 @@ test('top-right tooltip uses its real width and follows content changes', async 
       return Math.abs(box.x - expectedX) + Math.abs(box.y - anchor.y - anchor.height - 8)
     }).toBeLessThan(0.1)
   }
+  await assertPlacement()
+  // A neighbour widening in the same group moves the anchor.
+  await page.getByTestId('collab-button').evaluate((element) => { (element as HTMLElement).style.minWidth = '160px' })
   await assertPlacement()
   await target.evaluate((element) => { (element as HTMLElement).dataset['tooltipDetail'] = 'Additional layout information that changes the measured tooltip width.|Second detail line.' })
   await page.keyboard.down('Alt')
@@ -168,29 +174,6 @@ test('activity rail tooltip stays beside its item at desktop and compact widths'
   }
 })
 
-test('node palette port product tooltip preserves hover and keyboard wording', async ({ page }) => {
-  await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
-    type: 'UaTooltipProof', displayName: 'UA tooltip proof', category: 'test', source: 'v3', isOutputNode: false,
-    body: [
-      { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: false, tooltip: 'Exact input tooltip wording.' },
-      { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'STRING' }, tooltip: 'Exact output tooltip wording.' },
-    ],
-  }]))
-  const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
-  await page.mouse.dblclick(700, 600)
-  await page.getByTestId('palette-search').fill('UA tooltip proof')
-  const type = page.getByTestId('preview-input').locator('.preview-port-type')
-  const wording = await type.getAttribute('data-tooltip-label')
-  expect(wording).toBe('STRING')
-  await expect(type).not.toHaveAttribute('title')
-  await type.hover()
-  await expect(page.getByTestId('app-tooltip')).toHaveText(wording!, { timeout: 1_500 })
-  await type.focus()
-  await expect(page.getByTestId('app-tooltip')).toHaveText(wording!)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-})
-
 test('shell and minimap seams use product tooltips without document writes', async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'shell-tooltip-fixture', schemaWire: 2 }, nodes: {},
@@ -223,7 +206,7 @@ test('shell and minimap seams use product tooltips without document writes', asy
   await expect(shellToggle).toHaveAccessibleName('Toggle left panel')
   await expect(shellToggle).toHaveAttribute('aria-pressed', /true|false/)
   await proveTooltip(minimapToggle, 'Show bookmark numbers on the minimap')
-  await expect(minimapToggle).toHaveAccessibleName('Bookmarks. Show bookmark numbers on the minimap')
+  await expect(minimapToggle).toHaveAccessibleName('Bookmark numbers')
 
   const checked = await minimapToggle.getAttribute('aria-checked')
   await minimapToggle.click()
@@ -281,7 +264,7 @@ seededTest('canvas pin and widget tooltips use scene coordinates and hide on mou
   await page.keyboard.up('Alt')
 })
 
-test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagnostic', async ({ page }) => {
+test('mismatch noodle midpoint grab-dot tooltip names the shown nodes and types', async ({ page }) => {
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   const point = await page.evaluate(async () => {
     const test = window.__dinksterTest!
@@ -319,5 +302,5 @@ test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagno
   await page.mouse.move(point.x, point.y)
   const tooltip = page.getByTestId('app-tooltip')
   await expect(tooltip).toContainText('Type mismatch', { timeout: 1_500 })
-  await expect(tooltip).toContainText('target.input: IMAGE cannot feed LATENT')
+  await expect(tooltip).toContainText('Latent sink: Input needs latent data, but Image source sends an image.')
 })

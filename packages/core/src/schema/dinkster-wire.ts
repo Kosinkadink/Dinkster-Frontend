@@ -27,6 +27,7 @@ import type {
   InputSpec,
   LookupSpec,
   Looked,
+  LookedNumberField,
   MaskPolarity,
   MaskSemantic,
   MirrorSpec,
@@ -95,7 +96,6 @@ interface WireEntry {
   readonly memberPrefix?: unknown
   readonly memberNames?: unknown
   readonly optionalAfterMinimum?: unknown
-  readonly forceInput?: unknown
   readonly socketless?: unknown
   /** Computation-semantic demand marker. */
   readonly lazy?: unknown
@@ -293,6 +293,12 @@ export interface DinksterNodesPayload {
    * this table is real but not final. Omitted once composed - never false.
    */
   readonly composing?: unknown
+  /**
+   * When a kept copy of this table was recorded, in epoch milliseconds: by
+   * the engine for the always-on process's record, by the browser for its
+   * own copy. Absent on a live answer.
+   */
+  readonly recordedAt?: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -514,7 +520,11 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where}.editableOptions cannot have another option source`)
       }
       const options = descriptor['options']
-      if (options !== undefined) {
+      const lookedOptions = isLookedWire(options)
+      if (lookedOptions && (descriptor['remote'] !== undefined || descriptor['editableOptions'] === true)) {
+        throw new Error(`${where}.options from a formula or a lookup take no other option source`)
+      }
+      if (options !== undefined && !lookedOptions) {
         if (!Array.isArray(options)) throw new Error(`${where}.options must be an array`)
         options.forEach((value, index) => validateComboOption(value, `${where}.options[${index}]`, diags, true))
       }
@@ -532,7 +542,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.remote.refreshButton must be a boolean`)
         }
       }
-      if ((!Array.isArray(options) || options.length === 0) && remote === undefined && descriptor['editableOptions'] !== true) {
+      if (!lookedOptions && (!Array.isArray(options) || options.length === 0) && remote === undefined && descriptor['editableOptions'] !== true) {
         throw new Error(`${where} requires options or remote`)
       }
       return
@@ -580,8 +590,8 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         const value = descriptor[key]
         const finiteNumber = typeof value === 'number' && Number.isFinite(value)
         const decimalInteger = isCanonicalUnsafeInteger(value)
-        if (value !== undefined && !finiteNumber && !decimalInteger) {
-          throw new Error(`${where}.${key} must be a finite number or exact decimal integer`)
+        if (value !== undefined && !finiteNumber && !decimalInteger && !isLookedWire(value)) {
+          throw new Error(`${where}.${key} must be a finite number, an exact decimal integer, a formula or a lookup`)
         }
       }
       if (descriptor['min'] !== undefined && descriptor['max'] !== undefined) {
@@ -632,7 +642,9 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       if (descriptor['dynamicPrompts'] !== undefined && typeof descriptor['dynamicPrompts'] !== 'boolean') {
         throw new Error(`${where}.dynamicPrompts must be a boolean`)
       }
-      if (descriptor['completions'] !== undefined) decodeTextCompletions(descriptor['completions'], `${where}.completions`, diags)
+      if (descriptor['completions'] !== undefined && !isLookedWire(descriptor['completions'])) {
+        decodeTextCompletions(descriptor['completions'], `${where}.completions`, diags)
+      }
       if (
         descriptor['multiline'] === undefined &&
         descriptor['placeholder'] === undefined &&
@@ -651,12 +663,26 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'CURVE':
-      checkWidgetFields(descriptor, ['type', 'inputStrip', 'outputStrip'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'inputStrip', 'outputStrip', 'histogram', 'histogramVisible', 'interpolations'], where, diags)
       for (const key of ['inputStrip', 'outputStrip']) {
         const colors = descriptor[key]
         if (colors !== undefined && !(Array.isArray(colors) && colors.length === 2 &&
           colors.every((color) => typeof color === 'string' && /^#[0-9a-f]{6}$/.test(color)))) {
           throw new Error(`${where}.${key} must be two lower-case #rrggbb colors`)
+        }
+      }
+      if (descriptor['histogram'] !== undefined && (typeof descriptor['histogram'] !== 'string' || descriptor['histogram'] === '')) {
+        throw new Error(`${where}.histogram must name an input`)
+      }
+      if (descriptor['histogramVisible'] !== undefined && typeof descriptor['histogramVisible'] !== 'boolean') {
+        throw new Error(`${where}.histogramVisible must be a boolean`)
+      }
+      if (descriptor['interpolations'] !== undefined) {
+        const kinds = descriptor['interpolations']
+        if (!(Array.isArray(kinds) && kinds.length > 0 &&
+          kinds.every((kind) => kind === 'linear' || kind === 'monotone_cubic' || kind === 'step') &&
+          new Set(kinds).size === kinds.length)) {
+          throw new Error(`${where}.interpolations must be distinct supported kinds`)
         }
       }
       return
@@ -707,19 +733,23 @@ function cloneJsonValue(value: unknown, where: string): unknown {
   throw new Error(`${where} must be JSON-safe`)
 }
 
-function numericWidgetType(type: TypeExpr, forceInput = false): 'INT' | 'FLOAT' | undefined {
+function numericWidgetType(type: TypeExpr): 'INT' | 'FLOAT' | undefined {
   if (type.kind === 'concrete' && (type.name === 'INT' || type.name === 'FLOAT')) return type.name
-  if (forceInput && type.kind === 'concrete' && type.name === 'FLOATS') return 'FLOAT'
   if (type.kind === 'union' && type.names.length === 2 && type.names.includes('INT') && type.names.includes('FLOAT')) return 'FLOAT'
   return undefined
 }
 
-function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: TypeExpr, where: string, forceInput = false): void {
+function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: TypeExpr, where: string): void {
   const socket = type.kind === 'concrete' ? type.name : undefined
   switch (descriptor['type']) {
     case 'STRING':
-    case 'MOUNT':
       if (socket !== 'STRING') throw new Error(`${where} requires a concrete STRING input`)
+      return
+    case 'MOUNT':
+      if (socket !== 'STRING' && socket !== 'MOUNT' && !(type.kind === 'union' &&
+        type.names.length === 2 && type.names.includes('MOUNT') && type.names.includes('STRING'))) {
+        throw new Error(`${where} requires MOUNT, STRING or their union`)
+      }
       return
     case 'COLOR':
       if (socket !== 'STRING' && socket !== 'COLOR') throw new Error(`${where} requires a concrete COLOR or STRING input`)
@@ -742,9 +772,9 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       }
       return
     case 'NUMBER': {
-      const numericKind = numericWidgetType(type, forceInput)
+      const numericKind = numericWidgetType(type)
       if (numericKind === undefined) {
-        throw new Error(`${where} requires INT, FLOAT, their numeric-only union, or forced FLOATS`)
+        throw new Error(`${where} requires INT, FLOAT, or their numeric-only union`)
       }
       if (descriptor['round'] !== undefined && numericKind !== 'FLOAT') {
         throw new Error(`${where}.round requires FLOAT`)
@@ -752,11 +782,11 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       if (numericKind === 'INT') {
         for (const key of ['min', 'max', 'step']) {
           const value = descriptor[key]
-          if (value !== undefined && !Number.isSafeInteger(value) && !isCanonicalUnsafeInteger(value)) {
+          if (value !== undefined && !Number.isSafeInteger(value) && !isCanonicalUnsafeInteger(value) && !isLookedWire(value)) {
             throw new Error(`${where}.${key} must be an exact integer on INT`)
           }
         }
-      } else if (['min', 'max', 'step'].some((key) => descriptor[key] !== undefined && typeof descriptor[key] !== 'number')) {
+      } else if (['min', 'max', 'step'].some((key) => descriptor[key] !== undefined && typeof descriptor[key] !== 'number' && !isLookedWire(descriptor[key]))) {
         throw new Error(`${where} decimal integer constraints require INT`)
       }
       return
@@ -815,7 +845,6 @@ function widgetFor(
   wire: unknown,
   diags: Diagnostic[],
   representationsAllowed = true,
-  forceInput = false,
 ): WidgetSpec | undefined {
   if (typeof wire === 'object' && wire !== null) {
     const descriptor = wire as {
@@ -874,7 +903,7 @@ function widgetFor(
         if (typeof representation['widget'] !== 'object' || representation['widget'] === null || Array.isArray(representation['widget'])) {
           throw new Error(`${nodeType}.${id}: representation ${index} widget must be an object`)
         }
-        const nested = widgetFor(nodeType, id, type, dflt, representation['widget'], diags, false, forceInput)
+        const nested = widgetFor(nodeType, id, type, dflt, representation['widget'], diags, false)
         if (nested === undefined || nested.representations !== undefined) {
           throw new Error(`${nodeType}.${id}: representation ${index} must contain one widget descriptor`)
         }
@@ -915,7 +944,7 @@ function widgetFor(
       }
     }
     validateStrictWidgetDescriptor(wire as Record<string, unknown>, `${nodeType}.${id} widget`, diags)
-    validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`, forceInput)
+    validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`)
     if (descriptor.type === 'ASSET' && Array.isArray(descriptor.accept) && descriptor.accept.every((v) => typeof v === 'string')) {
       let kind: string | undefined
       if (descriptor.kind !== undefined) {
@@ -949,7 +978,10 @@ function widgetFor(
         return undefined
       }
       let options: unknown[] | undefined
-      if (descriptor.options !== undefined) {
+      const lookedOptions = isLookedWire(descriptor.options)
+        ? wireLookedValue(descriptor.options, `${nodeType}.${id} widget.options`)
+        : undefined
+      if (descriptor.options !== undefined && lookedOptions === undefined) {
         if (Array.isArray(descriptor.options)) {
           if (descriptor.options.length > 0 || descriptor.editableOptions === true) options = descriptor.options.map(comboOptionFields)
         } else {
@@ -994,12 +1026,13 @@ function widgetFor(
           diags.push(diag('warning', 'schema', 'schema.dinkster.badComboRemote', `${nodeType}.${id}: COMBO remote requires a route starting with '/'`))
         }
       }
-      if (options === undefined && remote === undefined && descriptor.editableOptions !== true) {
+      if (options === undefined && remote === undefined && lookedOptions === undefined && descriptor.editableOptions !== true) {
         diags.push(diag('warning', 'schema', 'schema.dinkster.badCombo', `${nodeType}.${id}: COMBO has no options or option source`))
       } else {
         return {
           widgetType: 'COMBO',
           options: options !== undefined ? { options } : {},
+          ...(lookedOptions !== undefined ? { looked: { options: lookedOptions } } : {}),
           ...(descriptor.editableOptions === true ? { editableOptions: true as const } : {}),
           ...(typeof descriptor.optionsInput === 'string' ? { optionsInput: descriptor.optionsInput } : {}),
           ...(remote !== undefined ? { remote } : {}),
@@ -1070,7 +1103,7 @@ function widgetFor(
     // metadata never hides an editor. Integer sockets retain unsafe
     // constraints as canonical decimal strings; float sockets remain numbers.
     if (descriptor.type === 'NUMBER') {
-      const numericKind = numericWidgetType(type, forceInput)
+      const numericKind = numericWidgetType(type)
       if (numericKind !== 'INT' && numericKind !== 'FLOAT') {
         diags.push(
           diag('warning', 'schema', 'schema.dinkster.badNumberSocket', `${nodeType}.${id}: NUMBER descriptor requires a numeric input`),
@@ -1078,9 +1111,14 @@ function widgetFor(
       } else {
         const isInt = numericKind === 'INT'
         const options: Record<string, unknown> = {}
+        const looked: Partial<Record<LookedNumberField, FormulaSpec | LookupSpec>> = {}
         for (const key of ['min', 'max', 'step', 'offset'] as const) {
           const v = descriptor[key]
           if (v === undefined) continue
+          if (isLookedWire(v)) {
+            looked[key] = wireLookedValue(v, `${nodeType}.${id} widget.${key}`)
+            continue
+          }
           const numeric = typeof v === 'number' && Number.isFinite(v)
           const exactInteger = (numeric && Number.isSafeInteger(v)) || isCanonicalUnsafeInteger(v)
           const positiveStep = key !== 'step' || (numeric && v > 0) || (isCanonicalUnsafeInteger(v) && BigInt(v) > 0n)
@@ -1139,6 +1177,7 @@ function widgetFor(
         return {
           widgetType: numericKind,
           options,
+          ...(Object.keys(looked).length > 0 ? { looked } : {}),
           ...(dflt !== undefined ? { default: dflt } : {}),
         }
       }
@@ -1159,12 +1198,18 @@ function widgetFor(
             )
         }
         if (descriptor.dynamicPrompts !== undefined) options['dynamicPrompts'] = descriptor.dynamicPrompts
+        const lookedCompletions = isLookedWire(descriptor.completions)
+          ? wireLookedValue(descriptor.completions, `${nodeType}.${id} widget.completions`)
+          : undefined
         const textCompletions =
-          descriptor.completions === undefined ? undefined : decodeTextCompletions(descriptor.completions, `${nodeType}.${id} widget.completions`)
+          descriptor.completions === undefined || lookedCompletions !== undefined
+            ? undefined
+            : decodeTextCompletions(descriptor.completions, `${nodeType}.${id} widget.completions`)
         return {
           widgetType: 'STRING',
           options,
           ...(textCompletions === undefined ? {} : { textCompletions }),
+          ...(lookedCompletions !== undefined ? { looked: { completions: lookedCompletions } } : {}),
           ...(dflt !== undefined ? { default: dflt } : {}),
         }
       } else {
@@ -1187,13 +1232,20 @@ function widgetFor(
       }
     }
     if (descriptor.type === 'CURVE') {
-      // The color strips a curve declares along its input and output, low end first.
+      // The color strips a curve declares along its input and output, low end first,
+      // and the input beside the curve that is its histogram, by its id in the curve's scope.
       const fields = wire as Record<string, unknown>
       const strips = Object.fromEntries(['inputStrip', 'outputStrip']
         .flatMap((key) => fields[key] === undefined ? [] : [[key, [...(fields[key] as string[])]]]))
+      const histogram = fields['histogram']
       return {
         widgetType: 'CURVE',
-        options: strips,
+        options: {
+          ...strips,
+          ...(typeof histogram === 'string' ? { histogram } : {}),
+          ...(typeof fields['histogramVisible'] === 'boolean' ? { histogramVisible: fields['histogramVisible'] } : {}),
+          ...(Array.isArray(fields['interpolations']) ? { interpolations: [...fields['interpolations']] } : {}),
+        },
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -1268,7 +1320,7 @@ function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], no
       )
     }
   }
-  const widget = widgetFor(nodeType, id, type, entry.default, entry.widget, diags, true, entry.forceInput === true)
+  const widget = widgetFor(nodeType, id, type, entry.default, entry.widget, diags, true)
   const representedUpload = widget?.representations?.representations.some((representation) => representation.widget.allowUpload === true) === true
   let sourceFilename: SourceFilenameSpec | undefined
   if (entry.sourceFilename !== undefined) {
@@ -1513,6 +1565,15 @@ function wireFormulated<T extends string | boolean>(value: unknown, where: strin
   return wireFormula(value, where)
 }
 
+/** A widget field written as a formula or a lookup instead of its literal. */
+function isLookedWire(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && ('formula' in value || 'lookup' in value)
+}
+
+function wireLookedValue(value: Record<string, unknown>, where: string): FormulaSpec | LookupSpec {
+  return 'lookup' in value ? wireLookup(value, where) : wireFormula(value, where)
+}
+
 function wireLooked(value: unknown, where: string): Looked<string> {
   if (typeof value === 'string') return value
   const data = wireObject(value, where)
@@ -1556,7 +1617,7 @@ const COMMON_FIELDS = ['label', 'tooltip', 'visible'] as const
 const INPUT_FIELDS = [
   'kind', 'id', 'type', 'required', 'default', 'onAbsent', 'widget', 'tooltip', 'label', 'pinFirst', 'pin',
   'afterRun', 'onEdit', 'hidden', 'lazy', 'acceptsStorage', 'acceptsStream', 'acceptsList', 'sourceFilename',
-  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible',
+  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible', 'automatic', 'sent', 'readOnly', 'disabled', 'disabledReason',
 ]
 
 /** A port's label, literal or worked out by formula, and whether it shows. */
@@ -1575,6 +1636,8 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
   const pinFirst = wireBoolean(entry['pinFirst'], `${where}.pinFirst`, false)
   const pin = wireBoolean(entry['pin'], `${where}.pin`, true)
   if (!pin && pinFirst) throw new Error(`${where}.pin false conflicts with pinFirst`)
+  const sent = wireBoolean(entry['sent'], `${where}.sent`, true)
+  if (!sent && pin) throw new Error(`${where}: a field that is not sent cannot be wired; it needs pin false`)
   const hidden = wireBoolean(entry['hidden'], `${where}.hidden`, false)
   const lazy = wireBoolean(entry['lazy'], `${where}.lazy`, false)
   wireJson(entry['default'], `${where}.default`)
@@ -1587,6 +1650,11 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
     throw new Error(`${where}.afterRun must be one of ${[...AFTER_RUN_MODES].join(', ')}`)
   }
   const onEdit = entry['onEdit'] === undefined ? [] : wireSteps(entry['onEdit'], `${where}.onEdit`)
+  const automatic = entry['automatic'] === undefined ? undefined : wireLooked(entry['automatic'], `${where}.automatic`)
+  if (typeof automatic === 'string') throw new Error(`${where}.automatic must be a formula or a lookup`)
+  if (automatic !== undefined && (entry['default'] === undefined || entry['default'] === null)) {
+    throw new Error(`${where}.automatic needs a default`)
+  }
   const tooltip = wireOptionalString(entry['tooltip'], `${where}.tooltip`)
   const decoded = decodeInput(
     nodeType,
@@ -1597,7 +1665,6 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
       default: entry['default'],
       onAbsent: entry['onAbsent'],
       widget: entry['widget'],
-      forceInput: pinFirst,
       sourceFilename: entry['sourceFilename'],
       ...(tooltip !== undefined ? { doc: tooltip } : {}),
     },
@@ -1624,9 +1691,16 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
     ...(widget !== undefined ? { widget } : {}),
     ...(pinFirst ? { forceInput: true } : {}),
     ...(!pin ? { socketless: true } : {}),
+    ...(!sent ? { sent: false as const } : {}),
     ...(hidden ? { hidden: true } : {}),
     ...(lazy ? { lazy: true } : {}),
     ...(onEdit.length > 0 ? { onEdit } : {}),
+    ...(entry['readOnly'] !== undefined ? { readOnly: wireFormulated<boolean>(entry['readOnly'], `${where}.readOnly`, 'boolean') } : {}),
+    ...(entry['disabled'] !== undefined ? { disabled: wireFormulated<boolean>(entry['disabled'], `${where}.disabled`, 'boolean') } : {}),
+    ...(entry['disabledReason'] !== undefined
+      ? { disabledReason: wireFormulated<string>(entry['disabledReason'], `${where}.disabledReason`, 'string') }
+      : {}),
+    ...(automatic !== undefined ? { automatic } : {}),
     ...acceptsStorageOf({ role: 'input', acceptsStorage: entry['acceptsStorage'] }, where),
     ...acceptsStreamOf({ role: 'input', ...(Object.hasOwn(entry, 'acceptsStream') ? { acceptsStream: entry['acceptsStream'] } : {}) }, where),
     ...acceptsListOf({ role: 'input', ...(Object.hasOwn(entry, 'acceptsList') ? { acceptsList: entry['acceptsList'] } : {}) }, where),

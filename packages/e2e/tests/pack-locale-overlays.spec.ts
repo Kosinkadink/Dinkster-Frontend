@@ -10,6 +10,7 @@ interface RegistryView {
     readonly displayName: string
     readonly body: readonly {
       readonly kind: string
+      readonly displayName?: string
       readonly widget?: { readonly options: Readonly<Record<string, unknown>> }
     }[]
   } | undefined
@@ -114,12 +115,14 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
   await openPalette(page)
   const search = page.getByTestId('palette-search')
   await search.fill('paint')
-  const result = page.locator('[data-node-type="proof.localized"]')
+  const result = page.locator('[data-key="entry:proof.localized"]')
   await expect(result).toContainText('Localized Paint')
   await result.hover()
-  await expect(page.getByTestId('palette-preview')).toContainText('English fallback description from the pack catalog.')
-  await expect(page.getByTestId('palette-preview')).toContainText('Color')
-  await expect(page.getByTestId('palette-preview')).toContainText('Image')
+  const preview = page.getByTestId('search-preview')
+  await expect(preview).toContainText('English fallback description from the pack catalog.')
+  const drawing = preview.getByTestId('search-node-preview')
+  await expect(drawing).toHaveAttribute('data-preview-ready', 'proof.localized')
+  const englishDrawing = await drawing.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL())
   await page.screenshot({ path: evidencePath('issue-457', 'pack-locale-overlay-en.png'), fullPage: true })
   const nodeRequestsBeforeLocaleChange = nodeRequests
 
@@ -131,9 +134,9 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
   await search.fill('\u7ed8\u753b')
   await expect(result).toContainText('\u672c\u5730\u5316\u7ed8\u753b')
   await result.hover()
-  await expect(page.getByTestId('palette-preview')).toContainText('English fallback description from the pack catalog.')
-  await expect(page.getByTestId('palette-preview')).toContainText('\u989c\u8272')
-  await expect(page.getByTestId('palette-preview')).toContainText('\u56fe\u50cf')
+  await expect(preview).toContainText('English fallback description from the pack catalog.')
+  await expect(preview.getByRole('heading')).toHaveText('\u672c\u5730\u5316\u7ed8\u753b')
+  await expect.poll(() => drawing.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL())).not.toBe(englishDrawing)
   const registryFacts = await page.evaluate(() => {
     const registry = window.__dinksterTest!.app.backends.get()[0]!.registry.get() as unknown as RegistryView
     const node = registry.resolve('proof.localized')!
@@ -141,9 +144,13 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
     return {
       hash: registry.hash,
       options: input?.kind === 'input' ? input.widget?.options['options'] : undefined,
+      inputLabel: input?.displayName,
+      outputLabel: node.body.find((item) => item.kind === 'output')?.displayName,
       blueprint: registry.packs?.get('proof')?.blueprints?.[0],
     }
   })
+  expect(registryFacts.inputLabel).toBe('\u989c\u8272')
+  expect(registryFacts.outputLabel).toBe('\u56fe\u50cf')
   expect(registryFacts.options).toEqual([
     { value: 'red', label: '\u7ea2\u8272' },
     { value: 'blue', label: 'Blue' },

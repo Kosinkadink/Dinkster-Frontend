@@ -8,6 +8,7 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:5287',
     browserName: 'chromium',
     viewport: { width: 1280, height: 900 },
+    contextOptions: { reducedMotion: 'reduce' },
   },
   webServer: {
     command:

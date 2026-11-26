@@ -60,14 +60,14 @@ test('authors multiple partial queue buttons, persists them, and reports executi
         base: {
           id: 'base', name: 'Base definition', links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
           nodes: { result: { id: 'result', type: 'test.PartialOutput', title: 'Base result', values: {} } },
-          boundary: { inputs: [], outputs: [] },
+          boundary: { body: [] },
         },
       },
       view: { graphs: { root: { nodes: {} }, base: { nodes: {} } } },
     }, 'Partial queue buttons')
   })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
 
   await expect(page.getByTestId('app-view-queue')).toBeVisible()
   await page.screenshot({ path: `${proofDir}/01-full-run-fallback.png`, animations: 'disabled' })
@@ -186,7 +186,7 @@ test('authors multiple partial queue buttons, persists them, and reports executi
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('test.PartialOutput') ?? false,
   )).toBe(true)
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.appLayout'])).toEqual(authored)
   await expect(page.getByTestId('app-layout-queue-button')).toHaveCount(2)
 })

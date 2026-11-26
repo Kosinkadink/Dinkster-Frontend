@@ -37,11 +37,12 @@ import { isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type Co
 import { isPortEndpoint, portAddressKey, type DynamicMemberId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
-import { effectiveValueSourceSpec, type EffectiveValueSourceSpec } from '../value-source.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
 import { buildGraphConnectivity, describedEntries, elabInputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from './elaborate.js'
-import { applyUse, choiceScopeRows, framesNamesOf, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf } from './body.js'
-import { canonicalTypeIdOf, inputsOf, scopeRowsOf, typeExprFromTypeId } from './model.js'
+import { applyUse, choiceScopeRows, framesNamesOf, isRowId, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf, scopeNamesOf } from './body.js'
+import { Formula, FormulaRefused, type FormulaScope } from '../mirror/formula.js'
+import { canonicalTypeIdOf, inputsOf, isNumberWidget, scopeRowsOf, typeExprFromTypeId } from './model.js'
+import { readWhenUnset } from './widget-defaults.js'
 import type {
   BodyRow,
   ChoiceSpec,
@@ -51,10 +52,12 @@ import type {
   NodeSchema,
   OptionRow,
   OuterName,
+  OuterScope,
   OutputSpec,
   TypeChoiceSpec,
   TypeExpr,
 } from './model.js'
+import { boundaryItems, type BoundaryEntry } from '../format/document.js'
 
 /** Resolves node types and optional backend-declared editor roles. */
 export interface SchemaResolver {
@@ -238,7 +241,7 @@ export function resolveBoundaryRoute(
   values?: Readonly<Record<string, unknown>>,
   _dynamic?: NodeData['dynamic'],
 ): RouteResult {
-  if (binding.kind === 'unbound' || binding.kind === 'valueSource') return { ok: false, code: 'boundary.unboundRoute', message: 'a structural boundary has no node port route' }
+  if (binding.kind === 'unbound') return { ok: false, code: 'boundary.unboundRoute', message: 'a structural boundary has no node port route' }
   if (binding.kind === 'widgetTap') {
     return { ok: false, code: 'boundary.tapRoute', message: `widget tap '${binding.tap}' is not a port or family route` }
   }
@@ -504,7 +507,7 @@ function scopesAround(body: readonly BodyRow[], path: string): readonly { readon
 /** Each row's own default value, as a formula reads it with nothing stored. */
 const ownDefaultOf = (row: Exclude<BodyRow, { kind: 'row' }> | undefined, stored: DynamicPortState | undefined): unknown => {
   if (row === undefined) return undefined
-  if (row.kind === 'input') return row.widget?.default ?? row.ext?.['default']
+  if (row.kind === 'input') return readWhenUnset(row)
   if (row.kind === 'state') return row.default
   if (row.kind === 'choice') return stored?.selected ?? (row.required ? row.default ?? row.options[0]?.key : null)
   return undefined
@@ -614,12 +617,41 @@ const constructShapeKey = (row: GroupSpec | ChoiceSpec | TypeChoiceSpec | Descri
  * diagnostics for every unresolvable binding; the schema is produced only if
  * no error occurred (partial schemas would let bad instances propagate).
  */
+/**
+ * The subgraph node's body in the order the boundary stores it: each derived
+ * row at its item's place, inside the stored sections and lines. A line left
+ * with one row draws that row alone.
+ */
+function arrangedBody(entries: readonly BoundaryEntry[], derived: readonly BodyRow[]): BodyRow[] {
+  const byId = new Map(derived.flatMap((row) => 'id' in row && typeof row.id === 'string' ? [[row.id, row] as const] : []))
+  const arrange = (rows: readonly BoundaryEntry[]): BodyRow[] => rows.flatMap((entry): BodyRow[] => {
+    if (entry.kind === 'section') {
+      return [{
+        kind: 'section', id: entry.id, rows: arrange(entry.rows) as OptionRow[],
+        ...(entry.displayName !== undefined ? { displayName: entry.displayName } : {}),
+        ...(entry.collapsedByDefault ? { collapsedByDefault: true } : {}),
+        ...(entry.openName === false ? { openName: false as const } : {}),
+      }]
+    }
+    if (entry.kind === 'line') {
+      const cells = entry.rows.flatMap((cell) => {
+        const row = byId.get(cell.id)
+        return row !== undefined ? [row] : []
+      })
+      return cells.length > 1 ? [{ kind: 'row', rows: cells as InputSpec[] }] : cells
+    }
+    const row = byId.get(entry.id)
+    if (row === undefined) return []
+    return [entry.kind === 'output' && entry.ownRow && row.kind === 'output' ? { ...row, ownRow: true } : row]
+  })
+  return arrange(entries)
+}
+
 export function deriveBoundarySchema(
   graph: GraphDef,
   resolve: SchemaResolver,
   region?: RegionContract,
   resolveNode: (node: NodeData) => NodeSchema | undefined = (node) => resolve(node.type),
-  resolveSource?: (sourceId: string) => EffectiveValueSourceSpec | undefined,
 ): DeriveResult {
   const diags: Diagnostic[] = []
   const fail = (code: string, msg: string): void => {
@@ -632,7 +664,7 @@ export function deriveBoundarySchema(
     return { diagnostics: diags }
   }
 
-  const inputs = graph.boundary.inputs.map((item): BoundaryItem => {
+  const inputs = boundaryItems(graph.boundary, 'inputs').map((item): BoundaryItem => {
     const bindings = [item.binds, ...(item.alsoBinds ?? [])]
     if (bindings.every((binding) => binding.viaReroute === undefined)) return item
     const expanded = bindings.flatMap((binding): BoundaryBinding[] => {
@@ -652,7 +684,7 @@ export function deriveBoundarySchema(
     return { ...single, binds: expanded[0] ?? item.binds, ...(expanded.length > 1 ? { alsoBinds: expanded.slice(1) } : {}) }
   })
   if (diags.length) return { diagnostics: diags }
-  if (graph.boundary.outputs.some((item) => item.binds.viaReroute !== undefined)) {
+  if (boundaryItems(graph.boundary, 'outputs').some((item) => item.binds.viaReroute !== undefined)) {
     fail('boundary.rerouteSide', 'junction attachments are input-side only')
     return { diagnostics: diags }
   }
@@ -788,7 +820,7 @@ export function deriveBoundarySchema(
   // One owner per construct: a construct shown whole owns every row in it.
   const constructOwners: { readonly node: string; readonly path: string; readonly item: string }[] = []
   const shownRows = new Map<string, string>()
-  const everyItem = [...def.boundary.inputs, ...def.boundary.outputs]
+  const everyItem = [...boundaryItems(def.boundary, 'inputs'), ...boundaryItems(def.boundary, 'outputs')]
   for (const item of everyItem) {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
       if (binding.kind === 'port' && !shownRows.has(JSON.stringify([binding.node, binding.port]))) shownRows.set(JSON.stringify([binding.node, binding.port]), item.id)
@@ -852,10 +884,55 @@ export function deriveBoundarySchema(
       derived = {
         ...derived,
         minMembers: Math.max(0, derived.minMembers - count),
-        maxMembers: limit - count,
+        // Only a declared maximum is carried: it is the number a header shows.
+        ...(row.maxMembers !== undefined ? { maxMembers: limit - count } : {}),
         ...(derived.keys.kind === 'named' ? { keys: { kind: 'named' as const, names: derived.keys.names.filter((name) => !interior.members.includes(name)) } } : {}),
         // Members inside count through every level: an outer face numbers on from all of them.
         ...(count > 0 ? { interiorMembers: (row.interiorMembers ?? 0) + count } : {}),
+      }
+    }
+    return {
+      ...derived,
+      id: item.id,
+      ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
+      outer: outerScopeOf(binds, node, path, item.id),
+    } as BodyRow
+  }
+
+  /** A lookup argument wired inside the definition is not known, so its name reads nothing. */
+  const unwired = (scope: OuterScope): OuterScope => ({
+    frames: scope.frames.map((frame) => ({
+      rows: frame.rows,
+      names: Object.fromEntries(Object.entries(frame.names).filter(([, meaning]) => !('linked' in meaning && meaning.linked === true))),
+    })),
+  })
+
+  /**
+   * What each name in the scopes around an inner row means on the subgraph
+   * node: the subgraph row that shows it, else the definition's value. On an
+   * inner subgraph node's field that already carries such a scope, its names
+   * are carried out one more level.
+   */
+  const outerScopeOf = (binds: RouteBoundaryBinding, node: NodeData, path: string, shownAs: string, carried?: OuterScope): OuterScope => {
+    const meaningOf = (flat: string, row: () => unknown): OuterName | undefined => {
+      const shown = flat === path ? shownAs : shownRows.get(JSON.stringify([binds.node, flat]))
+      if (shown !== undefined) return { row: shown }
+      const value = Object.hasOwn(node.values, flat) ? node.values[flat] : row()
+      return value === undefined ? undefined : { value, ...(isInternallyConnected(binds, flat) ? { linked: true as const } : {}) }
+    }
+    if (carried !== undefined) {
+      const schema = resolveNode(node)
+      return {
+        frames: carried.frames.map((frame) => {
+          const names: Record<string, OuterName> = {}
+          for (const [name, meaning] of Object.entries(frame.names)) {
+            const outer = 'row' in meaning
+              ? meaningOf(meaning.row, () => ownDefaultOf(schema === undefined ? undefined : rowById(schema.body, meaning.row), node.dynamic?.[meaning.row]))
+              : meaning
+            if (outer !== undefined) names[name] = outer
+          }
+          return { rows: frame.rows, names }
+        }),
       }
     }
     const schema = resolveNode(node)!
@@ -863,59 +940,52 @@ export function deriveBoundarySchema(
       const names: Record<string, OuterName> = {}
       for (const name of framesNamesOf([frame.rows]).names.keys()) {
         const flat = frame.prefix + name
-        const shown = flat === path ? item.id : shownRows.get(JSON.stringify([binds.node, flat]))
-        if (shown !== undefined) {
-          names[name] = { row: shown }
-          continue
-        }
-        const value = Object.hasOwn(node.values, flat)
-          ? node.values[flat]
-          : ownDefaultOf(name.includes('.') ? undefined : rowById(frame.rows, name), node.dynamic?.[flat])
-        if (value !== undefined) names[name] = { value, ...(isInternallyConnected(binds, flat) ? { linked: true as const } : {}) }
+        const meaning = meaningOf(flat, () => ownDefaultOf(name.includes('.') ? undefined : rowById(frame.rows, name), node.dynamic?.[flat]))
+        if (meaning !== undefined) names[name] = meaning
       }
       return { rows: frame.rows, names }
     })
-    return {
-      ...derived,
-      id: item.id,
-      ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-      outer: { frames },
-    } as BodyRow
+    return { frames }
   }
 
-  const valueSourceInputs = new Map<string, string>()
-  for (const item of def.boundary.inputs) {
+  /** The row's own help text wins over the inner row's tooltip. */
+  const tooltipOf = (item: BoundaryItem, inner?: InputSpec | OutputSpec): { tooltip?: string } => {
+    const tooltip = item.tooltip ?? inner?.tooltip
+    return tooltip !== undefined ? { tooltip } : {}
+  }
+
+  /**
+   * The promoted field's range on the instance: the inner range narrowed by
+   * the row's limits. A stored limit outside the inner range (the inner
+   * field changed since) is a problem on the row and is held to the inner
+   * range, so a limit never widens it.
+   */
+  const narrowedRange = (item: BoundaryItem, inner: InputSpec): { min?: number; max?: number } | undefined => {
+    if (item.limits === undefined) return undefined
+    const range = numberFieldRange(inner)
+    if (range === undefined) {
+      diags.push(diag('warning', 'schema', 'boundary.limitsNotNumber', `[${def.id}] boundary input '${item.id}' has limits, but the field it goes to is no longer a number. Remove the limits.`, { refs: [{ graphId: def.id, portId: item.id }] }))
+      return undefined
+    }
+    const within = (value: number): number => Math.min(range.max ?? value, Math.max(range.min ?? value, value))
+    const min = item.limits.min === undefined ? range.min : within(item.limits.min)
+    const max = item.limits.max === undefined ? range.max : within(item.limits.max)
+    if ((item.limits.min !== undefined && min !== item.limits.min) || (item.limits.max !== undefined && max !== item.limits.max)) {
+      const inside = `${range.min ?? 'no lowest'} to ${range.max ?? 'no highest'}`
+      diags.push(diag('warning', 'schema', 'boundary.limitsOutside', `[${def.id}] boundary input '${item.id}' has limits outside the range of the field it goes to, which is now ${inside}. Set limits inside that range.`, { refs: [{ graphId: def.id, portId: item.id }] }))
+    }
+    return { ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}) }
+  }
+
+  for (const item of boundaryItems(def.boundary, 'inputs')) {
     if (!checkId(item)) continue
     if (item.binds.kind === 'construct') {
       const row = constructRow(item, 'input')
       if (row !== undefined) items.push(row)
       continue
     }
-    if (item.binds.kind === 'valueSource') {
-      const previous = valueSourceInputs.get(item.binds.valueSource)
-      if (previous !== undefined) {
-        fail('boundary.valueSourceConflict', `boundary inputs '${previous}' and '${item.id}' both bind value source '${item.binds.valueSource}'`)
-        continue
-      }
-      valueSourceInputs.set(item.binds.valueSource, item.id)
-      const source = def.valueSources?.[item.binds.valueSource]
-      if (!source) {
-        fail('boundary.danglingValueSource', `boundary input '${item.id}' binds missing value source '${item.binds.valueSource}'`)
-        continue
-      }
-      const effective = resolveSource?.(source.id) ?? effectiveValueSourceSpec(def, source, resolve)
-      items.push({ kind: 'input', id: item.id, type: item.binds.type, optional: true,
-        ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-        ...(item.promoted === true && effective.spec !== undefined ? { widget: {
-          ...effective.spec,
-          default: source.value,
-          ...(source.controller !== undefined ? { controllerInitial: source.controller } : {}),
-        } } : {}),
-      })
-      continue
-    }
     if (item.binds.kind === 'unbound') {
-      items.push({ kind: 'input', id: item.id, ...(item.displayName !== undefined ? { displayName: item.displayName } : {}), type: item.binds.type, optional: true })
+      items.push({ kind: 'input', id: item.id, ...(item.displayName !== undefined ? { displayName: item.displayName } : {}), ...tooltipOf(item), type: item.binds.type, optional: true })
       continue
     }
     if (item.binds.kind === 'widgetTap') {
@@ -981,9 +1051,12 @@ export function deriveBoundarySchema(
     }
     if (!fanoutOk) continue
     const inheritedOptions = inner.widget?.editableOptions ? node.dynamic?.[item.binds.port]?.options : undefined
+    const narrowed = promoted ? narrowedRange(item, inner) : undefined
     const promotedWidget = promoted ? {
       ...inner.widget!,
-      ...(inheritedOptions !== undefined ? { options: { ...inner.widget!.options, options: inheritedOptions } } : {}),
+      ...(inheritedOptions !== undefined || narrowed !== undefined
+        ? { options: { ...inner.widget!.options, ...(inheritedOptions !== undefined ? { options: inheritedOptions } : {}), ...narrowed } }
+        : {}),
       ...(Object.hasOwn(node.values, item.binds.port as string)
         ? { default: node.values[item.binds.port as string] }
         : {}),
@@ -991,26 +1064,34 @@ export function deriveBoundarySchema(
         ? { controllerInitial: node.controllers![item.binds.port as string] }
         : {}),
     } : undefined
+    // An automatic field the definition stores nothing for stays automatic on
+    // the subgraph node; a stored value is the row's default instead.
+    const automatic = promoted && !Object.hasOwn(node.values, item.binds.port as string) ? inner.automatic : undefined
     items.push({
       kind: 'input',
       id: item.id,
       ...displayNameOf(item, inner),
-      ...(inner.tooltip !== undefined ? { tooltip: inner.tooltip } : {}),
+      ...tooltipOf(item, inner),
       type: primaryType,
       // A widget-backed inner input has a stored value, so the boundary
       // input is satisfiable without a connection.
       optional: satisfiable,
       ...(acceptsList ? { acceptsList: true as const } : {}),
+      ...(promoted && inner.socketless === true ? { socketless: true as const } : {}),
       ...(promotedWidget !== undefined
         ? { widget: promotedWidget }
         : inner.widget !== undefined
           ? { forceInput: true }
           : {}),
       ...(inner.lazy !== undefined ? { lazy: inner.lazy } : {}),
+      ...(automatic !== undefined ? { automatic } : {}),
+      ...(promotedWidget?.looked !== undefined || automatic !== undefined
+        ? { lookupScope: unwired(outerScopeOf(item.binds as RouteBoundaryBinding, node, item.binds.port as string, item.id, inner.lookupScope)) }
+        : {}),
     })
   }
 
-  for (const item of def.boundary.outputs) {
+  for (const item of boundaryItems(def.boundary, 'outputs')) {
     if (!checkId(item)) continue
     if (item.binds.kind === 'construct') {
       if (item.alsoBinds !== undefined) {
@@ -1021,18 +1102,8 @@ export function deriveBoundarySchema(
       if (row !== undefined) items.push(row)
       continue
     }
-    if (item.binds.kind === 'valueSource') {
-      if (!def.valueSources?.[item.binds.valueSource]) {
-        fail('boundary.danglingValueSource', `boundary output '${item.id}' binds missing value source '${item.binds.valueSource}'`)
-        continue
-      }
-      items.push({ kind: 'output', id: item.id, type: item.binds.type,
-        ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-      })
-      continue
-    }
     if (item.binds.kind === 'unbound') {
-      items.push({ kind: 'output', id: item.id, ...(item.displayName !== undefined ? { displayName: item.displayName } : {}), type: item.binds.type })
+      items.push({ kind: 'output', id: item.id, ...(item.displayName !== undefined ? { displayName: item.displayName } : {}), ...tooltipOf(item), type: item.binds.type })
       continue
     }
     if (item.alsoBinds !== undefined) {
@@ -1066,7 +1137,7 @@ export function deriveBoundarySchema(
         kind: 'output',
         id: item.id,
         ...displayNameOf(item, inner),
-        ...(inner.tooltip !== undefined ? { tooltip: inner.tooltip } : {}),
+        ...tooltipOf(item, inner),
         type: freshenType(inner.type, binding.node, typeBindingsFor(node)),
       })
       continue
@@ -1084,10 +1155,12 @@ export function deriveBoundarySchema(
       kind: 'output',
       id: item.id,
       ...displayNameOf(item, inner),
-      ...(inner.tooltip !== undefined ? { tooltip: inner.tooltip } : {}),
+      ...tooltipOf(item, inner),
       type: freshenType(inner.type, item.binds.node, typeBindingsFor(node)),
       ...(inner.isList !== undefined ? { isList: inner.isList } : {}),
       ...(inner.preview !== undefined ? { preview: inner.preview } : {}),
+      // An output fed by one that may give nothing may give nothing too.
+      ...(inner.optional === true ? { optional: true } : {}),
     })
   }
 
@@ -1114,16 +1187,16 @@ export function deriveBoundarySchema(
   let derivedItems = items
   if (region !== undefined) {
     const items = derivedItems as (InputSpec | OutputSpec)[]
-    if (!def.boundary.outputs.some((output) => output.id !== region.continueOutput) && !isOutputNode) {
+    if (!boundaryItems(def.boundary, 'outputs').some((output) => output.id !== region.continueOutput) && !isOutputNode) {
       fail('doc.region.outputRequired', 'region requires an exported boundary output or a declared output node')
     }
     const elements = new Set(region.elementPorts ?? [])
     const state = new Set(region.statePorts ?? [])
     const outputRoles = region.outputRoles ?? {}
-    const inputRoleLabels = regionBoundaryLabels(def.boundary?.inputs ?? [], region, 'inputs')
-    const outputRoleLabels = regionBoundaryLabels(def.boundary?.outputs ?? [], region, 'outputs')
-    const explicitInputLabels = new Set((def.boundary?.inputs ?? []).filter((item) => item.displayName !== undefined).map((item) => item.id))
-    const explicitOutputLabels = new Set((def.boundary?.outputs ?? []).filter((item) => item.displayName !== undefined).map((item) => item.id))
+    const inputRoleLabels = regionBoundaryLabels(boundaryItems(def.boundary, 'inputs') ?? [], region, 'inputs')
+    const outputRoleLabels = regionBoundaryLabels(boundaryItems(def.boundary, 'outputs') ?? [], region, 'outputs')
+    const explicitInputLabels = new Set((boundaryItems(def.boundary, 'inputs') ?? []).filter((item) => item.displayName !== undefined).map((item) => item.id))
+    const explicitOutputLabels = new Set((boundaryItems(def.boundary, 'outputs') ?? []).filter((item) => item.displayName !== undefined).map((item) => item.id))
     const stateInputTypes = new Map(
       items.flatMap((item) => item.kind === 'input' && state.has(item.id) ? [[item.id, item.type] as const] : []),
     )
@@ -1193,17 +1266,75 @@ export function deriveBoundarySchema(
 
   if (diags.some((d) => d.severity === 'error')) return { diagnostics: diags }
 
+  // A row's condition reads the instance's own inputs. One that no longer
+  // reads (an input it names was removed) is a problem on the row, and the
+  // row shows.
+  const conditionScope = boundaryConditionScope({ body: derivedItems })
+  for (const item of boundaryItems(def.boundary, 'inputs')) {
+    const visible = item.visible
+    if (visible === undefined) continue
+    try {
+      Formula.parse(visible.formula, conditionScope)
+      derivedItems = derivedItems.map((row) => 'id' in row && row.id === item.id ? { ...row, visible } : row)
+    } catch (error) {
+      if (!(error instanceof FormulaRefused)) throw error
+      diags.push(diag('warning', 'schema', 'boundary.visibleBroken', `[${def.id}] boundary input '${item.id}' shows only when "${visible.formula}", which no longer reads: ${error.message}. The row shows until its "Show" is set again.`, { refs: [{ graphId: def.id, portId: item.id }] }))
+    }
+  }
+
   return {
     schema: {
       type: `#${def.id}`,
       displayName: def.name,
       category: 'subgraph',
       source: 'subgraph',
-      body: derivedItems,
+      body: arrangedBody(def.boundary?.body ?? [], derivedItems),
       isOutputNode,
       ...(emitsPreviews ? { emitsPreviews: true } : {}),
       ...(mayExpandGraph ? { mayExpandGraph: true } : {}),
     },
     diagnostics: diags,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Row settings: the inner field a boundary input shows, and what its
+// condition may name
+// ---------------------------------------------------------------------------
+
+/** The inner input a boundary input's primary binding reaches, or undefined. */
+export function boundaryInnerInput(def: GraphDef, item: BoundaryItem, resolve: SchemaResolver): InputSpec | undefined {
+  if (item.binds.kind !== 'port') return undefined
+  const node = def.nodes[item.binds.node]
+  const schema = node === undefined ? undefined : resolve(node.type)
+  if (schema === undefined) return undefined
+  const route = resolveBoundaryRoute(schema, item.binds, 'input')
+  return route.ok && route.route.terminal.kind === 'port' && route.route.terminal.slot.kind === 'input'
+    ? route.route.terminal.slot
+    : undefined
+}
+
+/** A number field's declared range: INT and FLOAT widgets only. */
+export function numberFieldRange(input: InputSpec | undefined): { readonly min?: number; readonly max?: number } | undefined {
+  const widget = input?.widget
+  if (widget === undefined || !isNumberWidget(widget)) return undefined
+  const bound = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  const min = bound(widget.options['min'])
+  const max = bound(widget.options['max'])
+  return { ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}) }
+}
+
+/**
+ * What a row's condition may name: the subgraph node's own inputs, by id.
+ * An id the formula language cannot name is left out, so it can never be
+ * read by a condition (an imported workflow's slot ids are often UUIDs).
+ */
+export function boundaryConditionScope(schema: Pick<NodeSchema, 'body'>): FormulaScope {
+  const own = scopeNamesOf(schema.body)
+  const nameable = (name: string): boolean => name.split('.').every(isRowId)
+  return {
+    names: new Map([...own.names].filter(([name]) => nameable(name))),
+    inputs: new Set([...own.inputs].filter(nameable)),
+    assets: new Set([...own.assets].filter(nameable)),
   }
 }

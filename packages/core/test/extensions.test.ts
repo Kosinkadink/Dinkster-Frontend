@@ -61,7 +61,7 @@ const menuContribution = (id: string): MenuContribution => ({
 
 const nodeCtx = {
   target: { kind: 'node', nodeId: 'n1' },
-  selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] },
+  selection: { nodes: [], links: [], reroutes: [] },
   worldX: 0,
   worldY: 0,
 } as unknown as MenuContext

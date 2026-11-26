@@ -608,7 +608,7 @@ test('nets never cross subgraph boundaries: inner pins see no parent nets', asyn
           sub: {
             id: 'sub',
             name: 'Sub',
-            boundary: { inputs: [], outputs: [] },
+            boundary: { body: [] },
             nodes: {
               m1: { id: 'm1', type: 'NetConsumer', values: {} },
               m2: { id: 'm2', type: 'NetProducer', values: {} },

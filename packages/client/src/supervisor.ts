@@ -3,12 +3,14 @@
  *
  * A Dinkster deployment may put `dinkster-supervisor` in front of the engine: a
  * layer-0 process that owns the public port, binds in milliseconds, and
- * proxies to the engine once healthy. Its whole wire surface is:
+ * proxies to the engine once healthy. The shared wire surface is:
  *
  *   GET  /supervisor/status         -> { protocol, state, detail?, engine?, progress? }
- *   POST /supervisor/engine/restart -> 200 | 409 {"error":"restart-unavailable"}
+ *   POST /supervisor/engine/restart -> 200 | 409 {"error":"restart-unavailable", "message"?}
  *
- * and, before the engine is ready, EVERY other route answers
+ * The always-on process also serves GET /supervisor/engine/log, returning
+ * { available, text, truncated } for the open installation, even with its
+ * engine stopped. Engine-only routes before readiness answer
  * 503 {"error":"engine-not-ready", "state":..., "status":"/supervisor/status"}.
  *
  * Standalone `dinkster-serve` has none of this: /supervisor/status is a plain
@@ -37,7 +39,19 @@ export interface SupervisorStatus {
    * answer); absent once composed. Never null.
    */
   readonly progress?: SupervisorProgress
+  /**
+   * The always-on Dinkster process answers with role 'home': it serves the
+   * page with no engine, counts the installations on its machine, and names
+   * the installation whose engine is open, if any.
+   */
+  readonly role?: 'home'
+  readonly installations?: number
+  readonly open?: { readonly root: string; readonly engine: string }
 }
+
+/** The always-on process answers and no installation's engine is open. */
+export const noEngineOpen = (status: SupervisorStatus | undefined): boolean =>
+  status?.role === 'home' && status.open === undefined
 
 /**
  * One probe outcome, trichotomous on purpose:
@@ -75,6 +89,9 @@ export const parseSupervisorStatus = (raw: unknown): SupervisorStatus | undefine
     detail?: unknown
     engine?: unknown
     progress?: unknown
+    role?: unknown
+    installations?: unknown
+    open?: unknown
   }
   if (typeof s.protocol !== 'number') return undefined
   if (typeof s.state !== 'string' || !SUPERVISOR_STATES.includes(s.state)) return undefined
@@ -89,12 +106,18 @@ export const parseSupervisorStatus = (raw: unknown): SupervisorStatus | undefine
         })()
       : undefined
   const progress = parseProgress(s.progress)
+  const open = s.open as { root?: unknown; engine?: unknown } | null | undefined
   return {
     protocol: s.protocol,
     state: s.state as SupervisorState,
     ...(typeof s.detail === 'string' ? { detail: s.detail } : {}),
     ...(engine !== undefined ? { engine } : {}),
     ...(progress !== undefined ? { progress } : {}),
+    ...(s.role === 'home' ? { role: 'home' as const } : {}),
+    ...(typeof s.installations === 'number' ? { installations: s.installations } : {}),
+    ...(typeof open === 'object' && open !== null && typeof open.root === 'string' && typeof open.engine === 'string'
+      ? { open: { root: open.root, engine: open.engine } }
+      : {}),
   }
 }
 
@@ -143,15 +166,40 @@ export async function restartSupervisorEngine(
     if (res.ok) return { ok: true }
     let error = `restart failed: ${res.status}`
     try {
-      const body = (await res.json()) as { error?: unknown; detail?: unknown }
+      const body = (await res.json()) as { error?: unknown; detail?: unknown; message?: unknown }
       if (typeof body.error === 'string') error = body.error
       if (typeof body.detail === 'string') error += `: ${body.detail}`
+      // The always-on process explains a refusal for people; show that alone.
+      if (typeof body.message === 'string') error = body.message
     } catch {
       /* non-JSON body: keep the status-code message */
     }
     return { ok: false, error }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** Read the open installation's real engine log; never substitute status or client logs. */
+export async function fetchSupervisorEngineLog(
+  baseUrl: string,
+  fetchFn: FetchLike = (url, init) => fetch(url, init),
+): Promise<
+  | { readonly ok: true; readonly available: boolean; readonly text: string; readonly truncated: boolean }
+  | { readonly ok: false; readonly error: string }
+> {
+  try {
+    const response = await fetchFn(`${baseUrl}/supervisor/engine/log`)
+    if (!response.ok) return { ok: false, error: `GET /supervisor/engine/log failed: ${response.status}` }
+    const body: unknown = await response.json()
+    if (typeof body !== 'object' || body === null) return { ok: false, error: 'Invalid engine log response' }
+    const log = body as { available?: unknown; text?: unknown; truncated?: unknown }
+    if (typeof log.available !== 'boolean' || typeof log.text !== 'string' || typeof log.truncated !== 'boolean') {
+      return { ok: false, error: 'Invalid engine log response' }
+    }
+    return { ok: true, available: log.available, text: log.text, truncated: log.truncated }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 

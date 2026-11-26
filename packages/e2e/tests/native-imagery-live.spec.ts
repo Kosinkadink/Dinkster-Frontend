@@ -189,7 +189,7 @@ test('a disjoint native partial run retains only the omitted numeric branch as l
     .first()
   await retained.focus()
   await expect(page.getByTestId('app-tooltip')).toContainText('Retained last-resolved value: 3')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 8')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 8')
   await test.info().attach('native-retained-last-resolved-value', {
     body: await page.screenshot({ animations: 'disabled' }),
     contentType: 'image/png',

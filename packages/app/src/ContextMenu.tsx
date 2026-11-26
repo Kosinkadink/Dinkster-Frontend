@@ -6,9 +6,11 @@
 
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { semanticDesignTokens, type MenuActionItem, type MenuItem, type MenuSubmenuItem } from '@dinkster/core'
-import { Ban, CirclePlay, Copy, CopyPlus, Eye, FolderOpen, Group, Palette, SlidersHorizontal, Trash2, Ungroup, VolumeX, type LucideIcon } from 'lucide-solid'
+import { Ban, CirclePlay, Copy, CopyPlus, Eye, FolderOpen, Group, Icon as LucideBaseIcon, Maximize2, Minimize2, Palette, Pencil, SlidersHorizontal, SquareDashed, Trash2, Ungroup, VolumeX, type IconNode, type LucideIcon } from 'lucide-solid'
+import { SUBGRAPH_ICON } from '@dinkster/canvas'
 import { placeFloatingSurface, type FloatingSurfacePlacement } from '@dinkster/core/floating-surface'
 import { Icon } from './Icon.js'
+import { ProductShortcut } from '@dinkster/ui'
 import { menuFlat, type MenuAnchor } from './menu-target.js'
 
 type MenuEntries = ReturnType<typeof menuFlat>
@@ -34,6 +36,9 @@ interface RectLike {
 
 const MENU_MARGIN = semanticDesignTokens.space[8]
 const SUBMENU_GAP = semanticDesignTokens.space[4]
+const MENU_MAX_HEIGHT = 400
+
+const Subgraph: LucideIcon = (props) => <LucideBaseIcon {...props} iconNode={SUBGRAPH_ICON as IconNode} />
 
 const MENU_ICONS: Readonly<Record<string, LucideIcon>> = {
   ban: Ban,
@@ -43,12 +48,20 @@ const MENU_ICONS: Readonly<Record<string, LucideIcon>> = {
   eye: Eye,
   'folder-open': FolderOpen,
   group: Group,
+  'maximize-2': Maximize2,
+  'minimize-2': Minimize2,
   palette: Palette,
+  pencil: Pencil,
   'sliders-horizontal': SlidersHorizontal,
+  'square-dashed': SquareDashed,
+  subgraph: Subgraph,
   'trash-2': Trash2,
   ungroup: Ungroup,
   'volume-x': VolumeX,
 }
+
+const menuIcon = (item: MenuItem): LucideIcon | undefined =>
+  item.icon === undefined ? undefined : MENU_ICONS[item.icon]
 
 export function menuStep(flat: MenuEntries, from: number, delta: -1 | 1): number {
   for (let index = from + delta; index >= 0 && index < flat.length; index += delta) {
@@ -79,6 +92,7 @@ const placeRootPanel = (
   panel: { readonly width: number; readonly height: number },
   anchor: { readonly x: number; readonly y: number },
   bounds: { readonly width: number; readonly height: number },
+  maxHeight = MENU_MAX_HEIGHT,
 ): FloatingSurfacePlacement =>
   placeFloatingSurface({
     surface: panel,
@@ -87,7 +101,7 @@ const placeRootPanel = (
     direction: 'point',
     margin: MENU_MARGIN,
     gap: 0,
-    maxHeight: 400,
+    maxHeight,
   })
 
 export function rootPanelPosition(
@@ -112,7 +126,7 @@ const placeSubmenuPanel = (
     direction: 'inline',
     margin: MENU_MARGIN,
     gap: SUBMENU_GAP,
-    maxHeight: 400,
+    maxHeight: MENU_MAX_HEIGHT,
   })
 
 export function submenuPanelPosition(
@@ -130,13 +144,15 @@ export function ContextMenu(props: {
   /** Invoke a terminal item; the host closes and routes its command/action. */
   onInvoke: (item: MenuActionItem) => void
   onClose: (reason?: 'escape' | 'focusout') => void
+  /** The root panel's height cap; submenus keep the shared cap. The window still bounds it. */
+  maxHeight?: number
 }) {
   const rootEntries = createMemo(() => menuFlat(props.menu.groups))
   const [openPath, setOpenPath] = createSignal<readonly MenuSubmenuItem[]>([])
   const [indices, setIndices] = createSignal<readonly number[]>([firstEnabled(rootEntries())])
   const [activeDepth, setActiveDepth] = createSignal(0)
   const [positions, setPositions] = createSignal<readonly PanelPosition[]>([
-    { x: props.menu.x, y: props.menu.y, maxWidth: 180, maxHeight: 400 },
+    { x: props.menu.x, y: props.menu.y, maxWidth: 180, maxHeight: props.maxHeight ?? MENU_MAX_HEIGHT },
   ])
   let focusRoot!: HTMLDivElement
   const panelElements = new Map<number, HTMLDivElement>()
@@ -193,7 +209,7 @@ export function ContextMenu(props: {
   }, [])
 
   const panelPosition = (depth: number): PanelPosition =>
-    positions()[depth] ?? { x: props.menu.x, y: props.menu.y, maxWidth: 180, maxHeight: 400 }
+    positions()[depth] ?? { x: props.menu.x, y: props.menu.y, maxWidth: 180, maxHeight: depth === 0 ? props.maxHeight ?? MENU_MAX_HEIGHT : MENU_MAX_HEIGHT }
 
   const setIndex = (depth: number, index: number): void => {
     setIndices((current) => {
@@ -243,6 +259,7 @@ export function ContextMenu(props: {
       { width: rootElement.offsetWidth, height: intrinsicPanelHeight(rootElement) },
       props.menu,
       bounds,
+      props.maxHeight,
     )
     next.push({ x: rootPosition.left, y: rootPosition.top, maxWidth: rootPosition.maxWidth, maxHeight: rootPosition.maxHeight })
     for (let depth = 1; depth < panels().length; depth += 1) {
@@ -345,6 +362,11 @@ export function ContextMenu(props: {
         {(panel, depthAccessor) => {
           const depth = depthAccessor()
           const parentIndex = panel.ownerIndex ?? 0
+          // Each panel lays out its own columns: a check slot only when one
+          // of its items can be checked, and an icon slot on every item when
+          // one has an icon, so all of its labels start at the same place.
+          const checkColumn = panel.entries.some((entry) => entry.item.checked !== undefined)
+          const iconColumn = panel.entries.some((entry) => menuIcon(entry.item) !== undefined)
           let panelElement: HTMLDivElement | undefined
           onCleanup(() => {
             if (panelElement && panelElements.get(depth) === panelElement) panelElements.delete(depth)
@@ -398,6 +420,7 @@ export function ContextMenu(props: {
                         id={`context-menu-item-${depth}-${index}`}
                         role="menuitem"
                         aria-disabled={entry.item.disabled === true}
+                        data-tooltip-label={entry.item.disabled === true ? entry.item.disabledReason : undefined}
                         aria-haspopup={entry.item.children !== undefined ? 'menu' : undefined}
                         aria-expanded={hasChildren() ? openPath()[depth] === entry.item : undefined}
                         aria-controls={hasChildren() && openPath()[depth] === entry.item
@@ -416,13 +439,17 @@ export function ContextMenu(props: {
                           openChildren(depth, entry.item, index)
                         }}
                       >
-                        <span class="menu-check" />
-                        <Show when={entry.item.icon === undefined ? undefined : MENU_ICONS[entry.item.icon]}>
-                          {(icon) => <span class="menu-icon" data-testid="menu-icon"><Icon icon={icon()} /></span>}
+                        <Show when={checkColumn}>
+                          <span class="menu-check" />
+                        </Show>
+                        <Show when={iconColumn}>
+                          <span class="menu-icon" data-testid={menuIcon(entry.item) ? 'menu-icon' : undefined}>
+                            <Show when={menuIcon(entry.item)}>{(icon) => <Icon icon={icon()} />}</Show>
+                          </span>
                         </Show>
                         <span class="menu-label">{entry.item.label}</span>
                         <Show when={entry.item.shortcut}>
-                          <span class="menu-shortcut" data-testid="menu-shortcut">{entry.item.shortcut}</span>
+                          <span class="menu-shortcut" data-testid="menu-shortcut"><ProductShortcut keys={entry.item.shortcut!} /></span>
                         </Show>
                         <Show when={entry.item.hint}>
                           <span class="menu-hint">{entry.item.hint}</span>

@@ -165,13 +165,24 @@ export interface ReplacementRule {
   readonly fromVersion?: string
   /** Human note surfaced in diagnostics/review ('renamed in v0.4'). */
   readonly note?: string
-  /** Marks a one-shot same-type migration from historical input or dynamic-choice paths. */
+  /**
+   * Historical inputs: source inputs that no installed schema declares. On a
+   * rule whose cases keep the node type they are retired input or
+   * dynamic-choice paths, and the rule is a one-shot migration. On a rule that
+   * changes the type they are the inputs of the node it replaces, in that
+   * node's declared order, so an importer can read a saved node of a type
+   * nothing installed describes.
+   */
   readonly migration?: {
     readonly historicalInputs: readonly string[]
   }
   /** Evaluated top-down; the LAST case must be unconditional. */
   readonly cases: readonly ReplacementCase[]
 }
+
+/** A rule whose historical inputs are retired paths of the type it keeps. */
+export const isSameTypeMigration = (rule: ReplacementRule): boolean =>
+  rule.migration !== undefined && rule.cases.every((candidate) => candidate.to === rule.from)
 
 /** Layer precedence for rule lookup: schema-shipped beats pack beats core. */
 export type RuleLayer = 'schema' | 'pack' | 'core'
@@ -533,7 +544,6 @@ export const isReplacementRule = (v: unknown): v is ReplacementRule => {
     ) return false
   }
   if (!Array.isArray(v.cases) || v.cases.length === 0 || !v.cases.every(isCase)) return false
-  if (v.migration !== undefined && v.cases.some((candidate) => candidate.to !== v.from)) return false
   const last = v.cases[v.cases.length - 1] as ReplacementCase
   return last.when === undefined || last.when.kind === 'always'
 }

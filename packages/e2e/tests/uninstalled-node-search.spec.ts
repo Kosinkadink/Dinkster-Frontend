@@ -9,7 +9,8 @@ function preparedReview(result: unknown) {
   return { preparation: 'preparation-1', state: 'ready', progress: { sequence: 2, stage: 'retaining-review', completed: 1, total: 1 }, result }
 }
 
-test('uninstalled search renders the same real preview as installed search and never places on selection', async ({ page }) => {
+for (const entryPoint of ['global', 'canvas'] as const) {
+test(`${entryPoint} uninstalled search renders the same real preview as installed search and never places on selection`, async ({ page }) => {
   const wire = { ...catalog.nodes['comfy.EmptyImage'], pack: 'image-tools', displayName: 'Catalog Image', searchTerms: ['catalog-resample'] }
   const body = JSON.stringify({ packName: 'image-tools', version: '1.10.0', schemas: [{ nodeType: 'image.catalog', schemaVersion: 1, schemaWireVersion: 2, schemaSignature: 'catalog-image', role: 'compute', schema: wire }] })
   let installed = false
@@ -36,10 +37,21 @@ test('uninstalled search renders the same real preview as installed search and n
     contentType: 'application/json',
   }))
   await page.goto('/')
-  await page.getByTestId('topbar-search').click()
-  await page.getByTestId('universal-search-input').fill('@ catalog-resample')
-  const row = page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]').first()
-  await expect(row).toContainText('Image Tools - Not installed')
+  const openSearch = async () => {
+    if (entryPoint === 'canvas') {
+      const canvas = page.getByTestId('graph-canvas')
+      await expect.poll(() => page.evaluate(() => window.__dinksterTest?.renderer !== undefined)).toBe(true)
+      const box = (await canvas.boundingBox())!
+      await canvas.dispatchEvent('dblclick', { bubbles: true, button: 0, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 })
+      await page.getByTestId('palette-search').fill('catalog-resample')
+    } else {
+      await page.getByTestId('topbar-search').click()
+      await page.getByTestId('universal-search-input').fill('@ catalog-resample')
+    }
+  }
+  await openSearch()
+  const firstRow = page.locator(entryPoint === 'canvas' ? '[data-key="entry:image.catalog"]' : '[data-group="core.nodes"] [role="option"]').first()
+  await expect(firstRow).toContainText('Not installed')
   const preview = page.getByTestId('search-node-preview')
   await expect(preview).toHaveAttribute('data-preview-ready', 'image.catalog')
   const uninstalledPixels = await preview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())
@@ -56,9 +68,10 @@ test('uninstalled search renders the same real preview as installed search and n
   expect(uninstalledLightPixels).not.toBe(uninstalledPixels)
   await page.evaluate(() => { document.documentElement.dataset['theme'] = 'dark' })
   await expect.poll(() => preview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())).toBe(uninstalledPixels)
-  const proof = process.env['DINKSTER_SEARCH_PROOF_DIR']
+  const proofRoot = process.env['DINKSTER_SEARCH_PROOF_DIR']
+  const proof = proofRoot === undefined ? undefined : join(proofRoot, entryPoint)
   if (proof) { mkdirSync(proof, { recursive: true }); await page.screenshot({ path: join(proof, 'uninstalled-search.png') }) }
-  await row.click()
+  await firstRow.click()
   const prompt = page.locator('[data-modal="node-install"]')
   await expect(prompt).toBeVisible()
   await expect(prompt).toContainText('linux, darwin')
@@ -78,8 +91,8 @@ test('uninstalled search renders the same real preview as installed search and n
   await expect(page.getByTestId('graph-canvas')).not.toHaveAttribute('data-placement-ghost', 'visible')
   if (proof) await page.screenshot({ path: join(proof, 'installed-prompt.png') })
   await prompt.getByRole('button', { name: 'Close', exact: true }).click()
-  await page.getByTestId('topbar-search').click()
-  await page.getByTestId('universal-search-input').fill('@ catalog-resample')
+  await openSearch()
+  const row = firstRow
   await expect(row).not.toContainText('Not installed')
   await expect(preview).toHaveAttribute('data-preview-ready', 'image.catalog')
   expect(await preview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())).toBe(uninstalledPixels)
@@ -87,16 +100,18 @@ test('uninstalled search renders the same real preview as installed search and n
   await expect.poll(() => preview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())).toBe(uninstalledLightPixels)
   if (proof) await page.screenshot({ path: join(proof, 'installed-search.png') })
   await page.setViewportSize({ width: 620, height: 820 })
-  await expect(preview).toBeVisible()
+  await expect(preview).toBeHidden()
+  await expect(row).toBeVisible()
   if (proof) await page.screenshot({ path: join(proof, 'installed-search-narrow.png') })
   await row.click()
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-placement-ghost', 'visible')
   await page.keyboard.press('Escape')
+  await page.evaluate(() => { document.documentElement.dataset['theme'] = 'dark' })
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.mouse.dblclick(700, 600)
   await expect(page.getByTestId('node-palette')).toBeVisible()
   await page.getByTestId('palette-search').fill('catalog-resample')
-  const palettePreview = page.getByTestId('palette-node-preview')
+  const palettePreview = page.getByTestId('search-node-preview')
   await expect(palettePreview).toHaveAttribute('data-preview-ready', 'image.catalog')
   const paletteDarkPixels = await palettePreview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())
   await page.evaluate(() => { document.documentElement.dataset['theme'] = 'light' })
@@ -108,6 +123,7 @@ test('uninstalled search renders the same real preview as installed search and n
   await expect.poll(() => palettePreview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())).toBe(paletteLightPixels)
   if (proof) await page.screenshot({ path: join(proof, 'palette-search-light.png') })
 })
+}
 
 async function openInstallPrompt(page: Page) {
   const state = { installed: false }
@@ -123,7 +139,7 @@ async function openInstallPrompt(page: Page) {
   const open = async () => {
     await page.getByTestId('topbar-search').click()
     await page.getByTestId('universal-search-input').fill('@ catalog-resample')
-    await page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]').first().click()
+    await page.locator('[data-group="core.nodes"] [role="option"]').first().click()
     await expect(page.locator('[data-modal="node-install"]')).toBeVisible()
   }
   await open()
@@ -178,7 +194,7 @@ test('managed host commands copy exactly without HTTP apply and refresh permits 
   await prompt.getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('@ catalog-resample')
-  const row = page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]')
+  const row = page.locator('[data-group="core.nodes"] [role="option"]')
   await expect(row).toHaveCount(1)
   await expect(row).not.toContainText('Not installed')
   await row.click()

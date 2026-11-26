@@ -9,28 +9,34 @@ import {
   asNodeId,
   asPortId,
   boundaryBindingKey,
+  buildBypassCandidates,
   buildGraphConnectivity,
   buildRerouteIndex,
   canonicalTypeIdOf,
   companionSourcesOf,
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
+  diagnosticBlocksExecution,
   documentNodeResolver,
-  documentValueSourceResolver,
+  documentPrimitiveResolver,
+  primitiveOf,
   effectiveOccurrenceTopology,
   elabInputsOf,
+  elabOutputsOf,
   elaborateInterface,
+  EMPTY_CONNECTIVITY,
+  type ElaborateOptions,
   hasPreviewSurface,
   inputsOf,
   isOccurrenceKeyWithin,
   isPortEndpoint,
   isRerouteRef,
-  isSelectorRef,
-  isValueSourceRef,
   isWidgetTapRef,
+  matchBypassInput,
   netSinkKey,
   netViewPositions,
   occurrenceDynamicView,
+  portAddressKey,
   portRefKey,
   regionBoundaryLabels,
   resolveBoundaryRoute,
@@ -43,6 +49,7 @@ import {
   traceEndpoint,
   traceEndpointAll,
   typeExprFromTypeId,
+  missingInputValue,
   valueKeyOf,
   type BoundaryItem,
   type BoundaryPositionResolver,
@@ -51,7 +58,6 @@ import {
   type Diagnostic,
   type DynamicPortState,
   type ElaboratedInterface,
-  type EffectiveValueSourceSpec,
   type EffectiveLinkIdentity,
   type EffectiveOccurrenceTopology,
   type GraphDef,
@@ -64,11 +70,10 @@ import {
   type OccurrenceLinkEndpoint,
   type OccurrenceRef,
   type PortRef,
+  type RerouteTrace,
   type SchemaResolver,
-  type SelectorData,
   type SolveResult,
   type TypeExpr,
-  type ValueSourceData,
   type VirtualNodeRenderModel,
   type WidgetSpec,
   type WorkflowDocument,
@@ -89,6 +94,7 @@ import {
   type WidgetMeasure,
 } from './layout.js'
 import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { boundaryItems } from '@dinkster/core'
 
 interface PositionedSceneCacheEntry {
   readonly graph: GraphDef
@@ -97,10 +103,12 @@ interface PositionedSceneCacheEntry {
   readonly documentExt: WorkflowDocument['ext']
   readonly view: WorkflowDocument['view']['graphs'][string]
   readonly seedControllerEnabled: boolean | undefined
+  readonly buttonNoticeHeights: BuildSceneInput['buttonNoticeHeights']
   readonly tokens: DesignTokens
   readonly measure: TextMeasurer
   readonly widgetMeasure: WidgetMeasure
   readonly generation: unknown
+  readonly editorControls: BuildSceneInput['editorControls']
   readonly scene: Scene
 }
 
@@ -135,10 +143,10 @@ const onlyNodePositionsChanged = (
   next: WorkflowDocument['view']['graphs'][string],
 ): boolean => {
   if (previous === undefined || next === undefined ||
-      previous.reroutes !== next.reroutes || previous.valueSources !== next.valueSources ||
-      previous.selectors !== next.selectors || previous.groups !== next.groups ||
+      previous.reroutes !== next.reroutes || previous.groups !== next.groups ||
       previous.groupSeq !== next.groupSeq || previous.collapsedNets !== next.collapsedNets ||
-      previous.guideNets !== next.guideNets || previous.boundary !== next.boundary || previous.ext !== next.ext) return false
+      previous.guideNets !== next.guideNets || previous.boundary !== next.boundary || previous.inputsPanel !== next.inputsPanel ||
+      previous.ext !== next.ext) return false
   const previousIds = Object.keys(previous.nodes)
   const nextIds = Object.keys(next.nodes)
   if (previousIds.length !== nextIds.length || previousIds.some((id) => next.nodes[id] === undefined)) return false
@@ -148,7 +156,8 @@ const onlyNodePositionsChanged = (
     return before === after || (
       before.size === after.size && before.collapsed === after.collapsed && before.views === after.views &&
       before.textLines === after.textLines && before.previewFolded === after.previewFolded &&
-      before.minimizedPreviewOpen === after.minimizedPreviewOpen && before.sections === after.sections && before.color === after.color && before.ext === after.ext
+      before.minimizedPreviewOpen === after.minimizedPreviewOpen && before.sections === after.sections &&
+      before.editors === after.editors && before.pictureHeights === after.pictureHeights && before.color === after.color && before.ext === after.ext
     )
   })
 }
@@ -276,6 +285,8 @@ export interface SceneNode {
   readonly unrecognized?: true
   /** Set when the node's schema could not be resolved (rendered as an error shell). */
   readonly missingSchema?: boolean
+  /** Set instead of the two marks above while no node definitions are held yet. */
+  readonly schemaPending?: true
 }
 
 /**
@@ -294,8 +305,7 @@ export interface SceneBoundaryNode {
    * item id as on the subgraph node outside. They are the values of the
    * subgraph node the editor came in through, or the defaults a new
    * subgraph node starts with when it came in through none. Each row's
-   * `familyOwner` names the node and value key an edit writes, or its
-   * `valueSourceOwner` the value source.
+   * `familyOwner` names the node and value key an edit writes.
    */
   readonly fields?: {
     readonly node: NodeData
@@ -320,7 +330,7 @@ export function boundaryFieldNode(bnode: SceneBoundaryNode): SceneNode | undefin
  */
 export const boundarySceneId = (side: 'inputs' | 'outputs'): string => `@boundary:${side}`
 
-/** One end of a scene noodle: a node port pin, a reroute junction, a value source, or a boundary pseudo-node pin. */
+/** One end of a scene noodle: a node port pin, a widget tap, a reroute junction, or a boundary pseudo-node pin. */
 export type SceneLinkEnd =
   | {
       readonly kind: 'port'
@@ -328,39 +338,26 @@ export type SceneLinkEnd =
       readonly port: string
     }
   | { readonly kind: 'reroute'; readonly reroute: string }
-  | { readonly kind: 'valueSource'; readonly valueSource: string }
   | { readonly kind: 'widgetTap'; readonly node: string; readonly input: string }
-  /** A selector endpoint: with `candidate` = one branch input, without = the output. */
-  | { readonly kind: 'selector'; readonly selector: string; readonly candidate?: string }
   /** A boundary pseudo-node pin; `item` is the boundary item id (opaque - never split). */
   | { readonly kind: 'boundary'; readonly side: 'inputs' | 'outputs'; readonly item: string }
 
 export const netDeliveryLinkId = (netId: string, sinkIndex: number): string => `${netId}:${sinkIndex}`
 
-/**
- * A consumer end: value sources produce, never consume (invariant I10), so a
- * link's `to` is structurally narrower than its `from`.
- */
-export type SceneLinkTo = Exclude<SceneLinkEnd, { kind: 'valueSource' }>
-
-/** The scene id a link end rides during drags (node, reroute, source, selector, or boundary pseudo-node id). */
+/** The scene id a link end rides during drags (node, reroute, or boundary pseudo-node id). */
 export const sceneEndId = (end: SceneLinkEnd): string =>
   end.kind === 'port'
     ? end.node
     : end.kind === 'reroute'
       ? end.reroute
-      : end.kind === 'valueSource'
-        ? end.valueSource
-        : end.kind === 'widgetTap'
-          ? end.node
-        : end.kind === 'selector'
-          ? end.selector
-          : boundarySceneId(end.side)
+      : end.kind === 'widgetTap'
+        ? end.node
+        : boundarySceneId(end.side)
 
 export interface SceneLink {
   readonly id: string
   readonly from: SceneLinkEnd
-  readonly to: SceneLinkTo
+  readonly to: SceneLinkEnd
   /** Absolute endpoint coordinates (source pin -> target pin). */
   readonly x1: number
   readonly y1: number
@@ -379,6 +376,8 @@ export interface SceneLink {
   readonly maybeAbsent?: true
   /** The wire leaves a kept row (a field no longer part of its node): drawn dimmed, it gives nothing. */
   readonly dimmed?: true
+  /** The traced producer is a muted node: the wire is drawn faded like that node. */
+  readonly sourceMuted?: true
   /**
    * Set when this noodle renders a named-net fan-out rather than a document
    * link. Its `id` is synthetic (`netId:index`); deletion must go through
@@ -389,9 +388,11 @@ export interface SceneLink {
   /**
    * The solver PROVED this edge's endpoint types incompatible. 'unknown'
    * verdicts (generic or wildcard endpoints) deliberately do not mark:
-   * uncertainty is normal, only demonstrated conflict earns error paint.
+   * uncertainty is normal, only demonstrated conflict earns problem paint.
    */
   readonly mismatch?: true
+  /** Strongest problem attributed to a mismatching edge. */
+  readonly mismatchKind?: 'error' | 'warning'
   /** Solver diagnostics attributed to this proven-mismatch noodle. */
   readonly diagnostics?: readonly Diagnostic[]
   /** The net's user-facing name (drawn as a midpoint label). */
@@ -459,161 +460,6 @@ export const REROUTE_SOCKET_OFFSET = REROUTE_RADIUS + canvasPaintTokens.reroute.
 export const REROUTE_SOCKET_RADIUS = canvasPaintTokens.reroute.socketRadius
 
 /**
- * A value source rendered as a compact literal pill: title + value + spec
- * badge + ONE output pin. It is NOT a node - no schema, no input pins, no
- * rows - and it compiles away entirely. The effective widget spec (and its
- * declared/derived/conflict status) is derived at build time, never stored.
- */
-export interface SceneValueSource {
-  readonly id: string
-  /** Top-left, world coords. */
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-  readonly source: ValueSourceData
-  /** Display title: explicit title, else the effective widget kind, else 'value'. */
-  readonly title: string
-  /** Compact one-line value text (raw JSON rendering for non-strings). */
-  readonly valueText: string
-  /** Effective spec + consumers + diagnostics, derived during build. */
-  readonly effective: EffectiveValueSourceSpec
-  /** Advisory concrete type (pin/noodle color), when determinable. */
-  readonly typeName?: string
-  /** declared: pinned spec; derived: unified from consumers; raw: neither. */
-  readonly specState: 'declared' | 'derived' | 'raw'
-  /** Derivation reported conflicts (badge renders as a warning). */
-  readonly conflict: boolean
-  /**
-   * While a subgraph node is entered, the value it sends through this
-   * source, which the Inputs panel edits. The pill shows it dimmed and is
-   * not edited there.
-   */
-  readonly arriving?: { readonly value: Json }
-  /**
-   * While a subgraph node is entered, the boundary input that shows this
-   * source as a field on that node, and the input's name there; painted as
-   * the cyan subgraph icon before the title (valueSourceMarkRect).
-   */
-  readonly subgraphMark?: { readonly item: string; readonly label: string }
-}
-
-export const VS_HEIGHT_PAD = canvasPaintTokens.valueSource.heightPadding
-export const VS_MIN_WIDTH = canvasPaintTokens.valueSource.minWidth
-export const VS_BADGE_SIZE = canvasPaintTokens.valueSource.badgeSize
-/** Badge inset from the pill's right edge. */
-export const VS_BADGE_INSET = canvasPaintTokens.valueSource.badgeInset
-
-/** A value source's single output pin center, world coords. */
-export const valueSourcePinPosition = (vs: SceneValueSource): { x: number; y: number } => ({
-  x: vs.x + vs.width,
-  y: vs.y + vs.height / 2,
-})
-
-/** World-space rect of a value source's spec badge (declared/derived/conflict). */
-export function valueSourceBadgeRect(vs: SceneValueSource): {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-} {
-  return {
-    x: vs.x + vs.width - VS_BADGE_SIZE - VS_BADGE_INSET,
-    y: vs.y + vs.height / 2 - VS_BADGE_SIZE / 2,
-    width: VS_BADGE_SIZE,
-    height: VS_BADGE_SIZE,
-  }
-}
-
-/**
- * World-space square of the subgraph mark before a value source's title
- * (SceneValueSource.subgraphMark). Shared by painting and pointer hit
- * testing; `padX` is the design tokens' padX.
- */
-export function valueSourceMarkRect(vs: SceneValueSource, padX: number): { readonly x: number; readonly y: number; readonly size: number } {
-  const size = canvasPaintTokens.widget.subgraphMark.size
-  return { x: vs.x + padX, y: vs.y + (vs.height - size) / 2, size }
-}
-
-/** Compact one-line value text ('' for null; first line of strings). */
-export const valueSourceValueText = (value: Json): string =>
-  value === null ? '' : typeof value === 'string' ? (value.split('\n')[0] ?? '') : JSON.stringify(value)
-
-/**
- * One candidate row of a selector: a branch input pin plus its label.
- * `y` is the pin/row center relative to the selector's top edge.
- */
-export interface SceneSelectorCandidate {
-  readonly id: string
-  readonly label: string
-  readonly y: number
-  /** Concrete type traced from this branch's driver, when statically known. */
-  readonly typeName?: string
-}
-
-/**
- * A selector rendered as a compact node-like box: header (title + policy
- * badge + ONE output pin) over one row per candidate branch. It is NOT a
- * node - no schema, no widgets - and unselected branches compile away.
- * Semantics live in GraphDef.selectors; this carries geometry plus traced
- * types for coloring.
- */
-export interface SceneSelector {
-  readonly id: string
-  /** Top-left, world coords. */
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-  readonly headerHeight: number
-  readonly data: SelectorData
-  /** Display title: explicit title, else 'Select'. */
-  readonly title: string
-  readonly candidates: readonly SceneSelectorCandidate[]
-  /** The fixed policy's chosen candidate id (undefined under random policy). */
-  readonly activeCandidate?: string
-  /** True under random policy (badge renders as a die). */
-  readonly random: boolean
-  /** Output color: the single concrete type ALL driven branches agree on. */
-  readonly typeName?: string
-}
-
-export const SELECTOR_MIN_WIDTH = canvasPaintTokens.selector.minWidth
-export const SELECTOR_BADGE_SIZE = canvasPaintTokens.selector.badgeSize
-/** Badge inset from the selector's right edge (header band). */
-export const SELECTOR_BADGE_INSET = canvasPaintTokens.selector.badgeInset
-
-/** A selector's single output pin center, world coords (header band, right edge). */
-export const selectorOutPinPosition = (sel: SceneSelector): { x: number; y: number } => ({
-  x: sel.x + sel.width,
-  y: sel.y + sel.headerHeight / 2,
-})
-
-/** One candidate's input pin center, world coords (left edge at its row). */
-export const selectorCandidatePinPosition = (
-  sel: SceneSelector,
-  candidateId: string,
-): { x: number; y: number } | undefined => {
-  const c = sel.candidates.find((cand) => cand.id === candidateId)
-  return c ? { x: sel.x, y: sel.y + c.y } : undefined
-}
-
-/** World-space rect of a selector's policy badge (fixed/random details + menu). */
-export function selectorBadgeRect(sel: SceneSelector): {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-} {
-  return {
-    x: sel.x + sel.width - SELECTOR_BADGE_SIZE - SELECTOR_BADGE_INSET,
-    y: sel.y + sel.headerHeight / 2 - SELECTOR_BADGE_SIZE / 2,
-    width: SELECTOR_BADGE_SIZE,
-    height: SELECTOR_BADGE_SIZE,
-  }
-}
-
-/**
  * A collapsed net's endpoint tag: drawn beside the pin instead of noodles.
  * Geometry is precomputed here (the scene has the measurer) so drawing and
  * hit-testing agree without re-measuring text.
@@ -625,6 +471,7 @@ export interface SceneNetStub {
   readonly role: 'source' | 'sink'
   /** Solver-proven mismatch for this sink, or any sink for a source tag. */
   readonly mismatch?: true
+  readonly mismatchKind?: 'error' | 'warning'
   readonly nodeId: string
   readonly portId: string
   /** Pin center the tag points at, world coords. */
@@ -680,8 +527,6 @@ export interface Scene {
   readonly nodes: readonly SceneNode[]
   readonly links: readonly SceneLink[]
   readonly reroutes: readonly SceneReroute[]
-  readonly valueSources: readonly SceneValueSource[]
-  readonly selectors: readonly SceneSelector[]
   readonly netStubs: readonly SceneNetStub[]
   readonly groups: readonly SceneGroup[]
   /** Boundary pseudo-nodes (subgraph definitions only; empty elsewhere). */
@@ -720,27 +565,6 @@ export function reroutesInGroup(scene: Scene, group: SceneGroup): string[] {
     .map((r) => r.id)
 }
 
-/** Value source ids a group carries, using the same center rule as nodes. */
-export function valueSourcesInGroup(scene: Scene, group: SceneGroup): string[] {
-  return scene.valueSources
-    .filter((v) => {
-      const cx = v.x + v.width / 2
-      const cy = v.y + v.height / 2
-      return cx >= group.x && cx <= group.x + group.width && cy >= group.y && cy <= group.y + group.height
-    })
-    .map((v) => v.id)
-}
-
-/** Selector ids a group carries, using the same center rule as nodes. */
-export function selectorsInGroup(scene: Scene, group: SceneGroup): string[] {
-  return scene.selectors
-    .filter((s) => {
-      const cx = s.x + s.width / 2
-      const cy = s.y + s.height / 2
-      return cx >= group.x && cx <= group.x + group.width && cy >= group.y && cy <= group.y + group.height
-    })
-    .map((s) => s.id)
-}
 
 /** Boundary pseudo-node sides a group carries, using the node-center rule. */
 export function boundaryNodesInGroup(scene: Scene, group: SceneGroup): Array<'inputs' | 'outputs'> {
@@ -911,15 +735,26 @@ export interface BuildSceneInput {
   readonly storedValueProblem?: (row: StoredValueRow, value: Json | undefined) => boolean
   /** App capability controlling seed-controller UI construction. */
   readonly seedControllerEnabled?: boolean
+  /** What the editor holds for lookup calls; absent where lookups are off (frozen views, previews). */
+  readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
+  /** Ephemeral measured result boxes, by visible node and elaborated button id. */
+  readonly buttonNoticeHeights?: Readonly<Record<string, Readonly<Record<string, number>>>>
   /** Graph definition to render (the root, or a subgraph being edited). */
   readonly graphId: string
   readonly resolve: SchemaResolver
+  /**
+   * No node definitions are held yet, so a node that resolves to no schema
+   * may still have one: it is marked `schemaPending`, not missing.
+   */
+  readonly schemasPending?: boolean
   readonly renderVirtualNode?: (node: NodeData) => VirtualNodeRenderModel | undefined
   readonly tokens: DesignTokens
   readonly measure: TextMeasurer
   readonly widgetMeasure: WidgetMeasure
   /** Enables position-only root-scene reuse until rendering capabilities change. */
   readonly layoutGeneration?: unknown
+  /** Measured editor controls, by scene node and value key. */
+  readonly editorControls?: Readonly<Record<string, Readonly<Record<string, number>>>>
   /** Concrete drilled owner plus the integration capability gate. */
   readonly occurrence?: {
     readonly owner: OccurrenceRef
@@ -934,7 +769,6 @@ export interface BuildSceneInput {
       readonly nodeId: string
       readonly valueKey: string
     }>>
-    readonly valueSources?: import('@dinkster/core').OccurrenceDynamicView['valueSources']
   }
 }
 
@@ -1047,6 +881,7 @@ export function updateSceneNodeValues(
   current: WorkflowDocument,
   graphId: string,
   resolve: SchemaResolver,
+  lookupAnswers?: ElaborateOptions['lookupAnswers'],
 ): Scene | undefined {
   if (scene.graphId !== graphId || graphId !== current.root || Object.keys(current.graphs).length !== 1 ||
       !sameReferencesExcept(previous as unknown as Readonly<Record<string, unknown>>, current as unknown as Readonly<Record<string, unknown>>, 'graphs') ||
@@ -1055,7 +890,7 @@ export function updateSceneNodeValues(
   const after = current.graphs[graphId]
   if (!before || !after || !sameReferencesExcept(before as unknown as Readonly<Record<string, unknown>>, after as unknown as Readonly<Record<string, unknown>>, 'nodes') ||
       Object.keys(before.nodes).length !== Object.keys(after.nodes).length || scene.nodes.length !== Object.keys(after.nodes).length) return undefined
-  if (after.boundary || Object.keys(after.valueSources ?? {}).length || Object.keys(after.selectors ?? {}).length) return undefined
+  if (after.boundary) return undefined
   for (const node of Object.values(after.nodes)) {
     const schema = resolve(node.type)
     if (node.virtual || node.type.startsWith('#') || node.region || !schema || schema.virtual ||
@@ -1081,7 +916,7 @@ export function updateSceneNodeValues(
           typeof node.values[key] !== 'number' || !Number.isFinite(node.values[key]) ||
           (old.values[key] !== undefined && (typeof old.values[key] !== 'number' || !Number.isFinite(old.values[key])))) return undefined
     }
-    if (!structuralEqual(existing.elaborated, elaborateInterface(schema, node))) return undefined
+    if (!structuralEqual(existing.elaborated, elaborateInterface(schema, node, EMPTY_CONNECTIVITY, lookupAnswers === undefined ? {} : { lookupAnswers }))) return undefined
     changed = true
     nodes.push({ ...existing, node })
   }
@@ -1102,8 +937,9 @@ export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
   /**
    * A node's interface as drawn. A row hidden by its `visible` shows while it
-   * has a problem: a solver problem on its port, or a stored value its
-   * widget's own check refuses.
+   * has a problem: a solver problem on its port, a stored value its
+   * widget's own check refuses, or nothing stored where a run needs a value
+   * (`compile.input.missing`).
    */
   const elaborateShown = (
     schema: NodeSchema,
@@ -1112,30 +948,48 @@ export function buildScene(input: BuildSceneInput): Scene {
     nodeId: string,
     solverProblems: ReadonlySet<string> | undefined,
     representations: Readonly<Record<string, string>> | undefined,
+    runs: boolean,
   ): ElaboratedInterface => {
     const problemRows = new Set(solverProblems)
-    const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows } : {})
+    const lookups = input.lookupAnswers === undefined ? {} : { lookupAnswers: input.lookupAnswers }
+    const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows, ...lookups } : lookups)
     const check = input.storedValueProblem
-    if (check === undefined) return elaborated
     for (const item of elabInputsOf(elaborated)) {
-      const widget = item.spec.widget
-      if (item.spec.hidden !== true || widget === undefined) continue
+      if (item.spec.hidden !== true) continue
       const valueKey = valueKeyOf(item)
+      const stored = node.values[valueKey]
+      // A row with a wire already shows, so a hidden row here has none.
+      if (runs && item.hiddenByScope === true && missingInputValue(item, stored)) {
+        problemRows.add(item.address.port)
+        continue
+      }
+      const widget = item.spec.widget
+      if (check === undefined || widget === undefined) continue
       const spec = resolveWidgetRepresentation(widget, representations?.[valueKey]).spec
-      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, node.values[valueKey])) problemRows.add(item.address.port)
+      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, stored)) problemRows.add(item.address.port)
     }
     return problemRows.size > (solverProblems?.size ?? 0)
-      ? elaborateInterface(schema, node, connectivity, { problemRows })
+      ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
       : elaborated
   }
-  if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
-  let resolveSource: ReturnType<typeof documentValueSourceResolver> | undefined
+  if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   const sourcePath = input.occurrence === undefined
     ? input.graphId === input.document.root ? [] : undefined
     : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
-  const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, sourceId, path) => {
-    resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
-    return resolveSource(graphId, sourceId, path)
+  // Compile reports a missing value only on a node that runs: it skips a
+  // muted or bypassed node and everything inside one.
+  let enclosingRuns = sourcePath !== undefined
+  let enclosing: GraphDef | undefined = input.document.graphs[input.document.root]
+  for (const id of sourcePath ?? []) {
+    const owner = enclosing?.nodes[id]
+    if (owner === undefined || (owner.mode ?? 'active') !== 'active') { enclosingRuns = false; break }
+    const body = subgraphDefIdOf(owner.type)
+    enclosing = body === undefined ? undefined : input.document.graphs[body]
+  }
+  let resolvePrimitive: ReturnType<typeof documentPrimitiveResolver> | undefined
+  const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, node, path) => {
+    resolvePrimitive ??= documentPrimitiveResolver(input.document, input.resolve)
+    return resolvePrimitive(graphId, node, path)
   })
   const view = input.document.view.graphs[input.graphId]
   const positioned = positionedSceneCache.get(def)
@@ -1143,8 +997,9 @@ export function buildScene(input: BuildSceneInput): Scene {
       positioned?.graph === def && graphMatchesSnapshot(positioned.graphSnapshot, def) &&
       positioned.graphs === input.document.graphs && positioned.documentExt === input.document.ext &&
       positioned.seedControllerEnabled === input.seedControllerEnabled &&
+      positioned.buttonNoticeHeights === input.buttonNoticeHeights &&
       positioned.tokens === input.tokens && positioned.measure === input.measure && positioned.widgetMeasure === input.widgetMeasure &&
-      positioned.generation === input.layoutGeneration && onlyNodePositionsChanged(positioned.view, view)) {
+      positioned.generation === input.layoutGeneration && positioned.editorControls === input.editorControls && onlyNodePositionsChanged(positioned.view, view)) {
     const scene = repositionScene(positioned.scene, def, view)
     positionedSceneCache.set(def, { ...positioned, view, scene })
     return scene
@@ -1194,20 +1049,23 @@ export function buildScene(input: BuildSceneInput): Scene {
     if (isPortEndpoint(toEndpoint)) markConnected(toEndpoint, 'in')
   }
   for (const net of Object.values(def.nets)) {
+    // A definition net's source tag remains a connection even in an
+    // occurrence with no effective sink deliveries.
     markConnected(net.source, 'out')
-    for (const sink of net.sinks) markConnected(sink, 'in')
+    if (effective === undefined) for (const sink of net.sinks) markConnected(sink, 'in')
   }
   // Boundary bindings are connections too: a bound port inside a collapsed
   // section must keep its pin so the boundary noodle never dangles. Family
   // forwarding has no single pin; its noodle anchors dynamically below.
-  if (def.boundary) {
-    for (const item of def.boundary.inputs) {
+  // Concrete occurrences use only their unsuppressed effective deliveries.
+  if (def.boundary && effective === undefined) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (b.kind === 'port')
           markConnected({ node: b.node, port: b.port }, 'in')
       }
     }
-    for (const item of def.boundary.outputs) {
+    for (const item of boundaryItems(def.boundary, 'outputs')) {
       if (item.binds.kind === 'port')
         markConnected({ node: item.binds.node, port: item.binds.port }, 'out')
       else if (item.binds.kind === 'widgetTap') {
@@ -1231,7 +1089,6 @@ export function buildScene(input: BuildSceneInput): Scene {
   const effectiveGraph: GraphDef = effective === undefined ? (occurrenceNodes === def.nodes ? def : { ...def, nodes: occurrenceNodes }) : (() => {
     const occupied = new Set([
       ...Object.keys(def.nodes), ...Object.keys(def.reroutes),
-      ...Object.keys(def.valueSources ?? {}), ...Object.keys(def.selectors ?? {}),
     ])
     const links = Object.fromEntries(effective.links.filter((link) =>
       !(isPortEndpoint(link.from.endpoint) && link.from.endpoint.node === DINKSTER_REGION_PSEUDO_NODE),
@@ -1317,7 +1174,23 @@ export function buildScene(input: BuildSceneInput): Scene {
       rendered = rendered.replaceAll(`link '${solverId}'`, `link '${sceneId}'`)
     return rendered
   }
-  const solverDiagnostics = solvedTypes.diagnostics.map((diagnostic): Diagnostic => {
+  // A primitive whose fed fields share no value shows the problem on its
+  // value pin and on each wire it sends here; the value and wires stay.
+  const primitiveDiagnostics: Diagnostic[] = []
+  for (const node of Object.values(def.nodes)) {
+    const base = input.resolve(node.type)
+    const shape = base && primitiveOf(base)
+    if (!shape) continue
+    resolvePrimitive ??= documentPrimitiveResolver(input.document, input.resolve)
+    for (const diagnostic of resolvePrimitive(input.graphId, node, sourcePath)?.diagnostics ?? []) {
+      primitiveDiagnostics.push({ ...diagnostic, anchor: { port: { node: node.id, port: asPortId(shape.value.id) } } })
+      for (const link of Object.values(def.links)) {
+        if (isPortEndpoint(link.from) && link.from.node === node.id && link.from.port === shape.output.id)
+          primitiveDiagnostics.push({ ...diagnostic, anchor: { link: link.id } })
+      }
+    }
+  }
+  const solverDiagnostics = [...solvedTypes.diagnostics.map((diagnostic): Diagnostic => {
     const link = diagnostic.anchor?.link
     const renderedLink = link === undefined ? undefined : solverToScene.get(link)
     const edges = diagnostic.data?.['edges']
@@ -1332,7 +1205,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(renderedLink === undefined ? {} : { anchor: { ...diagnostic.anchor, link: renderedLink as import('@dinkster/core').LinkId } }),
       ...(renderedEdges === undefined ? {} : { data: { ...diagnostic.data, edges: renderedEdges } }),
     }
-  })
+  }), ...primitiveDiagnostics]
 
   /** Ports with a solver error or warning, by node: rows with a problem show even when hidden. */
   const problemPorts = new Map<string, Set<string>>()
@@ -1347,6 +1220,9 @@ export function buildScene(input: BuildSceneInput): Scene {
 
   const nodes: SceneNode[] = []
   const byId = new Map<string, SceneNode>()
+  // An automatic value that cannot be worked out: the field's warning, also
+  // listed in Problems, where picking it moves to the field.
+  const automaticDiagnostics: Diagnostic[] = []
   let fallbackY = 0
   for (const node of Object.values(def.nodes)) {
     const view = viewNodes[node.id]
@@ -1370,8 +1246,14 @@ export function buildScene(input: BuildSceneInput): Scene {
         }
     const schema = resolveNode(input.graphId, occurrenceNode, sourcePath)
     const elaborated = schema
-      ? elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views)
+      ? elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views,
+          enclosingRuns && (node.mode ?? 'active') === 'active')
       : undefined
+    for (const diagnostic of elaborated?.diagnostics ?? []) {
+      const port = diagnostic.data?.['input']
+      if (diagnostic.code !== 'automatic.default' || typeof port !== 'string') continue
+      automaticDiagnostics.push({ ...diagnostic, anchor: { port: { node: asNodeId(node.id), port: asPortId(port) } } })
+    }
     const baseLayout = schema
       ? layoutNode(schema, occurrenceNode, input.tokens, measure, input.widgetMeasure, {
           ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
@@ -1381,6 +1263,13 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(lineFolds ? { lineFolds } : {}),
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
           ...(view?.textLines ? { textBoxLines: view.textLines } : {}),
+          ...(view?.editors
+            ? { editorUnfolded: Object.fromEntries(Object.entries(view.editors).map(([key, e]) => [key, e.unfolded])) }
+            : {}),
+          ...(view?.pictureHeights ? { pictureHeights: view.pictureHeights } : {}),
+          ...(input.editorControls?.[node.id] === undefined ? {} : { editorControls: input.editorControls[node.id]! }),
+          ...(view?.histogramVisibility ? { histogramVisibility: view.histogramVisibility } : {}),
+          ...(input.buttonNoticeHeights?.[node.id] === undefined ? {} : { buttonNoticeHeights: input.buttonNoticeHeights[node.id] }),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
           ...(elaborated !== undefined ? { elaborated } : {}),
         })
@@ -1391,6 +1280,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           missingConnections(def, node.id),
           view?.size,
           view?.collapsed === true,
+          input.schemasPending === true,
         )
     // A promoted boundary input owns the value and editable menu of the
     // inner row it binds; edits on that row write to the owning instance.
@@ -1494,7 +1384,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(view?.color !== undefined ? { color: view.color } : {}),
       isSubgraph: subgraphDefIdOf(node.type) !== undefined,
       ...(node.region !== undefined ? { regionKind: node.region.kind } : {}),
-      ...(schema ? {} : { unrecognized: true, missingSchema: true }),
+      ...(schema ? {} : input.schemasPending === true ? { schemaPending: true } : { unrecognized: true, missingSchema: true }),
     }
     nodes.push(sceneNode)
     byId.set(node.id, sceneNode)
@@ -1511,71 +1401,6 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     ownerNode = ownerGraph?.nodes[input.occurrence.owner.node]
   }
-  // While a node is entered, a value source that node shows as a field sends
-  // the node's value (or the outer owner's), else its own.
-  const sentSourceValues = new Map<string, Json>()
-  if (ownerNode !== undefined) {
-    for (const item of def.boundary?.inputs ?? []) {
-      const source = item.binds.kind === 'valueSource' && item.promoted === true ? def.valueSources?.[item.binds.valueSource] : undefined
-      if (source === undefined) continue
-      const occurrence = input.occurrenceView?.valueSources?.get(source.id)
-      const value = occurrence !== undefined ? occurrence.value
-        : Object.hasOwn(ownerNode.values, item.id) ? ownerNode.values[item.id] : undefined
-      sentSourceValues.set(source.id, value !== undefined ? value : source.value)
-    }
-  }
-
-  // Value sources: compact literal pills. Semantics from GraphDef, geometry
-  // from view state (fallback stack for imports that lost positions), the
-  // effective spec derived fresh every build - NEVER stored (hazard P1).
-  // Built BEFORE reroutes: reroute chains fed by a source take its color.
-  const viewValueSources = graphView?.valueSources ?? {}
-  const valueSources: SceneValueSource[] = []
-  const valueSourceById = new Map<string, SceneValueSource>()
-  let vsFallbackY = 0
-  for (const vs of Object.values(def.valueSources ?? {})) {
-    const pos = viewValueSources[vs.id]?.position ?? { x: 0, y: (vsFallbackY += canvasPaintTokens.scene.valueSourceFallbackStepY) }
-    resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
-    const effective = resolveSource(def.id, vs.id, sourcePath)!
-    const title = vs.title ?? effective.spec?.widgetType ?? 'value'
-    const sent = sentSourceValues.has(vs.id) ? { value: sentSourceValues.get(vs.id)! } : undefined
-    const valueText = valueSourceValueText(sent !== undefined ? sent.value : vs.value)
-    // A sent value comes from a field on the entered node: room for its mark.
-    const markReserve = sent === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
-    const width = Math.min(
-      input.tokens.nodeMaxAutoWidth,
-      Math.max(
-        VS_MIN_WIDTH,
-        input.tokens.padX +
-          markReserve +
-          measure(title, 'label') +
-          canvasPaintTokens.valueSource.valueGap +
-          measure(valueText, 'value') +
-          canvasPaintTokens.valueSource.valueGap +
-          VS_BADGE_SIZE +
-          VS_BADGE_INSET,
-      ),
-    )
-    const typeName = canonicalTypeIdOf(effective.type)
-    const sceneSource: SceneValueSource = {
-      id: vs.id,
-      x: pos.x,
-      y: pos.y,
-      width,
-      height: input.tokens.rowHeight + VS_HEIGHT_PAD,
-      source: vs,
-      title,
-      valueText,
-      effective,
-      ...(typeName !== undefined ? { typeName } : {}),
-      specState: vs.spec ? 'declared' : effective.spec ? 'derived' : 'raw',
-      conflict: effective.diagnostics.length > 0,
-      ...(sent !== undefined ? { arriving: sent } : {}),
-    }
-    valueSources.push(sceneSource)
-    valueSourceById.set(vs.id, sceneSource)
-  }
-
   // Reroute junctions: geometry from view state (fallback stack for imports
   // that lost positions), effective type traced through the chain to the
   // driving output so every segment of a chain shares one color.
@@ -1601,47 +1426,69 @@ export function buildScene(input: BuildSceneInput): Scene {
       return widgetTapTypeName(from.node, from.tap)
     }
     const trace = traceEndpoint(def, from, rerouteIndex)
-    if (trace.kind === 'valueSource') return valueSourceById.get(trace.id)?.typeName
     if (trace.kind === 'tapValue') return widgetTapTypeName(trace.node, trace.input)
-    if (trace.kind === 'selector') {
-      // A selector output has no single producer without a resolution; color
-      // only when EVERY driven branch agrees on one concrete type (matches
-      // the solver's all-candidate view, so the color never lies).
-      let name: string | undefined
-      for (const t of traceEndpointAll(def, from, rerouteIndex)) {
-        if (t.kind === 'valueSource') {
-          const n = valueSourceById.get(t.id)?.typeName
-          if (n === undefined || (name !== undefined && name !== n)) return undefined
-          name = n
-        } else if (t.kind === 'tapValue') {
-          const n = widgetTapTypeName(t.node, t.input)
-          if (n === undefined || (name !== undefined && name !== n)) return undefined
-          name = n
-        } else if (t.kind === 'output') {
-          const n = outputTypeName(t.ref)
-          if (n === undefined || (name !== undefined && name !== n)) return undefined
-          name = n
-        }
-      }
-      return name
-    }
     if (trace.kind !== 'output') return undefined
     return outputTypeName(trace.ref)
   }
-  /**
-   * True when the REAL producer behind `from` declares an optional output
-   * (may deliberately emit no value at runtime) - a static schema fact, so
-   * it needs no solver. A selector counts when ANY driven branch is
-   * maybe-absent (policy can switch to that branch at any moment).
-   */
-  const tracedMaybeAbsent = (from: LinkEndpoint): boolean => {
-    for (const t of traceEndpointAll(def, from, rerouteIndex)) {
+  const bypassInput = (ref: PortRef, consumerType?: TypeExpr) => {
+    const node = byId.get(ref.node)
+    const elab = node?.elaborated
+    if (node?.node.mode !== 'bypassed' || elab === undefined) return undefined
+    const outputs = elabOutputsOf(elab).filter((output) => output.wireable !== false)
+    const index = outputs.findIndex((output) => output.address.port === ref.port)
+    const output = outputs[index]
+    if (output === undefined) return undefined
+    const candidates = buildBypassCandidates(elabInputsOf(elab), (input) => {
+      const key = portRefKey({ node: ref.node, port: asPortId(input.address.port) })
+      const from = rerouteIndex.inputDriverOf.get(key)?.from ?? rerouteIndex.netSourceOf.get(key)
+      return from === undefined ? undefined : { input, from }
+    })
+    return matchBypassInput({ index, type: consumerType ?? output.spec.type }, candidates)?.driver
+  }
+  const passedOn = (ref: PortRef, consumerType?: TypeExpr): LinkEndpoint | undefined => {
+    const node = byId.get(ref.node)
+    const elab = node?.elaborated
+    if (node === undefined || elab === undefined || node.node.mode === 'muted') return undefined
+    if (node.node.mode === 'bypassed') return bypassInput(ref, consumerType)?.from
+    const address = portAddressKey(ref.port)
+    const outputs = elabOutputsOf(elab)
+    const output = outputs.find((candidate) => portAddressKey(candidate.address.port) === address)
+    if (output === undefined) return undefined
+    const driverOf = (port: string): LinkEndpoint | undefined => {
+      const key = portRefKey({ node: ref.node, port: asPortId(port) })
+      return rerouteIndex.inputDriverOf.get(key)?.from ?? rerouteIndex.netSourceOf.get(key)
+    }
+    const known = output.spec.knownValue
+    if (known === undefined) return undefined
+    const input = elabInputsOf(elab).find((candidate) => candidate.spec.id === known.input)
+    return input === undefined ? undefined : driverOf(input.address.port)
+  }
+  /** Real producers behind bypass and knownValue routes; a muted node stops the walk. */
+  const tracedProducers = (from: LinkEndpoint, consumerType?: TypeExpr, seen = new Set<string>()): RerouteTrace[] =>
+    traceEndpointAll(def, from, rerouteIndex).flatMap((t) => {
+      if (t.kind !== 'output') return [t]
+      const key = portRefKey(t.ref)
+      if (seen.has(key)) return []
+      seen.add(key)
+      const next = passedOn(t.ref, consumerType)
+      return next === undefined ? [t] : tracedProducers(next, consumerType, seen)
+    })
+  const tracedMaybeAbsent = (from: LinkEndpoint, consumerType?: TypeExpr): boolean => {
+    for (const t of tracedProducers(from, consumerType)) {
       if (t.kind !== 'output') continue
       const producer = byId.get(t.ref.node)
       const key = t.ref.port
       if (producer?.layout.pins.some((p) => p.direction === 'out' && p.portId === key && p.maybeAbsent === true)) return true
     }
     return false
+  }
+  /**
+   * True when every real producer behind `from` is an output of a muted
+   * node, traced like {@link tracedMaybeAbsent}.
+   */
+  const tracedSourceMuted = (from: LinkEndpoint, consumerType?: TypeExpr): boolean => {
+    const traces = tracedProducers(from, consumerType)
+    return traces.length > 0 && traces.every((t) => t.kind === 'output' && byId.get(t.ref.node)?.node.mode === 'muted')
   }
   for (const reroute of Object.values(def.reroutes)) {
     const pos = viewReroutes[reroute.id]?.position ?? { x: 0, y: (rerouteFallbackY += canvasPaintTokens.scene.rerouteFallbackStepY) }
@@ -1656,80 +1503,11 @@ export function buildScene(input: BuildSceneInput): Scene {
     rerouteById.set(reroute.id, sceneReroute)
   }
 
-  // Selectors: compact node-like boxes (header + one row per candidate).
-  // Semantics from GraphDef.selectors, geometry from view state, branch and
-  // output types traced fresh every build - never stored.
-  const viewSelectors = graphView?.selectors ?? {}
-  const selectors: SceneSelector[] = []
-  const selectorById = new Map<string, SceneSelector>()
-  let selectorFallbackY = 0
-  for (const sel of Object.values(def.selectors ?? {})) {
-    const pos = viewSelectors[sel.id]?.position ?? { x: 0, y: (selectorFallbackY += canvasPaintTokens.scene.selectorFallbackStepY) }
-    const title = sel.title ?? 'Select'
-    const headerHeight = input.tokens.headerHeight
-    const rowHeight = input.tokens.rowHeight
-    const candidates: SceneSelectorCandidate[] = sel.candidates.map((c, i) => {
-      const typeName = tracedTypeName({ selector: sel.id, candidate: c.id })
-      return {
-        id: c.id,
-        label: c.title ?? `${i + 1}`,
-        y: headerHeight + rowHeight * i + rowHeight / 2,
-        ...(typeName !== undefined ? { typeName } : {}),
-      }
-    })
-    const width = Math.min(
-      input.tokens.nodeMaxAutoWidth,
-      Math.max(
-        SELECTOR_MIN_WIDTH,
-        input.tokens.padX * 2 + measure(title, 'title') + canvasPaintTokens.selector.widthPadding + SELECTOR_BADGE_SIZE + SELECTOR_BADGE_INSET,
-        ...candidates.map((c) => input.tokens.padX * 2 + measure(c.label, 'label') + canvasPaintTokens.selector.widthPadding),
-      ),
-    )
-    const typeName = tracedTypeName({ selector: sel.id })
-    const sceneSelector: SceneSelector = {
-      id: sel.id,
-      x: pos.x,
-      y: pos.y,
-      width,
-      height: headerHeight + rowHeight * candidates.length + input.tokens.padBottom,
-      headerHeight,
-      data: sel,
-      title,
-      candidates,
-      ...(sel.policy.kind === 'fixed' ? { activeCandidate: sel.policy.candidate as string } : {}),
-      random: sel.policy.kind === 'random',
-      ...(typeName !== undefined ? { typeName } : {}),
-    }
-    selectors.push(sceneSelector)
-    selectorById.set(sel.id, sceneSelector)
-  }
-
   // A link end's anchor point: pin center for ports, dot center for reroutes.
   const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr; kept?: true } | undefined => {
     if (isRerouteRef(end)) {
       const r = rerouteById.get(end.reroute)
       return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id }, ...(r.typeName ? { type: typeExprFromTypeId(r.typeName) } : {}) } : undefined
-    }
-    if (isValueSourceRef(end)) {
-      const vs = valueSourceById.get(end.valueSource)
-      if (!vs) return undefined
-      const pin = valueSourcePinPosition(vs)
-      return { x: pin.x, y: pin.y, end: { kind: 'valueSource', valueSource: vs.id }, type: vs.effective.type }
-    }
-    if (isSelectorRef(end)) {
-      const sel = selectorById.get(end.selector)
-      if (!sel) return undefined
-      const pin =
-        end.candidate !== undefined
-          ? selectorCandidatePinPosition(sel, end.candidate)
-          : selectorOutPinPosition(sel)
-      if (!pin) return undefined
-      return {
-        x: pin.x,
-        y: pin.y,
-        end: { kind: 'selector', selector: sel.id, ...(end.candidate !== undefined ? { candidate: end.candidate } : {}) },
-        ...(sel.typeName ? { type: typeExprFromTypeId(sel.typeName) } : {}),
-      }
     }
     if (isWidgetTapRef(end)) {
       const node = byId.get(end.node)
@@ -1824,12 +1602,46 @@ export function buildScene(input: BuildSceneInput): Scene {
         })),
       ),
   ]
+  const endpointKey = (end: LinkEndpoint): string => isRerouteRef(end)
+    ? `reroute:${end.reroute}`
+    : isPortEndpoint(end) ? `port:${portRefKey(end)}` : `tap:${end.node}:${end.tap}`
+  const successors = new Map<string, LinkEndpoint[]>()
+  for (const c of connections) {
+    const key = endpointKey(c.from)
+    const next = successors.get(key) ?? []
+    next.push(c.to)
+    successors.set(key, next)
+  }
+  // A shared segment uses each final consumer's declared type, not the
+  // solved type of the junction. Bypass inputs count only for routes that
+  // actually select them. A cycle contributes no additional consumers.
+  const consumerTypes = (end: LinkEndpoint, path = new Set<string>()): (TypeExpr | undefined)[] => {
+    const key = endpointKey(end)
+    if (path.has(key)) return []
+    const nextPath = new Set([...path, key])
+    if (isRerouteRef(end)) {
+      return (successors.get(key) ?? []).flatMap((to) => consumerTypes(to, nextPath))
+    }
+    if (!isPortEndpoint(end)) return []
+    const node = byId.get(end.node)
+    const elab = node?.elaborated
+    if (node === undefined || elab === undefined) return []
+    if (node.node.mode !== 'bypassed') {
+      return [elabInputsOf(elab).find((input) => input.address.port === end.port)?.spec.type]
+    }
+    return elabOutputsOf(elab).flatMap((output) => {
+      const ref = { node: end.node, port: asPortId(output.address.port) }
+      return (successors.get(endpointKey(ref)) ?? []).flatMap((to) =>
+        consumerTypes(to, nextPath).filter((type) => bypassInput(ref, type)?.input.address.port === end.port))
+    })
+  }
   for (const c of connections) {
     const from = endPoint(c.from, 'out')
     const to = endPoint(c.to, 'in')
     if (!from || !to) continue
-    if (to.end.kind === 'valueSource') continue // illegal consumer (I10); validation owns the report
     const typeName = tracedTypeName(c.from)
+    const types = consumerTypes(c.to)
+    if (types.length === 0) types.push(undefined)
     links.push({
       id: c.id,
       from: from.end,
@@ -1841,9 +1653,13 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(from.type !== undefined ? { fromType: from.type } : typeName !== undefined ? { fromType: typeExprFromTypeId(typeName) } : {}),
       ...(to.type !== undefined ? { toType: to.type } : typeName !== undefined ? { toType: typeExprFromTypeId(typeName) } : {}),
       ...(typeName !== undefined ? { typeName } : {}),
-      ...(tracedMaybeAbsent(c.from) ? { maybeAbsent: true as const } : {}),
+      ...(types.every((type) => tracedMaybeAbsent(c.from, type)) ? { maybeAbsent: true as const } : {}),
+      ...(types.every((type) => tracedSourceMuted(c.from, type)) ? { sourceMuted: true as const } : {}),
       ...(from.kept === true ? { dimmed: true as const } : {}),
-      ...(c.mismatch === true ? { mismatch: true as const } : {}),
+      ...(c.mismatch === true ? {
+        mismatch: true as const,
+        mismatchKind: c.diagnostics?.some(diagnosticBlocksExecution) ? 'error' as const : 'warning' as const,
+      } : {}),
       ...(c.diagnostics !== undefined && c.diagnostics.length > 0 ? { diagnostics: c.diagnostics } : {}),
       ...(c.netId !== undefined ? { netId: c.netId } : {}),
       ...(c.netName !== undefined ? { netName: c.netName } : {}),
@@ -1855,14 +1671,14 @@ export function buildScene(input: BuildSceneInput): Scene {
   // Named nets expose one authorable Set view at the source and one Get view
   // per sink. collapsedNets controls noodles only; the endpoint views remain.
   const netStubs: SceneNetStub[] = []
-  const mismatchedNetSinkIds = new Set(
-    links.filter((link) => link.netId !== undefined && link.mismatch === true).map((link) => link.id),
+  const mismatchedNetSinks = new Map(
+    links.filter((link) => link.netId !== undefined && link.mismatch === true).map((link) => [link.id, link.mismatchKind!]),
   )
   for (const net of Object.values(def.nets)) {
     const sinkMismatches = net.sinks.map((_, i) =>
-      mismatchedNetSinkIds.has(netDeliveryLinkId(net.id, i)),
+      mismatchedNetSinks.get(netDeliveryLinkId(net.id, i)),
     )
-    const push = (role: 'source' | 'sink', ref: PortRef, mismatch: boolean): void => {
+    const push = (role: 'source' | 'sink', ref: PortRef, mismatchKind: 'error' | 'warning' | undefined): void => {
       const node = byId.get(ref.node)
       if (!node) return
       const direction = role === 'source' ? 'out' : 'in'
@@ -1889,7 +1705,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         netId: net.id,
         name: net.name,
         role,
-        ...(mismatch ? { mismatch: true as const } : {}),
+        ...(mismatchKind === undefined ? {} : { mismatch: true as const, mismatchKind }),
         nodeId: ref.node,
         portId: ref.port,
         pinX,
@@ -1904,7 +1720,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         ...(canonicalTypeIdOf(pin.type) !== undefined ? { typeName: canonicalTypeIdOf(pin.type)! } : {}),
       })
     }
-    push('source', net.source, sinkMismatches.some(Boolean))
+    push('source', net.source, sinkMismatches.includes('error') ? 'error' : sinkMismatches.includes('warning') ? 'warning' : undefined)
     for (const [i, sink] of net.sinks.entries()) push('sink', sink, sinkMismatches[i]!)
   }
 
@@ -1937,27 +1753,12 @@ export function buildScene(input: BuildSceneInput): Scene {
     // receives in this occurrence (the entered node's value, else the
     // default), and an edit writes where that value is owned: the entered
     // node (or the outer node that owns its value), or with no node entered
-    // the inner node's stored value, which is the default. A value source
-    // the input binds is edited the same way, its own value being the
-    // default.
+    // the inner node's stored value, which is the default.
     const fieldValues: Record<string, Json> = {}
     const fieldControllers: Record<string, NonNullable<NodeData['controllers']>[string]> = {}
-    const fieldOwners = new Map<string,
-      { readonly graphId: string; readonly nodeId: string; readonly valueKey: string } | { readonly graphId: string; readonly valueSourceId: string }>()
-    for (const item of def.boundary.inputs) {
+    const fieldOwners = new Map<string, { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }>()
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       const binds = item.binds
-      if (binds.kind === 'valueSource' && item.promoted === true) {
-        const source = def.valueSources?.[binds.valueSource]
-        if (source === undefined) continue
-        const occurrence = input.occurrenceView?.valueSources?.get(source.id)
-        const controller = occurrence !== undefined ? occurrence.controller : ownerNode?.controllers?.[item.id]
-        fieldValues[item.id] = sentSourceValues.has(source.id) ? sentSourceValues.get(source.id)! : source.value
-        if (controller !== undefined) fieldControllers[item.id] = controller
-        fieldOwners.set(item.id, occurrence?.owner ?? (ownerNode !== undefined && ownerGraph !== undefined
-          ? { graphId: ownerGraph.id, nodeId: ownerNode.id, valueKey: item.id }
-          : { graphId: def.id, valueSourceId: source.id }))
-        continue
-      }
       if (binds.kind !== 'port' || item.promoted !== true) continue
       const inner = def.nodes[binds.node]
       if (inner === undefined) continue
@@ -1982,25 +1783,46 @@ export function buildScene(input: BuildSceneInput): Scene {
       controllers: fieldControllers,
     }
     const outsideRows = new Map<string, Extract<LayoutRow, { kind: 'widget' }>[]>()
+    const outsideSpaces = new Map<string, NonNullable<BoundarySlotInfo['editorSpaces']>>()
+    const panelView = graphView?.inputsPanel
     if (derived !== undefined && fieldOwners.size > 0) {
-      // The entered node's chosen views, so a field drawn as a slider there
-      // is a slider here too.
+      // A nested promotion can own its value and chosen view farther out
+      // than the immediately entered node.
+      const fieldRepresentations: Record<string, string> = {}
+      for (const [id, owner] of fieldOwners) {
+        const chosen = input.document.view.graphs[owner.graphId]?.nodes[owner.nodeId]?.views?.[owner.valueKey]
+        if (chosen !== undefined) fieldRepresentations[id] = chosen
+      }
       const ownerView = ownerNode !== undefined && ownerGraph !== undefined
         ? input.document.view.graphs[ownerGraph.id]?.nodes[ownerNode.id]
         : undefined
-      const outside = layoutNode(derived, fieldNode, input.tokens, measure, input.widgetMeasure, {
+      // The fields as the subgraph node outside draws them, so a primitive's
+      // value has the range the fields it feeds inside give it.
+      const fieldSchema = (ownerNode !== undefined && ownerGraph !== undefined
+        ? resolveNode(ownerGraph.id, ownerNode, input.occurrence!.owner.instancePath)
+        : resolveNode(def.id, fieldNode)) ?? derived
+      const outside = layoutNode(fieldSchema, fieldNode, input.tokens, measure, input.widgetMeasure, {
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
-        ...(ownerView?.views !== undefined ? { widgetRepresentations: ownerView.views } : {}),
+        widgetRepresentations: fieldRepresentations,
         ...(ownerView?.textLines !== undefined ? { textBoxLines: ownerView.textLines } : {}),
+        // The panel's own folds, not the subgraph node's outside; each starts folded.
+        editorsStartFolded: true,
+        ...(panelView?.editors !== undefined
+          ? { editorUnfolded: Object.fromEntries(Object.entries(panelView.editors).map(([key, e]) => [key, e.unfolded])) } : {}),
+        ...(panelView?.pictureHeights !== undefined ? { pictureHeights: panelView.pictureHeights } : {}),
+        ...(input.editorControls?.[boundarySceneId('inputs')] === undefined ? {} : { editorControls: input.editorControls[boundarySceneId('inputs')]! }),
       })
       for (const row of outside.rows) {
+        if (row.kind === 'editorSpace' && fieldOwners.has(row.inputId)) {
+          const { kind: _kind, y: _y, inset: _inset, width: _width, rowAbove: _rowAbove, ...space } = row
+          outsideSpaces.set(row.inputId, { ...outsideSpaces.get(row.inputId), [row.valueKey]: space })
+          continue
+        }
         const owner = row.kind === 'widget' ? fieldOwners.get(row.inputId) : undefined
         // Rows whose options are edited on the node (editable choices)
         // stay pins: those edits target the node itself.
         if (row.kind !== 'widget' || owner === undefined || row.selector !== undefined || row.optionsTarget !== undefined) continue
-        outsideRows.set(row.inputId, [{ ...row, ...('valueSourceId' in owner
-          ? { valueSourceOwner: owner }
-          : { familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }) }])
+        outsideRows.set(row.inputId, [{ ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }])
       }
     }
     // A value the owner receives by a wire outside the subgraph is not
@@ -2044,10 +1866,8 @@ export function buildScene(input: BuildSceneInput): Scene {
             : derivedOutputs.find((s) => s.id === item.id)
         const label = boundaryLabel(item, spec?.displayName, defaults, roles)
         const fields = side === 'inputs' ? outsideRows.get(item.id) : undefined
-        // A value source's field has no wire either: the pill has only an
-        // output, and the row's pin cannot start one (boundary.addBinding
-        // fans out port bindings only).
-        const pinless = side === 'inputs' && (item.wireHidden === true || item.binds.kind === 'valueSource' && fields !== undefined)
+        const editorSpaces = fields === undefined ? undefined : outsideSpaces.get(item.id)
+        const pinless = side === 'inputs' && item.wireHidden === true
         if (pinless) markLabels.set(item.id, label)
         return {
           id: item.id,
@@ -2055,6 +1875,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(spec !== undefined ? { type: spec.type } : {}),
           ...(spec?.kind === 'input' && spec.acceptsList ? { acceptsList: true as const } : {}),
           ...(fields !== undefined ? { fields: pinless ? fields.map((field, index) => index === 0 ? { ...field, subgraphMark: { item: item.id, label } } : field) : fields } : {}),
+          ...(editorSpaces !== undefined ? { editorSpaces } : {}),
           ...(pinless ? { pinless: true as const } : {}),
         }
       })
@@ -2066,8 +1887,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       type: { kind: 'concrete', name: 'INT' },
       regionIndex: true,
     }]
-    const inputsLayout = layoutBoundaryNode('inputs', [...slotsOf(def.boundary.inputs, 'inputs'), ...regionIndexSlots], input.tokens, measure, fieldsSubtitle)
-    const outputsLayout = layoutBoundaryNode('outputs', slotsOf(def.boundary.outputs, 'outputs'), input.tokens, measure)
+    const inputsLayout = layoutBoundaryNode('inputs', [...slotsOf(boundaryItems(def.boundary, 'inputs'), 'inputs'), ...regionIndexSlots], input.tokens, measure, fieldsSubtitle)
+    const outputsLayout = layoutBoundaryNode('outputs', slotsOf(boundaryItems(def.boundary, 'outputs'), 'outputs'), input.tokens, measure)
 
     // Default positions hug the content bounds; a persisted position wins.
     let minX = Infinity
@@ -2078,20 +1899,10 @@ export function buildScene(input: BuildSceneInput): Scene {
       maxX = Math.max(maxX, n.x + n.layout.width)
       minY = Math.min(minY, n.y)
     }
-    for (const vs of valueSources) {
-      minX = Math.min(minX, vs.x)
-      maxX = Math.max(maxX, vs.x + vs.width)
-      minY = Math.min(minY, vs.y)
-    }
     for (const r of reroutes) {
       minX = Math.min(minX, r.x)
       maxX = Math.max(maxX, r.x)
       minY = Math.min(minY, r.y)
-    }
-    for (const s of selectors) {
-      minX = Math.min(minX, s.x)
-      maxX = Math.max(maxX, s.x + s.width)
-      minY = Math.min(minY, s.y)
     }
     if (!Number.isFinite(minX)) {
       minX = 0
@@ -2115,7 +1926,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       for (const c of connections) {
         if (!isPortEndpoint(c.from) || c.from.node !== DINKSTER_REGION_PSEUDO_NODE || c.from.port !== 'index') continue
         const to = endPoint(c.to, 'in')
-        if (!to || to.end.kind === 'valueSource') continue
+        if (!to) continue
         links.push({
           id: c.id,
           from: { kind: 'boundary', side: 'inputs', item: REGION_INDEX_SLOT },
@@ -2137,13 +1948,8 @@ export function buildScene(input: BuildSceneInput): Scene {
     const innerAnchor = (
       binds: BoundaryItem['binds'],
       direction: 'in' | 'out',
-    ): { x: number; y: number; end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' | 'valueSource' }> } | undefined => {
+    ): { x: number; y: number; end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' }> } | undefined => {
       if (binds.kind === 'unbound') return undefined
-      if (binds.kind === 'valueSource') {
-        const source = valueSourceById.get(binds.valueSource)
-        if (direction !== 'out' || source === undefined) return undefined
-        return { ...valueSourcePinPosition(source), end: { kind: 'valueSource', valueSource: source.id } }
-      }
       if (binds.viaReroute !== undefined) {
         const reroute = direction === 'in' ? rerouteById.get(binds.viaReroute) : undefined
         return reroute && { x: reroute.x, y: reroute.y, end: { kind: 'reroute', reroute: reroute.id } }
@@ -2180,7 +1986,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const projectedAnchors = (
       direction: 'in' | 'out', item: BoundaryItem, binding: BoundaryItem['binds'],
     ): readonly {
-      readonly anchor: NonNullable<ReturnType<typeof endPoint>> & { readonly end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' | 'valueSource' }> }
+      readonly anchor: NonNullable<ReturnType<typeof endPoint>> & { readonly end: Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' | 'reroute' }> }
       readonly identities: readonly EffectiveLinkIdentity[]
     }[] => {
       const grouped = new Map<string, { endpoint: LinkEndpoint; identities: EffectiveLinkIdentity[] }>()
@@ -2192,7 +1998,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           leg?.boundaryId !== item.id || boundaryBindingKey(leg.binding) !== boundaryBindingKey(binding) ||
           resolved.graphId !== def.id ||
           (direction === 'in' && !isPortEndpoint(resolved.endpoint) && !isRerouteRef(resolved.endpoint)) ||
-          (direction === 'out' && !isPortEndpoint(resolved.endpoint) && !isWidgetTapRef(resolved.endpoint) && !isValueSourceRef(resolved.endpoint))
+          (direction === 'out' && !isPortEndpoint(resolved.endpoint) && !isWidgetTapRef(resolved.endpoint))
         ) continue
         const key = JSON.stringify(resolved.endpoint)
         const group = grouped.get(key) ?? { endpoint: resolved.endpoint, identities: [] }
@@ -2201,7 +2007,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       }
       return [...grouped.values()].flatMap((group) => {
         const anchor = endPoint(group.endpoint, direction)
-        return anchor?.end.kind === 'port' || anchor?.end.kind === 'widgetTap' || anchor?.end.kind === 'reroute' || anchor?.end.kind === 'valueSource'
+        return anchor?.end.kind === 'port' || anchor?.end.kind === 'widgetTap' || anchor?.end.kind === 'reroute'
           ? [{ anchor: { ...anchor, end: anchor.end }, identities: group.identities }]
           : []
       })
@@ -2216,7 +2022,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         candidate.kind === 'widget' ? head !== undefined && candidate.valueKey === head : candidate.kind === 'ports' && candidate.output?.portId === itemId)
       return row === undefined ? undefined : { x: inputsNode.x + inputsNode.layout.width, y: inputsNode.y + row.y + input.tokens.rowHeight / 2 }
     }
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       const from = item.wireHidden === true ? pinlessRowAnchor(item.id) : boundaryPin(inputsNode, item.id)
       if (!from) continue
       const pinType = inputsNode.layout.pins.find((p) => p.portId === item.id)?.type
@@ -2227,9 +2033,17 @@ export function buildScene(input: BuildSceneInput): Scene {
       bindings.forEach((b, i) => {
         const projected = projectedAnchors('in', item, b)
         const fallback = innerAnchor(b, 'in')
-        const targets = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
+        // A local driver replaces the boundary value in this occurrence.
+        // Its declaration binding is not a second delivery to draw.
+        const locallyDriven = effective?.links.some((link) => {
+          if (link.to.graphId !== def.id || fallback === undefined) return false
+          const to = link.to.endpoint
+          return fallback.end.kind === 'reroute'
+            ? isRerouteRef(to) && to.reroute === fallback.end.reroute
+            : fallback.end.kind === 'port' && isPortEndpoint(to) && to.node === fallback.end.node && to.port === fallback.end.port
+        }) === true
+        const targets = projected.length > 0 ? projected : fallback === undefined || locallyDriven ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
-          if (to.end.kind === 'valueSource') return
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,
             from: { kind: 'boundary', side: 'inputs', item: item.id },
@@ -2248,17 +2062,10 @@ export function buildScene(input: BuildSceneInput): Scene {
       })
     }
     // The inner fields of an input drawn without its wire carry the mark.
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       const label = markLabels.get(item.id)
       if (label === undefined) continue
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
-        // A value source's pill carries it while a node is entered, the
-        // pill then showing the value that node's field sends.
-        if (b.kind === 'valueSource') {
-          const index = valueSources.findIndex((vs) => vs.id === b.valueSource && vs.arriving !== undefined && vs.subgraphMark === undefined)
-          if (index >= 0) valueSources[index] = { ...valueSources[index]!, subgraphMark: { item: item.id, label } }
-          continue
-        }
         if (b.kind !== 'port') continue
         const index = nodes.findIndex((candidate) => candidate.id === b.node)
         const target = nodes[index]
@@ -2268,7 +2075,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         nodes[index] = { ...target, layout: { ...target.layout, rows } }
       }
     }
-    for (const item of def.boundary.outputs) {
+    for (const item of boundaryItems(def.boundary, 'outputs')) {
       const to = boundaryPin(outputsNode, item.id)
       if (!to) continue
       const pinType = outputsNode.layout.pins.find((p) => p.portId === item.id)?.type
@@ -2282,6 +2089,8 @@ export function buildScene(input: BuildSceneInput): Scene {
             ? widgetTapTypeName(item.binds.node, item.binds.tap)
           : undefined
       const typeName = traced ?? (pinType === undefined ? undefined : canonicalTypeIdOf(pinType))
+      const maybeAbsent = item.binds.kind === 'port' && tracedMaybeAbsent({ node: item.binds.node, port: item.binds.port })
+      const sourceMuted = item.binds.kind === 'port' && tracedSourceMuted({ node: item.binds.node, port: item.binds.port })
       const projected = projectedAnchors('out', item, item.binds)
       const fallback = innerAnchor(item.binds, 'out')
       const sources = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
@@ -2295,6 +2104,8 @@ export function buildScene(input: BuildSceneInput): Scene {
           x2: to.x,
           y2: to.y,
           ...(typeName !== undefined ? { typeName } : {}),
+          ...(maybeAbsent ? { maybeAbsent: true as const } : {}),
+          ...(sourceMuted ? { sourceMuted: true as const } : {}),
           boundary: true,
           ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
           ...(identities.length > 0 ? { effectiveIdentities: identities } : {}),
@@ -2304,8 +2115,8 @@ export function buildScene(input: BuildSceneInput): Scene {
   }
 
   const result: Scene = {
-    graphId: input.graphId, nodes, links, reroutes, valueSources, selectors, netStubs, groups, boundaryNodes,
-    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? [])],
+    graphId: input.graphId, nodes, links, reroutes, netStubs, groups, boundaryNodes,
+    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...automaticDiagnostics],
     ...(input.occurrence !== undefined ? { occurrence: { owner: input.occurrence.owner, bodyGraph: def.id } } : {}),
   }
   if (input.layoutGeneration !== undefined && input.occurrence === undefined && input.occurrenceView === undefined && view !== undefined) {
@@ -2319,10 +2130,12 @@ export function buildScene(input: BuildSceneInput): Scene {
         nodes: Object.fromEntries(Object.entries(view.nodes).map(([id, node]) => [id, { ...node }])),
       },
       seedControllerEnabled: input.seedControllerEnabled,
+      buttonNoticeHeights: input.buttonNoticeHeights,
       tokens: input.tokens,
       measure: input.measure,
       widgetMeasure: input.widgetMeasure,
       generation: input.layoutGeneration,
+      editorControls: input.editorControls,
       scene: result,
     })
   }
@@ -2355,12 +2168,12 @@ function missingConnections(
     for (const sink of net.sinks) mark(ins, sink)
   }
   if (def.boundary) {
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (b.kind === 'port') mark(ins, { node: b.node, port: b.port })
       }
     }
-    for (const item of def.boundary.outputs) {
+    for (const item of boundaryItems(def.boundary, 'outputs')) {
       const b = item.binds
       if (b.kind === 'port') mark(outs, { node: b.node, port: b.port })
       else if (b.kind === 'widgetTap' && b.node === nodeId) taps.add(b.tap)
@@ -2390,9 +2203,15 @@ function missingLayout(
   connections: { inputs: readonly PortRef[]; outputs: readonly PortRef[]; taps: readonly string[] },
   sizeOverride?: SizeOverride,
   minimized = false,
+  pending = false,
 ): NodeLayout {
   const titleRenamed = node.title !== undefined && node.title !== node.type
-  const title = node.title ?? node.type
+  // A node waiting for definitions shows its type id without the pack part,
+  // as written. A missing node keeps the whole id: the pack part says what to
+  // install.
+  const lastDot = node.type.lastIndexOf('.')
+  const shortType = pending && lastDot >= 0 && lastDot < node.type.length - 1 ? node.type.slice(lastDot + 1) : node.type
+  const title = node.title ?? shortType
   const unknownType = { kind: 'wildcard' } as const
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []
