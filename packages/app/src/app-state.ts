@@ -4269,6 +4269,7 @@ export class AppState {
       models, workflowTitle: tab.title, slot: this.assetConsent, signal: controller.signal,
       modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+      unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
       locateModel: (requirement, status) => this.locateModelDownload(tab, backend, requirement, status),
       onSettled: () => {
         unsubscribe.forEach((dispose) => dispose())
@@ -9663,6 +9664,7 @@ export class AppState {
       slot: this.assetConsent,
       modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+      unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
       locateModel: (requirement, status) => this.locateModelDownload(tab, backend, requirement, status),
       signal: lease.signal,
       onSettled: lease.release,

@@ -61,6 +61,56 @@ const consentCallbacks = () => ({
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
 describe('installAssetConsent ownership', () => {
+  it('shows only authoritative hidden identities and ignores a dismissed model action', async () => {
+    const named = { name: 'requested.safetensors', kind: 'model/vae' }
+    const models = ['a', 'b'].map((letter) => ({ ...named, asset: {
+      digest: `blake3:${letter.repeat(64)}`, name: named.name, size: 8192,
+      mediaType: 'application/octet-stream', virtualPath: 'models/requested.safetensors',
+    } }))
+    const identities = models.map((_, index) => `local-revision:${String(index + 1).repeat(64)}`)
+    const hidden = new Set(identities)
+    const mutations: { url: string; identity: string }[] = []
+    const connection = new DinksterConnection({ id: asConnectionId('hidden-downloads'), baseUrl: '/engine', clientId: 'test', project: 'studio',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        if (init?.method === 'DELETE') {
+          const { identity } = JSON.parse(String(init.body)) as { identity: string }
+          mutations.push({ url: String(url), identity })
+          hidden.delete(identity)
+          return new Response(JSON.stringify({ settings: { version: 1, locations: [], downloadLocation: null },
+            locations: [], revision: 'revision', project: 'studio', changesAllowed: true,
+            restartRequired: false, pendingRemovals: [], hiddenModels: [] }))
+        }
+        if (String(url).includes('/plan?')) {
+          const body = JSON.parse(String(init?.body)) as { asset: { digest: string } }
+          const index = models.findIndex((model) => model.asset.digest === body.asset.digest)
+          return new Response(JSON.stringify(hidden.has(identities[index]!)
+            ? { status: 'model-hidden', hiddenIdentities: [identities[index]] }
+            : { ...named, status: 'local' }))
+        }
+        return new Response(JSON.stringify({ instance: 'engine', jobs: [] }))
+      } })
+    const controller = new ModelDownloadsController(connection, 'studio')
+    const slot = slotOf<AssetConsentRequest>()
+    const open = () => installAssetConsent({ models, slot,
+      unhideModel: async (identity) => { await connection.unhideModel(identity) },
+      modelDownloads: { connection, controller, project: 'studio' } })
+    try {
+      open()
+      await slot.value!.reviewModel!(0)
+      await slot.value!.reviewModel!(1)
+      const dismissed = slot.value!
+      slot.set(undefined)
+      open()
+      await dismissed.showModel!(0)
+      expect(mutations).toEqual([])
+      await slot.value!.showModel!(0)
+      expect(mutations).toEqual([{ url: '/engine/api/models/hidden/studio', identity: identities[0] }])
+      expect(slot.value!.models?.map((row) => row.plan?.status)).toEqual(['local', 'model-hidden'])
+      expect(hidden.has(identities[1]!)).toBe(true)
+      expect(slot.value!.retry).toBeUndefined()
+    } finally { slot.set(undefined); controller.dispose() }
+  })
+
   it('keeps exact hashes and name-only requests separate for same-named model downloads', async () => {
     const named = { name: 'weights.safetensors', kind: 'model/vae' }
     const asset = { digest: `blake3:${'a'.repeat(64)}`, name: named.name, size: 8192,

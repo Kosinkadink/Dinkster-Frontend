@@ -48,7 +48,8 @@ export type ModelDownloadPlan =
   | { readonly status: 'credential-required' | 'provider-grant-required' | 'civitai-access-required'
       readonly provider?: 'huggingface' | 'civitai'
       readonly source?: string }
-  | { readonly status: 'model-hidden' | 'duplicate' }
+  | { readonly status: 'model-hidden'; readonly hiddenIdentities: readonly string[] }
+  | { readonly status: 'duplicate' }
 
 export type ModelDownloadPhase = 'starting' | 'checking-existing' | 'downloading' | 'verifying' |
   'publishing' | 'indexing' | 'cancelling' | 'cancelled' | 'completed' | 'failed'
@@ -156,7 +157,7 @@ export function decodeModelDownloadPlan(raw: unknown): ModelDownloadPlan {
         ...(row['source'] === undefined ? {} : { source: text(row, 'source') }),
       }
     }
-    case 'model-hidden':
+    case 'model-hidden': return { status: 'model-hidden', hiddenIdentities: strings(row, 'hiddenIdentities') }
     case 'duplicate': return { status: row['status'] }
     default: throw new Error('Unknown model download plan state')
   }

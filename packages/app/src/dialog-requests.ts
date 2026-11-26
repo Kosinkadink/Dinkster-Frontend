@@ -50,6 +50,7 @@ export interface AssetConsentRequest {
   readonly downloadModels?: (indices: readonly number[]) => Promise<void>
   readonly cancelModel?: (index: number) => Promise<void>
   readonly enableModelLocation?: (index: number, location: string) => Promise<void>
+  readonly showModel?: (index: number) => Promise<void>
   readonly locateModel?: (index: number) => void
   readonly assets: readonly MissingAsset[]
   readonly busy: boolean
@@ -124,6 +125,7 @@ export function installAssetConsent(p: {
   /** Final app-owned safety check run before every captured-body retry. */
   readonly beforeRetry?: () => boolean
   readonly enableLocation?: (location: string) => Promise<void>
+  readonly unhideModel?: (identity: string) => Promise<void>
   readonly locateModel?: (requirement: ModelDownloadRequirement, status: 'duplicate' | 'destination-required') => void
   readonly modelDownloads?: {
     readonly connection: Pick<DinksterConnection, 'planModelDownload' | 'startModelDownload' | 'fetchModelDownloads' | 'fetchModelDownload' | 'cancelModelDownload'>
@@ -202,6 +204,7 @@ export function installAssetConsent(p: {
         cancelModel: (i) => modelAction(i, 'cancel', next),
         ...(p.locateModel ? { locateModel: (i: number) => locateModel(i, next) } : {}),
         ...(p.enableLocation ? { enableModelLocation: (i: number, location: string) => modelAction(i, 'enable', next, location) } : {}),
+        ...(p.unhideModel ? { showModel: (i: number) => modelAction(i, 'show', next) } : {}),
         ...(p.modelDownloads?.providerConnection ? { providerChanged: () => providerChanged(next) } : {}),
       }
       owner = next
@@ -228,7 +231,7 @@ export function installAssetConsent(p: {
       p.locateModel(state.requirement, state.plan.status)
       clearIfOwned()
     }
-    const modelAction = async (index: number, action: 'review' | 'download' | 'cancel' | 'enable', expected = owner, location?: string): Promise<void> => {
+    const modelAction = async (index: number, action: 'review' | 'download' | 'cancel' | 'enable' | 'show', expected = owner, location?: string): Promise<void> => {
       const state = owner.models?.[index]
       if (!transfers || settled || !owned() || chain !== owner || expected !== owner || owner.busy || !state || state.pending) return
       if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
@@ -236,6 +239,9 @@ export function installAssetConsent(p: {
       else if (action === 'download') await transfers.download([state.requirement])
       else if (action === 'enable') {
         if (p.enableLocation && location !== undefined) await transfers.enableLocation(state.requirement, location, p.enableLocation)
+      }
+      else if (action === 'show') {
+        if (p.unhideModel) await transfers.showModel(state.requirement, p.unhideModel)
       }
       else await transfers.cancel(state.requirement)
       if (owned() && p.beforeRetry && !p.beforeRetry()) clearIfOwned()
@@ -318,6 +324,7 @@ export function installAssetConsent(p: {
         cancelModel: (index: number) => modelAction(index, 'cancel', request),
         ...(p.locateModel ? { locateModel: (index: number) => locateModel(index, request) } : {}),
         ...(p.enableLocation ? { enableModelLocation: (index: number, location: string) => modelAction(index, 'enable', request, location) } : {}),
+        ...(p.unhideModel ? { showModel: (index: number) => modelAction(index, 'show', request) } : {}),
       } : {}),
       ...(p.enableLocation && result ? { enableLocation: (location: string) => retry([], location) } : {}),
     }
