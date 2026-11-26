@@ -21,6 +21,7 @@ export const defaultProductStrings = {
   newProject: 'New project',
   openInNewWindow: 'Open in a new window',
   projectsUnavailable: 'Projects could not be loaded',
+  noMenuMatches: 'No matches',
   dismissError: 'Dismiss error',
   dismissNotification: 'Dismiss notification',
   close: 'Close',

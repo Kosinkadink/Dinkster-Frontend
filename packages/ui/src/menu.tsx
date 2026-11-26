@@ -21,7 +21,7 @@ import {
   User,
   type LucideIcon,
 } from 'lucide-solid'
-import { ProductIcon, type ProductRole } from './controls.js'
+import { ProductIcon, ProductTextInput, type ProductRole } from './controls.js'
 import { useProductStrings } from './strings.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import tokens from '@dinkster/branding/components' with { type: 'json' }
@@ -85,16 +85,25 @@ function Menu(props: {
   busy?: boolean
   title?: string
   attention?: ProductAttention | undefined
+  filter?: { label: string; placeholder?: string } | undefined
   onTrigger?: (() => void) | undefined
   onOpen?: (() => void) | undefined
   children: JSX.Element
 }) {
   const strings = useProductStrings()
   const [open, setOpen] = createSignal(false)
+  const [query, setQuery] = createSignal('')
+  const entries = createMemo(() => {
+    const search = props.filter ? query().trim().toLocaleLowerCase() : ''
+    return search
+      ? props.items.filter((entry) => menuItem(entry)?.label.toLocaleLowerCase().includes(search))
+      : props.items
+  })
   const id = createUniqueId()
   let root!: HTMLDivElement
   let trigger!: HTMLButtonElement
   let menu!: HTMLDivElement
+  let filterInput: HTMLInputElement | undefined
   const close = (restoreFocus = false) => {
     setOpen(false)
     if (restoreFocus) trigger.focus()
@@ -109,6 +118,7 @@ function Menu(props: {
     ),
   ]
   const show = (last = false) => {
+    setQuery('')
     setOpen(true)
     props.onOpen?.()
     queueMicrotask(() => {
@@ -136,7 +146,7 @@ function Menu(props: {
         menu.style.top = `${placement.top}px`
         menu.style.maxHeight = `${placement.maxHeight}px`
         const items = enabledItems()
-        ;(items[last ? items.length - 1 : 0] ?? menu).focus()
+        ;(props.filter ? filterInput : items[last ? items.length - 1 : 0] ?? menu)?.focus({ preventScroll: !!props.filter })
         return
       }
       // Left edges align; a trigger too near the right edge of the window
@@ -165,7 +175,7 @@ function Menu(props: {
       menu.style.top = `${placement.top}px`
       menu.style.maxHeight = `${placement.maxHeight}px`
       const items = enabledItems()
-      ;(items[last ? items.length - 1 : 0] ?? menu).focus()
+      ;(props.filter ? filterInput : items[last ? items.length - 1 : 0] ?? menu)?.focus({ preventScroll: !!props.filter })
     })
   }
   // Dismissal listeners exist only while the menu is open, so a page with
@@ -242,17 +252,19 @@ function Menu(props: {
           class="dinkster-menu dinkster-menu-popover"
           data-account={props.account ? '' : undefined}
           data-project={props.project ? '' : undefined}
-          role="menu"
+          role={props.filter ? 'group' : 'menu'}
           tabindex="-1"
           aria-label={props.menuName}
           aria-describedby={props.identity ? `${id}-identity` : undefined}
           onKeyDown={(event) => {
+            if (event.isComposing) return
             if (event.key === 'Escape') {
               event.preventDefault()
               event.stopPropagation()
               close(true)
             }
             if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+              if (event.target === filterInput && (event.key === 'Home' || event.key === 'End')) return
               event.preventDefault()
               const items = enabledItems()
               const current = items.indexOf(
@@ -275,6 +287,25 @@ function Menu(props: {
             }
           }}
         >
+          <Show when={props.filter}>
+            {(filter) => (
+              <div class="dinkster-menu-filter">
+                <ProductTextInput
+                  ref={filterInput}
+                  aria-label={filter().label}
+                  placeholder={filter().placeholder}
+                  value={query()}
+                  onInput={(event) => setQuery(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.isComposing) {
+                      event.preventDefault()
+                      enabledItems()[0]?.click()
+                    }
+                  }}
+                />
+              </div>
+            )}
+          </Show>
           <Show when={props.identity}>
             {(identity) => (
               <div
@@ -291,7 +322,8 @@ function Menu(props: {
           </Show>
           {/* Index keeps each item's button when the host passes new item objects, so an open
               menu whose items update (a count arriving) keeps focus and stays open. */}
-          <Index each={props.items}>
+          <div role={props.filter ? 'menu' : undefined} aria-label={props.filter ? props.menuName : undefined}>
+          <Index each={entries()}>
             {(entry) => (
               <Switch>
                 <Match when={entry() === 'separator'}>
@@ -385,6 +417,10 @@ function Menu(props: {
               </Switch>
             )}
           </Index>
+          </div>
+          <Show when={props.filter && !entries().some((entry) => menuItem(entry))}>
+            <div class="dinkster-menu-note" role="status">{strings.noMenuMatches}</div>
+          </Show>
         </div>
       </Show>
     </div>
@@ -402,6 +438,8 @@ export function ProductMenu(props: {
   fill?: 'quiet'
   /** Shown on the trigger's corner and read after its name. */
   attention?: ProductAttention | undefined
+  /** Filters canonical item labels; descriptions and custom presentation do not affect matches. */
+  filter?: { label: string; placeholder?: string }
 }) {
   return (
     <Menu
@@ -412,6 +450,7 @@ export function ProductMenu(props: {
       iconOnly={props.iconOnly}
       fill={props.fill}
       attention={props.attention}
+      filter={props.filter}
     >
       <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
       <Show when={!props.iconOnly}><span class="dinkster-menu-label" data-compact={!!props.icon}>

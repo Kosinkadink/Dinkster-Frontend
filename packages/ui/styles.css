@@ -546,6 +546,8 @@
 .dinkster-textarea { resize: vertical; }
 .dinkster-menu-anchor { position: relative; }
 .dinkster-menu-trigger { user-select: none; }
+.dinkster-menu-filter { position: sticky; top: 0; z-index: 1; padding: var(--dinkster-space-4); margin-bottom: var(--dinkster-space-4); border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-subtle); background: inherit; }
+.dinkster-menu-filter > .dinkster-input { width: 100%; min-width: 0; }
 /* Block-level so the trigger takes its anchor's width and the name, not the trigger, gives way. */
 .dinkster-menu-trigger[data-project] { display: flex; justify-content: flex-start; gap: var(--dinkster-space-4); width: 100%; min-width: 0; padding-inline: var(--dinkster-space-8); }
 .dinkster-menu-trigger[data-project] > .dinkster-icon { flex: none; }
