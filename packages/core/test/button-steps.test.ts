@@ -515,7 +515,7 @@ describe('each step', () => {
     })
   })
 
-  it.each([1, 2])('AddNode shares the node but wires only the pressing occurrence at depth %s', async (depth) => {
+  it.each([1, 2])('AddNode shares the node and definition wires at depth %s', async (depth) => {
     addSchema('test.add_target', [
       { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
       { kind: 'input', id: 'other', type: { kind: 'concrete', types: ['INT'] }, default: 4 },
@@ -525,20 +525,26 @@ describe('each step', () => {
       { kind: 'input', id: 'input', type: { kind: 'concrete', types: ['INT'] }, default: 9 },
       { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
     ])
-    for (const driver of ['none', 'inside', 'tap', 'reroute', 'outside', 'outsideReroute'] as const) {
+    for (const driver of ['none', 'inside', 'tap', 'reroute', 'net', 'local', 'outside', 'outsideReroute'] as const) {
       const target = { node: asNodeId('inner'), port: asPortId('value') }
       const from = driver === 'tap' ? { node: asNodeId('source'), tap: asPortId('input') }
         : driver === 'reroute' || driver === 'outsideReroute' ? { reroute: 'junction' as never } : { node: asNodeId('source'), port: asPortId('out') }
-      const links = driver === 'none' || driver === 'outside' ? {} : {
+      const links = driver === 'none' || driver === 'outside' || driver === 'local' || driver === 'net' ? {} : {
         shared: { id: asLinkId('shared'), from, to: target },
         ...(driver === 'reroute' ? { upstream: { id: asLinkId('upstream'), from: { node: asNodeId('source'), port: asPortId('out') }, to: from } } : {}),
       }
       const initialBody = documentOf({ inner: { type: 'test.add_target' }, source: { type: 'test.add_processor' } }, links).graphs['g0']!
-      const body = { ...initialBody, ...(driver === 'reroute' || driver === 'outsideReroute' ? { reroutes: { junction: { id: 'junction' as never } } } : {}) }
+      const body = { ...initialBody, ...(driver === 'reroute' || driver === 'outsideReroute' ? { reroutes: { junction: { id: 'junction' as never } } } : {}),
+        ...(driver === 'net' ? { nets: { shared: { id: 'shared' as never, name: 'Shared source', source: { node: asNodeId('source'), port: asPortId('out') }, sinks: [target] } } } : {}) }
       const root = documentOf({ left: { type: depth === 1 ? '#g1' : '#g2' }, right: { type: depth === 1 ? '#g1' : '#g2' }, source: { type: 'test.add_processor' } },
         driver === 'outside' || driver === 'outsideReroute' ? link('parent', ['source', 'out'], ['left', 'shown']) : {})
       const middle = documentOf({ deep: { type: '#g1' } }).graphs['g0']!
-      const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs,
+      const doc: WorkflowDocument = { ...root,
+        ...(driver === 'local' ? { occurrenceTopologies: { [depth === 1 ? 'left' : 'left.deep']: {
+          owner: { instancePath: depth === 1 ? [] : [asNodeId('left')], node: asNodeId(depth === 1 ? 'left' : 'deep') },
+          bodyGraph: asGraphDefId('g1'), nextOrdinal: 1,
+          links: { local: { id: asLinkId('local'), from: { kind: 'body' as const, endpoint: from }, to: { kind: 'body' as const, endpoint: target } } },
+        } } } : {}), graphs: { ...root.graphs,
         g1: { ...body, id: asGraphDefId('g1'), name: 'Shared body', boundary: {
           inputs: [{ id: asPortId('shown'), promoted: true, binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('value'), ...(driver === 'outsideReroute' ? { viaReroute: 'junction' as never } : {}) } }], outputs: [],
         } },
@@ -563,7 +569,7 @@ describe('each step', () => {
       const promptBefore = siblingPrompt(doc)
       const outcome = await runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: path('left'), button: 'add' }, host)
       expect(outcome.kind, JSON.stringify(outcome)).toBe('done')
-      if (driver === 'outside' || driver === 'outsideReroute') {
+      if (driver === 'outside' || driver === 'outsideReroute' || driver === 'local') {
         expect(outcome.message).toBe('Nothing added. value is wired from outside this subgraph.')
         expect(session.doc).toEqual(doc)
         expect(session.canUndo).toBe(false)
@@ -571,22 +577,25 @@ describe('each step', () => {
           { step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} },
           { step: 'addNode', nodeType: 'test.add_processor', to: 'other', values: {} },
         ]) }], host)
-        expect(mixed).toMatchObject({ kind: 'done', message: 'The other use of Shared body also got this node, unwired.\nSkipped value: it is wired from outside this subgraph.' })
+        expect(mixed).toMatchObject({ kind: 'done', message: 'Also added in the other use of Shared body.\nSkipped value: it is wired from outside this subgraph.' })
         expect(Object.keys(session.doc.graphs['g1']!.nodes)).toHaveLength(3)
         expect(session.undo()).toBe(true)
         expect(session.canUndo).toBe(false)
         continue
       }
-      expect(outcome.message).toBe('The other use of Shared body also got this node, unwired.')
+      expect(outcome.message).toBe('Also added in the other use of Shared body.')
       const fresh = Object.values(session.doc.graphs['g1']!.nodes).find((node) => !Object.hasOwn(body.nodes, node.id))!
       expect(fresh.type).toBe('test.add_processor')
       expect(Object.keys(session.doc.graphs['g1']!.nodes)).toHaveLength(3)
-      expect(session.doc.graphs['g1']!.links).toEqual(body.links)
+      expect(session.doc.occurrenceTopologies).toEqual(doc.occurrenceTopologies)
       const endpoints = topology(session.doc, 'left').map((item) => [item.from.endpoint, item.to.endpoint])
       expect(endpoints).toContainEqual([{ node: fresh.id, port: 'out' }, { node: 'inner', port: 'value' }])
       if (driver !== 'none') expect(endpoints).toContainEqual([from, { node: fresh.id, port: 'input' }])
-      expect(topology(session.doc, 'right')).toEqual(siblingBefore)
-      expect(siblingPrompt(session.doc)).toEqual(promptBefore)
+      expect(topology(session.doc, 'right').map((item) => [item.from.endpoint, item.to.endpoint])).toEqual(endpoints)
+      const promptAfter = siblingPrompt(session.doc)
+      expect(promptAfter).not.toEqual(promptBefore)
+      expect(Object.values(promptAfter!).filter((node) => node.class_type === 'test.add_processor')).toHaveLength(
+        Object.values(promptBefore!).filter((node) => node.class_type === 'test.add_processor').length + 1)
       const after = session.doc
       expect(session.undo()).toBe(true)
       expect(session.doc.graphs['g1']).toEqual({ ...doc.graphs['g1'], nextOrdinal: after.graphs['g1']!.nextOrdinal })
@@ -598,7 +607,7 @@ describe('each step', () => {
       expect(session.doc).toEqual(after)
       if (driver === 'none') {
         const commands = coreCommandRegistry([], resolve) as Map<string, CommandDefinition>
-        const connect = commands.get('occurrence.link.connect')!
+        const connect = commands.get('link.connect')!
         commands.set(connect.id, { ...connect, validateDispatch: () => [diag('error', 'command', 'test.refusal', 'The wire was refused.')] })
         const refusedHost = { ...host, commands }
         const refused = createLocalSession(doc, commands, { schemaResolverFor: host.schemaResolverFor! })
@@ -612,7 +621,7 @@ describe('each step', () => {
           const varied = createLocalSession({ ...doc, graphs: { ...doc.graphs, g0: { ...doc.graphs['g0']!, nodes } } }, host.commands, { schemaResolverFor: host.schemaResolverFor! })
           const result = await runPress(varied, { graphId: 'g1', nodeId: 'inner', instancePath: path('left'), button: 'add' }, host)
           expect(result.kind).toBe('done')
-          expect(result.notes).toEqual(uses === 1 ? [] : ['The other 2 uses of Shared body also got this node, unwired.'])
+          expect(result.notes).toEqual(uses === 1 ? [] : ['Also added in the other 2 uses of Shared body.'])
         }
       }
       if (driver === 'reroute') {

@@ -130,8 +130,6 @@ export interface OccurrenceLinkIntent {
   readonly command: OccurrenceCommand
   readonly owner: OccurrenceRef
   readonly bodyGraph: string
-  /** A declared step wires this use even when both endpoints are inside the body. */
-  readonly instanceOnly?: true
   readonly from?: OccurrenceLinkEndpoint
   readonly to?: OccurrenceLinkEndpoint
   readonly link?: EffectiveLinkIdentity
@@ -421,7 +419,6 @@ export function planOccurrenceLinkCommand(
   const params = {
     owner: intent.owner,
     bodyGraph: intent.bodyGraph,
-    ...(intent.instanceOnly === true ? { instanceOnly: true } : {}),
     ...(intent.from ? { from: intent.from } : {}),
     ...(intent.to ? { to: intent.to } : {}),
     ...(intent.link ? { link: intent.link } : {}),
@@ -447,7 +444,6 @@ function intentFromParams(command: OccurrenceCommand, params: Json): OccurrenceL
   if (!owner) return undefined
   return {
     command, owner, bodyGraph: params.bodyGraph,
-    ...(params.instanceOnly === true ? { instanceOnly: true } : {}),
     ...(params.from !== undefined ? { from: params.from as unknown as OccurrenceLinkEndpoint } : {}),
     ...(params.to !== undefined ? { to: params.to as unknown as OccurrenceLinkEndpoint } : {}),
     ...(params.link !== undefined ? { link: params.link as unknown as EffectiveLinkIdentity } : {}),
@@ -467,8 +463,7 @@ function validateTrustedPlan(command: OccurrenceCommand, doc: WorkflowDocument, 
     'occurrence.link.rewire': ['owner', 'bodyGraph', 'link', 'to'],
     'occurrence.link.rewireSource': ['owner', 'bodyGraph', 'links', 'from'],
   }
-  if (!exactKeys(params, [...commandKeys[command], 'expectedTopologyFingerprint', 'plan', 'schemaSnapshot', 'planDigest'], command === 'occurrence.link.connect' ? ['instanceOnly'] : []) ||
-      (params.instanceOnly !== undefined && params.instanceOnly !== true))
+  if (!exactKeys(params, [...commandKeys[command], 'expectedTopologyFingerprint', 'plan', 'schemaSnapshot', 'planDigest']))
     return [err('params.invalid', `${command}: malformed command intention`)]
   const planShape = exactKeys(params.plan, ['version', 'deliveries', 'consultedDefinitionIds', 'allocator', 'materializations']) &&
     plan.version === PLAN_VERSION && Array.isArray(plan.deliveries) &&
@@ -650,7 +645,7 @@ function executeMutation(
       if (failure) return [failure]
     }
     if (unsuppressExactBodyDelivery(tx, owner, bodyGraph, from, to)) return []
-    if (from.kind === 'body' && to.kind === 'body' && !isRegionIndexSource(from) && raw.instanceOnly !== true)
+    if (from.kind === 'body' && to.kind === 'body' && !isRegionIndexSource(from))
       return [err('occurrence.link.sharedDefinition', `${command}: definition-only connections use link.connect`)]
     addLocalLink(tx, owner, bodyGraph, from, to)
     return []

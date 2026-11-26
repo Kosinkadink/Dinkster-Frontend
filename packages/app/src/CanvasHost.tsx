@@ -1877,7 +1877,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   })
   const shownOnThisGraph = (place: ButtonPlace): boolean => {
     const tab = activeTab()
-    return tab !== undefined && place.tab === tab && place.graphId === currentGraphId(tab) &&
+    return tab !== undefined && (place.tab === tab || props.app.liveTabContinuing(place.tab.store) === tab) && place.graphId === currentGraphId(tab) &&
       JSON.stringify(place.instancePath ?? []) === JSON.stringify(viewInstancePath(tab) ?? [])
   }
   let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}

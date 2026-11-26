@@ -485,6 +485,13 @@ function memberWired(view: View, group: string, member: string): boolean {
     occurrenceMemberReferenced(view.doc, graph.id, view.node.id, group, member)
 }
 
+function definitionDriverOf(graph: GraphDef, node: string, port: string): { readonly id?: string; readonly from: LinkEndpoint } | undefined {
+  const link = Object.values(graph.links).find((link) => isPortEndpoint(link.to) && link.to.node === node && link.to.port === port)
+  if (link !== undefined) return link
+  const net = Object.values(graph.nets).find((net) => net.sinks.some((sink) => sink.node === node && sink.port === port))
+  return net === undefined ? undefined : { from: net.source }
+}
+
 function occurrenceDriverOf(doc: WorkflowDocument, target: StepPlace, port: string, host: ActionHost): { readonly chain: readonly EffectiveLink[]; readonly outside: boolean } {
   const path = target.instancePath ?? []
   if (path.length === 0) return { chain: [], outside: false }
@@ -499,8 +506,7 @@ function occurrenceDriverOf(doc: WorkflowDocument, target: StepPlace, port: stri
   const chain: EffectiveLink[] = []
   while (upstream !== undefined && !chain.includes(upstream)) {
     chain.push(upstream)
-    if (upstream.identity.kind === 'parent' || upstream.identity.kind === 'parentNetSink' ||
-      upstream.identity.kind === 'parentLeg' || upstream.from.graphId !== target.graphId ||
+    if ((upstream.identity.kind !== 'definition' && upstream.identity.kind !== 'definitionNetSink') || upstream.from.graphId !== target.graphId ||
       JSON.stringify(upstream.from.instancePath) !== JSON.stringify(path)) return { chain, outside: true }
     const endpoint = upstream.from.endpoint
     if (isPortEndpoint(endpoint)) break
@@ -601,31 +607,12 @@ function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace,
       const id = predictAllocatedId(doc.graphs[graphId]!, actor, 'n')
       const position = host.positionAddedNode?.(doc, target, { id: asNodeId(id), type: action.type, values: action.values }, action.to, action.source) ?? action.position
       const add: CommandInvocation = { command: 'node.add', params: { graphId, type: action.type, position, values: action.values } }
-      const path = target.instancePath ?? []
-      if (path.length > 0) {
-        const staged = scratchOf(doc, host)
-        dispatchOn(staged, [add], actor)
-        const owner = { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }
-        const connections = [
-          ...(action.between === undefined ? [] : [{ from: action.between.from, to: { node: id, port: action.between.input } }]),
-          { from: { node: id, port: action.output }, to: { node: nodeId, port: action.to } },
-        ]
-        return [add, ...connections.map(({ from, to }) => {
-          const planned = planOccurrenceLinkMutation(staged.doc, host.schemaResolverFor!(staged.doc), {
-            kind: 'connect', owner, bodyGraph: graphId, instanceOnly: true,
-            from: { kind: 'body', endpoint: from as LinkEndpoint },
-            to: { kind: 'body', endpoint: to as LinkEndpoint },
-          })
-          if (!planned.ok) return refuse(planned.diagnostics[0]?.message ?? 'The wire could not be made.')
-          dispatchOn(staged, [planned.invocation], actor)
-          return planned.invocation
-        })]
-      }
+      const driver = definitionDriverOf(doc.graphs[graphId]!, nodeId, action.to)
       return [
         add,
         ...(action.between === undefined ? [] : [{
-          command: 'link.connect',
-          params: { graphId, from: action.between.from as unknown as Json, to: { node: id, port: action.between.input } },
+          command: driver?.id === undefined ? 'link.connect' : 'link.rewire',
+          params: { graphId, ...(driver?.id === undefined ? { from: action.between.from as unknown as Json } : { linkId: driver.id }), to: { node: id, port: action.between.input } },
         }]),
         { command: 'link.connect', params: { graphId, from: { node: id, port: action.output }, to: { node: nodeId, port: action.to } } },
       ]
@@ -1161,7 +1148,7 @@ class Press {
     const output = elabOutputsOf(added).find((candidate) => candidate.wireable !== false && typesCompatible(candidate.spec.type, field.spec.type))
     if (output === undefined) return refuse(`${type} has no output that fits ${to}.`)
     const driver = occurrence ? delivery.chain[0] === undefined ? undefined : { from: delivery.chain[0].from.endpoint }
-      : Object.values(graph.links).find((link) => 'port' in link.to && link.to.node === this.target.nodeId && link.to.port === path)
+      : definitionDriverOf(graph, this.target.nodeId, path)
     let between: { from: LinkEndpoint; input: string } | undefined
     if (driver !== undefined) {
       let effective = graph
@@ -1293,7 +1280,7 @@ class Press {
         }
       } else if (action.kind === 'addNode') {
         const graph = live.doc.graphs[this.target.graphId]!
-        const driver = Object.values(graph.links).find((link) => 'port' in link.to && link.to.node === this.target.nodeId && link.to.port === action.to)
+        const driver = definitionDriverOf(graph, this.target.nodeId, action.to)
         const connected = view.connectivity.isInputConnected(action.to)
         const delivery = occurrenceDriverOf(live.doc, this.target, action.to, this.host)
         if (delivery.outside) {
@@ -1553,7 +1540,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
         }, 0)
       }
       const uses = count(session.doc.root, new Set())
-      if (uses > 1) press.notes.push(`The other ${uses === 2 ? 'use' : `${uses - 1} uses`} of ${session.doc.graphs[press.target.graphId]!.name} also got this node, unwired.`)
+      if (uses > 1) press.notes.push(`Also added in the other ${uses === 2 ? 'use' : `${uses - 1} uses`} of ${session.doc.graphs[press.target.graphId]!.name}.`)
     }
     const part = parts[index]!
     const committed = viewOf(session.doc, part, host)
