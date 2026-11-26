@@ -595,22 +595,23 @@ export function smallFlowNodesGallery(
       },
       links: [['up', 'IMAGE', 'only', 'value']],
       boundary: {
-        inputs: [
+        body: [
           {
+            kind: 'input',
             id: 'image',
             displayName: 'image',
             binds: { kind: 'port', node: 'up', port: 'image' },
           },
           {
+            kind: 'input',
             id: 'condition',
             displayName: 'Condition',
             binds: { kind: 'port', node: 'only', port: 'condition' },
             promoted: true,
             wireHidden: true,
           },
-        ],
-        outputs: [
           {
+            kind: 'output',
             id: 'result',
             displayName: 'image',
             binds: { kind: 'port', node: 'only', port: 'value' },

@@ -87,9 +87,17 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   let live = true
   onCleanup(() => { live = false })
 
-  const lookup = lookupProvider?.(props)
-  const lookupState = (): RowListLookupState | undefined => lookup?.state()
   const declared = comboOptions(spec)
+  // A press's Pick brings its list's state with it; Try again asks the
+  // press's lookup again, which opens the list anew with its answer.
+  const pickList = ed.target.kind === 'local' ? ed.target.list : undefined
+  const lookup: RowListLookup | undefined = lookupProvider?.(props) ?? (pickList === undefined ? undefined : {
+    state: () => pickList.state === 'failed'
+      ? { kind: 'unavailable', reason: 'failed', refreshing: false }
+      : pickList.state === 'paused' ? { kind: 'paused', options: declared } : { kind: 'stale', options: declared, refreshing: false },
+    refresh: () => { pickList.retry?.(); props.close() },
+  })
+  const lookupState = (): RowListLookupState | undefined => lookup?.state()
   const options = createMemo<readonly ComboOption[]>(() => {
     const state = lookupState()
     if (state === undefined) return declared
@@ -175,7 +183,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   const shown = createMemo(() => listed().slice(window().start, window().end))
   const target = ed.target
   const focusRow = (): void => {
-    host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
+    if (target.kind === 'input') host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
   }
   const [picked, setPicked] = createSignal<string>()
   const store = (value: Json, text: string): void => {
@@ -200,7 +208,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
 
   const [authoring, setAuthoring] = createSignal(false)
   const editable = spec.remote === undefined &&
-    spec.editableOptions === true && ed.target.optionsTarget !== undefined
+    spec.editableOptions === true && ed.target.kind === 'input' && ed.target.optionsTarget !== undefined
   const refreshing = (): boolean => {
     const state = lookupState()
     return state?.kind === 'loading' || ((state?.kind === 'ready' || state?.kind === 'stale' || state?.kind === 'unavailable') && state.refreshing)
@@ -240,7 +248,8 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
 
   // The declared default, stored by its link even when the current options
   // do not hold it: a choice the person makes, checked like any other.
-  const defaultValue = effectiveWidgetDefault(spec)
+  // A press's Pick has nothing stored and no default.
+  const defaultValue = ed.target.kind === 'local' && stored === undefined ? undefined : effectiveWidgetDefault(spec)
   const storeDefault = (): void => {
     if (defaultValue === undefined) return
     store(defaultValue as Json, formatWidgetValue(defaultValue, spec))
@@ -319,7 +328,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
     } else if (event.key === 'Tab') {
       // Tab keeps the stored value and moves to the next or previous row.
       event.preventDefault()
-      if (props.commitPending()) return
+      if (props.commitPending() || target.kind !== 'input') return
       props.close()
       host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, event.shiftKey ? -1 : 1)
     } else if (event.key === 'Backspace' && query() === '' && folder().length > 0) {
@@ -384,7 +393,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   const [listSize, setListSize] = createSignal(0)
   const placement = createMemo(() => {
     const row = rowPlacement(
-      { rect: ed.rect, look: inRow.look, nodeTop: inRow.nodeTop, nodeBottom: inRow.nodeBottom },
+      { ...inRow, rect: ed.rect },
       host.viewport(),
       bounds(),
       sideSize(),
@@ -395,7 +404,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
       ...row,
       ...canvasListLayout(row.screen, bounds(), listSize(), sideSize(), row.scale,
         (inRow.nodeBottom - ed.rect.y) * local + grow,
-        (ed.rect.y - inRow.nodeTop) * local - grow),
+        (ed.rect.y - inRow.nodeTop) * local - grow, row.sideEdges),
     }
   })
   createEffect(() => { if (!authoring()) placeRow(frame, placement()) })
@@ -446,6 +455,8 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
           zoomed={placement().scale > 1}
           place={placement().place}
           sideTop={placement().sideTop}
+          {...(placement().sideLeft === undefined ? {} : { sideLeft: placement().sideLeft! })}
+          sideMaxWidth={placement().sideMaxWidth}
           {...(placement().sideMaxHeight === undefined ? {} : { sideMaxHeight: placement().sideMaxHeight! })}
           listPlace={placement().listPlace}
           {...(placement().listMaxHeight === undefined ? {} : { listMaxHeight: placement().listMaxHeight! })}

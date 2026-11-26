@@ -3,7 +3,7 @@
  * contract; these tests double as its first consumer alongside the canvas.
  */
 import { describe, expect, it } from 'vitest'
-import { createHostUiProviderContextV1, decodeHostUiContributionV1, effectiveWidgetDefault, formatWidgetValue, type PreviewRenderer, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
+import { createHostUiProviderContextV1, decodeHostUiContributionV1, effectiveWidgetDefault, formatWidgetValue, resolveWidgetRepresentation, widgetRepresentationChoices, type PreviewRenderer, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
 import { colorFieldDraft, createWidgetRegistry, formatCompactFloat, hexToHsv, hsvToHex, hsvToRgb, pickedColor, pickedRgba, registerCoreWidgets, resolveColorText, rgbToHsv, numberFieldFacts, widgetRegistrationDoors, workflowSwatches } from '../src/index.js'
 
 const spec = (widgetType: string, options: Record<string, unknown> = {}, dflt?: unknown): WidgetSpec => ({
@@ -725,6 +725,25 @@ describe('compact views', () => {
     }
     expect(formatCompactFloat(1.2, slider)).toBe('1.200')
     expect(formatCompactFloat(1.8, spec('FLOAT', { precision: 0 }))).toBe('2')
+  })
+
+  it('retains a dynamic Slider choice and explains every incompatible range without offering unbounded sliders', () => {
+    const r = registry()
+    for (const [options, fallback] of [
+      [{ min: -2, max: 3 }, false],
+      [{ min: -2 }, true],
+      [{ min: 3, max: 2 }, true],
+      [{ min: -1e308, max: 1e308 }, true],
+    ] as const) {
+      const resolved = resolveWidgetRepresentation({ ...spec('FLOAT', options), looked: { max: { formula: 'limit' } } }, 'slider')
+      expect(resolved.id).toBe('slider')
+      expect(r.kind('FLOAT')!.defaultView(resolved.spec)).toBe(fallback ? 'core.number' : 'core.slider')
+      expect(widgetRepresentationChoices(resolved.spec, resolved.id)?.note)
+        .toBe(fallback ? 'Showing Number until the range is known.' : undefined)
+    }
+    for (const declaration of [spec('FLOAT'), { ...spec('FLOAT'), looked: { min: { formula: 'limit' } } }]) {
+      expect(widgetRepresentationChoices(declaration, 'slider')).toBeUndefined()
+    }
   })
 
   it.each([

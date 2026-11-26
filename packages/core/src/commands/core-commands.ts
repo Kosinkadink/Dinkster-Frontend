@@ -35,6 +35,7 @@ import { createTransactionBuilder, executeCommand, type CommandDefinition, type 
 import { BOUNDARY_COMMANDS } from './boundary-commands.js'
 import { SUBGRAPH_COMMANDS } from './subgraph-commands.js'
 import { DYNAMIC_COMMANDS } from './dynamic-commands.js'
+import { MEMBER_COMMANDS } from './member-commands.js'
 import { REPLACE_COMMANDS } from './replace-commands.js'
 import { CLIPBOARD_COMMANDS } from '../clipboard.js'
 import { EXPOSED_COMMANDS } from './exposed-commands.js'
@@ -53,6 +54,7 @@ import {
   isCompleteAssetRef,
   schemaResolverForCommand,
 } from './command-support.js'
+import { boundaryItems, withBoundaryItems } from '../format/document.js'
 import { documentPrimitiveResolver } from '../compile/compile.js'
 import { primitiveOf } from '../primitive.js'
 
@@ -407,7 +409,7 @@ function deleteCascade(
   // PRIMARY target drops the whole item; a removed FAN-OUT target drops just
   // that entry (canonical form: 'alsoBinds' is omitted when it would empty).
   if (def.boundary) {
-    const prune = (items: readonly BoundaryItem[]): { kept: Json; changed: boolean } => {
+    const prune = (items: readonly BoundaryItem[]): { kept: BoundaryItem[]; changed: boolean } => {
       let changed = false
       const kept: BoundaryItem[] = []
       for (const item of items) {
@@ -424,12 +426,12 @@ function deleteCascade(
         }
         kept.push(item)
       }
-      return { kept: kept as unknown as Json, changed }
+      return { kept, changed }
     }
-    const inputs = prune(def.boundary.inputs)
-    const outputs = prune(def.boundary.outputs)
-    if (inputs.changed) tx.set(['graphs', graphId, 'boundary', 'inputs'], inputs.kept)
-    if (outputs.changed) tx.set(['graphs', graphId, 'boundary', 'outputs'], outputs.kept)
+    const inputs = prune(boundaryItems(def.boundary, 'inputs'))
+    const outputs = prune(boundaryItems(def.boundary, 'outputs'))
+    if (inputs.changed || outputs.changed) tx.set(['graphs', graphId, 'boundary'],
+      withBoundaryItems(withBoundaryItems(def.boundary, 'inputs', inputs.kept), 'outputs', outputs.kept) as unknown as Json)
   }
   // The nodes themselves + their view state.
   for (const id of nodeIds) {
@@ -721,7 +723,7 @@ export function wiresFromNode(def: GraphDef, nodeId: string): readonly WireFromN
   for (const net of Object.values(def.nets)) {
     if (net.source.node === nodeId) wires.push({ kind: 'net', id: net.id, address: net.source.port })
   }
-  for (const item of def.boundary?.outputs ?? []) {
+  for (const item of boundaryItems(def.boundary, 'outputs')) {
     const binds = item.binds
     if ((binds.kind === 'port' || binds.kind === 'widgetTap') && binds.node === nodeId)
       wires.push({ kind: 'forward', id: item.id, address: binds.kind === 'port' ? binds.port : binds.tap })
@@ -757,8 +759,8 @@ function removeWiresOfGoneMembers(
   }
   // As removing a forward by hand does: the output item goes.
   const forwards = new Set(gone.flatMap((wire) => wire.kind === 'forward' ? [wire.id] : []))
-  if (forwards.size > 0) tx.set(['graphs', graphId, 'boundary', 'outputs'],
-    def.boundary!.outputs.filter((item) => !forwards.has(item.id)) as unknown as Json)
+  if (forwards.size > 0) tx.set(['graphs', graphId, 'boundary'], withBoundaryItems(def.boundary, 'outputs',
+    boundaryItems(def.boundary, 'outputs').filter((item) => !forwards.has(item.id))) as unknown as Json)
 }
 
 function nodeSetValueOf(resolve?: SchemaResolver): CommandDefinition {
@@ -1163,10 +1165,10 @@ function occurrenceDriverConflict(doc: WorkflowDocument, graphId: string, to: Li
 
 /**
  * Shared structural validation for connecting `from` -> `to`. Returns an
- * error diagnostic or undefined. Schema-blind (type compat is advisory), but
- * rejects self-loops and reroute cycles so I9 can never break.
+ * error diagnostic or undefined. Type compatibility stays advisory; a
+ * pinless field cannot receive a runtime wire that changes its structure.
  */
-function connectError(def: GraphDef, graphId: string, from: LinkEndpoint, to: LinkEndpoint, what: string): Diagnostic | undefined {
+function connectError(doc: WorkflowDocument, def: GraphDef, graphId: string, from: LinkEndpoint, to: LinkEndpoint, what: string, context: CommandExecutionContext): Diagnostic | undefined {
   const refs = [...endpointRefs(graphId, from, 'output'), ...endpointRefs(graphId, to, 'input')]
   if (isWidgetTapRef(to))
     return err('link.tapTarget', `${what}: widget taps produce, never consume (cannot be a link target)`, refs)
@@ -1181,6 +1183,13 @@ function connectError(def: GraphDef, graphId: string, from: LinkEndpoint, to: Li
       return err('link.selfLoop', `${what}: cannot connect a reroute to itself`, refs)
     if (wouldCreateRerouteCycle(def, from, to.reroute))
       return err('reroute.cycle', `${what}: connection would create a reroute cycle`, refs)
+  }
+  if (isPortEndpoint(to)) {
+    const node = def.nodes[to.node]
+    const schema = node && commandSchemaOf(doc, node.type, context)
+    const input = schema && elabInputsOf(elaborateInterface(schema, node!)).find((input) => input.address.port === to.port)
+    if (input?.spec.socketless === true)
+      return err('link.socketless', `${what}: '${to.port}' has no input pin`, refs)
   }
   return undefined
 }
@@ -1199,7 +1208,7 @@ const linkConnect: CommandDefinition = {
     if (toErr) return [toErr]
     const from = toEndpoint(params.from)
     const to = toEndpoint(params.to)
-    const connErr = connectError(def, graphId, from, to, 'link.connect')
+    const connErr = connectError(doc, def, graphId, from, to, 'link.connect', context)
     if (connErr) return [connErr]
     if (occurrenceDriverConflict(doc, graphId, to))
       return [err('occurrence.topology.definitionReferenced', 'link.connect: an occurrence-local link already drives this input')]
@@ -1262,7 +1271,7 @@ function primitiveCorrectionOf(doc: WorkflowDocument, graphId: string, from: Lin
 
 const linkRewire: CommandDefinition = {
   id: 'link.rewire',
-  run(doc, params, tx) {
+  run(doc, params, tx, context) {
     if (!isObj(params) || typeof params.linkId !== 'string' || !isEndpoint(params.to))
       return [err('params.invalid', 'link.rewire: params must be {graphId, linkId, to: Endpoint}')]
     const def = graphOf(doc, params.graphId)
@@ -1274,7 +1283,7 @@ const linkRewire: CommandDefinition = {
     if (toErr) return [toErr]
     const to = toEndpoint(params.to)
     if (sameEndpoint(link.to, to)) return [] // no-op
-    const connErr = connectError(def, graphId, link.from, to, 'link.rewire')
+    const connErr = connectError(doc, def, graphId, link.from, to, 'link.rewire', context)
     if (connErr) return [connErr]
     if (occurrenceDriverConflict(doc, graphId, to))
       return [err('occurrence.topology.definitionReferenced', 'link.rewire: an occurrence-local link already drives this input')]
@@ -1296,7 +1305,7 @@ const linkRewire: CommandDefinition = {
 
 const linkRewireSource: CommandDefinition = {
   id: 'link.rewireSource',
-  run(doc, params, tx) {
+  run(doc, params, tx, context) {
     if (
       !isObj(params) ||
       !Array.isArray(params.linkIds) ||
@@ -1316,7 +1325,7 @@ const linkRewireSource: CommandDefinition = {
       const link = def.links[linkId]
       if (!link) return [err('link.missing', `link.rewireSource: unknown link '${linkId}'`)]
       if (sameEndpoint(link.from, from)) continue // no-op member
-      const connErr = connectError(def, graphId, from, link.to, 'link.rewireSource')
+      const connErr = connectError(doc, def, graphId, from, link.to, 'link.rewireSource', context)
       if (connErr) return [connErr]
     }
     for (const linkId of linkIds) {
@@ -1426,7 +1435,7 @@ const netCreate: CommandDefinition = {
 
 const netConnectInput: CommandDefinition = {
   id: 'net.connectInput',
-  run(doc, params, tx) {
+  run(doc, params, tx, context) {
     if (!isObj(params) || typeof params.netId !== 'string' || !isPortRef(params.to))
       return [err('params.invalid', 'net.connectInput: params must be {graphId, netId, to: PortRef}')]
     const def = graphOf(doc, params.graphId)
@@ -1441,6 +1450,8 @@ const netConnectInput: CommandDefinition = {
     if (net.sinks.some((s) => samePortRef(s, target))) return [] // already a sink: no-op
 
     const graphId = params.graphId as string
+    const connErr = connectError(doc, def, graphId, net.source, target, 'net.connectInput', context)
+    if (connErr) return [connErr]
     if (occurrenceDriverConflict(doc, graphId, target))
       return [err('occurrence.topology.definitionReferenced', 'net.connectInput: an occurrence-local link already drives this input')]
     removeDriver(def, graphId, target, tx)
@@ -2093,14 +2104,14 @@ function setEditorViewEntry(
   tx: Parameters<CommandDefinition['run']>[2],
   id: string,
   params: JsonObject,
-  record: 'editors' | 'pictureHeights',
+  record: 'editors' | 'pictureHeights' | 'histogramVisibility',
   entry: Json | null,
 ): readonly Diagnostic[] {
   const def = graphOf(doc, params.graphId)
   if (!def) return [err('graph.missing', `${id}: unknown graph '${String(params.graphId)}'`)]
   const graphId = params.graphId as string
   const valueKey = params.valueKey as string
-  let owner: Readonly<Partial<Record<'editors' | 'pictureHeights', Readonly<Record<string, Json>>>>> | undefined
+  let owner: Readonly<Partial<Record<'editors' | 'pictureHeights' | 'histogramVisibility', Readonly<Record<string, Json>>>>> | undefined
   let ownerPath: string[]
   if (params.inputsPanel === true) {
     if (!def.boundary) return [err('graph.notSubgraph', `${id}: graph '${graphId}' has no Inputs panel`)]
@@ -2151,6 +2162,16 @@ const viewSetEditorUnfolded: CommandDefinition = {
     }
     return setEditorViewEntry(doc, tx, 'view.setEditorUnfolded', params, 'editors',
       params.unfolded === null ? null : { unfolded: params.unfolded })
+  },
+}
+
+const viewSetHistogramVisible: CommandDefinition = {
+  id: 'view.setHistogramVisible',
+  run(doc, params, tx) {
+    if (!hasEditorTarget(params) || params.inputsPanel === true || typeof params.visible !== 'boolean') {
+      return [err('params.invalid', 'view.setHistogramVisible: params must be {graphId, nodeId, valueKey, visible: boolean}')]
+    }
+    return setEditorViewEntry(doc, tx, 'view.setHistogramVisible', params, 'histogramVisibility', params.visible)
   },
 }
 
@@ -2730,6 +2751,7 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   viewSetPreviewFolded,
   viewSetSectionCollapsed,
   viewSetEditorUnfolded,
+  viewSetHistogramVisible,
   viewSetPictureHeight,
   viewCreateGroup,
   viewMoveGroup,
@@ -2740,6 +2762,7 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   viewSetBookmark,
   viewClearBookmark,
   ...DYNAMIC_COMMANDS,
+  ...MEMBER_COMMANDS,
   ...BOUNDARY_COMMANDS,
   ...SUBGRAPH_COMMANDS,
   ...REPLACE_COMMANDS,

@@ -54,6 +54,29 @@ for (const theme of ['dark', 'light'] as const) {
       const id = await inactive.getAttribute('data-tab-id')
       await inactive.click()
       await expect(panel.locator(`[data-tab-id="${id}"]`)).toHaveAttribute('aria-selected', 'true')
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      const focused = panel.locator(`[data-tab-id="${id}"]`)
+      await expect(focused).toBeFocused()
+      expect(await focused.evaluate((element) => element.matches(':focus-visible'))).toBe(true)
+      const clipped = await focused.evaluate((element) => {
+        const bounds = element.getBoundingClientRect()
+        const style = getComputedStyle(element)
+        const extent = Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset)
+        const failures: string[] = []
+        for (let ancestor = element.parentElement; ancestor !== null; ancestor = ancestor.parentElement) {
+          const clip = getComputedStyle(ancestor)
+          const box = ancestor.getBoundingClientRect()
+          const left = box.left + ancestor.clientLeft
+          const top = box.top + ancestor.clientTop
+          if (/hidden|clip|auto|scroll/.test(clip.overflowX) &&
+              (bounds.left - extent < left || bounds.right + extent > left + ancestor.clientWidth)) failures.push(`${ancestor.className}: horizontal`)
+          if (/hidden|clip|auto|scroll/.test(clip.overflowY) &&
+              (bounds.top - extent < top || bounds.bottom + extent > top + ancestor.clientHeight)) failures.push(`${ancestor.className}: vertical`)
+        }
+        return failures
+      })
+      expect(clipped).toEqual([])
       await panel.locator(`[data-tab-id="${id}"]`).blur()
       await page.mouse.move(600, 400)
       await expect(page.getByTestId('app-tooltip')).toBeHidden()
@@ -76,6 +99,20 @@ const closeGallery = async (page: Page): Promise<void> => {
 }
 
 for (const theme of ['dark', 'light'] as const) {
+  test(`a load starts on the saved ${theme} theme's frame colour before any script`, async ({ page }) => {
+    await page.addInitScript((selected) => {
+      localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
+    }, theme)
+    await page.route(/\.(js|css)(\?.*)?$/, (route) => route.abort())
+    const frame = theme === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)'
+    const other = theme === 'dark' ? 'light' : 'dark'
+    await page.goto('/')
+    await expect(page.locator('body')).toHaveCSS('background-color', frame)
+    // A page that sends the browser here names the theme on screen, over the saved one.
+    await page.goto(`/?dinksterTheme=${other}`)
+    await expect(page.locator('body')).toHaveCSS('background-color', other === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)')
+  })
+
   test(`brand assets and persisted ${theme} theme`, async ({ page }) => {
     await page.addInitScript((selected) => {
       localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
@@ -108,8 +145,8 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(trigger).toHaveAccessibleName('Dinkster')
     await expect(trigger.locator('img:visible')).toHaveAttribute('src', /dinkster-symbol-color\.svg/)
     await expect(trigger.locator('.dinkster-wordmark')).toHaveCount(0)
-    const expectedCanvas = theme === 'dark' ? 'rgb(14, 20, 20)' : 'rgb(247, 248, 250)'
-    await expect(page.locator('body')).toHaveCSS('background-color', expectedCanvas)
+    const expectedFrame = theme === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)'
+    await expect(page.locator('body')).toHaveCSS('background-color', expectedFrame)
     const manifest = await (await page.request.get('/manifest.webmanifest')).json()
     expect(manifest.name).toBe('Dinkster')
     for (const icon of manifest.icons) {
@@ -132,15 +169,15 @@ for (const theme of ['dark', 'light'] as const) {
     await page.evaluate((selected) => {
       window.__dinksterTest!.app.settings.set('dinkster.theme', selected === 'dark' ? 'light' : 'dark')
     }, theme)
-    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(247, 248, 250)' : 'rgb(14, 20, 20)')
+    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(237, 239, 242)' : 'rgb(9, 13, 13)')
     await expect(trigger.locator('img:visible')).toHaveAttribute('src', /dinkster-symbol-color\.svg/)
     await page.addStyleTag({ content: '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }' })
     const header = page.locator('.dinkster-window-toolbar-host')
     await header.evaluate((node) => { (node as HTMLElement).dataset['platform'] = 'win32' })
     await page.setViewportSize({ width: 390, height: 900 })
     await expect(trigger).toHaveAccessibleName('Dinkster')
-    // The D symbol alone, filling the left bar's 48px column inside the bar's 12px padding.
-    expect((await trigger.boundingBox())!.width).toBe(24)
+    // The D symbol alone, filling the left bar's 54px column inside the bar's 12px padding.
+    expect((await trigger.boundingBox())!.width).toBe(30)
     // The panel switches leave once the toolbar observes its new width.
     await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
     for (const control of await header.locator('button:visible').all()) {
@@ -340,8 +377,8 @@ test('stored run outputs load only after selection and retain their original ide
   await page.getByTestId('runs-panel').getByTestId('collection-search').fill('absent run')
   await expect(empty).toHaveText('No matches.')
   await page.getByTestId('runs-panel').getByTestId('collection-source-action').click()
-  const confirmation = page.getByTestId('runs-clear-confirmation')
-  await expect(confirmation).toHaveText('Removes every finished run on this backend, for all workflows. Saved files stay.')
+  const confirmation = page.getByTestId('runs-panel').locator('.dinkster-confirmation')
+  await expect(confirmation).toContainText('Removes every finished run on this backend, for all workflows. Saved files stay.')
   await page.screenshot({ path: testInfo.outputPath('clear-finished-confirmation-1440.png'), animations: 'disabled' })
   await page.setViewportSize({ width: 900, height: 900 })
   await expect(confirmation).toBeVisible()
@@ -401,7 +438,8 @@ test('backend add error and Resources rows at desktop and compact widths', async
     await page.setViewportSize({ width, height })
     await openDock(page, 'backends-sidebar-toggle')
     const backends = page.getByTestId('backends-panel')
-    await expect(backends.getByRole('heading', { name: 'Backend connections', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Backends', exact: true })).toBeVisible()
+    await expect(backends).toHaveAccessibleName('Backends')
     if (!await backends.getByTestId('backend-url-input').isVisible()) await backends.getByRole('button', { name: 'Add backend', exact: true }).click()
     await backends.getByTestId('backend-url-input').fill('http://127.0.0.1:1')
     await backends.getByTestId('backend-add').click()
@@ -447,7 +485,7 @@ test('Boundary is hidden at root and shows definition empty states at desktop an
         },
         sub: {
           id: 'sub', name: 'Nested workflow', nodes: {}, links: {}, nets: {}, reroutes: {},
-          boundary: { inputs: [], outputs: [] }, nextOrdinal: 1,
+          boundary: { body: [] }, nextOrdinal: 1,
         },
       },
       view: { graphs: {
@@ -462,9 +500,8 @@ test('Boundary is hidden at root and shows definition empty states at desktop an
     await page.mouse.dblclick(mark.x, mark.y)
     await openRail(page, 'Boundary')
     await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
-    await expect(page.getByTestId('boundary-empty')).toHaveCount(2)
-    await expect(page.getByTestId('boundary-empty').first()).toContainText('No workflow inputs are exposed.')
-    await expect(page.getByTestId('boundary-empty').last()).toContainText('No workflow outputs are exposed.')
+    await expect(page.getByTestId('boundary-empty')).toHaveCount(1)
+    await expect(page.getByTestId('boundary-empty')).toContainText('No rows yet.')
     await screenshot(page, `boundary-empty-sections-${width}`)
   }
 })
@@ -508,7 +545,7 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
     }
     await openDock(page, 'backends-sidebar-toggle')
     const card = page.locator('[data-testid="backend-row"]').filter({ hasText: 'Offline visual' })
-    if (!await card.getByTestId('backend-schema-retry').isVisible()) await card.locator('summary').first().click()
+    if (!await card.getByTestId('backend-schema-retry').isVisible()) await card.locator('button[aria-controls]').click()
     await expect(card.getByTestId('backend-schema-retry')).toBeEnabled()
     await expect(card.getByTestId('output-mount-settings')).toHaveCount(0)
     await card.getByTestId('backend-schema-retry').scrollIntoViewIfNeeded()
@@ -1510,15 +1547,15 @@ test('Saved connection rows retain actions, credential editing and connection fa
   })
   const fixture = page.getByRole('region', { name: 'Saved connections fixture' })
   const row = fixture.getByTestId('backend-row').filter({ hasText: 'Studio render server' })
-  await row.locator('summary').click()
-  await expect(row.getByTestId('profile-credential-badge')).toBeVisible()
+  await row.locator('button[aria-controls]').click()
+  await expect(row.getByTestId('profile-connect')).toBeVisible()
   const capture = async (state: string): Promise<void> => {
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
       const lastAction = state === 'token-editor' ? row.getByTestId('profile-token-save') : row.getByRole('button', { name: 'Actions for Studio render server', exact: false })
       await lastAction.scrollIntoViewIfNeeded()
       await expect(lastAction).toBeInViewport()
-      const identity = await row.locator('summary').boundingBox()
+      const identity = await row.locator('button[aria-controls]').boundingBox()
       expect(identity!.width).toBeGreaterThan(200)
       const area = await fixture.boundingBox()
       for (const action of await row.getByRole('button').all()) {
@@ -1526,12 +1563,24 @@ test('Saved connection rows retain actions, credential editing and connection fa
         expect(bounds!.x).toBeGreaterThanOrEqual(area!.x)
         expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(area!.x + area!.width)
       }
+      const selectedAddress = await row.locator('code.backend-address').evaluate((address) => {
+        const selection = window.getSelection()!
+        const range = document.createRange()
+        range.selectNodeContents(address)
+        selection.removeAllRanges()
+        selection.addRange(range)
+        const text = selection.toString()
+        selection.removeAllRanges()
+        return text
+      })
+      expect(selectedAddress).toBe('https://render-studio.example.test:8443/team/production')
       await page.mouse.move(0, 0)
       await screenshot(page, `connection-profile-${state}-${width}`)
     }
   }
   await capture('ready')
-  await row.getByTestId('profile-token-edit').click()
+  await row.getByRole('button', { name: 'Actions for Studio render server', exact: false }).click()
+  await row.getByRole('menuitem', { name: 'Change access token', exact: true }).click()
   await expect(row.getByTestId('profile-token-editor-input')).toHaveAttribute('type', 'password')
   await expect(row.getByTestId('profile-token-save')).toBeDisabled()
   await capture('token-editor')
@@ -1564,7 +1613,9 @@ test('Saved connection rows retain actions, credential editing and connection fa
   await fixture.getByTestId('backend-add').click()
   await expect(fixture.locator('#backend-add-error')).toHaveCount(0)
   await expect(fixture.getByTestId('backend-row')).toHaveCount(3)
-  await expect(fixture.getByTestId('backend-row').filter({ hasText: 'Recovered source' })).toContainText('https://recovered.example.test')
+  const recovered = fixture.getByTestId('backend-row').filter({ hasText: 'Recovered source' })
+  await recovered.locator('button[aria-controls]').click()
+  await expect(recovered).toContainText('https://recovered.example.test')
   await page.evaluate(() => (window as unknown as { connectionVisual: { dispose(): void } }).connectionVisual.dispose())
 })
 

@@ -9,8 +9,8 @@
  *   without it while the sourceDocument asset bytes survive;
  * - a delete transport failure lands in Problems (history.deleteFailed)
  *   and the record stays;
- * - 'Clear finished' arms to 'Confirm clear' and wipes the scope only on the
- *   second click.
+ * - 'Clear finished' opens a question and wipes the scope only after the
+ *   explicit loss action.
  *
  * The clear test wipes the ENTIRE local history scope of the target server
  * (that is the feature); runs there are e2e-produced. Requires a NATIVE
@@ -18,7 +18,7 @@
  * lives in the gated dev pack and a plain dinkster-serve does not compose it.
  * Skips loudly when no backend answers. Missing required dev nodes fail.
  */
-import { expect, nativeTest, openRailPanel, productOption, selectProductOption, test, waitForWorkspaceReady, type Page, chooseRunScope } from './fixtures.js'
+import { expect, nativeTest, openRailPanel, productOption, selectProductOption, test, waitForWorkspaceReady, type Locator, type Page, chooseRunScope } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -135,6 +135,12 @@ async function openRuns(page: Page): Promise<void> {
 const entryFor = (page: Page, jobId: string) =>
   page.getByTestId('collection-entry').filter({ has: page.locator(`[data-job^="${jobId.slice(0, 8)}"]`) })
 
+/** Picks an item from a chosen stored run's "..." menu. */
+async function chosenRunMenu(page: Page, entry: Locator, item: 'Details' | 'Copy job ID' | 'Delete record'): Promise<void> {
+  await entry.getByRole('button', { name: /^More for / }).click()
+  await page.getByRole('menuitem', { name: item, exact: true }).click()
+}
+
 test.beforeEach(async ({ page }, testInfo) => {
   // Probe outside the skip calls: test.skip signals by throwing, so a skip
   // raised inside the try would be swallowed and remapped to 'unreachable'.
@@ -164,10 +170,15 @@ test('a durable stamped record: click selects, the open action reopens the produ
   // panel (that would make the delete affordance unreachable).
   await entry.click()
   await expect(page.getByTestId('runs-panel')).toBeVisible()
-  await expect(entry.locator('.collection-badges')).toContainText('completed')
-  await expect(entry.locator('.collection-badges')).toContainText('Source recorded')
-  await entry.locator('.runs-details > summary').click()
-  await expect(entry.locator('.output-facts').first()).toContainText('source document')
+  // Details is a few plain lines; the job ID is copied from the menu, never shown.
+  await chosenRunMenu(page, entry, 'Details')
+  const details = entry.getByTestId('chosen-run-details')
+  await expect(details).toContainText(/\d+ ran, \d+ from cache/)
+  await expect(details).toContainText('Ran on')
+  await expect(details).not.toContainText(jobId)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await chosenRunMenu(page, entry, 'Copy job ID')
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(jobId)
 
   // Diverge the live document, then reopen the run: the open action must
   // restore the EXACT producing document. Tab identity is the document
@@ -179,7 +190,7 @@ test('a durable stamped record: click selects, the open action reopens the produ
     }).dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'grad', inputId: 'width', value: 99 } })
   })
   const tabsBefore = await page.evaluate(() => window.__dinksterTest!.app.tabs.get().length)
-  await entry.locator('[data-testid=collection-action][data-action=open]').click()
+  await entry.getByTestId('chosen-run-open').click()
   await expect(page.getByTestId('runs-panel')).toBeVisible()
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes['grad']!.values['width'],
@@ -190,6 +201,81 @@ test('a durable stamped record: click selects, the open action reopens the produ
   }))
   expect(after.tabs).toBe(tabsBefore)
   expect(after.type).toBe('dev.image.gradient')
+})
+
+test('a run\'s details name the workflow it was queued under, in both scopes, and say when none was recorded', async ({ page }) => {
+  const jobId = await queueAndComplete(page)
+  await expect.poll(async () => (await durableRecords()).some((record) => record.jobId === jobId)).toBe(true)
+  // Renaming the workflow afterwards leaves the run under the name it was queued with.
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.renameTab(app.activeTabId.get(), 'Renamed afterwards')
+  })
+  const workflowLine = (details: Locator) => details.locator('div').filter({ has: page.getByText('Workflow', { exact: true }) })
+
+  await openRailPanel(page, 'Runs')
+  await chooseRunScope(page, 'workflow')
+  const row = page.getByTestId('runs-panel').getByTestId('execution-row').first()
+  await expect(row.getByRole('button', { name: /^More for / })).toBeVisible()
+  await chosenRunMenu(page, row, 'Details')
+  await expect(workflowLine(row.getByTestId('chosen-run-details'))).toHaveText('WorkflowRun History')
+
+  await chooseRunScope(page, 'all')
+  const entry = entryFor(page, jobId)
+  await entry.click()
+  await chosenRunMenu(page, entry, 'Details')
+  await expect(workflowLine(entry.getByTestId('chosen-run-details'))).toHaveText('WorkflowRun History')
+
+  // A record kept before names were stored has none, and its details say so.
+  await page.route('**/api/history?*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json() as { records: Record<string, unknown>[] }
+    await route.fulfill({ response, json: { ...body, records: body.records.map(({ workflowName: _name, ...record }) => record) } })
+  })
+  await chooseRunScope(page, 'workflow')
+  await chooseRunScope(page, 'all')
+  const unnamed = entryFor(page, jobId)
+  await unnamed.click()
+  await chosenRunMenu(page, unnamed, 'Details')
+  await expect(workflowLine(unnamed.getByTestId('chosen-run-details'))).toHaveText('WorkflowNot recorded')
+})
+
+test('a run\'s row is named after the workflow it was queued under, through a rename and a reload, and keeps its state when none was recorded', async ({ page }) => {
+  const jobId = await queueAndComplete(page)
+  await expect.poll(async () => (await durableRecords()).some((record) => record.jobId === jobId)).toBe(true)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.renameTab(app.activeTabId.get(), 'Renamed afterwards')
+  })
+
+  await openRailPanel(page, 'Runs')
+  await chooseRunScope(page, 'workflow')
+  const row = page.getByTestId('runs-panel').getByTestId('execution-row').first()
+  await expect(row.locator('.run-row-name')).toHaveText('Run History')
+  await expect(row.getByRole('button', { name: 'More for Run History' })).toBeVisible()
+
+  await chooseRunScope(page, 'all')
+  await expect(entryFor(page, jobId).locator('.run-row-name')).toHaveText('Run History')
+
+  // After a reload the run is read back from the engine's record alone.
+  await page.reload()
+  await waitForWorkspaceReady(page)
+  await openRuns(page)
+  const stored = entryFor(page, jobId)
+  await expect(stored.locator('.run-row-name')).toHaveText('Run History')
+  await stored.click()
+  await expect(stored.getByRole('button', { name: 'More for Run History' })).toBeVisible()
+
+  // A record kept before names were stored keeps its state as its name.
+  await page.route('**/api/history?*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json() as { records: Record<string, unknown>[] }
+    await route.fulfill({ response, json: { ...body, records: body.records.map(({ workflowName: _name, ...record }) => record) } })
+  })
+  await page.reload()
+  await waitForWorkspaceReady(page)
+  await openRuns(page)
+  await expect(entryFor(page, jobId).locator('.run-row-name')).toHaveText('Completed run')
 })
 
 test('two cached runs collapse into one expandable no-op history row', async ({ page }) => {
@@ -231,10 +317,10 @@ test('two cached runs collapse into one expandable no-op history row', async ({ 
   await expect(grouped.getByTestId('collection-expand')).toHaveAttribute('aria-expanded', 'true')
   await expect(page.locator('.collection-entry.collection-child')).toHaveCount(2)
   for (const child of await page.locator('.collection-entry.collection-child').all()) {
-    // A stored row shows its badges while it is chosen.
+    // A chosen stored row's Details count what ran and what came from cache.
     await child.click()
-    await expect(child.locator('.collection-badges')).toContainText('0 run')
-    await expect(child.locator('.collection-badges')).not.toContainText('0 cached')
+    await chosenRunMenu(page, child, 'Details')
+    await expect(child.getByTestId('chosen-run-details')).toContainText(/0 ran, [1-9]\d* from cache/)
   }
 })
 
@@ -244,16 +330,19 @@ test('delete removes the record only: the collection re-pages and asset bytes su
   const entry = entryFor(page, jobId)
   await expect(entry).toHaveCount(1)
   await entry.click()
-  await entry.locator('.runs-details > summary').click()
-  const sourceDoc = await entry.locator('.output-facts').first().locator('dd')
-    .filter({ hasText: /^blake3:/ }).first().textContent()
+  const sourceDoc = (await durableRecords()).find((record) => record.jobId === jobId)?.sourceDocument
   expect(sourceDoc).toMatch(/^blake3:[0-9a-f]{64}$/)
 
-  const remove = entry.locator('[data-testid=collection-action][data-action=delete]')
-  await remove.click()
-  await expect(remove).toHaveText('Confirm delete')
+  await chosenRunMenu(page, entry, 'Delete record')
+  const question = entry.locator('.dinkster-confirmation')
+  await expect(question.getByRole('heading')).toContainText('Delete the record of')
+  await expect(question.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  expect((await durableRecords()).some((record) => record.jobId === jobId)).toBe(true)
+  await question.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(entry).toHaveCount(1)
-  await remove.click()
+  await expect(entry).toHaveAttribute('aria-selected', 'true')
+  await chosenRunMenu(page, entry, 'Delete record')
+  await question.getByRole('button', { name: 'Delete record', exact: true }).click()
   await expect(entry).toHaveCount(0, { timeout: 10_000 })
 
   // Record-only by contract: the producing document's asset bytes survive.
@@ -276,10 +365,10 @@ test('a delete failure lands in Problems and keeps the record', async ({ page })
   await openRuns(page)
   const entry = entryFor(page, jobId)
   await entry.click()
-  const remove = entry.locator('[data-testid=collection-action][data-action=delete]')
-  await remove.click()
-  await expect(remove).toHaveText('Confirm delete')
-  await remove.click()
+  await chosenRunMenu(page, entry, 'Delete record')
+  await entry.locator('.dinkster-confirmation').getByRole('button', { name: 'Delete record', exact: true }).click()
+  await expect(entry.locator('.dinkster-confirmation')).toContainText('was not deleted.')
+  await expect(entry).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('problems-panel')).toContainText('history.deleteFailed')
   await expect(entry).toHaveCount(1)
   await chooseRunScope(page, 'workflow')
@@ -344,7 +433,40 @@ test('runs lingering through a backend switch can never clear the incoming backe
   expect(clearCalls).toEqual([])
 })
 
-nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ page }) => {
+test('with a page tab in front Runs shows all workflows, and the earlier choice returns on the workflow tab', async ({ page }) => {
+  await queueAndComplete(page)
+  await openRailPanel(page, 'Runs')
+  const scope = page.getByTestId('runs-scope')
+  const thisWorkflow = scope.getByRole('radio', { name: 'This workflow', exact: true })
+  await chooseRunScope(page, 'workflow')
+  const workflowTab = await page.evaluate(() => window.__dinksterTest!.app.activeTabId.get())
+  const pageTab = await page.evaluate(() => {
+    const pages = (window.__dinksterTest!.app as unknown as { pages: {
+      register(page: unknown): unknown; open(id: string): { id: string } | undefined } }).pages
+    pages.register({ id: 'example', title: 'Example', icon: () => undefined, component: () => null })
+    return pages.open('example')!.id
+  })
+  const showTab = (id: string) => page.evaluate((id) => window.__dinksterTest!.app.activeTabId.set(id), id)
+
+  // A page is not a workflow: All workflows shows, and This workflow stays in place but cannot be chosen.
+  await expect(scope).toHaveAttribute('data-selected-id', 'all')
+  await expect(page.getByTestId('runs-panel').getByText('No runs for this workflow')).toHaveCount(0)
+  await expect(thisWorkflow).toBeDisabled()
+  await expect(thisWorkflow).toHaveAccessibleDescription('A page is in front, not a workflow.')
+  await expect(scope.locator('.dinkster-segment').first()).toHaveAttribute('data-tooltip-label', 'A page is in front, not a workflow.')
+
+  // Back on the workflow, its earlier choice returns; a choice of All workflows also survives the page.
+  await showTab(workflowTab)
+  await expect(scope).toHaveAttribute('data-selected-id', 'workflow')
+  await expect(thisWorkflow).toBeEnabled()
+  await chooseRunScope(page, 'all')
+  await showTab(pageTab)
+  await expect(scope).toHaveAttribute('data-selected-id', 'all')
+  await showTab(workflowTab)
+  await expect(scope).toHaveAttribute('data-selected-id', 'all')
+})
+
+nativeTest('clear asks first, wipes the whole scope on confirmation', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('assets-toggle').click()
   const assets = page.getByTestId('assets-overlay')
@@ -359,12 +481,12 @@ nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ p
   const clear = runs.getByTestId('collection-source-action')
   await expect(clear).toHaveText('Clear finished')
   await clear.click()
-  // Armed, not executed: entries survive the first click.
-  await expect(clear).toHaveText('Confirm clear')
-  await expect(runs.getByTestId('runs-clear-confirmation')).toHaveText('Removes every finished run on this backend, for all workflows. Saved files stay.')
+  const question = runs.locator('.dinkster-confirmation')
+  await expect(question.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  await expect(question).toContainText('Removes every finished run on this backend, for all workflows. Saved files stay.')
   await expect(runs.getByTestId('collection-entry').first()).toBeVisible()
 
-  await clear.click()
+  await question.getByRole('button', { name: 'Clear finished', exact: true }).click()
   await expect(runs.getByTestId('collection-empty')).toBeVisible({ timeout: 10_000 })
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=10`)).json() as
     { records: unknown[] }

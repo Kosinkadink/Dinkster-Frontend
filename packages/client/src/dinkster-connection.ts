@@ -27,8 +27,8 @@ import { credentialFetch, mintDelegation, type CollabCredentials, type Delegatio
 import { requestWithDeadline } from './request-deadline.js'
 import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
   type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
-import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs,
-  type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob } from './model-downloads.js'
+import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs, decodeModelPresence,
+  type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob, type ModelPresence } from './model-downloads.js'
 import {
   asPromptId,
   createSignal,
@@ -56,6 +56,8 @@ import {
   validateDinksterGraph,
   type CompileArtifact,
   type ComfyTranslation,
+  type CallAnswer,
+  type CallRequest,
   type ConnectionId,
   type Diagnostic,
   type ExecutionArm,
@@ -91,6 +93,8 @@ import {
 } from './reconnecting-socket.js'
 import { DinksterValuesClient } from './values.js'
 import { expandDynamicPrompt } from './dynamic-prompts.js'
+import { callPackFunction } from './pack-functions.js'
+import { createLookupClient, type LookupClient } from './lookups.js'
 import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
 /** Existing /api/nodes capability flag for the placement submission sidecar. */
@@ -482,6 +486,7 @@ export interface MemoryConsumerItem {
   readonly itemId: string
   readonly displayName: string
   readonly bytesByResidency: Readonly<Record<string, number>>
+  readonly inUse?: boolean
   readonly pages?: { readonly pageBytes: number; readonly pageCount: number; readonly flags: readonly number[] }
 }
 
@@ -539,6 +544,7 @@ function decodeMemoryStatus(value: unknown): MemoryStatus | undefined {
       Object.values(device['residencyApplied']['budgetsByWorker']).every((budget) => budget === null || finite(budget))))) return undefined
   if (status['consumerDetails'] !== undefined && (!record(status['consumerDetails']) || !Object.values(status['consumerDetails']).every((items) => Array.isArray(items) && items.every((item) => {
     if (!record(item) || typeof item['itemId'] !== 'string' || typeof item['displayName'] !== 'string' || !numberRecord(item['bytesByResidency'])) return false
+    if (item['inUse'] !== undefined && typeof item['inUse'] !== 'boolean') return false
     const pages = item['pages']
     return pages === undefined || (record(pages) && finite(pages['pageBytes']) && finite(pages['pageCount']) &&
       Array.isArray(pages['flags']) && pages['flags'].every(finite) && pages['flags'].length === pages['pageCount'])
@@ -1815,6 +1821,8 @@ export interface HistoryRunRecord {
   readonly startedAt?: number
   /** blake3:<64 hex> digest of the producing workflow document asset. */
   readonly sourceDocument?: string
+  /** The workflow's name when the run was submitted; absent when none was recorded. */
+  readonly workflowName?: string
   readonly principalId?: string
   readonly principalKind?: 'human' | 'agent'
   readonly nodeReceipts?: readonly NodeExecutionReceipt[]
@@ -1870,12 +1878,14 @@ const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
     typeof r['executed'] === 'number' &&
     typeof r['cached'] === 'number' &&
     typeof r['skipped'] === 'number' &&
+    (r['workflowName'] === undefined || (typeof r['workflowName'] === 'string' && r['workflowName'] !== '')) &&
     receiptsValid
   )) return undefined
   const {
     principalId: _wirePrincipalId,
     principalKind: _wirePrincipalKind,
     thumbnail: wireThumbnail,
+    workflowName: wireWorkflowName,
     ...record
   } = r
   let thumbnail: MediaAssetRef | undefined
@@ -1891,6 +1901,7 @@ const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
   return {
     ...record,
     ...(thumbnail === undefined ? {} : { thumbnail }),
+    ...(wireWorkflowName === undefined ? {} : { workflowName: wireWorkflowName }),
     ...(typeof r['principalId'] === 'string' ? { principalId: r['principalId'] } : {}),
     ...(r['principalKind'] === 'human' || r['principalKind'] === 'agent'
       ? { principalKind: r['principalKind'] }
@@ -2472,6 +2483,8 @@ export class DinksterConnection {
        * the job wire and history, never part of execution identity.
        */
       readonly sourceDocument?: string
+      /** The workflow's name as the person sees it, kept with the run's record. */
+      readonly workflowName?: string
       /**
        * Retained original import metadata, not a representation of native
        * edits. An absent original prompt stays absent, distinct from {}.
@@ -2576,6 +2589,7 @@ export class DinksterConnection {
       targets,
       graph: graph as unknown as Json,
       ...(options?.sourceDocument !== undefined ? { sourceDocument: options.sourceDocument } : {}),
+      ...(options?.workflowName !== undefined ? { workflowName: options.workflowName } : {}),
       ...(options?.exportSnapshot !== undefined ? { exportSnapshot: options.exportSnapshot } : {}),
       ...(options?.previews !== undefined ? { previews: options.previews } : {}),
       ...(placementNodeIds.length > 0 ? { placement } : {}),
@@ -2890,6 +2904,23 @@ export class DinksterConnection {
     if (!record(value) || value['limitBytes'] !== limitBytes || value['collectionEnabled'] !== false) {
       throw new Error('Storage policy acknowledgment differs from the requested limit')
     }
+  }
+
+  private lookupClient: LookupClient | undefined
+
+  /** This backend's one lookup client: its answers are shared by fields, notes and button presses. */
+  get lookups(): LookupClient {
+    this.lookupClient ??= createLookupClient({ baseUrl: this.baseUrl, fetchFn: this.fetchFn })
+    return this.lookupClient
+  }
+
+  /** Run a node's declared pack function for a button press, with this backend's authority. */
+  callPackFunction(
+    request: CallRequest,
+    progress: (fraction: number, text: string) => void,
+    signal: AbortSignal,
+  ): Promise<CallAnswer> {
+    return callPackFunction({ baseUrl: this.baseUrl, fetchFn: this.fetchFn }, request, progress, signal)
   }
 
   clearLibraryStorage(): Promise<LibraryStorageCleanup> {
@@ -3497,6 +3528,22 @@ export class DinksterConnection {
     return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
 
+  /** Observe local model names without looking up sources or creating download plans. */
+  async checkModelPresence(models: readonly ModelRequirement[], signal?: AbortSignal): Promise<readonly ModelPresence[]> {
+    const rows: ModelPresence[] = []
+    for (let offset = 0; offset < models.length; offset += 256) {
+      const batch = models.slice(offset, offset + 256)
+      const response = await this.fetchFn(`${this.baseUrl}/api/models/presence`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, cache: 'no-store',
+        body: JSON.stringify({ models: batch, project: this.project ?? 'default', scope: 'local' }),
+        ...(signal === undefined ? {} : { signal }),
+      })
+      if (!response.ok) throw new Error(`POST /api/models/presence failed: ${response.status}`)
+      rows.push(...decodeModelPresence(await response.json(), batch))
+    }
+    return rows
+  }
+
   async planModelDownload(requirement: ModelRequirement, signal?: AbortSignal, source?: string): Promise<ModelDownloadPlan> {
     return decodeModelDownloadPlan(await this.modelDownloadRequest('plan', 'POST', {
       name: requirement.name, kind: requirement.kind, project: this.project ?? 'default', scope: 'local',
@@ -3598,7 +3645,7 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/models/locations/${encodeURIComponent(location)}/projects/${encodeURIComponent(this.project ?? 'default')}`, {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }),
     })
-    if (!res.ok) throw new Error(`PUT model project folder failed: ${res.status}`)
+    if (!res.ok) throw new Error(`The library did not answer (${res.status}).`)
     return decodeModelSettingsState(await res.json())
   }
 
@@ -3744,7 +3791,7 @@ export class DinksterConnection {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mounts, outputMount }),
     })
-    if (!res.ok) throw new Error(`PUT project folders failed: ${res.status}`)
+    if (!res.ok) throw new Error(`The library did not answer (${res.status}).`)
   }
 
   async retryMount(id: string): Promise<void> {
@@ -4250,7 +4297,8 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/library`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(args),
+      // A new record belongs to this window's project; without it the engine files it in Default.
+      body: JSON.stringify({ ...args, ...(this.project !== undefined ? { project: this.project } : {}) }),
     })
     if (!res.ok) throw new Error(`POST /api/library failed: ${res.status}`)
     const payload: unknown = await res.json()
@@ -4350,7 +4398,7 @@ export class DinksterConnection {
     )
     if (res.status === 204) return true
     if (res.status === 404) return false
-    throw new Error(`DELETE /api/history/${runId} failed: ${res.status}`)
+    throw new Error(`The engine did not answer (${res.status}).`)
   }
 
   /**

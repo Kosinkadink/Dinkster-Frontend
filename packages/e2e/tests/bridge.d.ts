@@ -21,6 +21,7 @@ interface DinksterBridgeSceneNode {
     minimized?: true
     preview?: { x: number; y: number; width: number; height: number; compact?: true }
     advancedGroup?: { y: number; height: number }
+    boxes?: ReadonlyArray<{ id: string; y: number; height: number; closed?: true }>
     rows: ReadonlyArray<{
       kind: string
       y: number
@@ -34,6 +35,7 @@ interface DinksterBridgeSceneNode {
       address?: { port: string; members?: readonly string[] }
       /** Field rows shown on the subgraph node without a wire. */
       subgraphMark?: { item: string; label: string }
+      familyOwner?: { graphId: string; nodeId: string; valueKey?: string }
       input?: { portId: string }
       output?: { portId: string }
       sectionId?: string
@@ -104,7 +106,7 @@ interface DinksterBridgeErrorEvent {
 /** Injectable lifecycle event: used by the reconnect spec to seed an
  * in-flight execution the server has never heard of ("ghost" run). */
 interface DinksterBridgeLifecycleEvent {
-  kind: 'started' | 'completed'
+  kind: 'started' | 'completed' | 'cancelled'
   execution: DinksterBridgeExecutionRef
   timestamp: number
 }
@@ -190,8 +192,11 @@ interface DinksterBridgeTab {
           >
           nextOrdinal: number
           boundary?: {
-            inputs: ReadonlyArray<{ id: string; binds: { kind: string; node: string; port?: string; tap?: string } }>
-            outputs: ReadonlyArray<{ id: string; binds: { kind: string; node: string; port?: string; tap?: string } }>
+            body: ReadonlyArray<
+              | { kind: 'input' | 'output'; id: string; binds: { kind: string; node: string; port?: string; tap?: string } }
+              | { kind: 'section'; id: string; rows: readonly unknown[] }
+              | { kind: 'line'; rows: readonly unknown[] }
+            >
           }
         }
       >
@@ -330,6 +335,7 @@ interface DinksterTestBridge {
     graphViewport(tabId: string, graphId: string): { x: number; y: number; scale: number } | undefined
     setGraphViewport(tabId: string, graphId: string, viewport: { x: number; y: number; scale: number }): void
     confirmStartupOwnership(): Promise<void>
+    enableWorkspaceAuthority(): Promise<void>
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
     renameTab(id: string, title: string): void
@@ -477,6 +483,7 @@ interface DinksterTestBridge {
         label: string
         baseUrl: string
         protocol: 'v1' | 'dinkster'
+        scopedClient: Pick<import('@dinkster/client').RefreshableScopedClient, 'remoteChoices'>
         connection: {
           status: { get(): string }
           ingest(event: Readonly<Record<string, unknown>> & { type: string }): void
@@ -665,10 +672,12 @@ interface DinksterTestBridge {
         side: 'inputs' | 'outputs'
         x: number
         y: number
+        fields?: { node: { values: Readonly<Record<string, unknown>> } }
         layout: {
           width: number
           height: number
           headerHeight: number
+          rows: DinksterBridgeSceneNode['layout']['rows']
           pins: ReadonlyArray<{ portId: string; direction: 'in' | 'out'; y: number }>
         }
       }>

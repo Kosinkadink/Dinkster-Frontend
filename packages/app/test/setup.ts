@@ -1,5 +1,10 @@
 import { vi } from 'vitest'
 
+// happy-dom has no top layer; browser tests cover native popover placement.
+if (typeof HTMLElement !== 'undefined' && typeof HTMLElement.prototype.showPopover !== 'function') {
+  HTMLElement.prototype.showPopover = () => {}
+}
+
 // Unit tests have no real canvas; browser E2E measures the bundled fonts.
 vi.mock('../src/canvas-measures.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/canvas-measures.js')>()

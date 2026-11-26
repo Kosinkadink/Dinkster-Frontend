@@ -33,7 +33,7 @@ import type {
 } from './contract.js'
 import { predictAllocatedId } from './alloc.js'
 import type { PatchOp } from './patch.js'
-import { DocumentStore, type BoundaryPositionResolver, type DocumentCommitPolicy, type HistorySnapshot, type PreparedDocumentDispatch } from './store.js'
+import { DocumentStore, type BoundaryPositionResolver, type NodeHeightResolver, type DocumentCommitPolicy, type HistorySnapshot, type PreparedDocumentDispatch } from './store.js'
 
 /**
  * One committed change, shaped to the collab envelope. Locally minted
@@ -143,6 +143,7 @@ export interface LocalSessionOptions {
   readonly onListenerError?: (error: unknown, context: string) => void
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
   readonly boundaryPositionsFor?: BoundaryPositionResolver
+  readonly nodeHeightFor?: NodeHeightResolver
   readonly validateCommit?: DocumentCommitPolicy
 }
 
@@ -172,6 +173,7 @@ class LocalDocumentSession implements DocumentSession {
       () => ({ kind: 'initial', ...(options?.schemaResolverFor ? { schemaResolverFor: options.schemaResolverFor } : {}) }),
       options?.validateCommit,
       options?.boundaryPositionsFor,
+      options?.nodeHeightFor,
     )
     this.store.onTransaction((event) => {
       this.opCounter += 1

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Locator, type Page } from '../visual.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
-import { unfoldNodeEditor, waitForWorkspaceReady } from './fixtures.js'
+import { subgraphMarkPoint, unfoldNodeEditor, waitForWorkspaceReady } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -78,6 +78,8 @@ test.beforeEach(async ({ page }, testInfo) => {
     detail: 'Engine healthy',
     progress: { done: 8, total: 8, phase: 'Engine healthy' },
   } }))
+  // The direct engine has no supervisor cache; seed it from the live catalog.
+  await page.route('/api/nodes/provisional*', (route) => route.fulfill({ json: table }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
@@ -140,6 +142,140 @@ async function plotPoint(editor: Locator, position: number, value: number): Prom
 
 const points = (editor: Locator) => editor.locator('circle.dinkster-canvas-curve-point')
 
+test('hides the histogram input and its wire in one undo step and keeps the override after reload', async ({ page }, testInfo) => {
+  const editor = await unfoldNodeEditor(page, 'editor', 'curve')
+  const openMenu = async () => {
+    const point = await page.evaluate(() => {
+      const renderer = window.__dinksterTest!.renderer!
+      const node = renderer.getScene().nodes.find((node) => node.id === 'editor')!
+      const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'curve')!
+      const viewport = renderer.getViewport()
+      const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      return { x: canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+        y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y }
+    })
+    await page.mouse.click(point.x, point.y, { button: 'right' })
+  }
+  const hasWire = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links.histogramWire !== undefined)
+  await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+  const height = (await editor.boundingBox())!.height
+  await openMenu()
+  await expect(page.getByRole('menuitem', { name: 'Hide histogram input', exact: true })).toBeVisible()
+  const rowMenu = await page.getByRole('menuitem').allTextContents()
+  await page.keyboard.press('Escape')
+  const plot = editor.locator('svg.dinkster-canvas-curve')
+  await plot.click({ position: { x: 80, y: 25 } })
+  await page.mouse.click(30, 300)
+  await plot.click({ position: { x: 80, y: 25 } })
+  await page.mouse.move(30, 300)
+  await expect(plot).toHaveCSS('outline-style', 'none')
+  await expect(page.locator('.app-tooltip')).toHaveCount(0)
+  await plot.click({ button: 'right', position: { x: 80, y: 25 } })
+  await expect(page.getByRole('menuitem')).toHaveText(rowMenu)
+  const menuScreenshot = await page.screenshot({ animations: 'disabled' })
+  await testInfo.attach('native-histogram-visibility-menu', { body: menuScreenshot, contentType: 'image/png' })
+  await page.getByRole('menuitem', { name: 'Hide histogram input', exact: true }).click()
+  await expect(editor.getByText('Histogram', { exact: true })).toHaveCount(0)
+  expect(await hasWire()).toBe(false)
+  expect(height - (await editor.boundingBox())!.height).toBe(26)
+  const hiddenScreenshot = await page.screenshot({ animations: 'disabled' })
+  await testInfo.attach('native-histogram-visibility-hidden', { body: hiddenScreenshot, contentType: 'image/png' })
+  if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
+    mkdirSync(evidenceGroupDir('issue-1268'), { recursive: true })
+    writeFileSync(evidencePath('issue-1268', 'native-histogram-visibility-menu.png'), menuScreenshot)
+    writeFileSync(evidencePath('issue-1268', 'native-histogram-visibility-hidden.png'), hiddenScreenshot)
+  }
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+  await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+  expect(await hasWire()).toBe(true)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const exported = app.exportDocument(app.activeTab()!.id)!
+    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened histogram visibility')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await expect(editor).toBeVisible()
+  await expect(editor.getByText('Histogram', { exact: true })).toHaveCount(0)
+  await openMenu()
+  await page.getByRole('menuitem', { name: 'Show histogram input', exact: true }).click()
+  await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+  expect(await hasWire()).toBe(false)
+  expect(browserErrors.get(page)).toEqual({ page: [], console: [], responses: [] })
+})
+
+for (const delivery of ['net', 'boundary', 'parent-boundary'] as const) {
+  test(`hides a drilled histogram fed by ${delivery} and restores it in one undo`, async ({ page }, testInfo) => {
+    await page.evaluate(async (delivery) => {
+      const app = window.__dinksterTest!.app
+      const original = app.activeTab()!.store.doc
+      const graph = original.graphs.g0!
+      const { histogramWire, ...links } = graph.links
+      const document = {
+        ...original, root: 'outer', graphs: {
+          g0: {
+            ...graph, links,
+            nets: delivery === 'net' ? { feed: { id: 'feed', name: 'Histogram', source: histogramWire!.from, sinks: [histogramWire!.to] } } : {},
+            ...(delivery === 'net' ? {} : { boundary: { body: [{ kind: 'input', id: 'feed', binds: { kind: 'port', node: 'editor', port: 'histogram' } }] } }),
+          },
+          outer: {
+            id: 'outer', name: 'Outer', nextOrdinal: 1, nets: {}, reroutes: {},
+            nodes: { first: { id: 'first', type: '#g0', values: {} }, second: { id: 'second', type: '#g0', values: {} }, parentHistogram: { id: 'parentHistogram', type: 'dinkster.image.image_histogram', values: {} } },
+            links: delivery === 'parent-boundary' ? {
+              firstWire: { id: 'firstWire', from: { node: 'parentHistogram', port: 'rgb' }, to: { node: 'first', port: 'feed' } },
+              secondWire: { id: 'secondWire', from: { node: 'parentHistogram', port: 'rgb' }, to: { node: 'second', port: 'feed' } },
+            } : {},
+          },
+        }, view: { ...original.view, graphs: { ...original.view.graphs, outer: { nodes: { first: { position: { x: 80, y: 110 } }, second: { position: { x: 500, y: 110 } } } } } },
+      }
+      const diagnostics = await app.openDocument(document as never, `Drilled histogram ${delivery}`)
+      if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+      window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    }, delivery)
+    const mark = await subgraphMarkPoint(page, 'first')
+    await page.mouse.dblclick(mark.x, mark.y)
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().length)).toBe(2)
+    await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+    const editor = await unfoldNodeEditor(page, 'editor', 'curve')
+    const before = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
+    await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+    const height = (await editor.boundingBox())!.height
+    const point = await page.evaluate(() => {
+      const renderer = window.__dinksterTest!.renderer!
+      const node = renderer.getScene().nodes.find((node) => node.id === 'editor')!
+      const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'curve')!
+      const viewport = renderer.getViewport()
+      const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      return { x: canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+        y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y }
+    })
+    await page.mouse.click(point.x, point.y, { button: 'right' })
+    const hide = page.getByRole('menuitem', { name: 'Hide histogram input', exact: true })
+    await expect(hide).toBeEnabled()
+    await hide.click()
+    await expect(editor.getByText('Histogram', { exact: true })).toHaveCount(0)
+    expect(height - (await editor.boundingBox())!.height).toBe(26)
+    expect(await page.evaluate(() => {
+      const node = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'editor')!
+      return node.layout.pins.some((pin) => pin.portId === 'histogram')
+    })).toBe(false)
+    const capture = await page.screenshot({ animations: 'disabled' })
+    await testInfo.attach(`native-drilled-${delivery}-hidden`, { body: capture, contentType: 'image/png' })
+    if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
+      mkdirSync(evidenceGroupDir('issue-1268'), { recursive: true })
+      writeFileSync(evidencePath('issue-1268', `native-drilled-${delivery}-hidden.png`), capture)
+    }
+    const after = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
+    expect(JSON.parse(after).graphs).toEqual(JSON.parse(before).graphs)
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+    expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before)
+    await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
+    await expect(editor.getByText('Histogram', { exact: true })).toHaveCount(0)
+    expect(browserErrors.get(page)).toEqual({ page: [], console: [], responses: [] })
+  })
+}
+
 test('renders finite curve geometry across extreme float values', async ({ page }, testInfo) => {
   const extremeCurve = {
     interpolation: 'monotone_cubic',
@@ -180,7 +316,8 @@ test('edits in the node, undoes, reloads, runs and draws the wired histogram of 
   const editor = await unfoldNodeEditor(page, 'editor', 'curve')
   await expect(editor.getByRole('button', { name: /^Interpolation/ })).toContainText('Monotone cubic')
   await expect(points(editor)).toHaveCount(2)
-  await expect(editor).toContainText('Histogram: not known yet')
+  await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+  await expect(editor.locator('.dinkster-canvas-curve-histogram')).toHaveCount(0)
   expect(await storedCurve(page)).toBeUndefined()
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
 
@@ -271,10 +408,10 @@ test('edits in the node, undoes, reloads, runs and draws the wired histogram of 
       .find((candidate) => candidate.ref.prompt === target) as unknown as {
       previews?: Record<string, Record<string, { payload?: { histogram?: unknown[] } }>>
     }
-    return execution?.previews?.editor?.['curve-histogram']?.payload?.histogram?.length
+    return execution?.previews?.editor?.['curve-histogram:curve']?.payload?.histogram?.length
   }, prompt)).toBe(256)
 
-  await expect(shown).toContainText('Histogram from the selected run')
+  await expect(shown).toContainText('Histogram')
   await expect.poll(() => shown.locator('.dinkster-canvas-curve-histogram').count()).toBeGreaterThan(0)
   const screenshot = await shown.screenshot({ animations: 'disabled' })
   await testInfo.attach('native-curve-editor-histogram', { body: screenshot, contentType: 'image/png' })

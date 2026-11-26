@@ -47,6 +47,53 @@ export function ProductProjectList(props: {
   loadingLabel: string
 }) {
   const heading = createUniqueId()
+  return (
+    <>
+      <ProductProjectListHeader
+        id={heading}
+        title={props.title}
+        newLabel={props.newLabel}
+        onNew={props.onNew}
+      />
+      <ProductProjectRows
+        labelledBy={heading}
+        projects={props.projects}
+        selected={props.selected}
+        onSelect={props.onSelect}
+        loadingLabel={props.loadingLabel}
+      />
+    </>
+  )
+}
+
+/** The known project-list heading and action stay outside loaded rows. */
+export function ProductProjectListHeader(props: {
+  id: string
+  title: string
+  newLabel: string
+  onNew: () => void
+}) {
+  return (
+    <header class="dinkster-projects-list-header">
+      <h1 id={props.id} class="dinkster-title">
+        {props.title}
+      </h1>
+      <ProductButton onClick={() => props.onNew()}>
+        <ProductIcon icon={Plus} />
+        {props.newLabel}
+      </ProductButton>
+    </header>
+  )
+}
+
+/** Rows can arrive separately, labelled by their persistent heading. */
+export function ProductProjectRows(props: {
+  labelledBy: string
+  projects: readonly ProductProjectEntry[] | undefined
+  selected: string | undefined
+  onSelect: (id: string) => void
+  loadingLabel: string
+}) {
   let list!: HTMLUListElement
   const move = (event: KeyboardEvent) => {
     const projects = props.projects ?? []
@@ -67,65 +114,54 @@ export function ProductProjectList(props: {
     list.querySelectorAll<HTMLElement>('[role="option"]')[next]?.focus()
   }
   return (
-    <>
-      <header class="dinkster-projects-list-header">
-        <h1 id={heading} class="dinkster-title">
-          {props.title}
-        </h1>
-        <ProductButton onClick={() => props.onNew()}>
-          <ProductIcon icon={Plus} />
-          {props.newLabel}
-        </ProductButton>
-      </header>
-      <Show
-        when={props.projects}
-        fallback={
-          <div class="dinkster-projects-rows" role="status">
-            <span class="dinkster-visually-hidden">{props.loadingLabel}</span>
-            <Index each={[0, 1, 2, 3, 4]}>
-              {() => <div class="dinkster-skeleton" data-shape="row" />}
-            </Index>
-          </div>
-        }
-      >
-        {(projects) => (
-          <ul
-            ref={list}
-            class="dinkster-projects-rows"
-            role="listbox"
-            aria-labelledby={heading}
-            onKeyDown={move}
-          >
-            <For each={projects()}>
-              {(project) => (
-                <li
-                  class="dinkster-project-row"
-                  role="option"
-                  aria-selected={project.id === props.selected}
-                  tabindex={project.id === props.selected ? 0 : -1}
-                  data-state={project.state}
-                  onClick={() => props.onSelect(project.id)}
+    <Show
+      when={props.projects}
+      fallback={
+        <div class="dinkster-projects-rows" role="status">
+          <span class="dinkster-visually-hidden">{props.loadingLabel}</span>
+          <Index each={[0, 1, 2, 3, 4]}>
+            {() => <div class="dinkster-skeleton" data-shape="row" />}
+          </Index>
+        </div>
+      }
+    >
+      {(projects) => (
+        <ul
+          ref={list}
+          class="dinkster-projects-rows"
+          role="listbox"
+          aria-labelledby={props.labelledBy}
+          onKeyDown={move}
+        >
+          <For each={projects()}>
+            {(project) => (
+              <li
+                class="dinkster-project-row"
+                role="option"
+                aria-selected={project.id === props.selected}
+                tabindex={project.id === props.selected ? 0 : -1}
+                data-state={project.state}
+                onClick={() => props.onSelect(project.id)}
+              >
+                <span class="dinkster-project-row-name">{project.name}</span>
+                <span
+                  class="dinkster-project-row-detail"
+                  title={project.reason}
                 >
-                  <span class="dinkster-project-row-name">{project.name}</span>
-                  <span
-                    class="dinkster-project-row-detail"
-                    title={project.reason}
-                  >
-                    <Show when={project.state === 'failed'}>
-                      <ProductIcon icon={TriangleAlert} />
-                    </Show>
-                    {project.detail}
-                  </span>
-                  <Show when={project.state === 'opening'}>
-                    <span class="dinkster-progress" aria-hidden="true" />
+                  <Show when={project.state === 'failed'}>
+                    <ProductIcon icon={TriangleAlert} />
                   </Show>
-                </li>
-              )}
-            </For>
-          </ul>
-        )}
-      </Show>
-    </>
+                  {project.detail}
+                </span>
+                <Show when={project.state === 'opening'}>
+                  <span class="dinkster-progress" aria-hidden="true" />
+                </Show>
+              </li>
+            )}
+          </For>
+        </ul>
+      )}
+    </Show>
   )
 }
 
@@ -162,7 +198,10 @@ export interface ProductProjectFact {
  */
 export function ProductProjectFacts(props: {
   label: string
-  columns: readonly [readonly ProductProjectFact[], readonly ProductProjectFact[]]
+  columns: readonly [
+    readonly ProductProjectFact[],
+    readonly ProductProjectFact[],
+  ]
 }) {
   return (
     <div class="dinkster-project-facts" role="group" aria-label={props.label}>
@@ -174,7 +213,7 @@ export function ProductProjectFacts(props: {
                 <div class="dinkster-project-fact">
                   <dt>{item.label}</dt>
                   <dd>
-                    <span class="dinkster-project-fact-value">
+                    <div class="dinkster-project-fact-value">
                       {item.value}
                       <Show when={item.detail}>
                         <span class="dinkster-project-fact-detail">
@@ -182,7 +221,7 @@ export function ProductProjectFacts(props: {
                           {item.detail}
                         </span>
                       </Show>
-                    </span>
+                    </div>
                     {item.action}
                   </dd>
                 </div>

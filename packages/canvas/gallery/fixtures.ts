@@ -56,12 +56,14 @@ import {
   boundaryNamesGalleryScene,
   structuralGalleryScene,
 } from './structure.js'
+import { boundaryTreeGallery } from './boundary-tree.js'
 import { smallFlowNodesGallery } from './small-flow-nodes.js'
 import { subgraphIconGallery } from './subgraph-icon.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
 import { typeConflictGallery } from './type-conflict.js'
 import { wireLooksGallery } from './wire-looks.js'
 import { widgetTapGallery } from './widget-taps.js'
+import { rowSummariesGallery } from './row-summaries.js'
 
 export const canvasGalleryPages = [
   ['anatomy', 'Node anatomy'],
@@ -79,7 +81,9 @@ export const canvasGalleryPages = [
   ['wire-looks', 'Wire looks'],
   ['widgets', 'Widget kinds'],
   ['core-rows', 'Core widget rows'],
+  ['declaration-rows', 'Declaration notes and lines'],
   ['row-editing', 'Editing in the row proposal'],
+  ['row-states', 'Declaration row states: Display, nothing and skipped'],
   ['row-automatic', 'Automatic values proposal'],
   ['row-lists', 'Lists in the row proposal'],
   ['lookups', 'Lookup states'],
@@ -90,7 +94,10 @@ export const canvasGalleryPages = [
   ['fixes-notice', 'The notice of automatic fixes'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
+  ['row-summaries', 'Closed row summaries'],
+  ['row-file-previews', 'Thumbnails in closed file rows'],
   ['in-node-editors', 'Editors in the node'],
+  ['editor-choice-placement', 'Choices over the canvas'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
   ['widget-companions', 'Propagated values'],
@@ -100,6 +107,7 @@ export const canvasGalleryPages = [
   ['structure', 'Structural parts'],
   ['boundary', 'Subgraph boundaries'],
   ['boundary-names', 'Subgraph names'],
+  ['boundary-tree', 'Subgraph boundary tree'],
   ['subgraph-icon', 'Subgraph icon'],
   ['badges', 'Badges and toolbar'],
   ['previews', 'Previews'],
@@ -218,7 +226,6 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
   widget('markdown', 'MARKDOWN', '# Heading\nBody text'),
   widget('compare', 'IMAGECOMPARE', null),
   widget('camera_angle', 'CAMERA_ANGLE_VIEW', ''),
-  widget('resolution', 'RESOLUTION_PREVIEW', null),
   widget('save_target', 'SAVE_TARGET', null),
   widget('bounding_box', 'BOUNDING_BOX', {
     x: 8,
@@ -462,11 +469,10 @@ function subgraphAcceptsListScenes(
           single: { type: 'Single', title: 'One image' },
         }),
         boundary: {
-          inputs: [
-            { id: 'lists', displayName: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
-            { id: 'mixed', displayName: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
+          body: [
+            { kind: 'input', id: 'lists', displayName: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
+            { kind: 'input', id: 'mixed', displayName: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
           ],
-          outputs: [],
         },
       },
     },
@@ -752,7 +758,6 @@ export function createCanvasGalleryFixture(
         'list',
         'curve',
         'camera_angle',
-        'resolution',
       ].includes(item.id),
     )
     const checkpoint: InputSpec = {
@@ -812,6 +817,45 @@ export function createCanvasGalleryFixture(
     add('Empty values', definition, empty)
     add('Empty values, narrow node', definition, empty, undefined, false, { width: 180 })
     add('Empty values, narrower node', definition, empty, undefined, false, { width: 140 })
+  } else if (page === 'declaration-rows') {
+    const width = widget('width', 'INT', 512, { min: 16, max: 8192 })
+    const height = widget('height', 'INT', 768, { min: 16, max: 8192 })
+    const note = (text: string): NodeSchema['body'][number] => ({ kind: 'note', id: 'result', text })
+    const accessFields = [
+      width,
+      widget('strength', 'FLOAT', 0.65, { min: 0, max: 1, display: 'slider' }),
+      widget('enabled', 'BOOLEAN', true),
+      widget('color', 'INT', 0x31e6c5, { display: 'color' }),
+    ]
+    for (const [label, access] of [
+      ['Ordinary fields', {}],
+      ['Read-only fields', { readOnly: true }],
+      ['Disabled fields', { disabled: true, disabledReason: 'Preset controls these fields' }],
+      ['Read-only and disabled fields', { readOnly: true, disabled: true, disabledReason: 'Preset controls these fields' }],
+    ] as const) {
+      add(label, schema('Field access', accessFields.map((field) => ({ ...field, ...access }))))
+    }
+    add('Read-only fields, narrow', schema('Field access', accessFields.map((field) => ({ ...field, readOnly: true }))), {}, undefined, false, { width: 180 })
+    add('Read-only folded curve', schema('Curve access', galleryWidgetInputs.filter((field) => field.id === 'curve').map((field) => ({ ...field, readOnly: true }))))
+    add('Known note', schema('Resize image', [width, note('Result: 512 x 768, 1 image'), height]))
+    add('Unknown note, supplied text', schema('Resize image', [width, {
+      kind: 'note', id: 'result', text: { formula: 'missing_result' }, unknown: 'Result is not known yet',
+    }, height]))
+    add('Empty note keeps its row', schema('Resize image', [width, note(''), height]))
+    add('Long multiline note, narrow', schema('Resize image', [width,
+      note('Result: 512 x 768, 128 images\nfrom the selected batch'), height]), {}, undefined, false, { width: 180 })
+    add('Two fields', schema('Resize image', [{ kind: 'row', rows: [width, height] }]), {}, undefined, false, { width: 600 })
+    add('Three fields', schema('Offset', [{ kind: 'row', rows: [
+      widget('x', 'INT', 8), widget('y', 'INT', 12), widget('z', 'INT', 0),
+    ] }]), {}, undefined, false, { width: 817 })
+    add('Four fields, one disabled', schema('Crop', [{ kind: 'row', rows: [
+      widget('x', 'INT', 8),
+      { ...widget('y', 'INT', 12), disabled: true, disabledReason: 'The preset controls the vertical offset.' },
+      width, height,
+    ] }]), {}, undefined, false, { width: 817 })
+    add('Field, worded button and note', schema('Resize image', [{ kind: 'row', rows: [
+      width, { kind: 'button', id: 'reset', label: 'Reset width', steps: [] }, { kind: 'note', id: 'units', text: 'px' },
+    ] }]), {}, undefined, false, { width: 817 })
   } else if (page === 'core-rows') {
     const core = galleryWidgetInputs.filter((item) =>
       [
@@ -976,6 +1020,13 @@ export function createCanvasGalleryFixture(
     fixture.scene.links = [...first.links]
     fixture.scene.boundaryNodes = [...first.boundaryNodes]
     examples.push(...cards)
+  } else if (page === 'boundary-tree') {
+    const cards = boundaryTreeGallery(tokens, measure, widgetMeasure)
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
+    fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
   } else if (page === 'subgraph-icon') {
     const cards = subgraphIconGallery(tokens, measure, widgetMeasure)
     fixture.scene.nodes = [...cards[0]!.scene.nodes]
@@ -1004,6 +1055,13 @@ export function createCanvasGalleryFixture(
     fixture.scene.nodes = [...gallery.scene.nodes]
     fixture.scene.links = [...gallery.scene.links]
     fixture.companions = gallery.companions
+    examples.push(...gallery.examples)
+  } else if (page === 'row-summaries') {
+    const gallery = rowSummariesGallery(tokens, measure, widgetMeasure)
+    fixture.scene.nodes = [...gallery.scene.nodes]
+    fixture.scene.links = [...gallery.scene.links]
+    fixture.companions = gallery.companions
+    fixture.rowMarks = gallery.rowMarks
     examples.push(...gallery.examples)
   } else if (page === 'title-suffix') {
     const suffixed: NodeSchema = { ...sample, titleSuffix: { formula: 'str(steps) + " steps, " + sampler_name' } }
@@ -2173,16 +2231,17 @@ export const rowFocusSchema: NodeSchema = schema('Sample settings', [
   },
 ])
 
-/** The node of the row-editing page's keyboard examples. */
+/** The node of a keyboard example: the row-editing page's, or `definition`. */
 export function createRowFocusScene(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
   position: { x: number; y: number },
   width = 280,
+  definition: NodeSchema = rowFocusSchema,
 ): Scene {
   return singleNodeScene(
-    rowFocusSchema,
+    definition,
     {},
     { position, size: { width, height: 0 } },
     tokens,
@@ -2213,7 +2272,7 @@ export const nodeLookExamples = [
     'A collapsed section with a changed value, and the open Advanced section with its wash.',
   ],
   ['collapsed', 'Collapsed', 'A collapsed node is its title bar alone.'],
-  ['selected', 'Selected', 'The selection outline.'],
+  ['selected', 'Selected', 'A thin edge and a lifted title bar.'],
   ['running', 'Running', 'Running, 45 percent done.'],
   ['error', 'Error', 'The run failed on this node.'],
   ['muted', 'Muted', 'A muted node is dimmed.'],

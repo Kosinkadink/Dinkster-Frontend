@@ -17,16 +17,22 @@ non-empty legacy `interface` list.
   only.
 - **Section**: a titled box that holds rows and can start folded (wire
   `collapsed`). Layout only; it adds nothing to row ids.
-- **Row**: two to four cells side by side: fields, notes and buttons.
-  Layout only: each cell is drawn beside the one before it when both are in
-  the same section.
-- **Note**: read-only text with no pin, on its own line or as a cell of a
-  Row. It keeps its line while its text is empty. A note whose text is a
-  formula or a lookup shows its `unknown` text dimmed (empty when it has
-  none), because the editor does not evaluate formulas yet.
-- **Button**: a capsule with its label and no pin, on its own line or as a
-  cell of a Row. It does nothing when clicked: the editor never runs a
-  button's steps.
+- **Row**: two to four fields, notes or buttons on one line. The line takes
+  the field inset once and leaves 4 px between cell faces. Fields, notes
+  and worded buttons share the width equally; a declared-icon button beside
+  a field is a field-high square. Member grips and remove crosses keep
+  their space outside those equal shares.
+- **Note**: one quiet text row with no field fill, pin or opener, kept even
+  when empty. Line breaks read as spaces and long text ends in an ellipsis;
+  pointing at the note gives the original text in its readout.
+- **Button**: a full-width raised row (the face an editor's opener row has,
+  a lit top edge and a dark line under it), its label centered and an
+  optional icon from the engine's list, on its own line or as a cell of a
+  Row. A Row of only buttons splits evenly; beside a field, a button with an
+  icon is a small square. A button too narrow for its label shows the icon
+  alone and its label as a tooltip. Pointed at, the face lightens; held
+  down, it sinks; turned off, it fades. Clicking it runs its steps; see
+  [Buttons](#buttons).
 - **Editor**: a custom or compositor widget with no value of its own; it
   must name at least one row it writes or reads. The canvas draws it as a
   widget line with no label and no pin, and opening it opens its widget's
@@ -53,6 +59,7 @@ fails:
 | `visible` on a row or a box | The row shows |
 | A label on an input, output, section, choice or type choice; a choice's tooltip | The id |
 | A note's `text` | Its `unknown` text, dimmed |
+| An input's `readOnly`, `disabled` and `disabledReason` | Neither flag is set, with no reason |
 | A button's `enabled`, `disabledReason` and `tooltip` | Enabled, with no reason |
 | A rule's `check` in the node's `validate` | The rule passes |
 | The node's `titleSuffix` | No suffix |
@@ -239,9 +246,12 @@ the choice.
 A type choice is led by the type plugged into its pin. Connecting a producer
 of a concrete type stores the one variant that accepts it, in the same undo
 step, when no variant is stored yet; the pin's context menu chooses or clears
-a variant. The chosen variant's rows and the rows every variant has appear
-under the pin. A type choice without variants reveals its rows while the pin
-has a value or a link. A connected type choice without a valid stored variant
+a variant. While the pin has a value or a link, the chosen variant's rows and
+the rows every variant has appear under it. Disconnecting hides those rows
+without deleting the stored variant or values, and sends neither the variant
+key nor its rows to a run. Rows with an output wire remain drawn but inactive.
+A type choice without variants also reveals its rows only while the pin has
+a value or a link. A connected type choice without a valid stored variant
 is refused at compile (`compile.slot.missingVariant`). A `typeVariable` binds
 a node-level type variable to the chosen variant's type.
 
@@ -309,6 +319,77 @@ values and pin positions are the same with or without it.
   left without a row get rows of their own after every row, but before the
   boxes that end the node and hold only outputs. A top-level section with
   id `advanced` stays below every other row.
+
+## Buttons
+
+A press runs the button's steps in order (`packages/core/src/actions/runner.ts`,
+wired up in `packages/app/src/button-presses.ts`). Later steps read the values
+earlier steps staged. Every workflow change of one press is committed together
+as one undo step, after its last step; a step that fails, a list or form that
+is closed, or Cancel stores nothing. Copy, Download, Queue, Interrupt, Open
+link and a called file run after the commit; their failure is reported and
+does not take the commit back. Redo replays the committed values and calls
+nothing again. In Desktop a file opens its Save As dialog; closing it without
+saving is reported at the button and keeps the changes. In a browser a file
+is an ordinary download.
+
+Steps that are not a button's, such as a rule's fix, run through `runSteps`
+in the same file. It takes parts, each a node, a scope and its steps, and runs
+them in order on one scratch copy, so a later part sees what an earlier one
+set; every change is stored as one undo step, or nothing. Its options make a
+run fail and store nothing when two parts set one field to different values,
+when the caller's `unchanged` check fails at the start or before storing, or,
+with `strict`, when the user changed a field it sets meanwhile. `insideOnly`
+refuses, before anything runs, steps that ask the user or act outside the
+workflow, and `noWait` also refuses pack functions and lookups. `lead` stores
+commands, such as the user's own edit that led to a fix, first in the same
+undo step.
+
+- **Off.** A button is drawn dimmed and does not run when the pack turns it
+  off, when a field it needs arrives on a wire, when every field it sets has a
+  wire, when a step opens an editor that does not exist yet, and in a run's
+  read-only view. Pointing at it shows why, in the same box its results use.
+- **Working.** While it waits on a pack function or a lookup it shows a
+  spinner, the words the function reports with three dots, and Cancel at its
+  right end. A working button is not pressed a second time.
+- **Result.** A press that skipped something, left a note or failed leaves a
+  box under the button's line until the next click, with a circled i or, for a
+  failure, a warning triangle. It takes space inside the node and moves later
+  rows and pins down; a menu button's box stays under the node. The same line
+  goes in the activity log. A press where every step did its work leaves no box.
+- **Waits.** A field the user edits while the press waits keeps the user's
+  value and is reported; a target that gained a wire is skipped and reported.
+  A needed member, group or option that is gone fails the whole press, even
+  when removing it also deleted a saved value. A press whose node or
+  document is gone writes nowhere.
+- **Pick** opens the ordinary choice list at the button. A lookup's stale
+  list can be picked from, with Try again; a failed or empty one offers
+  nothing. **Ask** opens a form beside the node with the ordinary field
+  controls, Cancel and Apply. **Open picker**, **Open editor** and **Paste
+  image** open the field's own editor and hand its value to the press.
+- **Menu buttons** (`NodeSchema.menu`) come first in the node's context menu
+  and run the same way; an off one is dimmed with its reason beside it.
+- **Open link** shows an address built from fields before it opens the tab.
+- **Subgraphs.** A button writes a field where a hand edit writes it.
+  Promoted fields belong to that use; other fields belong to the shared
+  subgraph and change in every use. With two uses, the result says
+  `Also changed in the other use of "<subgraph name>".` With more, it says
+  `Also changed in the other N uses of "<subgraph name>".`, counting only the
+  other uses; with one use or no shared value left changed, it says nothing.
+  AddNode adds its node and wires to the shared definition, so every use
+  gets the same insertion. It skips a field whose effective driver in the
+  pressing use is not a definition wire. It never makes an instance unique.
+  With two uses, its result says `Also added in the other use of "<subgraph name>".`
+  With more, it says `Also added in the other N uses of "<subgraph name>".`,
+  counting only the other uses; with one use, it says nothing.
+  When a press does both, the AddNode sentence comes first.
+  A subgraph node does not show its inner buttons yet: a shown
+  button needs a place among the node's rows, which the boundary's ordered
+  body will give it (comfy-vibe-station#1229 comment 7094212597).
+
+Calls go to the backend's `/api/node-functions/call` route, counted against
+the press budget; lookups go through the backend's lookup client
+(`DinksterConnection.lookups`), so a press and the fields share its answers.
 
 ## Run submission
 

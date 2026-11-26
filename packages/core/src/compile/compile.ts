@@ -77,7 +77,7 @@ import {
   elabOutputsOf,
   elaborateInterface,
   type ElaborateOptions,
-  missingWhenUnset,
+  missingInputValue,
   ruleProblemRefs,
   selectorMembersOf,
   valueKeyOf,
@@ -132,6 +132,7 @@ import type {
 } from './artifact.js'
 import { semanticHashOf } from './hash.js'
 import { effectiveOccurrenceTopology, type EffectiveLinkIdentity } from './effective-topology.js'
+import { boundaryItems } from '../format/document.js'
 
 // ---------------------------------------------------------------------------
 // Schema resolution over a document (backend types + '#<defId>' boundaries)
@@ -1007,7 +1008,7 @@ function compileImpl(
       }
       const child = graphOf(childId)
       // Boundary item selection goes through the ONE matcher (crossing.ts).
-      const match = matchBoundaryItem(child?.boundary?.inputs ?? [], ref)
+      const match = matchBoundaryItem(boundaryItems(child?.boundary, 'inputs'), ref)
       if (!child || !match.ok) {
         const ambiguous = child && !match.ok && match.code === 'ambiguous'
         sink.push(diag(
@@ -1139,8 +1140,11 @@ function compileImpl(
         return { runtimeId: regionRuntimeId, outputIndex }
       }
       const child = graphOf(childId)
-      // Symmetric with the input side: one boundary matcher (crossing.ts).
-      const match = matchBoundaryItem(child?.boundary?.outputs ?? [], ref)
+      // A mixed construct keeps one boundary entry but exposes pins on both sides.
+      const match = matchBoundaryItem([
+        ...boundaryItems(child?.boundary, 'outputs'),
+        ...boundaryItems(child?.boundary, 'inputs').filter((item) => item.binds.kind === 'construct'),
+      ], ref)
       if (!child || !match.ok) {
         const ambiguous = child && !match.ok && match.code === 'ambiguous'
         sink.push(diag(
@@ -1319,7 +1323,7 @@ function compileImpl(
       // The outer address that reaches this inner port: a field's item id, or
       // the row under a construct the subgraph node shows whole.
       let outerPort: string | undefined
-      for (const i of def?.boundary?.inputs ?? []) {
+      for (const i of boundaryItems(def?.boundary, 'inputs')) {
         for (const b of [i.binds, ...(i.alsoBinds ?? [])]) {
           if (outerPort !== undefined || (b.kind !== 'port' && b.kind !== 'construct') || b.node !== curNode) continue
           outerPort = b.kind === 'port'
@@ -1647,7 +1651,7 @@ function compileImpl(
         // lowering, so project every primary and fan-out target now.
         const connected = [...(addrIndexFor(path, defId).get(node.id) ?? []), ...(ctx.extraIn.get(node.id) ?? [])]
         for (const projected of connected) {
-          const match = matchBoundaryItem(child.boundary.inputs, projected.address)
+          const match = matchBoundaryItem(boundaryItems(child.boundary, 'inputs'), projected.address)
           if (!match.ok) continue
           if (match.item.binds.kind === 'construct') {
             for (const source of [match.item.binds, ...(match.item.alsoBinds ?? [])]) {
@@ -1742,7 +1746,7 @@ function compileImpl(
       if (!byInput) overrides.set(target.runtimeId, (byInput = new Map()))
       if (!byInput.has(target.inputId)) byInput.set(target.inputId, v)
     }
-    for (const item of child.boundary.inputs) {
+    for (const item of boundaryItems(child.boundary, 'inputs')) {
       if (item.binds.kind !== 'port') continue
       const v = node.values[item.id]
       const ownerInput = item.promoted === true ? parentElab?.inputsByValueKey.get(item.id) : undefined
@@ -2318,7 +2322,7 @@ function compileImpl(
   for (const region of regions.values()) {
     const child = graphOf(region.childId)
     if (!child?.boundary) continue
-    for (const item of child.boundary.inputs) {
+    for (const item of boundaryItems(child.boundary, 'inputs')) {
       const targets = resolveInputPort(
         region.occ.instancePath,
         region.parentDefId,
@@ -2614,10 +2618,11 @@ function compileImpl(
       if (input.apiName === undefined) continue // never reaches the prompt
       if (input.origin.kind === 'member' && input.origin.ghost === true) continue
       const spec = input.spec
-      if (fn.inputs[spec.id] !== undefined) continue
+      const value = fn.inputs[spec.id]
+      if (value !== undefined && !missingInputValue(input, value)) continue
       // An automatic field with nothing stored stays out of the prompt, shown
       // or not: the engine works it out when the run is queued.
-      if (spec.automatic !== undefined) {
+      if (value === undefined && spec.automatic !== undefined) {
         const call = input.automatic?.call
         if (call !== undefined) automaticCalls.push({ runtimeNodeId: fn.runtimeId, inputId: spec.id, lookup: call.lookup, args: call.args })
         continue
@@ -2627,7 +2632,7 @@ function compileImpl(
       if (spec.hidden === true && input.hiddenByScope !== true) continue
       // A primitive's empty limit only shows the limit worked out for it.
       if (spec.widget?.automatic === true) continue
-      if (spec.widget) {
+      if (value === undefined && spec.widget) {
         // Explicit schema default first, then the widget kind's intrinsic
         // value (an INT shows 0/min, a STRING shows '', ...): what the
         // canvas visibly displays is what executes, and what a formula reads
@@ -2646,12 +2651,21 @@ function compileImpl(
           continue
         }
       }
-      // The canvas shows a row this refuses even when it is hidden, by the same rule.
-      if (missingWhenUnset(input)) {
+      // A visible-hidden row is revealed; a declaration-hidden field belongs to the node.
+      if (missingInputValue(input, value)) {
         // Server-side validation is authoritative; surface early as a warning.
-        diags.push(diag('warning', 'compile', 'compile.input.missing', `'${fn.node.type}' required input '${spec.id}' has no value or connection`, {
+        const hidden = input.hiddenByDeclaration === true
+        const label = spec.displayName ?? spec.id
+        const duplicate = hidden && fn.elab.inputs.some((other) => other !== input && other.hiddenByDeclaration === true
+          && !other.spec.optional && (other.spec.displayName ?? other.spec.id) === label)
+        const name = duplicate ? `${label} (${spec.id})` : label
+        const message = hidden
+          ? `${nameOf(fn.graphId, fn.node)} requires ${name} but hides it, so it cannot be set. The node's author has to fix this.`
+          : `'${fn.node.type}' required input '${spec.id}' has no value or connection`
+        diags.push(diag('warning', 'compile', 'compile.input.missing', message, {
           blocksExecution: true,
-          anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef },
+          ...(hidden ? { hiddenRequiredField: name } : {}),
+          anchor: { occurrence: fn.occ, ...(hidden ? {} : { port: { node: fn.occ.node, port: input.address.port } as PortRef }) },
         }))
       }
     }
@@ -3054,7 +3068,7 @@ function compileImpl(
         ports[item.id] = encoded
       }
       const outputs: Record<string, DinksterRegionOutputWire> = {}
-      for (const item of child.boundary!.outputs) {
+      for (const item of boundaryItems(child.boundary, 'outputs')) {
         if (item.id === contract.continueOutput) continue
         const source = sourceForBoundaryOutput(region, item.id)
         if (!source) continue

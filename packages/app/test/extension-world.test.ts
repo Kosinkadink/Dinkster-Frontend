@@ -648,11 +648,11 @@ describe('submission-owned extension world lifetime', () => {
     if (action === 'cancel') app.assetConsent.set(undefined)
     else if (action === 'close tab') app.closeTab(tab.id)
     else if (action === 'replace tab') await app.openDocument(tab.store.doc, 'Replacement')
-    else if (action === 'deny') await request.retry([])
+    else if (action === 'deny') await request.retry!([])
     else app.dispose()
     expect(app.assetConsent.get()).toBeUndefined()
     expect(disposed).toHaveBeenCalledOnce()
-    await request.retry([])
+    await request.retry!([])
     expect(retry).toHaveBeenCalledTimes(action === 'deny' ? 1 : 0)
   })
 

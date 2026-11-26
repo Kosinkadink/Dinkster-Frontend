@@ -14,7 +14,7 @@ textarea {
 }
 
 :is(button, input, select, textarea, summary, a, [tabindex]):focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: 2px;
 }
 
@@ -135,7 +135,9 @@ body,
   --image-tool-rail-width: 150px;
   margin: 0;
   height: 100%;
-  background: var(--dinkster-surface-canvas);
+  /* Every load starts on the frame colour (index.html sets it before any
+     stylesheet), so a page load between two frontends shows one colour. */
+  background: var(--dinkster-surface-frame);
   color: var(--dinkster-text-primary);
   font-family: var(--dinkster-font-family);
   font-size: var(--dinkster-type-body-size);
@@ -144,6 +146,111 @@ body,
      overflow themselves and keep working. */
   overflow: hidden;
   overscroll-behavior: none;
+}
+
+#root {
+  opacity: 0;
+  transition: opacity 150ms var(--dinkster-motion-easing);
+}
+
+#root.root-shown { opacity: 1; }
+
+/* The one app: the editor under the projects page, and the frame colour over both. */
+.app-shell { position: relative; height: 100%; }
+
+.app-shell-layer { position: absolute; inset: 0; }
+
+.app-shell-held { position: absolute; inset: 0; pointer-events: none; }
+
+.app-shell-held:empty { display: none; }
+
+.app-shell-page {
+  opacity: 1;
+  transition: opacity 200ms var(--dinkster-motion-easing);
+}
+
+.app-shell-page.app-shell-faded { opacity: 0; pointer-events: none; }
+
+.app-shell-cover {
+  position: absolute;
+  inset: 0;
+  background: var(--dinkster-surface-frame);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--app-shell-cover-fade, 260ms) var(--dinkster-motion-easing);
+}
+
+.app-shell-cover.app-shell-covered { opacity: 1; pointer-events: auto; }
+
+/*
+ * A project's editor arriving, in the order of the design mock: the canvas,
+ * then both sides together, then the status bar, each fading over 200 ms
+ * and sliding 10 px over 240 ms. The full arrival settles within 500 ms.
+ * The bars' backgrounds never move. On a switch inside the page the bars keep
+ * their contents too (data-stage-scope="centre").
+ */
+/* :where keeps this rule below the hidden and arriving rules, whose timings must win. */
+.app-shell-layer[data-stage] :where(.canvas-pane, .dock-panel, .statusbar, .rail),
+.app-shell-layer[data-stage-scope="all"] :where(
+  .left-sidebar > *,
+  .dinkster-window-toolbar-brand :is(button:has(.dinkster-project-name), [data-testid="projects-button"]),
+  .dinkster-window-toolbar-search ~ *
+) {
+  transition:
+    opacity 200ms var(--dinkster-motion-easing),
+    transform 240ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.app-shell-layer[data-stage="hidden"] :is(.canvas-pane, .dock-panel, .statusbar) { opacity: 0; transition: none; }
+
+.app-shell-layer[data-stage="hidden"] .rail,
+.app-shell-layer[data-stage="hidden"][data-stage-scope="all"] .dinkster-window-toolbar-search ~ * {
+  opacity: 0;
+  transform: translateX(10px);
+  transition: none;
+}
+
+.app-shell-layer[data-stage="hidden"][data-stage-scope="all"] :is(
+  .left-sidebar > *,
+  .dinkster-window-toolbar-brand :is(button:has(.dinkster-project-name), [data-testid="projects-button"])
+) {
+  opacity: 0;
+  transform: translateX(-10px);
+  transition: none;
+}
+
+.app-shell-layer[data-stage="arrive"] :is(.canvas-pane, .dock-panel) { transition-delay: var(--app-shell-stage-start); }
+
+.app-shell-layer[data-stage="arrive"][data-stage-scope="all"] :is(
+  .left-sidebar > *,
+  .dinkster-window-toolbar-brand :is(button:has(.dinkster-project-name), [data-testid="projects-button"])
+) {
+  transition-delay: calc(var(--app-shell-stage-start) + 80ms);
+}
+
+/* A library slower than the arrival's wait swaps the named button in mid-arrival; it fades in too. */
+@starting-style {
+  .app-shell-layer[data-stage="arrive"][data-stage-scope="all"] .dinkster-window-toolbar-brand button:has(.dinkster-project-name) {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+.app-shell-layer[data-stage="arrive"][data-stage-scope="all"] .rail,
+.app-shell-layer[data-stage="arrive"][data-stage-scope="all"] .dinkster-window-toolbar-search ~ * {
+  transition-delay: calc(var(--app-shell-stage-start) + 80ms);
+}
+
+.app-shell-layer[data-stage="arrive"][data-stage-scope="centre"] .rail { transition-delay: 120ms; }
+
+.app-shell-layer[data-stage="arrive"] .statusbar { transition-delay: calc(var(--app-shell-stage-start) + 160ms); }
+
+.app-shell-layer[data-stage="arrive"][data-stage-scope="centre"] .statusbar { transition-delay: 200ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  #root,
+  .app-shell-page,
+  .app-shell-cover { transition: none; }
 }
 
 .shell {

@@ -32,6 +32,33 @@ const docOf = (graphs: Record<string, unknown>): WorkflowDocument => ({
 } as unknown as WorkflowDocument)
 
 describe('occurrenceDynamicView', () => {
+  it('preserves socket-only stored values beside promoted fields through nested instances', () => {
+    const sink: NodeSchema = { type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: {}, default: 0 } },
+      { kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+        widget: { widgetType: 'FLOAT', options: {}, default: 1 } }] }
+    const resolver = (type: string) => type === 'Sink' ? sink : undefined
+    const doc = docOf({
+      g0: graph('g0', { s: { id: 's', type: '#outer', values: { count: 7 } } }),
+      outer: graph('outer', { i: { id: 'i', type: '#inner', values: { count: 3, strength: 0.5 } } }, {
+        body: [{ kind: 'input', id: 'count', binds: { kind: 'port', node: 'i', port: 'count' } }],
+      }),
+      inner: graph('inner', { n: { id: 'n', type: 'Sink', values: { count: 1, strength: 1 } } }, {
+        body: [{ kind: 'input', id: 'count', binds: { kind: 'port', node: 'n', port: 'count' } },
+          { kind: 'input', id: 'strength', binds: { kind: 'port', node: 'n', port: 'strength' }, promoted: true }],
+      }),
+    })
+    const view = occurrenceDynamicView(doc, resolver, ['s', 'i'])
+    expect(view.values.get('n')).toEqual({ count: 7, strength: 0.5 })
+    expect([...view.valueOwners.get('n')!]).toEqual([['strength', { graphId: 'outer', nodeId: 'i', valueKey: 'strength' }]])
+    expect(view.controllers.size).toBe(0)
+    const result = compile({ document: doc, revision: 0, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('nested'), schemaHash: 'nested' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('nested compilation failed')
+    expect(result.artifact.prompt['s.i.n']!.inputs).toEqual({ count: 7, strength: 0.5 })
+  })
+
   it.each([{ options: [] }, { options: [false, 0, 'same', 'same'] }])('projects promoted editable menus through chained instances and fan-out: %j', ({ options }) => {
     const menuSchema: NodeSchema = {
       type: 'Menu', displayName: 'Menu', category: 'test', source: 'v3', isOutputNode: true,
@@ -46,11 +73,13 @@ describe('occurrenceDynamicView', () => {
       graphs: {
         g0: graph('g0', { s: { id: 's', type: '#outer', values: {}, dynamic: { outerMenu: { options } } } }),
         outer: graph('outer', { i: { id: 'i', type: '#inner', values: {}, dynamic: { innerMenu: { options: ['middle'] } } } }, {
-          inputs: [{ id: 'outerMenu', binds: { kind: 'port', node: 'i', port: 'innerMenu' }, promoted: true }], outputs: [],
+          body: [{ kind: 'input', id: 'outerMenu', binds: { kind: 'port', node: 'i', port: 'innerMenu' }, promoted: true }],
         }),
         inner: graph('inner', { a: bodyNode('a'), b: bodyNode('b') }, {
-          inputs: [{ id: 'innerMenu', binds: { kind: 'port', node: 'a', port: 'choice' },
-            alsoBinds: [{ kind: 'port', node: 'b', port: 'choice' }], promoted: true }], outputs: [],
+          body: [
+            { kind: 'input', id: 'innerMenu', binds: { kind: 'port', node: 'a', port: 'choice' },
+              alsoBinds: [{ kind: 'port', node: 'b', port: 'choice' }], promoted: true },
+          ],
         }),
       }, view: { graphs: {} },
     } as unknown as WorkflowDocument
@@ -84,7 +113,7 @@ describe('occurrenceDynamicView', () => {
         items: { members: ['item0', 'item1'] },
         'items.item0': { options: ['first'] },
         'items.item1': { options: ['second'] },
-      } } }, { inputs: [{ id: 'menu', binds: { kind: 'port', node: 'n', port: 'items.item1' }, promoted: true }], outputs: [] }),
+      } } }, { body: [{ kind: 'input', id: 'menu', binds: { kind: 'port', node: 'n', port: 'items.item1' }, promoted: true }] }),
     })
     const view = occurrenceDynamicView(doc, documentResolver(doc, (type) => type === nested.type ? nested : undefined), ['s'])
     const node = doc.graphs.sub!.nodes.n!
@@ -105,8 +134,10 @@ describe('occurrenceDynamicView', () => {
       sub: graph('sub', {
         n: { id: 'n', type: 'CountOutput', values: { count: 2 } },
       }, {
-        inputs: [{ id: 'amount', binds: { kind: 'port', node: 'n', port: 'count' }, promoted: true }],
-        outputs: [{ id: 'forwarded', binds: { kind: 'port', node: 'n', port: 'items.item0' } }],
+        body: [
+          { kind: 'input', id: 'amount', binds: { kind: 'port', node: 'n', port: 'count' }, promoted: true },
+          { kind: 'output', id: 'forwarded', binds: { kind: 'port', node: 'n', port: 'items.item0' } },
+        ],
       }),
     })
 
