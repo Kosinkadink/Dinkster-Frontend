@@ -7,6 +7,7 @@ from collections.abc import Mapping
 
 import numpy as np
 from dinkster_api.v1 import (
+    Button,
     Choice,
     Count,
     Described,
@@ -22,6 +23,7 @@ from dinkster_api.v1 import (
     Option,
     Output,
     Record,
+    Set,
     StringWidget,
     TypeChoice,
     TypeExpr,
@@ -300,4 +302,34 @@ class IntSource(Node):
         return cls.outputs(number=2)
 
 
-NODES = [BoundarySample, ImageSource, MaskSource, NumberSink, FloatSource, IntSource]
+class ButtonCounter(Node):
+    @classmethod
+    def define_schema(cls) -> NodeSchema:
+        return NodeSchema(
+            "boundary-sample.button-counter",
+            output_node=True,
+            body=(
+                Input("amount", FLOAT, default=3.0, widget=NumberWidget(step=1)),
+                Input("delta", FLOAT, default=7.0, widget=NumberWidget(step=1)),
+                Button(
+                    "increase", "Increase", (Set("amount", Formula("amount + delta")),)
+                ),
+                Output("result", FLOAT),
+                Output("private_delta", FLOAT),
+            ),
+        )
+
+    @classmethod
+    def execute(cls, *, amount, delta):
+        return cls.outputs(result=amount, private_delta=delta)
+
+
+NODES = [
+    BoundarySample,
+    ImageSource,
+    MaskSource,
+    NumberSink,
+    FloatSource,
+    IntSource,
+    ButtonCounter,
+]

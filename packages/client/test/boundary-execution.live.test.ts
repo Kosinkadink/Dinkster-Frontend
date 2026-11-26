@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs'
 import {
   asConnectionId,
   compile,
+  createLocalSession,
   coreCommandRegistry,
+  buttonAvailability,
+  documentNodeResolver,
   DocumentStore,
   documentResolver,
   lifecycleCanonicalHash,
@@ -11,6 +14,8 @@ import {
   loadDocument,
   planFlattenBoundaryRoutes,
   planFlattenOccurrenceTopology,
+  runPress,
+  type ActionHost,
   type CommandInvocation,
   type Json,
   type WorkflowDocument,
@@ -28,6 +33,95 @@ const types: Record<string, string> = {
 }
 
 describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
+  for (const depth of [1, 2]) {
+    it(`boundary/buttons/native-depth-${depth}`, async () => {
+      const connection = new DinksterConnection({ id: asConnectionId('button-live'), baseUrl: LIVE_URL!, clientId: `buttons-${process.pid}` })
+      const registry = await connection.fetchSchemas()
+      const graph = (id: string, nodes: unknown) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100, boundary: { body: [] } })
+      const node = (id: string, type: string, values = {}) => ({ id, type, values })
+      const document = {
+        format: 'dinkster-workflow', formatVersion: 1, lineage: `native-buttons-${depth}`, root: 'root', view: { graphs: {} },
+        graphs: {
+          root: graph('root', { first: node('first', depth === 1 ? '#detail' : '#portrait'), second: node('second', depth === 1 ? '#detail' : '#portrait'), source: node('source', 'boundary-sample.float') }),
+          detail: graph('detail', { inner: node('inner', 'boundary-sample.button-counter', { amount: 3, delta: 7 }), extra: node('extra', 'boundary-sample.button-counter', { amount: 2, delta: 13 }) }),
+          ...(depth === 2 ? { portrait: graph('portrait', { detail: node('detail', '#detail') }) } : {}),
+        },
+      } as unknown as WorkflowDocument
+      const session = createLocalSession(document, coreCommandRegistry([], registry.resolve), { schemaResolverFor: (doc) => documentResolver(doc, registry.resolve) })
+      const dispatch = (command: string, params: Record<string, Json>) => {
+        const result = session.dispatch({ command, params })
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+      }
+      dispatch('boundary.addItem', { graphId: 'detail', side: 'inputs', node: 'inner', port: 'amount', itemId: 'gain' })
+      dispatch('boundary.addBinding', { graphId: 'detail', itemId: 'gain', node: 'extra', port: 'amount' })
+      dispatch('boundary.showButton', { graphId: 'detail', node: 'inner', button: 'increase' })
+      if (depth === 2) {
+        dispatch('boundary.addItem', { graphId: 'portrait', side: 'inputs', node: 'detail', port: 'gain', itemId: 'boost' })
+        dispatch('boundary.showButton', { graphId: 'portrait', node: 'detail', button: 'increase' })
+      }
+      const field = depth === 1 ? 'gain' : 'boost'
+      for (const [nodeId, value] of [['first', 10], ['second', 80]] as const) dispatch('node.setValue', { graphId: 'root', nodeId, inputId: field, value })
+      const definition = session.doc.graphs.detail
+      const unavailable = () => { throw new Error('This button must not call a host service') }
+      const host: ActionHost = {
+        commands: coreCommandRegistry([], registry.resolve), schemaResolverFor: (doc) => documentResolver(doc, registry.resolve),
+        schemaOf: (doc, graphId, item) => documentNodeResolver(doc, registry.resolve)(graphId, item),
+        lookup: unavailable, call: unavailable, pick: unavailable, ask: unavailable, openPicker: unavailable,
+        editorFor: unavailable, pasteImage: unavailable, copy: unavailable, download: unavailable, queue: unavailable,
+        interrupt: unavailable, openLink: unavailable, random: unavailable,
+      }
+      const target = { graphId: 'root', nodeId: 'first', button: 'increase' }
+      const run = async (doc: WorkflowDocument, firstValue: number) => {
+        const compiled = compile({ document: doc, revision: 1, resolve: registry.resolve, scope: { kind: 'full' }, connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Button workflow did not compile')
+        const submitted = await connection.submit(compiled.artifact)
+        expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
+        if (!submitted.ok) throw new Error('Button workflow was refused')
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline) {
+          const job = await connection.fetchJob(submitted.execution.prompt)
+          if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
+          if (job?.state === 'completed') {
+            const outputs = job.outputs as unknown as Record<string, Record<string, { value: unknown }>>
+            const prefix = depth === 1 ? '' : 'detail.'
+            for (const [instance, value] of [['first', firstValue], ['second', 80]] as const) {
+              for (const [inner, delta] of [['inner', 7], ['extra', 13]] as const) {
+                expect(outputs[`${instance}.${prefix}${inner}`]?.result?.value).toBe(value)
+                expect(outputs[`${instance}.${prefix}${inner}`]?.private_delta?.value).toBe(delta)
+              }
+            }
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        throw new Error('Button workflow did not complete')
+      }
+      const before = session.doc
+      expect(await runPress(session, target, host)).toMatchObject({ kind: 'done' })
+      expect(session.doc.graphs.detail).toEqual(definition)
+      expect(session.doc.graphs.root!.nodes.first!.values[field]).toBe(17)
+      expect(session.undo()).toBe(true)
+      expect(session.doc).toEqual(before)
+      expect(session.redo()).toBe(true)
+      await run(session.doc, 17)
+      dispatch('link.connect', { graphId: 'root', from: { node: 'source', port: 'number' }, to: { node: 'first', port: field } })
+      const wired = session.doc
+      expect(buttonAvailability(wired, target, host).enabled).toBe(false)
+      expect(await runPress(session, target, host)).toMatchObject({ kind: 'failed' })
+      expect(session.doc).toBe(wired)
+      await run(wired, 0.9)
+      const linkId = Object.keys(wired.graphs.root!.links)[0]!
+      dispatch('link.disconnect', { graphId: 'root', linkId })
+      const loaded = loadDocument(JSON.parse(JSON.stringify(session.doc)))
+      expect(loaded.document, JSON.stringify(loaded.diagnostics)).toBeDefined()
+      const reopened = createLocalSession(loaded.document!, coreCommandRegistry([], registry.resolve), { schemaResolverFor: (doc) => documentResolver(doc, registry.resolve) })
+      expect(await runPress(reopened, target, host)).toMatchObject({ kind: 'done' })
+      expect(reopened.doc.graphs.detail).toEqual(definition)
+      await run(reopened.doc, 24)
+    })
+  }
+
   for (const level of [0, 1, 2] as const) {
     it(`boundary/constructs/${level === 0 ? 'plain-reference' : level === 1 ? 'one-level' : 'two-levels'}`, async () => {
       const connection = new DinksterConnection({
