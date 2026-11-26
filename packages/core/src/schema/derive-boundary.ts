@@ -698,22 +698,41 @@ export function deriveBoundarySchema(
   const routeCache = new WeakMap<object, Partial<Record<'input' | 'output', { node: NodeData; route: BoundaryRoute }>>>()
   const slotTypeBindings = new WeakMap<NodeData, ReadonlyMap<string, TypeExpr>>()
 
-  /** Stored type selections also bind variables beneath inactive options. */
-  const typeBindingsFor = (node: NodeData): ReadonlyMap<string, TypeExpr> => {
-    const cached = slotTypeBindings.get(node)
-    if (cached !== undefined) return cached
-    const bindings = new Map<string, TypeExpr>()
+  /** Active selections bind the node; a structural route adds only its own scope. */
+  const typeBindingsFor = (node: NodeData, route?: BoundaryRoute): ReadonlyMap<string, TypeExpr> => {
     const schema = resolveNode(node)
+    let active = slotTypeBindings.get(node)
+    if (active === undefined) {
+      const bindings = new Map<string, TypeExpr>()
+      for (const item of schema === undefined ? [] : elabInputsOf(elaborateInterface(schema, node, (connectivityOf ??= buildGraphConnectivity(graph))(node.id)))) {
+        const origin = item.origin
+        if (origin.kind !== 'slot' || origin.typeTemplateId === undefined) continue
+        const variant = origin.variants?.find((candidate) => candidate.key === origin.selected)
+        if (variant !== undefined) bindings.set(origin.typeTemplateId, variant.type)
+      }
+      active = bindings
+      slotTypeBindings.set(node, active)
+    }
+    if (route === undefined || route.hops.length === 0) return active
+    const bindings = new Map(active)
     for (const [port, state] of schema === undefined ? [] : Object.entries(node.dynamic ?? {})) {
       if (state.selected === undefined) continue
       const resolved = resolveBoundaryRoute(schema!, { kind: 'construct', node: node.id, port: asPortId(port) }, 'input', node.values, node.dynamic)
       if (!resolved.ok || resolved.route.terminal.kind !== 'construct') continue
+      const sameScope = resolved.route.hops.every((hop) => route.hops.some((target) => {
+        switch (hop.kind) {
+          case 'member': return target.kind === 'member' && hop.familyPath === target.familyPath && hop.member === target.member
+          case 'combo': return target.kind === 'combo' && hop.constructPath === target.constructPath && hop.options.some((key) => target.options.includes(key))
+          case 'slot': return (target.kind === 'slot' || target.kind === 'slotVariant') && hop.constructPath === target.constructPath
+          case 'slotVariant': return target.kind === 'slotVariant' && hop.constructPath === target.constructPath && hop.key === target.key
+        }
+      }))
+      if (!sameScope) continue
       const row = resolved.route.terminal.row
       if (row.kind !== 'typeChoice' || row.typeVariable === undefined || row.variants === undefined) continue
       const variant = row.variants.find((candidate) => candidate.key === state.selected)
       if (variant !== undefined) bindings.set(row.typeVariable, variant.type)
     }
-    slotTypeBindings.set(node, bindings)
     return bindings
   }
 
@@ -774,7 +793,7 @@ export function deriveBoundarySchema(
     }
     const route = result.route
     if (route.terminal.kind === 'port') {
-      if (currentItem !== undefined && !knownTypes.has(currentItem.id)) knownTypes.set(currentItem.id, freshenType(route.terminal.slot.type, binds.node, typeBindingsFor(node)))
+      if (currentItem !== undefined && !knownTypes.has(currentItem.id)) knownTypes.set(currentItem.id, freshenType(route.terminal.slot.type, binds.node, typeBindingsFor(node, route)))
       if (route.terminal.slot.unavailable !== undefined) {
         fail(route.terminal.slot.unavailable.code, `${describe}: ${route.terminal.slot.unavailable.message}`)
         if (!route.terminal.slot.unavailable.inactive) return undefined
@@ -910,7 +929,7 @@ export function deriveBoundarySchema(
       }
       if (otherRow.kind === 'group') groupTargets.push({ row: otherRow, node: target.node, path: other.port as string })
     }
-    let derived: BodyRow = withStoredDefaults(freshenRow(row, binds.node, typeBindingsFor(node)), prefix, node)
+    let derived: BodyRow = withStoredDefaults(freshenRow(row, binds.node, typeBindingsFor(node, route)), prefix, node)
     if (derived.kind === 'group' && row.kind === 'group') {
       const occupied = groupTargets.map((target) => ({
         row: target.row,
@@ -1080,7 +1099,7 @@ export function deriveBoundarySchema(
     if (route.terminal.kind !== 'port') continue
     const inner = route.terminal.slot as InputSpec
     const promoted = item.promoted === true && inner.widget !== undefined
-    const primaryType = freshenType(inner.type, item.binds.node, typeBindingsFor(node))
+    const primaryType = freshenType(inner.type, item.binds.node, typeBindingsFor(node, route))
     // Fan-out: the PRIMARY binding stays authoritative for type and widget;
     // each additional target must resolve structurally (errors skip the
     // item) and should accept the derived type (advisory warning only -
@@ -1120,7 +1139,7 @@ export function deriveBoundarySchema(
         }
         if (r.route.terminal.kind !== 'port') continue
         const targetSlot = r.route.terminal.slot as InputSpec
-        if (!typesCompatible(primaryType, freshenType(targetSlot.type, b.node, typeBindingsFor(r.node)))) {
+        if (!typesCompatible(primaryType, freshenType(targetSlot.type, b.node, typeBindingsFor(r.node, r.route)))) {
           diags.push(diag('warning', 'schema', 'boundary.fanoutTypeMismatch', `[${def.id}] boundary input '${item.id}' fan-out target '${b.node}/${b.port}' does not accept the boundary type`))
         }
         if (!(targetSlot.optional || targetSlot.widget !== undefined)) satisfiable = false
@@ -1247,7 +1266,7 @@ export function deriveBoundarySchema(
       ...tooltipOf(item, inner),
       ...(item.displayName === undefined && inner.labelFormula !== undefined ? { labelFormula: inner.labelFormula } : {}),
       ...outerScopesOf(inner, item.binds as RouteBoundaryBinding, node, item.binds.port as string, item.id),
-      type: freshenType(inner.type, item.binds.node, typeBindingsFor(node)),
+      type: freshenType(inner.type, item.binds.node, typeBindingsFor(node, route)),
       ...(knownValue !== undefined && knownInput !== undefined ? { knownValue: {
         ...knownValue, input: knownInput,
         ...(knownValue.limits !== undefined ? { limits: Object.fromEntries(Object.entries(knownValue.limits).flatMap(([limit, path]) => {

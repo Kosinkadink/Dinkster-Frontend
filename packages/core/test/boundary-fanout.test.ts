@@ -417,8 +417,9 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
 
   const params = (node: string, port = 'in') => ({ graphId: 'sub', itemId: 'in', node, port })
 
-  it.each(['variable', 'inactive', 'nested'])('uses boundary-facing types even when inner ports are solved or inactive: %s', (scenario) => {
-    const inactive = scenario !== 'variable'
+  it.each(['variable', 'inactive', 'nested', 'competing', 'competing-reordered'])('uses boundary-facing types even when inner ports are solved or inactive: %s', (scenario) => {
+    const competing = scenario.startsWith('competing')
+    const inactive = !competing && scenario !== 'variable'
     const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
     const local: Record<string, NodeSchema> = {
       Primary: schemaOf('Primary', [input('value', { type: inactive ? IMAGE : variable }), { ...output('out'), type: variable }]),
@@ -432,12 +433,20 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
             input('amount', { type: scenario === 'nested' ? variable : FLOAT }),
           ] },
         ] }],
-      } : schemaOf('Target', [input('value', { type: { kind: 'concrete', name: 'STRING' } })]),
+      } : schemaOf('Target', [input('value', { type: competing ? IMAGE : { kind: 'concrete', name: 'STRING' } })]),
     }
+    if (competing) local.Primary = {
+      ...schemaOf('Primary', [input('value', { type: variable })]),
+      body: [input('value', { type: variable }), { kind: 'choice', id: 'mode', required: true, shared: [], options: [
+        { key: 'a', rows: [{ kind: 'typeChoice', id: 'imagePicker', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'image', type: IMAGE, rows: [] }] }] },
+        { key: 'b', rows: [{ kind: 'typeChoice', id: 'floatPicker', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'float', type: FLOAT, rows: [] }] }] },
+      ] }],
+    }
+    const selections = [['mode.imagePicker', { selected: 'image' }], ['mode.floatPicker', { selected: 'float' }]] as const
     const resolve = (type: string) => local[type]
     const doc = docOf({ g0: { nodes: {} }, sub: {
-      nodes: { primary: { type: 'Primary' }, consumer: { type: 'Consumer' }, target: { type: 'Target', values: { 'mode.source': 0.5 }, dynamic: { mode: { selected: 'a' }, 'mode.source': { selected: 'float' } } } },
-      links: [[['primary', 'out'], ['consumer', 'value']]],
+      nodes: { primary: { type: 'Primary', ...(competing ? { dynamic: { mode: { selected: 'a' }, ...Object.fromEntries(scenario === 'competing-reordered' ? [...selections].reverse() : selections) } } : {}) }, consumer: { type: 'Consumer' }, target: { type: 'Target', values: { 'mode.source': 0.5 }, dynamic: { mode: { selected: 'a' }, 'mode.source': { selected: 'float' } } } },
+      links: competing ? [] : [[['primary', 'out'], ['consumer', 'value']]],
       boundary: { inputs: [{ id: 'in', binds: bind('primary', 'value') }] },
     } })
     const store = new DocumentStore(doc, coreCommandRegistry([], resolve), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
@@ -453,6 +462,13 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
       expect(itemOf(store).alsoBinds).toEqual([bind('target', port)])
       expect(store.undo()).toBe(true)
       expect(store.doc).toEqual(before)
+      if (competing) {
+        const refused = store.dispatch({ command: 'boundary.addBinding', params: params('consumer', 'value') })
+        expect(refused.ok, JSON.stringify(refused)).toBe(false)
+        expect(refused.diagnostics.map((item) => item.code)).toContain('boundary.fanoutTypeMismatch')
+        expect(store.doc).toEqual(before)
+        expect(store.canUndo).toBe(false)
+      }
     }
   })
 
