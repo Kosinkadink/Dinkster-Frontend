@@ -135,8 +135,10 @@ describe('native open-time replacement', () => {
     const notice = app.adjustmentNotices.get().get(tab.id)!
     expect(notice.adjustments).toHaveLength(2)
     expect(notice.adjustments.map((entry) => entry.anchor?.occurrence?.node)).toEqual(['first', 'second'])
-    expect(notice.adjustments.flatMap((entry) => entry.details).join(' ')).toContain('will be removed')
-    expect(JSON.stringify(app.exportDocument(tab.id))).not.toContain('will be removed')
+    expect(notice.adjustments.flatMap((entry) => entry.details)).toEqual([
+      'Its wire from discarded was removed.', 'Its wire into unmapped was removed.',
+    ])
+    expect(JSON.stringify(app.exportDocument(tab.id))).not.toContain('was removed')
     expect(tab.store.undo()).toBe(true)
     expect(tab.store.doc.graphs.g0!.nodes.first!.type).toBe('Previous')
     expect(tab.store.doc.graphs.g0!.links.lost).toEqual(original.graphs.g0.links.lost)
