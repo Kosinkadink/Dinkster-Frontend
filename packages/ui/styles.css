@@ -1647,6 +1647,30 @@
 .dinkster-template-states > div { display: grid; gap: 6px; }
 .dinkster-template-states .dinkster-template-tiles { padding: 0; overflow: visible; }
 .dinkster-template-states .dinkster-template-tile { background: var(--dinkster-surface-panel); }
+
+.engine-run-control { position: relative; display: inline-flex; align-items: stretch; }
+.engine-run-control > .dinkster-button, .engine-run-starting { min-height: calc(var(--dinkster-space-32) + var(--dinkster-space-4)); }
+.engine-run-control > .dinkster-button { background: var(--dinkster-surface-raised); }
+.engine-run-control[data-state='stopped'] > .dinkster-button { color: var(--dinkster-success-foreground); border-color: var(--dinkster-success-rest-border); background: var(--dinkster-success-background); }
+.engine-run-control[data-state='stopped'] > .dinkster-button:hover:not(:disabled) { border-color: var(--dinkster-success-border); background: var(--dinkster-success-wash); }
+.engine-run-control[data-state='stopped'] > .dinkster-button:active:not(:disabled) { border-color: var(--dinkster-success-border); background: var(--dinkster-success-wash-pressed); }
+.engine-run-control > .dinkster-button[data-role='remove'] { background: var(--dinkster-danger-background); }
+.engine-run-control > .dinkster-button[data-role='remove']:hover:not(:disabled) { background: var(--dinkster-danger-wash); }
+.engine-run-control > .dinkster-button[data-role='remove']:active:not(:disabled) { background: var(--dinkster-danger-wash-pressed); }
+.engine-run-starting { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); box-sizing: border-box; padding: var(--dinkster-space-4) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-secondary); background: transparent; white-space: nowrap; }
+.engine-run-control[data-state='stopped'] > .dinkster-button, .engine-run-starting { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.engine-run-control[data-state='failed'] > .dinkster-button:first-of-type { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.engine-run-control[data-state='failed'] > .dinkster-button + .dinkster-button { margin-inline-start: calc(-1 * var(--dinkster-border-width)); border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.engine-run-percent { color: var(--dinkster-text-muted); font-variant-numeric: tabular-nums; }
+.engine-run-reason { position: absolute; top: calc(100% + var(--dinkster-space-8)); right: 0; z-index: 1; display: grid; gap: var(--dinkster-space-12); box-sizing: border-box; width: var(--dinkster-project-menu-max-width); max-width: calc(100vw - var(--dinkster-space-32)); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }
+.engine-run-reason > strong { overflow-wrap: anywhere; white-space: pre-wrap; }
+.engine-run-reason-actions { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); }
+.engine-run-log { max-height: calc(100dvh - 6 * var(--dinkster-space-32)); overflow: auto; }
+.engine-state-gallery { display: grid; gap: var(--dinkster-space-16); }
+.engine-state-gallery-example { display: grid; gap: var(--dinkster-space-8); margin: 0; }
+.engine-state-gallery-example > figcaption { color: var(--dinkster-text-secondary); }
+.engine-state-gallery-stage { display: flex; justify-content: flex-end; min-height: calc(var(--dinkster-space-32) * 6); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
+
 /* The one search surface: Ctrl+K search, node search and the Settings page share it. */
 .dinkster-search { position: relative; display: flex; min-width: 0; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
 .dinkster-search-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; max-height: inherit; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }

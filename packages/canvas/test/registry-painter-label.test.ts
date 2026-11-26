@@ -362,6 +362,28 @@ describe('registry painter label/value split', () => {
     expect(painted.texts).toContain('5')
   })
 
+  it('keeps a wired file icon, lock and promoted mark separate before its name', () => {
+    const assetRegistry: WidgetRegistry = {
+      ...registry,
+      kind: () => ({ ...stubKind, type: 'ASSET' }),
+      viewsFor: () => [{ ...stubView, id: 'core.asset', kind: 'ASSET',
+        drawCompact: (scene) => scene.text(0, 0, 'frame.png', { role: 'widgetValue' }) }],
+    }
+    const painted = fakeCtx()
+    const row = { ...rowWith(null), viewId: 'core.asset', label: 'Image', readOnly: true as const,
+      subgraphMark: { item: 'image', label: 'Image' }, spec: { widgetType: 'ASSET', options: {} } }
+    createRegistryPainter(assetRegistry)({ ctx: painted.ctx, row, value: null,
+      companion: { value: { name: 'frame.png' }, state: 'expected' },
+      x: 10, y: 20, width: 480, rowHeight: 24, connected: true,
+      tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' },
+    })
+    const icons = painted.transforms.filter((call) => call.method === 'translate')
+    expect(icons[2]!.x).toBe(36)
+    expect(icons[3]!.x - icons[2]!.x).toBe(18)
+    expect(painted.textCalls.find((call) => call.text === 'Image')!.x - icons[3]!.x).toBe(18)
+    expect(painted.texts).toContain('frame.png')
+  })
+
   it.each([false, true])('keeps folded curve marks beside the name, clear of the sketch (promoted %s)', (promoted) => {
     const tokens = { ...defaultTokens, widgetRowLook: 'raised-editors' as const }
     const curveRegistry: WidgetRegistry = {

@@ -3,12 +3,14 @@
  * painter over the core widget views, and what pointing at the row reads
  * out. Text is measured at 6 px a character.
  */
-import { createRegistryPainter, defaultTokens, widgetValueText, type LayoutRow, type WidgetPaintArgs } from '@dinkster/canvas'
+import { createRegistryPainter, defaultTokens, paintToolboxIcon, widgetValueText, type CanvasIconName, type LayoutRow, type WidgetPaintArgs } from '@dinkster/canvas'
 import { registerCatalog, type Json, type WidgetSpec } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import english from '../src/locales/en.json'
 import { resolveCanvasTooltip, WIDGET_READOUT_ITEMS, type CanvasTooltipContext } from '../src/tooltips.js'
+import { assetRowThumbnails, type PreviewLoader } from '../src/node-previews.js'
+import { wiredEditorSummaries } from '../src/InNodeEditorSpaces.js'
 
 beforeAll(() => {
   registerCatalog('en', english)
@@ -22,17 +24,21 @@ const painter = createRegistryPainter(registry)
 const LABEL = 'v'
 
 function fakeCtx() {
-  const texts: { text: string; font: string; color: string }[] = []
+  const texts: { text: string; font: string; color: string; x: number }[] = []
   const fills: string[] = []
+  const images: unknown[] = []
+  const imageRects: { x: number; width: number }[] = []
+  const paths: string[] = []
   const ctx = {
     fillStyle: '', strokeStyle: '', lineWidth: 1, font: '12px system-ui', globalAlpha: 1, textAlign: 'left',
     beginPath() {}, save() {}, restore() {}, translate() {}, scale() {}, arc() {}, moveTo() {}, lineTo() {},
-    stroke() {}, rect() {}, clip() {}, roundRect() {}, fill() {}, setLineDash() {}, closePath() {},
+    stroke(path?: { d: string }) { if (path) paths.push(path.d) }, rect() {}, clip() {}, roundRect() {}, fill() {}, setLineDash() {}, closePath() {},
+    drawImage(image: unknown, x: number, _y: number, width: number) { images.push(image); imageRects.push({ x, width }) },
     fillRect() { fills.push(String(this.fillStyle)) },
     measureText: (text: string) => ({ width: text.length * 6 }),
-    fillText(text: string) { texts.push({ text, font: this.font, color: String(this.fillStyle) }) },
+    fillText(text: string, x: number) { texts.push({ text, font: this.font, color: String(this.fillStyle), x }) },
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, fills }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, fills, images, imageRects, paths }
 }
 
 const deepFreeze = <T>(value: T): T => {
@@ -76,6 +82,123 @@ const samplers = [
 const floatList = specOf('LIST', {}, { element: { widgetType: 'FLOAT', options: { step: 0.1 } } })
 const stringList = specOf('LIST', {}, { element: { widgetType: 'STRING', options: {} } })
 const videoEdit = specOf('VIDEO_EDIT', { features: ['trim', 'crop'] })
+
+describe('closed file rows', () => {
+  it('keeps empty file text muted and italic with a thumbnail-only host summary', () => {
+    const spec = specOf('ASSET', { accept: ['image/png'] })
+    const painted = fakeCtx()
+    painter({ ctx: painted.ctx, row: rowOf(spec), value: null, x: 0, y: 0, width: 460,
+      rowHeight: 24, connected: false, tokens: defaultTokens, editorSummary: {},
+    })
+    expect(painted.texts.find((call) => call.text === 'Choose image')).toMatchObject({ color: defaultTokens.colors.label })
+    expect(painted.texts.find((call) => call.text === 'Choose image')?.font).toContain('italic')
+    expect(painted.images).toEqual([])
+  })
+
+  it.each([false, true])('separates pictures from the previous entry and groups them with their name (wired %s)', (wired) => {
+    const value = [image('a.png'), { ...(image('sound.wav') as Record<string, Json>), mediaType: 'audio/wav' }, image('clip.webm')]
+    const spec = specOf('ASSET')
+    const painted = fakeCtx()
+    const bitmap = {} as CanvasImageSource
+    painter({ ctx: painted.ctx, row: rowOf(spec), value, x: 0, y: 0, width: 600,
+      rowHeight: 24, connected: wired, tokens: defaultTokens,
+      editorSummary: { thumbnails: [bitmap, undefined, bitmap] },
+      ...(wired ? { companion: { value, state: 'expected' as const } } : {}),
+    })
+    for (const [index, name] of ['a.png', 'clip.webm'].entries()) {
+      const picture = painted.imageRects[index]!
+      expect(painted.texts.find((call) => call.text === name)!.x - picture.x - picture.width).toBe(4)
+    }
+    const sound = painted.texts.find((call) => call.text === 'sound.wav')!
+    // Nine characters and the comma at 6 px each, then an 8 px entry gap.
+    expect(painted.imageRects[1]!.x - (sound.x + 10 * 6)).toBe(8)
+    expect(painted.images).toHaveLength(2)
+  })
+
+  it('keeps previews attached to each field and each carried name, including unknown and sound values', () => {
+    const first = image('a.png')
+    const second = image('b.png', 'b')
+    const audio = { ...(image('sound.wav', 'c') as Record<string, Json>), mediaType: 'audio/wav' }
+    const bitmap = {} as CanvasImageSource
+    const loader: PreviewLoader = {
+      sourceFor: () => undefined,
+      peekSource: () => undefined,
+      inputAssetSource: (digest) => ({ key: digest, load: async () => ({ image: bitmap }) }),
+      resolve: (source) => source.key === (first as Record<string, Json>)['digest'] ? { image: bitmap } : undefined,
+      resolveFrame: () => undefined,
+    }
+    const images = (value: Json) => assetRowThumbnails(value, loader, registry)
+    const row = rowOf(specOf('ASSET'))
+    const rows = ['stored', 'incoming', 'unknown', 'sound'].map((id) => ({ ...row, inputId: id, valueKey: id }))
+    const result = wiredEditorSummaries([{ id: 'n', layout: { rows }, node: { values: { stored: first, incoming: first, unknown: first, sound: audio } } }], {
+      wired: (_id, key) => key === 'incoming' || key === 'unknown',
+      carried: (_id, key) => key === 'incoming' ? [second, audio, first] : undefined,
+    }, 'Not known', images)
+    expect(result).toEqual({ n: {
+      stored: { thumbnails: [bitmap] },
+      incoming: { value: [second, audio, first], thumbnails: [null, undefined, bitmap] },
+    } })
+    expect(images(audio)).toBeUndefined()
+    expect(images(null)).toBeUndefined()
+    expect(images([])).toBeUndefined()
+    expect(images(image(''))).toBeUndefined()
+    expect(assetRowThumbnails([audio, first, first, first], loader, registry, 40)).toEqual([undefined, bitmap, bitmap, null])
+    expect(assetRowThumbnails([audio, first, first, first], loader, registry, 41)).toEqual([undefined, bitmap, bitmap, bitmap])
+  })
+
+  it.each([
+    [['image/png', 'image/jpeg'], undefined, 'image'],
+    [['video/mp4'], undefined, 'film'],
+    [['audio/wav'], undefined, 'audio-lines'],
+    [['model/gltf-binary'], undefined, 'box'],
+    [[], 'model/checkpoint', 'box'],
+    [[], 'media/model3d', 'box'],
+    [['image/png', 'audio/wav'], undefined, 'file'],
+    [[], undefined, 'file'],
+  ] as const)('shows the icon of accepted kinds %j (%s), even without a file', (accept, kind, icon) => {
+    const spec = specOf('ASSET', { accept: [...accept] }, kind === undefined ? {} : { kind })
+    const { ctx, paths } = fakeCtx()
+    const expected = fakeCtx()
+    paintToolboxIcon(expected.ctx, icon as CanvasIconName, 0, 0, 16, '#fff')
+    for (const value of [null, image('shot.png')]) {
+      paths.length = 0
+      painter({ ctx, row: rowOf(spec), value, x: 0, y: 0, width: 600, rowHeight: 24, connected: false, tokens: defaultTokens })
+      expect(paths.slice(0, expected.paths.length)).toEqual(expected.paths)
+    }
+  })
+
+  it('fits each thumbnail with its name, reserves pending pictures, and drops pictures for count-only summaries', () => {
+    const first = {} as CanvasImageSource
+    const second = {} as CanvasImageSource
+    const value = [image('a.png'), image('b.png', 'b'), image('c.png', 'c'), image('d.png', 'd')]
+    const spec = specOf('ASSET')
+    const render = (width: number, thumbnails: NonNullable<WidgetPaintArgs['editorSummary']>, companion?: WidgetPaintArgs['companion']) => {
+      const result = fakeCtx()
+      painter({ ctx: result.ctx, row: rowOf(spec), value, x: 0, y: 0, width, rowHeight: 24,
+        connected: companion !== undefined, tokens: defaultTokens, editorSummary: thumbnails,
+        ...(companion === undefined ? {} : { companion }),
+      })
+      return { text: result.texts.filter((call) => call.text !== LABEL).map((call) => call.text).join(''), images: result.images }
+    }
+    for (const companion of [undefined, { value, state: 'expected' as const }]) {
+      const full = render(600, { thumbnails: [first, second, undefined, null] }, companion)
+      expect(full).toEqual({ text: 'a.png, b.png, c.png, d.png', images: [first, second] })
+      const pending = render(250, { thumbnails: [null, second, undefined, null] }, companion)
+      const ready = render(250, { thumbnails: [first, second, undefined, second] }, companion)
+      expect(pending.text).toBe(ready.text)
+      expect(ready.text).toContain('+')
+      const narrow = Array.from({ length: 20 }, (_, index) => render(90 + index * 4, { thumbnails: [first, second, first, second] }, companion))
+      expect(narrow.find((shown) => shown.text === '4 assets')).toEqual({ text: '4 assets', images: [] })
+    }
+    const long = [image('a-very-long-checkpoint-name.png'), image('b.png', 'b')]
+    const result = fakeCtx()
+    painter({ ctx: result.ctx, row: rowOf(spec), value: long, x: 0, y: 0, width: 260, rowHeight: 24,
+      connected: false, tokens: defaultTokens, editorSummary: { thumbnails: [first, second] },
+    })
+    expect(result.texts.map((call) => call.text).join('')).toContain('... +1')
+    expect(result.images).toEqual([first])
+  })
+})
 
 describe('a closed row shows its stored value for each retained kind', () => {
   it.each([
