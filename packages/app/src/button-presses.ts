@@ -6,6 +6,7 @@ import {
   documentResolver,
   isAssetWidgetInput,
   normalizeComboOption,
+  occurrenceDynamicView,
   runPress,
   type ActionHost,
   type AskRequest,
@@ -20,7 +21,6 @@ import {
   type PressOutcome,
   type PressTarget,
   type WidgetSpec,
-  type WorkflowDocument,
 } from '@dinkster/core'
 import type { LookupCall, LookupEntry } from '@dinkster/client'
 import type { AppState, Tab } from './app-state.js'
@@ -81,6 +81,7 @@ const targetOf = (place: ButtonPlace): PressTarget => ({
   nodeId: place.nodeId,
   button: place.button,
   ...(place.menu ? { menu: true } : {}),
+  ...(place.instancePath ? { instancePath: place.instancePath } : {}),
   ...(place.instancePath?.length ? { occurrence: [...place.instancePath, place.nodeId].join('/') } : {}),
 })
 
@@ -120,22 +121,23 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
   const lookupsOf = (tab: Tab) => app.backendForTab(tab).lookups
 
   /** What `buttonAvailability` reads; cheap enough for every repaint and hover. */
-  const lookOf = (place: ButtonPlace): Pick<ActionHost, 'schemaOf' | 'editorFor'> => {
+  const lookOf = (place: ButtonPlace): Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor'> => {
     const { tab } = place
     const resolve = resolverOf(tab)
     const editorFor = (field: ElaboratedInput) => {
       const spec = field.spec.widget
       if (spec === undefined || NO_HOST_EDITOR.has(spec.widgetType) || isAssetWidgetInput(field.spec)) return undefined
       if (app.widgetRegistryForTab(tab).kind(spec.widgetType) === undefined) return undefined
-      return (signal: AbortSignal) => surfaces.edit({
-        place,
-        label: field.spec.displayName ?? field.spec.id,
-        spec,
-        initial: tab.store.doc.graphs[place.graphId]?.nodes[place.nodeId]?.values[field.spec.id],
-      }, signal)
+      return (signal: AbortSignal) => {
+        const doc = tab.store.doc
+        const values = occurrenceDynamicView(doc, resolve, place.instancePath ?? [], place.instancePath?.length ? doc.root : place.graphId).values.get(place.nodeId)
+          ?? doc.graphs[place.graphId]?.nodes[place.nodeId]?.values
+        return surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial: values?.[field.spec.id] }, signal)
+      }
     }
     return {
       schemaOf: (doc, graphId, node) => documentNodeResolver(doc, resolve)(graphId, node, place.instancePath as readonly NodeId[] | undefined),
+      schemaResolverFor: (doc) => documentResolver(doc, resolve),
       editorFor,
     }
   }
@@ -147,7 +149,6 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     return {
       ...lookOf(place),
       commands: coreCommandRegistry([], resolve),
-      schemaResolverFor: (doc: WorkflowDocument) => documentResolver(doc, resolve),
       async lookup(request, signal): Promise<LookupResult> {
         const lookups = lookupsOf(tab)
         if (request.use === 'value') return lookups.resolve(lookupCall(request), 'value', { signal })

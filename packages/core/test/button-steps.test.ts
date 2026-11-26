@@ -12,6 +12,7 @@ import { buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESS
 import { decodeSteps } from '../src/actions/steps.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { createLocalSession, type DocumentSession } from '../src/commands/session.js'
+import { documentResolver } from '../src/compile/compile.js'
 import type { GraphDef, Json, NodeData, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
@@ -683,6 +684,130 @@ describe('steps outside the workflow', () => {
     const copied = hostOf()
     await runPress(menu, at('menu_copy', 'n1', true), copied)
     expect(copied.log).toEqual(['copy 640x768'])
+  })
+})
+
+describe('steps inside a subgraph occurrence', () => {
+  it('materializes and edits whole promoted groups outside, keeping definition members and sibling instances', async () => {
+    addSchema('test.owned_group', [
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 1, maxMembers: 5,
+        keys: { numbered: { prefix: 'item_', start: 1, pad: 0 } }, member: [
+          { kind: 'input', id: 'label', type: { kind: 'concrete', types: ['STRING'] }, default: 'old' },
+        ] },
+      { kind: 'button', id: 'fill', label: 'Fill', steps: [{ step: 'setEach', group: 'items', field: 'label', value: { value: 'changed' } }] },
+      { kind: 'button', id: 'add', label: 'Add', steps: [{ step: 'addMember', group: 'items', values: { label: { value: 'new' } } }] },
+      { kind: 'button', id: 'remove', label: 'Remove', steps: [{ step: 'removeMember', group: 'items', which: 'last' }] },
+    ])
+    const root = documentOf({ left: { type: '#g1' }, right: { type: '#g1' } })
+    const inner = documentOf({ inner: { type: 'test.owned_group' } }).graphs['g0']!
+    const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), boundary: {
+      inputs: [{ id: asPortId('shown'), binds: { kind: 'construct', node: asNodeId('inner'), port: asPortId('items') }, promoted: true }], outputs: [],
+    } } } }
+    const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
+    const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    const target = { graphId: 'g1', nodeId: 'inner', instancePath: ['left'] }
+    expect(await runPress(session, { ...target, button: 'fill' }, host)).toMatchObject({ kind: 'done' })
+    expect(session.doc.graphs['g1']).toEqual(doc.graphs['g1'])
+    expect(valuesOf(session, 'left')).toEqual({ 'shown.item_1.label': 'changed' })
+    expect(valuesOf(session, 'right')).toEqual({})
+    expect(session.doc.graphs['g0']!.nodes['left']!.dynamic?.['shown']).toEqual({ members: ['item_1'], seq: 1 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session, 'left')).toEqual({})
+    expect(session.doc.graphs['g0']!.nodes['left']!.dynamic?.['shown']?.members ?? []).toEqual([])
+    expect(session.doc.graphs['g1']).toEqual(doc.graphs['g1'])
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(await runPress(session, { ...target, button: 'add' }, host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session, 'left')).toEqual({ 'shown.item_1.label': 'changed', 'shown.item_2.label': 'new' })
+    expect(await runPress(session, { ...target, button: 'remove' }, host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session, 'left')).toEqual({ 'shown.item_1.label': 'changed' })
+    expect(session.doc.graphs['g1']).toEqual(doc.graphs['g1'])
+    expect(valuesOf(session, 'right')).toEqual({})
+
+    const withDefinitionMember: WorkflowDocument = { ...doc, graphs: { ...doc.graphs,
+      g1: { ...doc.graphs['g1']!, nodes: { inner: { ...inner.nodes['inner']!,
+        dynamic: { items: { members: ['item_1'], seq: 1 } }, values: { 'items.item_1.label': 'definition' },
+      } } },
+    } }
+    const offset = createLocalSession(withDefinitionMember, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    expect(await runPress(offset, { ...target, button: 'add' }, host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(offset, 'left')).toEqual({ 'shown.item_1.label': 'new' })
+    expect(valuesOf(offset, 'right')).toEqual({})
+    expect(offset.doc.graphs['g1']).toEqual(withDefinitionMember.graphs['g1'])
+  })
+
+  it('materializes nested minimum members through an outer construct before writing', async () => {
+    addSchema('test.nested_owned_group', [
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 1, maxMembers: 5,
+        keys: { numbered: { prefix: 'item_', start: 1, pad: 0 } }, member: [
+          { kind: 'group', id: 'children', grows: 'button', minMembers: 1, maxMembers: 5,
+            keys: { numbered: { prefix: 'child_', start: 1, pad: 0 } }, member: [
+              { kind: 'input', id: 'label', type: { kind: 'concrete', types: ['STRING'] }, default: 'old' },
+            ] },
+        ] },
+    ])
+    const root = documentOf({ left: { type: '#g1' }, right: { type: '#g1' } })
+    const inner = documentOf({ inner: { type: 'test.nested_owned_group' } }).graphs['g0']!
+    const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), boundary: {
+      inputs: [{ id: asPortId('shown'), binds: { kind: 'construct', node: asNodeId('inner'), port: asPortId('items') }, promoted: true }], outputs: [],
+    } } } }
+    const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
+    const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    expect(await runSteps(session, [{ graphId: 'g1', nodeId: 'inner', instancePath: ['left'],
+      prefix: 'items.item_1.children.child_1.', steps: decodeSteps([{ step: 'set', field: 'label', value: { value: 'changed' } }]),
+    }], host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session, 'left')).toEqual({ 'shown.item_1.children.child_1.label': 'changed' })
+    expect(valuesOf(session, 'right')).toEqual({})
+    expect(session.doc.graphs['g1']).toEqual(doc.graphs['g1'])
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session, 'left')).toEqual({})
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session, 'left')).toEqual({ 'shown.item_1.children.child_1.label': 'changed' })
+  })
+
+  it.each([false, true])('disconnects only the original projected delivery, replacement during wait: %s', async (replace) => {
+    addSchema('test.owned_disconnect', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'button', id: 'set', label: 'Set', steps: [
+        { step: 'disconnect', input: 'value' },
+        ...(replace ? [{ step: 'call', function: 'test.wait', args: [], writes: ['value'] }] : []),
+        { step: 'set', field: 'value', value: { value: 99 } },
+      ] },
+    ])
+    const root = documentOf({ left: { type: '#g1', values: { shown: 41 } }, right: { type: '#g1', values: { shown: 73 } }, source: { type: 'test.owned_disconnect' } }, {
+      ...link('left-wire', ['source', 'out'], ['left', 'shown']), ...link('right-wire', ['source', 'out'], ['right', 'shown']),
+    })
+    const inner = documentOf({ inner: { type: 'test.owned_disconnect', values: { value: 3 } } }).graphs['g0']!
+    const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), boundary: {
+      inputs: [{ id: asPortId('shown'), binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('value') }, promoted: true }], outputs: [],
+    } } } }
+    const answer = later<CallAnswer>()
+    const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve), call: () => answer.promise })
+    const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    const pending = runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: ['left'], button: 'set' }, host)
+    if (replace) {
+      expect(session.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'left-wire' } }).ok).toBe(true)
+      expect(session.dispatch({ command: 'link.connect', params: { graphId: 'g0', from: { node: 'source', port: 'out' }, to: { node: 'left', port: 'shown' } } }).ok).toBe(true)
+      const live = session.doc
+      answer.settle({ kind: 'answer', fields: {}, notes: [] })
+      const result = await pending
+      expect(result.kind, JSON.stringify(result)).toBe('done')
+      expect(result.skipped).toEqual([{ id: 'value', why: 'wired' }])
+      expect(session.doc).toEqual(live)
+      return
+    }
+    expect(await pending).toMatchObject({ kind: 'done', skipped: [] })
+    expect(valuesOf(session, 'left')).toEqual({ shown: 99 })
+    expect(valuesOf(session, 'right')).toEqual({ shown: 73 })
+    expect(session.doc.graphs['g1']).toEqual(doc.graphs['g1'])
+    expect(session.doc.graphs['g0']!.links['right-wire']).toEqual(doc.graphs['g0']!.links['right-wire'])
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(doc)
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session, 'left')).toEqual({ shown: 99 })
   })
 })
 

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { coreCommandRegistry, createLocalSession, parseDinksterSchema, type CallAnswer, type DinksterWireSchema, type WorkflowDocument } from '@dinkster/core'
+import { coreCommandRegistry, createLocalSession, documentResolver, parseDinksterSchema, type CallAnswer, type DinksterWireSchema, type WorkflowDocument } from '@dinkster/core'
 import { createLookupClient, valueFromWire, type LookupClient } from '@dinkster/client'
 import { createButtonPresses, type ButtonSurfaces } from '../src/button-presses.js'
 import type { AppState, Tab } from '../src/app-state.js'
@@ -41,6 +41,92 @@ function setup(call: () => Promise<CallAnswer>, nodeSchema = schema, lookups?: L
 }
 
 describe('button press authority and typed answers', () => {
+  it.each(['direct', 'nested', 'edited', 'wired', 'removed', 'refused'] as const)('keeps inside-subgraph writes atomic and occurrence-owned: %s', async (scenario) => {
+    const inner = parseDinksterSchema('test.inner_button', {
+      schemaVersion: 2, nodeType: 'test.inner_button', displayName: 'Inner', category: 'test', body: [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+        { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+        { kind: 'button', id: 'increase', label: 'Increase', steps: [
+          { step: 'set', field: 'value', value: { formula: 'value + 1' } },
+          { step: 'call', function: 'test.wait', args: [], writes: ['value'] },
+          { step: 'set', field: 'value', value: { formula: 'value * 2' } },
+        ] },
+      ],
+    } as unknown as DinksterWireSchema).schema!
+    const resolve = (type: string) => type === inner.type ? inner : undefined
+    const doc = {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'lin1', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'root', nextOrdinal: 100, nodes: {
+          left: { id: 'left', type: '#g1', values: { shown: 41 } },
+          right: { id: 'right', type: '#g1', values: { shown: 73 } },
+          source: { id: 'source', type: inner.type, values: {} },
+        }, links: {}, nets: {}, reroutes: {} },
+        g1: { id: 'g1', name: 'inner', nextOrdinal: 100, nodes: {
+          inner: { id: 'inner', type: inner.type, values: { value: 3 } },
+        }, links: {}, nets: {}, reroutes: {}, boundary: {
+          inputs: [{ id: 'shown', binds: { kind: 'port', node: 'inner', port: 'value' }, promoted: true }], outputs: [],
+        } },
+      }, view: { graphs: {} },
+    } as unknown as WorkflowDocument
+    const nested = scenario === 'nested'
+    const document = nested ? {
+      ...doc,
+      graphs: {
+        ...doc.graphs,
+        g0: { ...doc.graphs['g0']!, nodes: Object.fromEntries(Object.entries(doc.graphs['g0']!.nodes).map(([id, node]) => [id, { ...node, type: '#g2' }])) },
+        g2: { ...doc.graphs['g1']!, id: 'g2', nodes: { middle: { id: 'middle', type: '#g1', values: {} } }, boundary: {
+          inputs: [{ id: 'shown', binds: { kind: 'port', node: 'middle', port: 'shown' }, promoted: true }], outputs: [],
+        } },
+      },
+    } as unknown as WorkflowDocument : doc
+    const store = createLocalSession(document, coreCommandRegistry([], resolve), { schemaResolverFor: (current) => documentResolver(current, resolve) })
+    const tab = { id: 'tab', store } as Tab
+    const state = { status: 'ready' }
+    let answer!: (value: CallAnswer) => void
+    let entered!: () => void
+    const waiting = new Promise<void>((resolve) => { entered = resolve })
+    const response = new Promise<CallAnswer>((resolve) => { answer = resolve })
+    const backend = { schemaState: { get: () => state }, connection: { callPackFunction: () => { entered(); return response } } }
+    const registry = { resolve }
+    const app = { backendForTab: () => backend, registryForTab: () => registry, tabs: { get: () => [tab] }, recordHostLog: () => undefined } as unknown as AppState
+    const presses = createButtonPresses(app, {} as ButtonSurfaces)
+    const running = presses.press({ tab, graphId: 'g1', nodeId: 'inner', button: 'increase', instancePath: nested ? ['left', 'middle'] : ['left'] })
+    await waiting
+    expect(store.doc).toEqual(document)
+    if (scenario === 'edited') expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'left', inputId: 'shown', value: 59 } }).ok).toBe(true)
+    if (scenario === 'wired') expect(store.dispatch({ command: 'link.connect', params: { graphId: 'g0', from: { node: 'source', port: 'out' }, to: { node: 'left', port: 'shown' } } }).ok).toBe(true)
+    if (scenario === 'removed') expect(store.dispatch({ command: 'node.remove', params: { graphId: 'g0', nodeIds: ['left'] } }).ok).toBe(true)
+    answer(scenario === 'refused' ? { kind: 'failed', message: 'Refused' } : { kind: 'answer', fields: {}, notes: [] })
+    await running
+    if (scenario === 'removed') {
+      expect(store.doc.graphs['g0']!.nodes['left']).toBeUndefined()
+      expect(store.doc.graphs['g1']!.nodes['inner']!.values).toEqual({ value: 3 })
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(document)
+      expect(store.canUndo).toBe(false)
+      return
+    }
+    const expected = scenario === 'edited' ? 59 : scenario === 'refused' || scenario === 'wired' ? 41 : 84
+    expect(store.doc.graphs['g0']!.nodes['left']!.values).toEqual({ shown: expected })
+    expect(store.doc.graphs['g0']!.nodes['right']!.values).toEqual({ shown: 73 })
+    expect(store.doc.graphs['g1']!.nodes['inner']!.values).toEqual({ value: 3 })
+    if (scenario === 'refused') {
+      expect(store.doc).toEqual(document)
+      expect(store.canUndo).toBe(false)
+      return
+    }
+    if (scenario === 'direct' || scenario === 'nested') expect(presses.states().size).toBe(0)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes).toEqual(document.graphs['g0']!.nodes)
+    expect(store.doc.graphs['g0']!.links).toEqual({})
+    expect(store.doc.graphs['g1']).toEqual(document.graphs['g1'])
+    expect(store.canUndo).toBe(false)
+    expect(store.redo()).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['left']!.values).toEqual({ shown: expected })
+    expect(store.doc.graphs['g1']!.nodes['inner']!.values).toEqual({ value: 3 })
+  })
+
   it.each([false, true])('preserves decimal Lookup arguments with a warm integer cache: %s', async (warm) => {
     const bodies: string[] = []
     const lookups = createLookupClient({ baseUrl: '', fetchFn: async (_url, init) => {

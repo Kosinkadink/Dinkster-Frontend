@@ -25,12 +25,17 @@ import type { CommandDefinition, CommandExecutionContext, CommandInvocation } fr
 import { predictAllocatedId } from '../commands/alloc.js'
 import type { DocumentSession } from '../commands/session.js'
 import { DocumentStore } from '../commands/store.js'
-import { occurrenceMemberReferenced } from '../compile/effective-topology.js'
+import { planOccurrenceLinkCommand } from '../commands/occurrence-link-commands.js'
+import { documentNodeResolver } from '../compile/compile.js'
+import { outerConstructAddress } from '../compile/crossing.js'
+import { effectiveOccurrenceTopology, occurrenceMemberReferenced } from '../compile/effective-topology.js'
+import { occurrenceDynamicView, type ValueOwner } from '../compile/occurrence-view.js'
 import type { ControllerMode, GraphDef, Json, NodeData, WorkflowDocument } from '../format/document.js'
-import type { LinkEndpoint, PortRef } from '../ids.js'
+import { asNodeId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, type LinkEndpoint, type PortRef } from '../ids.js'
+import { subgraphDefIdOf } from '../invariants.js'
 import { resolveDynamicAddress } from '../format/document.js'
 import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaOutcome, type FormulaValue } from '../mirror/formula.js'
-import { constructsOf, rowKind } from '../schema/body.js'
+import { constructsOf, keyPosition, rowKind } from '../schema/body.js'
 import { isComboValue, normalizeComboOption, normalizedComboOptions, type NormalizedComboOption } from '../schema/combo-options.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import {
@@ -148,6 +153,7 @@ export interface ActionHost {
 export interface StepPlace {
   readonly graphId: string
   readonly nodeId: string
+  readonly instancePath?: readonly string[]
   /** The node's occurrence path for the lookup service; the node id by default. */
   readonly occurrence?: string
 }
@@ -343,17 +349,52 @@ interface View {
   readonly elaborated: ElaboratedInterface
   readonly contexts: ReadonlyMap<string, FormulaContext>
   readonly connectivity: Connectivity
+  readonly valueOwners: ReadonlyMap<string, ValueOwner>
 }
 
 function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost): View | undefined {
   const graph = doc.graphs[target.graphId]
-  const node = graph?.nodes[target.nodeId]
+  const stored = graph?.nodes[target.nodeId]
+  const path = target.instancePath ?? []
+  if (path.length > 0 && host.schemaResolverFor === undefined) return undefined
+  const resolve = host.schemaResolverFor?.(doc) ?? (() => undefined)
+  let body = doc.graphs[doc.root]
+  for (const hop of path) {
+    const instance = body?.nodes[hop]
+    const child = instance && subgraphDefIdOf(instance.type)
+    body = child === undefined ? undefined : doc.graphs[child]
+  }
+  if (path.length > 0 && body?.id !== target.graphId) return undefined
+  const occurrence = path.length > 0 ? occurrenceDynamicView(doc, resolve, path) : undefined
+  const node = stored && {
+    ...stored,
+    values: occurrence?.values.get(stored.id) ?? stored.values,
+    ...(occurrence?.dynamic.get(stored.id) === undefined ? {} : { dynamic: occurrence.dynamic.get(stored.id)! }),
+    ...(occurrence?.controllers.get(stored.id) === undefined ? {} : { controllers: occurrence.controllers.get(stored.id)! }),
+  }
   const schema = node && host.schemaOf(doc, target.graphId, node)
   if (graph === undefined || node === undefined || schema === undefined) return undefined
-  const connectivity = buildGraphConnectivity(graph)(node.id)
+  const base = buildGraphConnectivity(graph)(node.id)
+  const topology = path.length === 0 ? undefined : effectiveOccurrenceTopology(doc, resolve, {
+    instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!),
+  })
+  const inputs = new Set<string>()
+  const outputs = new Set<string>()
+  for (const link of [...(topology?.links ?? []), ...(topology?.projectedParentLinks ?? [])]) {
+    for (const [end, ports] of [[link.to, inputs], [link.from, outputs]] as const) {
+      if (end.graphId !== graph.id || JSON.stringify(end.instancePath) !== JSON.stringify(path)) continue
+      if (isPortEndpoint(end.endpoint) && end.endpoint.node === node.id) ports.add(end.endpoint.port)
+      if (ports === outputs && isExactWidgetTapRef(end.endpoint) && end.endpoint.node === node.id) ports.add(end.endpoint.tap)
+    }
+  }
+  const connectivity: Connectivity = topology === undefined ? base : {
+    isInputConnected: (port) => [...inputs].some((input) => portAddressKey(input) === portAddressKey(port)),
+    isOutputConnected: (port) => outputs.has(port),
+    inputPorts: () => [...inputs], outputPorts: () => [...outputs],
+  }
   const contexts = new Map<string, FormulaContext>()
   const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts })
-  return { doc, graph, node, schema, elaborated, contexts, connectivity }
+  return { doc, graph, node, schema, elaborated, contexts, connectivity, valueOwners: occurrence?.valueOwners.get(node.id) ?? new Map() }
 }
 
 /** The declaration and scope prefix of the pressed button. */
@@ -370,6 +411,36 @@ function buttonOf(view: View, target: PressTarget): { readonly spec: ButtonSpec;
 
 const inputAt = (view: View, path: string): ElaboratedInput | undefined =>
   elabInputsOf(view.elaborated).find((input) => valueKeyOf(input) === path)
+
+/** Route construct state and member addresses through the same boundary mapping as values. */
+function constructOwnerOf(doc: WorkflowDocument, target: StepPlace, address: string, host: ActionHost): ValueOwner {
+  const resolveNode = documentNodeResolver(doc, host.schemaResolverFor?.(doc) ?? (() => undefined))
+  const parents: { graph: GraphDef; instance: NodeData; child: GraphDef }[] = []
+  let graph = doc.graphs[doc.root]
+  for (const hop of target.instancePath ?? []) {
+    const instance = graph?.nodes[hop]
+    const childId = instance && subgraphDefIdOf(instance.type)
+    const child = childId === undefined ? undefined : doc.graphs[childId]
+    if (!graph || !instance || !child) return refuse('The node is gone.')
+    parents.push({ graph, instance, child })
+    graph = child
+  }
+  let owner: ValueOwner = { graphId: target.graphId, nodeId: target.nodeId, valueKey: address }
+  for (const parent of parents.reverse()) {
+    let mapped: string | undefined
+    for (const item of [...(parent.child.boundary?.inputs ?? []), ...(parent.child.boundary?.outputs ?? [])]) {
+      for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+        if (binding.kind !== 'construct' || binding.node !== owner.nodeId) continue
+        mapped = outerConstructAddress(parent.child, binding, item.id, owner.valueKey, (node) => resolveNode(parent.child.id, node))
+        if (mapped !== undefined) break
+      }
+      if (mapped !== undefined) break
+    }
+    if (mapped === undefined) break
+    owner = { graphId: parent.graph.id, nodeId: parent.instance.id, valueKey: mapped }
+  }
+  return owner
+}
 
 /** The Described row stored at `path`, through layout boxes and the options of choices. */
 function describedAt(rows: readonly OptionRow[], path: string, prefix = ''): DescribedSpec | undefined {
@@ -413,7 +484,7 @@ type Action =
       readonly adds?: { readonly group: string; readonly member: string }
     }
   | { readonly kind: 'removeMember'; readonly group: string; readonly member: string }
-  | { readonly kind: 'disconnect'; readonly path: string }
+  | { readonly kind: 'disconnect'; readonly path: string; readonly delivery?: string }
   | {
       readonly kind: 'addNode'
       readonly type: string
@@ -427,20 +498,55 @@ type Action =
       readonly source?: LinkEndpoint
     }
 
-function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace, actor: string | undefined): CommandInvocation[] {
-  const { graphId, nodeId } = target
+function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace, actor: string | undefined, host: ActionHost): CommandInvocation[] {
+  const owner = action.kind === 'value' || action.kind === 'mode'
+    ? (viewOf(doc, target, host) ?? refuse('The node is gone.')).valueOwners.get(action.path) : undefined
+  const { graphId, nodeId } = owner ?? target
+  const path = owner?.valueKey ?? (action.kind === 'value' || action.kind === 'mode' ? action.path : '')
   switch (action.kind) {
     case 'value':
       return [action.value === undefined
-        ? { command: 'node.setValues', params: { graphId, nodeId, values: {}, unset: [action.path] } }
-        : { command: 'node.setValue', params: { graphId, nodeId, inputId: action.path, value: action.value } }]
+        ? { command: 'node.setValues', params: { graphId, nodeId, values: {}, unset: [path] } }
+        : { command: 'node.setValue', params: { graphId, nodeId, inputId: path, value: action.value } }]
     case 'mode':
-      return [{ command: 'node.setController', params: { graphId, nodeId, inputId: action.path, mode: action.mode } }]
-    case 'materialize':
-      return [{ command: 'dynamic.materialize', params: { graphId, nodeId, frames: action.frames as unknown as Json } }]
-    case 'removeMember':
-      return [{ command: 'dynamic.removeMember', params: { graphId, nodeId, construct: action.group, member: action.member } }]
+      return [{ command: 'node.setController', params: { graphId, nodeId, inputId: path, mode: action.mode } }]
+    case 'materialize': {
+      const staged = scratchOf(doc, host)
+      return action.frames.map((frame) => {
+        const current = staged.doc
+        const into = constructOwnerOf(current, target, frame.construct, host)
+        const members = frame.members.map((member) => {
+          const mapped = constructOwnerOf(current, target, `${frame.construct}.${member}`, host)
+          if (mapped.graphId !== into.graphId || mapped.nodeId !== into.nodeId || !mapped.valueKey.startsWith(`${into.valueKey}.`)) return refuse('The group changed while the button waited.')
+          return mapped.valueKey.slice(into.valueKey.length + 1)
+        })
+        const node = current.graphs[into.graphId]!.nodes[into.nodeId]!
+        const schema = documentNodeResolver(current, host.schemaResolverFor?.(current) ?? (() => undefined))(into.graphId, node)
+        const group = schema && constructsOf(schema, node.dynamic).get(into.valueKey)
+        const seq = frame.seq === undefined ? undefined : group?.kind === 'group'
+          ? Math.max(...members.map((member) => (keyPosition(group.keys, member) ?? -1) + 1)) : refuse('The group is gone.')
+        const invocation = { command: 'dynamic.materialize', params: { graphId: into.graphId, nodeId: into.nodeId, frames: [{ construct: into.valueKey, members, ...(seq === undefined ? {} : { seq }) }] } }
+        dispatchOn(staged, [invocation], actor)
+        return invocation
+      })
+    }
+    case 'removeMember': {
+      const into = constructOwnerOf(doc, target, `${action.group}.${action.member}`, host)
+      const dot = into.valueKey.lastIndexOf('.')
+      return [{ command: 'dynamic.removeMember', params: { graphId: into.graphId, nodeId: into.nodeId, construct: into.valueKey.slice(0, dot), member: into.valueKey.slice(dot + 1) } }]
+    }
     case 'disconnect': {
+      const path = target.instancePath ?? []
+      if (path.length > 0) {
+        const owner = { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }
+        const resolve = host.schemaResolverFor!(doc)
+        const topology = effectiveOccurrenceTopology(doc, resolve, owner)
+        return [...topology.links, ...topology.projectedParentLinks].filter((link) =>
+          link.to.graphId === graphId && JSON.stringify(link.to.instancePath) === JSON.stringify(path) &&
+          isPortEndpoint(link.to.endpoint) && link.to.endpoint.node === nodeId && portAddressKey(link.to.endpoint.port) === portAddressKey(action.path),
+        ).map((link) => planOccurrenceLinkCommand(doc, resolve, { command: 'occurrence.link.disconnect', owner, bodyGraph: graphId, link: link.identity })?.invocation
+          ?? refuse('The wire changed while the button waited.'))
+      }
       const graph = doc.graphs[graphId]!
       const to = { node: nodeId, port: action.path }
       const links = Object.values(graph.links).filter((link) => 'port' in link.to && link.to.node === nodeId && link.to.port === action.path)
@@ -478,11 +584,6 @@ function dispatchOn(store: DocumentStore, invocations: readonly CommandInvocatio
   if (invocations.length === 0) return
   const outcome = store.dispatch({ ...batch(invocations), ...(actor !== undefined ? { actor } : {}) })
   if (!outcome.ok) refuse(outcome.diagnostics.find((item) => item.severity === 'error')?.message ?? 'The change could not be made.')
-}
-
-/** Apply `actions` to the scratch store; a refusal names the first diagnostic. */
-function stageOn(store: DocumentStore, actions: readonly Action[], target: StepPlace, actor: string | undefined): void {
-  for (const action of actions) dispatchOn(store, invocationsOf(action, store.doc, target, actor), actor)
 }
 
 // ---------------------------------------------------------------------------
@@ -549,8 +650,11 @@ class Press {
   // -- staging ---------------------------------------------------------------
 
   stage(actions: readonly Action[]): void {
-    stageOn(this.store, actions, this.target, this.session.allocationActor)
-    this.actions.push(...actions)
+    for (const action of actions) {
+      const invocations = invocationsOf(action, this.store.doc, this.target, this.session.allocationActor, this.host)
+      dispatchOn(this.store, invocations, this.session.allocationActor)
+      this.actions.push(action.kind === 'disconnect' ? { ...action, delivery: JSON.stringify(invocations) } : action)
+    }
     this.view = viewOf(this.store.doc, this.target, this.host) ?? refuse('The node is gone.')
     this.context = this.view.contexts.get(this.prefix) ?? refuse('The button is not on the node.')
   }
@@ -1054,7 +1158,11 @@ class Press {
           continue
         }
       }
-      const built = invocationsOf(action, live.doc, this.target, this.session.allocationActor)
+      const built = invocationsOf(action, live.doc, this.target, this.session.allocationActor, this.host)
+      if (action.kind === 'disconnect' && JSON.stringify(built) !== action.delivery) {
+        this.skip(action.path)
+        continue
+      }
       if (built.length === 0) continue
       dispatchOn(live, built, this.session.allocationActor)
       invocations.push(...built)
@@ -1066,8 +1174,12 @@ class Press {
   finalWrites(): Map<string, string> {
     const writes = new Map<string, string>()
     for (const action of this.actions) {
-      if (action.kind === 'value') writes.set(`${this.target.graphId} ${this.target.nodeId} values:${action.path}`, JSON.stringify(action.value) ?? 'unset')
-      if (action.kind === 'mode') writes.set(`${this.target.graphId} ${this.target.nodeId} controllers:${action.path}`, JSON.stringify(action.mode))
+      if (action.kind !== 'value' && action.kind !== 'mode') continue
+      const owner = this.view.valueOwners.get(action.path)
+      const { graphId, nodeId } = owner ?? this.target
+      const path = owner?.valueKey ?? action.path
+      if (action.kind === 'value') writes.set(`${graphId} ${nodeId} values:${path}`, JSON.stringify(action.value) ?? 'unset')
+      if (action.kind === 'mode') writes.set(`${graphId} ${nodeId} controllers:${path}`, JSON.stringify(action.mode))
     }
     return writes
   }
@@ -1141,8 +1253,7 @@ export async function runPress(
   if (!availability.enabled) return failedOutcome(availability.reason)
   const view = viewOf(session.doc, target, host)!
   const button = buttonOf(view, target)!
-  const { graphId, nodeId, occurrence } = target
-  return run(session, [{ graphId, nodeId, ...(occurrence !== undefined ? { occurrence } : {}), prefix: button.prefix, steps: decodeSteps(button.spec.steps) }], host, options)
+  return run(session, [{ ...target, prefix: button.prefix, steps: decodeSteps(button.spec.steps) }], host, options)
 }
 
 /**
@@ -1176,25 +1287,40 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
   if (options.unchanged?.(session.doc) === false) return failedOutcome(stale, [], ownStale)
 
   // Which fields of each node the run touches change while it waits, and whether a node goes.
-  const placeKey = (place: StepPlace): string => `${place.graphId} ${place.nodeId}`
-  const nodeOf = (doc: WorkflowDocument, place: StepPlace): NodeData | undefined => doc.graphs[place.graphId]?.nodes[place.nodeId]
+  const placeKey = (place: StepPlace): string => JSON.stringify([place.graphId, place.instancePath ?? [], place.nodeId])
   const places = new Map(parts.map((part) => [placeKey(part), part]))
   const edited = new Map([...places.keys()].map((key) => [key, new Set<string>()]))
-  const before = new Map([...places].map(([key, place]) => [key, nodeOf(session.doc, place)]))
+  const before = new Map([...places].map(([key, place]) => [key, viewOf(session.doc, place, host)]))
   let gone = false
   const stop = session.onOp(() => {
     for (const [key, place] of places) {
       const was = before.get(key)
-      const now = nodeOf(session.doc, place)
+      const now = viewOf(session.doc, place, host)
       if (was === undefined || now === undefined) {
         gone = true
         continue
       }
       for (const store of ['values', 'controllers'] as const) {
-        const old = was[store] ?? {}
-        const next = now[store] ?? {}
+        const old = was.node[store] ?? {}
+        const next = now.node[store] ?? {}
         for (const field of new Set([...Object.keys(old), ...Object.keys(next)])) {
           if (JSON.stringify((old as Record<string, unknown>)[field]) !== JSON.stringify((next as Record<string, unknown>)[field])) edited.get(key)!.add(`${store}:${field}`)
+        }
+      }
+      for (const field of new Set([...was.valueOwners.keys(), ...now.valueOwners.keys()])) {
+        const oldOwner = was.valueOwners.get(field)
+        const newOwner = now.valueOwners.get(field)
+        if (JSON.stringify(oldOwner) !== JSON.stringify(newOwner)) {
+          edited.get(key)!.add(`values:${field}`)
+          edited.get(key)!.add(`controllers:${field}`)
+        } else if (oldOwner !== undefined && newOwner !== undefined) {
+          const oldNode = was.doc.graphs[oldOwner.graphId]?.nodes[oldOwner.nodeId]
+          const newNode = now.doc.graphs[newOwner.graphId]?.nodes[newOwner.nodeId]
+          for (const store of ['values', 'controllers'] as const) {
+            if (JSON.stringify(oldNode?.[store]?.[oldOwner.valueKey]) !== JSON.stringify(newNode?.[store]?.[newOwner.valueKey])) {
+              edited.get(key)!.add(`${store}:${field}`)
+            }
+          }
         }
       }
       before.set(key, now)
@@ -1332,7 +1458,7 @@ const formulasOf = (value: StepValue | undefined): readonly string[] =>
  * yet, it needs a wired value not known until a run, or every field it sets
  * has a wire.
  */
-export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, host: Pick<ActionHost, 'schemaOf' | 'editorFor'>): ButtonAvailability {
+export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, host: Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor'>): ButtonAvailability {
   const view = viewOf(doc, target, host as ActionHost)
   const button = view && buttonOf(view, target)
   const context = button && view.contexts.get(button.prefix)
