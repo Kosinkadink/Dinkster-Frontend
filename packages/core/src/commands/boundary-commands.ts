@@ -20,7 +20,7 @@ import { boundaryConditionScope, boundaryInnerInput, constructsAround, deriveBou
 import { inputsOf, type InputSpec } from '../schema/model.js'
 import { documentNodeResolver, documentResolver } from '../compile/compile.js'
 import { schemaResolverForCommand } from './command-support.js'
-import { elaborateInterface } from '../schema/elaborate.js'
+import { buildGraphConnectivity, elabInputsOf, elaborateInterface } from '../schema/elaborate.js'
 import { solveGraphTypes, typeProblemWords } from '../schema/solve.js'
 import { typesCompatible } from '../schema/type-relations.js'
 
@@ -79,7 +79,8 @@ const boundaryAddBinding: CommandDefinition = {
     if (found.item.binds.kind === 'port' && binding.kind === 'port') {
       const resolver = documentResolver(doc, resolve)
       const schema = deriveBoundarySchema(def, resolver, undefined, resolveNode).schema
-      const from = schema === undefined ? undefined : inputsOf(schema).find((input) => input.id === found.item.id)?.type
+      const source = schema === undefined ? undefined : inputsOf(schema).find((input) => input.id === found.item.id)
+      const from = source?.type
       const solved = solveGraphTypes(def, resolver, { resolveNode })
       // Inactive option rows are absent from elaboration but still have a
       // structural declaration, including selected type-choice bindings.
@@ -88,10 +89,18 @@ const boundaryAddBinding: CommandDefinition = {
         : undefined
       const to = solved.portTypeOf(binding.node, 'input', binding.port)
         ?? (targetSchema === undefined ? undefined : inputsOf(targetSchema).find((input) => input.id === found.item.id)?.type)
-      if (from !== undefined && to !== undefined && !typesCompatible(from, to)) return [err(
-        'boundary.fanoutTypeMismatch',
-        `Cannot add '${binding.node}/${binding.port}' to subgraph input '${found.item.id}': the field needs ${typeProblemWords(to)}, but the subgraph input sends ${typeProblemWords(from)}.`,
-      )]
+      if (from !== undefined && to !== undefined && !typesCompatible(from, to)) {
+        const node = def.nodes[binding.node]
+        const target = node === undefined ? undefined : resolveNode(node)
+        const field = node === undefined || target === undefined ? undefined : elabInputsOf(elaborateInterface(target, node, buildGraphConnectivity(def)(node.id)))
+          .find((input) => input.address.port === binding.port)?.spec
+        const declared = node === undefined || target === undefined ? undefined : resolveBoundaryRoute(target, binding, 'input', node.values, node.dynamic)
+        const label = field?.displayName ?? (declared?.ok && declared.route.terminal.kind === 'port' ? declared.route.terminal.slot.displayName : undefined) ?? binding.port
+        return [err(
+          'boundary.fanoutTypeMismatch',
+          `Cannot add "${label}" on "${node?.title ?? target?.displayName ?? binding.node}" to the subgraph input "${found.item.displayName ?? source?.displayName ?? found.item.id}": the field needs ${typeProblemWords(to)}, but the input sends ${typeProblemWords(from)}.`,
+        )]
+      }
       return []
     }
     const withTarget = { ...def, boundary: withBoundaryItems(def.boundary, 'inputs', boundaryItems(def.boundary, 'inputs').map((item) =>

@@ -81,6 +81,7 @@ const resolve = withPrimitives((type: string) => schemas[type])
 type End = [node: string, port: string] | { reroute: string }
 type NodeSpec = {
   type: string
+  title?: string
   values?: Record<string, unknown>
   dynamic?: Record<string, unknown>
   mode?: 'active' | 'muted' | 'bypassed'
@@ -107,6 +108,7 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
           {
             id: nid,
             type: n.type,
+            ...(n.title !== undefined ? { title: n.title } : {}),
             values: n.values ?? {},
             ...(n.dynamic ? { dynamic: n.dynamic } : {}),
             ...(n.mode ? { mode: n.mode } : {}),
@@ -476,15 +478,16 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
     [{ kind: 'asset', element: IMAGE }, IMAGE, true],
     [IMAGE, { kind: 'asset', element: IMAGE }, false],
     [IMAGE, FLOAT, false],
+    [{ kind: 'concrete', name: 'INT' }, { kind: 'concrete', name: 'STRING' }, false],
   ] as const)('admits additional targets with the directional canvas connection rule: %j to %j', (from, to, accepted) => {
     const local = {
       Primary: schemaOf('Primary', [input('value', { type: from })]),
-      Target: schemaOf('Target', [input('value', { type: to })]),
+      Target: schemaOf('Target', [input('value', { type: to, displayName: 'Amount' })]),
     }
     const resolve = (type: string) => local[type as keyof typeof local]
     const doc = docOf({ g0: { nodes: {} }, sub: {
-      nodes: { primary: { type: 'Primary' }, target: { type: 'Target' } },
-      boundary: { inputs: [{ id: 'in', binds: bind('primary', 'value') }] },
+      nodes: { primary: { type: 'Primary' }, target: { type: 'Target', title: 'Extra prompt' } },
+      boundary: { inputs: [{ id: 'in', displayName: 'Shared amount', binds: bind('primary', 'value') }] },
     } })
     const store = new DocumentStore(doc, coreCommandRegistry([], resolve), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
     const before = store.doc
@@ -496,6 +499,7 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
       expect(store.doc).toEqual(doc)
     } else {
       expect(outcome.diagnostics.map((item) => item.code)).toContain('boundary.fanoutTypeMismatch')
+      if (from.kind === 'concrete' && from.name === 'INT') expect(outcome.diagnostics[0]?.message).toBe('Cannot add "Amount" on "Extra prompt" to the subgraph input "Shared amount": the field needs text, but the input sends a whole number.')
       expect(store.doc).toBe(before)
       expect(store.canUndo).toBe(false)
     }
