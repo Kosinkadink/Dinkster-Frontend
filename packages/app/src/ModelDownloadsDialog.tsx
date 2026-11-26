@@ -30,6 +30,13 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
   const disposePanels: (() => void)[] = []
   onCleanup(() => disposePanels.forEach((dispose) => dispose()))
   const models = () => props.request.models ?? []
+  const kindLabel = (kind: string) => {
+    const name = kind.replace(/^model\//, '')
+    const canonical = ({ checkpoints: 'checkpoint', upscale_models: 'upscale', controlnets: 'controlnet', loras: 'lora' } as Record<string, string>)[name] ?? name
+    const key = `storagePanel.kind.${canonical}`
+    const label = message(key)
+    return label === key ? canonical.replaceAll('_', ' ').replaceAll('-', ' ') : label
+  }
   const indexOf = (key: string) => models().findIndex((row) => keyOf(row) === key)
   const review = (key: string) => { const index = indexOf(key); if (index >= 0) void props.request.reviewModel?.(index) }
   createEffect(() => {
@@ -71,9 +78,10 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
     const plan = row.plan
     const job = row.job
     const selection = job ?? (plan?.status === 'consent-required' ? plan : undefined)
-    const metadata = [row.requirement.kind.replace(/^model\//, ''), selection && formatByteSize(selection.size),
+    const size = selection?.size ?? row.requirement.asset?.size
+    const metadata = [kindLabel(row.requirement.kind), size !== undefined && formatByteSize(size),
       selection && `${selection.provider === 'huggingface' ? 'Hugging Face' : 'Civitai'}, ${selection.repo}`,
-      job?.status === 'completed' && (job.reused ? message('modelDownloads.reused') : message('modelDownloads.saved', { folder: job.path ?? job.destination })),
+      job?.status === 'completed' && (job.reused ? message('modelDownloads.reused') : message('modelDownloads.saved', { folder: (job.path ?? job.destination).replace(/[\\/][^\\/]*$/, '') })),
     ].filter(Boolean).join(' - ')
     const base = { id: key, name: row.requirement.name, metadata }
     const action = (label: string, onClick: () => void) => ({ label: message(label), disabled: row.pending, onClick })
@@ -97,10 +105,10 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
       detailsLabel: message('modelDownloads.details', { name: row.requirement.name }),
       facts: [
         { label: message('modelDownloads.from'), value: plan.source },
-        { label: message('modelDownloads.version'), value: plan.revision },
+        { label: message('modelDownloads.version'), value: <span class="dinkster-mono">{plan.revision}</span> },
         { label: message('modelDownloads.license'), value: plan.license },
         { label: message('modelDownloads.savesTo'), value: plan.destination },
-        { label: message('modelDownloads.checkedBy'), value: plan.digest ?? plan.sha256 },
+        { label: message('modelDownloads.checkedBy'), value: <span class="dinkster-mono">{plan.digest ?? plan.sha256}</span> },
       ],
     }
     if (!plan) return { ...base, state: 'checking', progressLabel: message('modelDownloads.lookingUp') }
@@ -139,11 +147,14 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
   const footer = () => active() ? message('modelDownloads.keepGoing') : totals().count ?
     message(totals().freeBytes === undefined ? 'modelDownloads.total' : 'modelDownloads.totalFree', {
       size: formatByteSize(totals().bytes), free: formatByteSize(totals().freeBytes ?? 0),
-    }) : message('modelDownloads.nothing')
+    }) : rows().some((row) => row.state === 'needs') ? message('modelDownloads.nothing') : ''
+  const remaining = () => rows().filter((row) => row.state !== 'ready').length
   return <ProductDialog title={message('modelDownloads.title')} onDismiss={props.onClose} size="wide">
     <ProductModelDownloads listLabel={message('modelDownloads.list')} summary={message(ready() ? 'modelDownloads.summaryReady' :
-      rows().some((row) => row.state === 'needs' || row.state === 'failed') ? 'modelDownloads.summaryNeeds' : 'modelDownloads.summary',
-    { name: props.request.workflowTitle ?? message('modelDownloads.workflow'), count: models().length })}
+      rows().some((row) => row.state === 'needs' || row.state === 'failed') ?
+        remaining() === 1 ? 'modelDownloads.summaryNeedsOne' : 'modelDownloads.summaryNeeds' :
+        remaining() === 1 ? 'modelDownloads.summaryOne' : 'modelDownloads.summary',
+    { name: props.request.workflowTitle ?? message('modelDownloads.workflow'), count: remaining() })}
       rows={rows()} footer={footer()} closeLabel={message('modelDownloads.close')} onClose={props.onClose}
       {...(totals().count ? { primary: { label: message(totals().count === 1 ? 'modelDownloads.downloadOne' : 'modelDownloads.download', { count: totals().count }),
         disabled: totals().insufficient, onClick: () => { void props.request.downloadModels?.(models().flatMap((row, index) => !unchecked().has(keyOf(row)) ? [index] : [])) },

@@ -201,7 +201,8 @@ export class ModelDownloadsController {
           const plan = await this.connection.planModelDownload(requirement, this.observation.signal, row.source || undefined)
           if (plan.status === 'consent-required' && !this.matches(plan, requirement))
             throw new Error('Model plan does not match the captured project and requirement')
-          this.update(pending, { ...base, plan })
+          const completed = plan.status === 'local' ? [...jobs].reverse().find((job) => this.matches(job, requirement) && job.status === 'completed') : undefined
+          this.update(pending, { ...base, plan, ...(completed ? { job: completed } : {}) })
         }
       } catch (error) {
         this.update(pending, { requirement: row.requirement, pending: false,

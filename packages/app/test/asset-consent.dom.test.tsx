@@ -28,6 +28,13 @@ it('renders plan answers, selected filesystem capacity, and independent download
   const requirements = answers.map((_, index) => ({ name: `model-${index}.safetensors`, kind: 'model/vae' }))
   let space: ModelDownloadSpace = { status: 'available', filesystem: 'shared-volume', freeBytes: 1000 }
   const jobs = new Map<string, ModelDownloadJob>()
+  jobs.set('0', { ...requirements[0]!, jobId: '0', status: 'completed', received: 2048, size: 2048,
+    project: 'studio', provider: 'huggingface', source: 'https://huggingface.co/example/model', repo: 'example/model',
+    revision: 'a'.repeat(40), file: requirements[0]!.name, sha256: 'b'.repeat(64), license: 'Apache-2.0',
+    destination: '/models/ready/' + requirements[0]!.name, path: '/models/ready/' + requirements[0]!.name,
+    mount: 'ready', reused: true, renamed: false,
+    asset: { digest: `blake3:${'c'.repeat(64)}`, name: requirements[0]!.name, size: 2048,
+      mediaType: 'application/octet-stream', virtualPath: 'models/' + requirements[0]!.name } })
   const location = { id: 'opaque-folder', path: '/models/disabled', mode: 'read', visibility: 'opt-in' }
   const connection = new DinksterConnection({ id: asConnectionId('downloads'), baseUrl: '/engine', clientId: 'test', project: 'studio',
     webSocketFactory: () => ({}) as WebSocketLike,
@@ -77,6 +84,9 @@ it('renders plan answers, selected filesystem capacity, and independent download
     await vi.waitFor(() => expect(root.textContent).toContain('Already in /models/disabled'))
     await vi.waitFor(() => expect(button('Download 2 models')).toBeDefined())
     expect(rows().map((row) => row.dataset['state'])).toEqual(['ready', 'available', 'available', ...Array(9).fill('needs')])
+    expect(root.textContent).toContain('needs 11 models that are not ready on this computer.')
+    expect(rows()[0]!.textContent).toContain('VAEs - 2 KiB')
+    expect(rows()[0]!.textContent).toContain('an identical file was already here')
     for (const reason of ['No known source', 'More than one source', 'No folder to save it in', 'Two files have this name',
       'Hidden on this computer', 'Not signed in to Hugging Face', 'No access to this file on Hugging Face', 'No access to this file on Civitai'])
       expect(root.textContent).toContain(reason)
@@ -102,6 +112,10 @@ it('renders plan answers, selected filesystem capacity, and independent download
     await vi.waitFor(() => expect(rows()[1]!.dataset['state']).toBe('failed'))
     expect(rows()[2]!.dataset['state']).toBe('downloading')
     expect(button('Run')).toBeUndefined()
+    answers[0] = { status: 'consent-required' }
+    controller.invalidate(requirements[0]!)
+    await vi.waitFor(() => expect(rows()[0]!.dataset['state']).toBe('available'))
+    expect(rows()[0]!.textContent).not.toContain('an identical file was already here')
   } finally {
     slot.set(undefined)
     controller.dispose()
@@ -114,8 +128,12 @@ it('renders plan answers, selected filesystem capacity, and independent download
 it('offers Run only after selectable models are ready, then keeps pack and media consent separate', async () => {
   const assetConsent = createSignal<AssetConsentRequest | undefined>(undefined)
   const requirement = { name: 'missing.safetensors', kind: 'model/vae' }
+  let failPlan = false
   const connection = {
-    planModelDownload: async () => ({ ...requirement, status: 'local' as const }),
+    planModelDownload: async () => {
+      if (failPlan) throw new Error('Source unavailable')
+      return { ...requirement, status: 'local' as const }
+    },
     startModelDownload: vi.fn(), fetchModelDownloads: async () => ({ instance: 'one', jobs: [] }),
     fetchModelDownload: vi.fn(), cancelModelDownload: vi.fn(),
   }
@@ -127,10 +145,19 @@ it('offers Run only after selectable models are ready, then keeps pack and media
     await vi.waitFor(() => expect(root.textContent).toContain('has every model it needs.'))
     expect(root.textContent).toContain('Download models')
     expect(root.textContent).not.toContain('Run once')
+    expect(root.querySelector('.dinkster-model-download-footer [role="status"]')?.textContent).toBe('')
     expect(root.querySelector('[data-testid="asset-consent-acquire"]')).toBeNull()
     expect([...root.querySelectorAll('button')].some((button) => button.textContent === 'Run')).toBe(false)
     ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Close')!.click()
     expect(assetConsent.get()).toBeUndefined()
+
+    failPlan = true
+    installAssetConsent({ models: [requirement], slot: assetConsent, modelDownloads: { connection, project: 'default' } })
+    await vi.waitFor(() => expect(root.textContent).toContain('Source unavailable'))
+    expect(root.textContent).toContain('needs 1 model that is not ready on this computer.')
+    expect(root.querySelector('.dinkster-model-download-footer [role="status"]')?.textContent).toBe('')
+    ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Close')!.click()
+    failPlan = false
 
     const asset = { digest: `blake3:${'a'.repeat(64)}`, name: requirement.name, size: 8192,
       mediaType: 'application/octet-stream', virtualPath: `models/${requirement.name}` }
