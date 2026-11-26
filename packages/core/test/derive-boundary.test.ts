@@ -1423,9 +1423,25 @@ describe('Boundary sample acceptance compilation', () => {
       expect(prompt(rewired)[path]!.inputs.image).toEqual([`first.${inside.id}`, 0])
       expect(prompt(rewired)[second]!.inputs).not.toHaveProperty('image')
       expect(rewired.graphs.detail).toEqual(shared)
+      expect(prompt(rewired)[path]!.inputs.mask).toEqual(['maskB', 0])
+      edit(detached, 'node.add', { graphId: copyId, type: 'ImageSource', position: { x: 100, y: 0 } })
+      const replacement = Object.values(detached.doc.graphs[copyId]!.nodes)
+        .find((node) => node.type === 'ImageSource' && node.id !== inside.id)!
+      edit(detached, 'link.connect', { graphId: copyId, from: { node: replacement.id, port: 'image' },
+        to: { node: level === 1 ? 'sample' : 'detail', port: 'image' } })
+      expect(prompt(detached.doc)[path]!.inputs.image).toEqual([`first.${replacement.id}`, 0])
+      expect(prompt(detached.doc)[path]!.inputs.mask).toEqual(['maskB', 0])
+      expect(detached.undo()).toBe(true)
+      expect(prompt(detached.doc)[path]!.inputs.image).toEqual([`first.${inside.id}`, 0])
+      expect(prompt(detached.doc)[path]!.inputs.mask).toEqual(['maskB', 0])
+      expect(detached.redo()).toBe(true)
+      expect(prompt(detached.doc)[path]!.inputs.image).toEqual([`first.${replacement.id}`, 0])
+      expect(prompt(detached.doc)[path]!.inputs.mask).toEqual(['maskB', 0])
+      expect(prompt(detached.doc)[second]!.inputs).not.toHaveProperty('image')
 
       const fanoutDoc = boundarySample(level)
       Object.assign(fanoutDoc.graphs.detail!.nodes, { other: { ...structuredClone(fanoutDoc.graphs.detail!.nodes.sample!), id: 'other' } })
+      Object.assign(fanoutDoc.graphs.root!.nodes, { imageSecond: { id: 'imageSecond', type: 'ImageSource', values: {} } })
       const fanout = storeFor(fanoutDoc)
       edit(fanout, 'boundary.addBinding', { graphId: 'detail', itemId: 'image', node: 'other', port: 'image' })
       const admitted = fanout.doc
@@ -1443,15 +1459,22 @@ describe('Boundary sample acceptance compilation', () => {
       const otherSecond = level === 1 ? 'second.other' : 'second.detail.other'
       for (const target of [path, otherPath]) expect(prompt(fanout.doc)[target]!.inputs.image).toEqual(['imageA', 0])
       for (const target of [second, otherSecond]) expect(prompt(fanout.doc)[target]!.inputs).not.toHaveProperty('image')
+      edit(fanout, 'link.connect', { graphId: 'root', from: { node: 'imageSecond', port: 'image' }, to: { node: 'second', port: 'image' } })
+      for (const target of [path, otherPath]) expect(prompt(fanout.doc)[target]!.inputs.image).toEqual(['imageA', 0])
+      for (const target of [second, otherSecond]) expect(prompt(fanout.doc)[target]!.inputs.image).toEqual(['imageSecond', 0])
       edit(fanout, 'boundary.unbind', { graphId: 'detail', side: 'inputs', itemId: 'image', node: 'sample', port: 'image' })
       expect(prompt(fanout.doc)[path]!.inputs).not.toHaveProperty('image')
       expect(prompt(fanout.doc)[otherPath]!.inputs.image).toEqual(['imageA', 0])
+      expect(prompt(fanout.doc)[second]!.inputs).not.toHaveProperty('image')
+      expect(prompt(fanout.doc)[otherSecond]!.inputs.image).toEqual(['imageSecond', 0])
       expect(fanout.undo()).toBe(true)
       expect(prompt(fanout.doc)[path]!.inputs.image).toEqual(['imageA', 0])
       expect(fanout.redo()).toBe(true)
       const fanoutReload = loadDocument(JSON.parse(JSON.stringify(fanout.doc))).document!
       expect(prompt(fanoutReload)[path]!.inputs).not.toHaveProperty('image')
       expect(prompt(fanoutReload)[otherPath]!.inputs.image).toEqual(['imageA', 0])
+      expect(prompt(fanoutReload)[second]!.inputs).not.toHaveProperty('image')
+      expect(prompt(fanoutReload)[otherSecond]!.inputs.image).toEqual(['imageSecond', 0])
 
       // A FLOAT pin also accepts a known literal; IMAGE/MASK require runtime data.
       for (const literal of [true, false]) {
@@ -1459,6 +1482,8 @@ describe('Boundary sample acceptance compilation', () => {
         Object.assign(numericDoc.graphs.detail!.nodes, { receiver: { id: 'receiver', type: 'NumberSink', values: {} } })
         Object.assign(numericDoc.graphs.root!.nodes, { numericSource: { id: 'numericSource',
           type: literal ? 'dinkster.utilities.primitive_float' : 'FloatSource', values: literal ? { value: 0.65 } : {},
+        }, numericSecond: { id: 'numericSecond',
+          type: literal ? 'dinkster.utilities.primitive_float' : 'FloatSource', values: literal ? { value: 0.35 } : {},
         } })
         const numeric = storeFor(numericDoc)
         edit(numeric, 'boundary.addItem', { graphId: 'detail', side: 'inputs', itemId: 'number', node: 'receiver', port: 'number' })
@@ -1477,23 +1502,71 @@ describe('Boundary sample acceptance compilation', () => {
           to: { node: 'first', port: field } })
         expect(prompt(numeric.doc)[receiver]!.inputs.number).toEqual(literal ? 0.65 : ['numericSource', 0])
         expect(prompt(numeric.doc)[receiverSecond]!.inputs).not.toHaveProperty('number')
+        edit(numeric, 'link.connect', { graphId: 'root', from: { node: 'numericSecond', port: literal ? 'value' : 'number' },
+          to: { node: 'second', port: field } })
+        expect(prompt(numeric.doc)[receiver]!.inputs.number).toEqual(literal ? 0.65 : ['numericSource', 0])
+        expect(prompt(numeric.doc)[receiverSecond]!.inputs.number).toEqual(literal ? 0.35 : ['numericSecond', 0])
         const numericLink = Object.values(numeric.doc.graphs.root!.links)[0]!
         edit(numeric, 'link.disconnect', { graphId: 'root', linkId: numericLink.id })
         expect(prompt(numeric.doc)[receiver]!.inputs).not.toHaveProperty('number')
+        expect(prompt(numeric.doc)[receiverSecond]!.inputs.number).toEqual(literal ? 0.35 : ['numericSecond', 0])
         expect(numeric.undo()).toBe(true)
         expect(prompt(numeric.doc)[receiver]!.inputs.number).toEqual(literal ? 0.65 : ['numericSource', 0])
         expect(numeric.redo()).toBe(true)
         const numericReload = loadDocument(JSON.parse(JSON.stringify(numeric.doc))).document!
         expect(prompt(numericReload)[receiver]!.inputs).not.toHaveProperty('number')
-        expect(prompt(numericReload)[receiverSecond]!.inputs).not.toHaveProperty('number')
+        expect(prompt(numericReload)[receiverSecond]!.inputs.number).toEqual(literal ? 0.35 : ['numericSecond', 0])
       }
     })
 
     it(`boundary/output/${context}`, () => {
-      const store = storeFor(boundarySample(level))
+      const doc = boundarySample(level)
+      Object.assign(doc.graphs.root!.nodes, {
+        otherSink: { ...doc.graphs.root!.nodes.sink!, id: 'otherSink' },
+        siblingSink: { ...doc.graphs.root!.nodes.sink!, id: 'siblingSink' },
+      })
+      const store = storeFor(doc)
       edit(store, 'link.connect', { graphId: 'root', from: { node: 'first', port: 'output91' }, to: { node: 'sink', port: 'number' } })
       // Two definition member outputs, three counted outputs, result, then 91.
       expect(prompt(store.doc).sink!.inputs.number).toEqual([path, 6])
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'second', port: 'output91' }, to: { node: 'siblingSink', port: 'number' } })
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      expect(prompt(store.doc).siblingSink!.inputs.number).toEqual([second, 5])
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'first', port: 'output91' }, to: { node: 'otherSink', port: 'number' } })
+      expect(prompt(store.doc).otherSink!.inputs.number).toEqual([path, 6])
+      const wired = store.doc
+      for (const command of ['boundary.addItem', 'boundary.addBinding']) {
+        const refused = store.dispatch({ command, params: {
+          graphId: 'detail', side: 'outputs', itemId: 'output91', node: 'sample', port: 'result',
+        } })
+        expect(refused.ok).toBe(false)
+        expect(store.doc).toBe(wired)
+      }
+      expect(store.undo()).toBe(true)
+      expect(prompt(store.doc).otherSink!.inputs).not.toHaveProperty('number')
+      expect(prompt(store.doc).sink!.inputs.number).toEqual([path, 6])
+      expect(store.redo()).toBe(true)
+      const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      for (const target of ['sink', 'otherSink']) expect(prompt(loaded)[target]!.inputs.number).toEqual([path, 6])
+      expect(prompt(loaded).siblingSink!.inputs.number).toEqual([second, 5])
+
+      const detached = storeFor(loaded)
+      edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
+      const copyId = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+      edit(detached, 'boundary.setBinding', { graphId: copyId, side: 'outputs', itemId: 'output91',
+        node: level === 1 ? 'sample' : 'detail', port: 'result' })
+      // Replacing one unique definition's source is not appending a second source.
+      for (const target of ['sink', 'otherSink']) expect(prompt(detached.doc)[target]!.inputs.number).toEqual([path, 5])
+      expect(prompt(detached.doc).siblingSink!.inputs.number).toEqual([second, 5])
+      expect(detached.doc.graphs.detail).toEqual(loaded.graphs.detail)
+      if (level === 2) expect(detached.doc.graphs.portrait).toEqual(loaded.graphs.portrait)
+      expect(detached.undo()).toBe(true)
+      expect(prompt(detached.doc).sink!.inputs.number).toEqual([path, 6])
+      expect(detached.redo()).toBe(true)
+      const detachedReload = loadDocument(JSON.parse(JSON.stringify(detached.doc))).document!
+      expect(prompt(detachedReload).sink!.inputs.number).toEqual([path, 5])
+      expect(prompt(detachedReload).otherSink!.inputs.number).toEqual([path, 5])
+      expect(prompt(detachedReload).siblingSink!.inputs.number).toEqual([second, 5])
     })
 
     it(`boundary/whole-choice/${context}`, () => {
