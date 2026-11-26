@@ -201,6 +201,19 @@ export function ActivityBarButton(props: {
   )
 }
 
+/** Desktop supplies the platform after mounting its native window chrome. */
+export function windowBarPlatform(frame: () => HTMLElement) {
+  const [platform, setPlatform] = createSignal<string>()
+  onMount(() => {
+    const read = () => setPlatform(frame().querySelector<HTMLElement>('.dinkster-window-toolbar-host')?.dataset['platform'])
+    read()
+    const observer = new MutationObserver(read)
+    observer.observe(frame(), { childList: true, subtree: true, attributes: true, attributeFilter: ['data-platform'] })
+    onCleanup(() => observer.disconnect())
+  })
+  return platform
+}
+
 /**
  * The left icon bar: the logo when the caller gives one, the place buttons,
  * the account and Settings. The editor and the projects page draw the same

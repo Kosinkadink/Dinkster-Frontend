@@ -55,7 +55,7 @@ import { desktopFileBridge } from '../desktop-bridge.js'
 import { ProductFileInput } from '../ProductControls.js'
 import { setupInProgress } from '../setup-job.js'
 import { AccountControl, createAccountSession } from '../AccountControl.js'
-import { ActivityBarButton, IconBar, ShellTooltip } from '../ShellChrome.js'
+import { ActivityBarButton, IconBar, ShellTooltip, windowBarPlatform } from '../ShellChrome.js'
 import { attachDomTooltips, TooltipController, type DomTooltipTarget } from '../tooltips.js'
 import { useSignal } from '../solid-adapter.js'
 import { DEFAULT_PROJECT_ID } from '../projects.js'
@@ -276,6 +276,8 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
   })
   const [tooltip, setTooltip] = createSignal(tooltips.visible)
   let frame!: HTMLDivElement
+  const barPlatform = windowBarPlatform(() => frame)
+  const logoInLeftBar = () => barPlatform() === 'darwin'
   onMount(() => {
     const detach = attachDomTooltips(frame, tooltips)
     const unsubscribe = tooltips.subscribe(() => setTooltip(tooltips.visible))
@@ -298,7 +300,7 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
       <ProductWindowToolbar
         title={message('shell.applicationControls')}
         platform="linux"
-        brand={logo()}
+        brand={<Show when={!logoInLeftBar()}>{logo()}</Show>}
         search={
           // Search needs an open project's catalog; until the page has its own, it says so.
           <ProductWindowAction
@@ -315,6 +317,7 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
       <div class="body">
         <IconBar
           hidden={false}
+          logo={logoInLeftBar() ? logo : undefined}
           account={<AccountControl session={account} rail />}
           onSettings={() => {}}
           settingsUnavailable={message('projects.unavailable.settings')}

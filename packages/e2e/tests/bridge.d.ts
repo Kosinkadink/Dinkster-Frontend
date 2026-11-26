@@ -272,6 +272,9 @@ interface DinksterTestBridge {
       | { ok: false; diagnostics: readonly unknown[] }
   } | undefined): void
   app: {
+    shell: {
+      activityBarVisible: { set(visible: boolean): void }
+    }
     store: {
       executions: {
         get(): Map<
