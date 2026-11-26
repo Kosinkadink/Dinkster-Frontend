@@ -15,8 +15,10 @@ import {
   asConnectionId,
   asNodeId,
   diag,
+  emptyBoard,
   isValidActorId,
   type CollabClientOp,
+  type CollabDocumentKind,
   type CollabConnection,
   type CollabConnectionEvent,
   type CollabServerOp,
@@ -40,6 +42,7 @@ import { bindBrowserActor, COLLAB_ACTOR_ID_KEY, COLLAB_SCOPE, stableActorId, typ
 import { APP_EDITOR_KIND } from '../src/editors.js'
 import { flattenInvocation } from '../src/subgraph-lifecycle.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
+import { BoardWorkspace } from '../src/board-workspace.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -62,6 +65,7 @@ interface ServerSession {
   readonly sessionId: string
   readonly scope: string
   readonly documentId: string
+  readonly documentKind?: CollabDocumentKind
   snapshot: unknown
   snapshotRevision: number
   revision: number
@@ -178,16 +182,18 @@ class FakeCollabServer {
       sessionId: s.sessionId,
       scope: s.scope,
       documentId: s.documentId,
+      ...(s.documentKind === undefined ? {} : { documentKind: s.documentKind }),
       revision: s.revision,
       snapshotRevision: s.snapshotRevision,
     }
   }
 
-  createSession(scope: string, documentId: string, snapshot: unknown): ServerSession {
+  createSession(scope: string, documentId: string, snapshot: unknown, documentKind?: CollabDocumentKind): ServerSession {
     const session: ServerSession = {
       sessionId: `sess-${++this.n}`,
       scope,
       documentId,
+      ...(documentKind === undefined ? {} : { documentKind }),
       snapshot,
       snapshotRevision: 0,
       revision: 0,
@@ -202,7 +208,7 @@ class FakeCollabServer {
   readonly transport: CollabTransport = {
     create: async (baseUrl, args) => {
       this.createCalls.push({ baseUrl, scope: args.scope, documentId: args.documentId })
-      return this.descriptorOf(this.createSession(args.scope, args.documentId, args.snapshot))
+      return this.descriptorOf(this.createSession(args.scope, args.documentId, args.snapshot, args.documentKind))
     },
     list: async (_baseUrl, scope) =>
       [...this.sessions.values()].filter((s) => s.scope === scope).map((s) => this.descriptorOf(s)),
@@ -224,6 +230,65 @@ class FakeCollabServer {
     },
   }
 }
+
+describe('Board workspace collaboration', () => {
+  it('shares and joins a Board, isolates project discovery, and leaves with the latest document', async () => {
+    const server = new FakeCollabServer()
+    const a = makeApp(server)
+    const b = makeApp(server)
+    const document = emptyBoard()
+    const local = a.boards.open(document, 'References', 'http://collab')
+    expect(local.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'note-1', kind: 'note', text: 'Original', rect: { x: 10, y: 20, width: 120, height: 80 },
+    }] } }).ok).toBe(true)
+    const shared = await a.boards.share(document.lineage)
+    const sessionId = shared.shared!.descriptor.sessionId
+    const joined = await b.boards.join(sessionId)
+    expect(await b.boards.join(sessionId)).toBe(joined)
+    expect((await b.boards.discover()).map((session) => session.sessionId)).toEqual([sessionId])
+    const otherProject = new BoardWorkspace({
+      transport: server.transport, project: 'another-project', actorId: 'other',
+      backend: () => 'http://collab', onConflict: () => undefined,
+    })
+    try {
+      expect(await otherProject.discover()).toEqual([])
+      await expect(otherProject.join(sessionId)).rejects.toThrow('does not belong')
+      expect(shared.session.dispatch({ command: 'board.note.edit', params: { id: 'note-1', text: 'Shared text' } }).ok).toBe(true)
+      await until(() => joined.session.doc.items['note-1']?.kind === 'note' && joined.session.doc.items['note-1'].text === 'Shared text')
+      b.boards.leave(document.lineage)
+      const left = b.boards.entries.get()[0]!
+      expect(left.shared).toBeUndefined()
+      expect(left.session.doc).toEqual(shared.session.doc)
+      expect(left.session.canUndo).toBe(false)
+      expect(joined.shared!.session.status.get()).toBe('closed')
+      await a.boards.end(document.lineage)
+      expect(a.boards.entries.get()[0]!.shared).toBeUndefined()
+      expect(server.sessions.size).toBe(0)
+      a.dispose()
+      expect(shared.shared!.session.status.get()).toBe('closed')
+    } finally { otherProject.dispose() }
+  })
+
+  it('keeps edits and removes an unadopted publication when the Board changes during creation', async () => {
+    const server = new FakeCollabServer()
+    const app = makeApp(server)
+    const document = emptyBoard()
+    const entry = app.boards.open(document, 'References', 'http://collab')
+    const create = server.transport.create
+    let release!: () => void
+    const admission = new Promise<void>((resolve) => { release = resolve })
+    server.transport.create = async (baseUrl, args) => { await admission; return create(baseUrl, args) }
+    const sharing = app.boards.share(entry.id)
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'note-1', kind: 'note', text: 'Keep me', rect: { x: 10, y: 20, width: 120, height: 80 },
+    }] } })
+    release()
+    await expect(sharing).rejects.toThrow('Board changed')
+    expect(app.boards.entries.get()).toEqual([entry])
+    expect(entry.session.doc.items['note-1']).toMatchObject({ text: 'Keep me' })
+    expect(server.sessions.size).toBe(0)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Harness
