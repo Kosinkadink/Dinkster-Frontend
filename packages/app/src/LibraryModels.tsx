@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import type { DinksterConnection, ModelSettingsState, MountDescriptor } from '@dinkster/client'
-import { ProductButton, ProductErrorBanner, ProductModelList, ProductProgress, type ProductModel } from '@dinkster/ui'
+import { ProductButton, ProductConfirmation, ProductErrorBanner, ProductModelList, ProductProgress, type ProductModel } from '@dinkster/ui'
 import { ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
@@ -9,7 +9,7 @@ import { mountAssetSource } from './asset-browser/mountAssetSource.js'
 import { localMountScanAdapter } from './asset-browser/local-mount-logical-model.js'
 import { ingestLogicalModels } from './asset-browser/logical-model-merge.js'
 import { logicalModelVariantName } from './asset-browser/logical-model-collection-source.js'
-import { committableAssetRef, formatSize } from './asset-browser/helpers.js'
+import { committableAssetRef, formatSize, type CanonicalAssetRef } from './asset-browser/helpers.js'
 import type { LogicalModel, LogicalModelVariant } from './asset-browser/logical-model.js'
 import type { AssetBrowserItem } from './asset-browser/types.js'
 
@@ -30,6 +30,19 @@ export function LibraryModels(props: {
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal('')
   const [busy, setBusy] = createSignal(false)
+  const [confirmation, setConfirmation] = createSignal<{
+    readonly modelId: string
+    readonly versionId: string
+    readonly name: string
+    readonly kind: string
+    readonly asset: CanonicalAssetRef
+  }>()
+  const [hideError, setHideError] = createSignal(false)
+  const cancelHide = () => {
+    setConfirmation(undefined)
+    setHideError(false)
+    setBusy(false)
+  }
   let generation = 0
   let request = 0
   let controller: AbortController | undefined
@@ -93,7 +106,7 @@ export function LibraryModels(props: {
     setFolder('')
     setLoading(true)
     setError('')
-    setBusy(false)
+    cancelHide()
     onCleanup(connection.onMountsChanged(() => { void load(connection) }))
     onCleanup(() => { generation++; controller?.abort() })
     untrack(() => { void load(connection) })
@@ -144,22 +157,34 @@ export function LibraryModels(props: {
     const variant = model?.variants.find((candidate) => versionKey(candidate) === versionId)
     return model && variant ? { model, variant } : undefined
   }
-  const hide = async (modelId: string, versionId: string) => {
+  createEffect(() => {
+    query(); kind(); folder()
+    cancelHide()
+  })
+  const askHide = (modelId: string, versionId: string) => {
     const selected = resolve(modelId, versionId)
-    if (!selected || busy()) return
+    if (!selected) return
     const asset = localRef(selected.model, selected.variant)
     if (!asset) return
+    setHideError(false)
+    setConfirmation({ modelId, versionId, name: selected.model.displayName, kind: selected.model.kind, asset })
+  }
+  const hide = async () => {
+    const selected = confirmation()
+    if (!selected || busy()) return
     const owner = generation
     const connection = props.connection
+    const current = () => owner === generation && confirmation() === selected
     setBusy(true)
-    setError('')
+    setHideError(false)
     try {
-      await connection.hideModel(asset, selected.model.kind)
-      if (owner !== generation) return
+      await connection.hideModel(selected.asset, selected.kind)
+      if (!current()) return
+      cancelHide()
       await load(connection)
-    } catch (cause) {
-      if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause))
-    } finally { if (owner === generation) setBusy(false) }
+    } catch {
+      if (current()) setHideError(true)
+    } finally { if (current()) setBusy(false) }
   }
   const copyName = async (modelId: string, versionId: string) => {
     const selected = resolve(modelId, versionId)
@@ -201,12 +226,26 @@ export function LibraryModels(props: {
         <div class="library-model-items">
           <Show when={rows().length > 0} fallback={<ProductEmptyState title={message('library.models.noMatch')} />}>
             <ProductModelList label={message('library.models.title')} models={rows()}
+              onSelect={(modelId, versionId) => {
+                const current = confirmation()
+                if (current && (current.modelId !== modelId || current.versionId !== versionId)) cancelHide()
+              }}
               onShowFolder={(modelId, versionId) => {
                 const selected = resolve(modelId, versionId)
                 if (selected) props.onOpenStorage(providersFor(selected.variant)[0]?.id)
               }}
               onCopyName={(modelId, versionId) => { void copyName(modelId, versionId) }}
-              onHide={(modelId, versionId) => { void hide(modelId, versionId) }} />
+              onHide={askHide}
+              renderActions={(modelId, versionId) => {
+                const current = confirmation()
+                if (!current || current.modelId !== modelId || current.versionId !== versionId) return undefined
+                return <ProductConfirmation surface="inherit"
+                  title={message('modelVisibility.hideTitle', { name: current.name })}
+                  consequence={message('modelVisibility.confirm')}
+                  actionLabel={message('modelVisibility.hide')} intent="remove"
+                  pending={busy()} error={hideError() ? message('modelVisibility.error') : undefined}
+                  onCancel={cancelHide} onConfirm={() => { void hide() }} />
+              }} />
           </Show>
         </div>
         <footer class="library-model-footer">{message('library.models.count', {

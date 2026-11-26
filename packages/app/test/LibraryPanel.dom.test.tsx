@@ -26,6 +26,81 @@ afterEach(() => {
 })
 
 describe('LibraryPanel', () => {
+  it('cancels hide questions on selection and backend changes and ignores obsolete hide completions', async () => {
+    vi.useFakeTimers()
+    for (const failed of [false, true]) {
+      const replies: ((response: Response) => void)[] = []
+      const writes: string[] = []
+      const settings = new Map<string, unknown>()
+      const connection = (id: string) => new DinksterConnection({
+        id: asConnectionId(id), baseUrl: '', clientId: 'human', project: id,
+        fetchFn: async (input) => {
+          const path = new URL(String(input), 'http://example.test').pathname
+          if (path.startsWith('/api/models/hidden/')) {
+            writes.push(path)
+            return new Promise<Response>((resolve) => replies.push(resolve))
+          }
+          if (path === '/api/models/settings') {
+            const locations = [{ id: 'models', path: `/${id}`, mode: 'read', visibility: 'default-on', mounts: ['models'], enabled: true, active: true }]
+            const state = { settings: { version: 1, downloadLocation: null, locations }, locations, revision: id, project: id, changesAllowed: true, restartRequired: false, pendingRemovals: [] }
+            settings.set(id, state)
+            return Response.json(state)
+          }
+          if (path === '/api/mounts') return Response.json({ mounts: [{ id: 'models', mode: 'read', state: 'ready', kind: 'model/checkpoint' }] })
+          if (path.endsWith('/entries')) return Response.json({ entries: ['first', 'second'].map((name, index) => ({ name: `${id}-${name}.safetensors`, virtualPath: `${id}-${name}.safetensors`, digest: `blake3:${(index ? 'b' : 'a').repeat(64)}`, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' })) })
+          throw new Error(`Unexpected route ${path}`)
+        },
+      })
+      const [current, setCurrent] = createSignal(connection('previous'))
+      const root = document.createElement('div')
+      document.body.append(root)
+      const dispose = render(() => <LibraryModels connection={current()} onOpenStorage={() => {}} onAddModelFolder={() => {}} />, root)
+      const action = (label: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === label)!
+      const row = (name: string) => [...root.querySelectorAll<HTMLButtonElement>('.dinkster-row-main')].find((button) => button.textContent?.includes(name))!
+      try {
+        await vi.advanceTimersByTimeAsync(0)
+        row('previous-first').click()
+        action('Hide in this project').click()
+        row('previous-second').focus()
+        expect(root.textContent).not.toContain('from this project?')
+        expect(writes).toEqual([])
+        row('previous-first').focus()
+        action('Hide in this project').click()
+        action('Hide in this project').click()
+        expect(action('Cancel').disabled).toBe(true)
+        row('previous-first').click()
+        row('previous-second').click()
+        expect(root.textContent).not.toContain('from this project?')
+        action('Hide in this project').click()
+        action('Hide in this project').click()
+        replies[0]!(failed ? new Response('Obsolete selection failure', { status: 503 }) : Response.json(settings.get('previous')))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).toContain('Hide "previous-second.safetensors" from this project?')
+        expect(action('Cancel').disabled).toBe(true)
+        expect(root.querySelector('[role="alert"]')).toBeNull()
+        setCurrent(connection('current'))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).not.toContain('from this project?')
+        row('current-first').click()
+        action('Hide in this project').click()
+        action('Hide in this project').click()
+        expect(writes).toEqual(['/api/models/hidden/previous', '/api/models/hidden/previous', '/api/models/hidden/current'])
+        replies[1]!(failed ? new Response('Obsolete failure', { status: 503 }) : Response.json(settings.get('previous')))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).toContain('Hide "current-first.safetensors" from this project?')
+        expect(action('Cancel').disabled).toBe(true)
+        expect(root.querySelector('[role="alert"]')).toBeNull()
+        replies[2]!(new Response('Current failure', { status: 503 }))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.querySelector('[role="alert"]')?.textContent).toContain('Model visibility could not be changed.')
+        expect(action('Cancel').disabled).toBe(false)
+        action('Cancel').click()
+        expect(root.querySelector('[role="alert"]')).toBeNull()
+        expect(root.textContent).not.toContain('from this project?')
+      } finally { dispose(); root.remove() }
+    }
+  })
+
   it('keeps the current backend models when an earlier folder read finishes or fails late', async () => {
     vi.useFakeTimers()
     for (const failed of [false, true]) {
@@ -74,11 +149,13 @@ describe('LibraryPanel', () => {
     const locations = ['studio', 'archive'].map((id) => ({ id, path: `/${id}`, mode: 'read' as const, visibility: 'default-on' as const, mounts: [id], enabled: true, active: true }))
     const state = { settings: { version: 1, downloadLocation: null, locations }, locations, revision: 'first', project: 'commercial', changesAllowed: true, restartRequired: false, pendingRemovals: [] }
     let hidden = false
+    let rejectHide = true
     const writes: unknown[] = []
     const connection = new DinksterConnection({ id: asConnectionId('library'), baseUrl: '', clientId: 'human', project: 'commercial', fetchFn: async (input, init) => {
       const url = new URL(String(input), 'http://example.test')
       if (url.pathname === '/api/models/hidden/commercial') {
         writes.push(JSON.parse(String(init?.body)))
+        if (rejectHide) return new Response('Unavailable', { status: 503 })
         hidden = true
         return Response.json(state)
       }
@@ -132,8 +209,27 @@ describe('LibraryPanel', () => {
       action('Show folder').click()
       expect(folders).toEqual(['archive'])
       action('Hide in this project').click()
+      expect(writes).toEqual([])
+      expect(root.textContent).toContain('Hide "alpha.safetensors" from this project?')
+      await vi.waitFor(() => expect(document.activeElement).toBe(action('Cancel')))
+      expect(root.textContent).toContain('renamed/zeta.safetensors')
+      action('Cancel').click()
+      expect(root.textContent).not.toContain('from this project?')
+      expect(writes).toEqual([])
+      action('Hide in this project').click()
+      action('Cancel').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      expect(root.textContent).not.toContain('from this project?')
+      expect(writes).toEqual([])
+      action('Hide in this project').click()
+      action('Hide in this project').click()
+      await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('Model visibility could not be changed.'))
+      expect(root.textContent).toContain('from this project?')
+      expect(root.textContent).toContain('renamed/zeta.safetensors')
+      expect(action('Cancel').disabled).toBe(false)
+      rejectHide = false
+      action('Hide in this project').click()
       await vi.waitFor(() => expect(root.textContent).toContain('No matching models'))
-      expect(writes).toEqual([{ asset: { digest, name: 'zeta.safetensors', size: 1024, mediaType: 'application/x-safetensors', virtualPath: 'renamed/zeta.safetensors' }, kind: 'model/checkpoint' }])
+      expect(writes).toEqual(Array.from({ length: 2 }, () => ({ asset: { digest, name: 'zeta.safetensors', size: 1024, mediaType: 'application/x-safetensors', virtualPath: 'renamed/zeta.safetensors' }, kind: 'model/checkpoint' })))
     } finally { dispose() }
   })
 
