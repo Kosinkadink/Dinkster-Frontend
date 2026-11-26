@@ -701,7 +701,7 @@ export function App(props: {
       await app.deleteHistoryRun(target.runId, target.owner)
       setPendingDeleteRun(undefined)
     } catch (cause) {
-      setDeleteRunError(message('runs.delete.failed', { reason: cause instanceof Error ? cause.message : String(cause) }))
+      setDeleteRunError(message('runs.delete.failed', { name: target.name, reason: cause instanceof Error ? cause.message : String(cause) }))
     } finally { setDeletingRun(false) }
   }
   createEffect(() => {
@@ -1680,7 +1680,7 @@ export function App(props: {
       </>}>
         <ProductConfirmation title={message('runs.delete.title', { name: pendingDeleteRun()!.name })}
           consequence={message('runs.delete.consequence')} actionLabel={message('runs.chosen.delete')}
-          intent="remove" pending={deletingRun()} error={deleteRunError()}
+          intent="remove" surface="inherit" pending={deletingRun()} error={deleteRunError()}
           onCancel={() => { setDeleteRunError(''); setPendingDeleteRun(undefined) }} onConfirm={() => void confirmDeleteRun()} />
       </Show>
     </div>

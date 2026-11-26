@@ -70,7 +70,7 @@
   "runs.clear.confirmation": "移除此后端上所有工作流的每个已结束的运行。已保存的文件会保留。",
   "runs.delete.title": "要删除“{name}”的运行记录吗？",
   "runs.delete.consequence": "此运行记录会被移除。已保存的文件和工作流会保留。",
-  "runs.delete.failed": "未能删除运行记录：{reason}",
+  "runs.delete.failed": "未能删除“{name}”的运行记录。{reason}",
   "runs.scope": "运行范围",
   "runs.scope.workflow": "此工作流",
   "runs.scope.all": "所有工作流",

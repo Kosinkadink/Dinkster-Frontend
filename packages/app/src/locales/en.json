@@ -71,7 +71,7 @@
   "runs.clear.confirmation": "Removes every finished run on this backend, for all workflows. Saved files stay.",
   "runs.delete.title": "Delete the record of \"{name}\"?",
   "runs.delete.consequence": "This run record is removed. Saved files and workflows stay.",
-  "runs.delete.failed": "The run record was not deleted: {reason}",
+  "runs.delete.failed": "The record of \"{name}\" was not deleted. {reason}",
   "runs.scope.workflow": "This workflow",
   "runs.scope.all": "All workflows",
   "runs.scope.workflowUnavailable": "A page is in front, not a workflow.",

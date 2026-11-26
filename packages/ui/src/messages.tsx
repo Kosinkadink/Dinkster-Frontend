@@ -183,7 +183,7 @@ function ConfirmationBody(props: ProductConfirmationProps) {
 
 export function ProductConfirmation(props: ProductConfirmationProps & { surface?: 'filled' | 'inherit' }) {
   return (
-    <section class="dinkster-confirmation" data-surface={props.surface ?? 'filled'} onKeyDown={(event) => {
+    <section class="dinkster-confirmation" data-surface={props.surface ?? 'filled'} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => {
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()

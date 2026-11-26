@@ -4377,7 +4377,7 @@ export class DinksterConnection {
     )
     if (res.status === 204) return true
     if (res.status === 404) return false
-    throw new Error(`DELETE /api/history/${runId} failed: ${res.status}`)
+    throw new Error(`The engine did not answer (${res.status}).`)
   }
 
   /**
