@@ -468,7 +468,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                   <div class="collab-end-confirm" data-testid="collab-end-confirm" role="group" aria-label="Confirm ending session">
                     <ProductConfirmation title={message('collab.end.title', { name: activeTab()?.title ?? entry.descriptor.sessionId })}
                       consequence={message('collab.end.consequence')} actionLabel={message('collab.end.action')} intent="remove"
-                      pending={isPending('end')} error={failureFor('end')} onCancel={cancelEnd}
+                      pending={isPending('end')} error={failureFor('end') ? message('collab.end.failed', { reason: failureFor('end')! }) : undefined} onCancel={cancelEnd}
                       onConfirm={() => end(tabId, entry.descriptor.sessionId)} />
                   </div>
                 </Show>

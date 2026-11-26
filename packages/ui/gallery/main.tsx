@@ -1204,6 +1204,7 @@ function Gallery() {
                 title="In place"
                 components="ProductConfirmation"
               >
+                <ProductList label="Backend above the question"><ProductListRow title="Local" description="This computer" /></ProductList>
                 <ProductConfirmation
                   title={'Remove "Studio B"?'}
                   consequence="Studio B and its saved access tokens are removed from this project. No files are deleted."
@@ -1220,6 +1221,7 @@ function Gallery() {
                   }}
                   onCancel={() => complete('Removal cancelled')}
                 />
+                <ProductList label="Backend below the question"><ProductListRow title="Render farm" description="Disconnected" /></ProductList>
               </Section>
               <Section
                 title="Something is lost"

@@ -114,7 +114,8 @@ function BackendRow(props: {
           <Show when={editingToken()}><ConnectionCredentialControls connections={props.connections} url={props.url} name={props.name} onClose={() => setEditingToken(false)} /></Show>
     </>}>
       <ProductConfirmation title={message('backendsPanel.removeTitle', { backend: props.name })} consequence={message('backendsPanel.removeNotice', { backend: props.name })}
-        error={error() || props.connections.error()} actionLabel={message('backendsPanel.action.remove')} intent="remove" pending={busy() || props.connections.busy()} onCancel={props.onCancelRemove} onConfirm={() => { void perform(remove) }} />
+        error={error() || props.connections.error() ? message('backendsPanel.removeFailed', { backend: props.name, reason: error() || props.connections.error() }) : undefined}
+        actionLabel={message('backendsPanel.action.remove')} intent="remove" pending={busy() || props.connections.busy()} onCancel={props.onCancelRemove} onConfirm={() => { void perform(remove) }} />
     </Show>
   </ProductListRow>
 }

@@ -4,7 +4,7 @@
    closed-dialog hiding is never overridden. */
 .modal-surface { min-width: calc(var(--dinkster-space-32) * 10); max-width: 90vw; max-height: 86vh; margin: auto; padding: 0; color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); box-shadow: var(--dinkster-elevation-high); }
 .modal-surface[open] { display: flex; flex-direction: column; }
-.modal-surface::backdrop { background: color-mix(in srgb, var(--dinkster-surface-canvas) 72%, transparent); }
+.modal-surface::backdrop { background: var(--dinkster-modal-backdrop); }
 .modal-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .modal-surface[data-modal='settings'] { width: min(900px, 90vw); height: min(680px, 86vh); }
 .desktop-management-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--dinkster-space-8); }

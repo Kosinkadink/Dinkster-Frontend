@@ -162,8 +162,9 @@ export function StorageFolders(props: {
   }
   const removalQuestion = (id: string, model: boolean) => <ProductConfirmation
     title={message('projectFolders.removeTitle', { folder: id })}
-    consequence={message('projectFolders.removeNotice', { folder: id })}
-    actionLabel={message('projectFolders.confirmRemove')} intent="remove" pending={busy()} error={error()}
+    consequence={message('projectFolders.removeNotice')}
+    actionLabel={message('projectFolders.confirmRemove')} intent="remove" surface="inherit" pending={busy()}
+    error={error() ? message('projectFolders.removeFailed', { folder: id, reason: error() }) : undefined}
     disabled={!model && id === settings()?.outputMount && !replacement()}
     onCancel={() => { setError(''); setLeaving(undefined) }} onConfirm={leave}>
     <Show when={!model && id === settings()?.outputMount}>

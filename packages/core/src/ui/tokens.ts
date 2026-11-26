@@ -521,6 +521,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-motion-easing': semanticDesignTokens.motion.easing,
     '--dinkster-elevation-low': semanticDesignTokens.elevation.low,
     '--dinkster-elevation-high': semanticDesignTokens.elevation.high,
+    '--dinkster-modal-backdrop': components.modalBackdrop,
   } as const satisfies Readonly<Record<SemanticCssVariableName, string>>)
 
 export const semanticCssVariables =

@@ -76,11 +76,12 @@ it('groups model grants under one folder and switches project membership without
   expect(root.textContent).toContain('3 folders used by this project')
   root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] [aria-haspopup="menu"]')!.click()
   ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Stop using')!.click()
-  expect(root.textContent).toContain('No files will be deleted')
+  expect(root.textContent).toContain('No files are deleted')
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
   expect(root.querySelector('[data-model-location="models"]')?.textContent).toContain('Checkpoints3')
   ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using this folder')!.click()
   await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"]')?.textContent).toContain('Folder changes are temporarily unavailable.'))
+  expect(root.querySelector('[data-mount-id="plates"]')?.textContent).toContain('"plates" is still used by this project.')
   expect(root.textContent).toContain('3 folders used by this project')
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
   refuseRemoval = false
