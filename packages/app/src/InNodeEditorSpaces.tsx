@@ -200,6 +200,18 @@ export function NodeEditorSpaceOverlay(props: {
       metaKey: event.metaKey,
     }))
   }
+  const forwardContextMenu = (event: MouseEvent): void => {
+    const field = event.target instanceof Element ? event.target.closest('input, textarea, [contenteditable="true"]') : null
+    if (field === document.activeElement && field !== null && !field.matches(':disabled, [readonly]') &&
+        (!(field instanceof HTMLInputElement) || ['text', 'search', 'email', 'url', 'tel', 'password', 'number'].includes(field.type))) return
+    event.preventDefault()
+    event.stopPropagation()
+    props.canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, clientX: event.clientX, clientY: event.clientY,
+      button: event.button, buttons: event.buttons, ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey, shiftKey: event.shiftKey, altKey: event.altKey,
+    }))
+  }
   return (
     <div class="node-editor-space-overlay" data-node-id={props.item.nodeId} data-value-key={props.item.row.valueKey}
       data-view-id={props.item.row.viewId}
@@ -207,6 +219,7 @@ export function NodeEditorSpaceOverlay(props: {
       ref={(element) => {
         element.addEventListener('wheel', forwardWheel, { capture: true, passive: false })
         element.addEventListener('pointerdown', press, { capture: true })
+        element.addEventListener('contextmenu', forwardContextMenu, { capture: true })
       }}
       onPointerMove={move} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release} onKeyDown={step}>
       <div class="node-editor-space-world" style={{

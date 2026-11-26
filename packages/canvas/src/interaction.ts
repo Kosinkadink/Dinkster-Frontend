@@ -4479,7 +4479,22 @@ export class InteractionController {
     const scene = this.renderer.getScene()
     const toolbox = this.renderer.getToolboxLayout()
     if (toolbox && insideToolbox(toolbox, w.x, w.y)) return
-    const hit = hitTest(scene, w.x, w.y, this.hitOptions({ pinRevealed: this.pinRevealed(scene) }))
+    const menuHitAt = (scene: Scene, x: number, y: number): Hit => {
+      const hit = hitTest(scene, x, y, this.hitOptions({ pinRevealed: this.pinRevealed(scene) }))
+      const bnode = hit.kind === 'boundary-body' ? hit.bnode : undefined
+      const node = hit.kind === 'body' ? hit.node : bnode === undefined ? undefined : boundaryFieldNode(bnode)
+      if (node === undefined) return hit
+      const space = node.layout.rows.find((row) => row.kind === 'editorSpace' &&
+        y >= node.y + row.y && y <= node.y + row.y + row.height &&
+        x >= node.x + row.inset && x <= node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2))
+      if (space?.kind !== 'editorSpace') return hit
+      const row = node.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === space.valueKey)
+      if (row?.kind !== 'widget') return hit
+      return { kind: 'widget', node, row, ...(bnode === undefined ? {} : { bnode }),
+        x: node.x + row.inset, y: node.y + row.y, width: row.width ?? node.layout.width - row.inset * 2,
+        height: row.height, localX: x - node.x - row.inset, localY: y - node.y - row.y }
+    }
+    const hit = menuHitAt(scene, w.x, w.y)
     switch (hit.kind) {
       case 'header':
       case 'body':
@@ -4576,7 +4591,7 @@ export class InteractionController {
         // nor the clicked node's body can be trusted - no menu opens.
         menuHit = { kind: 'empty' }
       } else {
-        const re = hitTest(current, w2.x, w2.y, this.hitOptions({ pinRevealed: this.pinRevealed(current) }))
+        const re = menuHitAt(current, w2.x, w2.y)
         if (hit.kind === re.kind && this.menuTargetIdentity(hit) === this.menuTargetIdentity(re)) {
           menuHit = re
         } else {
