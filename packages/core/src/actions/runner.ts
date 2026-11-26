@@ -234,6 +234,7 @@ export const STALE_MESSAGE = 'The workflow changed while the steps waited.'
 export const CONFLICT_MESSAGE = 'Two of these set the same field to different values.'
 export const INSIDE_ONLY_MESSAGE = 'These steps ask the user or act outside the workflow, so they cannot run here.'
 export const NO_WAIT_MESSAGE = 'These steps wait on a pack or a lookup, so they cannot run here.'
+const SHARED_FIELD_MESSAGE = 'This field cannot be changed in only this use of the subgraph.'
 
 // ---------------------------------------------------------------------------
 // Values
@@ -562,6 +563,7 @@ function constructOwnerOf(doc: WorkflowDocument, target: StepPlace, address: str
     if (mapped === undefined) break
     owner = { graphId: parent.graph.id, nodeId: parent.instance.id, valueKey: mapped }
   }
+  if ((target.instancePath?.length ?? 0) > 0 && owner.graphId !== doc.root) return refuse(SHARED_FIELD_MESSAGE)
   return owner
 }
 
@@ -666,6 +668,9 @@ type Action =
 function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace, actor: string | undefined, host: ActionHost): CommandInvocation[] {
   const owner = action.kind === 'value' || action.kind === 'mode'
     ? (viewOf(doc, target, host) ?? refuse('The node is gone.')).valueOwners.get(action.path) : undefined
+  if ((action.kind === 'value' || action.kind === 'mode') && (target.instancePath?.length ?? 0) > 0 && owner?.graphId !== doc.root) {
+    return refuse(SHARED_FIELD_MESSAGE)
+  }
   const { graphId, nodeId } = owner ?? target
   const path = owner?.valueKey ?? (action.kind === 'value' || action.kind === 'mode' ? action.path : '')
   switch (action.kind) {

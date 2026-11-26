@@ -1568,6 +1568,28 @@ describe('steps outside the workflow', () => {
 })
 
 describe('steps inside a subgraph occurrence', () => {
+  it('refuses an unowned instance write without committing earlier writes or changing siblings', async () => {
+    addSchema('test.shared_value', [
+      { kind: 'input', id: 'owned', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { kind: 'input', id: 'shared', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
+      { kind: 'button', id: 'increase', label: 'Increase', steps: [
+        { step: 'set', field: 'owned', value: { formula: 'owned + 1' } },
+        { step: 'set', field: 'shared', value: { formula: 'shared + 1' } },
+      ] },
+    ])
+    const root = documentOf({ left: { type: '#g1', values: { shown: 41 } }, right: { type: '#g1', values: { shown: 73 } } })
+    const inner = documentOf({ inner: { type: 'test.shared_value', values: { shared: 3 } } }).graphs['g0']!
+    const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), boundary: {
+      body: [{ kind: 'input', id: asPortId('shown'), binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('owned') }, promoted: true }],
+    } } } }
+    const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
+    const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    expect(await runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: ['left'], button: 'increase' }, host))
+      .toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(doc)
+    expect(session.canUndo).toBe(false)
+  })
+
   it('materializes and edits whole promoted groups outside, keeping definition members and sibling instances', async () => {
     addSchema('test.owned_group', [
       { kind: 'group', id: 'items', grows: 'button', minMembers: 1, maxMembers: 5,
