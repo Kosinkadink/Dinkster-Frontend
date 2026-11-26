@@ -275,9 +275,10 @@ export function fieldValue(field: ElaboratedInput, value: unknown, name: string)
       if (typeof value !== 'bigint') return refuse(`${name} takes a whole number; the button gave ${display(value)}.`)
       const limits = numericStepConstraints(widget)
       if (!limits.integer) return refuse(`${name} takes a whole number.`)
+      if (limits.special.includes(value)) return integerWidgetValue(value)
       if (limits.min !== undefined && value < limits.min) return refuse(`${name} must be at least ${limits.min}; the button gave ${value}.`)
       if (limits.max !== undefined && value > limits.max) return refuse(`${name} must be at most ${limits.max}; the button gave ${value}.`)
-      if ((value - (limits.min ?? 0n)) % limits.step !== 0n) {
+      if (limits.offset !== undefined && (value - limits.offset) % limits.step !== 0n) {
         return refuse(`${name} moves in steps of ${limits.step}; the button gave ${value}.`)
       }
       return integerWidgetValue(value)
@@ -287,6 +288,7 @@ export function fieldValue(field: ElaboratedInput, value: unknown, name: string)
       if (typeof number !== 'number' || !Number.isFinite(number)) return refuse(`${name} takes a number; the button gave ${display(value)}.`)
       const limits = numericStepConstraints(widget)
       if (limits.integer) return refuse(`${name} takes a whole number.`)
+      if (limits.special.includes(number)) return number
       if (number < limits.min) return refuse(`${name} must be at least ${limits.min}; the button gave ${number}.`)
       if (number > limits.max) return refuse(`${name} must be at most ${limits.max}; the button gave ${number}.`)
       return number
@@ -321,8 +323,9 @@ export function fieldValue(field: ElaboratedInput, value: unknown, name: string)
   }
 }
 
-/** The declared default a Reset writes; explicit, as the node's own reset writes it. */
-function defaultValueOf(field: ElaboratedInput, name: string): Json {
+/** Reset removes an automatic override; other fields keep an explicit current default. */
+function defaultValueOf(field: ElaboratedInput, name: string): Json | undefined {
+  if (field.spec.automatic !== undefined) return undefined
   const widget = field.spec.widget
   const value = widget === undefined ? undefined : effectiveWidgetDefault(widget)
   if (value === undefined) return refuse(`${name} has no default to reset to.`)
@@ -401,7 +404,7 @@ function memberWired(view: View, group: string, member: string): boolean {
 // What a press stages
 
 type Action =
-  | { readonly kind: 'value'; readonly path: string; readonly value: Json }
+  | { readonly kind: 'value'; readonly path: string; readonly value: Json | undefined }
   | { readonly kind: 'mode'; readonly path: string; readonly mode: ControllerMode }
   | {
       readonly kind: 'materialize'
@@ -428,7 +431,9 @@ function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace,
   const { graphId, nodeId } = target
   switch (action.kind) {
     case 'value':
-      return [{ command: 'node.setValue', params: { graphId, nodeId, inputId: action.path, value: action.value } }]
+      return [action.value === undefined
+        ? { command: 'node.setValues', params: { graphId, nodeId, values: {}, unset: [action.path] } }
+        : { command: 'node.setValue', params: { graphId, nodeId, inputId: action.path, value: action.value } }]
     case 'mode':
       return [{ command: 'node.setController', params: { graphId, nodeId, inputId: action.path, mode: action.mode } }]
     case 'materialize':
@@ -827,7 +832,7 @@ class Press {
         if (lowest === undefined || highest === undefined || lowest > highest) {
           return refuse(`Randomize needs a lowest and a highest value for ${step.field}.`)
         }
-        const base = limits.min ?? 0n
+        const base = limits.offset ?? lowest
         const first = lowest + ((((base - lowest) % limits.step) + limits.step) % limits.step)
         if (first > highest) return refuse(`${step.field} has no allowed value between ${lowest} and ${highest}.`)
         const count = (highest - first) / limits.step + 1n
@@ -1061,7 +1066,7 @@ class Press {
   finalWrites(): Map<string, string> {
     const writes = new Map<string, string>()
     for (const action of this.actions) {
-      if (action.kind === 'value') writes.set(`${this.target.graphId} ${this.target.nodeId} values:${action.path}`, JSON.stringify(action.value))
+      if (action.kind === 'value') writes.set(`${this.target.graphId} ${this.target.nodeId} values:${action.path}`, JSON.stringify(action.value) ?? 'unset')
       if (action.kind === 'mode') writes.set(`${this.target.graphId} ${this.target.nodeId} controllers:${action.path}`, JSON.stringify(action.mode))
     }
     return writes

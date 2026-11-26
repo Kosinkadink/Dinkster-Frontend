@@ -41,6 +41,37 @@ function setup(call: () => Promise<CallAnswer>, nodeSchema = schema, lookups?: L
 }
 
 describe('button press authority and typed answers', () => {
+  it.each([false, true])('preserves decimal Lookup arguments with a warm integer cache: %s', async (warm) => {
+    const bodies: string[] = []
+    const lookups = createLookupClient({ baseUrl: '', fetchFn: async (_url, init) => {
+      const body = String(init?.body)
+      bodies.push(body)
+      return body.includes('"args":[2.0]')
+        ? new Response(JSON.stringify({ error: 'lookup-invalid-arguments' }), { status: 400 })
+        : new Response(JSON.stringify({ answer: 9, typedAnswer: 9 }))
+    } })
+    for (const formula of warm ? ['2', '2.0'] : ['2.0']) {
+      const lookupSchema = parseDinksterSchema('test.lookup_argument', {
+        schemaVersion: 2, nodeType: 'test.lookup_argument', displayName: 'Lookup', category: 'test', body: [
+          { kind: 'input', id: 'first', type: { kind: 'concrete', types: ['STRING'] }, default: '' },
+          { kind: 'input', id: 'second', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+          { kind: 'button', id: 'call', label: 'Read', steps: [
+            { step: 'set', field: 'first', value: { value: 'staged' } },
+            { step: 'set', field: 'second', value: { lookup: 'test.integer', args: [{ formula }] } },
+          ] },
+        ],
+      } as unknown as DinksterWireSchema).schema!
+      const test = setup(async () => { throw new Error('not a Call step') }, lookupSchema, lookups)
+      await test.presses.press(test.place)
+      expect(test.store.doc.graphs['g0']!.nodes['n1']!.values).toEqual(formula === '2'
+        ? { first: 'staged', second: 9 } : { first: 'old', second: 1 })
+      expect(test.store.canUndo).toBe(formula === '2')
+    }
+    expect(bodies).toHaveLength(warm ? 2 : 1)
+    expect(bodies.at(-1)).toContain('"args":[2.0]')
+    lookups.dispose()
+  })
+
   it.each([{ typedAnswer: 2, accepted: true }, { typedAnswer: { $float: 2 }, accepted: false }])(
     'preserves lookup numeric kind through the HTTP decoder and press: $typedAnswer', async ({ typedAnswer, accepted }) => {
       const lookupSchema = parseDinksterSchema('test.lookup_press', {

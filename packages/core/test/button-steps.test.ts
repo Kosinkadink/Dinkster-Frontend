@@ -108,6 +108,52 @@ function later<T>(): { promise: Promise<T>; settle: (value: T) => void } {
 }
 
 describe('one press is one undo step, or nothing', () => {
+  it.each(['INT', 'FLOAT'])('accepts a declared %s special outside ordinary bounds', async (type) => {
+    addSchema(`test.special.${type}`, [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: [type] }, default: 2, widget: { type: 'NUMBER', min: 0, max: 10, step: 2, special: [[-1, 'Automatic']] } },
+      { kind: 'button', id: 'set', label: 'Set', steps: [{ step: 'set', field: 'value', value: { value: type === 'INT' ? -1 : { float: -1 } } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: `test.special.${type}`, values: { value: 2 } } }))
+    expect((await runPress(session, at('set'), hostOf())).kind).toBe('done')
+    expect(valuesOf(session)).toEqual({ value: -1 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ value: 2 })
+  })
+
+  it('validates and randomizes integers on their declared offset grid', async () => {
+    addSchema('test.offset', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, widget: { type: 'NUMBER', min: 0, max: 20, step: 3, offset: 1 } },
+      ...[6, 7].map((value) => ({ kind: 'button', id: `set${value}`, label: 'Set', steps: [{ step: 'set', field: 'value', value: { value } }] })),
+      { kind: 'button', id: 'random', label: 'Random', steps: [{ step: 'randomize', field: 'value' }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.offset', values: { value: 4 } } }))
+    expect((await runPress(session, at('set6'), hostOf())).kind).toBe('failed')
+    expect(valuesOf(session)).toEqual({ value: 4 })
+    expect(session.canUndo).toBe(false)
+    expect((await runPress(session, at('set7'), hostOf())).kind).toBe('done')
+    expect(valuesOf(session)).toEqual({ value: 7 })
+    for (const [random, expected] of [[0, 1], [0.999999999999, 19]] as const) {
+      expect((await runPress(session, at('random'), hostOf({ random: () => random }))).kind).toBe('done')
+      expect(valuesOf(session)).toEqual({ value: expected })
+    }
+  })
+
+  it('resets an automatic field by unsetting its override before later steps read it', async () => {
+    addSchema('test.automatic-reset', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { formula: '8' } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+      { kind: 'button', id: 'reset', label: 'Reset', steps: [{ step: 'reset', field: 'value' }, { step: 'set', field: 'read', value: { formula: 'value' } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.automatic-reset', values: { value: 6, read: 1 } } }))
+    expect((await runPress(session, at('reset'), hostOf())).kind).toBe('done')
+    expect(valuesOf(session)).toEqual({ read: 8 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ value: 6, read: 1 })
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ read: 8 })
+  })
+
   it('reads a value an earlier step staged, and undo and redo move both fields together', async () => {
     const session = sessionOf(documentOf({ n1: { type: 'dev.buttons.field_steps', values: { width: 512, height: 768 } } }))
     const outcome = await runPress(session, at('double'), hostOf())

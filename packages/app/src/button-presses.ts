@@ -113,6 +113,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     node: request.node,
     function: request.function,
     args: request.args,
+    typedArgs: true,
   })
 
   /** The backend's one lookup client; it follows the schema epoch the backend holds. */

@@ -26,6 +26,8 @@ export interface LookupCall {
   readonly function: string
   /** Typed arguments as JSON values (a whole number past 2^53 may be a bigint). */
   readonly args: readonly unknown[]
+  /** Formula arguments retain bigint integers and number decimals, unlike ordinary JSON callers. */
+  readonly typedArgs?: true
 }
 
 export type LookupFailure =
@@ -83,9 +85,9 @@ export interface LookupClient {
    */
   resolve(call: LookupCall, use: 'options' | 'value', options: { readonly signal: AbortSignal }): Promise<LookupResult>
   /** What to show for these arguments now, without asking. */
-  entry(call: Pick<LookupCall, 'function' | 'args'>): LookupEntry | undefined
+  entry(call: Pick<LookupCall, 'function' | 'args' | 'typedArgs'>): LookupEntry | undefined
   /** Whether a kept answer was made old by a trigger and should be asked for again. */
-  isOld(call: Pick<LookupCall, 'function' | 'args'>): boolean
+  isOld(call: Pick<LookupCall, 'function' | 'args' | 'typedArgs'>): boolean
   subscribe(listener: () => void): () => void
   /** Make the kept answers of these functions (all when absent) old. */
   invalidate(functions?: readonly string[]): void
@@ -98,7 +100,7 @@ export interface LookupClient {
    * A run got `value` from these arguments. When the kept answer differs,
    * that one call is old and is asked again when next shown.
    */
-  answerRecorded(call: Pick<LookupCall, 'function' | 'args'>, value: unknown): void
+  answerRecorded(call: Pick<LookupCall, 'function' | 'args' | 'typedArgs'>, value: unknown): void
   /** A different backend, catalog or user: drop every answer and call. */
   setPartition(partition: LookupPartition): void
   dispose(): void
@@ -143,18 +145,23 @@ interface Kept {
   inflight?: Inflight
 }
 
-/** JSON with whole numbers past 2^53 written as their digits. */
-export function lookupArgsJson(value: unknown): string {
+/** JSON with exact integer digits and, for formula arguments, explicit integral decimals. */
+export function lookupArgsJson(value: unknown, typed = false): string {
   const marks: string[] = []
   const text = JSON.stringify(value, (_, item: unknown) => {
-    if (typeof item !== 'bigint') return item
-    marks.push(item.toString())
+    if (typeof item === 'bigint') marks.push(item.toString())
+    else if (typed && typeof item === 'number' && Number.isInteger(item)) {
+      const digits = Object.is(item, -0) ? '-0' : String(item)
+      marks.push(digits.includes('e') ? digits : `${digits}.0`)
+    } else if (typeof item === 'string' && /^\u0000bigint\d+\u0000$/.test(item)) {
+      marks.push(JSON.stringify(item))
+    } else return item
     return `\u0000bigint${marks.length - 1}\u0000`
   })
-  return text.replace(/"\\u0000bigint(\d+)\\u0000"/g, (_, index: string) => marks[Number(index)]!)
+  return text.replace(/"\\u0000bigint(\d+)\\u0000"(?!:)/g, (_, index: string) => marks[Number(index)]!)
 }
 
-const keyOf = (call: Pick<LookupCall, 'function' | 'args'>): string => lookupArgsJson([call.function, call.args])
+const keyOf = (call: Pick<LookupCall, 'function' | 'args' | 'typedArgs'>): string => lookupArgsJson([call.function, call.args], call.typedArgs)
 
 const isOption = (item: unknown): boolean => {
   if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') return true
@@ -204,7 +211,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
           function: call.function,
           args: call.args,
           ...(askedBy === 'press' ? { askedBy } : {}),
-        }),
+        }, call.typedArgs),
       })
     } catch (error) {
       if (signal.aborted) throw aborted()
