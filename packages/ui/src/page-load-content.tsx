@@ -5,6 +5,26 @@ import { ProductNotice } from './messages.js'
 import { createPageLoad } from './page-load.js'
 import { useProductStrings } from './strings.js'
 
+/** An additional region shares its main region's read, without duplicate feedback. */
+export function ProductPageAnswer<T>(props: {
+  page: ReturnType<typeof createPageLoad<T>>
+  children: (value: T) => JSX.Element
+}) {
+  const answer = createMemo(() => {
+    const value = props.page.value()
+    return value === undefined ? undefined : { value }
+  })
+  return (
+    <Show when={answer()} keyed>
+      {(result) => (
+        <div class="dinkster-page-load-answer">
+          {props.children(result.value)}
+        </div>
+      )}
+    </Show>
+  )
+}
+
 export function ProductPageLoad<T>(props: {
   page: ReturnType<typeof createPageLoad<T>>
   read: () => Promise<T>
@@ -12,10 +32,6 @@ export function ProductPageLoad<T>(props: {
   children: (value: T) => JSX.Element
 }) {
   const strings = useProductStrings()
-  const answer = createMemo(() => {
-    const value = props.page.value()
-    return value === undefined ? undefined : { value }
-  })
   return (
     <div class="dinkster-page-load" aria-busy={props.page.pending()}>
       <Show when={props.page.loading()}>
@@ -37,13 +53,9 @@ export function ProductPageLoad<T>(props: {
             </div>
           )}
         </Show>
-        <Show when={answer()} keyed>
-          {(result) => (
-            <div class="dinkster-page-load-answer">
-              {props.children(result.value)}
-            </div>
-          )}
-        </Show>
+        <ProductPageAnswer page={props.page}>
+          {(value) => props.children(value)}
+        </ProductPageAnswer>
       </div>
     </div>
   )

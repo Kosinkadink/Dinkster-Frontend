@@ -158,6 +158,10 @@ every core tab once.
   any retained answer. Pass the helper as `page`, the retry `read`, a
   `loadingLabel` and a content render function. Its parent supplies the content
   area's height; arriving content fades over 200ms unless motion is reduced.
+  For other regions fed by the same `page`, `ProductPageAnswer` takes that
+  helper and a content render function, showing only the retained or arriving
+  answer without another loading sign, error or retry. Keep known headings and
+  actions outside both pieces so they stay mounted through reads and refreshes.
   `pending` covers the whole read, `value` retains the previous answer during
   refresh, and `error` exposes a failed read. A newer `load` supersedes an older
   completion; Solid owner disposal cancels timers and ignores late answers.
