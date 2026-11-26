@@ -2028,7 +2028,7 @@ export function createCanvasGalleryFixture(
       at: { x: 232, y: unfoldedY }, folds: { on_1: false }, ...wires(unfoldedY),
     })
     add('Folded line, pointed at', loader, {}, 2, false, { at: { x: 232, y: below(64) } })
-    fixture.overlay = { hoveredLine: { nodeId: 'Folded line, pointed at', key: 'on_1' } }
+    fixture.overlay = { hoveredLine: { nodeId: 'Folded line, pointed at', key: 'on_1', listRow: 1 } }
     fixture.height = below(40)
   } else if (page === 'previews') {
     // Rows of three: each row's height in the gallery.

@@ -698,7 +698,7 @@ export interface OverlayState {
   /** A box under the pointer; `target` names the field a held wire would reach in a closed box. */
   readonly hoveredBox?: { readonly nodeId: string; readonly boxId: string; readonly target?: string }
   /** A field line whose rail or pin list is under the pointer. */
-  readonly hoveredLine?: { readonly nodeId: string; readonly key: string }
+  readonly hoveredLine?: { readonly nodeId: string; readonly key: string; readonly listRow?: number }
   /** A button on a node under the idle pointer, by `growth:<group>` or `button:<id>`: its face lightens. */
   readonly hoveredButton?: { readonly nodeId: string; readonly key: string }
   /** A button on a node held down, keyed as hoveredButton: it sinks. */
@@ -1161,7 +1161,7 @@ export class CanvasRenderer {
       x: node.x + (offset?.dx ?? 0) + node.layout.width + list.gap,
       y: node.y + (offset?.dy ?? 0) + row.y + row.height / 2 - list.padY - list.rowHeight * (line.fields.length / 2 + 0.5),
       width: list.padX * 2 + list.pinSize + list.labelGap + labelWidth,
-      height: list.padY * 2 + (line.fields.length + 1) * list.rowHeight + list.actionGap,
+      height: list.padY * 2 + (line.fields.length + 1) * list.rowHeight + list.separatorStroke,
     }
   }
 
@@ -1174,13 +1174,19 @@ export class CanvasRenderer {
     ctx.save()
     ctx.font = `${list.fontSize}px ${t.fontFamily}`
     ctx.textBaseline = 'middle'
-    ctx.fillStyle = t.colors.boxHover
-    ctx.strokeStyle = t.colors.nodeOutline
-    ctx.lineWidth = canvasPaintTokens.node.box.stroke
+    ctx.fillStyle = t.colors.nodeHeader
+    ctx.strokeStyle = t.colors.listOutline
+    ctx.lineWidth = list.stroke
     ctx.beginPath()
     ctx.roundRect(x, y, width, height, list.radius)
     ctx.fill()
     ctx.stroke()
+    ctx.clip()
+    const pointed = this.overlay.hoveredLine?.listRow
+    if (pointed !== undefined && pointed >= 0 && pointed <= line.fields.length) {
+      ctx.fillStyle = t.colors.nodeSelectedHeader
+      ctx.fillRect(x, y + list.padY + pointed * list.rowHeight + (pointed === line.fields.length ? list.separatorStroke : 0), width, list.rowHeight)
+    }
     ctx.textAlign = 'left'
     for (const [index, field] of line.fields.entries()) {
       const cy = y + list.padY + (index + 0.5) * list.rowHeight
@@ -1189,16 +1195,17 @@ export class CanvasRenderer {
       ctx.beginPath()
       ctx.arc(x + list.padX + list.pinSize / 2, cy, list.pinSize / 2, 0, Math.PI * 2)
       ctx.fill()
-      ctx.fillStyle = t.colors.label
+      ctx.fillStyle = t.colors.value
       ctx.fillText(field.label, x + list.padX + list.pinSize + list.labelGap, cy)
     }
-    const actionTop = y + list.padY + line.fields.length * list.rowHeight + list.actionGap
-    ctx.strokeStyle = t.colors.nodeOutline
+    const actionTop = y + list.padY + line.fields.length * list.rowHeight
+    ctx.strokeStyle = t.colors.nodeHeaderRule
+    ctx.lineWidth = list.separatorStroke
     ctx.beginPath()
     ctx.moveTo(x, actionTop)
     ctx.lineTo(x + width, actionTop)
     ctx.stroke()
-    const cy = actionTop + list.rowHeight / 2
+    const cy = actionTop + list.separatorStroke + list.rowHeight / 2
     const chevron = canvasPaintTokens.node.line.chevron
     const cx = x + list.padX + list.pinSize / 2
     ctx.strokeStyle = t.colors.title
@@ -4736,7 +4743,10 @@ export class CanvasRenderer {
       hovered,
       tokens: t,
     })
-    if (hovered && !(t.widgetRowLook === 'raised-editors' && PARKED_EDITOR_VIEWS.has(row.viewId))) {
+    const linePointed = this.overlay.hoveredLine?.nodeId === sceneNode.id &&
+      l.lines?.some((line) => line.folded && line.key === this.overlay.hoveredLine!.key &&
+        line.fields.some((field) => field.portId === row.inputId))
+    if ((hovered || linePointed) && !(t.widgetRowLook === 'raised-editors' && PARKED_EDITOR_VIEWS.has(row.viewId))) {
       // A neutral wash preserves the widget's own active/connected
       // styling without making value selection look like live blue data.
       const hoverAlpha = ctx.globalAlpha

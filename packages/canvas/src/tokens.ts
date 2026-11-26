@@ -3,7 +3,7 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, DIM_FILL_SHARE, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
@@ -190,7 +190,18 @@ export const canvasPaintTokens = {
       chevron: { top: 3, width: 5, height: 2.5, stroke: 1.5 },
       railLineTop: 13,
       railLineBottom: 3,
-      list: { gap: 10, rowHeight: 22, padY: 3, padX: 6, pinSize: 11, labelGap: 5, radius: 5, fontSize: 11, actionGap: 3 },
+      list: {
+        gap: 10,
+        rowHeight: semanticDesignTokens.interaction.canvasInputHeight + 2,
+        padY: canvasSemanticTokens.space[4],
+        padX: canvasSemanticTokens.space[4] * 1.5 + 1,
+        pinSize: canvasSemanticTokens.space[12],
+        labelGap: canvasSemanticTokens.space[4],
+        radius: canvasSemanticTokens.shape.small,
+        fontSize: semanticDesignTokens.type.canvas.fontSize,
+        stroke: canvasSemanticTokens.interaction.indicatorWidth,
+        separatorStroke: 1,
+      },
     },
     /**
      * The space an editor shown in the node takes under its editor button
@@ -920,6 +931,8 @@ export interface DesignTokens {
     /** A box's outline, and the outline of a box inside a box. */
     readonly boxOutline: string
     readonly boxInnerOutline: string
+    /** The shared canvas choice list's outer frame. */
+    readonly listOutline: string
     /** A box's header or closed row under the pointer. */
     readonly boxHover: string
     /** A box's member or row count. */
@@ -1155,6 +1168,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     warningMark: tokens.meaning.warning.border,
     boxOutline: tokens.border.box,
     boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
+    listOutline: tokens.meaning.accent.restBorder,
     boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,
     boxCount: tokens.text.muted,
     boxChanged: tokens.meaning.accent.border,
