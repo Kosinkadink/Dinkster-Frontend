@@ -305,7 +305,7 @@ export function ProductTemplatesPage(props: {
           )}
         </Show>
       </div>
-      <Show when={props.templates?.length !== 0 && props.children}>
+      <Show when={props.templates !== undefined && props.templates.length > 0 && props.children}>
         <aside class="dinkster-template-detail">
           {props.children}
         </aside>
