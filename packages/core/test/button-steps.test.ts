@@ -749,11 +749,52 @@ describe('while a press waits', () => {
     } }).ok).toBe(true)
     const beforeReply = structuredClone(session.doc)
     answer.settle('continue')
-    expect(await pressing).toMatchObject({ kind: 'failed', message: 'Nothing was changed. A member this button sets was removed while it waited.' })
+    expect(await pressing).toMatchObject({ kind: 'failed', message: 'Nothing was changed. A member this button needs was removed while it waited.' })
     expect(session.doc).toEqual(beforeReply)
     expect(session.undo()).toBe(true)
     expect(valuesOf(session)).toEqual({ marker: 'before', 'items.m0.value': 7, 'items.m1.value': 13 })
     expect(session.canUndo).toBe(false)
+  })
+
+  it('rolls back when a formula source disappears during Call, but permits ordinary edits', async () => {
+    addSchema('test.removed-read-member', [
+      { kind: 'input', id: 'result', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
+      { kind: 'input', id: 'answer', type: { kind: 'concrete', types: ['INT'] }, default: 5 },
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+        keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+        ] },
+      { kind: 'button', id: 'apply', label: 'Apply', steps: [
+        { step: 'set', field: 'result', value: { formula: 'items.value[0] + 11' } },
+        { step: 'call', function: 'probe.wait', args: [], writes: ['answer'] },
+      ] },
+    ])
+    for (const remove of [true, false]) {
+      const session = sessionOf(documentOf({ n1: {
+        type: 'test.removed-read-member', values: { result: 3, answer: 5, 'items.m0.value': 29 },
+        dynamic: { items: { members: ['m0'], seq: 1 } },
+      } }))
+      const entered = later<void>()
+      const answer = later<CallAnswer>()
+      const pressing = runPress(session, at('apply'), hostOf({ call: () => { entered.settle(); return answer.promise } }))
+      await entered.promise
+      expect(valuesOf(session)).toMatchObject({ result: 3, answer: 5 })
+      expect(session.dispatch(remove
+        ? { command: 'dynamic.removeMember', params: { graphId: 'g0', nodeId: 'n1', construct: 'items', member: 'm0' } }
+        : { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'items.m0.value', value: 83 } }).ok).toBe(true)
+      const beforeReply = structuredClone(session.doc)
+      answer.settle({ kind: 'answer', fields: { answer: 71n }, notes: [] })
+      expect((await pressing).kind).toBe(remove ? 'failed' : 'done')
+      if (remove) expect(session.doc).toEqual(beforeReply)
+      else {
+        expect(valuesOf(session)).toEqual({ result: 40, answer: 71, 'items.m0.value': 83 })
+        expect(session.undo()).toBe(true)
+        expect(session.doc).toEqual(beforeReply)
+      }
+      expect(session.undo()).toBe(true)
+      expect(valuesOf(session)).toEqual({ result: 3, answer: 5, 'items.m0.value': 29 })
+      expect(session.canUndo).toBe(false)
+    }
   })
 
   describe('changes to what the press writes into', () => {

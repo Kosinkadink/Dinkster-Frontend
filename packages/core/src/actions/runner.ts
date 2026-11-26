@@ -521,6 +521,14 @@ function occurrenceDriverOf(doc: WorkflowDocument, target: StepPlace, port: stri
 // What a press stages
 
 type Action =
+  | {
+      readonly kind: 'read'
+      readonly path: string
+      readonly field: boolean
+      readonly group: boolean
+      readonly members: readonly { readonly construct: string; readonly member: string }[]
+      readonly choices: readonly { readonly construct: string; readonly selected: string | undefined }[]
+    }
   | { readonly kind: 'value'; readonly path: string; readonly value: Json | undefined }
   | { readonly kind: 'mode'; readonly path: string; readonly mode: ControllerMode }
   | {
@@ -551,6 +559,8 @@ function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace,
   const { graphId, nodeId } = owner ?? target
   const path = owner?.valueKey ?? (action.kind === 'value' || action.kind === 'mode' ? action.path : '')
   switch (action.kind) {
+    case 'read':
+      return []
     case 'value':
       return [action.value === undefined
         ? { command: 'node.setValues', params: { graphId, nodeId, values: {}, unset: [path] } }
@@ -646,8 +656,16 @@ interface Locals {
 
 function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?: (name: string, availability: boolean) => Value | typeof UNKNOWN | undefined): FormulaOutcome {
   const scope = { ...context.scope, names: new Map([...context.scope.names, ...locals.kinds]) }
+  const groupSizes = context.values.groupSizes === undefined ? undefined : new Map(context.values.groupSizes)
+  if (groupSizes !== undefined && read !== undefined) {
+    // len(group) reads the size map directly, bypassing scalar reads and their structural checks.
+    groupSizes.get = (name) => {
+      read(name, true)
+      return context.values.groupSizes!.get(name)
+    }
+  }
   const values = { ...context.values, read: (name: string, availability: boolean) =>
-    locals.values.has(name) ? locals.values.get(name) : read === undefined ? context.values.values?.get(name) : read(name, availability) }
+    locals.values.has(name) ? locals.values.get(name) : read === undefined ? context.values.values?.get(name) : read(name, availability), ...(groupSizes === undefined ? {} : { groupSizes }) }
   try {
     return Formula.parse(text, scope).evaluate(values)
   } catch (error) {
@@ -696,6 +714,7 @@ class Press {
     this.view = viewOf(store.doc, target, host) ?? refuse('The node is not in the workflow.')
     this.context = this.view.contexts.get(prefix) ?? refuse('The button is not on the node.')
     this.signal = options.signal ?? new AbortController().signal
+    if (prefix !== '') this.retainRead(prefix.slice(0, -1))
   }
 
   // -- staging ---------------------------------------------------------------
@@ -761,9 +780,20 @@ class Press {
     return this.formula(name, context, undefined, locals)
   }
 
+  retainRead(path: string, group = false): void {
+    const address = resolveDynamicAddress({ port: path }, this.view.node.dynamic)
+    const members = address.kind === 'resolved' ? [...address.references] : []
+    if (group) for (const member of this.view.node.dynamic?.[path]?.members ?? []) members.push({ construct: path, member })
+    const choices = [...constructsOf(this.view.schema, this.view.node.dynamic)].flatMap(([construct, spec]) =>
+      (spec.kind === 'choice' || spec.kind === 'typeChoice') && (path === construct || path.startsWith(`${construct}.`))
+        ? [{ construct, selected: this.view.elaborated.choices?.[construct] }] : [])
+    this.actions.push({ kind: 'read', path, field: inputAt(this.view, path) !== undefined, group, members, choices })
+  }
+
   formulaRead(name: string, context: FormulaContext, availability: boolean): Value | typeof UNKNOWN | undefined {
     const path = context.paths.get(name)
     if (path === undefined) return context.values.values?.get(name)
+    this.retainRead(path, context.scope.names.get(name) === 'group')
     if (this.automaticValues.has(path)) return this.automaticValues.get(path)
     const field = inputAt(this.view, path)
     if (field?.spec.automatic !== undefined && !this.wired(path) && !Object.hasOwn(this.view.node.values, path)) {
@@ -774,6 +804,7 @@ class Press {
     if (field === undefined && context.scope.names.get(name)?.endsWith('[]') === true) {
       const dot = path.lastIndexOf('.')
       const group = path.slice(0, dot), row = path.slice(dot + 1)
+      this.retainRead(group, true)
       const members = this.view.node.dynamic?.[group]?.members
       if (members !== undefined) {
         const values: Exclude<Value, readonly unknown[]>[] = []
@@ -834,6 +865,7 @@ class Press {
         return (fixed.value ?? null) as CallArg
       }
       const path = this.pathOf(argument, context)
+      this.retainRead(path)
       if (this.wired(path)) return refuse(`Needs ${argument}, which is not known until a run.`)
       return (this.view.node.values[path] ?? null) as CallArg
     }
@@ -898,6 +930,7 @@ class Press {
     const path = this.pathOf(name)
     const spec = constructsOf(this.view.schema, this.view.node.dynamic).get(path)
     if (spec?.kind !== 'group') return refuse(`The button names ${name}, which is not a group.`)
+    this.retainRead(path, true)
     return { path, spec, members: this.view.node.dynamic?.[path]?.members ?? [] }
   }
 
@@ -1258,7 +1291,17 @@ class Press {
     const written = new Set<string>()
     for (const action of this.actions) {
       const view = viewOf(live.doc, this.target, this.host) ?? refuse('The node was removed while the button waited.')
-      if (action.kind === 'value' || action.kind === 'mode') {
+      if (action.kind === 'read') {
+        for (const { construct, member } of action.members) {
+          if (view.node.dynamic?.[construct]?.members?.includes(member) !== true) return refuse('A member this button needs was removed while it waited.')
+        }
+        for (const { construct, selected } of action.choices) {
+          if (view.elaborated.choices?.[construct] !== selected) return refuse('An option this button needs changed while it waited.')
+        }
+        if ((action.field && inputAt(view, action.path) === undefined) ||
+          (action.group && constructsOf(view.schema, view.node.dynamic).get(action.path)?.kind !== 'group')) return refuse('A field or group this button needs is no longer on the node.')
+        continue
+      } else if (action.kind === 'value' || action.kind === 'mode') {
         if (resolveDynamicAddress({ port: action.path }, view.node.dynamic).kind === 'missing') {
           return refuse('A member this button sets was removed while it waited.')
         }
@@ -1567,7 +1610,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
     summary(changed, skipped, notes, presses.some((press) => press.nodeAdded)),
   ].filter((part) => part !== undefined).join(' ') || undefined
   if (outsideFailures.length > 0) {
-    const kept = lead.length > 0 || presses.some((press) => press.actions.length > 0) ? 'The changes were made. ' : ''
+    const kept = lead.length > 0 || presses.some((press) => press.actions.some((action) => action.kind !== 'read')) ? 'The changes were made. ' : ''
     return {
       kind: 'done',
       message: `${kept}${outsideFailures.join(' ')}${message === undefined ? '' : ` ${message}`}`,
