@@ -92,7 +92,7 @@ async function openConditionalWorkflow(page: Page): Promise<void> {
         sub: {
           id: 'sub', name: 'Conditional Wrapper',
           nodes: {},
-          links: {}, nets: {}, reroutes: {}, boundary: { inputs: [], outputs: [] }, nextOrdinal: 100,
+          links: {}, nets: {}, reroutes: {}, boundary: { body: [] }, nextOrdinal: 100,
         },
       },
       view: { graphs: {
@@ -199,7 +199,7 @@ test('region occurrences author independent promoted widget state', async ({ pag
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     const i0 = Object.values(document.occurrenceTopologies?.i0?.links ?? {})[0]
     return {
-      boundaryInputs: document.graphs['sub']!.boundary!.inputs.map((item) => item.id),
+      boundaryInputs: document.graphs['sub']!.boundary!.body.flatMap((entry) => entry.kind === 'input' ? [entry.id] : []),
       i0: i0 === undefined ? undefined : { from: i0.from, to: i0.to },
       i1: document.occurrenceTopologies?.i1,
     }

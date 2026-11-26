@@ -10,6 +10,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { boundaryItems, type Boundary } from '@dinkster/core'
 import { expect, openRailPanel, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SUBGRAPH_PROOF_DIR']
@@ -106,8 +107,10 @@ async function openSubgraphWorkflow(page: Page): Promise<void> {
             boundary: {
               // Boundary ids share ONE namespace across both sides (the
               // derived schema's item list), so they must differ.
-              inputs: [{ id: 'source', binds: { kind: 'port', node: 'n1', port: 'in' } }],
-              outputs: [{ id: 'image', binds: { kind: 'port', node: 'n1', port: 'out0' } }],
+              body: [
+                { kind: 'input', id: 'source', binds: { kind: 'port', node: 'n1', port: 'in' } },
+                { kind: 'output', id: 'image', binds: { kind: 'port', node: 'n1', port: 'out0' } },
+              ],
             },
             nextOrdinal: 100,
           },
@@ -219,16 +222,14 @@ test('double-clicking boundary row labels renames input and output ports', async
     await input.press('Enter')
     await expect.poll(() => page.evaluate(({ side, id }) => {
       const boundary = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.sub!.boundary!
-      const item = boundary[side].find((candidate) => candidate.id === id)
+      const item = boundary.body.find((candidate) => candidate.kind === (side === 'inputs' ? 'input' : 'output') && candidate.id === id)
       return item !== undefined && 'displayName' in item ? item.displayName : undefined
     }, { side, id })).toBe(name)
   }
   const doc = await activeDoc(page)
-  const graph = doc.graphs.sub! as unknown as {
-    boundary: { inputs: unknown[]; outputs: unknown[] }
-  }
-  expect(graph.boundary.inputs[0]).toMatchObject({ id: 'source', displayName: 'Source Image' })
-  expect(graph.boundary.outputs[0]).toMatchObject({ id: 'image', displayName: 'Result Image' })
+  const graph = doc.graphs.sub! as unknown as { boundary: Boundary }
+  expect(boundaryItems(graph.boundary, 'inputs')[0]).toMatchObject({ id: 'source', displayName: 'Source Image' })
+  expect(boundaryItems(graph.boundary, 'outputs')[0]).toMatchObject({ id: 'image', displayName: 'Result Image' })
 })
 
 test('schema labels and user-defined boundary names stay consistent inside and outside', async ({ page }) => {
@@ -252,9 +253,10 @@ test('schema labels and user-defined boundary names stay consistent inside and o
       : []),
   ))
   await expect.poll(interiorLabels).toEqual(['Source Image', 'Result Image'])
-  const sourceItem = page.locator('[data-testid=boundary-item][data-boundary-id=source]')
+  const sourceItem = page.locator('[data-entry-id="source"]')
   await expect(sourceItem).toContainText('Source Image')
-  const nameInput = sourceItem.getByTestId('boundary-name-input')
+  await sourceItem.click()
+  const nameInput = page.getByTestId('boundary-name-input')
   await expect(nameInput).toHaveAttribute('placeholder', 'Source Image')
   await nameInput.fill('Primary Photo')
   await nameInput.press('Enter')
@@ -264,7 +266,8 @@ test('schema labels and user-defined boundary names stay consistent inside and o
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
   await expect.poll(labels).toEqual(['Primary Photo', 'Result Image'])
   await drillIntoSub(page)
-  const renamedInput = page.locator('[data-testid=boundary-item][data-boundary-id=source]').getByTestId('boundary-name-input')
+  await page.locator('[data-entry-id="source"]').click()
+  const renamedInput = page.getByTestId('boundary-name-input')
   await renamedInput.fill('')
   await renamedInput.press('Enter')
   await expect.poll(interiorLabels).toEqual(['Source Image', 'Result Image'])
@@ -275,11 +278,8 @@ test('schema labels and user-defined boundary names stay consistent inside and o
 /** The sub graph's boundary inputs, read through the untyped doc surface. */
 async function boundaryInputs(page: Page): Promise<ReadonlyArray<{ id: string; binds: unknown }>> {
   const doc = await activeDoc(page)
-  const graphs = doc.graphs as Record<
-    string,
-    { boundary?: { inputs: ReadonlyArray<{ id: string; binds: unknown }> } }
-  >
-  return graphs['sub']!.boundary!.inputs
+  const graphs = doc.graphs as unknown as Record<string, { boundary?: Boundary }>
+  return boundaryItems(graphs['sub']!.boundary, 'inputs')
 }
 
 /** Page coordinates of a scene link's straight-span midpoint (identity viewport). */
@@ -363,7 +363,7 @@ test('Delete on a selected binding noodle lowers to boundary.unbind; undo restor
 
   await page.keyboard.press('Control+z')
   expect(await boundaryInputs(page)).toEqual([
-    { id: 'source', binds: { kind: 'port', node: 'n1', port: 'in' } },
+    { kind: 'input', id: 'source', binds: { kind: 'port', node: 'n1', port: 'in' } },
   ])
 })
 
@@ -401,7 +401,7 @@ test('Shift-drag from an inputs pseudo output re-sources its sinks to a real out
   await page.keyboard.press('Control+z')
   const undone = await activeDoc(page)
   expect(await boundaryInputs(page)).toEqual([
-    { id: 'source', binds: { kind: 'port', node: 'n1', port: 'in' } },
+    { kind: 'input', id: 'source', binds: { kind: 'port', node: 'n1', port: 'in' } },
   ])
   expect(Object.keys(undone.graphs['sub']!.links)).toHaveLength(0)
 })

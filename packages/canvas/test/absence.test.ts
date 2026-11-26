@@ -130,8 +130,8 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
       ...(g.outputs
         ? {
             boundary: {
-              inputs: [],
-              outputs: Object.entries(g.outputs).map(([id, [node, port]]) => ({
+              body: Object.entries(g.outputs).map(([id, [node, port]]) => ({
+                kind: 'output',
                 id,
                 binds: { kind: 'port', node, port },
               })),
