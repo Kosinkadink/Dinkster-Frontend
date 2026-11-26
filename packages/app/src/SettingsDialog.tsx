@@ -263,7 +263,13 @@ export function SettingsDialog(props: {
         && (item.source === 'setting' ? item.definition === candidate.definition : item.command === candidate.command)
     })
   const index = createMemo(
-    () => { locale(); return buildSettingsSearchIndex(definitions(), (d) => props.settings.categoryOf(d), props.commands.list()) },
+    () => {
+      locale()
+      return buildSettingsSearchIndex(definitions(), (d) => props.settings.categoryOf(d), props.commands.list()).map((item) => {
+        const place = item.source === 'setting' ? location(item.definition) : { group: 'shortcuts', section: 'commands' }
+        return { ...item, keywords: [...item.keywords, message(`settingsPage.group.${place.group}`), sectionLabel(place.group, place.section)] }
+      })
+    },
     undefined,
     { equals: sameIndex },
   )

@@ -20,7 +20,7 @@ byte comes from `branding/`, including unedited exact-source 16/24px frames.
 
 The shell is everything around the center region: topbar, tab strip, icon
 sidebar, the left dock, the tabbed right zone, the bottom panel, the status bar,
-and the settings dialog. This document pins the layout contract so panels
+and the Settings page. This document pins the layout contract so panels
 do not accrete ad hoc. The center region itself hosts EDITORS resolved
 through the editor registry - a separate vocabulary pinned in
 docs/editors.md (today's only editor kind is the graph canvas).
@@ -776,7 +776,7 @@ panel between placements goes through the `panel-location.ts` move boundary
 set - never a JSX edit.
 
 Registered panels: `library`, `assets`, `backends`, `memory` (dock), `logs` (bottom),
-`settings` (modal), and `queue`, `outputs`, `extensions`, `boundary`,
+`projects` (modal), and `queue`, `outputs`, `extensions`, `boundary`,
 `surfaces`, `problems` (rail; some are conditional via a `when()` guard).
 Panel ids are stable open strings; the registry, not a closed union, is the
 source of truth for what exists.
@@ -817,37 +817,35 @@ panel), and the title header with close button (`modal-close`).
 `aria-modal="true"` is set explicitly - redundant on a modal `<dialog>`,
 but `CanvasHost` gates canvas shortcuts on `[aria-modal="true"]`. A body
 that must swallow keys calls `preventDefault` on the keydown, which
-suppresses the dialog's native Escape close request - the settings
-keybinding capture does exactly that, so Escape cancels the capture
-instead of closing the dialog.
+suppresses the dialog's native Escape close request.
 
-Resident panel: **Settings** (`settings`), opened from the topbar settings
-button or the `settings.open` command (Ctrl+,). `SettingsDialog` is a
-placement-agnostic body; everything around it is host chrome. With an empty
-search query, the left rail browses one active category. Category IDs are
-presented as readable labels without changing their registry identity.
-Typing searches setting names, ids, and descriptions across every category,
-plus command names and ids from the keybinding editor. Results use the shared
-search scorer, are grouped under ranked category headers, and remain directly
-editable. Search mode adds an All results entry and per-category match counts
-to the rail; selecting a category header or a counted rail entry narrows the
-current results, while editing the query returns to All results. The visible
-result summary announces updates, an authoritative empty result remains
-visible, and Clear or Escape resets a nonempty query without closing Settings.
+Projects uses the modal host. Settings is instead a singleton page in the
+editor tab host, opened by the Settings button, `settings.open` (Ctrl+,),
+backend settings links or a search result. Reopening selects its existing tab;
+closing uses the ordinary tab close action and returns to the workflow.
+
+With an empty query, ProductSettingsPage browses General, Canvas, Runs,
+Shortcuts, Storage, Packs, This engine, Experimental and Advanced. Typing
+searches frontend setting names, ids, descriptions and translated group and
+section labels, plus command names and ids, across the whole page. Results
+use ProductSearch and remain directly editable; no navigation group is marked
+while searching. Every result highlights matching visible text, including a
+description excerpt or canonical ID when needed. Clear or Escape resets a
+nonempty query without leaving Settings. Pack schemas, runtime categories,
+agent permissions and storage accounting retain their API-backed editors.
 
 Settings and keybindings share one host-owned field row. It aligns declarative
 controls and actions, associates descriptions with their controls, exposes
-setting and command IDs as secondary metadata, and presents keybinding
-conflicts and invalid numeric drafts as named inline alerts. Invalid numeric
+setting and command IDs in row action menus, and presents keybinding
+conflicts as warnings and invalid numeric drafts as named inline alerts. Invalid numeric
 drafts remain local until corrected, so the settings registry never receives a
 non-finite or out-of-range value. Escape restores the committed numeric value
 and clears its draft validation. The row and navigation chrome use semantic
-design tokens. On narrow viewports the category rail scrolls horizontally and
+design tokens. On narrow viewports the group navigation scrolls horizontally and
 the field rows stack their copy above controls so every action and the result
-scroll tail remain inside the dialog.
+scroll tail remain inside the page.
 
-The initial category is the first category actually derived by the settings
-registry (for example `canvas.grid`), never an invented empty parent. Each
+The initial group is General unless an opening request targets a field. Each
 setting whose current value differs from its registered default shows a Reset
 button; Reset writes that default through `SettingsRegistry.reset`, removes
 the persisted override, and disappears immediately. Default-valued settings
@@ -857,13 +855,13 @@ Keybinding capture waits through modifier-only keydowns and commits only when
 a non-modifier key completes the chord. A completed duplicate chord marks both
 commands as conflicting. Reset restores the command's registered default and
 clears the conflict when the duplicate no longer exists; Escape cancels an
-in-progress capture without closing the settings dialog.
+in-progress capture without leaving the Settings page.
 
-The framework-free `settings-search.ts` builds and queries the same index used
-by the dialog. Each entry carries its id, name, category, keywords, and a
-serializable open-settings action so the planned `core.settings` universal
-search provider can consume the index without extracting search logic from the
-component later.
+The framework-free `settings-search.ts` builds and queries the settings index.
+Each entry carries its id, name, category, keywords and serializable
+open-settings action. The Settings page adds its displayed group and section
+labels to the index; the universal search provider uses the same public
+registry and action contract.
 
 The Problems panel is owner-scoped: every entry in `app.problems` carries an
 owner - a tab id for workflow diagnostics (compile, upgrade, drift,
@@ -930,9 +928,9 @@ existing error presentation unchanged.
 
 Dock and bottom panels are browse/manage surfaces the user works *beside*:
 they must not block the canvas. Modals are reserved for flows that demand a
-decision before work continues (settings, node search, asset consent,
+decision before work continues (asset consent,
 import resolution). New shell surfaces should pick a docked placement unless
-they genuinely need to block. Settings goes through the modal host; node
+they genuinely need to block. Settings uses the page tab host; node
 search stays a canvas ephemeral, and the asset-consent/import-resolution
 dialogs stay request-driven flow dialogs (they appear when a pending
 request exists, not when a panel is toggled), so they are not registry

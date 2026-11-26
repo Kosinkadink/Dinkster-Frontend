@@ -36,8 +36,8 @@ async function installRoutes(page: Page): Promise<void> {
     nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
-  await page.route('**/api/settings*', async (route) => {
-    if (route.request().method() === 'PATCH') {
+  await page.route(/\/api\/settings(?:\/[^?]+)?(?:\?.*)?$/, async (route) => {
+    if (route.request().method() === 'PUT') {
       const category = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop()!)
       const value = route.request().postDataJSON() as unknown
       return route.fulfill({ json: { ...runtimeSettings.settings[category as keyof typeof runtimeSettings.settings], value, source: 'runtime' } })
@@ -108,7 +108,7 @@ test('backend and runtime management remains truthful and usable across wide, na
 
   const local = page.getByTestId('backend-row').filter({ hasText: 'Local' })
   await local.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.locator('.settings-editor')
+  const settings = page.getByRole('region', { name: 'Settings', exact: true }).getByRole('region', { name: 'Local', exact: true })
   await expect(settings.getByText('Component precision', { exact: true })).toBeVisible()
   await expect(settings.getByText('Grant required').first()).toBeVisible()
   await expect(settings.getByText('Read-only').first()).toBeVisible()
@@ -121,11 +121,16 @@ test('backend and runtime management remains truthful and usable across wide, na
   await jobs.getByRole('button', { name: 'Reset' }).click()
   await expect(jobsInput).toHaveValue('2')
   await expect(jobs.getByText('No unsaved changes')).toBeVisible()
+  await jobsInput.fill('3')
+  await jobs.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(jobsInput).toHaveValue('3')
+  await expect(jobs.getByText('No unsaved changes')).toBeVisible()
+  await expect(jobs.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled()
   await settings.locator('[data-category="future-category"]').scrollIntoViewIfNeeded()
   await expect(settings.getByText('A long additive value remains visible')).toBeVisible()
-  expect(await auditLayout(page, '.settings-editor')).toEqual([])
+  expect(await auditLayout(page, '.dinkster-settings')).toEqual([])
   await settings.locator('[data-category="future-category"]').screenshot({ path: evidencePath('issue-37', 'after-runtime-wide.png') })
-  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Close Settings', exact: true }).click()
 
   await page.setViewportSize({ width: 390, height: 844 })
   await setShellRegion(page, 'right', false)
@@ -179,7 +184,7 @@ test('mounted agent permission chrome relabels without refetching or changing au
   await openFixture(page)
   let principalRequests = 0
   let permissionUpdates = 0
-  await page.route('**/api/principals', (route) => {
+  await page.route('http://permissions.example.test:9000/api/principals', (route) => {
     principalRequests += 1
     return route.fulfill({ json: [{
       principalId: 'raw.agent-one',
@@ -187,7 +192,7 @@ test('mounted agent permission chrome relabels without refetching or changing au
       categories: { edit: true, execute: false, future: true },
     }] })
   })
-  await page.route('**/api/principals/*/permissions', (route) => {
+  await page.route('http://permissions.example.test:9000/api/principals/*/permissions', (route) => {
     permissionUpdates += 1
     expect(route.request().postDataJSON()).toEqual({ execute: true })
     return route.fulfill({ json: { edit: true, execute: true, future: true } })
@@ -202,7 +207,7 @@ test('mounted agent permission chrome relabels without refetching or changing au
   const backend = page.getByTestId('backend-row').filter({ hasText: 'Raw permissions backend' })
   await backend.locator('summary').first().click()
   await backend.getByRole('button', { name: 'Settings', exact: true }).click()
-  const panel = page.locator('.settings-editor').getByTestId('agent-permissions')
+  const panel = page.getByRole('region', { name: 'Settings', exact: true }).getByRole('region', { name: 'Raw permissions backend', exact: true }).getByTestId('agent-permissions')
   const row = panel.getByTestId('agent-permissions-row')
   const edit = row.locator('[data-category="edit"]')
   const execute = row.locator('[data-category="execute"]')
@@ -248,7 +253,7 @@ test('mounted agent permission chrome relabels without refetching or changing au
   await expect(execute).toBeFocused()
   expect(principalRequests).toBe(1)
   expect(permissionUpdates).toBe(0)
-  expect(await auditLayout(page, '.settings-editor')).toEqual([])
+  expect(await auditLayout(page, '.dinkster-settings')).toEqual([])
 
   await execute.click()
   await expect.poll(() => permissionUpdates).toBe(1)
