@@ -42,7 +42,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     if (rect !== undefined && !beside) {
       const belowSpace = window.innerHeight - rect.bottom - 16
       const aboveSpace = rect.top - 16
-      above = (readoutHeight ?? naturalHeight) > belowSpace && aboveSpace > belowSpace
+      above = tip.element?.dataset['tooltipPlace'] === 'above' || (readoutHeight ?? naturalHeight) > belowSpace && aboveSpace > belowSpace
       available = above ? aboveSpace : belowSpace
     }
     if (tip.fit !== undefined) {

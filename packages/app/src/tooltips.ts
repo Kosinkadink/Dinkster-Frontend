@@ -483,7 +483,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
   const tooltipTargetOf = (target: EventTarget | null) =>
     (target instanceof Element ? target : undefined)?.closest<HTMLElement>('[data-tooltip-label]')
   const elementAt = (event: Event) => tooltipTargetOf(event.target)
-  const focusedElement = () => document.activeElement instanceof HTMLElement && document.activeElement.matches('[data-tooltip-label]')
+  const focusedElement = () => document.activeElement instanceof HTMLElement && document.activeElement.matches('[data-tooltip-label]:not([data-tooltip-trigger="hover"])')
     ? document.activeElement
     : undefined
   const sessionOf = (element: Element | null | undefined) => element?.closest<HTMLElement>('[data-tooltip-session]')
@@ -534,6 +534,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     }
     if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return
     if (hovered === element) hovered = undefined
+    if (element.dataset['tooltipTrigger'] === 'hover') { hideNow(); return }
     if (document.activeElement === element) return
     const focused = focusedElement()
     if (focused !== undefined) { showForElement(focused, undefined, true); return }
@@ -543,11 +544,11 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
   }
   const focusIn = (event: FocusEvent) => {
     const element = elementAt(event)
-    if (element && event.target === element) { clearSessionGrace(); showForElement(element, undefined, true) }
+    if (element && event.target === element && element.dataset['tooltipTrigger'] !== 'hover') { clearSessionGrace(); showForElement(element, undefined, true) }
   }
   const focusOut = (event: FocusEvent) => {
     const element = elementAt(event)
-    if (!element || event.target !== element) return
+    if (!element || event.target !== element || element.dataset['tooltipTrigger'] === 'hover') return
     if (hovered !== undefined) showForElement(hovered, undefined, true)
     else hideNow()
   }

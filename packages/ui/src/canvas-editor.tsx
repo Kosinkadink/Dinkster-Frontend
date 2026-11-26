@@ -669,6 +669,7 @@ export function CanvasCurvePlot(props: {
   onDelete?: (index: number) => void
 }) {
   const id = createUniqueId()
+  const [pointerFocus, setPointerFocus] = createSignal(false)
   // The plot and its strips sit at one margin on every side; the border sits
   // on the half pixel so it stays one pixel wide.
   const [size, setSize] = createSignal({ width: 320, height: 180 })
@@ -764,6 +765,7 @@ export function CanvasCurvePlot(props: {
   }
   const press = (event: PointerEvent) => {
     if (props.disabled || event.button !== 0) return
+    setPointerFocus(true)
     svgElement?.focus({ preventScroll: true })
     const at = local(event)
     if (!at) return
@@ -791,6 +793,7 @@ export function CanvasCurvePlot(props: {
   }
   const key = (event: KeyboardEvent) => {
     if (props.disabled) return
+    setPointerFocus(false)
     const index = props.selected
     if ((event.key !== 'Delete' && event.key !== 'Backspace') || index === undefined || props.onDelete === undefined) return
     // The key is the curve's: the canvas behind it must not also delete the node.
@@ -804,6 +807,8 @@ export function CanvasCurvePlot(props: {
       data-disabled={props.disabled ? 'true' : undefined}
       tabindex={props.disabled || props.onSelect === undefined ? undefined : 0} role={props.disabled || props.onSelect === undefined ? 'img' : 'application'}
       aria-label={props.label} data-tooltip-label={props.tooltip}
+      data-tooltip-trigger="hover" data-tooltip-place="above"
+      data-pointer-focus={pointerFocus() ? 'true' : undefined} onBlur={() => setPointerFocus(false)}
       onPointerDown={press} onPointerMove={track} onPointerUp={release} onPointerCancel={release}
       onLostPointerCapture={release} onPointerLeave={() => setHover(undefined)} onDblClick={add} on:keydown={key}>
       <defs>

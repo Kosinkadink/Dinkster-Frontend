@@ -1244,7 +1244,8 @@
 .dinkster-canvas-angle-dot { fill: var(--dinkster-accent-border); }
 .dinkster-canvas-angle-dot[data-fixed='true'] { fill: var(--dinkster-surface-canvas); stroke: var(--dinkster-accent-border); stroke-width: 2; }
 .dinkster-canvas-curve { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; -webkit-user-select: none; user-select: none; }
-.dinkster-canvas-curve:focus-visible { outline: none; }
+.dinkster-canvas-curve[tabindex]:focus { outline: none; }
+.dinkster-canvas-curve:focus-visible:not([data-pointer-focus='true']) .dinkster-canvas-curve-border { stroke: var(--dinkster-border-focus); }
 .dinkster-canvas-curve-hover .dinkster-canvas-curve-readout { fill: var(--dinkster-surface-raised); stroke: none; }
 .dinkster-canvas-curve-plot { fill: var(--dinkster-surface-raised); }
 .dinkster-canvas-curve-border { fill: none; stroke: var(--dinkster-border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
