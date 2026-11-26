@@ -1,4 +1,4 @@
-import { createEffect, createSignal, on, onCleanup, type JSX } from 'solid-js'
+import { Show, createEffect, createSignal, on, onCleanup, type JSX } from 'solid-js'
 import { MAX_INTEGER_WIDGET_VALUE, MIN_INTEGER_WIDGET_VALUE } from '@dinkster/core'
 
 type NumberValue = number | string | undefined
@@ -12,6 +12,7 @@ export function ProductNumberInput(props: {
   readonly inputMode?: 'decimal' | 'numeric'
   readonly id?: string
   readonly class?: string
+  readonly unit?: string | undefined
   readonly testId?: string
   readonly ariaLabel?: string
   readonly ariaLabelledBy?: string
@@ -261,6 +262,7 @@ export function ProductNumberInput(props: {
         onBlur={(event) => syncAndCommit(event.currentTarget.value)}
         onKeyDown={keydown}
       />
+      <Show when={props.unit}><span class="product-number-unit">{props.unit}</span></Show>
       <span class="product-number-steppers">
         <button type="button" tabindex="-1" aria-label="Increase value" disabled={props.disabled || pending()} onPointerDown={(event) => event.preventDefault()} onClick={() => step(1)}>+</button>
         <button type="button" tabindex="-1" aria-label="Decrease value" disabled={props.disabled || pending()} onPointerDown={(event) => event.preventDefault()} onClick={() => step(-1)}>-</button>

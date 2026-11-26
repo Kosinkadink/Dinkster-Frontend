@@ -1,4 +1,4 @@
-import { For, Show, createUniqueId, type ComponentProps, type JSX } from 'solid-js'
+import { For, Show, createSignal, createUniqueId, onCleanup, onMount, type ComponentProps, type JSX } from 'solid-js'
 import { Ellipsis } from 'lucide-solid'
 import { ProductTextButton } from './controls.js'
 import { ProductMenu } from './menu.js'
@@ -15,14 +15,27 @@ export function ProductSettingsPage(props: {
   children: JSX.Element
 }) {
   const heading = createUniqueId()
+  let navigation!: HTMLElement
+  const [cutStart, setCutStart] = createSignal(false)
+  const [cutEnd, setCutEnd] = createSignal(false)
+  const measure = () => {
+    setCutStart(navigation.scrollLeft > 1)
+    setCutEnd(navigation.scrollLeft + navigation.clientWidth < navigation.scrollWidth - 1)
+  }
+  onMount(() => {
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(navigation)
+    onCleanup(() => observer.disconnect())
+  })
   return <div class="dinkster-settings" role="region" aria-labelledby={heading} data-searching={props.search.query.trim() !== ''}>
     <aside class="dinkster-settings-sidebar">
       <h1 id={heading} class="dinkster-title">{props.title}</h1>
-      <nav aria-label={props.groupsLabel}>
+      <nav ref={navigation} aria-label={props.groupsLabel} onScroll={measure} data-cut-start={cutStart()} data-cut-end={cutEnd()}>
         <For each={props.groups}>{(group) => <a
           class="dinkster-list-row dinkster-settings-group"
           href={`#${encodeURIComponent(group.id)}`}
-          aria-current={group.id === props.group ? 'page' : undefined}
+          aria-current={props.search.query.trim() === '' && group.id === props.group ? 'page' : undefined}
           onClick={(event) => { event.preventDefault(); props.onGroup(group.id) }}
         >{group.label}</a>}</For>
       </nav>
@@ -51,6 +64,8 @@ export function ProductSettingRow(props: {
   label: string
   description?: string | undefined
   error?: string | undefined
+  warning?: string | undefined
+  fullWidth?: boolean
   modified: boolean
   resetLabel: string
   menuLabel: string
@@ -60,11 +75,12 @@ export function ProductSettingRow(props: {
   onCopyId: () => void
   children: JSX.Element
 }) {
-  return <div class="dinkster-setting-row" data-setting-id={props.id} data-modified={props.modified}>
+  return <div class="dinkster-setting-row" data-setting-id={props.id} data-modified={props.modified} data-full-width={props.fullWidth}>
     <div class="dinkster-setting-copy">
       <label for={props.id} id={`${props.id}-label`}>{props.label}</label>
       <Show when={props.description}><p id={`${props.id}-description`}>{props.description}</p></Show>
       <Show when={props.error}><p id={`${props.id}-error`} class="dinkster-field-error" role="alert">{props.error}</p></Show>
+      <Show when={props.warning}><p id={`${props.id}-warning`} class="dinkster-setting-warning" role="status">{props.warning}</p></Show>
     </div>
     <div class="dinkster-setting-control">
       <Show when={props.modified}><ProductTextButton label={props.resetLabel} onClick={props.onReset} /></Show>

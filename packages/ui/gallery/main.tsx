@@ -1620,7 +1620,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs', '#settings'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
