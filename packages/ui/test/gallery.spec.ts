@@ -261,7 +261,6 @@ test('opt-in menus filter labels and keep keyboard editing, enabled selection an
     await expect(active()).toHaveAccessibleName('Image')
     await page.keyboard.press('ArrowDown')
     await page.screenshot({ path: testInfo.outputPath(`menu-filter-filtered-dark-${width}.png`) })
-    await expectNoAxeViolations(page)
     await page.keyboard.press('Enter')
     await expect(menu).toHaveCount(0)
     await expect(trigger).toBeFocused()

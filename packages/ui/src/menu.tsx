@@ -415,7 +415,7 @@ function Menu(props: {
                           {(description) => (
                             <span class="dinkster-menu-item-copy">
                               <span class="dinkster-menu-item-label">{item().label}</span>
-                              <span id={descriptionId} class="dinkster-menu-item-description" aria-hidden="true">{description()}</span>
+                              <span id={descriptionId} class="dinkster-menu-item-description">{description()}</span>
                             </span>
                           )}
                         </Show>
