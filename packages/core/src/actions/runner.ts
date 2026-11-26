@@ -1324,25 +1324,19 @@ class Press {
     const members = [...group.members, ...(this.view.elaborated.unstoredMinimums?.[group.path]?.members ?? [])]
     // Every member's value is worked out before any member is written.
     const evaluated: [FormulaContext, unknown][] = []
-    const inside: number[] = []
-    for (const [index, member] of members.entries()) {
+    let inside = 0
+    for (const member of members) {
       const context = this.view.contexts.get(`${group.path}.${member}.`) ?? refuse(`${name} has no member ${member}.`)
       const path = context.paths.get(row)
       if (this.shownWrites !== undefined && (path === undefined || !this.shownWrites.has(writeOwnerKey(this.view, this.target, path)))) {
         this.skip(path ?? `${group.path}.${member}.${row}`, 'inside')
-        inside.push(index + 1)
+        inside++
         continue
       }
       evaluated.push([context, await this.value(value, context)])
     }
-    if (inside.length > 0) {
-      const ranges: string[] = []
-      for (let at = 0; at < inside.length; at++) {
-        const start = inside[at]!
-        while (inside[at + 1] === inside[at]! + 1) at++
-        ranges.push(start === inside[at] ? `${start}` : `${start} to ${inside[at]}`)
-      }
-      const note = `${ranges.join(', ')} ${inside.length === 1 ? 'is inside and was' : 'are inside and were'} not changed.`
+    if (inside > 0) {
+      const note = `${inside} more ${inside === 1 ? 'is inside and was' : 'are inside and were'} not changed.`
       if (!this.notes.includes(note)) this.notes.push(note)
     }
     this.stage(evaluated.flatMap(([context, item]) => this.write(row, item, context)))

@@ -1641,7 +1641,7 @@ describe('steps inside a subgraph occurrence', () => {
     const outcome = await runPress(run, { graphId: 'g0', nodeId: 'first', button: boundaryButtons(definition.boundary)[0]!.id }, host)
     expect(outcome).toMatchObject({ kind: 'done' })
     expect(outcome.warning).toBeUndefined()
-    expect(outcome.message).toBe(prefix === 0 ? undefined : `Set 2 fields. ${prefix === 1 ? '1 is inside and was' : '1 to 4 are inside and were'} not changed.`)
+    expect(outcome.message).toBe(prefix === 0 ? undefined : `Set 2 fields. ${prefix === 1 ? '1 more is inside and was' : '4 more are inside and were'} not changed.`)
     expect(outcome.skipped.map((item) => item.why)).toEqual(Array.from({ length: prefix }, () => 'inside'))
     expect(run.doc.graphs.g1).toEqual(before.graphs.g1)
     if (depth === 2) expect(run.doc.graphs.g2).toEqual(before.graphs.g2)
