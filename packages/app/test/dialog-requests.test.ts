@@ -75,6 +75,7 @@ describe('installAssetConsent ownership', () => {
     const jobs = [{ ...selection, digest: second.asset.digest, jobId: 'second', status: 'downloading', received: 317 }]
     const plans: unknown[] = []
     const requests: string[] = []
+    let locallyReady = false
     const connection = new DinksterConnection({ id: asConnectionId('exact-downloads'), baseUrl: '/engine', clientId: 'test', project: 'studio',
       webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
         requests.push(String(url))
@@ -82,7 +83,7 @@ describe('installAssetConsent ownership', () => {
         if (String(url).includes('/plan?')) {
           const body = JSON.parse(String(init?.body)) as { asset?: typeof asset }
           plans.push(body)
-          payload = { ...selection, status: 'consent-required', planId: body.asset ? 'first-plan' : 'named-plan',
+          payload = locallyReady ? { ...named, status: 'local' } : { ...selection, status: 'consent-required', planId: body.asset ? 'first-plan' : 'named-plan',
             ...(body.asset ? { digest: body.asset.digest } : {}) }
         }
         return new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
@@ -106,6 +107,25 @@ describe('installAssetConsent ownership', () => {
       expect(slot.value!.models?.[1]?.job?.received).toBe(317)
       expect(requests.every((url) => url.startsWith('/engine/api/models/downloads'))).toBe(true)
       expect(slot.value!.retry).toBeUndefined()
+      const { result, retries } = rejection([missing(asset.digest), missing(second.asset.digest)])
+      installAssetConsent({ result: { ...result, assetsMissing: { ...result.assetsMissing, models: [named] } },
+        modelReferences: [first, second, first], slot,
+        modelDownloads: { connection, controller, project: 'studio' }, ...consentCallbacks() })
+      expect(slot.value!.assets).toEqual([])
+      expect(slot.value!.models?.map((row) => row.requirement)).toEqual([named, first, second])
+      await slot.value!.retry!([asset.digest, second.asset.digest])
+      expect(retries).toHaveLength(0)
+      slot.set(undefined)
+      jobs.splice(0)
+      locallyReady = true
+      const retryWithAssets = vi.fn(async () => submitOk)
+      installAssetConsent({ result: { ...result, retryWithAssets }, modelReferences: [first, second], slot,
+        modelDownloads: { connection, project: 'studio' }, ...consentCallbacks() })
+      for (let index = 0; index < 2; index++) await slot.value!.reviewModel!(index)
+      expect(retryWithAssets).not.toHaveBeenCalled()
+      await slot.value!.retry!([asset.digest, second.asset.digest])
+      expect(retryWithAssets).toHaveBeenCalledWith([])
+      expect(slot.value).toBeUndefined()
     } finally {
       slot.set(undefined)
       controller.dispose()

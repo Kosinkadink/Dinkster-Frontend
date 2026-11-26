@@ -115,6 +115,7 @@ type SubmitOk = Extract<DinksterSubmitResult, { ok: true }>
  */
 export function installAssetConsent(p: {
   readonly workflowTitle?: string
+  readonly modelReferences?: readonly ModelDownloadRequirement[]
   readonly slot: RequestSlot<AssetConsentRequest> & Pick<ReadonlySignal<AssetConsentRequest | undefined>, 'subscribe'>
   readonly signal?: AbortSignal
   /** Releases submission resources after the dialog and any posted retry settle. */
@@ -173,8 +174,18 @@ export function installAssetConsent(p: {
     // request object it installed itself.
     let owner: AssetConsentRequest
     unsubscribeModels?.()
-    transfers?.ensure(models ?? [], result !== undefined)
-    const currentModels = (): readonly ModelConsentState[] => (models ?? []).flatMap((requirement) => {
+    const exact = transfers ? (p.modelReferences ?? []).filter((requirement) => requirement.asset !== undefined &&
+      assets.some((asset) => asset.digest === requirement.asset!.digest)) : []
+    const keys = new Set<string>()
+    const requirements = [...(models ?? []), ...exact].filter((requirement) => {
+      const key = JSON.stringify([requirement.name, requirement.kind, requirement.asset?.digest])
+      if (keys.has(key)) return false
+      keys.add(key)
+      return true
+    })
+    const remainingAssets = assets.filter((asset) => !exact.some((requirement) => requirement.asset?.digest === asset.digest))
+    transfers?.ensure(requirements, result !== undefined)
+    const currentModels = (): readonly ModelConsentState[] => requirements.flatMap((requirement) => {
       const row = transfers?.rows.get().find((row) => row.requirement.name === requirement.name && row.requirement.kind === requirement.kind &&
         row.requirement.asset?.digest === requirement.asset?.digest)
       return row ? [row] : [{ requirement, pending: false }]
@@ -249,7 +260,8 @@ export function installAssetConsent(p: {
           if (!owned() || p.signal?.aborted) return
           if (p.beforeRetry !== undefined && !p.beforeRetry()) { clearIfOwned(); return }
         }
-        const retried = await result.retryWithAssets(digests)
+        const retried = await result.retryWithAssets(digests.filter((digest) =>
+          !exact.some((requirement) => requirement.asset?.digest === digest)))
         if (retried.ok) {
           clearIfOwned()
           p.onSubmitted(retried)
@@ -272,7 +284,7 @@ export function installAssetConsent(p: {
         if (!owned()) settle()
       }
     }
-    const request: AssetConsentRequest = { assets, busy: false,
+    const request: AssetConsentRequest = { assets: remainingAssets, busy: false,
       ...(p.workflowTitle === undefined ? {} : { workflowTitle: p.workflowTitle }),
       ...(transfers ? { modelDownloadController: transfers } : {}),
       ...(result === undefined ? {} : { retry }),
@@ -281,7 +293,7 @@ export function installAssetConsent(p: {
         ...(p.modelDownloads.backendUrl === undefined ? {} : { providerBackendUrl: p.modelDownloads.backendUrl }),
         providerChanged: () => providerChanged(request),
       } : {}),
-      ...(models?.length ? {
+      ...(requirements.length ? {
         models: currentModels(),
         selectModelSource: (index: number, source: string) => selectModelSource(index, source, request),
         reviewModel: (index: number) => modelAction(index, 'review', request),

@@ -156,6 +156,7 @@ import {
   reconcileDinksterExecutions,
   restartSupervisorEngine,
   type ConnectionStatus,
+  type ModelDownloadRequirement,
   type ExecutionState,
   type ExecutionStatus,
   type LibraryRecord,
@@ -4171,6 +4172,7 @@ export class AppState {
     const registry = this.registryForTab(tab)
     const document = tab.store.doc
     const occurrences = registry === undefined || backend.protocol !== 'dinkster' ? [] : workflowModelOccurrences(document, registry.resolve, lookupAnswersOf(backend.lookups))
+      .filter((occurrence) => occurrence.asset === undefined)
     const signature = JSON.stringify(occurrences)
     const status = backend.connection.status.get()
     const previous = this.workflowModelChecks.get(tab.store)
@@ -4233,18 +4235,28 @@ export class AppState {
     const current = (): boolean => !this.disposed && this.tabs.get().includes(tab) &&
       check?.document === tab.store.doc && check.backend === this.backendForTab(tab) && check.registry === this.registryForTab(tab)
     if (!current() || backend.protocol !== 'dinkster') return
-    const problems = this.problems.get().filter((entry) => entry.owner === tab.id &&
+    const ownedProblems = this.problems.get().filter((entry) => entry.owner === tab.id)
+    const problems = ownedProblems.filter((entry) =>
       entry.code === 'model.availability.missing' && entry.data?.['plannable'] === true &&
       entry.data['backend'] === backend.id && typeof entry.data['name'] === 'string' && typeof entry.data['kind'] === 'string')
-    if (diagnostic !== undefined && !problems.some((entry) => entry === diagnostic)) return
+    const registry = this.registryForTab(tab)
+    const exactProblems = this.workflowAssetChecks.get(tab.store)?.backend === backend ? ownedProblems.filter((entry) =>
+      entry.code === 'asset.availability.missing') : []
+    const exactModels = registry === undefined ? [] : workflowModelOccurrences(tab.store.doc, registry.resolve,
+      lookupAnswersOf(backend.lookups)).flatMap((occurrence) => occurrence.asset !== undefined &&
+      exactProblems.some((entry) => entry.data?.['digest'] === occurrence.asset!.digest) ? [{
+        name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset,
+      }] : [])
+    if (diagnostic !== undefined && !problems.some((entry) => entry === diagnostic) &&
+      !exactProblems.some((entry) => entry === diagnostic && exactModels.some((model) => model.asset.digest === entry.data?.['digest']))) return
     const keys = new Set<string>()
-    const models = problems.flatMap((entry) => {
-      const name = entry.data!['name'] as string
-      const kind = entry.data!['kind'] as string
-      const key = JSON.stringify([name, kind])
-      if (keys.has(key)) return []
+    const models = [...problems.map((entry): ModelDownloadRequirement => ({
+      name: entry.data!['name'] as string, kind: entry.data!['kind'] as string,
+    })), ...exactModels].filter((requirement) => {
+      const key = JSON.stringify([requirement.name, requirement.kind, requirement.asset?.digest])
+      if (keys.has(key)) return false
       keys.add(key)
-      return [{ name, kind }]
+      return true
     })
     if (models.length === 0) return
     this.modelReview?.abort()
@@ -9422,6 +9434,10 @@ export class AppState {
       return
     }
     const initialArtifact = result.artifact
+    let modelReferences = workflowModelOccurrences(initialArtifact.snapshot, registry.resolve,
+      lookupAnswersOf(this.backendForTab(tab).lookups)).flatMap((occurrence) => occurrence.asset === undefined ? [] : [{
+        name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset,
+      }])
     const missingRequired = requiredRootNodes.filter((required) =>
       !Object.values(initialArtifact.provenance.toSource).some((key) => {
         const occurrence = parseOccurrenceKey(key)
@@ -9474,6 +9490,11 @@ export class AppState {
         }
         this.replaceProblems(tab.id, result.artifact.diagnostics)
         plan = this.preparedAdvancement(tab.store, result.artifact)
+        const compiledRegistry = this.retainedRegistries.get(result.artifact)!
+        modelReferences = workflowModelOccurrences(result.artifact.snapshot, compiledRegistry.resolve,
+          lookupAnswersOf(this.backendForTab(tab).lookups)).flatMap((occurrence) => occurrence.asset === undefined ? [] : [{
+            name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset,
+          }])
       }
       if (lease.signal.aborted) return
       // The artifact records its target connection; submit() cross-checks it.
@@ -9529,6 +9550,7 @@ export class AppState {
             plan,
             scope,
             compiledDocument,
+            modelReferences,
             backend,
             sourceDocument,
             lease,
@@ -9601,6 +9623,7 @@ export class AppState {
     plan: AdvancementPlan | undefined,
     scope: ExecutionScope,
     compiledDocument: WorkflowDocument,
+    modelReferences: readonly ModelDownloadRequirement[],
     backend: Backend,
     sourceDocument: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
     lease: { readonly signal: AbortSignal; readonly release: () => void },
@@ -9618,6 +9641,7 @@ export class AppState {
     installAssetConsent({
       result: submitted,
       workflowTitle: tab.title,
+      modelReferences,
       slot: this.assetConsent,
       modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
@@ -9628,7 +9652,7 @@ export class AppState {
       beforeRetry: () =>
         activeProjectId() === project && tabLive() &&
         this.backendForTab(tab) === backend && this.backends.get().includes(backend) &&
-        (submitted.assetsMissing.models === undefined || tab.store.doc === compiledDocument) &&
+        ((submitted.assetsMissing.models === undefined && modelReferences.length === 0) || tab.store.doc === compiledDocument) &&
         !this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument),
       onSubmitted: (ok) => {
         if (this.disposed) return

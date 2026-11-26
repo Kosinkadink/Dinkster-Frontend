@@ -38,11 +38,20 @@ it('keeps standalone review free of Run once even when locally ready, but retain
     root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-cancel"]')!.click()
     expect(assetConsent.get()).toBeUndefined()
 
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name: requirement.name, size: 8192,
+      mediaType: 'application/octet-stream', virtualPath: `models/${requirement.name}` }
     const retryWithAssets = vi.fn()
-    installAssetConsent({ slot: assetConsent, modelDownloads: { connection, project: 'default' },
-      result: { ok: false, diagnostics: [], assetsMissing: { error: 'assets-missing', assets: [], models: [requirement] }, retryWithAssets },
+    installAssetConsent({ slot: assetConsent, modelReferences: [{ ...requirement, asset }],
+      modelDownloads: { connection, project: 'default' },
+      result: { ok: false, diagnostics: [], assetsMissing: { error: 'assets-missing', assets: [
+        { digest: asset.digest, name: asset.name, status: 'missing', sources: [], fetchable: true },
+      ] }, retryWithAssets },
       onSubmitted: vi.fn(), onRejected: vi.fn(), onTransportError: vi.fn(), onSuperseded: vi.fn(),
     })
+    await Promise.resolve()
+    expect(root.querySelectorAll('[data-testid="model-consent-row"]')).toHaveLength(1)
+    expect(root.querySelector('[data-testid="asset-consent-row"]')).toBeNull()
+    expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')?.disabled).toBe(true)
     await assetConsent.get()!.reviewModel!(0)
     await Promise.resolve()
     expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')?.textContent).toBe('Run once')
