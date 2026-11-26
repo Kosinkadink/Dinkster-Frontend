@@ -328,6 +328,106 @@ for (const selection of [
   })
 }
 
+for (const subset of [false, true]) {
+  test(`changing build adopts each tools GPU assignment (subset ${subset})`, async ({
+    page,
+  }) => {
+    await page.goto('/desktop-environments.html')
+    await page.getByText('Advanced settings', { exact: true }).click()
+    await page
+      .getByLabel('Environment name', { exact: true })
+      .fill('Assignment')
+    await page
+      .getByLabel('Install location', { exact: true })
+      .fill('/environments/new')
+    await page
+      .getByLabel('Assigned NVIDIA devices', { exact: true })
+      .fill(subset ? 'GPU-second' : '')
+    await page.evaluate((subset) => {
+      window.dinksterProjects!.inspect = async () => ({
+        result: { operation: 'catalog', status: 'clean', plan: [] },
+        hardware: {
+          gpus: [
+            { id: 'GPU-first', name: 'First card' },
+            { id: 'GPU-second', name: 'Second card' },
+          ],
+        },
+        plan: {
+          selected: 'win-nvidia',
+          gpus: subset ? ['GPU-second'] : ['GPU-first', 'GPU-second'],
+          reason: 'Current graphics build.',
+          choices: [
+            {
+              variant: 'win-nvidia',
+              supported: true,
+              reason: 'Current graphics build.',
+              gpus: subset ? ['GPU-second'] : ['GPU-first', 'GPU-second'],
+            },
+            {
+              variant: 'win-nvidia-older',
+              supported: true,
+              reason: 'Older graphics build.',
+              gpus: ['GPU-second'],
+            },
+            {
+              variant: 'win-cpu',
+              supported: true,
+              reason: 'Does not use the graphics card and is much slower.',
+              gpus: [],
+            },
+          ],
+        },
+      })
+    }, subset)
+    await page
+      .getByRole('button', { name: 'Inspect hardware and variants' })
+      .click()
+    const assignment = page.getByLabel('Assigned NVIDIA devices', {
+      exact: true,
+    })
+    const variant = page.getByLabel('Hardware variant', { exact: true })
+    await expect(assignment).toHaveValue(
+      subset ? 'GPU-second' : 'GPU-first,GPU-second',
+    )
+    for (const [build, gpus] of [
+      ['win-cpu', []],
+      ['win-nvidia', subset ? ['GPU-second'] : ['GPU-first', 'GPU-second']],
+      ['win-nvidia-older', ['GPU-second']],
+    ] as const) {
+      await variant.selectOption(build)
+      await assignment.evaluate((input) =>
+        window.scrollTo(
+          0,
+          window.scrollY + input.getBoundingClientRect().top - 100,
+        ),
+      )
+      await page.screenshot({
+        path: `test-results/captures/choice-${build}-${subset}.png`,
+      })
+      await expect(assignment).toHaveValue(gpus.join(','))
+      await page
+        .getByRole('button', { name: 'Review environment plan', exact: true })
+        .click()
+      const reviewed = await page.evaluate(() => {
+        const calls = (
+          window as unknown as {
+            environmentCalls: {
+              kind: string
+              environment?: DesktopEnvironment
+              request?: EnvironmentRequest
+            }[]
+          }
+        ).environmentCalls
+        return calls.filter((call) => call.kind === 'plan').at(-1)
+      })
+      expect(reviewed?.environment?.engines).toEqual([
+        expect.objectContaining({ kind: 'local', gpus: [...gpus] }),
+      ])
+      expect(reviewed?.request?.variant).toBe(build)
+    }
+  })
+}
+
 test('a refused inspection preserves the explicit device assignment', async ({
   page,
 }) => {

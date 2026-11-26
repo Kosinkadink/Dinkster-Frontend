@@ -220,6 +220,7 @@ export interface EnvironmentBridge {
         readonly variant: string
         readonly supported: boolean
         readonly reason: string
+        readonly gpus?: readonly string[]
       }[]
     }
   }>
