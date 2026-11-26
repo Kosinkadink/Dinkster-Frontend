@@ -1,7 +1,7 @@
 import { render } from 'solid-js/web'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { asConnectionId, createSignal } from '@dinkster/core'
-import { DinksterConnection, type ModelDownloadJob, type ModelDownloadSpace, type WebSocketLike } from '@dinkster/client'
+import { DinksterConnection, parseAssetsMissingRejection, type ModelDownloadJob, type ModelDownloadSpace, type WebSocketLike } from '@dinkster/client'
 import type { AppState } from '../src/app-state.js'
 import { AssetConsentDialog } from '../src/AssetConsentDialog.js'
 import { installAssetConsent, type AssetConsentRequest } from '../src/dialog-requests.js'
@@ -111,7 +111,7 @@ it('renders plan answers, selected filesystem capacity, and independent download
   }
 })
 
-it('offers Run only after a stopped run has every model, then keeps media consent separate', async () => {
+it('offers Run only after selectable models are ready, then keeps pack and media consent separate', async () => {
   const assetConsent = createSignal<AssetConsentRequest | undefined>(undefined)
   const requirement = { name: 'missing.safetensors', kind: 'model/vae' }
   const connection = {
@@ -136,13 +136,16 @@ it('offers Run only after a stopped run has every model, then keeps media consen
       mediaType: 'application/octet-stream', virtualPath: `models/${requirement.name}` }
     const media = { digest: `blake3:${'b'.repeat(64)}`, name: 'source.png', status: 'missing' as const,
       sources: ['https://example.com/source.png'], fetchable: true }
+    const provider = { digest: `blake3:${'c'.repeat(64)}`, name: 'provider-model.bin', kind: 'model/auxiliary',
+      status: 'missing' as const, sources: ['https://example.com/provider-model.bin'], fetchable: true }
     const retryWithAssets = vi.fn(async () => ({ ok: false as const, diagnostics: [] }))
     installAssetConsent({ slot: assetConsent, modelReferences: [{ ...requirement, asset }],
       modelDownloads: { connection, project: 'default' },
-      result: { ok: false, diagnostics: [], assetsMissing: { error: 'assets-missing', assets: [
+      result: { ok: false, diagnostics: [], assetsMissing: parseAssetsMissingRejection({ error: 'assets-missing', assets: [
         { digest: asset.digest, name: asset.name, status: 'missing', sources: [], fetchable: true },
         media,
-      ] }, retryWithAssets },
+        provider,
+      ] })!, retryWithAssets },
       onSubmitted: vi.fn(), onRejected: vi.fn(), onTransportError: vi.fn(), onSuperseded: vi.fn(),
     })
     await vi.waitFor(() => expect(root.querySelector('.dinkster-model-download-row')?.getAttribute('data-state')).toBe('ready'))
@@ -152,13 +155,14 @@ it('offers Run only after a stopped run has every model, then keeps media consen
     ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Run')!.click()
     await Promise.resolve()
     expect(root.querySelector('.dinkster-model-download-row')).toBeNull()
-    expect(root.querySelectorAll('[data-testid="asset-consent-row"]')).toHaveLength(1)
+    expect(root.querySelectorAll('[data-testid="asset-consent-row"]')).toHaveLength(2)
     expect(root.textContent).toContain(media.name)
+    expect(root.textContent).toContain(provider.name)
     expect(root.textContent).not.toContain(requirement.name)
     expect(retryWithAssets).not.toHaveBeenCalled()
     root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')!.click()
     await Promise.resolve()
-    expect(retryWithAssets).toHaveBeenCalledExactlyOnceWith([media.digest])
+    expect(retryWithAssets).toHaveBeenCalledExactlyOnceWith([media.digest, provider.digest])
   } finally {
     assetConsent.set(undefined)
     unmount()
