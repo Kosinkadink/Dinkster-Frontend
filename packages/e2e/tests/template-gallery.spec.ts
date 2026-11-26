@@ -7,6 +7,16 @@ import { expect, nativeTest as test } from './fixtures.js'
 test('reviews template models without opening or submitting a workflow and revokes on feature disable', async ({ page }) => {
   const plans: unknown[] = []
   const starts: string[] = []
+  const cancellations: string[] = []
+  let started = false
+  let phase = 'downloading'
+  const selection = {
+    name: 'missing.safetensors', kind: 'model/vae', project: 'default', provider: 'huggingface',
+    source: 'https://huggingface.co/example/models/resolve/main/missing.safetensors', repo: 'example/models',
+    revision: 'a'.repeat(40), file: 'missing.safetensors', sha256: 'b'.repeat(64), size: 1000,
+    license: 'test', destination: '/models/missing.safetensors', mount: 'models',
+  }
+  const job = () => ({ ...selection, jobId: 'template-job', status: phase, received: 410 })
   await page.routeWebSocket('**/api/events*', () => {})
   await page.route('/api/settings', (route) => route.fulfill({ json: {
     features: { templates: { enabled: true } }, categories: { granted: [], available: [] }, settings: {},
@@ -34,12 +44,27 @@ test('reviews template models without opening or submitting a workflow and revok
     const { models } = route.request().postDataJSON() as { models: Array<{ name: string; kind: string }> }
     return route.fulfill({ json: { models: models.map((model) => ({ ...model, status: 'missing', plannable: true })) } })
   })
-  await page.route('/api/models/downloads?*', (route) => route.fulfill({ json: { instance: 'test', jobs: [] } }))
+  await page.route('/api/models/downloads?*', (route) => route.fulfill({ json: { instance: 'test', jobs: [
+    ...(started ? [job()] : []),
+    { ...job(), jobId: 'other-project', project: 'another-project', received: 900 },
+    { ...job(), jobId: 'other-kind', kind: 'model/checkpoint', received: 900 },
+  ] } }))
   await page.route('/api/models/downloads/plan*', (route) => {
     plans.push(route.request().postDataJSON())
-    return route.fulfill({ json: { status: 'picker-required', sources: [] } })
+    return route.fulfill({ json: { ...selection, status: 'consent-required', planId: 'reviewed-plan' } })
   })
-  await page.route('/api/models/downloads/start*', (route) => { starts.push(route.request().url()); return route.abort() })
+  await page.route('/api/models/downloads/start*', (route) => {
+    starts.push(route.request().url())
+    started = true
+    return route.fulfill({ json: job() })
+  })
+  await page.route('/api/models/downloads/template-job?*', (route) => {
+    if (route.request().method() === 'DELETE') {
+      cancellations.push('template-job')
+      phase = 'cancelling'
+    }
+    return route.fulfill({ json: job() })
+  })
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'start from a template' })).toBeVisible()
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
@@ -49,6 +74,8 @@ test('reviews template models without opening or submitting a workflow and revok
   }]))
   await page.getByRole('button', { name: 'start from a template' }).click()
   const count = await page.evaluate(() => window.__dinksterTest!.app.tabs.get().length)
+  await expect(page.getByRole('button', { name: 'Download 1 model', exact: true })).toBeVisible()
+  await captureProof(page, 'template-download-before.png')
   await page.getByRole('button', { name: 'Download 1 model', exact: true }).click()
   const dialog = page.getByTestId('asset-consent-dialog')
   await expect(dialog).toBeVisible()
@@ -59,6 +86,37 @@ test('reviews template models without opening or submitting a workflow and revok
   await captureProof(page, 'template-download-review.png')
   await dialog.getByRole('button', { name: 'Review source', exact: true }).click()
   await expect.poll(() => plans).toEqual([{ name: 'missing.safetensors', kind: 'model/vae', project: 'default', scope: 'local' }])
+  await dialog.getByRole('button', { name: 'Download', exact: true }).click()
+  await expect(dialog.getByTestId('model-consent-bytes')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Dismiss', exact: true }).click()
+  const gallery = page.getByTestId('templates-page')
+  await expect(gallery).toContainText('Downloading 1 model, 41%')
+  await expect(gallery.getByRole('listbox', { name: 'Templates', exact: true }).getByRole('option', { selected: true })).toContainText('41%')
+  expect(cancellations).toEqual([])
+  await captureProof(page, 'template-download-progress.png')
+  await page.getByRole('button', { name: 'Close Templates', exact: true }).click()
+  expect(cancellations).toEqual([])
+  await page.keyboard.press('Alt+t')
+  await expect(gallery).toContainText('Downloading 1 model, 41%')
+  await page.setViewportSize({ width: 900, height: 900 })
+  await page.mouse.move(0, 0)
+  await gallery.getByRole('searchbox', { name: 'Search templates', exact: true }).focus()
+  await gallery.getByRole('searchbox', { name: 'Search templates', exact: true }).blur()
+  await expect(gallery.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+  await captureProof(page, 'template-download-progress-900.png')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  phase = 'publishing'
+  await expect(gallery.getByRole('button', { name: 'Stop', exact: true })).toBeDisabled()
+  phase = 'downloading'
+  await expect(gallery.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled()
+  await gallery.getByRole('button', { name: 'Stop', exact: true }).click()
+  await expect.poll(() => cancellations).toEqual(['template-job'])
+  await expect(gallery.getByRole('button', { name: 'Stop', exact: true })).toBeDisabled()
+  await captureProof(page, 'template-download-stopping.png')
+  phase = 'cancelled'
+  await expect(gallery.getByRole('button', { name: 'Download 1 model', exact: true })).toBeVisible()
+  await gallery.getByRole('button', { name: 'Download 1 model', exact: true }).click()
+  await expect(dialog).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.tabs.get().length)).toBe(count)
   expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
   await page.evaluate(() => {
@@ -66,7 +124,7 @@ test('reviews template models without opening or submitting a workflow and revok
     ;(backend as unknown as { templatesEnabled: { set(enabled: boolean): void } }).templatesEnabled.set(false)
   })
   await expect(dialog).toBeHidden()
-  expect(starts).toEqual([])
+  expect(starts).toHaveLength(1)
 })
 
 const proofDir = process.env['DINKSTER_TEMPLATE_PROOF_DIR']

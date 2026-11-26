@@ -1,9 +1,11 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, type JSX } from 'solid-js'
 import type { CollectionEntry } from '@dinkster/core'
+import type { ModelDownloadJob, ModelRequirement } from '@dinkster/client'
 import {
   ProductButton,
   ProductErrorBanner,
   ProductTemplateDetail,
+  ProductTemplateDownload,
   ProductTemplatesPage,
   ProductTextButton,
   type ProductTemplateEntry,
@@ -46,6 +48,9 @@ export function TemplatesPage(props: {
   const [opening, setOpening] = createSignal(false)
   const [noFolders, setNoFolders] = createSignal<boolean>()
   const [pictures, setPictures] = createSignal<ReadonlyMap<string, string>>(new Map())
+  const [jobs, setJobs] = createSignal<readonly ModelDownloadJob[]>([])
+  const [requirements, setRequirements] = createSignal<ReadonlyMap<string, readonly ModelRequirement[]>>(new Map())
+  const [stopping, setStopping] = createSignal(false)
   const ref = (entry: CollectionEntry) => entry.ref as TemplateCollectionRef
   const available = createMemo(() => {
     backendTick()
@@ -53,6 +58,60 @@ export function TemplatesPage(props: {
     const owner = backend()
     return owner !== undefined && props.app.backends.get().includes(owner) && owner.templatesEnabled.get()
   })
+
+  const project = activeProjectId()
+  const activeJobs = (entry: CollectionEntry) => jobs().filter((job) =>
+    activeProjectId() === project && job.project === project &&
+    requirements().get(entry.id)?.some((model) => model.name === job.name && model.kind === job.kind) &&
+    !['completed', 'cancelled', 'failed'].includes(job.status))
+  const progress = (entry: CollectionEntry): number | undefined => {
+    const active = activeJobs(entry)
+    if (active.length === 0) return undefined
+    const total = active.reduce((sum, job) => sum + job.size, 0)
+    return total === 0 ? 0 : active.reduce((sum, job) => sum + job.received, 0) / total
+  }
+  const cancellable = (job: ModelDownloadJob) => ['starting', 'checking-existing', 'downloading', 'verifying'].includes(job.status)
+  createEffect(() => {
+    const owner = backend()
+    setJobs([])
+    if (!available() || !owner) return
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async (): Promise<void> => {
+      try {
+        const next = await owner.connection.fetchModelDownloads(controller.signal)
+        if (controller.signal.aborted) return
+        const previous = jobs()
+        setJobs(next.jobs)
+        if (previous.some((job) => !['completed', 'cancelled', 'failed'].includes(job.status) &&
+          next.jobs.some((current) => current.jobId === job.jobId && current.status === 'completed')))
+          setRefresh((value) => value + 1)
+      } catch {
+        if (!controller.signal.aborted) setJobs([])
+      }
+      if (!controller.signal.aborted) timer = setTimeout(() => { void poll() }, 1000)
+    }
+    void poll()
+    onCleanup(() => { controller.abort(); clearTimeout(timer) })
+  })
+  const stop = async (entry: CollectionEntry): Promise<void> => {
+    const owner = backend()
+    if (!available() || !owner || stopping() || activeProjectId() !== project) return
+    const targets = activeJobs(entry).filter(cancellable)
+    setStopping(true)
+    try {
+      const results = await Promise.allSettled(targets.map(async (job) => {
+        const next = await owner.connection.cancelModelDownload(job.jobId)
+        if (live && backend() === owner) setJobs((current) => current.map((item) => item.jobId === next.jobId ? next : item))
+      }))
+      if (live && backend() === owner && results.some((result) => result.status === 'rejected')) {
+        setLoadFailed(false)
+        setError(message('templatesPage.stopError'))
+      }
+    } finally {
+      if (live) setStopping(false)
+    }
+  }
 
   createEffect(() => {
     backendTick()
@@ -63,6 +122,7 @@ export function TemplatesPage(props: {
     let live = true
     onCleanup(() => { live = false })
     setEntries([])
+    setRequirements(new Map())
     setLoading(true)
     setNoFolders(undefined)
     setError('')
@@ -152,11 +212,39 @@ export function TemplatesPage(props: {
     })
   })
   const current = () => shown().find((entry) => entry.id === selected()) ?? shown()[0]
+  const modelRequirements = async (entry: CollectionEntry, owner: Extract<Backend, { protocol: 'dinkster' }>): Promise<readonly ModelRequirement[]> => {
+    const registry = owner.registry.get()
+    if (!registry) return []
+    const source = ref(entry)
+    const document = source.kind === 'remote'
+      ? await new RemoteTemplateCatalog(props.app.settings.get<string>('templates.registryUrl')).fetchBody(source.template)
+      : await owner.connection.fetchTemplateBody(source.pack, source.id)
+    if (!document) throw new Error('Template unavailable')
+    return [...new Map(workflowModelOccurrences(document, registry.resolve, lookupAnswersOf(owner.lookups))
+      .filter((model) => model.valid).map(({ name, kind }) => [JSON.stringify([name, kind]), { name, kind }])).values()]
+  }
+  const downloadingNames = createMemo(() => [...new Set(jobs().filter((job) => job.project === project &&
+    !['completed', 'cancelled', 'failed'].includes(job.status)).map((job) => job.name))].sort().join('\0'))
+  createEffect(() => {
+    const all = entries()
+    const owner = backend()
+    const names = downloadingNames().split('\0')
+    let live = true
+    if (owner && available()) {
+      for (const entry of all.filter((item) => ref(item).models.some((model) => names.includes(model.name)))) {
+        void modelRequirements(entry, owner).then((models) => {
+          if (live) setRequirements((previous) => new Map([...previous, [entry.id, models]]))
+        }).catch(() => { /* Opening or reviewing reports an unavailable template. */ })
+      }
+    }
+    onCleanup(() => { live = false })
+  })
   const tile = (entry: CollectionEntry): ProductTemplateEntry => ({
     id: entry.id,
     name: entry.title,
     family: family(entry),
     picture: entry.thumbUrl ?? pictures().get(entry.id),
+    progress: progress(entry),
     missing: missing(entry).length === 0 ? undefined : amount(entry) ?? message('templatesPage.missingCount', { count: missing(entry).length }),
   })
   const drawing = (entry: ProductTemplateEntry) => {
@@ -188,19 +276,14 @@ export function TemplatesPage(props: {
     setError('')
     setLoadFailed(false)
     try {
-      const source = ref(entry)
-      const document = source.kind === 'remote'
-        ? await new RemoteTemplateCatalog(props.app.settings.get<string>('templates.registryUrl')).fetchBody(source.template)
-        : await owner.connection.fetchTemplateBody(source.pack, source.id)
+      const requirements = await modelRequirements(entry, owner)
       if (!current()) return
-      if (!document) throw new Error('Template unavailable')
-      const requirements = [...new Map(workflowModelOccurrences(document, registry.resolve, lookupAnswersOf(owner.lookups))
-        .filter((model) => model.valid).map(({ name, kind }) => [JSON.stringify([name, kind]), { name, kind }])).values()]
       if (requirements.length === 0 || missing(entry).some((model) => !requirements.some((item) => item.name === model.name))) {
         throw new Error('Template has unresolved model requirements')
       }
       const presence = await owner.connection.checkModelPresence(requirements, controller.signal)
       if (!current() || props.app.assetConsent.get() !== previousConsent) return
+      setRequirements((previous) => new Map([...previous, [entry.id, requirements]]))
       if (presence.every((model) => model.status === 'local')) {
         setRefresh((value) => value + 1)
         return
@@ -285,7 +368,7 @@ export function TemplatesPage(props: {
           actions={<>
             <ProductButton fill="solid" pending={opening()} onClick={() => { void open(entry().id) }}>{message('templatesPage.use')}</ProductButton>
             <Show when={missing(entry()).length > 0}>
-              <Show when={noFolders()} fallback={
+              <Show when={progress(entry()) !== undefined} fallback={<Show when={noFolders()} fallback={
                 <ProductButton disabled={opening() || noFolders() === undefined} onClick={() => { void download(entry()) }}>
                   {message('templatesPage.downloadCount', { count: missing(entry()).length })}
                   <Show when={amount(entry())}>{(size) => <span class="dinkster-template-fact-detail">{size()}</span>}</Show>
@@ -295,6 +378,12 @@ export function TemplatesPage(props: {
                   <span class="dinkster-description">{message('templatesPage.noFolder')}</span>
                   <ProductTextButton label={message('templatesPage.openStorage')} onClick={props.onOpenStorage} />
                 </span>
+              </Show>}>
+                <ProductTemplateDownload
+                  label={message('templatesPage.downloading', { count: activeJobs(entry()).length, percent: Math.round(progress(entry())! * 100) })}
+                  progress={progress(entry())!}
+                  stop={<ProductTextButton label={message('templatesPage.stop')} disabled={stopping() || !activeJobs(entry()).some(cancellable)} onClick={() => { void stop(entry()) }} />}
+                />
               </Show>
             </Show>
           </>}
