@@ -1625,11 +1625,11 @@ test('a click on a wired row whose value is known only after a run explains it, 
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'MeasureTest', displayName: 'Measure', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'radius', type: { kind: 'concrete', name: 'INT' } }],
+        body: [{ kind: 'output', id: 'radius', type: { kind: 'concrete', name: 'INT' } }],
       },
       {
         type: 'SoftenTest', displayName: 'Soften', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{
+        body: [{
           kind: 'input', id: 'radius', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 4 },
         }],
@@ -1655,9 +1655,20 @@ test('a click on a wired row whose value is known only after a run explains it, 
   await page.mouse.click(radius.x, radius.y)
   await expect(note).toContainText('The wire has no known value yet; this does not mean nothing.')
   await expect(note).toContainText('Stored 12, used again when the wire is removed.')
-  await expect(note.locator('[data-testid="canvas-row-focus"]')).toHaveAttribute('data-neutral', 'true')
   await expect(page.locator('.widget-in-row-field')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(note).toHaveCount(0)
   expect((await activeDoc(page)).graphs.g0!.nodes.soften!.values.radius).toBe(12)
+  await page.getByTestId('canvas-widget-a11y').filter({ hasText: 'Soften, radius' }).focus()
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 12. Used again when the wire is removed.')
+  await expect.poll(() => page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((node) => node.id === 'soften')!
+    const viewport = renderer.getViewport()
+    const left = canvas.left + node.x * viewport.scale + viewport.x
+    const right = left + node.layout.width * viewport.scale
+    const tip = document.querySelector('[data-testid=app-tooltip]')!.getBoundingClientRect()
+    return Math.min(Math.abs(tip.right + 8 - left), Math.abs(tip.left - 8 - right))
+  })).toBeLessThan(1)
 })

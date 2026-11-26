@@ -7656,9 +7656,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                     const canvas = canvasEl.getBoundingClientRect()
                     const hit = (item().target as typeof target)!.hit
                     const { node, row } = hit
-                    return new DOMRect(canvas.left + (node.x + row.inset) * viewport.scale + viewport.x,
+                    return new DOMRect(canvas.left + node.x * viewport.scale + viewport.x,
                       canvas.top + (node.y + row.y) * viewport.scale + viewport.y,
-                      (row.width ?? node.layout.width - row.inset * 2) * viewport.scale, row.height * viewport.scale)
+                      node.layout.width * viewport.scale, row.height * viewport.scale)
                   },
                 }, undefined, true, tooltipOwner)
               }}

@@ -104,7 +104,7 @@ for (const [key, type, draft, stored, incoming] of [['steps', 'INT', '31', 20, 7
     await expect.poll(() => value(page, key)).toBe(stored)
     await expect(inspection).not.toContainText('Your edit was not kept.')
     await expect(inspection).toContainText(`Stored ${stored}, used again when the wire is removed.`)
-    await expect(inspection.getByRole('button', { name: /Representation/ })).toHaveCount(key === 'notes' ? 1 : 0)
+    await expect(inspection.getByRole('button', { name: /Display/ })).toHaveCount(key === 'notes' ? 1 : 0)
     await page.keyboard.press('Control+z')
     await expect.poll(() => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links).length)).toBe(0)
     await expect.poll(() => value(page, key)).toBe(stored)
@@ -236,12 +236,12 @@ test('promoted representations and Inputs edits stay with the entered instance t
   await enter('first')
   await expect.poll(panelRow).toMatchObject({ value: 12, view: 'core.number', owner: { graphId: 'g0', nodeId: 'first', valueKey: 'radius' } })
   await openPanel()
-  await page.getByRole('button', { name: 'Representation Number', exact: true }).click()
+  await page.getByRole('button', { name: 'Display Number', exact: true }).click()
   await page.getByRole('option', { name: 'Slider', exact: true }).click()
   await page.keyboard.press('Escape')
   await expect.poll(panelRow).toMatchObject({ value: 12, view: 'core.slider' })
   await openPanel('caption')
-  await page.getByRole('button', { name: 'Representation Single line', exact: true }).click()
+  await page.getByRole('button', { name: 'Display Single line', exact: true }).click()
   await page.getByRole('option', { name: 'Multiline', exact: true }).click()
   await page.keyboard.press('Escape')
   await enter('nested')
@@ -253,7 +253,7 @@ test('promoted representations and Inputs edits stay with the entered instance t
   await expect(field(page)).toHaveCount(0)
   await page.keyboard.press('Escape')
   await openPanel()
-  await page.getByRole('button', { name: 'Representation Slider', exact: true }).click()
+  await page.getByRole('button', { name: 'Display Slider', exact: true }).click()
   await page.getByRole('option', { name: 'Number', exact: true }).click()
   await page.keyboard.press('Escape')
   await openPanel()
@@ -273,7 +273,7 @@ test('promoted representations and Inputs edits stay with the entered instance t
       firstView: doc.view.graphs.g0!.nodes.first!.views, secondView: doc.view.graphs.g0!.nodes.second!.views }
   })).toEqual({ first: 18, second: 24, default: 6, inner: 7, firstView: { radius: 'number', caption: 'multiline' } })
   await openPanel()
-  await page.getByRole('button', { name: 'Representation Number', exact: true }).click()
+  await page.getByRole('button', { name: 'Display Number', exact: true }).click()
   await page.getByRole('option', { name: 'Slider', exact: true }).click()
   await page.keyboard.press('Escape')
   await page.evaluate(async () => {
@@ -478,12 +478,12 @@ for (const access of ['readOnly', 'disabled'] as const) {
     const steps = await rowPoint(page, 'n1', 'steps')
     await page.mouse.click(steps.x, steps.y)
     const focus = page.getByTestId('row-focus')
-    await focus.getByRole('button', { name: /Representation/ }).click()
-    await expect(focus.getByRole('combobox', { name: 'Representation', exact: true })).toBeFocused()
+    await focus.getByRole('button', { name: /Display/ }).click()
+    await expect(focus.getByRole('combobox', { name: 'Display', exact: true })).toBeFocused()
     await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
       command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'cfg', value: 10 },
     }))
-    await expect(focus.getByRole('combobox', { name: 'Representation', exact: true })).toBeFocused()
+    await expect(focus.getByRole('combobox', { name: 'Display', exact: true })).toBeFocused()
     await expect.poll(() => focus.locator('.dinkster-canvas-side-representation-list .dinkster-canvas-field-label').evaluate((label) => {
       const range = document.createRange()
       range.selectNodeContents(label)
@@ -500,9 +500,9 @@ for (const access of ['readOnly', 'disabled'] as const) {
     await expect(field(page)).toHaveCount(0)
     await expect(focus).toContainText(access === 'readOnly' ? 'Read-only' : 'Preset controls this field')
     await page.screenshot({ path: testInfo.outputPath('blocked-representation-selected.png') })
-    const trigger = focus.getByRole('button', { name: 'Representation Slider', exact: true })
+    const trigger = focus.getByRole('button', { name: 'Display Slider', exact: true })
     await trigger.click()
-    const filter = focus.getByRole('combobox', { name: 'Representation', exact: true })
+    const filter = focus.getByRole('combobox', { name: 'Display', exact: true })
     await filter.dispatchEvent('keydown', { key: 'Escape', isComposing: true })
     await expect(filter).toBeFocused()
     await page.keyboard.press('Escape')
@@ -514,12 +514,12 @@ for (const access of ['readOnly', 'disabled'] as const) {
   })
 }
 
-for (const [draft, stored] of [['not-a-number', 7], ['150', 100]] as const) test(`Representation settles ${draft} like Enter before switching`, async ({ page }) => {
+for (const [draft, stored] of [['not-a-number', 7], ['150', 100]] as const) test(`Display settles ${draft} like Enter before switching`, async ({ page }) => {
   await openSampler(page)
   const point = await rowPoint(page, 'n1', 'cfg')
   await page.mouse.click(point.x, point.y)
   await field(page).fill(draft)
-  await page.getByRole('button', { name: 'Representation Number', exact: true }).click()
+  await page.getByRole('button', { name: 'Display Number', exact: true }).click()
   await page.getByRole('option', { name: 'Slider', exact: true }).click()
   await expect(field(page)).toHaveCount(0)
   await expect.poll(() => value(page, 'cfg')).toBe(stored)
@@ -560,7 +560,7 @@ test('a selected automatic Slider explains its Number fallback and returns when 
   const point = await rowPoint(page, 'n1', 'cfg')
   await page.mouse.click(point.x, point.y)
   const inspection = page.getByTestId('row-focus')
-  await expect(inspection.getByRole('button', { name: 'Representation Slider', exact: true })).toBeVisible()
+  await expect(inspection.getByRole('button', { name: 'Display Slider', exact: true })).toBeVisible()
   const setKnown = (known: boolean) => page.evaluate((known) => {
     const result = window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'node.setValue', params: {
       graphId: 'g0', nodeId: 'n1', inputId: 'known', value: known,
@@ -570,7 +570,7 @@ test('a selected automatic Slider explains its Number fallback and returns when 
   await setKnown(false)
   await expect.poll(rowView).toBe('core.number')
   await expect(inspection).toContainText('Showing Number until the range is known.')
-  await expect(inspection.getByRole('button', { name: 'Representation Slider', exact: true })).toBeVisible()
+  await expect(inspection.getByRole('button', { name: 'Display Slider', exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('slider-range-unknown.png') })
   await setKnown(true)
   await expect.poll(rowView).toBe('core.slider')
@@ -584,7 +584,7 @@ test('a removed pack alternative falls back without losing the saved preference 
   await openSampler(page)
   const point = await rowPoint(page, 'n1', 'prefix')
   await page.mouse.click(point.x, point.y)
-  await page.getByRole('button', { name: 'Representation Single line', exact: true }).click()
+  await page.getByRole('button', { name: 'Display Single line', exact: true }).click()
   await page.getByRole('option', { name: 'Multiline', exact: true }).click()
   const rowView = () => page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
