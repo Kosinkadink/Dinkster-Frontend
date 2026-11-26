@@ -140,12 +140,12 @@ const unpack = schema('dinkster.utilities.unpack', 'Unpack', [
   {
     kind: 'group',
     id: 'items',
+    displayName: 'Items',
     value: { ...out('item', T), optional: true },
     keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 },
     grows: { count: 'count' },
     minMembers: 0,
     memberLabel: { formula: '"Item " + str(index())' },
-    openName: false,
   },
 ])
 const listSource = schema('List', 'List', [

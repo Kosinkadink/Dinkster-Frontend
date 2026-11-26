@@ -251,6 +251,7 @@
       {
         "kind": "group",
         "id": "items",
+        "label": "Items",
         "value": {
           "kind": "output",
           "id": "item",
@@ -272,8 +273,7 @@
         },
         "memberLabel": {
           "formula": "\"Item \" + str(index())"
-        },
-        "openName": false
+        }
       }
     ],
     "validate": [
