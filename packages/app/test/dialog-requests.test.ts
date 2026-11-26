@@ -91,6 +91,10 @@ describe('installAssetConsent ownership', () => {
     let observeStart!: () => void
     const startObserved = new Promise<void>((resolve) => { observeStart = resolve })
     const startAccepted = new Promise<void>((resolve) => { acceptStart = resolve })
+    let observeBusy!: () => void
+    let refuseStart!: () => void
+    const busyObserved = new Promise<void>((resolve) => { observeBusy = resolve })
+    const startRefused = new Promise<void>((resolve) => { refuseStart = resolve })
     const connection = new DinksterConnection({ id: asConnectionId('downloads'), baseUrl: '/engine', clientId: 'test', project: 'studio',
       webSocketFactory: () => ({}) as WebSocketLike,
       fetchFn: async (url, init) => {
@@ -106,6 +110,8 @@ describe('installAssetConsent ownership', () => {
           if (!body.consent) return new Response('{}', { status: 403 })
           if (selection.planId === 'plan-5' && lastStartBusy) {
             lastStartBusy = false
+            observeBusy()
+            await startRefused
             return new Response(JSON.stringify({ error: 'model-download-busy' }), { status: 409 })
           }
           if (active.length >= 4 || active.some((job) => job.mount === selection.mount))
@@ -157,10 +163,18 @@ describe('installAssetConsent ownership', () => {
       expect(slot.value!.models![1]!.queued).toBe(false)
       expect(jobs.has('plan-1')).toBe(false)
       await slot.value!.cancelModel!(0)
-      await controller.refresh()
-      expect(slot.value!.models![5]!.queued).toBe(true)
+      const refused = controller.refresh()
+      await busyObserved
+      controller.invalidate(requirements[5]!)
+      refuseStart()
+      await refused
+      expect(slot.value!.models![5]!.queued).toBeUndefined()
+      expect(slot.value!.models![5]!.plan).toBeUndefined()
       expect(slot.value!.models![5]!.error).toBeUndefined()
       await controller.refresh()
+      expect(jobs.has('plan-5')).toBe(false)
+      await slot.value!.reviewModel!(5)
+      await slot.value!.downloadModel!(5)
       expect(slot.value!.models!.map((row) => row.job?.status)).toEqual([
         'cancelled', undefined, 'downloading', 'downloading', 'downloading', 'downloading',
       ])

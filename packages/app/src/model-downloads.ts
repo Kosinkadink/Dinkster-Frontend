@@ -22,7 +22,7 @@ export class ModelDownloadsController {
   readonly rows: ReadonlySignal<readonly ModelDownloadState[]> = this.state
   private readonly observation = new AbortController()
   private planning: Promise<void> = Promise.resolve()
-  private readonly starting = new Set<ModelDownloadState>()
+  private readonly starting = new Map<ModelDownloadState, { invalidated: boolean }>()
   private pumping = false
   private poll: ReturnType<typeof setTimeout> | undefined
   private disposed = false
@@ -70,7 +70,10 @@ export class ModelDownloadsController {
 
   invalidate(requirement: ModelRequirement): void {
     const row = this.row(requirement)
-    if (!row || this.starting.has(row) || (row.job && active(row.job))) return
+    if (!row) return
+    const start = this.starting.get(row)
+    if (start) { start.invalidated = true; return }
+    if (row.job && active(row.job)) return
     this.update(row, { requirement: row.requirement, pending: false,
       ...(row.source === undefined ? {} : { source: row.source }),
     })
@@ -143,8 +146,9 @@ export class ModelDownloadsController {
         if (running.some((job) => (job.project === plan.project && job.mount === plan.mount) ||
           job.destination.replace(/[\\/][^\\/]*$/, '') === plan.destination.replace(/[\\/][^\\/]*$/, ''))) continue
         const pending = { ...queued, queued: false, pending: true }
-        if (!this.update(queued, pending)) continue
-        this.starting.add(pending)
+        const start = { invalidated: false }
+        this.starting.set(pending, start)
+        if (!this.update(queued, pending)) { this.starting.delete(pending); continue }
         try {
           const job = await this.connection.startModelDownload(plan.planId, this.observation.signal)
           if (!this.matches(job, queued.requirement)) throw new Error('Model job does not match the captured project and requirement')
@@ -154,7 +158,9 @@ export class ModelDownloadsController {
           })
         } catch (error) {
           if (error instanceof ModelDownloadBusyError) {
-            this.update(pending, queued)
+            this.update(pending, start.invalidated ? { requirement: queued.requirement, pending: false,
+              ...(queued.source === undefined ? {} : { source: queued.source }),
+            } : queued)
             continue
           }
           // A failed start may have reached the server. A retry must discover jobs before planning again.
