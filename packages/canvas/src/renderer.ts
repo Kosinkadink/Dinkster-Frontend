@@ -2451,13 +2451,11 @@ export class CanvasRenderer {
       // producer); every other wire, including one being dragged, is solid.
       const dashed = link.maybeAbsent === true
       if (dashed) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
-      // A PROVEN type conflict paints the noodle in error red, overriding
-      // the type color: the break must be visible where it is, not hunted
-      // down from a Problems entry. Slightly wider so red never hides
-      // between densely packed ok noodles.
+      // A proven conflict takes its strongest problem's color at the
+      // wider mismatch stroke, without changing absence or mute hints.
       if (link.mismatch === true) {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName, {
-          color: this.tokens.colors.error,
+          color: link.mismatchKind === 'warning' ? PROBLEM_WARNING_BADGE.color : t.colors.error,
           width: canvasPaintTokens.link.mismatchStroke,
           minScreenWidth: canvasPaintTokens.link.mismatchMinScreenStroke,
         })
@@ -2479,11 +2477,10 @@ export class CanvasRenderer {
         ctx.beginPath()
         const midpointHovered = this.overlay.hoveredLinkMidpoint === link.id
         ctx.arc(mx, my, midpointHovered ? canvasPaintTokens.link.hoveredMidpointRadius : canvasPaintTokens.link.midpointRadius, 0, Math.PI * 2)
-        // The grab dot follows the noodle's paint, so a mismatch reads red
-        // end to end rather than showing a healthy-looking handle mid-error.
+        // The grab dot follows the noodle's problem color.
         ctx.fillStyle =
           link.mismatch === true
-            ? t.colors.error
+            ? link.mismatchKind === 'warning' ? PROBLEM_WARNING_BADGE.color : t.colors.error
             : link.typeName
               ? presentedType(t, { kind: 'concrete', name: link.typeName }).color
               : t.colors.linkDefault
@@ -2622,7 +2619,7 @@ export class CanvasRenderer {
       }
       if (this.scopeHighlight && !this.scopeHighlight.nodes.has(stub.nodeId)) ctx.globalAlpha = SCOPE_DIM
       const color = stub.mismatch === true
-        ? t.colors.error
+        ? stub.mismatchKind === 'warning' ? PROBLEM_WARNING_BADGE.color : t.colors.error
         : stub.typeName ? typeColor(t, stub.typeName) : t.colors.linkDefault
       // Lead line pin -> tag edge.
       ctx.strokeStyle = color

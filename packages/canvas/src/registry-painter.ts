@@ -108,7 +108,6 @@ const RAISED_ROW_ICONS: Readonly<Record<string, NonNullable<ToolboxButton['icon'
   'core.curve': 'spline',
   'core.cameraAngle': 'rotate-3d',
   'core.compositor': 'layers',
-  'core.resolution': 'ruler',
 }
 
 type WidgetRow = WidgetPaintArgs['row']
