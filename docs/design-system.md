@@ -157,7 +157,15 @@ every core tab once.
   blank waiting, centred loading, or a failure notice with a retry button above
   any retained answer. Pass the helper as `page`, the retry `read`, a
   `loadingLabel` and a content render function. Its parent supplies the content
-  area's height; arriving content fades over 200ms unless motion is reduced.
+  area's height; arriving content fades and rises 6px over 240ms unless motion
+  is reduced.
+  For other regions fed by the same `page`, `ProductPageAnswer` takes that
+  helper and a content render function, showing only the retained or arriving
+  answer without another loading sign, error or retry. Keep known headings and
+  actions outside both pieces so they stay mounted through reads and refreshes.
+  Both accept `arrival="fade"` (200ms) or `arrival="rise"` (240ms, 6px upward
+  settling). Both default to rise; callers do not need to choose an arrival.
+  Reduced motion disables both animations.
   `pending` covers the whole read, `value` retains the previous answer during
   refresh, and `error` exposes a failed read. A newer `load` supersedes an older
   completion; Solid owner disposal cancels timers and ignores late answers.
