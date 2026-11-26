@@ -1,7 +1,11 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ProductModelList, type ProductModel } from '@dinkster/ui'
+import {
+  ProductModelList,
+  type ProductModel,
+  type ProductModelListHandle,
+} from '@dinkster/ui'
 
 const models: readonly ProductModel[] = [
   {
@@ -58,6 +62,112 @@ function button(root: HTMLElement, text: string): HTMLButtonElement {
 }
 
 describe('ProductModelList', () => {
+  it('inspects field versions by keyboard without committing or downloading and keeps chosen keys controlled', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const versions: ProductModel = {
+      ...models[0]!,
+      versions: [
+        { ...models[0]!.versions[0]!, id: 'fp8:digest-a', name: 'FP8 A' },
+        { ...models[0]!.versions[0]!, id: 'fp8:digest-b', name: 'FP8 B' },
+        models[0]!.versions[1]!,
+        { id: 'missing', name: 'Unavailable version', state: 'unavailable' },
+      ],
+    }
+    const [selected, setSelected] = createSignal([
+      { modelId: 'flux', versionId: 'fp8:digest-a' },
+      { modelId: 'flux', versionId: 'fp8:digest-b' },
+    ])
+    const inspected: string[][] = []
+    const downloaded: string[][] = []
+    let handle: ProductModelListHandle | undefined
+    const dispose = render(
+      () => (
+        <ProductModelList
+          label="Field models"
+          models={[versions, models[1]!]}
+          selected={selected()}
+          inlineDetails={false}
+          ref={(value) => {
+            handle = value
+          }}
+          onSelect={(modelId, versionId) =>
+            inspected.push([modelId, versionId])
+          }
+          onDownload={(modelId, versionId) =>
+            downloaded.push([modelId, versionId])
+          }
+          onShowFolder={() => {
+            throw new Error('Inline field action must not run')
+          }}
+        />
+      ),
+      root,
+    )
+    const key = (value: string): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', {
+        key: value,
+        bubbles: true,
+        cancelable: true,
+      })
+      document.activeElement?.dispatchEvent(event)
+      return event
+    }
+    try {
+      expect(handle).toBeDefined()
+      handle!.focusFirst()
+      expect(document.activeElement).toBe(button(root, 'FLUX.1 dev'))
+      button(root, 'FLUX.1 dev').click()
+      key('ArrowDown')
+      expect(document.activeElement).toBe(button(root, 'FP8 A'))
+      expect(inspected.at(-1)).toEqual(['flux', 'fp8:digest-a'])
+      expect(button(root, 'FP8 A').getAttribute('aria-pressed')).toBe('true')
+      expect(button(root, 'FP8 B').getAttribute('aria-pressed')).toBe('true')
+      expect(button(root, 'FP8 A').hasAttribute('aria-expanded')).toBe(false)
+      button(root, 'FP8 A').click()
+      expect(root.textContent).not.toContain('flux-dev-fp8.safetensors')
+      expect(root.textContent).not.toContain('Show folder')
+      key('ArrowDown')
+      expect(document.activeElement).toBe(button(root, 'FP8 B'))
+      key('ArrowDown')
+      button(root, 'Q4').click()
+      expect(inspected.at(-1)).toEqual(['flux', 'q4'])
+      expect(button(root, 'Q4').getAttribute('aria-pressed')).toBe('false')
+      key('ArrowDown')
+      button(root, 'Unavailable version').click()
+      expect(inspected.at(-1)).toEqual(['flux', 'missing'])
+      expect(
+        button(root, 'Unavailable version').getAttribute('aria-pressed'),
+      ).toBe('false')
+      expect(downloaded).toEqual([])
+      const activeBeforeSelection = document.activeElement
+      setSelected([{ modelId: 'flux', versionId: 'fp8:digest-b' }])
+      expect(document.activeElement).toBe(activeBeforeSelection)
+      expect(button(root, 'FP8 A').getAttribute('aria-pressed')).toBe('false')
+      expect(button(root, 'FP8 B').getAttribute('aria-pressed')).toBe('true')
+      key('End')
+      expect(document.activeElement).toBe(button(root, 'SDXL base'))
+      key('Home')
+      expect(document.activeElement).toBe(button(root, 'FLUX.1 dev'))
+      const escaped: string[] = []
+      root.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') escaped.push(event.key)
+      })
+      expect(key('Escape').defaultPrevented).toBe(false)
+      expect(escaped).toEqual(['Escape'])
+      const count = inspected.length
+      button(root, 'Download').focus()
+      expect(key('ArrowDown').defaultPrevented).toBe(false)
+      expect(inspected).toHaveLength(count)
+      button(root, 'FLUX.1 dev').focus()
+      button(root, 'FLUX.1 dev').click()
+      key('ArrowDown')
+      expect(document.activeElement).toBe(button(root, 'SDXL base'))
+    } finally {
+      dispose()
+    }
+  })
+
   it('expands versions without choosing and preserves both model and version identity for actions', () => {
     const root = document.createElement('div')
     document.body.append(root)
@@ -155,8 +265,8 @@ describe('ProductModelList', () => {
       ).toBe('0.25')
       button(root, 'FLUX.1 dev').click()
       setProgress(0.7)
-      expect(button(root, 'FLUX.1 dev').getAttribute('aria-expanded')).toBe(
-        'true',
+      expect(button(root, 'FLUX.1 dev').hasAttribute('aria-expanded')).toBe(
+        false,
       )
       expect(
         root

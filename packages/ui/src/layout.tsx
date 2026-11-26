@@ -491,11 +491,11 @@ export function ProductSection(props: {
 
 export function ProductList(props: {
   label: string
-  appearance?: 'bordered' | 'plain' | 'grouped'
+  variant?: 'plain' | 'grouped'
   children: JSX.Element
 }) {
   return (
-    <ul class="dinkster-list" data-appearance={props.appearance} aria-label={props.label}>
+    <ul class="dinkster-list" data-variant={props.variant} aria-label={props.label}>
       {props.children}
     </ul>
   )
@@ -509,34 +509,52 @@ export function ProductListRow(props: {
   action?: JSX.Element
   status?: JSX.Element
   expanded?: boolean
-  onToggle?: () => void
+  onToggle?: (expanded: boolean) => void
+  onActivate?: () => void
+  ref?: (element: HTMLButtonElement) => void
+  tabIndex?: number
+  pressed?: boolean
   children?: JSX.Element
+  testId?: string
+  dataAttributes?: Readonly<Record<`data-${string}`, string | undefined>>
 }) {
   const detailsId = createUniqueId()
-  const copy = () => <span class="dinkster-row-copy">
-    <span>{props.title}</span>
-    <Show when={props.description}>
-      <span class="dinkster-metadata">{props.description}</span>
-    </Show>
-  </span>
+  const expandable = () => props.expanded !== undefined
+  const copy = () => <>
+    <Show when={expandable()}><ProductIcon icon={ChevronRight} /></Show>
+    {props.leading}
+    <span class="dinkster-row-copy">
+      <span>{props.title}</span>
+      <Show when={props.description}>
+        {(description) => <span class="dinkster-metadata">{description()}</span>}
+      </Show>
+    </span>
+    <Show when={props.trailing}>{(trailing) => <span class="dinkster-row-trailing">{trailing()}</span>}</Show>
+  </>
   return (
-    <li class="dinkster-row" data-expandable={props.onToggle !== undefined ? '' : undefined} data-expanded={props.expanded ? '' : undefined}>
-      <Show when={props.onToggle} fallback={<>{props.leading}{copy()}{props.trailing}{props.action}</>}>
-        <div class="dinkster-row-heading">
-          <button type="button" class="dinkster-row-trigger" aria-expanded={props.expanded ?? false}
-            aria-controls={props.expanded ? detailsId : undefined} onClick={() => props.onToggle?.()}>
-            {props.leading}
+    <li {...props.dataAttributes} class="dinkster-row" data-testid={props.testId} data-expanded={props.expanded}>
+      <div class="dinkster-row-heading">
+        <Show when={props.onToggle || props.onActivate} fallback={<div class="dinkster-row-main">{copy()}</div>}>
+          <button
+            type="button"
+            class="dinkster-row-main"
+            ref={props.ref}
+            tabIndex={props.tabIndex}
+            aria-pressed={props.pressed}
+            aria-expanded={props.expanded}
+            aria-controls={expandable() ? detailsId : undefined}
+            onClick={() => props.onToggle ? props.onToggle(!props.expanded) : props.onActivate?.()}
+          >
             {copy()}
-            {props.trailing}
           </button>
-          {props.action}
+        </Show>
+        <Show when={props.action}>{(action) => <div class="dinkster-row-action">{action()}</div>}</Show>
+      </div>
+      <Show when={props.status}>{(status) => <div class="dinkster-row-status">{status()}</div>}</Show>
+      <Show when={expandable()}>
+        <div id={detailsId} class="dinkster-row-details" hidden={!props.expanded}>
+          <Show when={props.expanded}>{props.children}</Show>
         </div>
-        <Show when={props.status}>
-          <div class="dinkster-row-status">{props.status}</div>
-        </Show>
-        <Show when={props.expanded}>
-          <div id={detailsId} class="dinkster-row-details">{props.children}</div>
-        </Show>
       </Show>
     </li>
   )

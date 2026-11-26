@@ -2,7 +2,9 @@ import { createSignal } from 'solid-js'
 import {
   ProductModelList,
   ProductSection,
+  ProductTextButton,
   type ProductModel,
+  type ProductModelListHandle,
 } from '../src/index.js'
 
 const models: readonly ProductModel[] = [
@@ -88,10 +90,13 @@ const models: readonly ProductModel[] = [
 ]
 
 export function ModelsGallery() {
-  const [selected, setSelected] = createSignal<{
-    modelId: string
-    versionId: string
-  }>()
+  const [selected, setSelected] = createSignal<
+    {
+      modelId: string
+      versionId: string
+    }[]
+  >([])
+  let field: ProductModelListHandle | undefined
   const [action, setAction] = createSignal('')
   return (
     <ProductSection
@@ -103,7 +108,9 @@ export function ModelsGallery() {
           label="Models"
           models={models}
           selected={selected()}
-          onChoose={(modelId, versionId) => setSelected({ modelId, versionId })}
+          onChoose={(modelId, versionId) =>
+            setSelected([{ modelId, versionId }])
+          }
           onDownload={(modelId, versionId) =>
             setAction(`Review download: ${modelId}, ${versionId}`)
           }
@@ -121,6 +128,32 @@ export function ModelsGallery() {
           {action()}
         </p>
       </div>
+      <ProductSection
+        title="Model field"
+        description="Inspect with arrows; chosen versions stay controlled by the field."
+      >
+        <ProductTextButton
+          label="Focus field models"
+          onClick={() => field?.focusFirst()}
+        />
+        <div class="dinkster-model-gallery" data-testid="models-field-gallery">
+          <ProductModelList
+            label="Field models"
+            models={models}
+            inlineDetails={false}
+            selected={[
+              { modelId: 'detail', versionId: 'main' },
+              { modelId: 'sdxl', versionId: 'fp16' },
+            ]}
+            ref={(handle) => {
+              field = handle
+            }}
+            onSelect={(modelId, versionId) =>
+              setAction(`Inspect: ${modelId}, ${versionId}`)
+            }
+          />
+        </div>
+      </ProductSection>
     </ProductSection>
   )
 }
