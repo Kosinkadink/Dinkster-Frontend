@@ -143,9 +143,6 @@ it('offers measured-card limits without inventing a reported budget and unloads 
   expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 11945377792 })
   const all = [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Unload unused')!
   all.click(); await flush()
-  expect(unloadMemory).not.toHaveBeenCalled()
-  const confirm = [...root.querySelectorAll<HTMLButtonElement>('button')].filter((button) => button.textContent === 'Unload').at(-1)!
-  confirm.click(); await flush()
   expect(unloadMemory.mock.calls).toEqual([['vram:cuda:0'], ['ram']])
   unmount()
 })
@@ -206,7 +203,7 @@ it('replaces unload only for reported live use and restores it when use ends', a
   unmount()
 })
 
-it('preserves focused model rows across snapshots and confirms per-card unloads', async () => {
+it('preserves focused model rows across snapshots and immediately unloads the selected residency', async () => {
   let push: ((next: MemoryStatus) => void) | undefined
   const unloadMemory = vi.fn(async () => ({ requestedBytes: 3e9, freedBytes: 3e9 }))
   const connection = {
@@ -228,9 +225,6 @@ it('preserves focused model rows across snapshots and confirms per-card unloads'
   push!({ ...payload }); await flush()
   expect(document.activeElement).toBe(unload)
   unload.click(); await flush()
-  expect(unloadMemory).not.toHaveBeenCalled()
-  const confirm = [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Unload' && button !== unload)!
-  confirm.click(); await flush()
   expect(unloadMemory).toHaveBeenCalledWith('vram:cuda:0', 'models', 'm1')
   expect(root.textContent).toContain('Resources updated.')
   const slider = root.querySelector('[role="slider"]')!

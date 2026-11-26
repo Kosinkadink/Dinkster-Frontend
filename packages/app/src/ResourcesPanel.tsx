@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
+import { ChevronRight } from 'lucide-solid'
 import type { DinksterConnection, MemoryGovernorDevice, MemoryStatus, RuntimeSettings } from '@dinkster/client'
-import { ProductButton, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductField, ProductNotice, ProductResourceUsage, ProductTextInput, ProductToast, type ProductResourceSample, type ProductResourceSegment } from '@dinkster/ui'
+import { ProductButton, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductField, ProductIcon, ProductNotice, ProductResourceUsage, ProductTextInput, ProductToast, type ProductResourceSample, type ProductResourceSegment } from '@dinkster/ui'
 import { MemoryStatusController } from './memory-status.js'
 import { ProductSlider } from './ProductSlider.js'
 import { useSignal } from './solid-adapter.js'
@@ -10,6 +11,7 @@ import { useAppMessage } from './locale.js'
 interface ResourceBackend {
   readonly id: string
   readonly label: string
+  readonly baseUrl?: string
   readonly connection: DinksterConnection
 }
 
@@ -41,16 +43,10 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
   const [clock, setClock] = createSignal(Date.now())
   const [receivedAt, setReceivedAt] = createSignal(0)
   const [history, setHistory] = createSignal<Readonly<Record<string, readonly ProductResourceSample[]>>>({})
-  const [confirmUnload, setConfirmUnload] = createSignal<(() => Promise<unknown>)>()
   let controller: MemoryStatusController | undefined
   const stale = () => connectionState() !== 'connected' || clock() - receivedAt() > 6000
   const cards = () => Object.keys(status()?.memoryGovernor ?? {}).filter((device) => (device.startsWith('vram:') || device.startsWith('cuda:')) && status()!.memoryGovernor![device]!.measured !== null)
   const usedOfTotal = (used: number, total: number) => message('resources.usedOfTotal', { used: gb(used), total: gb(total) })
-  const aggregate = () => {
-    const rows = cards().map((device) => status()!.memoryGovernor![device]!)
-    if (rows.length === 0 || rows.some((row) => cardUsed(row) === undefined)) return undefined
-    return usedOfTotal(rows.reduce((sum, row) => sum + cardUsed(row)!, 0), rows.reduce((sum, row) => sum + row.measured!.totalBytes, 0))
-  }
   const accept = (next: MemoryStatus, isDetails: boolean): void => {
     if (isDetails) { setDetails(next.consumerDetails); return }
     setStatus(next)
@@ -95,7 +91,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
       controller?.refreshDetails()
       setNotification({ message: message('resources.updated') })
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
-    finally { setPending(false); setConfirmUnload(undefined) }
+    finally { setPending(false) }
   }
   const granted = (category: string) => settings()?.categories.granted.includes(category) === true && settings()?.settings[category]?.writable === true
   const limit = (device: string) => status()?.acceleratorPolicy?.devices[device]?.governorAdmission.effectiveBudgetBytes ?? status()?.memoryGovernor?.[device]?.budgetBytes ?? undefined
@@ -158,11 +154,12 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
     if (known.length === 0 || known.some((part) => part.value < 0) || accounted > used) return [{ label: message('resources.used'), value: used, tone: 'other' }]
     return [...known, { label: message('resources.otherMemory'), value: used - accounted, tone: 'other' }]
   }
+  const loadedModels = () => Object.values(details() ?? {}).flat().filter((item) => Object.values(item.bytesByResidency).some((bytes) => bytes > 0))
   const unload = () => Object.keys(status()?.memoryGovernor ?? {}).filter((device) => Object.keys(status()!.memoryGovernor![device]!.consumers).length > 0)
   return <section class="dinkster-resource-backend" data-backend={props.backend.id}>
     <div class="dinkster-resource-backend-toggle"><ProductButton disabled={connectionState() !== 'connected'} aria-expanded={connectionState() === 'connected' && open()} onClick={toggle}>
-      <span>{connectionState() === 'connected' ? open() ? 'v' : '>' : ''} {props.backend.label}</span>
-      <span class="dinkster-metadata">{connectionState() === 'connected' ? aggregate() : message('resources.disconnected')}</span>
+      <span class="dinkster-resource-backend-name"><Show when={connectionState() === 'connected'}><ProductIcon icon={ChevronRight} /></Show><i class="dinkster-resource-state" data-connected={connectionState() === 'connected'} aria-hidden="true" /><strong>{props.backend.label}</strong></span>
+      <span class="dinkster-metadata">{connectionState() === 'connected' ? props.backend.id === 'local' ? message('resources.thisComputer') : props.backend.baseUrl : message('resources.disconnected')}</span>
     </ProductButton></div>
     <Show when={connectionState() === 'connected' && open()}>
       <div class="dinkster-stack">
@@ -175,33 +172,37 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
           return <section class="dinkster-resource-card" aria-label={name()}>
             <header class="dinkster-resource-card-heading"><strong>{name()}<Show when={cards().length > 1}><span class="dinkster-metadata"> {message('resources.cardPosition', { number: index() + 1, count: cards().length })}</span></Show></strong><Show when={cardUsed(row()) !== undefined}><span>{usedOfTotal(cardUsed(row())!, row().measured!.totalBytes)}</span></Show></header>
             <Show when={row().measured}>{(measured) => <ProductResourceUsage label={message('resources.cardMemory', { name: name() })} total={measured().totalBytes} segments={segments(device)} samples={history()[device] ?? []} now={clock()} {...(limit(device) === undefined ? {} : { limit: limit(device)! })} format={gb} historyLabel={message('resources.history')} limitLabel={message('resources.limit')} compact={cards().length > 1} />}</Show>
-            <div class="dinkster-resource-live dinkster-metadata">
-              <Show when={row().measured?.gpuUtilizationPercent !== undefined}><span>{message('resources.busy', { percent: row().measured!.gpuUtilizationPercent! })}</span></Show>
-              <Show when={row().measured?.gpuTemperatureCelsius !== undefined}><span>{message('resources.temperature', { value: row().measured!.gpuTemperatureCelsius! })}</span></Show>
-              <Show when={row().measured?.gpuPowerMilliwatts !== undefined}><span>{message('resources.power', { value: (row().measured!.gpuPowerMilliwatts! / 1000).toFixed(0) })}</span></Show>
-            </div>
+            <dl class="dinkster-resource-live">
+              <Show when={row().measured?.gpuUtilizationPercent !== undefined}><div><dt>{message('resources.busyLabel')}</dt><dd>{row().measured!.gpuUtilizationPercent!}%</dd></div></Show>
+              <Show when={row().measured?.gpuTemperatureCelsius !== undefined}><div><dt>{message('resources.temperatureLabel')}</dt><dd>{message('resources.temperature', { value: row().measured!.gpuTemperatureCelsius! })}</dd></div></Show>
+              <Show when={row().measured?.gpuPowerMilliwatts !== undefined}><div><dt>{message('resources.powerLabel')}</dt><dd>{message('resources.power', { value: (row().measured!.gpuPowerMilliwatts! / 1000).toFixed(0) })}</dd></div></Show>
+            </dl>
             <Show when={details() !== undefined && models(device).length > 0}>
-              <div class="dinkster-metadata">{message('resources.loadedOnCard')}</div>
+              <div class="dinkster-resource-models-heading">{message('resources.loadedOnCard')}</div>
               <For each={models(device).map((model) => model.key)}>{(key) => {
                 const model = () => models(device).find((entry) => entry.key === key)!
-                return <div class="dinkster-resource-model"><span title={model().item.displayName}>{model().item.displayName}</span><span>{gb(model().bytes)}</span><span class="dinkster-resource-model-action"><span aria-hidden="true">{message('resources.unload')}</span><Show when={model().item.inUse === true} fallback={<ProductButton intent="remove" disabled={pending() || stale()} aria-label={message('memory.action.unloadModel', { model: model().item.displayName })} onClick={() => {
+                return <div class="dinkster-resource-model"><span title={model().item.displayName}>{model().item.displayName}</span><span>{gb(model().bytes)}</span><span class="dinkster-resource-model-action"><span aria-hidden="true">{message('resources.unload')}</span><Show when={model().item.inUse === true} fallback={<ProductButton intent="remove" fill="quiet" data-resource-release disabled={pending() || stale()} aria-label={message('memory.action.unloadModel', { model: model().item.displayName })} onClick={() => {
                   const selected = model()
-                  setConfirmUnload(() => () => connection().unloadMemory(device, selected.consumer, selected.item.itemId))
+                  void act(() => connection().unloadMemory(device, selected.consumer, selected.item.itemId))
                 }}>{message('resources.unload')}</ProductButton>}><span>{message('resources.inUse')}</span></Show></span></div>
               }}</For>
             </Show>
           </section>
         }}</For>
         <Show when={status() && cards().length === 0}><ProductFacts label={message('resources.work')} items={[{ label: message('resources.running'), value: status()!.queue.running.length }, { label: message('resources.queued'), value: status()!.queue.queued }]} /></Show>
+        <Show when={details() !== undefined}><div class="dinkster-resource-footer">
+          <span class="dinkster-metadata">{loadedModels().every((item) => item.inUse !== undefined) ? message('resources.loadedAndInUse', { loaded: loadedModels().length, inUse: loadedModels().filter((item) => item.inUse === true).length }) : message('resources.loadedCount', { loaded: loadedModels().length })}</span>
+          <Show when={unload().length > 0}><ProductButton intent="remove" fill="quiet" data-resource-release disabled={stale() || pending()} onClick={() => void act(async () => { for (const device of unload()) await connection().unloadMemory(device) })}>{message('resources.unloadUnused')}</ProductButton></Show>
+        </div></Show>
+        <div class="dinkster-resource-folds">
         <Show when={cards().length > 0}>
           <ProductDisclosure title={message('resources.details')}>
-            <p class="dinkster-description">{message('resources.otherMemoryDescription')}</p>
             <For each={cards()}>{(device) => {
               const row = () => status()!.memoryGovernor![device]!
               return <div class="dinkster-stack">
                 <Show when={cards().length > 1}><strong>{row().measured?.gpuName ?? device}</strong></Show>
                 <ProductFacts label={message('resources.cardDetails', { device })} items={[
-                  ...(row().peakUsedBytes === undefined || row().peakUsedBytes === null ? [] : [{ label: message('resources.peak'), value: <span class="dinkster-resource-peak"><ProductButton disabled={stale() || pending()} onClick={() => void act(() => connection().resetMemoryPeak(device))}>{message('resources.reset')}</ProductButton>{gb(row().peakUsedBytes!)}</span> }]),
+                  ...(row().peakUsedBytes === undefined || row().peakUsedBytes === null ? [] : [{ label: message('resources.peak'), value: <span class="dinkster-resource-peak"><ProductButton fill="quiet" disabled={stale() || pending()} onClick={() => void act(() => connection().resetMemoryPeak(device))}>{message('resources.reset')}</ProductButton>{gb(row().peakUsedBytes!)}</span> }]),
                   ...(row().measured === null ? [] : [{ label: message('resources.freeOnCard'), value: gb(row().measured!.driverFreeBytes ?? row().measured!.freeBytes) }]),
                   ...(row().availableBytes === null ? [] : [{ label: message('resources.freeUnderLimit'), value: gb(row().availableBytes!) }]),
                   ...(row().measured?.torchReservedBytes === undefined ? [] : [{ label: message('resources.heldByBackend'), value: gb(row().measured!.torchReservedBytes!) }]),
@@ -215,6 +216,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
                 ...(measured()?.pinnedHostBytes === undefined ? [] : [{ label: message('resources.lockedSystemMemory'), value: gb(measured()!.pinnedHostBytes!) }]),
               ]} />
             }}</For>
+            <p class="dinkster-metadata">{message('resources.otherMemoryDescription')}</p>
           </ProductDisclosure>
         </Show>
         <Show when={granted('memory-budgets') || granted('memory-headroom') || granted('aimdo-policy')}>
@@ -235,8 +237,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
             <Show when={granted('memory-headroom') && headroom() !== undefined}><div class="dinkster-resource-limit-control"><span>{message('resources.keepFree')}</span><ProductSlider ariaLabel={message('resources.keepFree')} min={0} max={Math.max(...cards().map((device) => status()!.memoryGovernor![device]!.measured?.totalBytes ?? 0), headroom()!, 1024 ** 3)} step={64 * 1024 ** 2} value={headroomDraft() ?? headroom()!} disabled={pending() || stale()} onInput={setHeadroomDraft} onCommit={(value) => void update('memory-headroom', value)} /><span>{gb(headroomDraft() ?? headroom()!)}</span></div></Show>
           </ProductDisclosure>
         </Show>
-        <Show when={unload().length > 0 && details() !== undefined}><ProductButton intent="remove" disabled={stale() || pending()} onClick={() => setConfirmUnload(() => async () => { for (const device of unload()) await connection().unloadMemory(device) })}>{message('resources.unloadUnused')}</ProductButton></Show>
-        <Show when={confirmUnload()}><div class="dinkster-stack"><span>{message('resources.confirmUnload')}</span><div class="dinkster-actions"><ProductButton intent="remove" fill="solid" pending={pending()} onClick={() => void act(confirmUnload()!)}>{message('resources.unload')}</ProductButton><ProductButton onClick={() => setConfirmUnload(undefined)}>{message('shell.action.cancel')}</ProductButton></div></div></Show>
+        </div>
       </div>
     </Show>
     <ProductToast notification={notification()} onDismiss={() => setNotification(undefined)} />
