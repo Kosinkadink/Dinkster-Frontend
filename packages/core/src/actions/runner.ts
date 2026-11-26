@@ -667,15 +667,14 @@ function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?
 }
 
 /** The names a formula reads that are wired inputs with no known value. */
-function unknownWired(context: FormulaContext, locals: Locals, text: string): string[] {
-  try {
-    const scope = { ...context.scope, names: new Map([...context.scope.names, ...locals.kinds]) }
-    const formula = Formula.parse(text, scope)
-    if (evaluateIn(context, locals, text).kind !== 'unknown') return []
-    return [...formula.uses().names].filter((name) => context.values.linked?.get(name) === true)
-  } catch {
-    return []
-  }
+function unknownWired(context: FormulaContext, locals: Locals, text: string, wired = (name: string) => context.values.linked?.get(name) === true): string[] {
+  const needed: string[] = []
+  const outcome = evaluateIn(context, locals, text, (name, availability) => {
+    const value = context.values.values?.get(name)
+    if (!availability && (value === undefined || value === UNKNOWN) && wired(name)) needed.push(name)
+    return value
+  })
+  return outcome.kind === 'unknown' ? needed : []
 }
 
 // ---------------------------------------------------------------------------
@@ -1622,14 +1621,14 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
 // ---------------------------------------------------------------------------
 // Before a press
 
-/** The fields a step list would set, by name in the button's scope. */
+/** The fields steps would set, by name in their evaluation scope. */
 function targetsOf(steps: readonly Step[]): { readonly fields: readonly string[]; readonly other: boolean } {
   const fields: string[] = []
   let other = false
   for (const step of steps) {
     switch (step.step) {
       case 'set': case 'toggle': case 'reset': case 'append': case 'randomize': case 'setMode':
-      case 'openPicker': case 'openEditor': case 'pasteImage':
+      case 'openPicker': case 'openEditor': case 'pasteImage': case 'setEach':
         fields.push(step.field)
         break
       case 'swap':
@@ -1692,11 +1691,36 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
     if (field === undefined || host.editorFor(field) === undefined) return { enabled: false, reason: NO_EDITOR_MESSAGE }
   }
 
-  const wiredName = (name: string): boolean => {
-    const path = context.paths.get(name)
-    return path !== undefined && view.connectivity.isInputConnected(path)
+  const wiredName = (name: string, scope = context): boolean => {
+    const path = scope.paths.get(name)
+    if (path === undefined) return scope.values.linked?.get(name) === true
+    if (view.connectivity.isInputConnected(path)) return true
+    if (scope.scope.names.get(name)?.endsWith('[]')) {
+      const dot = path.lastIndexOf('.')
+      const group = path.slice(0, dot), row = path.slice(dot + 1)
+      return [...(view.node.dynamic?.[group]?.members ?? []), ...(view.elaborated.unstoredMinimums?.[group]?.members ?? [])]
+        .some((member) => view.connectivity.isInputConnected(`${group}.${member}.${row}`))
+    }
+    return false
   }
+  const targets: boolean[] = []
+  let other = false
   for (const step of steps) {
+    let scopes = [context]
+    if (step.step === 'setEach') {
+      const path = context.paths.get(step.group)
+      const members = path === undefined ? [] : [
+        ...(view.node.dynamic?.[path]?.members ?? []),
+        ...(view.elaborated.unstoredMinimums?.[path]?.members ?? []),
+      ]
+      scopes = members.flatMap((member) => {
+        const scope = view.contexts.get(`${path}.${member}.`)
+        return scope === undefined ? [] : [scope]
+      })
+    }
+    const target = targetsOf([step])
+    other ||= target.other
+    targets.push(...scopes.flatMap((scope) => target.fields.map((name) => wiredName(name, scope))))
     const texts: string[] = []
     const names: string[] = []
     for (const key of ['value', 'low', 'high', 'options', 'url'] as const) texts.push(...formulasOf((step as Record<string, unknown>)[key] as StepValue | undefined))
@@ -1712,12 +1736,12 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
         else texts.push(arg.formula)
       }
     }
-    if (step.step === 'setEach') continue
-    const needed = [...names.filter((name) => !locals.kinds.has(name) && wiredName(name)), ...texts.flatMap((text) => unknownWired(context, locals, text))]
-    if (needed.length > 0) return { enabled: false, reason: `Needs ${needed[0]}, which is not known until a run.` }
+    for (const scope of scopes) {
+      const needed = [...names.filter((name) => !locals.kinds.has(name) && wiredName(name, scope)), ...texts.flatMap((text) => unknownWired(scope, locals, text, (name) => wiredName(name, scope)))]
+      if (needed.length > 0) return { enabled: false, reason: `Needs ${needed[0]}, which is not known until a run.` }
+    }
   }
 
-  const { fields, other } = targetsOf(steps)
-  if (!other && fields.length > 0 && fields.every(wiredName)) return { enabled: false, reason: ALL_WIRED_MESSAGE }
+  if (!other && targets.length > 0 && targets.every(Boolean)) return { enabled: false, reason: ALL_WIRED_MESSAGE }
   return { enabled: true }
 }

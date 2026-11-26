@@ -682,6 +682,51 @@ describe('what a press may write', () => {
     expect(valuesOf(session)).toMatchObject({ width: 1024, height: 768 })
   })
 
+  it('checks SetEach member targets and lazy dependencies before making a Call', async () => {
+    const input = (id: string) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 7 })
+    addSchema('test.each_availability', [
+      input('upstream'), input('marker'),
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+        keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: [input('source'), input('value')] },
+      { kind: 'button', id: 'all', label: 'Fill', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { value: 23 } }] },
+      ...['upstream', 'source', '31 if index() == 0 else source', '31 if True else source', 'source if known(source) else 37', 'sum(items.source)', 'amount + (31 if True else source)'].map((formula, index) => ({
+        kind: 'button', id: `read_${index}`, label: 'Read', steps: [
+          { step: 'set', field: 'marker', value: { value: 17 } },
+          { step: 'pick', name: 'amount', options: { value: [5] } },
+          { step: 'call', function: 'probe.wait', args: [], writes: ['marker'] },
+          { step: 'setEach', group: 'items', field: 'value', value: { formula } },
+        ],
+      })),
+    ])
+    const values = { marker: 7, upstream: 13, 'items.m0.source': 19, 'items.m1.source': 29, 'items.m0.value': 41, 'items.m1.value': 43 }
+    const base = documentOf({ n1: { type: 'test.each_availability', values, dynamic: { items: { members: ['m0', 'm1'], seq: 2 } } }, src: { type: 'test.each_availability' } })
+    let calls = 0
+    const host = hostOf({ pick: async () => 5, call: async () => { calls++; return { kind: 'answer', fields: { marker: 47n }, notes: [] } } })
+    const wired = (ports: string[]) => ({ ...base, graphs: { ...base.graphs, g0: { ...base.graphs['g0']!, links: Object.assign({}, ...ports.map((port, i) => link(`l${i}`, ['src', 'out'], ['n1', port]))) } } })
+    const all = wired(['items.m0.value', 'items.m1.value'])
+    expect(buttonAvailability(all, at('all'), host)).toEqual({ enabled: false, reason: 'Every field this would set has a wire.' })
+    const partial = sessionOf(wired(['items.m0.value']))
+    expect(buttonAvailability(partial.doc, at('all'), host)).toEqual({ enabled: true })
+    expect((await runPress(partial, at('all'), host)).kind).toBe('done')
+    expect(valuesOf(partial)).toMatchObject({ 'items.m0.value': 41, 'items.m1.value': 23 })
+    for (const [button, port, needed] of [['read_0', 'upstream', 'upstream'], ['read_1', 'items.m1.source', 'source'], ['read_2', 'items.m1.source', 'source'], ['read_5', 'items.m1.source', 'items.source']]) {
+      const session = sessionOf(wired([port!]))
+      expect(buttonAvailability(session.doc, at(button!), host)).toEqual({ enabled: false, reason: `Needs ${needed}, which is not known until a run.` })
+      expect((await runPress(session, at(button!), host)).kind).toBe('failed')
+      expect(session.doc).toEqual(wired([port!]))
+      expect(session.canUndo).toBe(false)
+    }
+    expect(calls).toBe(0)
+    for (const [button, first, second] of [['read_3', 31, 31], ['read_4', 19, 37], ['read_6', 36, 36]] as const) {
+      const session = sessionOf(wired(['items.m1.source']))
+      expect(buttonAvailability(session.doc, at(button), host)).toEqual({ enabled: true })
+      expect((await runPress(session, at(button), host)).kind).toBe('done')
+      expect(valuesOf(session)).toMatchObject({ marker: 47, 'items.m0.value': first, 'items.m1.value': second })
+    }
+    expect(calls).toBe(3)
+  })
+
   it('is turned off before a press when every target is wired, when it needs a wired value, or when the pack says so', () => {
     addSchema('test.int', [{ kind: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } }])
     addSchema('test.text', [{ kind: 'output', id: 'value', type: { kind: 'concrete', types: ['STRING'] } }])
