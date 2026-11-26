@@ -603,6 +603,10 @@ export class AudioRecordController {
     return this.ports.upload !== undefined
   }
 
+  get hasProblem(): boolean {
+    return ['denied', 'noMicrophone', 'failed', 'uploadFailed'].includes(this.status())
+  }
+
   async findMicrophones(): Promise<void> {
     if (!navigator.mediaDevices?.enumerateDevices) return
     const found = (await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === 'audioinput')
@@ -819,8 +823,8 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
     : recorder.status() === 'idle' && stored() !== undefined ? 'ready' : recorder.status()
   const recording = () => recorder.status() === 'recording'
   const busy = () => recorder.status() === 'waiting' || recorder.status() === 'saving'
-  const problem = () => ['denied', 'noMicrophone', 'failed', 'uploadFailed'].includes(shown())
-  const problemText = () => `${message(`inNodeAudio.status.${shown()}`)}.`
+  const problem = () => !props.wired && recorder.hasProblem
+  const problemText = () => message(`inNodeAudio.short.${shown()}`)
   const defaultLabel = () => message('inNodeAudio.defaultMicrophone')
   const deviceLabel = (device: { readonly deviceId: string; readonly label: string }, index: number) =>
     device.label || message('inNodeAudio.microphoneNumber', { number: index + 1 })
@@ -857,67 +861,72 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
     return (shown() === 'ready' || shown() === 'uploadFailed') && seconds !== undefined ? clock(seconds) : undefined
   }
   return (
-    <Show when={recorder.canUpload || props.wired} fallback={
-      <CanvasEditorNote tone="warning" details={{ label: message('runs.details'), title: message('audioRecordWidget.native') }}>
-        {message('inNodeEditor.nativeShort')}
-      </CanvasEditorNote>
-    }>
-      <CanvasRecorderStrip
-        recording={recording()}
-        roundLabel={message(recording() ? 'inNodeAudio.stop' : 'inNodeAudio.record')}
-        roundDisabled={props.wired || props.readOnly || busy()}
-        onRound={() => recording() ? recorder.stop() : void recorder.record()}
-        status={props.wired ? stored() === undefined ? message('inNodeEditor.notKnown') : '' : problem() ? '' : message(`inNodeAudio.status.${shown()}`)}
-        {...(detail() === undefined ? {} : { detail: detail()! })}
-        waveform={recorder.waveform()}
-        actions={actions()}
-      />
-      <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || recording() || busy()}>
-        <CanvasEditorChoice label={message('inNodeAudio.microphone')} value={chosen()} options={choices()}
-          onOpen={() => void recorder.findMicrophones()}
-          onChange={(label) => {
-            const index = recorder.devices().findIndex((device, at) => deviceLabel(device, at) === label)
-            recorder.setDevice(index < 0 ? '' : recorder.devices()[index]!.deviceId)
-          }} />
-      </CanvasEditorLine>
-      <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || recording() || busy()}>
-        <CanvasEditorNumber label={message('inNodeAudio.limit')} value={recorder.limit()} min={1} max={300}
-          onChange={(seconds) => recorder.setLimit(Math.round(seconds))} />
-      </CanvasEditorLine>
+    <>
+      <Show when={recorder.canUpload || props.wired}>
+        <CanvasRecorderStrip
+          recording={recording()}
+          roundLabel={message(recording() ? 'inNodeAudio.stop' : 'inNodeAudio.record')}
+          roundDisabled={props.wired || props.readOnly || busy()}
+          onRound={() => recording() ? recorder.stop() : void recorder.record()}
+          status={props.wired ? stored() === undefined ? message('inNodeEditor.notKnown') : '' : problem() ? '' : message(`inNodeAudio.status.${shown()}`)}
+          {...(detail() === undefined ? {} : { detail: detail()! })}
+          waveform={recorder.waveform()}
+          actions={actions()}
+        />
+        <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || recording() || busy()}>
+          <CanvasEditorChoice label={message('inNodeAudio.microphone')} value={chosen()} options={choices()}
+            onOpen={() => void recorder.findMicrophones()}
+            onChange={(label) => {
+              const index = recorder.devices().findIndex((device, at) => deviceLabel(device, at) === label)
+              recorder.setDevice(index < 0 ? '' : recorder.devices()[index]!.deviceId)
+            }} />
+        </CanvasEditorLine>
+        <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || recording() || busy()}>
+          <CanvasEditorNumber label={message('inNodeAudio.limit')} value={recorder.limit()} min={1} max={300}
+            onChange={(seconds) => recorder.setLimit(Math.round(seconds))} />
+        </CanvasEditorLine>
+      </Show>
       <Show when={problem()} fallback={
-        <Show when={!props.wired || stored() !== undefined}>
-          <CanvasEditorNote tone={stored() === undefined ? 'muted' : undefined}>
-            {stored() === undefined ? message('inNodeAudio.nothingStored') : props.wired ? stored()!.name ?? stored()!.digest : message('inNodeAudio.stored', { name: stored()!.name ?? stored()!.digest })}
+        <Show when={!recorder.canUpload && !props.wired} fallback={
+          <Show when={!props.wired || stored() !== undefined}>
+            <CanvasEditorNote tone={stored() === undefined ? 'muted' : undefined}>
+              {stored() === undefined ? message('inNodeAudio.nothingStored') : props.wired ? stored()!.name ?? stored()!.digest : message('inNodeAudio.stored', { name: stored()!.name ?? stored()!.digest })}
+            </CanvasEditorNote>
+          </Show>
+        }>
+          <CanvasEditorNote tone="warning" details={{ label: message('runs.details'), title: message('audioRecordWidget.native') }}>
+            {message('inNodeEditor.nativeShort')}
           </CanvasEditorNote>
         </Show>
       }>
         <CanvasEditorNote tone="problem" details={{ label: message('runs.details'), title: message(`inNodeAudio.problem.${shown()}`),
-          ...(recorder.error() === undefined ? {} : { body: recorder.error()! }) }}>
+          body: [recorder.error(), ...(!recorder.canUpload ? [message('audioRecordWidget.native')] : [])].filter(Boolean).join('\n') }}>
           {problemText()}
         </CanvasEditorNote>
       </Show>
-    </Show>
+    </>
   )
 }
 
 /** Keeps one recorder per tab, node and value key for as long as the host lives. */
 export function createAudioRecorders(): {
   readonly get: (key: string, ports: AudioRecordPorts) => AudioRecordController
+  readonly find: (key: string) => AudioRecordController | undefined
 } {
-  const recorders = new Map<string, AudioRecordController>()
+  const [recorders, setRecorders] = createSignal<ReadonlyMap<string, AudioRecordController>>(new Map())
   onCleanup(() => {
-    for (const recorder of recorders.values()) recorder.dispose()
-    recorders.clear()
+    for (const recorder of recorders().values()) recorder.dispose()
   })
   return {
+    find: (key) => recorders().get(key),
     get: (key, ports) => {
-      const existing = recorders.get(key)
+      const existing = untrack(recorders).get(key)
       if (existing !== undefined) {
         existing.setPorts(ports)
         return existing
       }
       const created = new AudioRecordController(ports)
-      recorders.set(key, created)
+      setRecorders((current) => new Map(current).set(key, created))
       return created
     },
   }

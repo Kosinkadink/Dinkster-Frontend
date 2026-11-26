@@ -344,6 +344,8 @@ export type CompanionMap = Readonly<Record<string, Readonly<Record<string, Compa
 export interface EditorSummary {
   /** What the row reads in place of the view's own value text. */
   readonly text?: string
+  /** A problem still held by the editor, painted only while its row is folded. */
+  readonly problem?: 'error' | 'warning'
   /** The value the row draws in place of the stored one, such as what a wire brought; null when nothing is known yet. */
   readonly value?: Json
   /** Drawn in the placeholder color, for an editor that holds nothing. */
