@@ -313,6 +313,11 @@ it('keeps the chosen installation and one project identity across a lost creatio
   const opened = vi.fn()
   let saved: LibraryProject | undefined
   const stored = new Map<string, LibraryProject>()
+  let installationsUnavailable = false
+  const readInstallations = data.installations
+  data.installations = () => installationsUnavailable
+    ? Promise.reject(new Error('installation list unavailable'))
+    : readInstallations()
   data.listProjects = async () => [...projects, ...stored.values()]
   data.registerProject = async (id, name) => {
     const existing = stored.get(id)
@@ -343,6 +348,7 @@ it('keeps the chosen installation and one project identity across a lost creatio
   expect(document.body.textContent).toContain('Could not finish creating the project. Your choices are kept. Try again.')
   expect(name.value).toBe('My film')
   expect(installation.value).toBe(nightly.root)
+  installationsUnavailable = true
   globalThis.dispatchEvent(new Event('focus'))
   await settle()
   name.value = 'My revised film'
@@ -353,6 +359,9 @@ it('keeps the chosen installation and one project identity across a lost creatio
   expect([...stored.values()][0]?.name).toBe('My revised film')
   expect(rows().filter((row) => row?.startsWith('My revised film'))).toHaveLength(1)
   expect(localStorage.getItem(`dinkster.p.${saved!.id}.projectsPage.runsOn`)).toBe(nightly.root)
+  installationsUnavailable = false
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
   document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')!.click()
   expect(opened).toHaveBeenCalledWith(saved!.id, nightly)
 })

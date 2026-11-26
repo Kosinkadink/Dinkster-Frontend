@@ -869,13 +869,14 @@ export function ProjectsView(props: {
   const create = async () => {
     const trimmed = name().trim()
     if (trimmed === '' || creating()) return
-    const installation = chosenInstallation()
+    const installationRoot = newInstallation() ?? chosenInstallation()?.root
+    setNewInstallation(installationRoot)
     setCreating(true)
     try {
       creatingId ??= `p-${crypto.randomUUID()}`
       const registered = await props.source.registerProject(creatingId, trimmed)
       const project = registered.name === trimmed ? registered : await props.source.renameProject(registered, trimmed)
-      if (installation) writeChoice(pageKey(project.id, 'runsOn'), installation.root)
+      if (installationRoot) writeChoice(pageKey(project.id, 'runsOn'), installationRoot)
       await setProjects((list) => byProjectTime([...(list ?? []).filter((entry) => entry.id !== project.id), project]))
       setChosen(project.id)
       setName('')
