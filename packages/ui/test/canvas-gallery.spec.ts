@@ -27,6 +27,61 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
+test('Node title capitals are within half a pixel of the title bar center', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const measurements: { text: string; error: number }[] = []
+    Object.assign(window, { headerCapitalMeasurements: measurements })
+    for (const prototype of [
+      CanvasRenderingContext2D.prototype,
+      OffscreenCanvasRenderingContext2D.prototype,
+    ]) {
+      const headers = new WeakMap<object, { top: number; height: number }>()
+      const roundRect = prototype.roundRect
+      prototype.roundRect = function (x, y, width, height, radii) {
+        if (Array.isArray(radii) && radii[2] === 0 && radii[3] === 0)
+          headers.set(this, { top: y, height })
+        return roundRect.call(this, x, y, width, height, radii)
+      }
+      const fillText = prototype.fillText
+      prototype.fillText = function (text, x, y, maxWidth) {
+        const header = headers.get(this)
+        if (
+          header &&
+          this.font.startsWith('600 ') &&
+          y > header.top &&
+          y < header.top + header.height
+        ) {
+          const capitals = this.measureText('H')
+          measurements.push({
+            text,
+            error:
+              y +
+              (capitals.actualBoundingBoxDescent -
+                capitals.actualBoundingBoxAscent) /
+                2 -
+              (header.top + header.height / 2),
+          })
+        }
+        if (maxWidth === undefined) return fillText.call(this, text, x, y)
+        return fillText.call(this, text, x, y, maxWidth)
+      }
+    }
+  })
+  await openPage(page, 'boxes')
+  await cardsReady(page, 'boxes', 'dark')
+  const measurements = await page.evaluate(
+    () =>
+      (window as unknown as {
+        headerCapitalMeasurements: { text: string; error: number }[]
+      }).headerCapitalMeasurements,
+  )
+  expect(measurements.some(({ text }) => text === 'Sampler')).toBe(true)
+  for (const { text, error } of measurements)
+    expect(Math.abs(error), text).toBeLessThanOrEqual(0.5)
+})
+
 test('Step curves draw exact horizontal holds and vertical jumps without a histogram', async ({
   page,
 }) => {
