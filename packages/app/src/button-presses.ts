@@ -351,9 +351,9 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         const outcome = await runPress(store, targetOf(place), hostFor(place), {
           signal: controller.signal,
           onProgress: (progress) => update(key, progress === undefined ? { place } : { place, busy: progress.text }),
-          stillCurrent: () => app.tabs.get().includes(place.tab) && place.tab.store === store &&
-            app.backendForTab(place.tab) === backend && app.registryForTab(place.tab) === registry &&
-            backend.schemaState.get() === schemaState,
+          stillCurrent: () => app.tabs.get().some((tab) => tab.id === place.tab.id && tab.store === store &&
+            app.backendForTab(tab) === backend && app.registryForTab(tab) === registry &&
+            backend.schemaState.get() === schemaState),
         })
         report(place, outcome)
       } catch (error) {

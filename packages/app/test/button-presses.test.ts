@@ -37,6 +37,8 @@ function setup(call: () => Promise<CallAnswer>, nodeSchema = schema, lookups?: L
     retarget: () => { backend = makeBackend() },
     reload: () => { registry = { resolve } },
     refreshing: () => { schemaState = { status: 'loading' } },
+    rename: () => { tabs = tabs.map((tab) => ({ ...tab, title: 'Renamed' })) },
+    replace: () => { tabs = tabs.map((tab) => ({ ...tab, store: createLocalSession(doc, coreCommandRegistry([], resolve), { schemaResolverFor: () => resolve }) })) },
     close: () => { tabs = [] },
   }
 }
@@ -321,7 +323,7 @@ describe('button press authority and typed answers', () => {
     },
   )
 
-  it.each(['retarget', 'reload', 'refreshing', 'close', 'unchanged'] as const)('handles a delayed answer after %s', async (change) => {
+  it.each(['retarget', 'reload', 'refreshing', 'rename', 'replace', 'close', 'unchanged'] as const)('handles a delayed answer after %s', async (change) => {
     let answer!: (value: CallAnswer) => void
     let started!: () => void
     const began = new Promise<void>((done) => { started = done })
@@ -332,11 +334,12 @@ describe('button press authority and typed answers', () => {
     if (change !== 'unchanged') test[change]()
     answer({ kind: 'answer', fields: { first: 'answer', second: 7n }, notes: [] })
     await pressing
-    expect(test.store.doc.graphs['g0']!.nodes['n1']!.values).toEqual(change === 'unchanged'
+    const accepted = change === 'unchanged' || change === 'rename'
+    expect(test.store.doc.graphs['g0']!.nodes['n1']!.values).toEqual(accepted
       ? { first: 'answer', second: 7 } : { first: 'old', second: 1 })
-    expect(test.store.canUndo).toBe(change === 'unchanged')
+    expect(test.store.canUndo).toBe(accepted)
     expect(test.presses.isBusy(test.place)).toBe(false)
-    if (change === 'unchanged') {
+    if (accepted) {
       expect(test.store.undo()).toBe(true)
       expect(test.store.doc.graphs['g0']!.nodes['n1']!.values).toEqual({ first: 'old', second: 1 })
       expect(test.store.canUndo).toBe(false)
