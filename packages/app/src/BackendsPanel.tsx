@@ -1,6 +1,6 @@
 import { createMemo, createSignal, For, Show } from 'solid-js'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
-import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductMenu, ProductNotice } from '@dinkster/ui'
+import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductMenu, ProductNotice, ProductTextButton } from '@dinkster/ui'
 import type { AppState, Backend } from './app-state.js'
 import { backendConnectionStatus, canonicalBackendUrl } from './app-state.js'
 import { ConnectionCredentialControls, createConnectionProfiles } from './ConnectionProfiles.js'
@@ -27,6 +27,7 @@ function BackendRow(props: {
   const message = useAppMessage()
   const [busy, setBusy] = createSignal(false)
   const [removing, setRemoving] = createSignal(false)
+  const [editingToken, setEditingToken] = createSignal(false)
   const [error, setError] = createSignal('')
   const [connectFailed, setConnectFailed] = createSignal(false)
   const active = createMemo(() => props.backend?.id === (props.activeBackendId ?? props.defaultBackend.id))
@@ -58,7 +59,7 @@ function BackendRow(props: {
     <Show when={error() || connectFailed()}><ProductErrorBanner onDismiss={() => { setError(''); setConnectFailed(false) }}>{connectFailed() ? message('connectionProfiles.error.connect', { name: props.name }) : error()}</ProductErrorBanner></Show>
     <Show when={removing()} fallback={<>
       <div class="storage-folder-heading">
-        <ProductDisclosure title={title()} open={active()}>
+        <ProductDisclosure title={title()} open={active() || editingToken()}>
           <p class="dinkster-metadata" role="status">{message(`backendsPanel.connection.${status()}`)}</p>
           <code class="backend-address">{props.url || message('backendsPanel.sameOrigin')}</code>
           <Show when={schemaState()?.status === 'error'}><ProductNotice tone="warning">{message('backendsPanel.notice.schemaFailed', { message: (schemaState() as { message: string }).message })}</ProductNotice></Show>
@@ -75,10 +76,13 @@ function BackendRow(props: {
               <Show when={backend.protocol === 'dinkster'}><ProductButton onClick={() => props.onOpenSettings?.(backend)}>{message('shell.panel.settings.title')}</ProductButton></Show>
             </>}</Show>
           </div>
-          <Show when={validProfileUrl(props.url)}><ConnectionCredentialControls connections={props.connections} url={props.url} name={props.name} /></Show>
+          <Show when={editingToken()}><ConnectionCredentialControls connections={props.connections} url={props.url} name={props.name} onClose={() => setEditingToken(false)} /></Show>
         </ProductDisclosure>
-        <Show when={props.backend !== props.defaultBackend}><ProductMenu icon={Ellipsis} iconOnly label={message('backendsPanel.aria.actions', { backend: props.name })}
-          items={[{ label: message('backendsPanel.action.remove'), intent: 'remove', disabled: props.connections.busy(), onSelect: () => setRemoving(true) }]} /></Show>
+        <Show when={props.backend !== props.defaultBackend || (validProfileUrl(props.url) && props.connections.custody())}><ProductMenu icon={Ellipsis} iconOnly label={message('backendsPanel.aria.actions', { backend: props.name })}
+          items={[
+            ...(validProfileUrl(props.url) && props.connections.custody() ? [{ label: message('backendsPanel.action.changeToken'), disabled: props.connections.busy(), onSelect: () => setEditingToken(true) }] : []),
+            ...(props.backend !== props.defaultBackend ? [{ label: message('backendsPanel.action.remove'), intent: 'remove' as const, disabled: props.connections.busy(), onSelect: () => setRemoving(true) }] : []),
+          ]} /></Show>
       </div>
     </>}>
       <ProductConfirmation title={message('backendsPanel.action.remove')} consequence={message('backendsPanel.removeNotice', { backend: props.name })}
@@ -105,6 +109,7 @@ export function BackendsPanel(props: {
   const [token, setToken] = createSignal('')
   const [discovering, setDiscovering] = createSignal(false)
   const [addError, setAddError] = createSignal('')
+  const nameHint = () => validProfileUrl(url().trim()) ? new URL(url().trim()).host : ''
   const add = async () => {
     if (discovering() || connections.busy()) return
     const candidate = canonicalBackendUrl(url())
@@ -136,12 +141,15 @@ export function BackendsPanel(props: {
       </ProductField>
       <Show when={addError()}><p id="backend-add-error" class="dinkster-field-error" role="alert">{message(addError())}</p></Show>
       <ProductField controlId="backend-name" label={message('backendsPanel.label.nameOptional')} layout="stack">
-        <ProductTextInput id="backend-name" data-testid="profile-name-input" value={name()} disabled={discovering()} onInput={(event) => setName(event.currentTarget.value)} />
+        <ProductTextInput id="backend-name" data-testid="profile-name-input" placeholder={nameHint()} value={name()} disabled={discovering()} onInput={(event) => setName(event.currentTarget.value)} />
       </ProductField>
       <Show when={connections.custody()}><ProductField controlId="backend-token" label={message('connectionProfiles.label.accessTokenOptional')} layout="stack">
         <ProductTextInput id="backend-token" data-testid="profile-token-input" type="password" autocomplete="off" value={token()} disabled={discovering()} onInput={(event) => setToken(event.currentTarget.value)} />
       </ProductField></Show>
-      <ProductButton data-testid="backend-add" type="submit" intent="add" fill="solid" pending={discovering()} disabled={!url().trim() || connections.busy()}>{message(discovering() ? 'connectionProfiles.action.connecting' : 'connectionProfiles.action.connect')}</ProductButton>
+      <div class="dinkster-actions">
+        <ProductButton data-testid="backend-add" type="submit" intent="add" fill="solid" pending={discovering()} disabled={!url().trim() || connections.busy()}>{message(discovering() ? 'connectionProfiles.action.connecting' : 'connectionProfiles.action.connect')}</ProductButton>
+        <ProductTextButton label={message('common.cancel')} disabled={discovering()} onClick={() => { setAdding(false); setUrl(''); setName(''); setToken(''); setAddError('') }} />
+      </div>
     </form></Show>
     <div class="backend-list" aria-live="polite">
       <For each={addresses()}>{(address) => {

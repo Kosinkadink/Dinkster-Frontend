@@ -28,6 +28,48 @@ afterEach(() => {
 })
 
 describe('BackendsPanel', () => {
+  it('shows a compact server list, opens facts on demand and retries a failed node type read', async () => {
+    const app = new AppState()
+    const backend = app.addBackend('http://studio.test:8188', 'Studio', false, 'dinkster')!
+    ;(backend.connection.status as Signal<ConnectionStatus>).set('connected')
+    backend.schemaState.set({ status: 'error', message: '502 Bad Gateway' })
+    const retry = vi.spyOn(app, 'refreshBackendSchemas').mockImplementation(async () => {
+      backend.schemaState.set({ status: 'ready' })
+    })
+    const { root } = mount(app)
+    expect(root.querySelector('h2')?.textContent).toBe('Backends')
+    expect(root.textContent).not.toContain('Backend connections')
+    const row = root.querySelector(`[data-connection="${backend.id}"]`)!
+    const toggle = row.querySelector<HTMLButtonElement>('[aria-expanded]')!
+    expect(toggle.textContent).toContain('Studio')
+    expect(toggle.textContent).toContain('node types not read')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    toggle.click()
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(row.textContent).toContain('http://studio.test:8188')
+    expect(row.querySelectorAll('[role="note"]')).toHaveLength(1)
+    expect(row.textContent).toContain('502 Bad Gateway')
+    button(row, 'Try again').click()
+    await flush()
+    expect(retry).toHaveBeenCalledOnce()
+    expect(row.textContent).not.toContain('502 Bad Gateway')
+    expect(root.querySelector('[data-connection="local"]')?.textContent).toContain('This computer')
+  })
+
+  it('uses the address host as the optional name hint and cancels without connecting', () => {
+    const { app, root } = mount()
+    const connect = vi.spyOn(app, 'addBackendByUrl')
+    button(root, 'Add backend').click()
+    const input = root.querySelector<HTMLInputElement>('[data-testid="backend-url-input"]')!
+    input.value = 'https://render.test:9443/api'
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    expect(root.querySelector<HTMLInputElement>('[data-testid="profile-name-input"]')?.placeholder).toBe('render.test:9443')
+    button(root, 'Cancel').click()
+    expect(root.querySelector('[data-testid="backend-url-input"]')).toBeNull()
+    expect(connect).not.toHaveBeenCalled()
+    expect(root.querySelectorAll('[data-testid="backend-row"]')).toHaveLength(1)
+  })
+
   it('keeps each server in one disclosure without folders and confirms removal of a non-default server', async () => {
     const { app, root } = mount()
     const label = 'A backend with a deliberately long descriptive name'
