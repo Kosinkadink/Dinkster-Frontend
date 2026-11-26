@@ -18,6 +18,7 @@ import { compile, documentNodeResolver, documentResolver } from '../src/compile/
 import { boundaryButtons, boundaryItems } from '../src/format/document.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { elaborateInterface } from '../src/schema/elaborate.js'
+import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
 import { diag } from '../src/diagnostics.js'
 import type { GraphDef, Json, NodeData, WorkflowDocument } from '../src/format/document.js'
@@ -1763,6 +1764,51 @@ describe('steps inside a subgraph occurrence', () => {
     expect(received(fanout.doc)).toEqual([10, 10, 80, 80])
     expect(fanout.redo()).toBe(true)
     expect(received(JSON.parse(JSON.stringify(fanout.doc)))).toEqual([17, 17, 80, 80])
+    addSchema('test.incompatible_button_target', [
+      { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['STRING'] }, default: 'kept' },
+    ])
+    const incompatible = sessionOf({ ...fanoutBefore, graphs: { ...fanoutBefore.graphs, g1: { ...fanoutBefore.graphs.g1!, nodes: {
+      ...fanoutBefore.graphs.g1!.nodes, extra: { id: asNodeId('extra'), type: 'test.incompatible_button_target', values: { amount: 'kept' } },
+    } } } })
+    expect(incompatible.dispatch({ command: 'boundary.addBinding', params: { graphId: 'g1', itemId: innerField, node: 'extra', port: 'amount' } }).ok).toBe(true)
+    const beforeIncompatible = incompatible.doc
+    expect(deriveBoundarySchema(beforeIncompatible.graphs.g1!, resolve).diagnostics.map((item) => [item.severity, item.code]))
+      .toContainEqual(['warning', 'boundary.fanoutTypeMismatch'])
+    expect(await runPress(incompatible, target, host)).toMatchObject({ kind: 'done' })
+    expect(incompatible.doc.graphs.g0!.nodes.first!.values[field]).toBe(17)
+    expect(incompatible.doc.graphs.g0!.nodes.second!.values[field]).toBe(80)
+    expect(incompatible.doc.graphs.g1).toEqual(beforeIncompatible.graphs.g1)
+    const renamed = sessionOf(doc)
+    expect(renamed.dispatch({ command: 'boundary.addItem', params: {
+      graphId: 'g1', side: 'inputs', node: 'inner', port: 'amount', itemId: 'gain', displayName: 'Inside gain',
+    } }).ok).toBe(true)
+    expect(renamed.dispatch({ command: 'boundary.showButton', params: { graphId: 'g1', node: 'inner', button: 'increase' } }).ok).toBe(true)
+    if (depth === 2) {
+      expect(renamed.dispatch({ command: 'boundary.addItem', params: {
+        graphId: 'g2', side: 'inputs', node: 'detail', port: 'gain', itemId: 'boost', displayName: 'Outside gain',
+      } }).ok).toBe(true)
+      expect(renamed.dispatch({ command: 'boundary.showButton', params: { graphId: 'g2', node: 'detail', button: 'increase' } }).ok).toBe(true)
+    }
+    const renamedField = depth === 1 ? 'gain' : 'boost'
+    for (const [nodeId, value] of [['first', 10], ['second', 80]] as const) {
+      expect(renamed.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId, inputId: renamedField, value } }).ok).toBe(true)
+    }
+    expect(renamed.dispatch({ command: 'boundary.renameItem', params: {
+      graphId: depth === 1 ? 'g1' : 'g2', side: 'inputs', itemId: renamedField, displayName: 'Renamed amount',
+    } }).ok).toBe(true)
+    const beforeRenamedPress = renamed.doc
+    expect(await runPress(renamed, target, host)).toMatchObject({ kind: 'done' })
+    expect(renamed.doc.graphs.g0!.nodes.first!.values).toEqual({ [renamedField]: 17 })
+    expect(renamed.doc.graphs.g0!.nodes.second!.values).toEqual({ [renamedField]: 80 })
+    expect(renamed.doc.graphs.g1).toEqual(beforeRenamedPress.graphs.g1)
+    if (depth === 2) expect(renamed.doc.graphs.g2).toEqual(beforeRenamedPress.graphs.g2)
+    expect(renamed.undo()).toBe(true)
+    expect(renamed.doc).toEqual(beforeRenamedPress)
+    expect(renamed.redo()).toBe(true)
+    const renamedReload = sessionOf(JSON.parse(JSON.stringify(renamed.doc)))
+    expect(await runPress(renamedReload, target, host)).toMatchObject({ kind: 'done' })
+    expect(renamedReload.doc.graphs.g0!.nodes.first!.values).toEqual({ [renamedField]: 24 })
+    expect(renamedReload.doc.graphs.g0!.nodes.second!.values).toEqual({ [renamedField]: 80 })
     for (const literal of [false, true]) {
       addSchema('test.button_source', [
         { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 90 },
