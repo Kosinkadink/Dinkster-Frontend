@@ -1330,7 +1330,7 @@ function elaboratePass(
     const cached = sourceNodes.get(source)
     if (cached !== undefined) return cached
     const parent = source.parent === undefined ? { node, connectivity } : sourceNode(source.parent)
-    const resolve = (inner: NodeData): NodeSchema | undefined => source.schemas.get(inner.id)
+    const resolve = (inner: NodeData): NodeSchema | undefined => source.schemas[inner.id]
     const projection = projectConstructs(source.graph, parent.node, resolve)
     const inner = buildGraphConnectivity(source.graph)(source.node.id)
     const connected = (port: string, side: 'inputs' | 'outputs'): boolean => {
@@ -1363,7 +1363,7 @@ function elaboratePass(
     let values = sourceValues.get(meaning.source)
     if (values === undefined) {
       const projected = sourceNode(meaning.source)
-      values = elaborateInterface(meaning.source.schemas.get(meaning.source.node.id)!, projected.node, projected.connectivity, {
+      values = elaborateInterface(meaning.source.schemas[meaning.source.node.id]!, projected.node, projected.connectivity, {
         promoteGhosts: false,
         ...(options.lookupAnswers !== undefined ? { lookupAnswers: options.lookupAnswers } : {}),
       }).formulaValues

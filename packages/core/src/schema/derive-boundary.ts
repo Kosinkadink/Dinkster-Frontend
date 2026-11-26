@@ -954,11 +954,10 @@ export function deriveBoundarySchema(
   const sourceOf = (node: NodeData): OuterSource => {
     let source = sources.get(node)
     if (source === undefined) {
-      const schemas = new Map<string, NodeSchema>()
-      for (const inner of Object.values(graph.nodes)) {
+      const schemas = Object.fromEntries(Object.values(graph.nodes).flatMap((inner) => {
         const schema = resolveNode(inner)
-        if (schema !== undefined) schemas.set(inner.id, schema)
-      }
+        return schema === undefined ? [] : [[inner.id, schema]]
+      }))
       source = { graph, node, schemas }
       sources.set(node, source)
     }

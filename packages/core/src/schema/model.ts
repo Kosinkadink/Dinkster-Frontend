@@ -775,7 +775,7 @@ export type OuterName =
 export interface OuterSource {
   readonly graph: GraphDef
   readonly node: NodeData
-  readonly schemas: ReadonlyMap<string, NodeSchema>
+  readonly schemas: Readonly<Record<string, NodeSchema>>
   readonly parent?: OuterSource
 }
 

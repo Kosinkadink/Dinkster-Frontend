@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { compile, documentNodeResolver, documentPrimitiveResolver } from '../src/compile/compile.js'
+import { compile, documentNodeResolver, documentPrimitiveResolver, documentResolver } from '../src/compile/compile.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import type { CommandInvocation } from '../src/commands/contract.js'
 import { DocumentStore } from '../src/commands/store.js'
+import { lifecycleCanonicalHash, lifecycleFlattenFingerprint, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
+import { planFlattenOccurrenceTopology } from '../src/compile/effective-topology.js'
 import type { MenuActionItem, MenuContext, MenuItem } from '../src/menus/contract.js'
 import { resetMenuContributions } from '../src/menus/reset-items.js'
 import { primitiveForField } from '../src/primitive.js'
@@ -185,7 +188,8 @@ describe('a primitive works out its value widget', () => {
       const source = docOf({
         first: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: 6, [low]: 5 } },
         second: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: 2, [low]: 1 } },
-        a: { type: 'Steps' }, b: { type: 'Count' },
+        a: { type: 'Steps' }, b: { type: 'Count' }, extra: { type: 'Count' },
+        lower: { type: 'Int', values: { value: 4 } }, runtime: { type: 'Counter' },
       }, [['first', 'number', 'a', 'steps'], ['second', 'number', 'b', 'count']])
       const graph = (id: string, node: string, type: string, exposed: ReturnType<typeof boundary>) => ({
         id, name: id, nodes: { [node]: { id: node, type, values: {} } },
@@ -225,6 +229,115 @@ describe('a primitive works out its value widget', () => {
       if (!run.ok) throw new Error(JSON.stringify(run.diagnostics))
       expect(run.artifact.prompt.a!.inputs.steps).toBe(6)
       expect(run.artifact.prompt.b!.inputs.count).toBe(2)
+
+      const detached = new DocumentStore(reopened, coreCommandRegistry())
+      expect(detached.dispatch({ command: 'occurrence.localize', params: { graphId: 'g0', nodeId: 'first' } }).ok).toBe(true)
+      const copyId = detached.doc.graphs.g0!.nodes.first!.type.slice(1)
+      expect(copyId).not.toBe(depth === 1 ? 'detail' : 'portrait')
+      expect(detached.dispatch({ command: 'node.setValue', params: {
+        graphId: copyId, nodeId: depth === 1 ? 'prim' : 'detail', inputId: depth === 1 ? 'maximum' : 'high', value: 7,
+      } }).ok).toBe(true)
+      expect(effective(detached.doc, 'first')?.spec?.options).toMatchObject({ min: 3, max: 7 })
+      expect(effective(detached.doc, 'second')?.spec?.options).toMatchObject({ min: 1, max: 12 })
+      const detachedRun = compile({ document: detached.doc, revision: 2, resolve, scope: { kind: 'full' },
+        connection: 'boundary-limits' as never, schemaHash: 'primitive' })
+      expect(detachedRun.ok).toBe(true)
+      if (!detachedRun.ok) throw new Error(JSON.stringify(detachedRun.diagnostics))
+      expect(detachedRun.artifact.prompt.a!.inputs.steps).toBe(6)
+      expect(detachedRun.artifact.prompt.b!.inputs.count).toBe(2)
+      expect(detached.doc.graphs[depth === 1 ? 'detail' : 'portrait']).toEqual(reopened.graphs[depth === 1 ? 'detail' : 'portrait'])
+      expect(detached.undo()).toBe(true)
+      expect(detached.undo()).toBe(true)
+      expect(detached.doc.graphs.g0!.nodes.first!.type).toBe(reopened.graphs.g0!.nodes.first!.type)
+      expect(detached.redo()).toBe(true)
+      expect(detached.redo()).toBe(true)
+      const detachedReload = loadDocument(JSON.parse(JSON.stringify(detached.doc))).document!
+      expect(effective(detachedReload, 'first')?.spec?.options).toMatchObject({ min: 3, max: 7 })
+      expect(effective(detachedReload, 'second')?.spec?.options).toMatchObject({ min: 1, max: 12 })
+
+      for (const mode of ['active', 'muted', 'bypassed'] as const) {
+        const flattened = new DocumentStore(reopened, coreCommandRegistry(), 200, undefined, () => ({
+          kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, resolve),
+        }))
+        if (mode !== 'active') expect(flattened.dispatch({ command: 'node.setMode', params: { graphId: 'g0', nodeIds: ['first'], mode } }).ok).toBe(true)
+        const initial = flattened.doc
+        const root = initial.graphs.g0!
+        const node = root.nodes.first!
+        const body = initial.graphs[node.type.slice(1)]!
+        const resolver = documentResolver(initial, resolve)
+        const plan = planFlattenBoundaryRoutes(body, resolver, node, root)
+        const topology = planFlattenOccurrenceTopology(initial, resolver, { instancePath: [], node: node.id })
+        const topologyParams = topology.plan === undefined ? {} : {
+          occurrenceTopologyPlan: topology.plan, occurrenceTopologyPlanDigest: lifecycleCanonicalHash(topology.plan),
+        }
+        const outcome = flattened.dispatch({ command: 'subgraph.flatten', params: {
+          graphId: 'g0', instancePath: [], nodeId: 'first', placementCenter: { x: 100, y: 100 },
+          resolvedGeometry: {
+            occurrence: { id: 'first', kind: 'node', x: 0, y: 0, width: 200, height: 200 },
+            body: Object.keys(body.nodes).map((id) => ({ id, kind: 'node', x: 0, y: 0, width: 200, height: 200 })),
+          },
+          boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaSnapshot: plan.schemaSnapshot,
+          schemaPlanDigest: plan.schemaPlanDigest, ...topologyParams,
+          selectionFingerprint: lifecycleFlattenFingerprint(initial, 'g0', 'first', {
+            boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest, ...topologyParams,
+          }),
+        } } as unknown as CommandInvocation)
+        if (mode === 'bypassed') {
+          expect(outcome.ok).toBe(false)
+          expect(outcome.diagnostics.map((entry) => entry.code)).toContain('subgraph.flatten.modeUnsupported')
+          expect(flattened.doc).toBe(initial)
+          continue
+        }
+        expect(outcome.ok, `boundary/primitive/flatten-detach ${mode} depth ${depth}: ${JSON.stringify(outcome.diagnostics)}`).toBe(true)
+        const projected = compile({ document: flattened.doc, revision: 3, resolve, scope: { kind: 'full' },
+          connection: 'boundary-limits' as never, schemaHash: 'primitive' })
+        expect(projected.ok, JSON.stringify(!projected.ok && projected.diagnostics)).toBe(true)
+        if (!projected.ok) throw new Error(JSON.stringify(projected.diagnostics))
+        expect(projected.artifact.prompt.a!.inputs.steps).toBe(mode === 'active' ? 6 : 4)
+        expect(projected.artifact.prompt.b!.inputs.count).toBe(2)
+        expect(flattened.undo()).toBe(true)
+        expect(flattened.doc.graphs.g0!.nodes.first!.type).toBe(node.type)
+        expect(flattened.redo()).toBe(true)
+        const reloaded = compile({ document: loadDocument(JSON.parse(JSON.stringify(flattened.doc))).document!, revision: 4,
+          resolve, scope: { kind: 'full' }, connection: 'boundary-limits' as never, schemaHash: 'primitive' })
+        expect(reloaded.ok, JSON.stringify(!reloaded.ok && reloaded.diagnostics)).toBe(true)
+        if (!reloaded.ok) throw new Error(JSON.stringify(reloaded.diagnostics))
+        expect(reloaded.artifact.prompt.a!.inputs.steps).toBe(mode === 'active' ? 6 : 4)
+        expect(reloaded.artifact.prompt.b!.inputs.count).toBe(2)
+      }
+
+      const connect = (from: string, port: string, to: string, inputId: string) => {
+        const outcome = store.dispatch({ command: 'link.connect', params: { graphId: 'g0',
+          from: { node: from, port }, to: { node: to, port: inputId },
+        } })
+        expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
+      }
+      connect('lower', 'INT', 'first', low)
+      expect(effective(store.doc, 'first')?.spec?.options, `boundary/primitive/linked-outside literal depth ${depth}`).toMatchObject({ min: 4, max: 8 })
+      expect(effective(store.doc, 'first')?.derived.has('min')).toBe(false)
+      expect(effective(store.doc, 'second')?.spec?.options).toMatchObject({ min: 1, max: 12 })
+      expect(store.undo()).toBe(true)
+      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 3, max: 8 })
+      expect(store.redo()).toBe(true)
+      connect('runtime', 'INT', 'first', low)
+      expect(effective(store.doc, 'first')?.spec?.options, `boundary/primitive/linked-outside runtime depth ${depth}`).toMatchObject({ min: 0, max: 8 })
+      expect(effective(store.doc, 'first')?.derived.has('min')).toBe(true)
+      connect('first', 'number', 'extra', 'count')
+      expect(effective(store.doc, 'first')?.spec?.options, `boundary/primitive/fan-out depth ${depth}`).toMatchObject({ min: 4, max: 8, step: 2 })
+      expect(effective(store.doc, 'second')?.spec?.options).toMatchObject({ min: 1, max: 12 })
+      const fanout = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(effective(fanout, 'first')?.spec?.options).toMatchObject({ min: 4, max: 8, step: 2 })
+      const shared = compile({ document: fanout, revision: 2, resolve, scope: { kind: 'full' },
+        connection: 'boundary-limits' as never, schemaHash: 'primitive' })
+      expect(shared.ok, JSON.stringify(!shared.ok && shared.diagnostics)).toBe(true)
+      if (!shared.ok) throw new Error(JSON.stringify(shared.diagnostics))
+      expect(shared.artifact.prompt.a!.inputs.steps).toBe(6)
+      expect(shared.artifact.prompt.extra!.inputs.count).toBe(6)
+      expect(shared.artifact.prompt.b!.inputs.count).toBe(2)
+      expect(store.undo()).toBe(true)
+      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 0, max: 8 })
+      expect(store.redo()).toBe(true)
+      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 4, max: 8, step: 2 })
     }
   })
 
