@@ -1,12 +1,59 @@
 import { render } from 'solid-js/web'
+import { createSignal as createSolidSignal } from 'solid-js'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createWidgetRegistry } from '@dinkster/widgets'
-import { asLinkId, asNodeId, asPortId, coreCommandRegistry, createSignal, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema, type CompileArtifact } from '@dinkster/core'
+import { asLinkId, asNodeId, asPortId, coreCommandRegistry, createSignal, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema, type CompileArtifact, type Json } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import type { AppState, Tab } from '../src/app-state.js'
 import { WidgetEditor, type WidgetEditorProps, type WidgetEditorState } from '../src/WidgetEditor.js'
+import { SaveTargetSpace } from '../src/InNodeEditorSpaces.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('selects the save name on opening and queues the atomically stored target only after commit succeeds', async () => {
+  const root = document.createElement('div'); document.body.append(root)
+  let saved: Json = { mount: 'output', prefix: 'before' }
+  const queued: Json[] = []
+  let finish!: (ok: boolean) => void
+  const [wired, setWired] = createSolidSignal(false)
+  const dispose = render(() => <SaveTargetSpace value={saved} wired={wired()}
+    fetchMounts={async () => ({ activeOutputMount: 'output', mountChangesAllowed: false, mounts: [
+      { id: 'output', mode: 'readwrite', state: 'ready' }, { id: 'archive', mode: 'readwrite', state: 'ready' },
+    ] })}
+    commit={async (value) => {
+      const ok = await new Promise<boolean>((resolve) => { finish = resolve })
+      if (ok) saved = value
+      return ok
+    }} queue={() => queued.push(saved)} />, root)
+  try {
+    const name = root.querySelector('input')!
+    const mount = root.querySelector('button')!
+    await vi.waitFor(() => expect(document.activeElement).toBe(name))
+    expect([name.selectionStart, name.selectionEnd]).toEqual([0, 6])
+    await vi.waitFor(() => expect(mount.textContent).toContain('output'))
+    mount.focus()
+    mount.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(root.querySelector('[role="listbox"]')).not.toBeNull()
+    Array.from(root.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent === 'archive')!.click()
+    name.focus()
+    name.value = 'after'; name.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(saved).toEqual({ mount: 'output', prefix: 'before' })
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+    expect(queued).toEqual([])
+    finish(true)
+    await vi.waitFor(() => expect(queued).toEqual([{ mount: 'archive', prefix: 'after' }]))
+    name.value = 'refused'; name.dispatchEvent(new Event('input', { bubbles: true }))
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }))
+    finish(false)
+    await Promise.resolve(); await Promise.resolve()
+    expect(queued).toEqual([{ mount: 'archive', prefix: 'after' }])
+    setWired(true)
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+    await Promise.resolve()
+    expect(saved).toEqual({ mount: 'archive', prefix: 'after' })
+    expect(queued).toHaveLength(1)
+  } finally { dispose() }
+})
 
 it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {
   const schema = parseDinksterSchema('SaveTargetFixture', { body: [

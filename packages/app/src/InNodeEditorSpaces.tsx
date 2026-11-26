@@ -221,7 +221,8 @@ export function SaveTargetSpace(props: {
   readonly value: Json | undefined
   readonly wired: boolean
   readonly fetchMounts: (() => Promise<MountSettings>) | undefined
-  readonly commit: (value: Json) => void
+  readonly commit: (value: Json) => Promise<boolean>
+  readonly queue: () => void
 }) {
   const message = useAppMessage()
   const [settings, setSettings] = createSignal<MountSettings>()
@@ -230,6 +231,9 @@ export function SaveTargetSpace(props: {
   const [prefix, setPrefix] = createSignal('')
   const [listOpen, setListOpen] = createSignal(false)
   const [highlight, setHighlight] = createSignal<number>()
+  const [pending, setPending] = createSignal(false)
+  let mountButton: HTMLButtonElement | undefined
+  let prefixInput: HTMLInputElement | undefined
   const reset = () => {
     const value = props.value
     setMount(isSaveTarget(value) ? value.mount : null)
@@ -252,31 +256,42 @@ export function SaveTargetSpace(props: {
   ]
   const draft = () => saveTargetDraft({ stored: props.value ?? null, mount: mount(), prefix: prefix(),
     ready: settings() === undefined || ready().length === 0 ? undefined : ready(), projectMount: settings()?.activeOutputMount ?? message('saveTargetWidget.projectDefault') })
-  const store = () => {
-    if (props.wired) return
+  const store = async (): Promise<boolean> => {
+    if (props.wired || pending()) return false
     const value = draft().store
-    if (value !== undefined) props.commit(value)
+    if (value === undefined) return true
+    setPending(true)
+    try { return await props.commit(value) }
+    finally { setPending(false) }
   }
   const pick = (index: number) => {
     const entry = options()[index]
     if (entry === undefined || 'unavailable' in entry || props.wired) return
     setMount(entry.id || null)
     setListOpen(false)
+    mountButton?.focus()
   }
   const openList = () => {
-    setHighlight(Math.max(0, options().findIndex((entry) => entry.id === (mount() ?? ''))))
+    if (props.wired || pending() || ready().length === 0) return
+    const all = options()
+    const picked = all.findIndex((entry) => entry.id === (mount() ?? '') && !('unavailable' in entry))
+    setHighlight(picked >= 0 ? picked : 0)
     setListOpen(true)
   }
   return <div onFocusOut={(event) => {
-    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setListOpen(false); store() }
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setListOpen(false); void store() }
   }} onKeyDown={(event) => {
     if (event.isComposing) return
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault(); event.stopPropagation()
+      setListOpen(false)
+      void store().then((stored) => { if (stored) props.queue() })
+      return
+    }
     if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault(); event.stopPropagation()
-      const mount = event.currentTarget.querySelector<HTMLButtonElement>('button')
-      const name = event.currentTarget.querySelector<HTMLInputElement>('input')
-      ;(document.activeElement === mount ? name : mount)?.focus()
-    } else if (!listOpen() && event.key === 'ArrowDown' && event.target instanceof HTMLButtonElement) {
+      ;(document.activeElement === mountButton ? prefixInput : mountButton)?.focus()
+    } else if (!listOpen() && ['ArrowDown', ' '].includes(event.key) && event.target === mountButton) {
       event.preventDefault(); event.stopPropagation(); openList()
     } else if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation()
@@ -289,21 +304,26 @@ export function SaveTargetSpace(props: {
       for (let at = (highlight() ?? -1) + step; at >= 0 && at < all.length; at += step) {
         if (!('unavailable' in all[at]!)) { setHighlight(at); break }
       }
-    } else if (event.key === 'Enter' && event.target instanceof HTMLButtonElement && !listOpen()) {
+    } else if (event.key === 'Enter' && event.target === mountButton && !listOpen()) {
       event.preventDefault(); event.stopPropagation(); openList()
     } else if (event.key === 'Enter') {
       event.preventDefault(); event.stopPropagation()
       if (listOpen()) pick(highlight() ?? 0)
-      else store()
+      else void store()
     }
   }}>
-    <CanvasTargetBox inNode frozen={props.wired}
+    <CanvasTargetBox inNode frozen={props.wired || pending()}
       words={{ mount: message('assets.fact.mount'), prefix: message('assets.fact.name'),
         loading: message('saveTargetWidget.loading'), none: message('saveTargetWidget.none'), failed: message('saveTargetWidget.couldNotLoad') }}
       mounts={failed() ? 'failed' : settings() === undefined ? 'loading' : ready().length === 0 ? 'none' : 'ready'}
       options={options()} mount={mount() ?? ''} prefix={prefix()} listOpen={listOpen()} {...(highlight() === undefined ? {} : { highlight: highlight()! })}
       onPrefix={setPrefix} onToggleList={() => listOpen() ? setListOpen(false) : openList()} onHighlight={setHighlight}
       onPick={pick}
+      mountRef={(element) => { mountButton = element }}
+      prefixRef={(element) => {
+        prefixInput = element
+        if (!props.wired) queueMicrotask(() => { element.focus(); element.select() })
+      }}
       {...(draft().prefixInvalid ? { prefixProblem: message('saveTargetWidget.invalid') } : {})} />
   </div>
 }

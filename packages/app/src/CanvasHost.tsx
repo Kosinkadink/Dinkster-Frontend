@@ -7182,17 +7182,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const graphId = currentGraphId(tab)
           const owner = current.field.familyOwner
           const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.valueKey }
-          const commit = (value: Json): void => {
+          const commit = async (value: Json): Promise<boolean> => {
             const live = item()
-            if (live === undefined || live.field.readOnly || live.field.disabled) return
+            if (live === undefined || live.field.readOnly || live.field.disabled) return false
             // A capture started before wiring must not write the now-dormant value.
             const graph = tab.store.doc.graphs[target.graphId]
-            if (graph === undefined) return
+            if (graph === undefined) return false
             const index = buildRerouteIndex(graph)
             const port = portRefKey({ node: asNodeId(target.nodeId), port: asPortId(target.inputId) })
-            if (live.wired || index.inputDriverOf.has(port) || index.netSourceOf.has(port)) return
-            void props.app.dispatchTo(tab,
+            if (live.wired || index.inputDriverOf.has(port) || index.netSourceOf.has(port)) return false
+            const outcome = await props.app.dispatchTo(tab,
               withMaterializeFrames(target.graphId, target.nodeId, live.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+            return outcome.ok
           }
           return { tab, graphId, current, target, commit }
         }
@@ -7375,7 +7376,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               </Show>
               <Show when={saveTarget()}>
                 {(at) => <SaveTargetSpace value={item()?.value ?? (item()?.wired ? undefined : effectiveWidgetDefault(item()!.field.spec))}
-                  wired={item()?.wired === true} fetchMounts={at().fetchMounts} commit={at().commit} />}
+                  wired={item()?.wired === true} fetchMounts={at().fetchMounts} commit={at().commit}
+                  queue={() => {
+                    const command = props.app.commands.get('workflow.queue')
+                    if (command?.enabled?.() !== false) command?.run()
+                  }} />}
               </Show>
               <Show when={load3d()}>
                 {(at) => <Load3dSpace value={item()?.value} wired={item()?.wired === true}
