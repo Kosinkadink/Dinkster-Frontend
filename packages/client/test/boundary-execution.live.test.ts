@@ -409,6 +409,46 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
       ).toBeDefined()
       expect((await run(reloaded.document!)).first).toEqual((await run()).first)
 
+      for (const [feature, output, expected] of [
+        ['output', 'result', '0.2'], ['output', 'output91', '91.0'],
+        ['counted-outputs', 'outputs.o2', '30.0'], ['member-outputs', 'layers.layer0.result', '0.2'],
+        ['described-outputs', 'description.number', '47.0'],
+      ] as const) {
+        const document = structuredClone(store.doc)
+        Object.assign(document.graphs.root!.nodes, {
+          otherSink: { id: 'otherSink', type: 'boundary-sample.sink', values: {} },
+        })
+        const outputs = new DocumentStore(document, coreCommandRegistry(), 200, undefined, () => ({
+          kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, registry.resolve),
+        }))
+        for (const target of ['sink', 'otherSink']) expect(outputs.dispatch({ command: 'link.connect', params: {
+          graphId: 'root', from: { node: 'first', port: output }, to: { node: target, port: 'number' },
+        } }).ok).toBe(true)
+        const sharedOutput = await run(outputs.doc)
+        expect(sharedOutput.value('sink', 'received'), `boundary/${feature}/fan-out`).toBe(expected)
+        expect(sharedOutput.value('otherSink', 'received'), `boundary/${feature}/fan-out`).toBe(expected)
+        expect(sharedOutput.second.strength).toBe(0.8)
+        expect(outputs.undo()).toBe(true)
+        const undoneOutput = await run(outputs.doc)
+        expect(undoneOutput.value('sink', 'received')).toBe(expected)
+        expect(undoneOutput.value('otherSink', 'received')).toBe('null')
+        expect(outputs.redo()).toBe(true)
+        const reopenedOutput = loadDocument(JSON.parse(JSON.stringify(outputs.doc)))
+        expect(reopenedOutput.document).toBeDefined()
+        const restoredOutput = await run(reopenedOutput.document!)
+        expect(restoredOutput.value('sink', 'received')).toBe(expected)
+        expect(restoredOutput.value('otherSink', 'received')).toBe(expected)
+        if (level > 0) {
+          const stable = outputs.doc
+          const refusal = outputs.dispatch({ command: 'boundary.addBinding', params: {
+            graphId: 'detail', itemId: 'output91', node: 'sample', port: 'result',
+          } })
+          expect(refusal.ok).toBe(false)
+          expect(refusal.diagnostics.map((diagnostic) => diagnostic.code)).toContain('boundary.itemMissing')
+          expect(outputs.doc).toBe(stable)
+        }
+      }
+
       if (level > 0) {
         const lifecycleBaseline = store.doc
         const lifecycleRun = await run()
