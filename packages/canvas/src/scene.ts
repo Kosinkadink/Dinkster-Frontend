@@ -2201,6 +2201,10 @@ export function buildScene(input: BuildSceneInput): Scene {
         const target = nodes[index]
         if (target === undefined) continue
         const rows = target.layout.rows.map((row): LayoutRow => {
+          if (b.kind === 'construct' && 'reorder' in row && row.reorder !== undefined &&
+            (row.reorder.construct === b.port || row.reorder.construct.startsWith(`${b.port}.`)) &&
+            !def.nodes[b.node]?.dynamic?.[row.reorder.construct]?.members?.includes(row.reorder.member))
+            row = { ...row, reorder: { ...row.reorder, alone: true } }
           if (row.kind === 'section' && b.kind === 'construct' && row.sectionId === `group:${b.port}`)
             return { ...row, ...(label !== undefined ? { subgraphMark: { item: item.id, label } } : {}) }
           if (row.kind !== 'widget' || !(row.address.port === b.port || (b.kind === 'construct' && row.address.port.startsWith(`${b.port}.`)))) return row

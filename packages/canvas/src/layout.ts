@@ -177,7 +177,7 @@ export interface MemberGrip {
   readonly member: string
   /** Node-local x of the grip's center. */
   readonly gripX: number
-  /** The group's only member: the grip is dimmed and does nothing. */
+  /** This member cannot be moved: the grip is dimmed and does nothing. */
   readonly alone?: true
   readonly owner?: DynamicEditOwner
   readonly ownerMember?: string
@@ -2247,7 +2247,9 @@ export function insetRowStack(
 ): { readonly top: number; readonly bottom: number } {
   const insets = rowStackInsets(rows[0]?.kind, rows.at(-1)?.kind, tokens)
   if (insets.top !== 0) {
-    rows.splice(0, rows.length, ...rows.map((row) => ({ ...row, y: row.y + insets.top })))
+    rows.splice(0, rows.length, ...rows.map((row) => ({ ...row, y: row.y + insets.top,
+      ...('top' in row ? { top: row.top + insets.top } : {}),
+    })))
     pins.splice(0, pins.length, ...pins.map((pin) => ({ ...pin, y: pin.y + insets.top })))
   }
   return insets
@@ -2326,6 +2328,7 @@ export function layoutBoundaryNode(
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []
   const boxes: LayoutBox[] = []
+  const trees: { first: number; last: number; width: number }[] = []
   let y = tokens.headerHeight
   for (const slot of slots) {
     const type: TypeExpr = slot.type ?? { kind: 'wildcard' }
@@ -2336,6 +2339,7 @@ export function layoutBoundaryNode(
       rows.push(...tree.rows.map((row): LayoutRow => ({ ...row, y: row.y + y,
         ...('top' in row ? { top: row.top + y } : {}),
       })))
+      trees.push({ first, last: rows.length, width: tree.width })
       boxes.push(...(tree.boxes ?? []).map((box) => ({ ...box, y: box.y + y, first: box.first + first, last: box.last + first })))
       y += tree.height
       continue
@@ -2420,6 +2424,22 @@ export function layoutBoundaryNode(
   const minWidth = Math.max(tokens.nodeMinWidth, ...slots.map((slot) => slot.tree?.width ?? 0))
   width = Math.max(width, minWidth)
 
+  // As on an ordinary node, the first cell takes extra room and any
+  // remaining cells keep their widths against the right edge.
+  for (const tree of trees) {
+    const extra = width - tree.width
+    const cells = rows.slice(tree.first, tree.last).filter((row) =>
+      row.kind === 'widget' || row.kind === 'note' || row.kind === 'button')
+    for (let index = tree.first; index < tree.last; index++) {
+      const row = rows[index]!
+      if (!('width' in row) || row.width === undefined) continue
+      const above = row.kind === 'editorSpace'
+        ? cells.find((cell) => cell.kind === 'widget' && cell.valueKey === row.valueKey) : row
+      if (above === undefined) continue
+      const trailing = cells.some((cell) => cell.y === above.y && cell.inset < above.inset)
+      rows[index] = { ...row, inset: row.inset + (trailing ? extra : 0), width: row.width + (trailing ? 0 : extra) }
+    }
+  }
   const stackInsets = insetRowStack(rows, pins, tokens)
   const height = y + stackInsets.top + stackInsets.bottom
   return {

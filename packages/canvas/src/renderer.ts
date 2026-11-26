@@ -3693,6 +3693,16 @@ export class CanvasRenderer {
     }
 
     this.drawNodeContent(ctx, sceneNode, node, detailLevel)
+    // Whole constructs have no data socket, but a drawn binding still
+    // ends visibly at the node edge, like an ordinary promoted field.
+    for (const row of l.rows) {
+      const port = row.kind === 'section' && row.box === 'group' ? row.sectionId.slice('group:'.length)
+        : row.kind === 'widget' && row.lead === true ? row.inputId : undefined
+      if (port === undefined || !this.connectedInputPins.has(`${node.id}\u0000${port}`) ||
+        this.wirelessBoundaryInputPins.has(`${node.id}\u0000${port}`) ||
+        l.pins.some((pin) => pin.direction === 'in' && pin.widgetTap !== true && pin.portId === port)) continue
+      paintTypedPin(ctx, t, { kind: 'wildcard' }, node.x, node.y + row.y + row.height / 2, scale, false, 'in', detailRadius(t.pinRadius, scale, detailLevel))
+    }
   }
 
   /** Node rows share their painter with the entered subgraph's Inputs panel. */

@@ -4354,6 +4354,18 @@ describe('Inputs panel fields', () => {
       expect(store.doc.graphs.detail!.nodes.sample!.dynamic?.layers?.members).toEqual(['layer0', 'layer1'])
       expect(store.undo()).toBe(true)
 
+      // Occurrence members cannot be moved in the definition's member stream.
+      const inner = sceneOf().nodes[0]!
+      const innerMembers = inner.layout.rows.filter((row) => 'reorder' in row && row.reorder !== undefined)
+      const occurrenceMember = innerMembers.at(-1)!
+      if (!('reorder' in occurrenceMember) || occurrenceMember.reorder === undefined) throw new Error('missing inner grip')
+      const innerMoving = interactionHarness(sceneOf())
+      const ix = inner.x + occurrenceMember.reorder.gripX
+      innerMoving.fire('pointerdown', ix, inner.y + occurrenceMember.y + occurrenceMember.height / 2)
+      innerMoving.fire('pointermove', ix, inner.y + innerMembers.at(-2)!.y)
+      innerMoving.fire('pointerup', ix, inner.y + innerMembers.at(-2)!.y)
+      expect(innerMoving.dispatched).toEqual([])
+
       const scene = sceneOf()
       const panel = scene.boundaryNodes[0]!
       const header = panel.layout.rows.find((row) => row.kind === 'section' && row.sectionId === 'group:group')
@@ -4391,6 +4403,21 @@ describe('Inputs panel fields', () => {
           clicking.fire('pointerup', x, y)
           expect(activate).toHaveBeenCalledWith(itemId)
           expect(clicking.dispatched).toEqual([])
+        }
+        if (itemId === 'group') {
+          const panel = hidden.boundaryNodes[0]!
+          const member = panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'group.layer3')!
+          const add = panel.layout.rows.find((row) => row.kind === 'growth')!
+          if (add.kind !== 'growth') throw new Error('missing Add row')
+          const right = panel.x + panel.layout.width - add.inset - defaultTokens.rowGeometry.stepperZone / 2
+          const y = panel.y + member.y + member.height / 2
+          const editing = interactionHarness(hidden)
+          editing.fire('pointerdown', right, y)
+          editing.fire('pointerup', right, y)
+          expect(editing.dispatched).toHaveLength(1)
+          expect(store.dispatch(editing.dispatched[0] as CommandInvocation).ok).toBe(true)
+          expect(store.doc.graphs.root!.nodes.first!.values['group.layer1']).toBeCloseTo(0.4)
+          expect(store.undo()).toBe(true)
         }
         const inner = hidden.nodes[0]!
         const value = inner.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'mode.mix')
