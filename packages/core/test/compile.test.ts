@@ -1256,6 +1256,41 @@ describe('dynamic interfaces', () => {
     }
   })
 
+  it('compiles saved mount names and project defaults with a concrete mount type', () => {
+    const mountSchema = dynSchemaOf('MountSink', [dynInput('mount', {
+      type: { kind: 'union', names: ['MOUNT', 'STRING'] },
+      optional: true,
+      widget: { widgetType: 'MOUNT', options: {}, default: null },
+    })])
+    const resolve = (type: string) => type === 'MountSink' ? mountSchema : dynResolve(type)
+    for (const values of [{ mount: 'archive' }, { mount: null }, {}]) {
+      const stored = dynDoc({ nodes: { save: { type: 'MountSink', values } } })
+      const document = loadDocument(JSON.parse(JSON.stringify(stored))).document!
+      const result = compile({ ...compileInput(document), resolve, graphFeatures: ['regions', 'typedLiteral'] })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) continue
+      expect(result.artifact.prompt.save?.inputs.mount).toEqual({ $typed: { type: 'MOUNT', value: values.mount ?? null } })
+      expect(result.artifact.snapshot).toEqual(document)
+    }
+    const named = dynDoc({ nodes: { save: { type: 'MountSink', values: { mount: 'archive' } } } })
+    const legacy = dynCompile(named)
+    expect(legacy.ok).toBe(true)
+    if (legacy.ok) expect(legacy.artifact.prompt.save?.inputs.mount).toBe('archive')
+    const unsupported = compile({ ...compileInput(named), resolve })
+    expect(unsupported.ok).toBe(false)
+    if (!unsupported.ok) expect(unsupported.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.value.mountUnionUnsupported')
+    const wired = compile({
+      ...compileInput(dynDoc({
+        nodes: { source: { type: 'MountSrc' }, save: { type: 'MountSink', values: { mount: 'archive' } } },
+        links: [[['source', 'mount'], ['save', 'mount']]],
+      })),
+      resolve,
+      graphFeatures: ['regions', 'typedLiteral'],
+    })
+    expect(wired.ok, JSON.stringify(!wired.ok && wired.diagnostics)).toBe(true)
+    if (wired.ok) expect(wired.artifact.prompt.save?.inputs.mount).toEqual(['source', 0])
+  })
+
   it('compiles a STRING producer into a mount widget as an ordinary link without changing dormant values', () => {
     const result = dynCompile(dynDoc({
       nodes: {

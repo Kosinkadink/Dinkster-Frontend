@@ -531,10 +531,10 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/compile/compile.ts",
-      "line": 2001,
-      "column": 9,
-      "symbol": "widgetType:ASSET",
-      "issue": 122
+      "line": 1860,
+      "column": 66,
+      "symbol": "widgetType:MOUNT",
+      "issue": 1382
     },
     {
       "kind": "widgetTypeComparison",
