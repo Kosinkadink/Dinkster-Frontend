@@ -1635,6 +1635,7 @@
   "shell.status.idle": "Idle",
   "shell.status.noEngine": "no engine",
   "shell.status.notSetUp": "not set up",
+  "shell.status.settingUp": "setting up",
   "shell.status.problemCount": "{count, plural, one {# problem} other {# problems}}",
   "shell.status.noActivity": "nothing running or queued",
   "shell.status.frozen": "Frozen",

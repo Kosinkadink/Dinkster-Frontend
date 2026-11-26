@@ -55,6 +55,17 @@ it.each(['projects', 'editor'] as const)('starts the same process-owned job from
   expect(button('Set up').disabled).toBe(false)
 })
 
+it('shows completed setup without changes or a note about setup running', async () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('fetch', async () => answer({ plan, activeJob: { ...job, state: 'completed', installation: { root: plan.root, engine: 'main' } } }))
+  dispose = render(() => <SetupForm surface="editor" />, document.body)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(document.body.textContent).toContain('Dinkster is ready')
+  expect(document.body.textContent).not.toContain('You can build a workflow while setup runs.')
+  expect([...document.querySelectorAll('button')].map((node) => node.textContent)).not.toContain('Change build')
+  expect([...document.querySelectorAll('button')].map((node) => node.textContent)).not.toContain('Choose another folder')
+})
+
 it.each(['win-nvidia-cu126', 'linux-cpu', 'unlisted-build'])('labels a running %s job without exposing identifiers and groups matching cards', async (variant) => {
   vi.useFakeTimers()
   const card = { id: '0', name: 'NVIDIA GeForce RTX 4090', driver: '595.84', computeCapability: '8.9', memoryMiB: 24564 }
@@ -179,13 +190,14 @@ it.each([
 
 it('keeps a failed setup error visible without a dismiss action and removes active progress', async () => {
   vi.useFakeTimers()
-  vi.stubGlobal('fetch', async () => answer({ plan, activeJob: { ...job, state: 'failed', error: { code: 'download-failed', message: 'The download stopped. Try again.' } } }))
+  vi.stubGlobal('fetch', async () => answer({ plan, activeJob: { ...job, state: 'failed', progress: { stage: 'downloading', completed: 200, total: 1000, unit: 'bytes' }, error: { code: 'download-failed', message: 'The download stopped. Try again.' } } }))
   dispose = render(() => <SetupForm surface="projects" />, document.body)
   await vi.advanceTimersByTimeAsync(0)
   expect(document.querySelector('[role="alert"]')?.textContent).toBe('The download stopped. Try again.')
   expect(document.querySelector('[role="alert"] button')).toBeNull()
   expect(document.querySelector('[role="alert"]')?.nextElementSibling).toBe(document.querySelector('.setup-actions'))
   expect(document.querySelector('[role="progressbar"]')).toBeNull()
+  expect(document.querySelector('.setup-job')?.textContent).toBe('Setup could not finish')
   expect(button('Set up').disabled).toBe(false)
 })
 

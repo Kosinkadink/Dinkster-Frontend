@@ -42,7 +42,7 @@ import {
 } from '@dinkster/ui'
 import { useAppMessage } from '../locale.js'
 import { createArrival } from '../arrival.js'
-import { SetupForm } from '../SetupForm.js'
+import { SetupForm, type SetupStatus } from '../SetupForm.js'
 import { setupInProgress } from '../setup-job.js'
 import { AccountControl, createAccountSession } from '../AccountControl.js'
 import { ActivityBarButton, IconBar, ShellTooltip } from '../ShellChrome.js'
@@ -241,6 +241,7 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
   const account = createAccountSession(() => connection)
   const [place, setPlace] = createSignal<Place>('projects')
   const [count, setCount] = createSignal<number>()
+  const [setupStatus, setSetupStatus] = createSignal<SetupStatus>()
   const [engine, setEngine] = createSignal<{ state?: EngineState; open?: PageInstallation; notSetUp: boolean }>({ notSetUp: false })
   // The editor's tooltips, so the frame's controls explain themselves here too.
   const tooltips = new TooltipController()
@@ -313,7 +314,7 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
         <div class="projects-page-body dinkster-root">
           <Switch>
             <Match when={place() === 'projects'}>
-              <ProjectsView shell={props.shell} source={source} onCount={setCount} onEngine={setEngine} />
+              <ProjectsView shell={props.shell} source={source} onCount={setCount} onEngine={setEngine} onSetupStatusChange={setSetupStatus} />
             </Match>
             <Match when={true}>
               <ProductProjectsView>
@@ -329,8 +330,9 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
           <span class="status-item status-connection projects-page-status" data-state={engineDot(engine().state)}>
             <span class="status-connection-dot" aria-hidden="true" />
             <span class="status-connection-name">{message('projects.status.local')}</span>
+            <Show when={setupStatus()}>{(status) => <span>{message(status() === 'setting-up' ? 'shell.status.settingUp' : 'shell.status.notSetUp')}</span>}</Show>
           </span>
-          <Show when={engine().state}><span class="status-item" data-testid="projects-engine-status">
+          <Show when={!setupStatus() && engine().state}><span class="status-item" data-testid="projects-engine-status">
             {engine().notSetUp ? message('shell.status.notSetUp')
               : engine().state === 'ready' && engine().open
               ? message('projects.status.ready', { installation: engine().open!.name })
@@ -353,6 +355,7 @@ export function ProjectsView(props: {
   readonly onCount?: (count: number) => void
   /** Told the engine's state and the open installation once the page has read them. */
   readonly onEngine?: (engine: { state?: EngineState; open?: PageInstallation; notSetUp: boolean }) => void
+  readonly onSetupStatusChange?: (status: SetupStatus | undefined) => void
 }) {
   const message = useAppMessage()
   const locale = useSignal(activeLocale)
@@ -845,14 +848,12 @@ export function ProjectsView(props: {
   )
 
   const setupInstructions = () => (
-    <SetupForm surface="projects" onInstallation={() => void rereadPage()} />
+    <SetupForm surface="projects" onStatusChange={props.onSetupStatusChange} onInstallation={() => void rereadPage()} />
   )
   const setup = () => (
-    <ProductProjectsView>
-      <div class="dinkster-projects-setup" data-testid="projects-first-run">
+      <div class="projects-page-first-run" data-testid="projects-first-run">
         {setupInstructions()}
       </div>
-    </ProductProjectsView>
   )
 
   return (

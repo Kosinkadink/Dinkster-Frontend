@@ -51,6 +51,7 @@ import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
 import { TemplateGallery } from './TemplateGallery.js'
 import { EditorFirstRunSetup } from './EditorFirstRunSetup.js'
+import type { SetupStatus } from './SetupForm.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
 import { SettingsDialog } from './SettingsDialog.js'
@@ -1232,14 +1233,15 @@ export function App(props: {
     backendsTick()
     return b.supervisor.get()
   }
-  const [setupEditors, setSetupEditors] = createSolidSignal<ReadonlyMap<object, string>>(new Map())
+  const [setupEditors, setSetupEditors] = createSolidSignal<ReadonlyMap<object, { backend: string; status: SetupStatus }>>(new Map())
+  const setupStatus = () => [...setupEditors().values()].find((editor) => editor.backend === activeBackend().baseUrl)?.status
   /**
    * Supervisor state that gates the active backend (anything but ready):
    * rendered as "Dinkster is starting", never a connection failure (Ask 1).
    */
   const engineGate = () => {
     const sup = supervisorOf(activeBackend())
-    if ([...setupEditors().values()].includes(activeBackend().baseUrl)) return undefined
+    if (setupStatus()) return undefined
     return sup && sup.state !== 'ready' && sup.installations !== 0 ? sup : undefined
   }
 
@@ -1920,10 +1922,10 @@ export function App(props: {
         </Show>
       </div>
       <Show when={empty() && !galleryRequested()}>
-        <EditorFirstRunSetup backendUrl={activeBackend().baseUrl} onVisibilityChange={(visible) => {
+        <EditorFirstRunSetup backendUrl={activeBackend().baseUrl} onStatusChange={(status) => {
           setSetupEditors((current) => {
             const next = new Map(current)
-            if (visible) next.set(setupOwner, activeBackend().baseUrl)
+            if (status) next.set(setupOwner, { backend: activeBackend().baseUrl, status })
             else next.delete(setupOwner)
             return next
           })
@@ -3359,6 +3361,7 @@ export function App(props: {
       )}</Show>
       <TransientStatus message={transientStatus()} />
       <StatusBar app={app} backend={activeBackend} tab={activeTab} problems={problemsIndicator}
+        setupStatus={setupStatus}
         visible={statusBarVisible} placement={placementStatus} transient={transientStatus}
         context={() => {
           const tab = activeTab()

@@ -29,8 +29,11 @@ test('setup owns engine controls until its registered installation has completed
 
   await page.goto('/?dinksterProject=default')
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible()
+  const registered = page.waitForResponse((response) => response.url().endsWith('/supervisor/status') && response.ok())
   installations = 1
-  await expect(page.getByTestId('status-connection')).toContainText('no engine', { timeout: 7000 })
+  expect((await (await registered).json()).installations).toBe(1)
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(null))))
+  await expect(page.getByTestId('status-connection')).toContainText('setting up')
   await expect(page.getByTestId('engine-restart')).toBeHidden()
   await expect(page.getByTestId('engine-banner')).toBeHidden()
   await expect(page.getByText('Setting up Dinkster', { exact: true })).toBeVisible()
@@ -38,6 +41,7 @@ test('setup owns engine controls until its registered installation has completed
 
   job = { ...job, state: 'cancelling' }
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled()
+  await expect(page.getByTestId('status-connection')).toContainText('setting up')
   await expect(page.getByTestId('engine-restart')).toBeHidden()
 
   job = { ...job, state: 'completed', installation: { root, engine: 'main' } }

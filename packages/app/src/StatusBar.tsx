@@ -15,6 +15,7 @@ import { ProductButton } from './ProductControls.js'
 import { useAppMessage } from './locale.js'
 import type { PanelIndicator } from './panels.js'
 import { useSignal } from './solid-adapter.js'
+import type { SetupStatus } from './SetupForm.js'
 
 function formatBytes(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined) return 'Not reported'
@@ -111,6 +112,7 @@ export function StatusBar(props: {
   readonly placement: () => string | undefined
   readonly transient: () => string | undefined
   readonly extensions: JSX.Element
+  readonly setupStatus?: () => SetupStatus | undefined
   readonly openPanel: (id: string) => void
   readonly openRuns: () => void
   readonly openAppLog: () => void
@@ -153,7 +155,9 @@ export function StatusBar(props: {
     backendTick()
     return noEngineOpen(props.backend().supervisor.get()) ? 'no-engine' : backendConnectionStatus(props.backend())
   }
-  const connectionWords = () => connection() === 'no-engine'
+  const connectionWords = () => props.setupStatus?.() !== undefined
+    ? message(props.setupStatus() === 'setting-up' ? 'shell.status.settingUp' : 'shell.status.notSetUp')
+    : connection() === 'no-engine'
     ? message(props.backend().supervisor.get()?.installations === 0 ? 'shell.status.notSetUp' : 'shell.status.noEngine')
     : connection()
   const connectionLabel = () => `${props.backend().label}: ${connectionWords()}`
@@ -184,7 +188,7 @@ export function StatusBar(props: {
         <ProductButton variant="ghost" size="compact" class="status-item status-connection" data-testid="status-connection"
           data-state={connection()} aria-label={connectionLabel()} data-tooltip-label={connectionLabel()} onClick={() => props.openPanel('backends')}>
           <span class="status-connection-dot" aria-hidden="true" /><span class="status-connection-name">{props.backend().label}</span>
-          <Show when={connection() !== 'connected'}><span>{connectionWords()}</span></Show>
+          <Show when={props.setupStatus?.() !== undefined || connection() !== 'connected'}><span>{connectionWords()}</span></Show>
         </ProductButton>
         <Show when={workflowTab()}>
           <ProductButton variant="ghost" size="compact" class="status-item status-run" data-testid="status-run"
@@ -205,7 +209,7 @@ export function StatusBar(props: {
           <Icon icon={Download} /><span class="status-background-description">{allTasks().length === 1 ? allTasks()[0]!.text : message('shell.status.tasks', { count: allTasks().length })}</span>
           <span class="status-background-count" aria-hidden="true">{allTasks().length}</span>
         </ProductButton></Show>
-        <Show when={connection() !== 'no-engine' && props.backend().schemaState.get().status !== 'ready'}>
+        <Show when={props.setupStatus?.() === undefined && connection() !== 'no-engine' && props.backend().schemaState.get().status !== 'ready'}>
           <span class="status-catalog">{props.backend().schemaState.get().status === 'error' ? message('backendsPanel.schema.unavailable') : message('shell.status.loadingSchemas')}</span>
         </Show>
         <span class="status-extensions" data-testid="status-trailing">{props.extensions}</span>

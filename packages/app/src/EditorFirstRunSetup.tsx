@@ -1,11 +1,11 @@
-import { createEffect, createResource, createSignal, onCleanup, Show } from 'solid-js'
-import { SetupForm } from './SetupForm.js'
+import { createResource, createSignal, Show } from 'solid-js'
+import { SetupForm, type SetupStatus } from './SetupForm.js'
 import { setupInProgress } from './setup-job.js'
 
 /** Offer local setup only for a confirmed first run or a job already in progress. */
 export function EditorFirstRunSetup(props: {
   readonly backendUrl: string
-  readonly onVisibilityChange?: (visible: boolean) => void
+  readonly onStatusChange?: (status: SetupStatus | undefined) => void
 }) {
   const [completed, setCompleted] = createSignal(false)
   const [firstRun] = createResource(() => props.backendUrl, async (backendUrl) => {
@@ -26,11 +26,7 @@ export function EditorFirstRunSetup(props: {
     }
   })
   const visible = () => !firstRun.loading && firstRun() === true && !completed()
-  createEffect(() => {
-    props.onVisibilityChange?.(visible())
-    onCleanup(() => props.onVisibilityChange?.(false))
-  })
   return <Show when={visible()}>
-    <div class="editor-first-run-setup"><SetupForm surface="editor" onInstallation={() => setCompleted(true)} /></div>
+    <div class="editor-first-run-setup"><SetupForm surface="editor" onStatusChange={props.onStatusChange} onInstallation={() => setCompleted(true)} /></div>
   </Show>
 }

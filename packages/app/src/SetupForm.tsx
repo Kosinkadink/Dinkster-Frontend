@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from 'solid-js'
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { activeLocale } from '@dinkster/core'
 import { ProductBrandMark, ProductButton, ProductDialog, ProductField, ProductLoading, ProductMenu, ProductNotice, ProductProgress, ProductTextButton, ProductTextInput } from '@dinkster/ui'
 import { createArrival } from './arrival.js'
@@ -8,14 +8,21 @@ import { formatBytes } from './projects-page/project-facts.js'
 import { createSetupController, setupJobActive, type SetupJob } from './setup-job.js'
 import './styles/setup.css'
 
+export type SetupStatus = 'not-set-up' | 'setting-up'
+
 /** The projects page and empty editor use the same process-owned setup job. */
 export function SetupForm(props: {
   readonly surface: 'projects' | 'editor'
   readonly onInstallation?: (installation: NonNullable<SetupJob['installation']>) => void
+  readonly onStatusChange?: ((status: SetupStatus | undefined) => void) | undefined
 }) {
   const message = useAppMessage()
   const setup = createSetupController({
     onInstallation: (installation) => props.onInstallation?.(installation),
+  })
+  createEffect(() => {
+    props.onStatusChange?.(setupJobActive(setup.job()) ? 'setting-up' : 'not-set-up')
+    onCleanup(() => props.onStatusChange?.(undefined))
   })
   const arrival = createArrival({ get latest() { return setup.plan() }, get loading() { return setup.planning() } })
   const [folder, setFolder] = createSignal<string>()
@@ -23,6 +30,7 @@ export function SetupForm(props: {
   const [folderError, setFolderError] = createSignal<string>()
   const problem = () => setup.error()?.message ?? folderError() ?? setup.job()?.error?.message
   const busy = () => setup.changing() || setup.planning() || setupJobActive(setup.job()) || folderBusy()
+  const canChange = () => !setupJobActive(setup.job()) && setup.job()?.state !== 'completed'
   const bytes = (value: number) => formatBytes(value, activeLocale.get().tag)
   const buildLabel = () => {
     const plan = arrival.value()
@@ -100,10 +108,10 @@ export function SetupForm(props: {
           <h1 class="dinkster-title">{message(props.surface === 'editor' ? 'setup.editorTitle' : 'projects.setup.title')}</h1>
           <dl class="setup-facts">
             <dt>{message('setup.folder')}</dt>
-            <dd><span>{setupJobActive(setup.job()) ? setup.job()!.root : plan().root}</span><Show when={!setupJobActive(setup.job())}><ProductTextButton label={message('setup.chooseFolder')} disabled={busy()} onClick={() => { void chooseFolder() }} /></Show></dd>
+            <dd><span>{setupJobActive(setup.job()) ? setup.job()!.root : plan().root}</span><Show when={canChange()}><ProductTextButton label={message('setup.chooseFolder')} disabled={busy()} onClick={() => { void chooseFolder() }} /></Show></dd>
             <Show when={plan().buildLabel || setupJobActive(setup.job())}><dt>{message('setup.build')}</dt>
             <dd><div><Show when={buildLabel()}>{(label) => <span>{label()}</span>}</Show><For each={cardNames()}>{(name) => <p class="dinkster-description">{name}</p>}</For></div>
-              <Show when={!setupJobActive(setup.job()) && (plan().choices?.length ?? 0) > 1}><ProductMenu fill="quiet" label={message('setup.changeBuild')} items={(plan().choices ?? []).map((choice) => ({
+              <Show when={canChange() && (plan().choices?.length ?? 0) > 1}><ProductMenu fill="quiet" label={message('setup.changeBuild')} items={(plan().choices ?? []).map((choice) => ({
                 label: choice.label,
                 description: choice.reason,
                 checked: choice.variant === plan().variant,
@@ -116,7 +124,7 @@ export function SetupForm(props: {
           <Show when={setup.job()}><div class="setup-job" role="status">
             <strong>{jobLine()}</strong>
             <Show when={setupJobActive(setup.job())}><ProductProgress label={progress() ?? jobLine()} value={progressValue()} /></Show>
-            <Show when={setup.job()?.state !== 'completed' && progress()}><p class="dinkster-description">{progress()}</p></Show>
+            <Show when={setupJobActive(setup.job()) && progress()}><p class="dinkster-description">{progress()}</p></Show>
           </div></Show>
           <Show when={plan().refusal}>{(refusal) => <ProductNotice tone="warning">
             <Show when={refusal().code === 'library-held'} fallback={refusal().message}>
@@ -135,7 +143,7 @@ export function SetupForm(props: {
               </>
             }><ProductButton disabled={setup.changing() || setup.job()?.state === 'cancelling'} onClick={() => void setup.cancel()}>{message('setup.cancel')}</ProductButton></Show>
           </div>
-          <Show when={props.surface === 'editor'}><p class="dinkster-description">{message('setup.editorNote')}</p></Show>
+          <Show when={props.surface === 'editor' && setup.job()?.state !== 'completed'}><p class="dinkster-description">{message('setup.editorNote')}</p></Show>
         </section>}
       </Show>
       <Show when={folder() !== undefined}>

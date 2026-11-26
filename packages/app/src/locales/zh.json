@@ -1629,6 +1629,7 @@
   "shell.status.idle": "空闲",
   "shell.status.noEngine": "无引擎",
   "shell.status.notSetUp": "尚未设置",
+  "shell.status.settingUp": "正在设置",
   "shell.status.problemCount": "{count} 个问题",
   "shell.status.noActivity": "没有正在运行或排队的任务",
   "shell.status.frozen": "冻结",
