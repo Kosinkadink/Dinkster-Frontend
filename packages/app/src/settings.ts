@@ -211,6 +211,8 @@ export function normalizeCombo(combo: string): string {
 export function comboFromEvent(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'> & Partial<Pick<KeyboardEvent, 'code'>>): string {
   // Number-row shortcuts keep their digit when Shift produces punctuation or a different layout changes the character.
   let key = /^Digit[0-9]$/.test(event.code ?? '') ? event.code!.slice(5) : event.key.toLowerCase()
+  // Option can produce a symbol or dead key instead of the shortcut's letter.
+  if (event.altKey && /^Key[A-Z]$/.test(event.code ?? '')) key = event.code!.slice(3).toLowerCase()
   if (key === ' ') key = 'space'
   const modifiers = [event.ctrlKey && 'ctrl', event.metaKey && 'meta', event.altKey && 'alt', event.shiftKey && 'shift'].filter(Boolean)
   return [...modifiers, key].join('+')

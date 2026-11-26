@@ -212,6 +212,17 @@ describe('keybindings', () => {
     keys.set('save', 'Alt+S')
     expect(keys.match(event('s', { ctrlKey: true }))).toBeUndefined()
     expect(keys.match(event('s', { altKey: true }))).toBe('save')
+    keys.register({ command: 'blank', combo: 'Alt+N' })
+    keys.register({ command: 'templates', combo: 'Alt+T' })
+    const blank = event('Dead', { code: 'KeyN', altKey: true })
+    const templates = event('\u2020', { code: 'KeyT', altKey: true })
+    expect(keys.match(blank)).toBe('blank')
+    expect(keys.match(templates)).toBe('templates')
+    expect(captureKeydown(blank)).toEqual({ kind: 'complete', combo: 'alt+n' })
+    expect(captureKeydown(templates)).toEqual({ kind: 'complete', combo: 'alt+t' })
+    expect(keys.match(event('Dead', { code: 'KeyN', altKey: true, shiftKey: true }))).toBeUndefined()
+    keys.register({ command: 'plainSave', combo: 'Ctrl+S' })
+    expect(keys.match(event('s', { code: 'KeyN', ctrlKey: true }))).toBe('plainSave')
   })
 
   it('suppresses text-input events unless a binding explicitly opts in', () => {

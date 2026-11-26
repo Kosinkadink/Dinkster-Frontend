@@ -143,7 +143,7 @@ it('does not expose obsolete environment management when an older Desktop host s
   expect(host.querySelector('[data-modal="desktop-management"]')).toBeNull()
 })
 
-it.each(['Linux x86_64', 'MacIntel'])('leaves withdrawn document shortcuts unbound on %s', async (platform) => {
+it.each(['Linux x86_64', 'MacIntel'])('creates documents with Alt shortcuts and shared menu hints on %s', async (platform) => {
   vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform)
   app = new AppState()
   const backend = app.backends.get()[0]!
@@ -157,9 +157,19 @@ it.each(['Linux x86_64', 'MacIntel'])('leaves withdrawn document shortcuts unbou
   window.dispatchEvent(new KeyboardEvent('keydown', { key: '@', code: 'Digit2', shiftKey: true, ...modifiers }))
   expect(app.tabs.get()).toHaveLength(count)
   expect(host.querySelector('[data-testid="templates-page"]')).toBeNull()
+  const blankKey = new KeyboardEvent('keydown', { key: platform === 'MacIntel' ? 'Dead' : 'n', code: 'KeyN', altKey: true, cancelable: true })
+  window.dispatchEvent(blankKey)
+  expect(blankKey.defaultPrevented).toBe(true)
+  expect(app.tabs.get()).toHaveLength(count + 1)
+  const templateKey = new KeyboardEvent('keydown', { key: platform === 'MacIntel' ? '\u2020' : 't', code: 'KeyT', altKey: true, cancelable: true })
+  window.dispatchEvent(templateKey)
+  expect(templateKey.defaultPrevented).toBe(true)
+  await vi.waitFor(() => expect(host.querySelector('[data-testid="templates-page"]')).not.toBeNull())
   host.querySelector<HTMLButtonElement>('[data-testid="new-tab"] button')!.click()
   await vi.waitFor(() => expect(host.querySelectorAll('[role="menuitem"]')).toHaveLength(2))
-  expect(host.querySelectorAll('[role="menuitem"] kbd')).toHaveLength(0)
+  expect([...host.querySelectorAll('[role="menuitem"] .dinkster-key')].map((key) => key.textContent)).toEqual(['Alt', 'N', 'Alt', 'T'])
+  app.keybindings.set('workflow.new', 'Alt+Shift+N')
+  await vi.waitFor(() => expect([...host.querySelectorAll('[role="menuitem"] .dinkster-key')].map((key) => key.textContent)).toEqual(['Alt', 'Shift', 'N', 'Alt', 'T']))
 })
 
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {
