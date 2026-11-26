@@ -2736,6 +2736,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     createEffect(() => renderer.setRenamingNode(nodePrompt()?.nodeId))
     createEffect(() => {
       const summaries = { ...editorSummaries() }
+      const tab = activeTab()
+      if (tab !== undefined) {
+        const native = props.app.backendForTab(tab).protocol === 'dinkster'
+        const scene = renderer.getScene()
+        const panel = scene.boundaryNodes.find((node) => node.side === 'inputs' && node.fields !== undefined)
+        const panelFace = panel === undefined ? undefined : boundaryFieldNode(panel)
+        for (const node of [...scene.nodes, ...(panelFace === undefined ? [] : [panelFace])]) {
+          for (const row of node.layout.rows) {
+            if (row.kind !== 'widget' || !['core.audioRecord', 'core.webcam', 'core.load3d'].includes(row.viewId)) continue
+            const wired = node.id === panelFace?.id ? Object.hasOwn(panel!.fields!.wired, row.inputId)
+              : renderer.fieldCompanion(node.id, row.valueKey) !== undefined
+            const recorder = row.viewId === 'core.audioRecord'
+              ? audioRecorders.find(`${tab.id}:${currentGraphId(tab)}:${node.id}:${row.valueKey}`) : undefined
+            const failed = !wired && recorder?.hasProblem === true
+            const problem = failed ? 'error' as const : !native && (!wired || row.viewId === 'core.load3d') ? 'warning' as const : undefined
+            if (problem !== undefined) summaries[node.id] = { ...summaries[node.id], [row.valueKey]: { ...summaries[node.id]?.[row.valueKey], problem } }
+          }
+        }
+      }
       for (const [key, draft] of editorDrafts()) {
         const item = editorSpaceByKey().get(key)
         if (item === undefined || item.wired || item.field.readOnly || item.field.disabled) continue
