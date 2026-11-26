@@ -1,4 +1,5 @@
-import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, onMount, splitProps, untrack, type ComponentProps, type JSX } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import {
   Camera,
   Circle,
@@ -9,7 +10,7 @@ import {
   type LucideIcon,
 } from 'lucide-solid'
 import { CanvasClosedRow, CanvasRowField, CanvasSidePart } from './canvas-field.js'
-import { CanvasRowList } from './canvas-list.js'
+import { CanvasRowList, canvasListLayout } from './canvas-list.js'
 import { ProductButton, ProductIcon, ProductIconButton, ProductSpinner } from './controls.js'
 
 /**
@@ -287,11 +288,96 @@ export function CanvasEditorNumber(props: {
   )
 }
 
+/** A choice list shared by editor rows, outside their clipped editor space. */
+export function CanvasEditorChoiceList(props: Omit<ComponentProps<typeof CanvasRowList>, 'rowWidth' | 'place' | 'listPlace' | 'listMaxHeight' | 'onListSize'> & {
+  anchor: HTMLElement
+  onClose: () => void
+}) {
+  const [local, list] = splitProps(props, ['anchor', 'onClose', 'onPick', 'onKeyDown'])
+  const [height, setHeight] = createSignal(0)
+  const [position, setPosition] = createSignal({ x: 0, y: 0, width: 0, scale: 1, listPlace: 'below' as 'above' | 'below', listMaxHeight: 0 })
+  let popup!: HTMLDivElement
+  let openingSide: 'above' | 'below' | undefined
+  const close = (restore = true): void => {
+    if (restore) (local.anchor.matches('button') ? local.anchor : local.anchor.querySelector('button'))?.focus()
+    local.onClose()
+  }
+  const place = (): void => {
+    const anchor = local.anchor
+    const row = anchor.getBoundingClientRect()
+    const scale = row.width / anchor.offsetWidth
+    let boundary = anchor.closest<HTMLElement>('.dinkster-canvas-example-stage')
+    for (let parent = anchor.parentElement; boundary === null && parent; parent = parent.parentElement)
+      boundary = parent.querySelector<HTMLElement>('canvas.graph-canvas')
+    const box = boundary?.getBoundingClientRect()
+    const view = window.visualViewport
+    const left = Math.max(box?.left ?? 0, view?.offsetLeft ?? 0)
+    const top = Math.max(box?.top ?? 0, view?.offsetTop ?? 0)
+    const right = Math.min(box?.right ?? window.innerWidth, (view?.offsetLeft ?? 0) + (view?.width ?? window.innerWidth))
+    const bottom = Math.min(box?.bottom ?? window.innerHeight, (view?.offsetTop ?? 0) + (view?.height ?? window.innerHeight))
+    const width = Math.min(row.width, right - left)
+    const filterHeight = (popup?.querySelector<HTMLElement>('.dinkster-canvas-field-row')?.offsetHeight ?? anchor.offsetHeight) * scale
+    const panel = popup?.querySelector<HTMLElement>('.dinkster-canvas-field-panel')
+    const borderHeight = panel ? panel.offsetHeight - panel.clientHeight : 0
+    const y = Math.max(top, Math.min(row.y, bottom - filterHeight))
+    const layout = canvasListLayout({ x: row.x, y, width, height: filterHeight },
+      { x: left, y: top, width: right - left, height: bottom - top }, (height() + borderHeight) * scale, { width: 0, height: 0 }, 1, 0, 0)
+    if (height() > 0) openingSide ??= layout.listPlace
+    const side = openingSide ?? layout.listPlace
+    const room = side === 'above' ? y - top : bottom - y - filterHeight
+    const next = { x: Math.max(left, Math.min(row.x, right - width)), y, width: width / scale, scale,
+      listPlace: side, listMaxHeight: Math.max(0, room / scale - borderHeight) }
+    setPosition((previous) => Object.keys(next).every((key) => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next)
+  }
+  createEffect(() => { height(); queueMicrotask(place) })
+  createEffect(() => {
+    const current = position()
+    if (popup) {
+      popup.style.left = `${current.x}px`
+      popup.style.top = `${current.y}px`
+      popup.style.scale = String(current.scale)
+    }
+  })
+  onMount(() => {
+    const outside = (event: Event): void => {
+      if (event.target instanceof Node && !local.anchor.contains(event.target) && !popup.contains(event.target)) close(event.type === 'pointerdown')
+    }
+    // Focus moving from the row into its portal is still inside this editor.
+    const entering = (event: FocusEvent): void => {
+      if (event.relatedTarget instanceof Node && popup.contains(event.relatedTarget)) event.stopPropagation()
+    }
+    const observer = new ResizeObserver(place)
+    observer.observe(local.anchor)
+    let frame = 0
+    const follow = (): void => { place(); frame = requestAnimationFrame(follow) }
+    frame = requestAnimationFrame(follow)
+    const owner = local.anchor.closest('.dinkster-canvas-target-box') ?? local.anchor
+    owner.addEventListener('focusout', entering as EventListener)
+    document.addEventListener('pointerdown', outside, true)
+    document.addEventListener('focusin', outside)
+    onCleanup(() => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+      owner.removeEventListener('focusout', entering as EventListener)
+      document.removeEventListener('pointerdown', outside, true)
+      document.removeEventListener('focusin', outside)
+    })
+  })
+  return <Portal><div ref={popup} class="dinkster-canvas-editor-choice-list">
+    <CanvasRowList {...list} rowWidth={position().width} place="right"
+      listPlace={position().listPlace} listMaxHeight={position().listMaxHeight} onListSize={setHeight}
+      onPick={(index) => { close(); local.onPick?.(index) }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() }
+        else local.onKeyDown?.(event)
+      }} />
+  </div></Portal>
+}
+
 /**
  * A choice of an editor's own, drawn as the node's choice row is: the name,
- * the chosen entry and the chevron. Pressing the row opens it in place as
- * the node's choice row opens: the value becomes a filter and the entries
- * hang under the row at its width, inside one outline.
+ * the chosen entry and the chevron. The row stays in place as its list opens;
+ * typed text takes the value's place until the list closes.
  */
 export function CanvasEditorChoice(props: {
   label: string
@@ -304,32 +390,26 @@ export function CanvasEditorChoice(props: {
   const [open, setOpen] = createSignal(false)
   const [query, setQuery] = createSignal('')
   const [highlight, setHighlight] = createSignal(0)
-  const [width, setWidth] = createSignal(0)
   let slot!: HTMLDivElement
   const shown = () => props.options.filter((option) => option.toLowerCase().includes(query().toLowerCase()))
   const pick = (index: number) => {
     const chosen = shown()[index]
+    slot.querySelector('button')?.focus()
     if (chosen !== undefined) props.onChange?.(chosen)
     setOpen(false)
   }
   const begin = () => {
-    setWidth(slot.offsetWidth + 2)
     setQuery('')
     setHighlight(Math.max(0, props.options.indexOf(props.value)))
     setOpen(true)
     props.onOpen?.()
   }
   return (
-    <div class="dinkster-canvas-editor-field-slot" ref={slot}
-      onFocusOut={(event) => {
-        if (open() && !slot.contains(event.relatedTarget as Node | null)) setOpen(false)
-      }}>
-      <CanvasClosedRow label={props.label} value={props.value} onOpen={begin} choice />
+    <div class="dinkster-canvas-editor-field-slot" ref={slot}>
+      <CanvasClosedRow label={props.label} value={open() && query() !== '' ? query() : props.value} filtering={open() && query() !== ''} onOpen={begin} choice />
       <Show when={open()}>
-        <CanvasRowList
+        <CanvasEditorChoiceList anchor={slot} onClose={() => setOpen(false)}
           look="flat-title"
-          rowWidth={width()}
-          place="right"
           label={props.label}
           query={query()}
           onQuery={(text) => { setQuery(text); setHighlight(0) }}
@@ -341,7 +421,8 @@ export function CanvasEditorChoice(props: {
           onHighlight={setHighlight}
           onPick={pick}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') pick(highlight())
+            if (event.isComposing) return
+            if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); pick(highlight()) }
             else if (event.key === 'Escape') setOpen(false)
             else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               event.preventDefault()

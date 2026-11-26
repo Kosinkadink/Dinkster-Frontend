@@ -27,6 +27,103 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
+test('Curve and Save target choices escape clipped editors and stay inside the canvas', async ({ page }) => {
+  await openPage(page, 'editor-choice-placement')
+  const stage = page.locator('.dinkster-canvas-choice-example')
+  const popup = page.locator('.dinkster-canvas-editor-choice-list')
+  const list = popup.getByRole('listbox')
+  const checkBounds = async () => {
+    await expect.poll(async () => {
+      const bounds = (await stage.boundingBox())!
+      const field = (await popup.locator('.dinkster-canvas-field').boundingBox())!
+      const panel = (await list.boundingBox())!
+      return field.x >= bounds.x && field.y >= bounds.y &&
+        field.x + field.width <= bounds.x + bounds.width + 0.1 && field.y + field.height <= bounds.y + bounds.height + 0.1 &&
+        panel.y >= bounds.y && panel.y + panel.height <= bounds.y + bounds.height + 0.1
+    }).toBe(true)
+    for (const option of await list.getByRole('option').all()) {
+      expect(await option.evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+      })).toBe(true)
+    }
+  }
+  const curve = stage.locator('.dinkster-canvas-editor-field-slot > button')
+  const closedCurve = await curve.screenshot()
+  await curve.click()
+  await expect(list.getByRole('option')).toHaveCount(3)
+  await checkBounds()
+  await expect(popup.getByRole('combobox')).toHaveCSS('appearance', 'none')
+  const panel = popup.locator('.dinkster-canvas-field-panel')
+  await expect(panel).toHaveCSS('border-top-width', '1px')
+  await expect(panel).not.toHaveCSS('box-shadow', 'none')
+  expect(await curve.screenshot()).toEqual(closedCurve)
+  // Browser focus decoration on the native typing surface must never paint over the row.
+  await popup.getByRole('combobox').evaluate((element) => { element.style.outline = '1px solid white' })
+  expect(await curve.screenshot()).toEqual(closedCurve)
+  const curveEdge = (await list.boundingBox())!.y + (await list.boundingBox())!.height
+  const input = popup.getByRole('combobox')
+  await input.fill('s')
+  await expect(list.getByRole('option')).toHaveCount(1)
+  await expect.poll(async () => {
+    const box = (await list.boundingBox())!
+    return box.y + box.height
+  }).toBe(curveEdge)
+  await expect(curve).toHaveText('Interpolations')
+  await input.fill('')
+  await expect(curve).toHaveText('InterpolationLinear')
+  await input.fill('mono')
+  await input.press('Enter')
+  await expect(stage.getByRole('button', { name: 'Interpolation Monotone cubic', exact: true })).toBeFocused()
+  const mount = stage.locator('.dinkster-canvas-target-choice')
+  const closedMount = await mount.screenshot()
+  await mount.click()
+  await expect(list.getByRole('option')).toHaveCount(6)
+  await checkBounds()
+  expect(await mount.screenshot()).toEqual(closedMount)
+  const mountEdge = (await list.boundingBox())!.y + (await list.boundingBox())!.height
+  const unavailable = list.getByRole('option', { name: 'usb1', exact: true })
+  await expect(unavailable).toBeDisabled()
+  const unavailableBox = (await unavailable.boundingBox())!
+  await page.mouse.click(unavailableBox.x + unavailableBox.width / 2, unavailableBox.y + unavailableBox.height / 2)
+  await expect(list).toBeVisible()
+  await expect(mount).toHaveText('Mountoutput')
+  await popup.getByRole('combobox').fill('arch')
+  await expect(mount).toHaveText('Mountarch')
+  await expect.poll(async () => {
+    const box = (await list.boundingBox())!
+    return box.y + box.height
+  }).toBe(mountEdge)
+  await popup.getByRole('combobox').press('Enter')
+  await expect(stage.getByRole('button', { name: 'Mount archive', exact: true })).toBeFocused()
+  await stage.getByRole('button', { name: 'Interpolation Monotone cubic', exact: true }).click()
+  await popup.getByRole('combobox').press('Escape')
+  await expect(popup).toHaveCount(0)
+  await stage.getByRole('button', { name: 'Mount archive', exact: true }).click()
+  await page.getByRole('heading', { name: 'Choice lists stay on the canvas' }).click()
+  await expect(popup).toHaveCount(0)
+  // A below-opening list must budget its own filter height at canvas zoom.
+  for (const scale of [0.75, 1.5]) {
+    await stage.evaluate((element, zoom) => {
+      element.style.height = '160px'
+      const editor = element.querySelectorAll<HTMLElement>('.dinkster-canvas-editor')[1]!
+      editor.style.top = '10px'
+      editor.style.transformOrigin = 'top right'
+      editor.style.transform = `scale(${zoom})`
+    }, scale)
+    const closedBelow = await mount.screenshot()
+    await stage.getByRole('button', { name: 'Mount archive', exact: true }).click()
+    await expect(popup.locator('.dinkster-canvas-field')).toHaveAttribute('data-panel', 'below')
+    expect(await mount.screenshot()).toEqual(closedBelow)
+    await expect.poll(async () => {
+      const bounds = (await stage.boundingBox())!
+      const panel = (await list.boundingBox())!
+      return panel.y + panel.height <= bounds.y + bounds.height + 0.1
+    }).toBe(true)
+    await popup.getByRole('combobox').press('Escape')
+  }
+})
+
 test('Step curves draw exact horizontal holds and vertical jumps without a histogram', async ({
   page,
 }) => {
@@ -73,6 +170,10 @@ test('Step curves draw exact horizontal holds and vertical jumps without a histo
 /** Every example card on the page has painted its canvas. */
 async function cardsReady(page: Page, id: string, theme: string) {
   const cards = page.locator('figure.dinkster-canvas-example canvas')
+  if (id === 'editor-choice-placement') {
+    await expect(page.getByRole('button', { name: 'Interpolation Linear', exact: true })).toBeVisible()
+    return cards
+  }
   await expect(cards.first()).toBeVisible()
   for (const card of await cards.all())
     await expect(card).toHaveAttribute('data-ready', new RegExp(`-${theme}$`))

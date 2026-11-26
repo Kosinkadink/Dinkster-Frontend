@@ -94,6 +94,7 @@ export const canvasGalleryPages = [
   ['row-summaries', 'Closed row summaries'],
   ['row-file-previews', 'Thumbnails in closed file rows'],
   ['in-node-editors', 'Editors in the node'],
+  ['editor-choice-placement', 'Choices over the canvas'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
   ['widget-companions', 'Propagated values'],
