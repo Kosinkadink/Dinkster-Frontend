@@ -31,6 +31,7 @@ function BackendRow(props: {
   const [connectFailed, setConnectFailed] = createSignal(false)
   const [opened, setOpened] = createSignal(props.backend?.id === (props.activeBackendId ?? props.defaultBackend.id))
   const status = () => { props.tick(); return props.backend ? backendConnectionStatus(props.backend) : 'disconnected' }
+  const connectionStatus = () => { props.tick(); return props.backend?.connection.status.get() ?? 'disconnected' }
   const registry = () => { props.tick(); return props.backend?.registry.get() }
   const schemaState = () => { props.tick(); return props.backend?.schemaState.get() }
   const supervisor = () => { props.tick(); return props.backend?.supervisor.get() }
@@ -62,14 +63,14 @@ function BackendRow(props: {
   }
   const problem = () => status() === 'reconnecting' || schemaState()?.status === 'error'
   return <ProductListRow testId="backend-row" dataAttributes={{ 'data-connection': props.backend?.id ?? props.url, 'data-status': status() }}
-    title={<strong>{props.name}</strong>}
+    title={<span class="backend-row-identity"><strong>{props.name}</strong><span class="backend-row-summary" data-problem={problem() || undefined}>{summary()}</span></span>}
     leading={<span class="backend-state-dot" role="img" aria-label={message(`backendsPanel.connection.${status()}`)} data-status={status()} data-problem={problem() || undefined} />}
-    trailing={<span class="backend-row-summary" data-problem={problem() || undefined}>{summary()}</span>}
     expanded={opened()} onToggle={setOpened}
-    action={<Show when={!removing() && (props.backend !== props.defaultBackend || (validProfileUrl(props.url) && props.connections.custody()))}><ProductMenu icon={Ellipsis} iconOnly label={message('backendsPanel.aria.actions', { backend: props.name })}
+    action={<Show when={!removing() && (props.backend !== props.defaultBackend || (validProfileUrl(props.url) && props.connections.custody()))}><ProductMenu icon={Ellipsis} iconOnly fill="quiet" label={message('backendsPanel.aria.actions', { backend: props.name })}
       items={[
         ...(validProfileUrl(props.url) && props.connections.custody() ? [{ label: message('backendsPanel.action.changeToken'), disabled: props.connections.busy(), onSelect: () => { setOpened(true); setEditingToken(true) } }] : []),
-        ...(props.backend && status() !== 'disconnected' ? [{ label: message('backendsPanel.action.disconnect'), intent: 'remove' as const, disabled: busy() || props.connections.busy(), onSelect: () => props.app.disconnectBackend(props.backend!) }] : []),
+        ...(props.backend && props.backend !== props.defaultBackend && connectionStatus() !== 'disconnected' ? [{ label: message('backendsPanel.action.disconnect'), disabled: busy() || props.connections.busy(), onSelect: () => props.app.disconnectBackend(props.backend!) }] : []),
+        ...(props.backend !== props.defaultBackend && ((validProfileUrl(props.url) && props.connections.custody()) || (props.backend && connectionStatus() !== 'disconnected')) ? ['separator' as const] : []),
         ...(props.backend !== props.defaultBackend ? [{ label: message('backendsPanel.action.remove'), intent: 'remove' as const, disabled: props.connections.busy(), onSelect: () => { setOpened(true); setRemoving(true) } }] : []),
       ]} /></Show>}
   >
@@ -80,11 +81,11 @@ function BackendRow(props: {
             <ProductTextButton disabled={busy()} onClick={() => { void perform(() => props.app.refreshBackendSchemas(props.backend!)) }} data-testid="backend-schema-retry" label={message('backendsPanel.action.retrySchemas')} />
           </ProductNotice></Show>
           <ProductFacts label={props.name} items={[
-            { label: message('backendsPanel.label.address'), value: props.url ? <code class="backend-address">{props.url}</code> : message('backendsPanel.sameOrigin') },
+            { label: message('backendsPanel.fact.address'), value: props.url ? <code class="backend-address">{props.url}</code> : message('backendsPanel.sameOrigin') },
             ...(supervisor() ? [{ label: message('backendsPanel.engine.label'), value: <><span>{message(`backendsPanel.engine.${supervisor()!.state}`)}</span><Show when={supervisor()!.detail}><span class="dinkster-metadata">{supervisor()!.detail}</span></Show></> }] : []),
           ]} />
           <div class="backend-row-actions">
-            <Show when={status() === 'disconnected'}>
+            <Show when={connectionStatus() === 'disconnected'}>
               <ProductTextButton data-testid="profile-connect" intent="add" disabled={busy() || props.connections.busy()} onClick={() => { void perform(connect) }} label={message(busy() ? 'connectionProfiles.action.connecting' : 'connectionProfiles.action.connect')} />
             </Show>
             <Show when={props.backend} keyed>{(backend) => <>
@@ -156,10 +157,10 @@ export function BackendsPanel(props: {
           onInput={(event) => { setUrl(event.currentTarget.value); setAddError('') }} />
       </ProductField>
       <Show when={addError()}><p id="backend-add-error" class="dinkster-field-error" role="alert">{message(addError())}</p></Show>
-      <ProductField controlId="backend-name" label={message('backendsPanel.label.nameOptional')} layout="stack">
+      <ProductField controlId="backend-name" label={message('connectionProfiles.label.name')} metadata={message('backendsPanel.optional')} layout="stack">
         <ProductTextInput id="backend-name" data-testid="profile-name-input" placeholder={nameHint()} value={name()} disabled={discovering()} onInput={(event) => setName(event.currentTarget.value)} />
       </ProductField>
-      <Show when={connections.custody()}><ProductField controlId="backend-token" label={message('connectionProfiles.label.accessTokenOptional')} layout="stack">
+      <Show when={connections.custody()}><ProductField controlId="backend-token" label={message('connectionProfiles.label.accessToken')} metadata={message('backendsPanel.optional')} layout="stack">
         <ProductTextInput id="backend-token" data-testid="profile-token-input" type="password" autocomplete="off" value={token()} disabled={discovering()} onInput={(event) => setToken(event.currentTarget.value)} />
       </ProductField></Show>
       <div class="dinkster-actions">

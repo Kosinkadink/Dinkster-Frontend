@@ -828,7 +828,7 @@ function Gallery() {
                     trailing="Dinkster, 70 node types"
                     expanded={serverOpen()}
                     onToggle={setServerOpen}
-                    action={<ProductMenu label="Server actions" icon={Ellipsis} iconOnly items={[{ label: 'Change access token', onSelect: () => complete('Change access token chosen') }]} />}
+                    action={<ProductMenu label="Server actions" icon={Ellipsis} iconOnly fill="quiet" items={[{ label: 'Change access token', onSelect: () => complete('Change access token chosen') }]} />}
                   >
                     <ProductFacts label="This computer" items={[{ label: 'Address', value: 'This computer' }, { label: 'Engine', value: 'Running' }]} />
                     <ProductTextButton label="Restart engine" onClick={() => complete('Restart engine chosen')} />

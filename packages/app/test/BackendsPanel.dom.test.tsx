@@ -50,6 +50,7 @@ describe('BackendsPanel', () => {
     expect(row.textContent).toContain('http://studio.test:8188')
     expect(row.querySelectorAll('[role="note"]')).toHaveLength(1)
     expect(row.textContent).toContain('502 Bad Gateway')
+    expect(button(row, 'Connect')).toBeUndefined()
     button(row, 'Try again').click()
     await flush()
     expect(row.textContent).not.toContain('502 Bad Gateway')
