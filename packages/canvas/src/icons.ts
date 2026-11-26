@@ -48,6 +48,10 @@ import Info from 'lucide/dist/esm/icons/info.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Image from 'lucide/dist/esm/icons/image.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import AudioLines from 'lucide/dist/esm/icons/audio-lines.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import File from 'lucide/dist/esm/icons/file.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Palette from 'lucide/dist/esm/icons/palette.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import ChevronRight from 'lucide/dist/esm/icons/chevron-right.mjs'
@@ -137,6 +141,8 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   'triangle-alert': TriangleAlert,
   info: Info,
   image: Image,
+  'audio-lines': AudioLines,
+  file: File,
   palette: Palette,
   'chevron-right': ChevronRight,
   'chevron-down': ChevronDown,
