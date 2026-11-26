@@ -3,12 +3,12 @@
  * enlarge the document. Only the options scroll; the type-ahead row remains
  * visible and focused while a long backend-provided list is explored.
  */
-.asset-quick-list { display: flex; flex-direction: column; min-height: 0; padding: var(--dinkster-space-4); background: var(--dinkster-surface-panel); }
-.asset-quick-list .collection-panel { flex: none; padding: 0; }
+.asset-quick-list { display: flex; box-sizing: border-box; flex-direction: column; min-height: 0; overflow-y: auto; padding: var(--dinkster-space-4); background: var(--dinkster-surface-panel); }
+.asset-quick-list .collection-panel { flex: 0 1 auto; min-height: var(--dinkster-space-32); padding: 0; }
 .asset-quick-list .collection-toolbar:empty { display: none; }
 .asset-quick-list .asset-view-controls { flex-wrap: wrap; margin-block: var(--dinkster-space-4); }
 .asset-quick-list .asset-scope { margin: 0; }
-.asset-quick-list .collection-content { flex-direction: column; }
+.asset-quick-list .collection-content { flex-direction: column; flex-wrap: nowrap; }
 .asset-quick-list .collection-items { max-height: calc(var(--dinkster-space-32) * 6); }
 .asset-quick-list .collection-items.grid { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: max-content; }
 .asset-quick-caption { display: flex; flex: none; min-width: 0; gap: var(--dinkster-space-8); padding: var(--dinkster-space-4); font-size: var(--dinkster-type-metadata-size); }
