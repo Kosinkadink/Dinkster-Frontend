@@ -266,6 +266,7 @@ export function NodePalette(props: {
     const label = () => message(direction === 'takes' ? 'palette.filter.takes' : 'palette.filter.gives')
     return <ProductMenu fill="quiet" align={direction === 'gives' ? 'end' : 'start'}
       label={label()} title={label()}
+      filter={{ label: message(direction === 'takes' ? 'palette.filter.inputTypes' : 'palette.filter.outputTypes') }}
       items={typeOptions(direction === 'takes' ? 'in' : 'out').map((type) => ({
           label: `${label()} ${productSearchTypeName(typeIdDisplayLabel(type))}`,
           labelContent: <ProductSearchTypeLabel label={productSearchTypeName(typeIdDisplayLabel(type))} direction={direction} color={typeColor(defaultTokens, type)} shape={typeShape(type)} />,

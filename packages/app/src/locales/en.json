@@ -1199,6 +1199,8 @@
   "palette.empty.title": "No matching nodes",
   "palette.filter.closePending": "Close to remove the pending connection",
   "palette.filter.input": "Input",
+  "palette.filter.inputTypes": "Filter input types",
+  "palette.filter.outputTypes": "Filter output types",
   "palette.filter.takes": "Takes",
   "palette.filter.gives": "Gives",
   "palette.filter.removeConnection": "Remove connection constraint",

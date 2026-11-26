@@ -20,8 +20,12 @@ replace keyboard selection.
 Before typing, Recent lists the last placements and Categories opens a list
 with a way back. Named kind tabs, `kind:`, `in:`, and `out:` query tokens,
 and Takes and Gives menus narrow the same canonical entry set. Multi-select type
-filters match canonical and legacy type names case-insensitively and require
-every selected input and output type, just like repeated typed filters. A
+filters add removable requirement chips in pick order. The shared menus filter
+canonical labels as you type, keep every type available regardless of the
+current results, and let Enter pick the highlighted enabled type. Requirements
+match canonical and legacy type names case-insensitively and require every
+selected input and output type, just like repeated typed filters. Empty-field
+Backspace removes the last chip without clearing other requirements. A
 no-match state is announced outside the empty listbox. If the live catalog
 changes while a no-match query is open, the first new match becomes active.
 Catalog refreshes update entries and category counts without closing search.

@@ -106,7 +106,7 @@ test('type menus retain start alignment and keep end-aligned output dots inside 
       await trigger.scrollIntoViewIfNeeded()
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
       await trigger.click()
-      const menu = search.getByRole('menu')
+      const menu = search.locator('.dinkster-menu-popover')
       const bounds = (await menu.boundingBox())!
       const anchor = (await trigger.boundingBox())!
       expect(bounds.x).toBeGreaterThanOrEqual(8)
@@ -156,7 +156,13 @@ test('picked requirements keep order, require all types and support individual o
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   const choose = async (direction: string, type: string) => {
     await search.getByRole('button', { name: direction, exact: true }).click()
-    await search.getByRole('menuitemcheckbox', { name: `${direction} ${type}`, exact: true }).click()
+    const filter = search.getByRole('textbox', { name: direction === 'Takes' ? 'Filter input types' : 'Filter output types', exact: true })
+    await expect(filter).toBeFocused()
+    await expect(filter).toHaveValue('')
+    await filter.fill(type.toUpperCase())
+    await expect(search.getByRole('menuitemcheckbox', { name: `${direction} ${type}`, exact: true })).toBeVisible()
+    await filter.press('Enter')
+    await expect(search.getByRole('menu')).toHaveCount(0)
   }
   await choose('Gives', 'string')
   await choose('Takes', 'image list')
@@ -166,6 +172,7 @@ test('picked requirements keep order, require all types and support individual o
   await expect(chips.nth(1)).toHaveAccessibleName('Takes image list')
   await expect(search.getByRole('option')).toHaveText(['Image Statsdev / image'])
   const field = search.getByRole('combobox')
+  await expect(field).toHaveValue('image')
   await field.focus()
   await field.press('Home')
   await field.press('Backspace')

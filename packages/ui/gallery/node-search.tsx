@@ -111,6 +111,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
       align={direction === 'Gives' ? 'end' : 'start'}
       label={direction}
       title={direction}
+      filter={{ label: direction === 'Takes' ? 'Filter input types' : 'Filter output types' }}
       items={productSearchTypeOptions(['IMAGE', 'list<IMAGE>', 'asset<IMAGE>', 'STRING', 'INT']).map((type) => ({
         label: `${direction} ${productSearchTypeName(type.toLowerCase())}`,
         labelContent: <ProductSearchTypeLabel label={productSearchTypeName(type.toLowerCase())} direction={side} color={typeColor(defaultTokens, type)} shape={cardinalityOf(typeExprFromTypeId(type)) === 'list' ? 'diamond' : 'circle'} />,

@@ -254,11 +254,19 @@ test('semantic result ownership, filters, focus, and placement stay mutation fre
   await palette.getByRole('button', { name: 'All categories' }).click()
   await input.fill('Palette image')
   await inputFilter.click()
-  await filterMenu.getByRole('menuitemcheckbox', { name: 'Takes IMAGE', exact: true }).click()
+  const takesField = palette.getByRole('textbox', { name: 'Filter input types', exact: true })
+  await takesField.fill('image')
+  await expect(filterMenu.locator('[data-active]')).toHaveAccessibleName('Takes IMAGE')
+  await capture(page, 'app-typed-takes')
+  await takesField.press('Enter')
   await expect(listbox.locator('[data-key="entry:PaletteImageConsumer"]')).toBeVisible()
   await expect(listbox.locator('[data-key="entry:PaletteImageProducer"]')).toHaveCount(0)
   await palette.getByRole('button', { name: 'Gives', exact: true }).click()
-  await palette.getByRole('menuitemcheckbox', { name: 'Gives LATENT', exact: true }).click()
+  const givesField = palette.getByRole('textbox', { name: 'Filter output types', exact: true })
+  await givesField.fill('latent')
+  await expect(filterMenu.locator('[data-active]')).toHaveAccessibleName('Gives LATENT')
+  await capture(page, 'app-typed-gives')
+  await givesField.press('Enter')
   await expect(palette.locator('.dinkster-search-chip')).toHaveText(['IMAGE', 'LATENT'])
   await expect(listbox.getByRole('option')).toHaveCount(1)
   await capture(page, 'app-menu-picked-requirements')
@@ -345,7 +353,7 @@ test('result hierarchy, preview, scrolling, and popovers remain contained at des
 
     const outputFilter = palette.getByRole('button', { name: 'Gives', exact: true })
     await outputFilter.click()
-    const filterMenu = palette.getByRole('menu')
+    const filterMenu = palette.locator('.dinkster-menu-popover')
     await expect(filterMenu).toBeVisible()
     const paletteBox = (await palette.boundingBox())!
     const filterBox = (await filterMenu.boundingBox())!
@@ -467,8 +475,15 @@ test('type-menu selections require every input and output type and agree with ty
   const field = page.getByTestId('palette-search')
   await field.fill('Palette')
   const choose = async (direction: string, type: string) => {
-    await palette.getByRole('button', { name: new RegExp(`^${direction}:`) }).click()
-    await palette.getByRole('menuitemcheckbox', { name: `${direction} ${type}`, exact: true }).click()
+    await palette.getByRole('button', { name: direction, exact: true }).click()
+    const filter = palette.getByRole('textbox', { name: direction === 'Takes' ? 'Filter input types' : 'Filter output types', exact: true })
+    await expect(filter).toBeFocused()
+    await expect(filter).toHaveValue('')
+    await filter.fill(type.toLowerCase())
+    await expect(palette.getByRole('menuitemcheckbox', { name: `${direction} ${type}`, exact: true })).toBeVisible()
+    await filter.press('Enter')
+    await expect(palette.getByRole('menu')).toHaveCount(0)
+    await expect(field).toHaveValue('Palette')
   }
   await choose('Takes', 'IMAGE')
   await choose('Takes', 'MODEL')
@@ -480,8 +495,9 @@ test('type-menu selections require every input and output type and agree with ty
   await expect(palette.getByRole('option')).toHaveCount(1)
   await expect(palette.getByRole('option')).toHaveAttribute('data-key', 'entry:PaletteBothDirections')
   await capture(page, 'app-all-type-filters')
-  await choose('Takes', 'Any type')
-  await choose('Gives', 'Any type')
+  for (const name of ['Takes IMAGE', 'Takes MODEL', 'Gives IMAGE', 'Gives LATENT']) {
+    await palette.getByRole('button', { name: `Remove ${name}`, exact: true }).click()
+  }
   await field.fill('Palette in:IMAGE in:MODEL out:IMAGE out:LATENT')
   await expect(palette.getByRole('option')).toHaveCount(1)
   await expect(palette.getByRole('option')).toHaveAttribute('data-key', 'entry:PaletteBothDirections')
@@ -550,7 +566,11 @@ test('a dropped list wire offers either-value inputs, excludes scalar-only input
   const listType = palette.getByRole('menuitemcheckbox', { name: 'Takes IMAGE list', exact: true })
   await expect(listType).toBeVisible()
   await expect(palette.getByRole('menuitemcheckbox', { name: 'Takes IMAGE', exact: true }).locator('.dinkster-search-chip-dot')).toHaveAttribute('data-shape', 'circle')
-  await listType.click()
+  const filter = palette.getByRole('textbox', { name: 'Filter input types', exact: true })
+  await filter.fill('image list')
+  await expect(listType.locator('.dinkster-search-chip-dot')).toHaveCSS('width', '13.75px')
+  await capture(page, 'app-typed-list-menu')
+  await filter.press('Enter')
   await expect(either).toBeVisible()
   await expect(palette.locator('[data-key="entry:PaletteImageConsumer"]')).toHaveCount(0)
   await expect(palette.locator('[data-key="entry:PaletteWrongListConsumer"]')).toHaveCount(0)
@@ -604,7 +624,7 @@ test('Insert node opens both port constraints and splices a compatible choice in
   expect(Object.keys((await graph()).links)).toEqual(['original'])
 })
 
-test('type menus open on either end without scrolling their host, retain keyboard reveal and dismiss on outside scroll', async ({ page }) => {
+test('type menus open into their field without scrolling their host, reveal keyboard choices and dismiss on outside scroll', async ({ page }) => {
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'PaletteTypeChoices', displayName: 'Palette type choices', category: 'Types', source: 'v3', isOutputNode: false,
     body: Array.from({ length: 24 }, (_, index) => ({
@@ -619,7 +639,8 @@ test('type menus open on either end without scrolling their host, retain keyboar
     const search = page.getByTestId('palette-search')
     await search.fill('Palette transform')
     const trigger = palette.getByRole('button', { name: 'Gives', exact: true })
-    const menu = palette.getByRole('menu')
+    const menu = palette.locator('.dinkster-menu-popover')
+    const filter = palette.getByRole('textbox', { name: 'Filter output types', exact: true })
     const scroll = () => palette.evaluate((element) => {
       const nodes = [element, ...Array.from(element.querySelectorAll('.dinkster-search-panel, .dinkster-search-list'))]
       return nodes.map((node) => [node.scrollLeft, node.scrollTop])
@@ -630,10 +651,11 @@ test('type menus open on either end without scrolling their host, retain keyboar
       const before = await scroll()
       await trigger.press(key)
       const items = menu.getByRole('menuitemcheckbox')
-      await expect(key === 'ArrowDown' ? items.first() : items.last()).toBeFocused()
+      await expect(filter).toBeFocused()
+      await expect(items.first()).toHaveAttribute('data-active', '')
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
       await expect(menu).toBeVisible()
-      await expect(key === 'ArrowDown' ? items.first() : items.last()).toBeInViewport()
+      await expect(items.first()).toBeInViewport()
       expect(await scroll()).toEqual(before)
       const bounds = (await menu.boundingBox())!
       expect(bounds.x).toBeGreaterThanOrEqual(8)
@@ -642,14 +664,18 @@ test('type menus open on either end without scrolling their host, retain keyboar
       expect(bounds.y + bounds.height).toBeLessThanOrEqual(632)
       await capture(page, `app-menu-${width}-${key}`)
       if (width === 600) {
-        await page.keyboard.press('Home')
-        await expect(items.first()).toBeFocused()
-        await page.keyboard.press('End')
-        await expect(items.last()).toBeFocused()
-        await expect(items.last()).toBeInViewport()
+        await filter.fill('TYPE_')
+        await filter.press('Home')
+        expect(await filter.evaluate((element: HTMLInputElement) => element.selectionStart)).toBe(0)
+        await filter.press('End')
+        expect(await filter.evaluate((element: HTMLInputElement) => element.selectionStart)).toBe(5)
+        await filter.press('ArrowUp')
+        await expect(items.last()).toHaveAttribute('data-active', '')
+        await expect(items.last()).toBeInViewport({ ratio: 1 })
         expect(await menu.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-        await page.keyboard.press('ArrowUp')
-        await expect(items.nth(await items.count() - 2)).toBeFocused()
+        await filter.press('ArrowUp')
+        await expect(items.nth(await items.count() - 2)).toHaveAttribute('data-active', '')
+        await expect(filter).toBeFocused()
       }
       await page.keyboard.press('Escape')
       await expect(menu).toHaveCount(0)
