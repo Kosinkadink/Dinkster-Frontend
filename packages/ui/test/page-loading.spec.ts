@@ -404,7 +404,12 @@ test('known project detail stays fixed while loading is centered without coverin
       'animation-name',
       width === 390 ? 'none' : 'dinkster-page-rise',
     )
+    await answer.evaluate((element) => {
+      for (const animation of element.getAnimations()) animation.finish()
+    })
     await panel.screenshot({ path: testInfo.outputPath(`${width}-answer.png`) })
+    const answerBox = (await answer.boundingBox())!
+    expect.soft(answerBox.y - knownBottom).toBe(12)
     await section.getByRole('button', { name: 'Read project detail' }).click()
     await page.clock.runFor(220)
     await expect(sign).toHaveCount(0)
