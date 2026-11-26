@@ -177,6 +177,10 @@ export function StorageFolders(props: {
       void perform(() => props.connection.updateProjectFolders(selected().filter((row) => row.id !== target.id).map((row) => row.id), output))
     }
   }
+  const mountFailure = (mount: MountDescriptor) => <Show when={mount.state === 'failed'}>
+    <ProductNotice tone="warning">{mount.error || mount.state} <ProductTextButton label={message('desktopSetup.retry')} disabled={disabled()}
+      onClick={() => { void perform(() => props.connection.retryMount(mount.id)) }} /></ProductNotice>
+  </Show>
   const modelCard = (location: ModelSettingsState['locations'][number]) => <article class="storage-folder" data-model-location={location.id}>
     <div class="storage-folder-heading">
       <div class="storage-folder-copy"><strong title={location.id}>{location.id}</strong><code title={location.path}>{location.path}</code></div>
@@ -203,6 +207,7 @@ export function StorageFolders(props: {
     <Show when={location.mode === 'read'}><span class="dinkster-metadata">{message('storagePanel.readOnly')}</span></Show>
     <Show when={models()?.settings.downloadLocation === location.id}><span class="storage-folder-mark">{message('storagePanel.downloads')}</span></Show>
     <Show when={!location.active}><span class="dinkster-metadata">{message('modelSettings.inactive')}</span></Show>
+    <For each={counts(location.mounts)}>{mountFailure}</For>
   </article>
   const folderCard = (mount: MountDescriptor, used: boolean) => <article class="storage-folder" data-mount-id={mount.id}>
     <div class="storage-folder-heading">
@@ -219,10 +224,11 @@ export function StorageFolders(props: {
     <div class="storage-folder-summary">
       <Show when={mount.kind}><span>{kindLabel(mount.kind!)}</span></Show>
       <Show when={mount.entryCount !== undefined}><span>{message('storagePanel.files', { count: mount.entryCount! })}</span></Show>
-      <Show when={mount.state !== 'ready'}><span>{mount.state}</span></Show>
+      <Show when={mount.state !== 'ready' && mount.state !== 'failed'}><span>{mount.state}</span></Show>
       <Show when={mount.mode === 'read'}><span>{message('storagePanel.readOnly')}</span></Show>
       <Show when={used}><ProductButton onClick={props.onOpenAssets}>{message('storagePanel.openAssets')}</ProductButton></Show>
     </div>
+    {mountFailure(mount)}
     <Show when={mount.id === settings()?.outputMount}><span class="storage-folder-mark">{message('storagePanel.saves')}</span></Show>
     <Show when={mount.id === locations()?.importMount}><span class="storage-folder-mark">{message('storagePanel.imports')}</span></Show>
     <Show when={reading([mount])}>{(progress) => <>

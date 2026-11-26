@@ -8,6 +8,36 @@ import { AppState } from '../src/app-state.js'
 const disposers: (() => void)[] = []
 afterEach(() => { for (const dispose of disposers.splice(0)) dispose(); document.body.replaceChildren(); vi.restoreAllMocks() })
 
+it('keeps failed folders visible with their actual reasons and retries only the selected grant', async () => {
+  let mounts = [
+    { id: 'archive', path: '/offline/archive', mode: 'read' as const, state: 'failed', error: 'asset library root is not a directory: /offline/archive' },
+    { id: 'restricted', path: '/restricted', mode: 'read' as const, state: 'failed', error: 'Permission denied: /restricted' },
+    { id: 'models-lora', mode: 'read' as const, state: 'failed', source: 'shared-models', error: 'model root unavailable' },
+  ]
+  const location = { id: 'models', path: '/models', mode: 'read' as const, visibility: 'default-on' as const }
+  const connection = {
+    fetchMountSettings: async () => ({ mounts, mountChangesAllowed: true }),
+    fetchMountLocations: async () => ({ mounts: mounts.map((row) => ({ ...row, path: row.path ?? '/models/loras' })) }),
+    fetchModelSettings: async () => ({ settings: { version: 1, locations: [location], downloadLocation: null }, locations: [{ ...location, enabled: true, active: true, mounts: ['models-lora'] }], changesAllowed: true }),
+    onMountsChanged: () => () => {},
+    retryMount: async (id: string) => { mounts = mounts.map((row) => row.id === id ? { ...row, state: 'ready', error: '' } : row) },
+  } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
+  await vi.waitFor(() => expect(root.textContent).toContain('asset library root is not a directory: /offline/archive'))
+  expect(root.querySelector('[data-mount-id="restricted"]')?.textContent).toContain('Permission denied: /restricted')
+  expect(root.querySelector('[data-model-location="models"]')?.textContent).toContain('model root unavailable')
+  const retry = (row: Element) => [...row.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Try again')!.click()
+  retry(root.querySelector('[data-mount-id="archive"]')!)
+  await vi.waitFor(() => expect(root.textContent).not.toContain('asset library root is not a directory'))
+  expect(root.querySelector('[data-mount-id="archive"]')).not.toBeNull()
+  expect(root.textContent).toContain('Permission denied: /restricted')
+  expect(root.textContent).toContain('model root unavailable')
+  retry(root.querySelector('[data-model-location="models"]')!)
+  await vi.waitFor(() => expect(root.textContent).not.toContain('model root unavailable'))
+  expect(root.textContent).toContain('Permission denied: /restricted')
+})
+
 it.each([true, false])('adds a model folder with download destination enabled: %s', async (download) => {
   const existing = { id: 'models', path: '/existing/models', mode: 'readwrite' as const, visibility: 'default-on' as const }
   let state: ModelSettingsState = {

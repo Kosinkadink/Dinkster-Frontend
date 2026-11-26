@@ -1,5 +1,34 @@
 import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 
+test('Storage keeps unavailable folders and shows the engine reason until retry succeeds', async ({ page }, testInfo) => {
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  await page.evaluate(() => {
+    const backend = window.__dinksterTest!.app.backends.get().find((row) => row.protocol === 'dinkster')!
+    if (backend.protocol !== 'dinkster') throw new Error('Native backend missing')
+    let mounts = [
+      { id: 'archive', path: '/offline/archive', mode: 'read' as const, state: 'failed', error: 'asset library root is not a directory: /offline/archive' },
+      { id: 'restricted', path: '/restricted', mode: 'read' as const, state: 'failed', error: 'Permission denied: /restricted' },
+    ]
+    backend.connection.fetchMountSettings = async () => ({ mounts, mountChangesAllowed: true })
+    backend.connection.fetchMountLocations = async () => ({ mounts })
+    backend.connection.fetchModelSettings = async () => ({ settings: { version: 1, locations: [], downloadLocation: null }, locations: [], revision: 'failed-fixture', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
+    backend.connection.retryMount = async (id) => { mounts = mounts.map((row) => row.id === id ? { ...row, state: 'ready', error: '' } : row) }
+  })
+  await page.getByTestId('storage-sidebar-toggle').click()
+  const panel = page.getByTestId('storage-panel')
+  const archive = panel.locator('[data-mount-id="archive"]')
+  const restricted = panel.locator('[data-mount-id="restricted"]')
+  await expect(archive).toContainText('asset library root is not a directory: /offline/archive')
+  await expect(restricted).toContainText('Permission denied: /restricted')
+  await panel.screenshot({ path: testInfo.outputPath('storage-unavailable-dark.png') })
+  await archive.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(archive).not.toContainText('not a directory')
+  await expect(archive.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
+  await expect(restricted).toContainText('Permission denied: /restricted')
+  await panel.screenshot({ path: testInfo.outputPath('storage-retried-dark.png') })
+})
+
 test('Storage shows engine file and byte reading progress on model folders and mounts', async ({ page }, testInfo) => {
   await page.goto('/')
   await waitForWorkspaceReady(page)
