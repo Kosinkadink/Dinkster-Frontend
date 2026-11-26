@@ -1165,6 +1165,9 @@ class Press {
       || (step.high !== undefined && typeof high !== 'bigint' && !(typeof high === 'number' && Number.isFinite(high)))) {
       return refuse(`Randomize needs a lowest and a highest value for ${step.field}.`)
     }
+    if ((typeof low === 'bigint' || typeof low === 'number') && (typeof high === 'bigint' || typeof high === 'number') && low > high) {
+      return refuse(`Randomize needs a lowest and a highest value for ${step.field}.`)
+    }
     const random = (): number => {
       const drawn = this.host.random()
       return drawn >= 0 && drawn < 1 ? drawn : 0
@@ -1174,8 +1177,10 @@ class Press {
       case 'INT': {
         const limits = numericStepConstraints(widget)
         if (!limits.integer) return
-        const lowest = typeof low === 'bigint' ? low : limits.min
-        const highest = typeof high === 'bigint' ? high : limits.max
+        let lowest = typeof low === 'number' ? BigInt(Math.ceil(low)) : typeof low === 'bigint' ? low : limits.min
+        let highest = typeof high === 'number' ? BigInt(Math.floor(high)) : typeof high === 'bigint' ? high : limits.max
+        if (limits.min !== undefined && lowest !== undefined && lowest < limits.min) lowest = limits.min
+        if (limits.max !== undefined && highest !== undefined && highest > limits.max) highest = limits.max
         if (lowest === undefined || highest === undefined || lowest > highest) {
           return refuse(`Randomize needs a lowest and a highest value for ${step.field}.`)
         }
@@ -1191,12 +1196,13 @@ class Press {
       case 'FLOAT': {
         const limits = numericStepConstraints(widget)
         if (limits.integer) return
-        const lowest = typeof low === 'number' || typeof low === 'bigint' ? Number(low) : limits.min
-        const highest = typeof high === 'number' || typeof high === 'bigint' ? Number(high) : limits.max
+        const lowest = Math.max(limits.min, typeof low === 'number' || typeof low === 'bigint' ? Number(low) : limits.min)
+        const highest = Math.min(limits.max, typeof high === 'number' || typeof high === 'bigint' ? Number(high) : limits.max)
         if (!Number.isFinite(lowest) || !Number.isFinite(highest) || lowest > highest) {
           return refuse(`Randomize needs a lowest and a highest value for ${step.field}.`)
         }
-        value = lowest + random() * (highest - lowest)
+        const draw = random()
+        value = Math.min(highest, Math.max(lowest, lowest * (1 - draw) + highest * draw))
         break
       }
       case 'BOOLEAN':

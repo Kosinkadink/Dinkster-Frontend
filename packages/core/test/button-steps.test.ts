@@ -404,12 +404,18 @@ describe('each step', () => {
     expect((await press('dev.buttons.field_steps', 'increment', {})).node.controllers).toEqual({ seed: 'increment' })
   })
 
-  it('refuses supplied nonnumeric Randomize bounds without committing earlier writes', async () => {
+  it('Randomize honors supplied intervals and refuses invalid bounds without committing earlier writes', async () => {
     for (const type of ['INT', 'FLOAT']) {
       const cases = ['"not a number"', 'True', 'None'].flatMap((formula) => [
         { low: { formula }, high: { formula: '20' } },
         { low: { formula: '10' }, high: { formula } },
       ])
+      cases.push(
+        { low: { formula: '20.5' }, high: { formula: '10.5' } },
+        { low: { formula: '101' }, high: { formula: '110' } },
+        { low: { formula: '-10' }, high: { formula: '-1' } },
+      )
+      if (type === 'INT') cases.push({ low: { formula: '10.2' }, high: { formula: '10.8' } })
       addSchema(`test.random_bounds.${type}`, [
         { kind: 'input', id: 'value', type: { kind: 'concrete', types: [type] }, default: 5, widget: { type: 'NUMBER', min: 0, max: 100, step: 1 } },
         { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
@@ -427,6 +433,56 @@ describe('each step', () => {
         expect(session.doc).toEqual(doc)
         expect(session.canUndo).toBe(false)
         expect(draws).toBe(0)
+      }
+    }
+    const intervals = [
+      { min: 0, max: 100, step: 1, low: '10.5', high: '20.5', expected: [11, 13, 20] },
+      { min: 0, max: 100, step: 5, low: '10.5', high: '20.5', expected: [15, 15, 20] },
+      { min: 0, max: 100, step: 5, offset: 1, low: '10.5', high: '20.5', expected: [11, 11, 16] },
+      { min: -9, max: 16, step: 5, low: '-6.5', high: '7.5', expected: [-4, -4, 6] },
+      { min: 0, max: 100, step: 1, low: '-30', high: '120', expected: [0, 25, 100] },
+      { min: 0, max: 100, step: 5, high: '20.5', expected: [0, 5, 20] },
+      { min: 0, max: 100, step: 5, low: '90.5', expected: [95, 95, 100] },
+      { min: 0, max: 100, step: 5, low: '20', high: '20', expected: [20, 20, 20] },
+      { min: 0, max: 100, step: 5, low: '10.2', high: '14.8', expected: undefined },
+    ].map((interval) => ({ kind: 'INT', ...interval }))
+    intervals.push(
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '100', high: '120', expected: [100, 100, 100] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '-30', high: '0', expected: [0, 0, 0] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '20', high: '20', expected: [20, 20, 20] },
+    )
+    for (const [index, { kind, low, high, expected, ...widget }] of intervals.entries()) {
+      const type = `test.random_interval.${index}`
+      addSchema(type, [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', types: [kind] }, default: widget.min, widget: { type: 'NUMBER', ...widget } },
+        { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+        { kind: 'button', id: 'random', label: 'Random', steps: [
+          { step: 'set', field: 'marker', value: { value: 19 } },
+          { step: 'randomize', field: 'value', ...(low === undefined ? {} : { low: { formula: low } }), ...(high === undefined ? {} : { high: { formula: high } }) },
+        ] },
+      ])
+      for (const [drawIndex, draw] of [0, 0.25, 0.999999].entries()) {
+        const doc = documentOf({ n1: { type, values: { value: widget.min, marker: 41 } } })
+        const session = sessionOf(doc)
+        let draws = 0
+        const outcome = await runPress(session, at('random'), hostOf({ random: () => { draws++; return draw } }))
+        if (expected === undefined) {
+          expect(outcome.kind).toBe('failed')
+          expect(session.doc).toEqual(doc)
+          expect(session.canUndo).toBe(false)
+          expect(draws).toBe(0)
+        } else {
+          expect(outcome.kind, `${index} ${draw}`).toBe('done')
+          expect(session.doc.graphs['g0']!.nodes['n1']!.values).toEqual({ value: expected[drawIndex], marker: 19 })
+          const after = session.doc
+          const drawn = draws
+          expect(session.undo()).toBe(true)
+          expect(session.doc).toEqual(doc)
+          expect(session.canUndo).toBe(false)
+          expect(session.redo()).toBe(true)
+          expect(session.doc).toEqual(after)
+          expect(draws).toBe(drawn)
+        }
       }
     }
   })
