@@ -255,6 +255,8 @@
   min-height: 0;
   max-height: 320px;
   flex: 0 1 auto;
+  grid-auto-rows: max-content;
+  align-content: start;
   overflow-y: auto;
   outline: none;
 }
