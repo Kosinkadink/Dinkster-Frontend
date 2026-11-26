@@ -56,7 +56,7 @@ import {
   type OccurrenceRef,
   type PortRef,
 } from './ids.js'
-import { matchBoundaryItem } from './compile/crossing.js'
+import { boundaryOutputCandidates, matchBoundaryItem } from './compile/crossing.js'
 import { boundaryItems } from './format/document.js'
 
 const SUBGRAPH_PREFIX = '#'
@@ -195,11 +195,11 @@ export function routeMatchesOwnerChain(
     const graph = doc.graphs[ownerHop.bodyGraphId]!
     const leg = route[offset]!
     if (leg.graph !== graph.id) return false
-    const items = side === 'from' ? boundaryItems(graph.boundary, 'outputs') : boundaryItems(graph.boundary, 'inputs')
+    const items = side === 'from' ? boundaryOutputCandidates(graph.boundary) : boundaryItems(graph.boundary, 'inputs')
     const match = matchBoundaryItem(items ?? [], address)
     if (!match.ok || match.item.id !== leg.boundaryId) return false
     const item = match.item
-    const bindings = [item.binds, ...(item.alsoBinds ?? [])]
+    const bindings = side === 'from' ? [item.binds] : [item.binds, ...(item.alsoBinds ?? [])]
     const bindingMatches = bindings.filter((binding) =>
       boundaryBindingKey(binding) === boundaryBindingKey(leg.binding))
     if (bindingMatches.length !== 1)
@@ -216,7 +216,7 @@ export function routeMatchesOwnerChain(
     if (offset + 1 < route.length) {
       const nextHop = chain[startIndex + offset + 1]!
       if (binding.kind === 'widgetTap' || binding.node !== nextHop.ref.node) return false
-      address = { port: binding.port }
+      address = { port: binding.kind === 'construct' ? `${binding.port}${address.port.slice(item.id.length)}` : binding.port }
     }
   }
   return true

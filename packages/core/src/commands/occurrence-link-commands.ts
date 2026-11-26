@@ -315,11 +315,12 @@ export function occurrenceLinkPlanDigest(
 
 function resolvePlannedEndpoint(
   doc: WorkflowDocument,
+  resolver: SchemaResolver,
   owner: OccurrenceRef,
   endpoint: OccurrenceLinkEndpoint,
   side: 'from' | 'to',
 ): OccurrenceLinkPlanEndpoint | undefined {
-  const result = resolveOccurrenceLinkEndpoint(doc, owner, endpoint, side)
+  const result = resolveOccurrenceLinkEndpoint(doc, resolver, owner, endpoint, side)
   return result.endpoint === undefined || result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
     ? undefined
     : planEndpoint(result.endpoint)
@@ -336,8 +337,8 @@ function buildPlan(
   if (effective.bodyGraph.id !== intent.bodyGraph || effective.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
   const allLinks = [...effective.links, ...effective.projectedParentLinks]
   const byIdentity = new Map(allLinks.map((link) => [identityKey(link.identity), link]))
-  const requestedFrom = intent.from && resolvePlannedEndpoint(staged.document, intent.owner, intent.from, 'from')
-  const requestedTo = intent.to && resolvePlannedEndpoint(staged.document, intent.owner, intent.to, 'to')
+  const requestedFrom = intent.from && resolvePlannedEndpoint(staged.document, resolver, intent.owner, intent.from, 'from')
+  const requestedTo = intent.to && resolvePlannedEndpoint(staged.document, resolver, intent.owner, intent.to, 'to')
   const deliveries: OccurrenceLinkPlanDelivery[] = []
   if (intent.command === 'occurrence.link.connect') {
     if (!requestedFrom || !requestedTo) return undefined

@@ -29,6 +29,7 @@ import {
   type Json,
   type NodeProgress,
   type NodeSchema,
+  type OccurrenceLinkEndpoint,
   type WorkflowDocument,
   boundaryOf,
   boundaryItems,
@@ -990,6 +991,64 @@ describe('buildScene', () => {
       expect(store.redo()).toBe(true)
       expect(types(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, 'first').slice(0, 2))
         .toEqual([expect.objectContaining({ kind: 'variable' }), expect.objectContaining({ kind: 'variable' })])
+      const throughAncestors = (endpoint: OccurrenceLinkEndpoint): OccurrenceLinkEndpoint => {
+        if (depth === 1) return endpoint
+        if (endpoint.kind !== 'boundary') throw new Error('boundary route missing')
+        return { ...endpoint, occurrence: { instancePath: [], node: asNodeId('first') },
+          address: { port: asPortId(endpoint.address.port.replace(/^rows\./, 'entries.')) }, route: [
+            { graph: asGraphDefId('portrait'), boundaryId: 'entries', binding: { kind: 'construct', node: asNodeId('detail'), port: asPortId('rows') } },
+            ...endpoint.route,
+          ] }
+      }
+      if (projected.to.source.kind !== 'occurrence') throw new Error('boundary route missing')
+      const connect = planOccurrenceLinkMutation(store.doc, resolve, { kind: 'connect', owner, bodyGraph: 'detail',
+        from: { kind: 'body', endpoint: { node: asNodeId('match'), port: asPortId('out') } }, to: throughAncestors(projected.to.source.endpoint) })
+      expect(connect.ok).toBe(true)
+      if (!connect.ok) throw new Error(JSON.stringify(connect.diagnostics))
+      const connected = store.dispatch(connect.invocation)
+      expect(connected.ok, JSON.stringify(connected.diagnostics)).toBe(true)
+      const connectedInputs = (doc: WorkflowDocument) => {
+        expect(types(doc, 'first')).toEqual(concrete('INT', 'INT', 'IMAGE', 'IMAGE', 'INT', 'INT'))
+        expect(types(doc, 'second')).toEqual(concrete('LATENT', 'LATENT', 'IMAGE', 'IMAGE', 'IMAGE', 'IMAGE'))
+        const run = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('types'), schemaHash: 'types' })
+        expect(run.ok, JSON.stringify(!run.ok && run.diagnostics)).toBe(true)
+        if (!run.ok) throw new Error('persisted construct route failed')
+        const prefix = depth === 1 ? 'first.' : 'first.detail.'
+        expect(run.artifact.prompt[`${prefix}members`]!.inputs).toEqual({ 'items.a.in': [`${prefix}match`, 0], 'items.b.in': ['image', 0] })
+      }
+      connectedInputs(store.doc)
+      expect(store.undo()).toBe(true)
+      expect(types(store.doc, 'first').slice(0, 2)).toEqual([expect.objectContaining({ kind: 'variable' }), expect.objectContaining({ kind: 'variable' })])
+      expect(store.redo()).toBe(true)
+      connectedInputs(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!)
+      const b = effectiveOccurrenceTopology(store.doc, resolve, owner).projectedParentLinks
+        .find((link) => 'port' in link.to.endpoint && link.to.endpoint.port === 'items.b.in')!
+      const removeB = planOccurrenceLinkMutation(store.doc, resolve, { kind: 'disconnect', owner, bodyGraph: 'detail', link: b.identity })
+      expect(removeB.ok).toBe(true)
+      if (!removeB.ok) throw new Error(JSON.stringify(removeB.diagnostics))
+      expect(store.dispatch(removeB.invocation).ok).toBe(true)
+      const target = throughAncestors(projected.to.source.endpoint)
+      if (target.kind !== 'boundary') throw new Error('member route missing')
+      const local = effectiveOccurrenceTopology(store.doc, resolve, owner).links.find((link) => link.identity.kind === 'occurrence')!
+      const rewire = planOccurrenceLinkMutation(store.doc, resolve, { kind: 'rewire', owner, bodyGraph: 'detail', link: local.identity,
+        to: { ...target, address: { port: asPortId(target.address.port.replace('.a.in', '.b.in')) } } })
+      expect(rewire.ok).toBe(true)
+      if (!rewire.ok) throw new Error(JSON.stringify(rewire.diagnostics))
+      expect(store.dispatch(rewire.invocation).ok).toBe(true)
+      const rewiredInputs = (doc: WorkflowDocument) => {
+        expect(types(doc, 'first').slice(0, 2)).toEqual([expect.objectContaining({ kind: 'variable' }), expect.objectContaining({ kind: 'variable' })])
+        expect(types(doc, 'first').slice(2)).toEqual(concrete('INT', 'INT', 'INT', 'INT'))
+        const run = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('types'), schemaHash: 'types' })
+        expect(run.ok, JSON.stringify(!run.ok && run.diagnostics)).toBe(true)
+        if (!run.ok) throw new Error('member rewire failed')
+        const prefix = depth === 1 ? 'first.' : 'first.detail.'
+        expect(run.artifact.prompt[`${prefix}members`]!.inputs).toEqual({ 'items.b.in': [`${prefix}match`, 0] })
+      }
+      rewiredInputs(store.doc)
+      expect(store.undo()).toBe(true)
+      expect(types(store.doc, 'first').slice(0, 2)).toEqual(concrete('INT', 'INT'))
+      expect(store.redo()).toBe(true)
+      rewiredInputs(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!)
 
       const aliased = JSON.parse(JSON.stringify(document))
       aliased.graphs.detail.nodes.alias = node('alias', 'Members')
@@ -999,6 +1058,38 @@ describe('buildScene', () => {
       const outgoing = effectiveOccurrenceTopology(aliased, resolve, owner).projectedParentLinks
         .filter((link) => 'node' in link.to.endpoint && link.to.endpoint.node === 'observer')
       expect(outgoing.map((link) => link.from.endpoint)).toEqual([{ node: 'members', port: 'items.a.out' }])
+      const outputStore = new DocumentStore(aliased, coreCommandRegistry(), 200, undefined, () => ({
+        kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, resolve),
+      }))
+      const matchDriver = effectiveOccurrenceTopology(outputStore.doc, resolve, owner).projectedParentLinks
+        .find((link) => 'node' in link.to.endpoint && link.to.endpoint.node === 'match')!
+      const unlink = planOccurrenceLinkMutation(outputStore.doc, resolve, { kind: 'disconnect', owner, bodyGraph: 'detail', link: matchDriver.identity })
+      expect(unlink.ok).toBe(true)
+      if (!unlink.ok) throw new Error(JSON.stringify(unlink.diagnostics))
+      expect(outputStore.dispatch(unlink.invocation).ok).toBe(true)
+      const source = outgoing[0]!.from.source
+      if (source.kind !== 'occurrence') throw new Error('output boundary route missing')
+      const route = planOccurrenceLinkMutation(outputStore.doc, resolve, { kind: 'connect', owner, bodyGraph: 'detail', from: throughAncestors(source.endpoint),
+        to: { kind: 'body', endpoint: { node: asNodeId('match'), port: asPortId('in') } } })
+      expect(route.ok).toBe(true)
+      if (!route.ok) throw new Error(JSON.stringify(route.diagnostics))
+      const routed = outputStore.dispatch(route.invocation)
+      expect(routed.ok, JSON.stringify(routed.diagnostics)).toBe(true)
+      const outputInputs = (doc: WorkflowDocument) => {
+        expect(types(doc, 'first')).toEqual(concrete('IMAGE', 'IMAGE', 'LATENT', 'LATENT', 'IMAGE', 'IMAGE'))
+        expect(types(doc, 'second')).toEqual(concrete('LATENT', 'LATENT', 'IMAGE', 'IMAGE', 'IMAGE', 'IMAGE'))
+        const run = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('types'), schemaHash: 'types' })
+        expect(run.ok, JSON.stringify(!run.ok && run.diagnostics)).toBe(true)
+        if (!run.ok) throw new Error('persisted construct output failed')
+        const prefix = depth === 1 ? 'first.' : 'first.detail.'
+        expect(run.artifact.prompt[`${prefix}match`]!.inputs).toEqual({ in: [`${prefix}members`, 0] })
+        expect(run.artifact.prompt.observer!.inputs).toEqual({ in: [`${prefix}members`, 0] })
+      }
+      outputInputs(outputStore.doc)
+      expect(outputStore.undo()).toBe(true)
+      expect(types(outputStore.doc, 'first').slice(4)).toEqual([expect.objectContaining({ kind: 'variable' }), expect.objectContaining({ kind: 'variable' })])
+      expect(outputStore.redo()).toBe(true)
+      outputInputs(loadDocument(JSON.parse(JSON.stringify(outputStore.doc))).document!)
     }
   })
 })

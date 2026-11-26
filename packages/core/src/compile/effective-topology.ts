@@ -173,13 +173,14 @@ function itemForRoute(
   side: 'from' | 'to',
   boundaryId: string,
 ): BoundaryItem | undefined {
-  const items = side === 'from' ? boundaryItems(graph.boundary, 'outputs') : boundaryItems(graph.boundary, 'inputs')
+  const items = side === 'from' ? boundaryOutputCandidates(graph.boundary) : boundaryItems(graph.boundary, 'inputs')
   return items?.find((item) => item.id === boundaryId)
 }
 
 /** Resolve one persisted occurrence endpoint to the concrete body coordinate. */
 function resolveOccurrenceEndpoint(
   document: WorkflowDocument,
+  resolver: SchemaResolver,
   owner: OccurrenceRef,
   bodyGraph: GraphDef,
   endpoint: OccurrenceLinkEndpoint,
@@ -203,7 +204,9 @@ function resolveOccurrenceEndpoint(
     return undefined
   }
 
+  const resolveNode = documentNodeResolver(document, resolver)
   let occurrence = endpoint.occurrence
+  let address = endpoint.address.port
   let finalGraph: GraphDef | undefined
   let finalPath: readonly NodeId[] = []
   let finalEndpoint: LinkEndpoint | undefined
@@ -218,7 +221,7 @@ function resolveOccurrenceEndpoint(
       diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `route leg '${leg.boundaryId}' is missing from graph '${leg.graph}'`))
       return undefined
     }
-    const bindings = [item.binds, ...(item.alsoBinds ?? [])]
+    const bindings = side === 'from' ? [item.binds] : [item.binds, ...(item.alsoBinds ?? [])]
     const wanted = boundaryBindingKey(leg.binding)
     const matches = bindings.map((binding, index) => ({ binding, index })).filter(({ binding }) => boundaryBindingKey(binding) === wanted)
     if (matches.length !== 1) {
@@ -252,7 +255,17 @@ function resolveOccurrenceEndpoint(
       continue
     }
     if (!isNodeBoundaryBinding(match.binding)) return undefined
-    const ref: PortRef = match.binding
+    let ref: PortRef = match.binding
+    if (match.binding.kind === 'construct') {
+      const port = innerConstructAddress(at.bodyGraph, match.binding, item.id, address,
+        (node) => resolveNode(at.bodyGraph.id, node, at.bodyPath))
+      if (port === undefined) {
+        diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `route leg '${leg.boundaryId}' does not resolve address '${address}'`))
+        return undefined
+      }
+      ref = { node: match.binding.node, port: asPortId(port) }
+    }
+    address = ref.port
     finalGraph = at.bodyGraph
     finalPath = at.bodyPath
     finalEndpoint = ref
@@ -268,6 +281,7 @@ function resolveOccurrenceEndpoint(
 /** Resolve an authored local-link endpoint through the same boundary routes as compile. */
 export function resolveOccurrenceLinkEndpoint(
   document: WorkflowDocument,
+  resolver: SchemaResolver,
   owner: OccurrenceRef,
   endpoint: OccurrenceLinkEndpoint,
   side: 'from' | 'to',
@@ -278,7 +292,7 @@ export function resolveOccurrenceLinkEndpoint(
     diagnostics.push(diag('error', 'compile', 'occurrence.topology.ownerMissing', `occurrence '${occurrenceKey(owner)}' does not resolve to a subgraph instance`))
     return { diagnostics }
   }
-  const resolvedEndpoint = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, endpoint, side, diagnostics)
+  const resolvedEndpoint = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, endpoint, side, diagnostics)
   return { ...(resolvedEndpoint ? { endpoint: resolvedEndpoint } : {}), diagnostics }
 }
 
@@ -295,7 +309,6 @@ function projectedEndpoints(
   const match = matchBoundaryItem(items, endpoint)
   if (!match.ok) return []
   const item = match.item
-  const resolveNode = documentNodeResolver(document, resolver)
   const bindings = side === 'from' ? [item.binds] : [item.binds, ...(item.alsoBinds ?? [])]
   const out: { endpoint: ResolvedOccurrenceEndpoint; route: readonly BoundaryRouteLeg[] }[] = []
   for (const binding of bindings) {
@@ -305,14 +318,7 @@ function projectedEndpoints(
       address: { port: endpoint.port },
       route,
     }
-    if (binding.kind === 'construct') {
-      const port = innerConstructAddress(at.bodyGraph, binding, item.id, endpoint.port,
-        (node) => resolveNode(at.bodyGraph.id, node, at.bodyPath))
-      if (port !== undefined) out.push({ endpoint: resolved(at.bodyGraph.id, at.bodyPath,
-        { node: binding.node, port: asPortId(port) }, { kind: 'occurrence', owner, endpoint: occurrenceEndpoint }), route })
-      continue
-    }
-    const target = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, occurrenceEndpoint, side, diagnostics)
+    const target = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, occurrenceEndpoint, side, diagnostics)
     if (target) out.push({ endpoint: target, route })
   }
   return out
@@ -360,8 +366,8 @@ function buildEffectiveOccurrenceTopology(
     }
   }
   for (const link of Object.values(topology?.links ?? {})) {
-    const from = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, link.from, 'from', diagnostics)
-    const to = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, link.to, 'to', diagnostics)
+    const from = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, link.from, 'from', diagnostics)
+    const to = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, link.to, 'to', diagnostics)
     if (!from || !to) continue
     links.push({ identity: { kind: 'occurrence', owner, linkId: link.id }, from, to })
   }
