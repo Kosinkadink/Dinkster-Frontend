@@ -1095,6 +1095,7 @@ describe('ASSET widget modal integration', () => {
     expect(close).not.toHaveBeenCalled()
     expect(dispatchTo).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('byte-proof.bin'))
+    await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
     root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
     expect(dispatchTo).toHaveBeenCalledOnce()

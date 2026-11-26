@@ -1,0 +1,57 @@
+import type { AssetUploadDestination, DinksterConnection, MediaAssetRef } from '@dinkster/client'
+import { importNativeAsset, resolveDroppedAsset } from '../desktop-bridge.js'
+import { model3dMimeFor } from '../model3d-mime.js'
+import { assetUploadPolicy, formatSize, mediaAcceptsFile } from './helpers.js'
+
+function importName(name: string): string {
+  const basename = (name.split(/[\\/]/).filter(Boolean).at(-1) ?? name).trim().replace(/[\u0000-\u001f\u007f]/g, '')
+  const bounded = Array.from(basename).slice(0, 255).join('')
+  return bounded === '' || bounded === '.' || bounded === '..' ? 'upload' : bounded
+}
+
+/** Resolve mounted files first; only an explicit native refusal permits a byte upload. */
+export async function importAssetFile(file: File, options: {
+  readonly baseUrl: string
+  readonly connection: DinksterConnection
+  readonly accept: readonly string[]
+  readonly kind: string | undefined
+  readonly policy: ReturnType<typeof assetUploadPolicy>
+  readonly destination: AssetUploadDestination
+  readonly current: () => boolean
+  readonly signal: AbortSignal
+}): Promise<{ readonly asset: MediaAssetRef; readonly existing: boolean } | undefined> {
+  const { accept, kind, policy, current, signal, connection } = options
+  const effectiveType = model3dMimeFor(file.name, file.type) ?? file.type
+  const media = kind === 'media/image' || kind === 'media/audio' || kind === 'media/video' ? kind : undefined
+  const latent = kind === 'data/latent'
+  const existing = await resolveDroppedAsset(options.baseUrl, file, current)
+  if (!current()) return undefined
+  if (existing && accept.length > 0 && !mediaAcceptsFile(accept, existing.mediaType, existing.name)) {
+    throw new Error('The existing file is not compatible with this input. Nothing was uploaded.')
+  }
+  if (!existing && accept.length > 0 && !mediaAcceptsFile(accept, effectiveType, file.name) && !(latent && file.type === '')) {
+    throw new Error(`Unsupported file type: ${effectiveType || 'unknown'}`)
+  }
+  if (!existing && policy.maxBytes !== undefined && file.size > policy.maxBytes) {
+    throw new Error(`File exceeds the ${policy.label ?? formatSize(policy.maxBytes)} upload limit`)
+  }
+  const choice = options.destination
+  const destination = {
+    ...(choice.mount ? { mount: choice.mount } : {}),
+    ...(choice.folder ? { folder: choice.folder } : {}),
+  }
+  const name = importName(file.name)
+  const imported = existing ? undefined : await importNativeAsset(options.baseUrl, file, {
+    name,
+    mediaType: latent ? 'application/x-comfy-latent' : effectiveType || 'application/octet-stream',
+    ...(media !== undefined ? { kind: media } : {}),
+    ...(latent ? { kind: 'data/latent' } : destination),
+  }, current)
+  if (!current()) return undefined
+  const asset = existing ?? imported ?? (media !== undefined
+    ? await connection.uploadMediaAsset(file, { scope: 'local', kind: media, name, ...destination, signal })
+    : latent
+      ? await connection.uploadLatentAsset(file, { scope: 'local', name, signal })
+      : await connection.uploadNamedAsset(file, { scope: 'local', name, ...destination, signal }))
+  return current() ? { asset, existing: existing !== undefined } : undefined
+}

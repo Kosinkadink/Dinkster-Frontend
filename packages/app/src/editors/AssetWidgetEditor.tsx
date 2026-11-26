@@ -3,7 +3,8 @@ import { assetMultiSelect, type CollectionEntry, type JsonObject } from '@dinkst
 import type { AssetGuessCandidate } from '@dinkster/client'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
-import { assetSourcesStatus, assetUploadPolicy, committableAssetRef, formatSize, mediaAcceptsFile, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
+import { assetSourcesStatus, assetUploadPolicy, committableAssetRef, formatSize, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
+import { importAssetFile } from '../asset-browser/import-file.js'
 import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../asset-browser/localAssetSource.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
@@ -31,7 +32,6 @@ import { UploadDestination } from '../UploadDestination.js'
 import { activeProjectId } from '../projects.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
 import { AssetFileLocation } from '../AssetFileLocation.js'
-import { importNativeAsset, resolveDroppedAsset } from '../desktop-bridge.js'
 import { useAppMessage } from '../locale.js'
 import { tabDocumentUnchanged } from '../widget-editor-anchor.js'
 import { AssetQuickList, assetQuickListAllowed } from './AssetQuickList.js'
@@ -101,12 +101,6 @@ function assetPickerState(state: CollectionPanelState, vocabulary: AssetPickerVo
   if (state.kind === 'no-compatible') return <SearchState kind="empty" title={`No available ${vocabulary.plural}`} detail="Choose another source or adjust the picker requirements." />
   if (state.kind === 'no-match') return <SearchState kind="empty" title={`No matching ${vocabulary.plural}`} detail="Try another search or remove an active filter." />
   return <SearchState kind="empty" title={`No ${vocabulary.plural} yet`} detail={`No matching ${vocabulary.plural} are available in ${state.sourceLabel}.`} />
-}
-
-function mediaUploadName(name: string): string {
-  const basename = unresolvedAssetBasename(name).trim().replace(/[\u0000-\u001f\u007f]/g, '')
-  const bounded = Array.from(basename).slice(0, 255).join('')
-  return bounded === '' || bounded === '.' || bounded === '..' ? 'upload' : bounded
 }
 
 interface AssetImplementationProps extends WidgetEditorImplementationProps {
@@ -228,7 +222,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     : undefined
   const classifiedLatent = ed.spec?.widgetType === 'ASSET' && uploadKind === 'data/latent'
   const policy = assetUploadPolicy(uploadKind, openedRegistry?.uploadLimits)
-  const assetUploadMaxBytes = policy.maxBytes
   const assetUploadLimitLabel = policy.label === undefined ? undefined : `${policy.label} per file`
   // The SCALAR MERGE arm specifically (multi-select whose declaration is
   // NOT list-outer): an empty selection cannot commit `[]` there - the
@@ -408,16 +401,8 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
    * The CALLER owns the assetUploading flag so a multi-file batch stays
    * busy end to end instead of flickering between files.
    */
-  const pickAsset = async (file: File): Promise<boolean> => {
+  const pickAsset = async (file: File, signal: AbortSignal): Promise<boolean> => {
     if (ed.spec?.widgetType !== 'ASSET') return false
-    const accept = Array.isArray(ed.spec.options['accept'])
-      ? ed.spec.options['accept'].filter((value): value is string => typeof value === 'string')
-      : []
-    // Browsers do not reliably assign a MIME type to .latent or .safetensors;
-    // the classified upload route validates their bytes authoritatively.
-    // 3D files (.glb, .ply) get their type inferred from the name so accept
-    // validation and the committed ref carry a previewable media type.
-    const effectiveType = model3dMimeFor(file.name, file.type) ?? file.type
     const backend = props.app.backendForTab(ed.tab)
     if (backend.protocol !== 'dinkster') {
       setAssetError('Asset uploads require a native Dinkster backend')
@@ -426,54 +411,16 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     if (backend !== uploadBackend) return false
     setAssetError(undefined)
     publishLocalAssetPreview(file)
-    const current = (): boolean => live && !assetUploadAbort?.signal.aborted &&
+    const current = (): boolean => live && !signal.aborted &&
       props.app.backendForTab(ed.tab) === backend && activeProjectId() === project
     try {
-      const existing = await resolveDroppedAsset(backend.baseUrl, file, current)
-      if (!current()) return false
-      if (existing && accept.length > 0 && !mediaAcceptsFile(accept, existing.mediaType, existing.name)) {
-        setAssetError('The existing file is not compatible with this input. Nothing was uploaded.')
-        return false
-      }
-      if (!existing && accept.length > 0 && !mediaAcceptsFile(accept, effectiveType, file.name) && !(classifiedLatent && file.type === '')) {
-        setAssetError(`Unsupported file type: ${effectiveType || 'unknown'}`)
-        return false
-      }
-      if (!existing && assetUploadMaxBytes !== undefined && file.size > assetUploadMaxBytes) {
-        setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatSize(assetUploadMaxBytes)} upload limit`)
-        return false
-      }
       const choice = destination()
-      const uploadDestination = {
-        ...(choice.mount ? { mount: choice.mount } : {}),
-        ...(choice.folder ? { folder: choice.folder } : {}),
-      }
-      const imported = existing ? undefined : await importNativeAsset(backend.baseUrl, file, {
-        name: mediaUploadName(file.name),
-        mediaType: classifiedLatent ? 'application/x-comfy-latent' : effectiveType || 'application/octet-stream',
-        ...(classifiedMediaKind !== undefined ? { kind: classifiedMediaKind } : {}),
-        ...(classifiedLatent ? { kind: 'data/latent' } : uploadDestination),
-      }, current)
-      if (!current()) return false
-      const ref = existing ?? imported ?? (classifiedMediaKind !== undefined
-        ? await backend.connection.uploadMediaAsset(file, {
-            scope: 'local',
-            kind: classifiedMediaKind,
-            name: mediaUploadName(file.name),
-            ...uploadDestination,
-            ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
-          })
-        : classifiedLatent
-          ? await backend.connection.uploadLatentAsset(file, {
-              scope: 'local',
-              name: mediaUploadName(file.name),
-              ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
-            })
-        : await backend.connection.uploadNamedAsset(file, {
-            scope: 'local', name: mediaUploadName(file.name), ...uploadDestination,
-            ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
-          }))
-      if (!current()) return false
+      const result = await importAssetFile(file, {
+        baseUrl: backend.baseUrl, connection: backend.connection, accept: assetAccept(), kind: uploadKind,
+        policy, destination: choice, current, signal,
+      })
+      if (result === undefined) return false
+      const { asset: ref, existing } = result
       if (!classifiedLatent || existing) {
         setUploadedLocation(`${existing ? 'Using existing file; no copy made. ' : ''}${backend.label}: ${ref.virtualPath}`)
         if (!existing) {
@@ -512,7 +459,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       setAssetUploading(true)
       try {
         for (const file of assetMulti ? files : files.slice(0, 1)) {
-          if (!live || abort.signal.aborted || !(await pickAsset(file))) break
+          if (!live || abort.signal.aborted || !(await pickAsset(file, abort.signal))) break
           if (implementationProps.commitImportedFile && !assetMulti && pickerContextCurrent()) {
             await commitEditorValue(assetSelection()[0]!)
           }
@@ -966,7 +913,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 const abort = new AbortController()
                 assetUploadAbort = abort
                 setAssetUploading(true)
-                try { return await pickAsset(file) }
+                try { return await pickAsset(file, abort.signal) }
                 finally {
                   if (assetUploadAbort === abort) assetUploadAbort = undefined
                   if (live) {
