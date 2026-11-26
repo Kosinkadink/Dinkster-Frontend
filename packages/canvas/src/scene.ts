@@ -107,6 +107,7 @@ interface PositionedSceneCacheEntry {
   readonly measure: TextMeasurer
   readonly widgetMeasure: WidgetMeasure
   readonly generation: unknown
+  readonly editorControls: BuildSceneInput['editorControls']
   readonly scene: Scene
 }
 
@@ -749,6 +750,8 @@ export interface BuildSceneInput {
   readonly widgetMeasure: WidgetMeasure
   /** Enables position-only root-scene reuse until rendering capabilities change. */
   readonly layoutGeneration?: unknown
+  /** Measured editor controls, by scene node and value key. */
+  readonly editorControls?: Readonly<Record<string, Readonly<Record<string, number>>>>
   /** Concrete drilled owner plus the integration capability gate. */
   readonly occurrence?: {
     readonly owner: OccurrenceRef
@@ -992,7 +995,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       positioned.graphs === input.document.graphs && positioned.documentExt === input.document.ext &&
       positioned.seedControllerEnabled === input.seedControllerEnabled &&
       positioned.tokens === input.tokens && positioned.measure === input.measure && positioned.widgetMeasure === input.widgetMeasure &&
-      positioned.generation === input.layoutGeneration && onlyNodePositionsChanged(positioned.view, view)) {
+      positioned.generation === input.layoutGeneration && positioned.editorControls === input.editorControls && onlyNodePositionsChanged(positioned.view, view)) {
     const scene = repositionScene(positioned.scene, def, view)
     positionedSceneCache.set(def, { ...positioned, view, scene })
     return scene
@@ -1256,6 +1259,7 @@ export function buildScene(input: BuildSceneInput): Scene {
             ? { editorUnfolded: Object.fromEntries(Object.entries(view.editors).map(([key, e]) => [key, e.unfolded])) }
             : {}),
           ...(view?.pictureHeights ? { pictureHeights: view.pictureHeights } : {}),
+          ...(input.editorControls?.[node.id] === undefined ? {} : { editorControls: input.editorControls[node.id]! }),
           ...(view?.histogramVisibility ? { histogramVisibility: view.histogramVisibility } : {}),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
           ...(elaborated !== undefined ? { elaborated } : {}),
@@ -1773,8 +1777,13 @@ export function buildScene(input: BuildSceneInput): Scene {
     const outsideSpaces = new Map<string, NonNullable<BoundarySlotInfo['editorSpaces']>>()
     const panelView = graphView?.inputsPanel
     if (derived !== undefined && fieldOwners.size > 0) {
-      // The entered node's chosen views, so a field drawn as a slider there
-      // is a slider here too.
+      // A nested promotion can own its value and chosen view farther out
+      // than the immediately entered node.
+      const fieldRepresentations: Record<string, string> = {}
+      for (const [id, owner] of fieldOwners) {
+        const chosen = input.document.view.graphs[owner.graphId]?.nodes[owner.nodeId]?.views?.[owner.valueKey]
+        if (chosen !== undefined) fieldRepresentations[id] = chosen
+      }
       const ownerView = ownerNode !== undefined && ownerGraph !== undefined
         ? input.document.view.graphs[ownerGraph.id]?.nodes[ownerNode.id]
         : undefined
@@ -1785,13 +1794,14 @@ export function buildScene(input: BuildSceneInput): Scene {
         : resolveNode(def.id, fieldNode)) ?? derived
       const outside = layoutNode(fieldSchema, fieldNode, input.tokens, measure, input.widgetMeasure, {
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
-        ...(ownerView?.views !== undefined ? { widgetRepresentations: ownerView.views } : {}),
+        widgetRepresentations: fieldRepresentations,
         ...(ownerView?.textLines !== undefined ? { textBoxLines: ownerView.textLines } : {}),
         // The panel's own folds, not the subgraph node's outside; each starts folded.
         editorsStartFolded: true,
         ...(panelView?.editors !== undefined
           ? { editorUnfolded: Object.fromEntries(Object.entries(panelView.editors).map(([key, e]) => [key, e.unfolded])) } : {}),
         ...(panelView?.pictureHeights !== undefined ? { pictureHeights: panelView.pictureHeights } : {}),
+        ...(input.editorControls?.[boundarySceneId('inputs')] === undefined ? {} : { editorControls: input.editorControls[boundarySceneId('inputs')]! }),
       })
       for (const row of outside.rows) {
         if (row.kind === 'editorSpace' && fieldOwners.has(row.inputId)) {
@@ -2106,6 +2116,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       measure: input.measure,
       widgetMeasure: input.widgetMeasure,
       generation: input.layoutGeneration,
+      editorControls: input.editorControls,
       scene: result,
     })
   }

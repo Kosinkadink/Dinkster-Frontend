@@ -1996,6 +1996,34 @@ describe('stateful tooltip labels', () => {
     return controller
   }
 
+  it('shows hover-only help on rest, dismisses it on press, and never restores it from focus', () => {
+    vi.useFakeTimers()
+    const root = document.createElement('div')
+    const plot = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    plot.setAttribute('tabindex', '0')
+    plot.dataset['tooltipLabel'] = 'Double-click to add a point'
+    plot.dataset['tooltipTrigger'] = 'hover'
+    root.append(plot)
+    document.body.append(root)
+    const controller = labelController()
+    const detach = attachDomTooltips(root, controller)
+    try {
+      plot.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+      vi.runOnlyPendingTimers()
+      expect(controller.visible?.lines).toEqual(['Double-click to add a point'])
+      plot.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      plot.focus()
+      plot.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+      expect(controller.visible).toBeUndefined()
+      plot.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      plot.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }))
+      vi.runOnlyPendingTimers()
+      expect(controller.visible?.lines).toEqual(['Double-click to add a point'])
+      plot.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      expect(controller.visible).toBeUndefined()
+    } finally { detach(); vi.useRealTimers() }
+  })
+
   it('re-reads the label when the shown control rewrites it after activation', async () => {
     const root = document.createElement('div')
     const toggle = document.createElement('button')

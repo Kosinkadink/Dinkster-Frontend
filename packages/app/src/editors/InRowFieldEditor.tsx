@@ -95,7 +95,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const [mode, setMode] = createSignal<CanvasSeedMode | undefined>(inRow.controllerMode)
   const chooseMode = (next: CanvasSeedMode): void => {
     const previous = mode()
-    if (next === previous) return
+    if (next === previous || ed.target.kind !== 'input') return
     setMode(next)
     void props.commitCommand({ command: 'node.setController', params: {
       graphId: ed.target.familyOwner?.graphId ?? ed.graphId,
@@ -128,6 +128,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   }
 
   const commitText = (value: string): Promise<boolean> => {
+    if (ed.target.kind !== 'input') return props.commitValue(value)
     const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
     const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
     const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
@@ -217,7 +218,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
       // Stored with Enter, the keyboard stays on the row.
       const target = ed.target
       void commit().then((closed) => {
-        if (closed) host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
+        if (closed && target.kind === 'input') host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
       })
     }
     else if (event.key === 'Escape') { event.preventDefault(); props.close() }
@@ -225,6 +226,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
       event.preventDefault()
       const direction = event.shiftKey ? -1 : 1
       const target = ed.target
+      if (target.kind !== 'input') return
       void commit().then((closed) => { if (closed) host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, direction) })
     }
   }
@@ -240,7 +242,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   }
 
   const placement = createMemo(() => rowPlacement(
-    { rect: ed.rect, look: inRow.look, nodeTop: inRow.nodeTop, nodeBottom: inRow.nodeBottom },
+    { ...inRow, rect: ed.rect },
     host.viewport(),
     bounds(),
     sideSize(),

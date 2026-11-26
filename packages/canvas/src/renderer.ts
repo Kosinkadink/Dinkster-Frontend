@@ -54,6 +54,7 @@ import {
   type ToolboxRow,
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
+import { isButtonIcon, paintButtonIcon } from './button-icons.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 
@@ -363,6 +364,17 @@ export type EditorSummaryMap = Readonly<Record<string, Readonly<Record<string, E
  * never stored.
  */
 export type RowMarkMap = RowProblemMap
+
+/** How a declared button draws besides ready: turned off, or working with its words and Cancel. */
+export type ButtonPaint =
+  | { readonly kind: 'off' }
+  | { readonly kind: 'busy'; readonly text: string }
+
+/** Button paint per node id, then per button id; a button with no entry is ready. */
+export type ButtonPaintMap = Readonly<Record<string, Readonly<Record<string, ButtonPaint>>>>
+
+/** The width at a busy button's right end that reads "Cancel" and cancels when clicked. */
+export const BUTTON_CANCEL_ZONE = 64
 
 /**
  * The boundary item selected in the Boundary panel: its row on the Inputs or
@@ -1357,6 +1369,16 @@ export class CanvasRenderer {
   }
 
   private rowMarks: RowMarkMap = {}
+  private buttonPaint: ButtonPaintMap = {}
+  private hasBusyButtons = false
+
+  /** Off and working buttons per node; a working button's spinner turns while any is set. */
+  setButtonPaint(paint: ButtonPaintMap): void {
+    this.updateNodePaint(this.buttonPaint, paint, () => {
+      this.buttonPaint = paint
+      this.hasBusyButtons = Object.values(paint).some((buttons) => Object.values(buttons).some((item) => item.kind === 'busy'))
+    })
+  }
 
   /**
    * The strongest problem per row. A row with a problem is outlined in that
@@ -1478,10 +1500,24 @@ export class CanvasRenderer {
     return this.lensCapabilities
   }
 
-  /** Whether a field row paints a value arriving by wire in place of its own (WidgetPaintArgs.companion). */
-  showsArrivingValue(nodeId: string, row: Extract<LayoutRow, { kind: 'widget' }>): boolean {
-    const arriving = this.rowCompanion(nodeId, row)
-    return arriving !== undefined && !drawsPassedValueAsEditor(row, arriving, this.tokens)
+  /** The value and wire state shared by field painting and label-mark hit testing. */
+  widgetPaintState(node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>, driven?: { readonly value?: Json }): Pick<WidgetPaintArgs, 'value' | 'companion' | 'connected'> {
+    const arriving = this.rowCompanion(node.id, row, driven)
+    const companion = arriving?.state === 'unknown' ? undefined : arriving
+    const written = row.editor === true && row.viewId === 'core.saveTarget' ? Object.values(row.parts?.writes ?? {}) : []
+    const connected = arriving !== undefined || written.length > 0 && written.every((inputId) =>
+      this.rowCompanion(node.id, { ...row, inputId, valueKey: inputId }) !== undefined)
+    const drag = this.rowDrags[node.id]?.valueKey === row.valueKey ? this.rowDrags[node.id] : undefined
+    const automatic = drag === undefined && row.spec.automatic === true && node.node.values[row.valueKey] === undefined
+    return {
+      value: drag !== undefined ? drag.value
+        : companion === undefined && this.editorSummaries[node.id]?.[row.valueKey]?.value !== undefined
+          ? this.editorSummaries[node.id]![row.valueKey]!.value
+          : row.derivedValue !== undefined ? row.derivedValue
+          : automatic ? effectiveWidgetDefault(row.spec) : node.node.values[row.valueKey],
+      ...(companion !== undefined ? { companion } : {}),
+      connected,
+    }
   }
 
   getDesignTokens(): DesignTokens {
@@ -2139,7 +2175,7 @@ export class CanvasRenderer {
         scale: animation.from.scale + (animation.to.scale - animation.from.scale) * eased,
       })
     }
-    const animateExecution = this.hasRunningNodes && !this.reducedMotion
+    const animateExecution = (this.hasRunningNodes || this.hasBusyButtons) && !this.reducedMotion
     if (animateExecution) {
       this.animationTimeMs = timestamp
       this.dirty = true
@@ -2290,13 +2326,13 @@ export class CanvasRenderer {
     if (
       typeof OffscreenCanvas !== 'undefined' &&
       typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function' &&
-      !this.hasRunningNodes
+      !this.hasRunningNodes && !this.hasBusyButtons
     ) {
       ctx.save()
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       this.drawGraphTiles(ctx, pixelWidth, pixelHeight, pixelWidth / w, pixelHeight / h)
       ctx.restore()
-    } else if (typeof OffscreenCanvas !== 'undefined' && !this.hasRunningNodes) {
+    } else if (typeof OffscreenCanvas !== 'undefined' && !this.hasRunningNodes && !this.hasBusyButtons) {
       ctx.save()
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       this.drawGraphUncached(ctx, pixelWidth, pixelHeight, pixelWidth / w, pixelHeight / h)
@@ -2551,9 +2587,6 @@ export class CanvasRenderer {
           minScreenWidth: canvasPaintTokens.link.selectedMinScreenStroke,
         })
       }
-      // Maybe-absent (optional producer) links dash long-and-slow: a calm
-      // "this value might legitimately not exist" cue, deliberately distinct
-      // from the short [6,4] ghost-drag dash and from any error styling.
       // A wire a finished run proved empty keeps its route and color and
       // takes the skipped node's dots, distinct from the maybe-absent dash
       // that only says a value might not exist.
@@ -3761,7 +3794,11 @@ export class CanvasRenderer {
       // A button stands raised: a lighter face than the node with a lit top
       // edge and a dark line under it. Pointed at, the face lightens; pressed,
       // it sinks to a field's dark; disabled, the whole button fades.
-      const paintButton = (x: number, rowY: number, width: number, height: number, label: string, key: string, enabled: boolean): void => {
+      // A declared button draws its own contents (an icon, or its work) on the face.
+      const paintButton = (
+        x: number, rowY: number, width: number, height: number, label: string, key: string, enabled: boolean,
+        content?: (chrome: { x: number; y: number; width: number; height: number }, color: string) => void,
+      ): void => {
         const paint = canvasPaintTokens.widget.button
         const chrome = widgetChromeRect(x, rowY, width, height, t.rowGeometry.fieldInsetY)
         const at = (state: OverlayState['hoveredButton']): boolean => enabled && state?.nodeId === sceneNode.id && state.key === key
@@ -3800,10 +3837,14 @@ export class CanvasRenderer {
           ctx.arcTo(right, top, right, top + inner, inner)
           ctx.stroke()
         }
-        ctx.fillStyle = pressed ? t.colors.label : t.colors.value
-        ctx.textAlign = 'center'
-        ctx.fillText(label, chrome.x + chrome.width / 2, rowY + height / 2, chrome.width - paint.textPadding)
-        ctx.textAlign = 'left'
+        const color = pressed ? t.colors.label : t.colors.value
+        if (content !== undefined) content(chrome, color)
+        else {
+          ctx.fillStyle = color
+          ctx.textAlign = 'center'
+          ctx.fillText(label, chrome.x + chrome.width / 2, rowY + height / 2, chrome.width - paint.textPadding)
+          ctx.textAlign = 'left'
+        }
         ctx.globalAlpha = rowAlpha
       }
       // Outlines first, outer boxes before the boxes inside them.
@@ -3853,9 +3894,11 @@ export class CanvasRenderer {
         ctx.fill()
       }
       /** A remove cross centered on `cy`, its right edge at `right`. */
-      const paintCross = (right: number, cy: number): void => {
+      const paintCross = (right: number, cy: number, disabled: boolean): void => {
         const cross = boxPaint.cross
         const cx = right - cross.size / 2
+        const alpha = ctx.globalAlpha
+        if (disabled) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
         ctx.strokeStyle = t.colors.boxCount
         ctx.lineWidth = cross.stroke
         ctx.beginPath()
@@ -3864,6 +3907,7 @@ export class CanvasRenderer {
         ctx.moveTo(cx + cross.size / 2, cy - cross.size / 2)
         ctx.lineTo(cx - cross.size / 2, cy + cross.size / 2)
         ctx.stroke()
+        ctx.globalAlpha = alpha
       }
       /** Six dots in two columns: a member's grip, centered on (`cx`, `cy`). */
       const paintGrip = (grip: MemberGrip, cx: number, cy: number): void => {
@@ -3902,8 +3946,8 @@ export class CanvasRenderer {
           ? rowsAlpha * canvasPaintTokens.widget.inactiveOpacity
           : rowsAlpha
         if (skippedRows) ctx.globalAlpha *= canvasPaintTokens.node.skippedRowOpacity
-        if ((row.kind === 'widget' || row.kind === 'ports') && row.crossInset !== undefined) {
-          paintCross(node.x + l.width - row.crossInset, rowY + t.rowHeight / 2)
+        if ((row.kind === 'widget' || row.kind === 'ports' || row.kind === 'button') && row.crossInset !== undefined && row.remove !== undefined) {
+          paintCross(node.x + l.width - row.crossInset, rowY + t.rowHeight / 2, row.remove.disabledReason !== undefined)
         }
         if ((row.kind === 'widget' || row.kind === 'ports') && row.reorder !== undefined) {
           paintGrip(row.reorder, node.x + row.reorder.gripX, rowY + t.rowHeight / 2)
@@ -3982,7 +4026,7 @@ export class CanvasRenderer {
           // the cross as far from the outline as a one-row member's does.
           const textX = left + boxPaint.stroke + boxPaint.labelGap + boxPaint.gripWidth + boxPaint.labelGap
           if (row.reorder !== undefined) paintGrip(row.reorder, node.x + row.reorder.gripX, cy)
-          if (t.memberRemoveCross) paintCross(right - boxPaint.stroke - boxPaint.cross.fieldGap, cy)
+          if (row.crossInset !== undefined && row.remove !== undefined) paintCross(node.x + l.width - row.crossInset, cy, row.remove.disabledReason !== undefined)
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
           paintHeaderLabel(ctx, fitText(ctx, row.label, Math.max(0, right - boxPaint.cross.reserve - textX)), textX, cy, t.fontSize)
@@ -3993,22 +4037,22 @@ export class CanvasRenderer {
         } else if (row.kind === 'editorSpace') {
           this.paintEditorSpace(ctx, node.x, rowY, row, l.width)
         } else if (row.kind === 'note') {
-          // A formula note's text is unknown until formulas are evaluated, so
-          // it draws dimmed like any other offer that is not settled yet.
-          const rowAlpha = ctx.globalAlpha
-          if (row.unknown) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
           const width = row.width ?? l.width - row.inset * 2
           const textX = node.x + row.inset + canvasPaintTokens.widget.labelInset
           const room = width - canvasPaintTokens.widget.labelInset * 2
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
           const unit = row.lookup === undefined ? row.height : row.height / noteLookupRows(row.lookup)
-          ctx.fillText(row.text, textX, rowY + unit / 2, room)
-          ctx.globalAlpha = rowAlpha
+          ctx.fillText(fitText(ctx, row.text.replace(/[\r\n]+/g, ' '), Math.max(0, room)), textX, rowY + unit / 2)
           if (row.lookup !== undefined) this.paintNoteLookup(ctx, row.lookup, textX, rowY + unit, unit, room,
             this.overlay.hoveredButton?.nodeId === node.id && this.overlay.hoveredButton.key === `lookup:${row.noteId}`)
         } else if (row.kind === 'button') {
-          paintButton(node.x + row.inset, rowY, row.width ?? l.width - row.inset * 2, row.height, row.label, `button:${row.buttonId}`, row.enabled !== false)
+          {
+            const paint = this.buttonPaint[sceneNode.id]?.[row.buttonId]
+            paintButton(node.x + row.inset, rowY, row.width ?? l.width - row.inset * 2, row.height, row.label, `button:${row.buttonId}`,
+              row.enabled !== false && paint?.kind !== 'off',
+              (chrome, color) => this.drawButtonContent(ctx, chrome, rowY + row.height / 2, row, paint, color))
+          }
         } else if (row.kind === 'fallback') {
           // Stored value on a schemaless node: read-only and dimmed, but
           // recognizable - the document's key and value survive the missing
@@ -4056,7 +4100,10 @@ export class CanvasRenderer {
           if (row.output) {
             if (row.output.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
             ctx.fillStyle = t.colors.label
-            paintPinLabel(ctx, t, row.output.label, node.x + l.width - t.rowGeometry.portLabelInset - (row.nameInset ?? 0), rowY + row.height / 2, 'right')
+            const right = row.crossInset === undefined
+              ? node.x + l.width - t.rowGeometry.portLabelInset - (row.nameInset ?? 0)
+              : node.x + l.width - row.crossInset - boxPaint.cross.size - boxPaint.cross.fieldGap
+            paintPinLabel(ctx, t, row.output.label, right, rowY + row.height / 2, 'right')
             ctx.globalAlpha = rowAlpha
           }
         } else {
@@ -4553,39 +4600,37 @@ export class CanvasRenderer {
     const l = node.layout
     const rowY = node.y + row.y
     if (this.openRows[sceneNode.id] === row.valueKey) return
+    const display = this.widgetPaintState(node, row, driven)
+    const { companion, connected } = display
     const widgetWidth = row.width ?? l.width - row.inset * 2
-    const arriving = this.rowCompanion(sceneNode.id, row, driven)
-    const connected = arriving !== undefined
-    const companion = arriving?.state === 'unknown' ? undefined : arriving
     const rowAlpha = ctx.globalAlpha
-    if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
-    if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+    if (row.disabled) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
+    else {
+      if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
+      if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+    }
     const companionAlpha = ctx.globalAlpha
-    if (connected) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
-    const hovered = row.viewId !== 'core.compositor' &&
+    if (connected && !row.disabled) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
+    const hovered = !row.readOnly && !row.disabled && row.viewId !== 'core.compositor' &&
       this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
       this.overlay.hoveredWidget.valueKey === row.valueKey
     const drag = this.rowDrags[sceneNode.id]?.valueKey === row.valueKey ? this.rowDrags[sceneNode.id] : undefined
     // An empty field with a worked-out value shows it dimmed until edited.
     const automatic = drag === undefined && row.spec.automatic === true && node.node.values[row.valueKey] === undefined
-    if (automatic) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
+    if (automatic && !row.disabled) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
     this.paintWidget({
       ctx,
       row,
       facts: this.widgetFacts,
       // Selector rows (DynamicCombo) carry their value on the row itself;
       // everything else persists under the row's value key.
-      value: drag !== undefined ? drag.value
-        : companion === undefined && this.editorSummaries[sceneNode.id]?.[row.valueKey]?.value !== undefined
-          ? this.editorSummaries[sceneNode.id]![row.valueKey]!.value
-          : row.derivedValue !== undefined ? row.derivedValue
-          : automatic ? effectiveWidgetDefault(row.spec) : node.node.values[row.valueKey],
+      value: display.value,
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),
       ...(this.editorSummaries[sceneNode.id]?.[row.valueKey] !== undefined
         ? { editorSummary: this.editorSummaries[sceneNode.id]![row.valueKey]! } : {}),
-      ...(row.subgraphMark !== undefined ? { markAlpha: companionAlpha } : {}),
+      ...(row.subgraphMark !== undefined ? { markAlpha: row.disabled ? rowAlpha : companionAlpha } : {}),
       x: node.x + row.inset,
       y: rowY,
       width: widgetWidth,
@@ -4646,7 +4691,7 @@ export class CanvasRenderer {
     // outlines the field, so the row shows where the user acts without
     // changing the node's height.
     const problemAlpha = ctx.globalAlpha
-    ctx.globalAlpha = this.problemMarkAlpha ?? problemAlpha
+    ctx.globalAlpha = this.problemMarkAlpha ?? (row.disabled ? rowAlpha : problemAlpha)
     this.paintRowProblem(ctx, sceneNode.id,
       this.rowMarks[sceneNode.id]?.[row.valueKey] !== undefined ? row.valueKey : row.inputId,
       widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY))
@@ -4669,7 +4714,7 @@ export class CanvasRenderer {
     }
     const numberView = row.viewId === 'core.number' || row.viewId === 'core.slider'
     // In-row editing draws a number's mode as an icon before its value instead of the chip.
-    if (row.controllerMode !== undefined && !(numberView && t.widgetEditing === 'in-row')) {
+    if (!row.readOnly && !row.disabled && row.controllerMode !== undefined && !(numberView && t.widgetEditing === 'in-row')) {
       const chip = controllerChipRect(widgetWidth, t.rowHeight, t.rowGeometry)
       const x = node.x + row.inset + chip.x
       const y = rowY + chip.y
@@ -4684,7 +4729,7 @@ export class CanvasRenderer {
       ctx.globalAlpha = chipAlpha
     }
     const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-    if (numeric && row.derivedValue === undefined && !row.ghost) {
+    if (numeric && row.derivedValue === undefined && !row.ghost && !row.readOnly && !row.disabled) {
       // Edge glyphs reserve only the small bump zones; the broad center
       // remains the familiar editor activation target.
       const cy = rowY + t.rowHeight / 2 + (t.crispEdges ? canvasPaintTokens.widget.pixelCenter : 0)
@@ -4782,6 +4827,73 @@ export class CanvasRenderer {
     ctx.shadowBlur = blur
     ctx.fill()
     ctx.restore()
+  }
+
+  /**
+   * A declared button's contents on its raised face: its icon before its
+   * centered words, or the icon alone when the words do not fit. Working,
+   * a spinner, the words the step reports with three dots, and Cancel at
+   * its right end.
+   */
+  private drawButtonContent(
+    ctx: CanvasRenderingContext2D,
+    chrome: { readonly x: number; readonly width: number },
+    middle: number,
+    row: Extract<LayoutRow, { kind: 'button' }>,
+    paint: ButtonPaint | undefined,
+    color: string,
+  ): void {
+    const t = this.tokens
+    const button = canvasPaintTokens.widget.button
+    const { x, width } = chrome
+    const pad = button.textPadding / 2
+    if (paint?.kind === 'busy') {
+      const radius = button.spinnerRadius
+      const cx = x + pad + radius
+      const turn = this.reducedMotion ? 0 : (this.animationTimeMs / 900) * Math.PI * 2
+      ctx.lineWidth = button.spinnerStroke
+      ctx.strokeStyle = t.colors.nodeIdleOutline
+      ctx.beginPath()
+      ctx.arc(cx, middle, radius, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.strokeStyle = t.colors.selection
+      ctx.beginPath()
+      ctx.arc(cx, middle, radius, turn, turn + Math.PI / 2)
+      ctx.stroke()
+      const cancelRight = x + width - pad
+      ctx.textAlign = 'right'
+      ctx.fillStyle = color
+      ctx.fillText('Cancel', cancelRight, middle)
+      const cancelWidth = measureWidth(ctx, 'Cancel')
+      ctx.setLineDash([...button.cancelUnderlineDash])
+      ctx.strokeStyle = t.colors.widgetAffordance
+      ctx.lineWidth = button.cancelUnderlineStroke
+      ctx.beginPath()
+      ctx.moveTo(cancelRight - cancelWidth, middle + button.cancelUnderlineOffset)
+      ctx.lineTo(cancelRight, middle + button.cancelUnderlineOffset)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.textAlign = 'left'
+      ctx.fillStyle = t.colors.label
+      const textLeft = cx + radius + button.labelGap
+      ctx.fillText(fitText(ctx, `${paint.text}...`, Math.max(0, cancelRight - cancelWidth - button.labelGap - textLeft)), textLeft, middle)
+      return
+    }
+    const icon = isButtonIcon(row.icon) ? row.icon : undefined
+    const room = width - pad * 2
+    const labelWidth = measureWidth(ctx, row.label)
+    const iconWidth = icon === undefined ? 0 : button.iconSize + button.iconGap
+    ctx.fillStyle = color
+    if (icon !== undefined && iconWidth + labelWidth > room) {
+      // Too narrow for the words: the icon alone, the words in the tooltip.
+      paintButtonIcon(ctx, icon, x + width / 2 - button.iconSize / 2, middle - button.iconSize / 2, button.iconSize, color)
+      return
+    }
+    const shown = fitText(ctx, row.label, room - iconWidth)
+    const left = x + width / 2 - (iconWidth + measureWidth(ctx, shown)) / 2
+    if (icon !== undefined) paintButtonIcon(ctx, icon, left, middle - button.iconSize / 2, button.iconSize, color)
+    ctx.textAlign = 'left'
+    ctx.fillText(shown, left + iconWidth, middle)
   }
 
   private drawRunningAccent(
@@ -5169,15 +5281,22 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
   ctx.beginPath()
   ctx.roundRect(x, y + tokens.rowGeometry.fieldInsetY, width, row.height - tokens.rowGeometry.fieldInsetY * 2, paint.radius)
   ctx.fill()
+  const lockReserve = row.readOnly ? paint.readOnlyMark.size + paint.readOnlyMark.gap : 0
+  const lock = (left: number): void => {
+    if (row.readOnly) paintToolboxIcon(ctx, 'lock', left, y + (rowHeight - paint.readOnlyMark.size) / 2,
+      paint.readOnlyMark.size, tokens.colors.label)
+  }
   if (args.companion !== undefined) {
     const words = companionWords(args.companion)
     const formatted = words ?? formatWidgetValue(args.companion.value, row.spec).split('\n')[0] ?? ''
     const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
     const field = widgetFieldBounds(width, rowHeight, numeric, words === undefined && row.controllerMode !== undefined, tokens.rowGeometry)
-    const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
+    const companionZone = shareRowWidth(field.right - field.left, lockReserve + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
-    ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - paint.labelClipPadding)), x + field.left + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
+    const labelLeft = x + field.left + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset)
+    ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - lockReserve - paint.labelClipPadding)), labelLeft + lockReserve, y + rowHeight / 2)
+    lock(labelLeft)
     paintCompanionValue(args)
     return
   }
@@ -5189,14 +5308,15 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
   const usable = Math.max(0, valueRight - paint.labelInset)
   const labelZone = shareRowWidth(
     usable,
-    measureWidth(ctx, row.label) + paint.labelWidthPadding,
+    lockReserve + measureWidth(ctx, row.label) + paint.labelWidthPadding,
     measureWidth(ctx, text) + paint.fallbackValueWidthPadding,
     true,
   )
   const valueWidth = Math.max(0, usable - labelZone)
   ctx.fillStyle = tokens.colors.label
   ctx.textAlign = 'left'
-  ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - paint.labelClipPadding)), x + paint.labelInset, y + rowHeight / 2)
+  ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - lockReserve - paint.labelClipPadding)), x + paint.labelInset + lockReserve, y + rowHeight / 2)
+  lock(x + paint.labelInset)
   ctx.fillStyle = tokens.colors.value
   ctx.textAlign = 'right'
   const displayText = fitText(ctx, text, valueWidth)
@@ -5462,7 +5582,8 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
   const field = bounds ?? widgetFieldBounds(width, rowHeight, numeric, words === undefined && row.controllerMode !== undefined, tokens.rowGeometry)
   // The subgraph mark before the name widens the name's share, as the painter lays it out.
-  const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
+  const mark = (row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap)
+    + (row.readOnly ? canvasPaintTokens.widget.readOnlyMark.size + canvasPaintTokens.widget.readOnlyMark.gap : 0)
   const labelWidth = measureWidth(ctx, row.label)
   const valueFont = words === undefined && summary !== undefined && (row.viewId === 'core.color' || swatch !== undefined)
     ? `${tokens.fontSize}px ${tokens.fontMono}` : prevFont

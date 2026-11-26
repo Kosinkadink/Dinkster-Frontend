@@ -21,7 +21,14 @@ export interface TooltipProvider {
  * target has none, and gives `above`, the y the tooltip's bottom edge takes
  * when it does not fit below `y`.
  */
-export interface TooltipAnchor { readonly x: number; readonly y: number; readonly above?: number; readonly element?: HTMLElement }
+export interface TooltipAnchor {
+  readonly x: number
+  readonly y: number
+  readonly above?: number
+  readonly element?: HTMLElement
+  readonly paintedRect?: () => DOMRectReadOnly
+  readonly boundary?: HTMLElement
+}
 export interface VisibleTooltip extends TooltipContent, TooltipAnchor { readonly detailed: boolean }
 
 /** One tooltip policy boundary shared by DOM chrome and the painted canvas. */
@@ -295,6 +302,9 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
         : `Only successful runs advance literal, submitted values. Linked values are not changed. ${t.connected ? 'Connected controls are inert.' : 'Click to choose a mode.'}`] } : {}),
     }
   }
+  if (t.kind === 'button') return { lines: [t.hit.row.label, ...(t.hit.row.tooltip ? [t.hit.row.tooltip] : [])] }
+  if (t.kind === 'note') return t.row.text === '' ? undefined : { lines: [t.row.text] }
+  if (t.kind === 'memberRemove') return { lines: [t.hit.remove.disabledReason ?? 'Remove member'] }
   if (t.kind === 'reroute') {
     const rerouteTypeName: string | undefined = t.hit.reroute.typeName
     return { title: 'Reroute', lines: [rerouteTypeName !== undefined ? typeIdDisplayLabel(rerouteTypeName) : 'Any'] }
@@ -356,21 +366,19 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       : effectiveWidgetDefault(row.spec)
     const schema = context.resolveSchema?.(t.hit.node.node.type)
     const input = portSpecOf(schema, t.hit.node.node, 'input', row.inputId)
+    const saveTarget = row.viewId === 'core.saveTarget'
     const detail = [
       ...['min', 'max', 'step'].filter((key) => options[key] !== undefined).map((key) => `${key}: ${options[key]}`),
-      ...(input?.tooltip ? [input.tooltip] : []),
+      ...(!saveTarget && input?.tooltip ? [input.tooltip] : []),
     ]
     const measure = context.measureLine ?? (() => 1)
     const room = (context.tooltipLines ?? Infinity) - measure(row.name ?? row.label) -
       (opts.detailed ? detail.reduce((sum, line) => sum + measure(line), 0) : 0)
     const state = t.companion?.state ?? (t.companion?.stale ? 'stale' : t.companion ? 'expected' : undefined)
-    const message = state === 'nothing'
-      ? 'Nothing: the node feeding this wire was skipped'
-      : state === 'unknown'
-        ? 'The wire has no known value yet'
-        : undefined
-    const prefix = state === 'expected'
-      ? 'Current expected value: '
+    const absence = state === 'nothing' ? 'Nothing: the node feeding this wire was skipped'
+      : state === 'unknown' ? 'The wire has no known value yet' : undefined
+    const prefix = absence !== undefined ? '' : state === 'expected'
+      ? 'Arriving: '
       : state === 'cached'
         ? 'Retained last-resolved value: '
         : state === 'stale'
@@ -378,25 +386,29 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
           : state === 'estimate'
             ? 'Mirrored estimate (computed locally, not executed): '
             : t.connected
-              ? 'Dormant stored value under connection: '
+              ? 'Stored: '
               : 'Value: '
-    const storedPrefix = 'Dormant stored value under connection: '
+    const storedPrefix = 'Stored: '
     const incomingValue = t.companion?.value ?? value
-    const incomingReadout = context.widgetReadout?.(row, incomingValue) ?? [formatWidgetValue(incomingValue, row.spec)]
+    const incomingReadout = absence === undefined
+      ? context.widgetReadout?.(row, incomingValue) ?? [formatWidgetValue(incomingValue, row.spec)] : [absence]
     const storedReadout = t.companion && t.connected
-      ? [...(context.widgetReadout?.(row, value) ?? [formatWidgetValue(value, row.spec)])] : []
-    if (storedReadout.length > 0) storedReadout[0] = `${storedReadout[0]}, used again when the wire is removed`
+      ? (context.widgetReadout?.(row, value) ?? [formatWidgetValue(value, row.spec)])
+        .map((text, index) => index === 0 ? `${text}. Used again when the wire is removed.` : text) : []
     const storedMinimum = storedReadout.length === 0 ? 0 : measure(`${storedPrefix}${storedReadout[0]}`) +
       (storedReadout.length > 1 ? measure(translate('widgetSummary.more', { count: storedReadout.length - 1 })) : 0)
-    const incomingMinimum = message !== undefined ? measure(message) : incomingReadout.length === 0 ? 0 : measure(`${prefix}${incomingReadout[0]}`)
+    const incomingMinimum = incomingReadout.length === 0 ? 0 : measure(`${prefix}${incomingReadout[0]}`)
     // Reserve the stored summary and remainder before spending room on incoming items.
     const storedRoom = Math.min(storedMinimum, Math.max(0, room - incomingMinimum))
-    const incoming = message !== undefined ? [message] : widgetValueLines(incomingReadout, context, room - storedRoom, prefix)
+    const incoming = widgetValueLines(incomingReadout, context, room - storedRoom, prefix)
     const stored = t.companion && t.connected
       ? widgetValueLines(storedReadout, context, room - incoming.reduce((sum, line) => sum + measure(line), 0), storedPrefix) : []
     return {
       title: row.name ?? row.label,
-      lines: [...incoming, ...stored],
+      lines: [...incoming, ...stored, ...(!t.connected && saveTarget ? [
+        ...(input?.tooltip ? [input.tooltip] : []),
+        translate('saveTargetWidget.naming', { suffix: typeof options['suffix'] === 'string' ? options['suffix'] : '' }),
+      ] : [])],
       ...(opts.detailed && detail.length ? { detail } : {}),
       ...(context.measureLine === undefined && (incomingReadout.length > 1 || storedReadout.length > 1) ? { fit: (lines: number, measureLine: (text: string) => number) =>
         resolveCanvasTooltip(target, opts, { ...context, tooltipLines: lines, measureLine })! } : {}),
@@ -539,6 +551,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     }
     if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return
     if (hovered === element) hovered = undefined
+    if (element.dataset['tooltipTrigger'] === 'hover') { hideNow(); return }
     if (focusedElement() === element) return
     const focused = focusedElement()
     if (focused !== undefined) { showForElement(focused, undefined, true); return }
@@ -550,7 +563,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     const arrivedByNavigation = navigationFocus
     navigationFocus = false
     const element = elementAt(event)
-    keyboardFocused = arrivedByNavigation && element && event.target === element ? element : undefined
+    keyboardFocused = arrivedByNavigation && element && event.target === element && element.dataset['tooltipTrigger'] !== 'hover' ? element : undefined
     if (keyboardFocused) { clearSessionGrace(); showForElement(keyboardFocused, undefined, true) }
   }
   const focusOut = (event: FocusEvent) => {

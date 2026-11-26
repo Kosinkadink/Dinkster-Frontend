@@ -381,8 +381,12 @@ export function widgetRepresentationsOf(spec: WidgetSpec, registered?: WidgetRep
   if (registered !== undefined) return registered
   if (spec.widgetType === 'FLOAT') {
     const { min, max } = spec.options
-    if (typeof min !== 'number' || typeof max !== 'number' || !Number.isFinite(min)
-      || !Number.isFinite(max) || max <= min || !Number.isFinite(max - min)) return undefined
+    const finiteMin = typeof min === 'number' && Number.isFinite(min)
+    const finiteMax = typeof max === 'number' && Number.isFinite(max)
+    // Worked-out limits can disappear without removing the declared choice.
+    const workedRange = (spec.looked?.min !== undefined || spec.looked?.max !== undefined) &&
+      (finiteMin || spec.looked?.min !== undefined) && (finiteMax || spec.looked?.max !== undefined)
+    if (!workedRange && (!finiteMin || !finiteMax || max <= min || !Number.isFinite(max - min))) return undefined
     return {
       default: spec.options['display'] === 'slider' ? 'slider' : 'number',
       userSwitchable: true,
@@ -509,8 +513,8 @@ export const isLookupSpec = (value: unknown): value is LookupSpec =>
   typeof (value as { lookup?: unknown }).lookup === 'string'
 
 /**
- * One action step, kept as declared. Running steps is not built in the
- * editor; a button that holds them is drawn and does nothing.
+ * One action step, kept as declared; `actions/steps.ts` decodes the steps a
+ * press runs and refuses any other kind.
  */
 export interface StepSpec {
   readonly step: string
@@ -610,6 +614,17 @@ export interface InputSpec extends PortSpecBase {
   readonly hidden?: true
   /** Steps the host applies together with the user's own change of this field; kept as declared. */
   readonly onEdit?: readonly StepSpec[]
+  /**
+   * Shown at full contrast, but the user cannot type into it. With
+   * `disabled` (dimmed, cannot be typed into) and `disabledReason`, it limits
+   * the user's own edits only: the value is still sent, a wire still works,
+   * and a step or an after-run write may still change it. A formula is
+   * worked out by the editor; while it is unknown or fails the field is
+   * neither read-only nor disabled. Layout only, never identity.
+   */
+  readonly readOnly?: Formulated<boolean>
+  readonly disabled?: Formulated<boolean>
+  readonly disabledReason?: Formulated<string>
   /**
    * The value used while nothing is stored for this field: a formula the
    * editor works out, or a lookup. A field that declares it always has a
@@ -741,7 +756,7 @@ export interface NoteSpec {
   readonly visible?: Formulated<boolean>
 }
 
-/** Runs an action. The editor draws it and does not run its steps. */
+/** Runs its steps when pressed (`actions/runner.ts`). */
 export interface ButtonSpec {
   readonly kind: 'button'
   readonly id: string
@@ -1199,7 +1214,7 @@ export interface NodeSchema {
   readonly validate?: readonly RuleSpec[]
   /** Text or a formula after the node's title. */
   readonly titleSuffix?: Formulated<string>
-  /** Buttons in the node's menu; drawn and inert, as body buttons are. */
+  /** Buttons in the node's menu, run as body buttons are. */
   readonly menu?: readonly ButtonSpec[]
   /** Type authority for explicit occurrence-authored extra input names. Absent means closed. */
   readonly additionalInputs?: TypeExpr
