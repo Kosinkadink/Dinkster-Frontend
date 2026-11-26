@@ -167,9 +167,9 @@ it.each(['Linux x86_64', 'MacIntel'])('creates documents with Alt shortcuts and 
   await vi.waitFor(() => expect(host.querySelector('[data-testid="templates-page"]')).not.toBeNull())
   host.querySelector<HTMLButtonElement>('[data-testid="new-tab"] button')!.click()
   await vi.waitFor(() => expect(host.querySelectorAll('[role="menuitem"]')).toHaveLength(2))
-  expect([...host.querySelectorAll('[role="menuitem"] .dinkster-key')].map((key) => key.textContent)).toEqual(['Alt', 'N', 'Alt', 'T'])
+  expect([...host.querySelectorAll('[role="menuitem"] kbd')].map((key) => key.textContent)).toEqual(['Alt+N', 'Alt+T'])
   app.keybindings.set('workflow.new', 'Alt+Shift+N')
-  await vi.waitFor(() => expect([...host.querySelectorAll('[role="menuitem"] .dinkster-key')].map((key) => key.textContent)).toEqual(['Alt', 'Shift', 'N', 'Alt', 'T']))
+  await vi.waitFor(() => expect([...host.querySelectorAll('[role="menuitem"] kbd')].map((key) => key.textContent)).toEqual(['Alt+Shift+N', 'Alt+T']))
 })
 
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {
