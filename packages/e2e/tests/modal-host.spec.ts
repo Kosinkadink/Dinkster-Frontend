@@ -100,11 +100,12 @@ test('Escape during a keybinding capture cancels the capture, not the dialog', a
   const dialog = page.getByRole('dialog', { name: 'Settings' })
   await dialog.locator('.settings-categories').getByRole('button', { name: 'Keybindings' }).click()
   const capture = dialog.locator('[data-command-id]', { hasText: 'Open workflow library' }).locator('.binding-capture')
+  const originalBinding = await capture.innerText()
   await capture.click()
   await expect(capture).toHaveText('Press keys...')
   await page.keyboard.press('Escape')
   // The capture is cancelled (binding text restored)...
-  await expect(capture).toHaveText('ctrl+o')
+  await expect(capture).toHaveText(originalBinding)
   // ...and the dialog survived: the body's preventDefault suppressed the
   // native Escape close request.
   await expect(dialog).toBeVisible()

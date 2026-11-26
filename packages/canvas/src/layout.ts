@@ -1771,7 +1771,8 @@ export function layoutNode(
         const done = open.pop()!
         afterMember = done.decl.kind === 'member'
         afterOutline = true
-        const bottom = y + under - slack + box.stroke
+        const bottomGap = done.decl.kind === 'member' ? Math.max(under, box.fieldGap) : under
+        const bottom = y + bottomGap - slack + box.stroke
         boxes.push({
           id: done.decl.id,
           kind: done.decl.kind,

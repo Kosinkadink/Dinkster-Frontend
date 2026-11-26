@@ -1642,6 +1642,25 @@ describe('editors shown in the node', () => {
     const pinsOf = (layout: ReturnType<typeof lay>, id: string) =>
       layout.pins.filter((pin) => pin.portId === id && pin.direction === 'in').map((pin) => pin.y)
 
+    it('leaves the same clearance below a member as beside it, folded or unfolded', () => {
+      const schema = schemaOf([{
+        kind: 'group', id: 'curves', member: [editor('curve', 'CURVE', { histogram: 'histogram' }), histogram('histogram')],
+        keys: { kind: 'numbered', prefix: '', start: 1, pad: 0 }, grows: 'button', minMembers: 2,
+      }])
+      const node = { ...nodeData, dynamic: { curves: { members: ['1', '2'], seq: 2 } } }
+      for (const unfolded of [false, true]) {
+        const layout = lay(schema, [], { editorUnfolded: { 'curves.1.curve': unfolded } }, node)
+        const box = layout.boxes!.find((item) => item.id === 'member:curves.1')!
+        const row = layout.rows.find((item) => item.kind === (unfolded ? 'editorSpace' : 'widget') && item.valueKey === 'curves.1.curve')!
+        if (row.kind !== 'widget' && row.kind !== 'editorSpace') throw new Error('Missing curve row')
+        const left = row.inset - box.x - canvasPaintTokens.node.box.stroke
+        const right = box.x + box.width - canvasPaintTokens.node.box.stroke - (layout.width - row.inset)
+        const bottom = box.y + box.height - canvasPaintTokens.node.box.stroke -
+          (row.y + row.height - defaultTokens.rowGeometry.fieldInsetY)
+        expect({ left, right, bottom }, unfolded ? 'unfolded member' : 'folded member').toEqual({ left: 8, right: 8, bottom: 8 })
+      }
+    })
+
     it('removes the interpolation row and moves the histogram pin up for a fixed curve', () => {
       const fixed = schemaOf([editor('curve', 'CURVE', { unfolded: true, histogram: 'bins', interpolations: ['step'] }), histogram('bins'), histogram('gamma')])
       const normal = lay(tied, ['in:bins'])

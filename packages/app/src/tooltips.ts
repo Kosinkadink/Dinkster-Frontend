@@ -446,7 +446,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     if (shown === element) return
     shown = element
     labelObserver.disconnect()
-    labelObserver.observe(element, { attributes: true, attributeFilter: ['data-tooltip-label', 'data-tooltip-detail', 'data-tooltip-shortcut'] })
+    labelObserver.observe(element, { attributes: true, attributeFilter: ['data-tooltip-label', 'data-tooltip-detail', 'data-tooltip-shortcut', 'aria-expanded', 'aria-haspopup'] })
     labelObserver.observe(root, { childList: true, subtree: true })
   }
   const releaseShown = (): void => {
@@ -481,6 +481,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
   const focusedElement = () => document.activeElement instanceof HTMLElement && document.activeElement.matches('[data-tooltip-label]')
     ? document.activeElement
     : undefined
+  const hasOpenMenu = (element: HTMLElement) => element.matches('[aria-haspopup="menu"][aria-expanded="true"]')
   const sessionOf = (element: Element | null | undefined) => element?.closest<HTMLElement>('[data-tooltip-session]')
   const domTargetOf = (element: HTMLElement) => {
     const rect = element.getBoundingClientRect()
@@ -492,6 +493,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     }
   }
   const showForElement = (element: HTMLElement, detailed?: boolean, immediate = false): void => {
+    if (hasOpenMenu(element)) { hideNow(); return }
     const { target, anchor } = domTargetOf(element)
     observeShown(element)
     controller.show(target, anchor, detailed, immediate)
@@ -499,7 +501,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
   const refreshShown = (): void => {
     const element = shown
     if (element === undefined) return
-    if (!element.isConnected || element.dataset['tooltipLabel'] === undefined) { hideNow(); return }
+    if (!element.isConnected || element.dataset['tooltipLabel'] === undefined || hasOpenMenu(element)) { hideNow(); return }
     if (hovered !== element && document.activeElement !== element) return
     const { target, anchor } = domTargetOf(element)
     controller.showInSession(target, anchor)
@@ -509,6 +511,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     if (!element || (event.relatedTarget instanceof Node && element.contains(event.relatedTarget))) return
     hovered = element
     clearSessionGrace()
+    if (hasOpenMenu(element)) { hideNow(); return }
     const related = event.relatedTarget instanceof Element ? event.relatedTarget : undefined
     const session = sessionOf(element)
     const sharedSession = session !== undefined && session === sessionOf(related)
