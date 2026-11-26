@@ -21,7 +21,10 @@ import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
-const wire = JSON.parse(readFileSync(new URL('./fixtures/button_schemas.json', import.meta.url), 'utf8')) as Record<string, unknown>
+const wire: Record<string, unknown> = {
+  ...JSON.parse(readFileSync(new URL('./fixtures/button_schemas.json', import.meta.url), 'utf8')),
+  ...JSON.parse(readFileSync(new URL('./fixtures/flow_schemas.json', import.meta.url), 'utf8')),
+}
 const SCHEMAS = new Map<string, NodeSchema>()
 for (const [type, raw] of Object.entries(wire)) {
   const parsed = parseDinksterSchema(type, raw as DinksterWireSchema)
@@ -112,6 +115,28 @@ function later<T>(): { promise: Promise<T>; settle: (value: T) => void } {
 }
 
 describe('one press is one undo step, or nothing', () => {
+  it('sets Unpack count independently in one undo step and refuses an over-limit count whole', async () => {
+    const document = documentOf({
+      n1: { type: 'dinkster.utilities.unpack', values: { count: 3 } },
+      sibling: { type: 'dinkster.utilities.unpack', values: { count: 1 } },
+    })
+    const session = sessionOf(document)
+    const set = (new_count: number) => runPress(session, at('set_count'), hostOf({ ask: async () => ({ new_count }) }))
+    for (const count of [0, 2, 512]) {
+      expect(await set(count)).toMatchObject({ kind: 'done' })
+      expect(valuesOf(session)).toEqual({ count })
+      expect(valuesOf(session, 'sibling')).toEqual({ count: 1 })
+      expect(session.undo()).toBe(true)
+      expect(session.doc.graphs).toEqual(document.graphs)
+      expect(session.canUndo).toBe(false)
+    }
+    for (const count of [-1, 513, 2.5]) {
+      expect(await set(count)).toMatchObject({ kind: 'failed' })
+      expect(session.doc.graphs).toEqual(document.graphs)
+      expect(session.canUndo).toBe(false)
+    }
+  })
+
   it('keeps multiple-choice Ask answers as list locals for later steps', async () => {
     addSchema('test.ask-list', [
       { kind: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, default: 0 },

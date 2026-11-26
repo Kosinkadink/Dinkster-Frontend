@@ -1052,6 +1052,21 @@ describe('small flow nodes', () => {
     graphFeatures: ['regions', 'typedLiteral'],
   })
 
+  it('submits Unpack output members from the stored count without inventing document state', () => {
+    for (const count of [0, 3, 512]) {
+      const document = dynDoc({ nodes: { unpack: { type: 'dinkster.utilities.unpack', values: { count } } } })
+      const before = JSON.stringify(document)
+      const result = run(document, 'unpack')
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) continue
+      const members = Array.from({ length: count }, (_, index) => String(index))
+      expect(result.artifact.dinksterGraph?.nodes.unpack).toEqual({
+        nodeType: 'dinkster.utilities.unpack', inputs: { count }, outputMembers: { items: members },
+      })
+      expect(JSON.stringify(document)).toBe(before)
+    }
+  })
+
   it.each([
     ['dinkster.utilities.or_else', 'values.1', { values: { members: ['1', '2'] } }],
     ['dinkster.utilities.has_value', 'value', {}],
@@ -2183,6 +2198,7 @@ describe('dynamic interfaces', () => {
       class_type: 'CountSplitter',
       inputs: { count: 3 },
       outputIds: ['images.0', 'images.1', 'images.2'],
+      outputMembers: { images: ['0', '1', '2'] },
     })
     expect(result.artifact.prompt.k!.inputs).toEqual({ in: ['s', 1] })
     const restored = dynCompile(loadDocument(JSON.parse(JSON.stringify(result.artifact.snapshot))).document!)
@@ -2209,7 +2225,7 @@ describe('dynamic interfaces', () => {
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt.source?.outputIds).toEqual(['before', 'images.0', 'images.1', 'after', 'masks.0', 'masks.1'])
-    expect(result.artifact.prompt.source?.outputMembers).toBeUndefined()
+    expect(result.artifact.prompt.source?.outputMembers).toEqual({ images: ['0', '1'], masks: ['0', '1'] })
     expect(result.artifact.prompt.before?.inputs.in).toEqual(['source', 0])
     expect(result.artifact.prompt.image?.inputs.in).toEqual(['source', 2])
     expect(result.artifact.prompt.after?.inputs.in).toEqual(['source', 3])

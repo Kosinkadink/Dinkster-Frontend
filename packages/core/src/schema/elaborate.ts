@@ -568,7 +568,7 @@ export interface ElaboratedInterface {
   readonly chunkSafe?: Pick<NonNullable<NodeSchema['chunkSafe']>, 'inputs' | 'outputs'>
   /** Non-port values the run carries. */
   readonly submissionValues: readonly { readonly path: string; readonly apiPath: string; readonly value: Json }[]
-  /** Stored member keys of each group that is not a count group, in order: the run's member lists. */
+  /** Member keys in run order: stored groups and count-grown groups that hold outputs. */
   readonly outputMembers?: Readonly<Record<string, readonly string[]>>
   /** The key of every choice and type choice that takes part in the run, by flattened id. */
   readonly choices?: Readonly<Record<string, string>>
@@ -2043,9 +2043,10 @@ function elaboratePass(
         default: return false
       }
     })
-    // The run's member list gives the engine the order of a grown group's
-    // members, including one whose only stored state is a choice or an output.
-    if (typeof grows === 'string' && !scope.ghost && !scope.dormant && storedCount > 0) {
+    // Count-grown outputs also need a recorded member list: the worker
+    // projects the same output interface the host validated.
+    const countedOutputs = typeof grows === 'object' && 'count' in grows && holdsOutput
+    if (!scope.ghost && !scope.dormant && (countedOutputs || typeof grows === 'string' && storedCount > 0)) {
       outputMembers[path] = [...keys]
     }
 

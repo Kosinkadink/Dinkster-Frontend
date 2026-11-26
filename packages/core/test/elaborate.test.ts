@@ -1028,6 +1028,9 @@ describe('formulas', () => {
     expect(refusal([n, g, { kind: 'note', id: 'x', text: { lookup: 'pack.mod.fn', args: ['g'] } }]))
       .toContain("pack.mod.fn: argument 'g' reads the members of a group whose count is a formula, which is not built yet")
     expect(refusal([n, g], { titleSuffix: { formula: 'str(len(g))' } })).toContain('is not built yet')
+    const ask = { step: 'ask', title: 'Count', rows: [{ id: 'answer', type: int }] }
+    expect(refusal([n, g, { kind: 'button', id: 'set', label: 'Set', steps: [ask,
+      { step: 'set', field: 'n', value: { formula: 'answer + len(g)' } }] }])).toContain("reads 'g'")
     // A member reads its own sibling and its position, and a group that grows by hand is read as before.
     expect(refusal([n, { ...g, memberLabel: { formula: 'str(s)' } }])).toBeUndefined()
     expect(refusal([n, { ...g, member: [{ ...g.member[0], label: { formula: '"s " + str(index() + 1)' } }] }])).toBeUndefined()
