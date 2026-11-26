@@ -65,7 +65,7 @@ describe('pairing', () => {
       const height = doLayout([middle]).rows[0]!.height
       const [first, second, last, after] = layout.rows
       expect([first, second, last].map((row) => [row!.y, row!.height])).toEqual([
-        [first!.y, height], [first!.y, height], [first!.y, height],
+        [first!.y, defaultTokens.rowHeight], [first!.y, height], [first!.y, defaultTokens.rowHeight],
       ])
       expect(after!.y).toBe(first!.y + height)
       const center = first!.y + defaultTokens.rowHeight / 2
@@ -74,7 +74,52 @@ describe('pairing', () => {
       ])
       expect(layout.pins.find((pin) => pin.portId === 'first' && pin.direction === 'out' && !pin.widgetTap)!.y)
         .toBeGreaterThan(after!.y)
+      if (middle.widget?.options['multiline'] === true) {
+        for (const projected of [projectNodeLayoutHeight(layout, layout.height + 61, defaultTokens), projectTextBoxLines(layout, 'middle', 5, defaultTokens)]) {
+          expect(projected.rows[0]).toMatchObject({ y: first!.y, height: defaultTokens.rowHeight })
+          expect(projected.rows[2]).toMatchObject({ y: first!.y, height: defaultTokens.rowHeight })
+          expect(projected.rows[3]!.y).toBe(projected.rows[1]!.y + projected.rows[1]!.height)
+          expect(projected.pins.filter((pin) => pin.pressed)).toEqual(layout.pins.filter((pin) => pin.pressed))
+        }
+      }
     }
+  })
+
+  it('keeps short controls and each text box at their own heights inside a shared boxed line', () => {
+    const text = (id: string) => widget(id, { widget: { widgetType: 'STRING', options: { multiline: true } } })
+    const schema = schemaOf([
+      { kind: 'section', id: 'fields', displayName: 'Fields', rows: [{ kind: 'row', rows: [
+        widget('number'),
+        widget('toggle', { widget: { widgetType: 'BOOLEAN', options: {} } }),
+        widget('choice', { widget: { widgetType: 'COMBO', options: { values: ['a', 'b'] } } }),
+        widget('line', { widget: { widgetType: 'STRING', options: {} } }),
+        text('shorter'), text('taller'),
+        { kind: 'button', id: 'run', label: 'Run', steps: [] },
+      ] }] },
+      input('after'),
+    ])
+    const options = { textBoxLines: { shorter: 3, taller: 5 } }
+    const layout = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, options)
+    const controls = layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
+    const boxHeight = (lines: number) => defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight +
+      lines * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding
+    expect(controls.map((row) => [row.y, row.height])).toEqual([
+      ...Array.from({ length: 4 }, () => [controls[0]!.y, defaultTokens.rowHeight]),
+      [controls[0]!.y, boxHeight(3)], [controls[0]!.y, boxHeight(5)], [controls[0]!.y, defaultTokens.rowHeight],
+    ])
+    const grown = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
+      ...options, size: { width: layout.width, height: layout.height + 61 },
+    })
+    const projected = projectNodeLayoutHeight(layout, grown.height, defaultTokens)
+    expect(projected.rows).toEqual(grown.rows)
+    expect(projected.boxes).toEqual(grown.boxes)
+    expect(projectNodeLayoutHeight(projected, layout.height, defaultTokens).rows).toEqual(layout.rows)
+    const resized = projectTextBoxLines(layout, 'taller', 7, defaultTokens)
+    const committed = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
+      textBoxLines: { shorter: 3, taller: 7 },
+    })
+    expect(resized.rows).toEqual(committed.rows)
+    expect(resized.boxes).toEqual(committed.boxes)
   })
 
   it('places an appended adjacent widget after its sibling without changing schema or value order', () => {

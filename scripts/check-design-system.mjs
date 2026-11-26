@@ -42,6 +42,7 @@ const geometry = new Set([
   'maxHeight',
   'minWidth',
   'minHeight',
+  'scale',
 ])
 
 export async function checkDesignSystem(args = []) {

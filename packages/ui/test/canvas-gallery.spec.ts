@@ -201,6 +201,74 @@ test('Representation filters declared looks and dismisses without changing the f
   await expect(popup).toHaveCount(0)
 })
 
+test('Curve and Save target choices escape clipped editors and stay inside the canvas', async ({ page }) => {
+  await openPage(page, 'editor-choice-placement')
+  const stage = page.locator('.dinkster-canvas-choice-example')
+  const popup = page.locator('.dinkster-canvas-editor-choice-list')
+  const list = popup.getByRole('listbox')
+  const checkBounds = async () => {
+    await expect.poll(async () => {
+      const bounds = (await stage.boundingBox())!
+      const field = (await popup.locator('.dinkster-canvas-field').boundingBox())!
+      const panel = (await list.boundingBox())!
+      return field.x >= bounds.x && field.y >= bounds.y &&
+        field.x + field.width <= bounds.x + bounds.width + 0.1 && field.y + field.height <= bounds.y + bounds.height + 0.1 &&
+        panel.y >= bounds.y && panel.y + panel.height <= bounds.y + bounds.height + 0.1
+    }).toBe(true)
+    for (const option of await list.getByRole('option').all()) {
+      expect(await option.evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+      })).toBe(true)
+    }
+  }
+  const curve = stage.getByRole('button', { name: 'Interpolation Linear', exact: true })
+  await curve.click()
+  await expect(list.getByRole('option')).toHaveCount(3)
+  await checkBounds()
+  const input = popup.getByRole('combobox')
+  await input.fill('mono')
+  await input.press('Enter')
+  await expect(stage.getByRole('button', { name: 'Interpolation Monotone cubic', exact: true })).toBeFocused()
+  const mount = stage.getByRole('button', { name: 'Mount output', exact: true })
+  await mount.click()
+  await expect(list.getByRole('option')).toHaveCount(6)
+  await checkBounds()
+  const unavailable = list.getByRole('option', { name: 'usb1', exact: true })
+  await expect(unavailable).toBeDisabled()
+  const unavailableBox = (await unavailable.boundingBox())!
+  await page.mouse.click(unavailableBox.x + unavailableBox.width / 2, unavailableBox.y + unavailableBox.height / 2)
+  await expect(list).toBeVisible()
+  await expect(mount).toHaveText('Mountoutput')
+  await popup.getByRole('combobox').fill('arch')
+  await popup.getByRole('combobox').press('Enter')
+  await expect(stage.getByRole('button', { name: 'Mount archive', exact: true })).toBeFocused()
+  await stage.getByRole('button', { name: 'Interpolation Monotone cubic', exact: true }).click()
+  await popup.getByRole('combobox').press('Escape')
+  await expect(popup).toHaveCount(0)
+  await stage.getByRole('button', { name: 'Mount archive', exact: true }).click()
+  await page.getByRole('heading', { name: 'Choice lists stay on the canvas' }).click()
+  await expect(popup).toHaveCount(0)
+  // A below-opening list must budget its own filter height at canvas zoom.
+  for (const scale of [0.75, 1.5]) {
+    await stage.evaluate((element, zoom) => {
+      element.style.height = '160px'
+      const editor = element.querySelectorAll<HTMLElement>('.dinkster-canvas-editor')[1]!
+      editor.style.top = '10px'
+      editor.style.transformOrigin = 'top right'
+      editor.style.transform = `scale(${zoom})`
+    }, scale)
+    await stage.getByRole('button', { name: 'Mount archive', exact: true }).click()
+    await expect(popup.locator('.dinkster-canvas-field')).toHaveAttribute('data-panel', 'below')
+    await expect.poll(async () => {
+      const bounds = (await stage.boundingBox())!
+      const panel = (await list.boundingBox())!
+      return panel.y + panel.height <= bounds.y + bounds.height + 0.1
+    }).toBe(true)
+    await popup.getByRole('combobox').press('Escape')
+  }
+})
+
 /** Every example card on the page has painted its canvas. */
 async function cardsReady(page: Page, id: string, theme: string) {
   const cards = page.locator('figure.dinkster-canvas-example canvas')
