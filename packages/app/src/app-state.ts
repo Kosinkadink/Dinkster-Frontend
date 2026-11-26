@@ -33,6 +33,7 @@ import {
   createSearchRegistry,
   createSignal,
   effectiveOccurrenceTopology,
+  resolveOccurrenceLinkEndpoint,
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
   elaborateInterface,
@@ -5584,6 +5585,67 @@ export class AppState {
         const supported = kind === 'construct' ? elaborated.constructs.includes(port)
           : kind === 'output' ? elabOutputsOf(elaborated).some((row) => row.address.port === port)
           : elabInputsOf(elaborated).some((row) => row.address.port === port && (kind !== 'tap' || row.spec.widget !== undefined))
+        if (!supported) return false
+      }
+    }
+    for (const [key, topology] of Object.entries(restored.occurrenceTopologies ?? {})) {
+      const current = tab.store.doc.occurrenceTopologies?.[key]
+      if (current === undefined) continue
+      const rawResolve = this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined))
+      const effective = effectiveOccurrenceTopology(restored, rawResolve, topology.owner)
+      for (const [id, link] of Object.entries(topology.links)) for (const side of ['from', 'to'] as const) {
+        const previous = current.links[id]?.[side]
+        if (previous === undefined || !jsonSameValue(previous as unknown as Json, link[side] as unknown as Json)) continue
+        const oldEnd = resolveOccurrenceLinkEndpoint(tab.store.doc, current.owner, previous, side).endpoint
+        if (oldEnd === undefined) continue
+        const end = resolveOccurrenceLinkEndpoint(restored, topology.owner, link[side], side).endpoint
+        // A surviving authored route must still reach the same address.
+        if (end === undefined || end.graphId !== oldEnd.graphId ||
+          JSON.stringify(end.instancePath) !== JSON.stringify(oldEnd.instancePath) ||
+          !jsonSameValue(end.endpoint as unknown as Json, oldEnd.endpoint as unknown as Json)) return false
+        if (!('node' in end.endpoint)) continue
+        const graph = restored.graphs[end.graphId]
+        const node = graph?.nodes[end.endpoint.node]
+        if (node === undefined && tab.store.doc.graphs[end.graphId]?.nodes[end.endpoint.node] === undefined) continue
+        if (graph === undefined || node === undefined) return false
+        const view = occurrenceDynamicView(restored, rawResolve, end.instancePath)
+        const oldView = occurrenceDynamicView(tab.store.doc, rawResolve, oldEnd.instancePath)
+        if (node === tab.store.doc.graphs[graph.id]?.nodes[node.id] &&
+          jsonSameValue((view.dynamic.get(node.id) ?? node.dynamic ?? {}) as Json,
+            (oldView.dynamic.get(node.id) ?? node.dynamic ?? {}) as Json) &&
+          jsonSameValue((view.values.get(node.id) ?? node.values) as Json,
+            (oldView.values.get(node.id) ?? node.values) as Json)) continue
+        const schema = resolve?.(graph.id, node)
+        if (schema === undefined) {
+          const before = notice.records.find((record) => record.forward.some((op) =>
+            op.path[0] === 'graphs' && op.path[1] === graph.id && op.path[2] === 'nodes' && op.path[3] === node.id))?.before
+          const original = before && Object.values(before.occurrenceTopologies?.[key]?.links ?? {}).some((candidate) => {
+            const originalEnd = resolveOccurrenceLinkEndpoint(before, topology.owner, candidate[side], side).endpoint
+            return originalEnd !== undefined && originalEnd.graphId === end.graphId &&
+              JSON.stringify(originalEnd.instancePath) === JSON.stringify(end.instancePath) &&
+              jsonSameValue(originalEnd.endpoint as unknown as Json, end.endpoint as unknown as Json)
+          })
+          if (!original) return false
+          continue
+        }
+        const inputs = new Set(view.inputPorts.get(node.id) ?? [])
+        const outputs = new Set<string>()
+        for (const candidate of [...effective.links, ...effective.projectedParentLinks]) {
+          if (candidate.to.graphId === graph.id && isPortEndpoint(candidate.to.endpoint) && candidate.to.endpoint.node === node.id)
+            inputs.add(candidate.to.endpoint.port)
+          if (candidate.from.graphId === graph.id && 'node' in candidate.from.endpoint && candidate.from.endpoint.node === node.id)
+            outputs.add('tap' in candidate.from.endpoint ? candidate.from.endpoint.tap : candidate.from.endpoint.port)
+        }
+        const elaborated = elaborateInterface(schema, { ...node,
+          ...(view.dynamic.has(node.id) ? { dynamic: view.dynamic.get(node.id)! } : {}),
+          values: view.values.get(node.id) ?? node.values,
+        }, { isInputConnected: (port) => inputs.has(port), isOutputConnected: (port) => outputs.has(port),
+          inputPorts: () => [...inputs], outputPorts: () => [...outputs] }, { promoteGhosts: false, nodeId: node.id })
+        const endpoint = end.endpoint
+        const supported = 'tap' in endpoint
+          ? elabInputsOf(elaborated).some((row) => row.address.port === endpoint.tap && row.spec.widget !== undefined)
+          : side === 'from' ? elabOutputsOf(elaborated).some((row) => row.address.port === endpoint.port)
+          : elabInputsOf(elaborated).some((row) => row.address.port === endpoint.port && row.spec.socketless !== true)
         if (!supported) return false
       }
     }

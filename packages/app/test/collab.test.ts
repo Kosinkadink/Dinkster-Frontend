@@ -13,9 +13,13 @@ import {
   COLLAB_PROTOCOL_VERSION,
   DINKSTER_SCHEMA_WIRE_VERSION,
   asConnectionId,
+  asGraphDefId,
+  asLinkId,
   asNodeId,
+  asPortId,
   diag,
   isValidActorId,
+  planOccurrenceLinkMutation,
   type CollabClientOp,
   type CollabConnection,
   type CollabConnectionEvent,
@@ -490,6 +494,84 @@ describe('the notice of the editor\'s own fixes in a shared workflow', () => {
     expect(Object.values(sharedA().store.doc.graphs.g0!.links).filter((link) => link.id !== 'original')).toEqual(oldSchemaServed ? [
       expect.objectContaining({ from: { node: 'n1', port: 'sharedOut' }, to: { node: 'n2', port: 'sharedIn' } }),
     ] : [])
+  })
+
+  it('protects peer occurrence-local wiring when undoing a replacement', async () => {
+    const server = new FakeCollabServer()
+    const appA = makeApp(server)
+    const appB = makeApp(server)
+    const int = { kind: 'concrete', types: ['INT'] }
+    for (const app of [appA, appB]) for (const backend of app.backends.get()) {
+      backend.registry.set(buildDinksterRegistry(asConnectionId(backend.id), {
+        schemaVersion: 1, epoch: 1, dinkster: { version: 'notice-collab', schemaWire: 2 }, packs: {},
+        nodes: {
+          Source: { body: [{ kind: 'output', id: 'out', type: int }] },
+          Previous: { body: [{ kind: 'input', id: 'oldAmount', type: int, default: 7 }, { kind: 'input', id: 'sharedIn', type: int }] },
+          Current: { body: [{ kind: 'input', id: 'amount', type: int, default: 7 }, { kind: 'input', id: 'sharedIn', type: int }],
+            replacements: [{ from: 'Previous', cases: [{ to: 'Current', inputs: {
+              amount: { kind: 'copy', input: 'oldAmount' }, sharedIn: { kind: 'copy', input: 'sharedIn' },
+            } }] }] },
+        },
+      } as DinksterNodesPayload))
+    }
+    expect(await appA.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'notice-occurrence-wire', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+          use: { id: 'use', type: '#body', values: {} },
+        } },
+        body: { id: 'body', name: 'body', nextOrdinal: 3, links: {}, nets: {}, reroutes: {}, nodes: {
+          src: { id: 'src', type: 'Source', values: {} },
+          dst: { id: 'dst', type: 'Previous', values: { oldAmount: 29 } },
+        }, boundary: { body: [
+          { kind: 'output', id: 'feed', binds: { kind: 'port', node: 'src', port: 'out' } },
+        ] } },
+      }, view: { graphs: {} },
+    }, 'Shared occurrence upgrade')).toEqual([])
+    const tabA = activeTab(appA)
+    await until(() => appA.adjustmentNoticeState(tabA.id) === 'ready', 'notice on open')
+    expect(await appA.shareActiveTab()).toBeUndefined()
+    expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
+    const tabB = activeTab(appB)
+    const owner = { instancePath: [], node: asNodeId('use') }
+    const from = { kind: 'boundary' as const, occurrence: owner, address: { port: asPortId('feed') },
+      route: [{ graph: asGraphDefId('body'), boundaryId: 'feed', binding: { kind: 'port' as const, node: asNodeId('src'), port: asPortId('out') } }] }
+    const plan = planOccurrenceLinkMutation(tabB.store.doc, appB.registryForTab(tabB)!.resolve, {
+      kind: 'connect', owner, bodyGraph: 'body', from,
+      to: { kind: 'body', endpoint: { node: asNodeId('dst'), port: asPortId('amount') } },
+    })
+    expect(plan.ok, JSON.stringify(plan)).toBe(true)
+    if (!plan.ok) throw new Error('occurrence wire was not planned')
+    const connected = tabB.store.dispatch(plan.invocation)
+    expect(connected.ok, JSON.stringify(connected.diagnostics)).toBe(true)
+    await sharedSession(appB, tabB.id).settle()
+    const sharedA = () => appA.tabs.get().find((tab) => tab.id === tabA.id)!
+    await until(() => JSON.stringify(sharedA().store.doc) === JSON.stringify(tabB.store.doc), 'foreign occurrence wire')
+    const before = JSON.stringify(sharedA().store.doc)
+    expect(appA.adjustmentNoticeState(tabA.id)).toBe('refused')
+    expect(appA.undoAdjustments(tabA.id)).toBe(false)
+    expect(JSON.stringify(sharedA().store.doc)).toBe(before)
+    const linkId = Object.keys(tabB.store.doc.occurrenceTopologies!.use!.links)[0]!
+    const disconnect = planOccurrenceLinkMutation(tabB.store.doc, appB.registryForTab(tabB)!.resolve, {
+      kind: 'disconnect', owner, bodyGraph: 'body', link: { kind: 'occurrence', owner, linkId: asLinkId(linkId) },
+    })
+    expect(disconnect.ok, JSON.stringify(disconnect)).toBe(true)
+    if (!disconnect.ok) throw new Error('occurrence disconnect was not planned')
+    expect(tabB.store.dispatch(disconnect.invocation).ok).toBe(true)
+    const compatible = planOccurrenceLinkMutation(tabB.store.doc, appB.registryForTab(tabB)!.resolve, {
+      kind: 'connect', owner, bodyGraph: 'body', from,
+      to: { kind: 'body', endpoint: { node: asNodeId('dst'), port: asPortId('sharedIn') } },
+    })
+    expect(compatible.ok, JSON.stringify(compatible)).toBe(true)
+    if (!compatible.ok) throw new Error('compatible occurrence wire was not planned')
+    expect(tabB.store.dispatch(compatible.invocation).ok).toBe(true)
+    await sharedSession(appB, tabB.id).settle()
+    await until(() => JSON.stringify(sharedA().store.doc) === JSON.stringify(tabB.store.doc), 'compatible peer wire')
+    const topology = structuredClone(sharedA().store.doc.occurrenceTopologies)
+    expect(appA.adjustmentNoticeState(tabA.id)).toBe('ready')
+    expect(appA.undoAdjustments(tabA.id)).toBe(true)
+    expect(sharedA().store.doc.graphs.body!.nodes.dst).toEqual({ id: 'dst', type: 'Previous', values: { oldAmount: 29 } })
+    expect(sharedA().store.doc.occurrenceTopologies).toEqual(topology)
   })
 })
 
