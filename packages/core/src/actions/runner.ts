@@ -217,10 +217,10 @@ export interface PressOutcome {
   readonly notes: readonly string[]
 }
 
-/** A field or member a press left as it was: it has a wire, or it changed while the press waited. */
+/** A field or member left unchanged because of its owner, a wire, or an edit while the press waited. */
 export interface Skip {
   readonly id: string
-  readonly why: 'wired' | 'edited' | 'outside'
+  readonly why: 'wired' | 'edited' | 'outside' | 'inside'
 }
 
 export type ButtonAvailability = { readonly enabled: true } | { readonly enabled: false; readonly reason: string }
@@ -1324,14 +1324,26 @@ class Press {
     const members = [...group.members, ...(this.view.elaborated.unstoredMinimums?.[group.path]?.members ?? [])]
     // Every member's value is worked out before any member is written.
     const evaluated: [FormulaContext, unknown][] = []
-    for (const member of members) {
+    const inside: number[] = []
+    for (const [index, member] of members.entries()) {
       const context = this.view.contexts.get(`${group.path}.${member}.`) ?? refuse(`${name} has no member ${member}.`)
       const path = context.paths.get(row)
       if (this.shownWrites !== undefined && (path === undefined || !this.shownWrites.has(writeOwnerKey(this.view, this.target, path)))) {
-        this.skip(path ?? `${group.path}.${member}.${row}`, 'outside')
+        this.skip(path ?? `${group.path}.${member}.${row}`, 'inside')
+        inside.push(index + 1)
         continue
       }
       evaluated.push([context, await this.value(value, context)])
+    }
+    if (inside.length > 0) {
+      const ranges: string[] = []
+      for (let at = 0; at < inside.length; at++) {
+        const start = inside[at]!
+        while (inside[at + 1] === inside[at]! + 1) at++
+        ranges.push(start === inside[at] ? `${start}` : `${start} to ${inside[at]}`)
+      }
+      const note = `${ranges.join(', ')} ${inside.length === 1 ? 'is inside and was' : 'are inside and were'} not changed.`
+      if (!this.notes.includes(note)) this.notes.push(note)
     }
     this.stage(evaluated.flatMap(([context, item]) => this.write(row, item, context)))
   }
@@ -1606,7 +1618,7 @@ function summary(changed: number, skipped: readonly Skip[], notes: readonly stri
   const parts: string[] = mixedAddition ? [...notes] : []
   if (skipped.length > 0) {
     if (changed > 0) parts.push(`Set ${changed} ${changed === 1 ? 'field' : 'fields'}.`)
-    parts.push(...skipped.map(({ id, why }) => why === 'edited'
+    parts.push(...skipped.filter(({ why }) => why !== 'inside').map(({ id, why }) => why === 'edited'
       ? `${id} was changed while the button waited and keeps that value.`
       : why === 'outside' ? nodeAdded ? `Skipped ${id}: it is wired from outside this subgraph.` : `Nothing added. ${id} is wired from outside this subgraph.`
         : `${id} has a wire and was left as it is.`))

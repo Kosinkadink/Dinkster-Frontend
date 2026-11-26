@@ -1600,23 +1600,34 @@ describe('steps outside the workflow', () => {
 })
 
 describe('steps inside a subgraph occurrence', () => {
-  it.each([1, 2])('forwards SetEach only to the shown members through %i levels', async (depth) => {
+  it.each([1, 2].flatMap((depth) => [0, 1, 4].map((prefix) => [depth, prefix] as const)))('forwards SetEach only to the shown members through %i levels with %i inside members', async (depth, prefix) => {
     addSchema('test.forwarded_group', [
       { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 6,
         keys: { numbered: { prefix: 'item_', start: 1, pad: 0 } }, member: [
           { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
         ] },
       { kind: 'button', id: 'increase', label: 'Increase', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: 'value + 7' } }] },
+      { kind: 'button', id: 'position', label: 'Position', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: 'value + index() + len(items)' } }] },
     ])
     const root = documentOf({ first: { type: depth === 1 ? '#g1' : '#g2' }, second: { type: depth === 1 ? '#g1' : '#g2' } })
-    const inner = documentOf({ inner: { type: 'test.forwarded_group', values: { 'items.item_1.value': 5 }, dynamic: { items: { members: ['item_1'], seq: 1 } } } }).graphs.g0!
-    const middle = documentOf({ detail: { type: '#g1' } }).graphs.g0!
+    const middlePrefix = depth === 2 && prefix === 4 ? 2 : 0
+    const insideMembers = Array.from({ length: prefix - middlePrefix }, (_, index) => `item_${index + 1}`)
+    const inner = documentOf({ inner: { type: 'test.forwarded_group',
+      values: Object.fromEntries(insideMembers.map((member) => [`items.${member}.value`, 5])),
+      dynamic: { items: { members: insideMembers, seq: insideMembers.length } },
+    } }).graphs.g0!
+    const middle = documentOf({ detail: { type: '#g1', ...(middlePrefix === 0 ? {} : {
+      values: { 'items.item_1.value': 6, 'items.item_2.value': 6 },
+      dynamic: { items: { members: ['item_1', 'item_2'], seq: 2 } },
+    }) } }).graphs.g0!
     const session = sessionOf({ ...root, graphs: { ...root.graphs,
       g1: { ...inner, id: asGraphDefId('g1'), boundary: { body: [] } },
       ...(depth === 1 ? {} : { g2: { ...middle, id: asGraphDefId('g2'), boundary: { body: [] } } }),
     } })
     expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g1', node: 'inner', button: 'increase' } }).ok).toBe(true)
+    expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g1', node: 'inner', button: 'position' } }).ok).toBe(true)
     if (depth === 2) expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g2', node: 'detail', button: 'increase' } }).ok).toBe(true)
+    if (depth === 2) expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g2', node: 'detail', button: 'position' } }).ok).toBe(true)
     const definition = session.doc.graphs[depth === 1 ? 'g1' : 'g2']!
     const group = boundaryItems(definition.boundary, 'inputs')[0]!.id
     const before: WorkflowDocument = { ...session.doc, graphs: { ...session.doc.graphs, g0: { ...session.doc.graphs.g0!, nodes: {
@@ -1626,13 +1637,32 @@ describe('steps inside a subgraph occurrence', () => {
     const run = sessionOf(before)
     const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve),
       schemaOf: (current, graphId, node) => documentNodeResolver(current, resolve)(graphId, node) })
-    expect(await runPress(run, { graphId: 'g0', nodeId: 'first', button: boundaryButtons(definition.boundary)[0]!.id }, host)).toMatchObject({ kind: 'done' })
+    const outcome = await runPress(run, { graphId: 'g0', nodeId: 'first', button: boundaryButtons(definition.boundary)[0]!.id }, host)
+    expect(outcome).toMatchObject({ kind: 'done' })
+    expect(outcome.warning).toBeUndefined()
+    expect(outcome.message).toBe(prefix === 0 ? undefined : `Set 2 fields. ${prefix === 1 ? '1 is inside and was' : '1 to 4 are inside and were'} not changed.`)
+    expect(outcome.skipped.map((item) => item.why)).toEqual(Array.from({ length: prefix }, () => 'inside'))
     expect(run.doc.graphs.g1).toEqual(before.graphs.g1)
     if (depth === 2) expect(run.doc.graphs.g2).toEqual(before.graphs.g2)
     expect(run.doc.graphs.g0!.nodes.second).toEqual(before.graphs.g0!.nodes.second)
     expect(run.doc.graphs.g0!.nodes.first!.values).toEqual({ [`${group}.item_1.value`]: 17, [`${group}.item_2.value`]: 27 })
     expect(run.undo()).toBe(true)
     expect(run.doc).toEqual(before)
+    expect(run.canUndo).toBe(false)
+    expect(await runPress(run, { graphId: 'g0', nodeId: 'first', button: 'position' }, host)).toMatchObject({ kind: 'done' })
+    expect(run.doc.graphs.g0!.nodes.first!.values).toEqual({ [`${group}.item_1.value`]: 12 + 2 * prefix, [`${group}.item_2.value`]: 23 + 2 * prefix })
+    expect(run.doc.graphs.g1).toEqual(before.graphs.g1)
+    if (depth === 2) expect(run.doc.graphs.g2).toEqual(before.graphs.g2)
+    expect(run.doc.graphs.g0!.nodes.second).toEqual(before.graphs.g0!.nodes.second)
+    const innerRun = sessionOf(before)
+    const innerOutcome = await runPress(innerRun, { graphId: 'g1', nodeId: 'inner', button: 'increase',
+      instancePath: depth === 1 ? ['first'] : ['first', 'detail'],
+    }, host)
+    expect(innerOutcome.kind).toBe('done')
+    expect(innerOutcome.skipped.some((item) => item.why === 'inside')).toBe(false)
+    expect(innerOutcome.message ?? '').not.toContain('is inside')
+    expect(innerOutcome.message ?? '').not.toContain('are inside')
+    if (insideMembers.length > 0) expect(innerRun.doc.graphs.g1!.nodes.inner!.values['items.item_1.value']).toBe(12)
   })
 
   it.each([1, 2])('promotes a button and its written fields through %i levels, preserving private reads and occurrence ownership', async (depth) => {
