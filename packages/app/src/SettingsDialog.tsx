@@ -395,7 +395,7 @@ export function SettingsDialog(props: {
         </Show>
         <Show when={group() === 'packs' && props.packSettings}>{(packSettings) => <For each={packSettings().packs()}>{(pack) => <ProductSettingsSection title={pack.displayName}><PackSettingsPanel packId={pack.id} client={packSettings().client} onCopyId={(id) => { void copyId(id) }} /></ProductSettingsSection>}</For>}</Show>
         <Show when={group() === 'engine'}><For each={(props.backends ?? []).filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')}>{(backend) => <ProductSettingsSection title={backend.label}>
-          <RuntimeSettingsPanel connection={backend.connection} backendLabel={backend.label} categories={(category) => !['memory-budgets', 'memory-headroom', 'aimdo-policy'].includes(category)} alwaysOpen />
+          <RuntimeSettingsPanel connection={backend.connection} backendLabel={backend.label} categories={(category) => !['memory-budgets', 'memory-headroom', 'aimdo-policy'].includes(category)} alwaysOpen settingsPage onCopyId={(id) => { void copyId(id) }} />
           <AgentPermissionsPanel connection={backend.connection} backendLabel={backend.label} />
         </ProductSettingsSection>}</For></Show>
       </ProductSettingsPage>
