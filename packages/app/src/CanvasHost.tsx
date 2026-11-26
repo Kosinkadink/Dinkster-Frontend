@@ -1721,7 +1721,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let openAssetWidgetAt = (_clientX: number, _clientY: number): void => {}
   let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}
   let editsRowsInPlace = (): boolean => false
-  let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }): void => {}
+  let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _markOnly = false): void => {}
   let showRowNote = (_from: { readonly nodeId: string; readonly valueKey: string }, _note: JSX.Element): void => {}
   interface ControllerMenuState {
     readonly x: number
@@ -4419,7 +4419,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
           ? undefined
-          : { ...rowFocusAt(tab, node, row), ...(focus.note === undefined ? {} : { note: focus.note }) })
+          : { ...rowFocusAt(tab, node, row), ...(focus.note === undefined ? {} : { note: focus.note }), ...(focus.markOnly ? { markOnly: true } : {}) })
       }
       const openMenu = untrack(menu)
       // Menu items are a semantic snapshot: they also go stale when the
@@ -4464,7 +4464,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           controller.setSelection([node.id])
           setRowFocus(undefined)
           if (focusRequest?.focusRow !== undefined) {
-            focusEditorRow({ nodeId: node.id, valueKey: focusRequest.focusRow })
+            focusEditorRow({ nodeId: node.id, valueKey: focusRequest.focusRow }, true)
           }
           const input = focusRequest?.openAssetInput
           const row = input === undefined ? undefined : node.layout.rows.find((candidate) =>
@@ -5389,7 +5389,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       canvasEl.focus()
     }
 
-    focusEditorRow = (from) => {
+    focusEditorRow = (from, markOnly = false) => {
       const tab = activeTab()
       const node = rowNodeOf(from.nodeId)?.node
       const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === from.valueKey)
@@ -5397,7 +5397,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setRowFocus(undefined)
         return
       }
-      setRowFocus(rowFocusAt(tab, node, row))
+      setRowFocus({ ...rowFocusAt(tab, node, row), ...(markOnly ? { markOnly: true } : {}) })
       canvasEl.focus()
     }
 
@@ -5406,6 +5406,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // back to the canvas. Every other key does what it does on the canvas.
     const onRowFocusKey = (event: KeyboardEvent): void => {
       const focus = rowFocus()
+      if (focus?.markOnly) { setRowFocus(undefined); return }
       if (focus === undefined || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
       const from = { nodeId: focus.nodeId, valueKey: focus.valueKey }
       if (event.key === 'Tab') {

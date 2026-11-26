@@ -40,6 +40,8 @@ test('removed pack parts open with a notice for the replaced option, anchored ro
   await expect(page.getByTestId('row-focus')).toBeVisible()
   await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
   await expect(notice.locator('.dinkster-fixes-review-row[aria-current="true"]')).toContainText('Removed option')
+  await expect(page.getByTestId('row-focus').locator('.dinkster-canvas-field-side')).toHaveCount(0)
+  await expect(page.locator('.widget-editor')).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((item) => item.id === 'option')!
@@ -57,6 +59,10 @@ test('removed pack parts open with a notice for the replaced option, anchored ro
     return Math.abs(focus.top + focus.height / 2 - (canvas.top + viewport.y + (node.y + row.y + row.height / 2) * viewport.scale))
   })).toBeLessThan(2)
   await page.screenshot({ path: evidencePath('removed-pack-parts', 'review-field.png'), animations: 'disabled' })
+  await page.keyboard.press('Shift')
+  await expect(page.getByTestId('row-focus')).toHaveCount(0)
+  await expect(page.locator('.widget-editor')).toHaveCount(0)
+  await expect(notice.locator('.dinkster-fixes-review-row[aria-current="true"]')).toContainText('Removed option')
   await openRailPanel(page, 'Problems')
   const panel = page.getByTestId('problems-panel')
   await expect(panel.locator('.problems-group-title')).not.toContainText(['Upgraded on open'])

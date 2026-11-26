@@ -8,6 +8,8 @@ export interface RowFocusState extends RowBox {
   readonly graphId: string
   readonly nodeId: string
   readonly valueKey: string
+  /** Navigation marks the row without showing its default or help. */
+  readonly markOnly?: boolean
   /** The declared default, as the row shows it. */
   readonly defaultText?: string
   readonly help?: string
@@ -21,8 +23,8 @@ export interface RowFocusState extends RowBox {
 
 /**
  * Draws the open field's outline around the row the keyboard is on, with a
- * side part holding the row's default and help text. Nothing opens; the
- * canvas keeps the focus and still draws the row.
+ * side part holding the row's default and help text unless navigation asks
+ * for the mark alone. The canvas keeps the focus and still draws the row.
  */
 export function RowFocusOverlay(props: {
   focus: RowFocusState
@@ -38,6 +40,7 @@ export function RowFocusOverlay(props: {
     sideSize(),
   ))
   const side = createMemo(() => {
+    if (props.focus.markOnly) return undefined
     const { defaultText, help, note } = props.focus
     if (note !== undefined) return <CanvasSidePart>{note}</CanvasSidePart>
     if (defaultText === undefined && help === undefined) return undefined
