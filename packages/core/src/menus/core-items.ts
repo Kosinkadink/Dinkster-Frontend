@@ -900,6 +900,25 @@ const groupDelete: MenuContribution = {
   },
 }
 
+const lineToggle: MenuContribution = {
+  id: 'core.line.toggle',
+  targets: ['widget', 'line'],
+  group: '30-layout',
+  resolve(ctx) {
+    const target = ctx.target
+    const line = target.kind === 'line' ? target : target.kind === 'widget' ? target.line : undefined
+    if (line === undefined || !('nodeId' in target)) return []
+    return [{
+      id: 'core.line.toggle',
+      label: line.folded ? 'Unfold line' : 'Fold line',
+      action: { kind: 'command', invocation: {
+        command: 'view.setLineFolded',
+        params: { graphId: ctx.graphId, nodeId: target.nodeId, lineKey: line.key, folded: !line.folded },
+      } },
+    }]
+  },
+}
+
 const sectionToggle: MenuContribution = {
   id: 'core.section.toggle',
   targets: ['section'],
@@ -1124,6 +1143,7 @@ export function coreMenuContributions(): readonly MenuContribution[] {
     groupColor,
     groupDelete,
     sectionToggle,
+    lineToggle,
     widgetExpose,
     widgetSubgraphNode,
     nodePreviewExpose,

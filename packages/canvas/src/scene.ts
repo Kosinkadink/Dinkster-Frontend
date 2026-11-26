@@ -1058,6 +1058,16 @@ export function buildScene(input: BuildSceneInput): Scene {
   // section must keep its pin so the boundary noodle never dangles. Family
   // forwarding has no single pin; its noodle anchors dynamically below.
   // Concrete occurrences use only their unsuppressed effective deliveries.
+  const wirelessByNode = new Map<string, Set<string>>()
+  for (const item of def.boundary ? boundaryItems(def.boundary, 'inputs') : []) {
+    if (item.wireHidden !== true) continue
+    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+      if (binding.kind !== 'port') continue
+      let ports = wirelessByNode.get(binding.node)
+      if (!ports) wirelessByNode.set(binding.node, (ports = new Set()))
+      ports.add(binding.port)
+    }
+  }
   if (def.boundary && effective === undefined) {
     for (const item of boundaryItems(def.boundary, 'inputs')) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
@@ -1230,6 +1240,9 @@ export function buildScene(input: BuildSceneInput): Scene {
     const sectionOverrides = view?.sections
       ? Object.fromEntries(Object.entries(view.sections).map(([id, s]) => [id, s.collapsed]))
       : undefined
+    const lineFolds = view?.lines
+      ? Object.fromEntries(Object.entries(view.lines).map(([id, line]) => [id, line.folded]))
+      : undefined
     const occurrenceDynamic = input.occurrenceView?.dynamic.get(node.id)
     const occurrenceValues = input.occurrenceView?.values?.get(node.id)
     const occurrenceControllers = input.occurrenceView?.controllers?.get(node.id)
@@ -1257,6 +1270,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(view?.collapsed === true ? { minimized: true as const } : {}),
           ...(view?.size ? { size: view.size } : {}),
           ...(sectionOverrides ? { sectionOverrides } : {}),
+          ...(lineFolds ? { lineFolds } : {}),
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
           ...(view?.textLines ? { textBoxLines: view.textLines } : {}),
           ...(view?.editors
@@ -1267,6 +1281,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(view?.histogramVisibility ? { histogramVisibility: view.histogramVisibility } : {}),
           ...(input.buttonNoticeHeights?.[node.id] === undefined ? {} : { buttonNoticeHeights: input.buttonNoticeHeights[node.id] }),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
+          ...(wirelessByNode.has(node.id) ? { wirelessInputs: wirelessByNode.get(node.id)! } : {}),
           ...(elaborated !== undefined ? { elaborated } : {}),
         })
       : missingLayout(

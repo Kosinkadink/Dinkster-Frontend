@@ -61,6 +61,27 @@ describe('hitTest', () => {
   const scene = sceneOf('exec-basic')
   const n0 = scene.nodes.find((n) => n.id === 'n0')!
 
+  it('selects the nearest folded-line field, keeping declaration order on an exact tie', () => {
+    const schema: NodeSchema = { type: 'Fields', displayName: 'Fields', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: ['first', 'middle', 'last'].map((id) => ({ kind: 'input', id,
+        type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } })) }],
+    }
+    const layout = layoutNode(schema, { ...n0.node, values: {} }, defaultTokens, measure, widgetMeasure,
+      { connectedPorts: new Set(['in:first', 'in:last', 'out:first', 'out:last']) })
+    const node = { ...n0, layout }
+    const folded = { ...scene, nodes: [node] }
+    const pins = layout.pins.filter((pin) => pin.direction === 'in')
+    const firstY = node.y + pins[0]!.y
+    const lastY = node.y + pins[1]!.y
+    for (const [y, portId] of [[firstY, 'first'], [lastY, 'last'], [(firstY + lastY) / 2, 'first'], [(firstY + lastY) / 2 + 0.1, 'last']] as const) {
+      expect(hitTestPin(folded, node.x, y)?.pin.address.port).toBe(portId)
+      const hit = hitTest(folded, node.x + node.layout.width, y, {
+        widgetTaps: new Set([`${node.id}:first:out:tap`, `${node.id}:last:out:tap`]),
+      })
+      expect(hit.kind === 'widgetTap' ? hit.input : undefined).toBe(portId)
+    }
+  })
+
   it('keeps socketless editors and value taps without incoming hits in nested and group scopes', () => {
     const fields = [
       { kind: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', pin: false, widget: { type: 'COLOR' } },

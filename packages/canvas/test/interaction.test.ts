@@ -3,9 +3,11 @@
  * renderer. There is no interaction event harness in this package, so keep
  * modifier precedence covered through the pure decision used by pointerdown.
  */
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   asNodeId, coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
+  parseDinksterSchema, type DinksterWireSchema,
   type CommandInvocation, type Json, type NodeSchema, type WorkflowDocument,
   boundaryOf,
   boundaryItems,
@@ -19,6 +21,7 @@ import { buildScene, REROUTE_SOCKET_OFFSET, scenesEqual, type Scene, type SceneN
 import { layoutNodeBadges, SUBGRAPH_BADGE } from '../src/badges.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
+import { historicalSchemas } from './historical-schemas.js'
 
 function interactionHarness(
   scene: Scene,
@@ -119,6 +122,49 @@ function interactionHarness(
     setPointerCapture, releasePointerCapture,
   }
 }
+
+describe('field-line rail', () => {
+  it('folds from the top and bottom of the rail, not from a field or a dragged press', () => {
+    const schema: NodeSchema = { type: 'Fields', displayName: 'Fields', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: ['first', 'last'].map((id) => ({ kind: 'input', id,
+        type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } })) }],
+    }
+    const loaded = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'rail', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Fields', nextOrdinal: 2, nodes: { n1: { id: 'n1', type: 'Fields', values: { first: 7, last: 19 } } },
+        links: {}, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 20, y: 30 }, lines: { first: { folded: false } } } } } } },
+    })
+    expect(loaded.diagnostics).toEqual([])
+    const store = new DocumentStore(loaded.document!, coreCommandRegistry())
+    const scene = () => buildScene({ document: store.doc, graphId: 'g0', resolve: () => schema, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }) })
+    const open = scene()
+    const node = open.nodes[0]!
+    const line = node.layout.lines![0]!
+    const first = node.layout.rows[line.first]!
+    const last = node.layout.rows[line.last]!
+    const x = node.x + line.railInset! + 6
+    const harness = interactionHarness(open, { dispatch: (invocation) => store.dispatch(invocation) })
+    for (const y of [node.y + first.y + 1, node.y + last.y + last.height - 1]) {
+      harness.fire('pointermove', x, y)
+      expect(harness.renderer.getOverlay().hoveredLine).toEqual({ nodeId: 'n1', key: 'first' })
+      harness.fire('pointerdown', x, y)
+      harness.fire('pointerup', x, y)
+      expect(scene().nodes[0]!.layout.lines![0]!.folded).toBe(true)
+      expect(store.undo()).toBe(true)
+      expect(scene()).toEqual(open)
+    }
+    harness.fire('pointerdown', x, node.y + first.y + 5)
+    harness.fire('pointermove', x, node.y + first.y + 18)
+    harness.fire('pointerup', x, node.y + first.y + 18)
+    expect(scene()).toEqual(open)
+    harness.fire('pointerdown', node.x + node.layout.width / 2, node.y + last.y + 12)
+    harness.fire('pointerup', node.x + node.layout.width / 2, node.y + last.y + 12)
+    expect(scene().nodes[0]!.layout.lines![0]!.folded).toBe(false)
+    expect(store.doc.graphs.g0).toEqual(loaded.document!.graphs.g0)
+    harness.controller.dispose()
+  })
+})
 
 describe('lens widget-row affordance', () => {
   it('claims its registered row region and activates without opening the widget editor', () => {
@@ -1487,6 +1533,58 @@ describe('link drops on a field row', () => {
     expect(harness.dispatched.at(-1)).toMatchObject({
       command: 'link.connect', params: { from: { node: 'n2', tap: 'cfg' }, to: { node: 'n1', port: 'in' } },
     })
+  })
+})
+
+describe('small flow node wire gestures', () => {
+  const wires = JSON.parse(readFileSync(new URL('../../core/test/fixtures/flow_schemas.json', import.meta.url), 'utf8')) as Record<string, DinksterWireSchema>
+  const flowSchemas = new Map(Object.entries(wires).map(([type, wire]) => [type, parseDinksterSchema(type, wire).schema!]))
+  const resolve = (type: string) => flowSchemas.get(type) ?? historicalSchemas.get(type)
+
+  it.each([
+    ['dinkster.utilities.or_else', 'values.2', 'PrimitiveInt', false],
+    ['dinkster.utilities.or_else', 'values.2', 'EmptyImage', true],
+    ['dinkster.utilities.only_if', 'condition', 'PrimitiveInt', false],
+    ['dinkster.utilities.only_if', 'condition', 'PrimitiveBoolean', true],
+  ])('only offers and connects a compatible %s %s wire from %s', (type, target, producer, accepted) => {
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'flow-wire', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Flow', nextOrdinal: 4, nodes: {
+        image: { id: 'image', type: 'EmptyImage', values: {} },
+        candidate: { id: 'candidate', type: producer, values: {} },
+        flow: { id: 'flow', type, values: {}, dynamic: { values: { members: ['1', '2'], seq: 2 } } },
+      }, links: {
+        first: { id: 'first', from: { node: 'image', port: 'out0' }, to: { node: 'flow', port: type.endsWith('or_else') ? 'values.1' : 'value' } },
+      }, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: {
+        image: { position: { x: 0, y: 0 } }, candidate: { position: { x: 0, y: 300 } }, flow: { position: { x: 400, y: 100 } },
+      } } } },
+    })
+    const store = new DocumentStore(loaded.document!, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const before = store.doc
+    const scene = buildScene({ document: before, graphId: 'g0', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.line', rows: 1 }) })
+    const source = scene.nodes.find((node) => node.id === 'candidate')!
+    const sink = scene.nodes.find((node) => node.id === 'flow')!
+    const output = source.layout.pins.find((pin) => pin.direction === 'out' && !pin.widgetTap)!
+    const input = sink.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === target)!
+    const harness = interactionHarness(scene, { dispatch: (invocation) => store.dispatch(invocation) })
+    harness.fire('pointerdown', source.x + source.layout.width, source.y + output.y)
+    harness.fire('pointermove', source.x + source.layout.width + 30, source.y + output.y)
+    const targets = (harness.overlays.at(-1) as { dropTargets: Set<string> }).dropTargets
+    expect(targets.has(`flow:${target}:in`)).toBe(accepted)
+    harness.fire('pointermove', sink.x, sink.y + input.y)
+    harness.fire('pointerup', sink.x, sink.y + input.y)
+    if (accepted) {
+      expect(Object.values(store.doc.graphs.g0!.links).map((link) => [link.from, link.to])).toContainEqual([
+        { node: 'candidate', port: 'out0' }, { node: 'flow', port: target },
+      ])
+      expect(store.doc.graphs.g0!.links.first).toEqual(before.graphs.g0!.links.first)
+    } else {
+      expect(store.doc).toEqual(before)
+    }
+    harness.controller.dispose()
   })
 })
 
