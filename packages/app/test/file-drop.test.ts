@@ -46,11 +46,27 @@ const hint = (entries: Record<string, unknown>): string => JSON.stringify(Object
 describe('safe file-drop classification', () => {
   it('recognizes workflow JSON by UTF-8 bytes, not its filename or MIME metadata', async () => {
     await expect(classifyDroppedFile(file(new TextEncoder().encode(' {"version":1}')))).resolves.toEqual({ kind: 'workflow', document: { version: 1 } })
+    await expect(classifyDroppedFile(file(new TextEncoder().encode(`${' '.repeat(64 * 1024)}{"version":2}`)))).resolves.toEqual({ kind: 'workflow', document: { version: 2 } })
   })
 
   it('recognizes JPEG and WebP signatures and rejects script-shaped bytes', async () => {
     await expect(classifyDroppedFile(file(Uint8Array.from([0xff, 0xd8, 0xff, 0x00])))).resolves.toMatchObject({ kind: 'image', mediaType: 'image/jpeg' })
     await expect(classifyDroppedFile(file(new TextEncoder().encode('<script>alert(1)</script>')))).resolves.toMatchObject({ kind: 'rejected', code: 'fileDrop.unsupported' })
+  })
+
+  it('classifies large images without materializing the file and still validates complete PNG framing', async () => {
+    const source = file(Uint8Array.from([0xff, 0xd8, 0xff, 0x00]), 'large.jpg')
+    Object.defineProperty(source, 'size', { value: 500_000_000 })
+    source.arrayBuffer = async () => { throw new Error('Whole-file read forbidden') }
+    source.slice = (start = 0, end = source.size) => {
+      if (end - start > 64 * 1024) throw new Error('Unbounded classification read forbidden')
+      return Blob.prototype.slice.call(source, start, end)
+    }
+    await expect(classifyDroppedFile(source)).resolves.toEqual({ kind: 'image', mediaType: 'image/jpeg' })
+
+    const framed = file(png(chunk('tEXt', new TextEncoder().encode('workflow\0{"nodes":[]}'))))
+    framed.arrayBuffer = async () => { throw new Error('Whole-file read forbidden') }
+    await expect(classifyDroppedFile(framed)).resolves.toMatchObject({ kind: 'image', embeddedWorkflow: { nodes: [] } })
   })
 
   it('extracts bounded uncompressed Comfy workflow text from PNG', async () => {
@@ -108,6 +124,17 @@ describe('safe file-drop classification', () => {
     })
     expect(slice).toHaveBeenCalledTimes(2)
     expect(slice.mock.calls).toEqual([[0, 8], [8, 8 + Number(new DataView(bytes.buffer).getBigUint64(0, true))]])
+  })
+
+  it('validates large latent extents without a transport cap or reading tensor bodies', async () => {
+    const bodyBytes = 8 * 1024 * 1024 * 1024 + 4
+    const header = safetensors({ latent_tensor: tensor('F32', [bodyBytes / 4], 0, bodyBytes) }, {}, new Uint8Array())
+    const source = file(header, 'large.latent')
+    Object.defineProperty(source, 'size', { value: header.length + bodyBytes, configurable: true })
+    source.arrayBuffer = async () => { throw new Error('Tensor body read forbidden') }
+    await expect(classifyDroppedFile(source)).resolves.toEqual({ kind: 'latent', metadata: {} })
+    Object.defineProperty(source, 'size', { value: header.length + bodyBytes - 1 })
+    await expect(classifyDroppedFile(source)).resolves.toMatchObject({ kind: 'rejected', code: 'fileDrop.invalidLatent' })
   })
 
   it('rejects latent uint64, header extent, UTF-8, duplicate-key, tensor, and retained metadata violations', async () => {
