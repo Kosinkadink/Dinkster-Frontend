@@ -42,6 +42,45 @@ function setup(call: () => Promise<CallAnswer>, nodeSchema = schema, lookups?: L
 }
 
 describe('button press authority and typed answers', () => {
+  it('opens the host editor on preceding staged writes and commits their result in one undo', async () => {
+    const schema = parseDinksterSchema('test.staged_editor', {
+      schemaVersion: 2, nodeType: 'test.staged_editor', displayName: 'Editor', category: 'test', body: [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+        { kind: 'button', id: 'edit', label: 'Edit', steps: [
+          { step: 'set', field: 'value', value: { value: 41 } },
+          { step: 'openEditor', field: 'value' },
+        ] },
+      ],
+    }).schema!
+    const resolve = () => schema
+    const doc = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'editor', root: 'g0', graphs: {
+      g0: { id: 'g0', name: 'root', nextOrdinal: 10, nodes: { n1: { id: 'n1', type: schema.type, values: { value: 7 } } }, links: {}, nets: {}, reroutes: {} },
+    }, view: { graphs: {} } } as unknown as WorkflowDocument
+    const store = createLocalSession(doc, coreCommandRegistry([], resolve), { schemaResolverFor: () => resolve })
+    const tab = { id: 'editor', store } as Tab
+    const registry = { resolve }, state = { status: 'ready' }, backend = { schemaState: { get: () => state } }
+    const app = { registryForTab: () => registry, backendForTab: () => backend, tabs: { get: () => [tab] },
+      widgetRegistryForTab: () => ({ kind: () => ({}) }), recordHostLog: () => undefined } as unknown as AppState
+    let initial: unknown
+    const presses = createButtonPresses(app, {
+      edit: async (request) => {
+        expect(store.doc).toEqual(doc)
+        initial = request.initial
+        return request.initial
+      },
+      ask: async () => undefined,
+      confirmLink: async () => false,
+    })
+    await presses.press({ tab, graphId: 'g0', nodeId: 'n1', button: 'edit' })
+    expect(initial).toBe(41)
+    expect(store.doc.graphs['g0']!.nodes['n1']!.values).toEqual({ value: 41 })
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(doc)
+    expect(store.canUndo).toBe(false)
+    expect(store.redo()).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['n1']!.values).toEqual({ value: 41 })
+  })
+
   it.each([
     { targetX: 700, wired: undefined }, { targetX: 250, wired: undefined },
     { targetX: 700, wired: 'above' }, { targetX: 700, wired: 'below' },

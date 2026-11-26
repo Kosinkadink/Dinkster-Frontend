@@ -133,12 +133,8 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
       const spec = field.spec.widget
       if (spec === undefined || NO_HOST_EDITOR.has(spec.widgetType) || isAssetWidgetInput(field.spec)) return undefined
       if (app.widgetRegistryForTab(tab).kind(spec.widgetType) === undefined) return undefined
-      return (signal: AbortSignal) => {
-        const doc = tab.store.doc
-        const values = occurrenceDynamicView(doc, resolve, place.instancePath ?? [], place.instancePath?.length ? doc.root : place.graphId).values.get(place.nodeId)
-          ?? doc.graphs[place.graphId]?.nodes[place.nodeId]?.values
-        return surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial: values?.[field.spec.id] }, signal)
-      }
+      return (signal: AbortSignal, initial: Json | undefined) =>
+        surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial }, signal)
     }
     return {
       schemaOf: (doc, graphId, node) => documentNodeResolver(doc, resolve)(graphId, node, place.instancePath as readonly NodeId[] | undefined),

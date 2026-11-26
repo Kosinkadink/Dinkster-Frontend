@@ -141,7 +141,7 @@ export interface ActionHost {
   /** The chosen asset value, or undefined when the picker closed. */
   openPicker(field: ElaboratedInput, signal: AbortSignal): Promise<Json | undefined>
   /** The field's host editor, or undefined when it has none yet. */
-  editorFor(field: ElaboratedInput): ((signal: AbortSignal) => Promise<Json | undefined>) | undefined
+  editorFor(field: ElaboratedInput): ((signal: AbortSignal, initial: Json | undefined) => Promise<Json | undefined>) | undefined
   pasteImage(field: ElaboratedInput, signal: AbortSignal): Promise<Json>
   copy(text: string): Promise<void>
   /** Saves a file; 'closed' when the user closed a Save As dialog without saving. */
@@ -1050,7 +1050,7 @@ class Press {
         let value: Json | undefined
         if (step.step === 'openPicker') value = await this.wait(this.host.openPicker(field, this.signal))
         else if (step.step === 'pasteImage') value = await this.wait(this.host.pasteImage(field, this.signal))
-        else value = await this.wait((this.host.editorFor(field) ?? refuse(NO_EDITOR_MESSAGE))(this.signal))
+        else value = await this.wait((this.host.editorFor(field) ?? refuse(NO_EDITOR_MESSAGE))(this.signal, this.view.node.values[path]))
         if (value === undefined) throw new Cancelled()
         // The host's own picker, editor and paste give a value its asset handling already checked.
         this.stage([...this.materialize(field), { kind: 'value', path, value }])
