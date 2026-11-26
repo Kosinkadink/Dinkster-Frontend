@@ -628,12 +628,14 @@ function paintCurveSketch(
       let previous = samples[0]!
       const firstPoint = at(0, previous)
       line.moveTo(firstPoint.x, firstPoint.y)
-      for (const [position, value] of style['points'] as readonly (readonly [number, number])[]) {
-        const before = at(position, previous)
-        const after = at(position, value)
+      for (const [position, value] of points) {
+        if (position! <= 0 || position! > 1) continue
+        const next = Math.max(0, Math.min(1, value!))
+        const before = at(position!, previous)
+        const after = at(position!, next)
         line.lineTo(before.x, before.y)
         line.lineTo(after.x, after.y)
-        previous = value
+        previous = next
       }
       line.lineTo(left + span, at(0, previous).y)
     } else {
@@ -646,8 +648,8 @@ function paintCurveSketch(
     ctx.lineWidth = paint.lineWidth
     ctx.lineJoin = 'round'
     // Before the first point and after the last the curve holds that point's value, drawn muted.
-    const first = held.length === 2 ? at(held[0]!, 0).x : left
-    const last = held.length === 2 ? at(held[1]!, 0).x : left + span
+    const first = held.length === 2 ? at(Math.max(0, Math.min(1, held[0]!)), 0).x : left
+    const last = held.length === 2 ? at(Math.max(0, Math.min(1, held[1]!)), 0).x : left + span
     for (const [from, to, color] of [
       [square.x, first, tokens.colors.valueMark],
       [first, last, tokens.colors.widgetAffordanceActive],
@@ -666,6 +668,7 @@ function paintCurveSketch(
   // Small solid dots on the line, so close points still read apart and hide little of it.
   ctx.fillStyle = tokens.colors.widgetAffordanceActive
   for (const [position, value] of points) {
+    if (position! < 0 || position! > 1 || value! < 0 || value! > 1) continue
     const point = at(position!, value!)
     ctx.beginPath()
     ctx.arc(point.x, point.y, paint.pointRadius, 0, Math.PI * 2)

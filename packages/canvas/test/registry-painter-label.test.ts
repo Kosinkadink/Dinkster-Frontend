@@ -126,6 +126,47 @@ const paint = (value: unknown, width: number): string[] => {
   return texts
 }
 
+it('keeps a folded Step line inside the plot for out-of-range points and values', () => {
+  class RecordedPath {
+    readonly points: number[][] = []
+    moveTo(x: number, y: number) { this.points.push([x, y]) }
+    lineTo(x: number, y: number) { this.points.push([x, y]) }
+  }
+  const original = globalThis.Path2D
+  vi.stubGlobal('Path2D', RecordedPath)
+  try {
+    const recorded = fakeCtx()
+    let line: RecordedPath | undefined
+    Object.assign(recorded.ctx, {
+      strokeRect: () => {}, setLineDash: () => {},
+      stroke: (path?: RecordedPath) => { if (path?.points.length) line = path },
+    })
+    const view: WidgetView = {
+      ...stubView, id: 'core.curve', kind: 'CURVE',
+      drawCompact: (scene) => scene.rect(0, 0, 1, 2, {
+        role: 'curveSketch', interpolation: 'step', samples: [0.2, 1], held: [-1, 1.5],
+        points: [[-1, 0.2], [0.25, 2], [0.75, -0.5], [1, 2], [1.5, 0.4]],
+      }),
+    }
+    const curveRegistry = { ...registry, kind: () => stubKind, viewsFor: () => [view] }
+    createRegistryPainter(curveRegistry)({
+      ctx: recorded.ctx, row: { ...rowWith({}), viewId: 'core.curve', height: 52, spec: { widgetType: 'CURVE', options: {} } },
+      value: {}, x: 0, y: 0, width: 300, rowHeight: 26, connected: false,
+      tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' },
+    })
+    const square = recorded.fills.find((fill) => fill.width === fill.height)!
+    const inset = canvasPaintTokens.widget.curve.plotInset
+    const span = square.width - 2 * inset
+    const actual = line!.points.map(([x, y]) => [
+      (x! - square.x - inset) / span, 1 - (y! - square.y - inset) / span,
+    ])
+    const expected = [[0, 0.2], [0.25, 0.2], [0.25, 1], [0.75, 1], [0.75, 0], [1, 0], [1, 1], [1, 1]]
+    expect(actual).toHaveLength(expected.length)
+    actual.forEach((point, index) => point.forEach((coordinate, axis) => expect(coordinate).toBeCloseTo(expected[index]![axis]!)))
+    expect(recorded.arcs).toEqual([])
+  } finally { vi.stubGlobal('Path2D', original) }
+})
+
 const paintString = (value: string, width: number): string[] => {
   return paintStringDetails(value, width).texts
 }
