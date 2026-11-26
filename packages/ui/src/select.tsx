@@ -286,6 +286,10 @@ export function ProductSelect(
             id={listId}
             role="listbox"
             class="floating-surface dinkster-select-list"
+            data-density={
+              trigger.closest('[data-density]')?.getAttribute('data-density') ??
+              undefined
+            }
             aria-label={button['aria-label']}
             aria-labelledby={
               button['aria-labelledby'] ??
