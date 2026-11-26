@@ -48,18 +48,36 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
       })).toBe(true)
     }
   }
-  const curve = stage.getByRole('button', { name: 'Interpolation Linear', exact: true })
+  const curve = stage.locator('.dinkster-canvas-editor-field-slot > button')
+  const closedCurve = await curve.screenshot()
   await curve.click()
   await expect(list.getByRole('option')).toHaveCount(3)
   await checkBounds()
+  expect(await curve.screenshot()).toEqual(closedCurve)
+  // Browser focus decoration on the native typing surface must never paint over the row.
+  await popup.getByRole('combobox').evaluate((element) => { element.style.outline = '1px solid white' })
+  expect(await curve.screenshot()).toEqual(closedCurve)
+  const curveEdge = (await list.boundingBox())!.y + (await list.boundingBox())!.height
   const input = popup.getByRole('combobox')
+  await input.fill('s')
+  await expect(list.getByRole('option')).toHaveCount(1)
+  await expect.poll(async () => {
+    const box = (await list.boundingBox())!
+    return box.y + box.height
+  }).toBe(curveEdge)
+  await expect(curve).toHaveText('Interpolations')
+  await input.fill('')
+  await expect(curve).toHaveText('InterpolationLinear')
   await input.fill('mono')
   await input.press('Enter')
   await expect(stage.getByRole('button', { name: 'Interpolation Monotone cubic', exact: true })).toBeFocused()
-  const mount = stage.getByRole('button', { name: 'Mount output', exact: true })
+  const mount = stage.locator('.dinkster-canvas-target-choice')
+  const closedMount = await mount.screenshot()
   await mount.click()
   await expect(list.getByRole('option')).toHaveCount(6)
   await checkBounds()
+  expect(await mount.screenshot()).toEqual(closedMount)
+  const mountEdge = (await list.boundingBox())!.y + (await list.boundingBox())!.height
   const unavailable = list.getByRole('option', { name: 'usb1', exact: true })
   await expect(unavailable).toBeDisabled()
   const unavailableBox = (await unavailable.boundingBox())!
@@ -67,6 +85,11 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
   await expect(list).toBeVisible()
   await expect(mount).toHaveText('Mountoutput')
   await popup.getByRole('combobox').fill('arch')
+  await expect(mount).toHaveText('Mountarch')
+  await expect.poll(async () => {
+    const box = (await list.boundingBox())!
+    return box.y + box.height
+  }).toBe(mountEdge)
   await popup.getByRole('combobox').press('Enter')
   await expect(stage.getByRole('button', { name: 'Mount archive', exact: true })).toBeFocused()
   await stage.getByRole('button', { name: 'Interpolation Monotone cubic', exact: true }).click()

@@ -141,14 +141,14 @@ export function CanvasTargetBox(props: {
       case 'ready':
         return (
           <>
-            <span class="dinkster-canvas-target-value-text">{picked()?.closedLabel ?? picked()?.label ?? props.mount}</span>
+            <span class="dinkster-canvas-target-value-text" data-filtering={props.inNode && props.listOpen && query() !== ''}>{props.inNode && props.listOpen && query() !== '' ? query() : picked()?.closedLabel ?? picked()?.label ?? props.mount}</span>
             <ChevronDown class="dinkster-canvas-target-glyph" aria-hidden="true" />
           </>
         )
     }
   }
   return (
-    <div class="dinkster-canvas-target-box" data-frozen={props.frozen === true}>
+    <div class="dinkster-canvas-target-box" data-frozen={props.frozen === true} data-in-node={props.inNode === true}>
       <div class="dinkster-canvas-target-mount">
         <button
           ref={(element) => {

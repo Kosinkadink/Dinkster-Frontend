@@ -591,6 +591,7 @@ const CHEVRON_PATH = 'M8.5 10.5L11.5 13.5L14.5 10.5'
 export function CanvasClosedRow(props: {
   label: string
   value: string
+  filtering?: boolean
   onOpen: () => void
   onStep?: (direction: -1 | 1, fast: boolean) => void
   /**
@@ -619,7 +620,7 @@ export function CanvasClosedRow(props: {
       <button type="button" class="dinkster-canvas-field-row dinkster-canvas-closed-row" data-steppers="false"
         {...(props.choice === true ? { 'aria-haspopup': 'listbox' as const } : {})} onClick={() => props.onOpen()}>
         <span class="dinkster-canvas-field-label">{props.label}</span>
-        <span class="dinkster-canvas-closed-row-value">{props.value}</span>
+        <span class="dinkster-canvas-closed-row-value" data-filtering={props.filtering === true}>{props.value}</span>
         <Show when={props.choice === true}>
           <span class="dinkster-canvas-closed-row-chevron"><StepGlyph path={CHEVRON_PATH} /></span>
         </Show>

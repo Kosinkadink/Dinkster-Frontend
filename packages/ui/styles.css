@@ -1056,6 +1056,7 @@
 .dinkster-canvas-target-choice[data-tone='error'] { outline: var(--dinkster-indicator-width) solid var(--dinkster-danger-foreground); outline-offset: calc(0px - var(--dinkster-indicator-width)); }
 .dinkster-canvas-target-choice[aria-expanded='true'], .dinkster-canvas-target-input:focus, .dinkster-canvas-target-input[data-focused='true'] { outline: var(--dinkster-indicator-width) solid var(--dinkster-border-focus); outline-offset: calc(0px - var(--dinkster-indicator-width)); }
 .dinkster-canvas-target-choice:focus-visible, .dinkster-canvas-target-choice[data-focused='true'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
+.dinkster-canvas-target-box[data-in-node='true'] .dinkster-canvas-target-choice[aria-expanded='true'] { outline: none; }
 .dinkster-canvas-target-glyph { flex: none; width: var(--dinkster-space-12); height: var(--dinkster-space-12); color: var(--dinkster-text-secondary); stroke-width: 2; }
 .dinkster-canvas-target-spinner { width: var(--dinkster-space-12); height: var(--dinkster-space-12); }
 .dinkster-canvas-target-list { position: absolute; top: calc(100% + var(--dinkster-border-width) * 2); left: 0; min-width: 100%; width: max-content; box-sizing: border-box; z-index: 2; padding: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-raised); box-shadow: var(--dinkster-elevation-high); }
@@ -1107,6 +1108,11 @@
 /* A row the canvas does not paint, drawn as the canvas draws it closed; it opens in place over itself. */
 .dinkster-canvas-editor-field-slot { position: relative; flex: 1; min-width: 0; }
 .dinkster-canvas-editor-choice-list { position: fixed; z-index: 30; transform-origin: top left; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
+/* Keep the native filter focusable for typing without painting over the choice row. */
+.dinkster-canvas-editor-choice-list .dinkster-canvas-field-row { opacity: 0; pointer-events: none; }
+.dinkster-canvas-editor-choice-list .dinkster-canvas-field-outline { display: none; }
+.dinkster-canvas-editor-choice-list .dinkster-canvas-field-panel { outline: var(--dinkster-border-width) solid var(--dinkster-border-subtle); outline-offset: calc(0px - var(--dinkster-border-width)); }
+.dinkster-canvas-closed-row-value[data-filtering='true']::after, .dinkster-canvas-target-value-text[data-filtering='true']::after { content: ''; border-right: var(--dinkster-border-width) solid currentColor; }
 .dinkster-canvas-choice-example .dinkster-canvas-editor { overflow: hidden; }
 .dinkster-canvas-closed-row { width: 100%; box-sizing: border-box; padding: 0; border: 0; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-field); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .dinkster-canvas-closed-row:focus-visible, .dinkster-canvas-closed-row-open:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); }

@@ -297,6 +297,7 @@ export function CanvasEditorChoiceList(props: Omit<ComponentProps<typeof CanvasR
   const [height, setHeight] = createSignal(0)
   const [position, setPosition] = createSignal({ x: 0, y: 0, width: 0, scale: 1, listPlace: 'below' as 'above' | 'below', listMaxHeight: 0 })
   let popup!: HTMLDivElement
+  let openingSide: 'above' | 'below' | undefined
   const close = (restore = true): void => {
     if (restore) (local.anchor.matches('button') ? local.anchor : local.anchor.querySelector('button'))?.focus()
     local.onClose()
@@ -319,8 +320,11 @@ export function CanvasEditorChoiceList(props: Omit<ComponentProps<typeof CanvasR
     const y = Math.max(top, Math.min(row.y, bottom - filterHeight))
     const layout = canvasListLayout({ x: row.x, y, width, height: filterHeight },
       { x: left, y: top, width: right - left, height: bottom - top }, height() * scale, { width: 0, height: 0 }, 1, 0, 0)
+    if (height() > 0) openingSide ??= layout.listPlace
+    const side = openingSide ?? layout.listPlace
+    const room = side === 'above' ? y - top : bottom - y - filterHeight
     const next = { x: Math.max(left, Math.min(row.x, right - width)), y, width: width / scale, scale,
-      listPlace: layout.listPlace, listMaxHeight: (layout.listMaxHeight ?? height() * scale) / scale }
+      listPlace: side, listMaxHeight: Math.max(0, room / scale) }
     setPosition((previous) => Object.keys(next).every((key) => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next)
   }
   createEffect(() => { height(); queueMicrotask(place) })
@@ -370,9 +374,8 @@ export function CanvasEditorChoiceList(props: Omit<ComponentProps<typeof CanvasR
 
 /**
  * A choice of an editor's own, drawn as the node's choice row is: the name,
- * the chosen entry and the chevron. Pressing the row opens it in place as
- * the node's choice row opens: the value becomes a filter and the entries
- * open over the canvas at its width, flipping or shifting to stay inside.
+ * the chosen entry and the chevron. The row stays in place as its list opens;
+ * typed text takes the value's place until the list closes.
  */
 export function CanvasEditorChoice(props: {
   label: string
@@ -401,7 +404,7 @@ export function CanvasEditorChoice(props: {
   }
   return (
     <div class="dinkster-canvas-editor-field-slot" ref={slot}>
-      <CanvasClosedRow label={props.label} value={props.value} onOpen={begin} choice />
+      <CanvasClosedRow label={props.label} value={open() && query() !== '' ? query() : props.value} filtering={open() && query() !== ''} onOpen={begin} choice />
       <Show when={open()}>
         <CanvasEditorChoiceList anchor={slot} onClose={() => setOpen(false)}
           look="flat-title"
