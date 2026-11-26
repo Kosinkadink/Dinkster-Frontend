@@ -4,6 +4,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
+import { widgetValueText } from '@dinkster/canvas'
 import { BrandMark } from './BrandMark.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
@@ -479,7 +480,10 @@ export function App(props: {
       // back to its plain text.
       widgetReadout: (row, value) => {
         try {
-          return widgets.viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.readout?.(value, row.spec)
+          const readout = widgets.viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.readout?.(value, row.spec)
+          if (readout !== undefined) return readout
+          const summary = widgetValueText(widgets, row.viewId, value, row.spec)
+          return summary === null ? [] : summary === undefined ? undefined : [summary]
         } catch {
           return undefined
         }
