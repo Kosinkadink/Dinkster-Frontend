@@ -119,7 +119,9 @@ describe('problemBoxPlacement', () => {
     expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 3 }, 1200)?.maxWidth).toBe(400)
     // A pane narrower than 400 + 2 * 16 keeps 16 px at each side.
     expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 1 }, 300)?.maxWidth).toBe(268)
-    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.5 }, 1200)).toBeDefined()
-    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.49 }, 1200)).toBeUndefined()
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.3 }, 1200)).toBeDefined()
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.29 }, 1200)).toBeUndefined()
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.6 }, 1200, 0.6)).toBeDefined()
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.5 }, 1200, 0.6)).toBeUndefined()
   })
 })
