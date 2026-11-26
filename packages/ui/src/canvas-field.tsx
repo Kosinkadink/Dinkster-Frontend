@@ -287,7 +287,7 @@ interface CanvasRowFrameProps {
  * What an open field and a row the keyboard is on share: the outline around
  * the row's box and its side part, and the side part's place.
  */
-function CanvasRowFrame(
+export function CanvasRowFrame(
   props: CanvasRowFrameProps & {
     focus?: boolean
     neutral?: boolean
@@ -401,6 +401,7 @@ function CanvasRowFrame(
       data-panel={props.panel === undefined ? 'none' : (props.panelPlace ?? 'below')}
       data-look={props.look ?? 'original'}
       data-focus={props.focus === true}
+      data-overlay={content === undefined}
       data-neutral={props.neutral === true}
       data-zoomed={props.zoomed === true}
       data-testid={props.focus === true ? 'canvas-row-focus' : 'canvas-row-field'}

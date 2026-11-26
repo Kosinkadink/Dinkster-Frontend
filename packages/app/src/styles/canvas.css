@@ -37,7 +37,7 @@
 .node-output-download:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 
 .node-output-download:hover { background: var(--dinkster-interaction-hover); }
-.node-output-download:focus-visible { outline: 2px solid var(--dinkster-border-focus); outline-offset: 1px; }
+.node-output-download:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
 
 .node-media-failed {
   color: var(--dinkster-danger-foreground);
@@ -169,7 +169,7 @@
 .node-output-position span, .node-output-position small { display: block; }
 .node-output-position small { color: var(--dinkster-text-secondary); font-size: 9px; }
 .node-output-pager button:disabled { opacity: 0.35; cursor: default; }
-.node-output-pager button:focus-visible { outline: 2px solid var(--dinkster-border-focus); outline-offset: 2px; }
+.node-output-pager button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 2px; }
 .node-output-pager a {
   padding: 6px 8px;
   color: inherit;
@@ -180,7 +180,7 @@
   text-decoration: none;
 }
 .node-output-pager a:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
-.node-output-pager a:focus-visible { outline: 2px solid var(--dinkster-border-focus); outline-offset: 2px; }
+.node-output-pager a:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 2px; }
 .node-output-path {
   max-width: min(340px, 55%);
   overflow: hidden;
@@ -244,8 +244,8 @@
   outline: none;
 }
 .canvas-semantic-nav [role='listbox']:focus-visible {
-  border-color: var(--dinkster-border-focus);
-  box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-interaction-selected), var(--dinkster-elevation-high);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
+  outline-offset: -1px;
 }
 .canvas-semantic-nav [role='option'] {
   padding: var(--dinkster-space-8) var(--dinkster-space-12);
