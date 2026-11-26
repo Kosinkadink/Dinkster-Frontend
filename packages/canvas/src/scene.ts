@@ -1829,6 +1829,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       if (schema === undefined) continue
       const innerView = viewNodes[inner.id]
       const source = layoutNode(schema, inner.node, input.tokens, measure, input.widgetMeasure, {
+        ...(inner.elaborated !== undefined ? { elaborated: inner.elaborated } : {}),
         ...(innerView?.views !== undefined ? { widgetRepresentations: innerView.views } : {}),
         ...(innerView?.textLines !== undefined ? { textBoxLines: innerView.textLines } : {}),
         sectionOverrides: Object.fromEntries(Object.entries(panelView?.sections ?? {}).map(([key, state]) => [

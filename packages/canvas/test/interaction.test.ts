@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  asNodeId, coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
+  asNodeId, compile, coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
   type CommandInvocation, type NodeSchema, type WorkflowDocument,
   boundaryOf,
   boundaryItems,
@@ -19,6 +19,7 @@ import { buildScene, REROUTE_SOCKET_OFFSET, scenesEqual, type Scene, type SceneN
 import { layoutNodeBadges, SUBGRAPH_BADGE } from '../src/badges.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
+import { boundarySample, resolveBoundarySample } from '../../core/test/fixtures/boundary-sample.js'
 
 function interactionHarness(
   scene: Scene,
@@ -4178,6 +4179,83 @@ describe('a wire dragged from the Inputs panel to a field', () => {
 })
 
 describe('Inputs panel fields', () => {
+  it('edits nested-group, type-choice and described fields on the entered occurrence through both depths', () => {
+    for (const depth of [1, 2] as const) {
+      const source = boundarySample(depth)
+      for (const [id, nested, gain, amount] of [['first', 0.25, 0.4, 0.6], ['second', 0.75, 0.9, 0.1]] as const) {
+        const node = source.graphs.root!.nodes[id]!
+        Object.assign(node, { values: { ...node.values, 'nested.n0.weights.w0': nested, 'source.gain': gain,
+          description: '{"entries":[{"id":"amount","label":"Amount","kind":"amount"}]}', 'description.amount': amount },
+        dynamic: { ...node.dynamic, nested: { members: ['n0'] }, 'nested.n0.weights': { members: ['w0'] }, source: { selected: 'mask' } } })
+      }
+      for (const id of ['first', 'second']) Object.assign(source.graphs.root!.links, {
+        [`mask-${id}`]: { id: `mask-${id}`, from: { node: 'maskB', port: 'mask' }, to: { node: id, port: 'source' } },
+      })
+      const sample = resolveBoundarySample('Boundary sample')!
+      const resolveSample = (type: string) => type !== sample.type ? resolveBoundarySample(type) : {
+        ...sample, body: sample.body.map((row) => row.kind !== 'described' ? row : {
+          ...row, kinds: [{ kind: 'input' as const, id: 'amount', type: { kind: 'concrete' as const, name: 'FLOAT' }, optional: false,
+            widget: { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.05 }, default: 0.3 } }],
+        }),
+      }
+      const store = new DocumentStore(source, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial',
+        schemaResolverFor: (doc) => documentResolver(doc, resolveSample),
+      }))
+      const sceneOf = (document = store.doc) => {
+        const resolve = documentResolver(document, resolveSample)
+        const path = depth === 2 ? ['first', 'detail'] : ['first']
+        return buildScene({ document, graphId: 'detail', resolve, tokens: defaultTokens,
+          measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+          occurrence: { owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }, plannerAvailable: false },
+          occurrenceView: occurrenceDynamicView(document, resolve, path),
+        })
+      }
+      for (const [key, panelKey, before, after, sibling] of [
+        ['nested.n0.weights.w0', 'nested.n2.weights.w0', 0.25, 0.35, 0.75],
+        ['source.gain', 'source.gain', 0.4, 0.5, 0.9], ['description.amount', 'description.amount', 0.6, 0.65, 0.1],
+      ] as const) {
+        const scene = sceneOf()
+        const panel = scene.boundaryNodes.find((node) => node.side === 'inputs')!
+        const row = panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === panelKey)
+        if (row?.kind !== 'widget') throw new Error(`missing Inputs field ${key} at depth ${depth}`)
+        const width = row.width ?? panel.layout.width - row.inset * 2
+        const x = panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2
+        const y = panel.y + row.y + row.height / 2
+        const clicking = interactionHarness(scene)
+        clicking.fire('pointerdown', x, y)
+        clicking.fire('pointerup', x, y)
+        expect(clicking.dispatched, `depth ${depth} ${key}`).toHaveLength(1)
+        const outcome = store.dispatch(clicking.dispatched[0] as CommandInvocation)
+        expect(outcome.ok, JSON.stringify({ depth, key, command: clicking.dispatched[0], diagnostics: outcome.diagnostics })).toBe(true)
+        expect(store.doc.graphs.root!.nodes.first!.values[key]).toBeCloseTo(after)
+        expect(store.doc.graphs.root!.nodes.second!.values[key]).toBe(sibling)
+        expect(store.doc.graphs.detail!.nodes.sample!.values[key]).toBeUndefined()
+        expect(store.undo()).toBe(true)
+        expect(store.doc.graphs.root!.nodes.first!.values[key]).toBe(before)
+        expect(store.redo()).toBe(true)
+        const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+        expect(reopened.graphs.root!.nodes.first!.values[key]).toBeCloseTo(after)
+        expect(reopened.graphs.root!.nodes.second!.values[key]).toBe(sibling)
+        const reopenedRow = sceneOf(reopened).boundaryNodes.find((node) => node.side === 'inputs')!.layout.rows
+          .find((row) => row.kind === 'widget' && row.valueKey === panelKey)
+        expect(reopenedRow?.kind).toBe('widget')
+        const run = compile({ document: reopened, revision: 1, resolve: resolveSample,
+          scope: { kind: 'full' }, connection: 'inputs' as never, schemaHash: 'boundary-sample' })
+        expect(run.ok).toBe(true)
+        if (!run.ok) throw new Error(JSON.stringify(run.diagnostics))
+        const prefix = depth === 2 ? 'detail.' : ''
+        expect(run.artifact.prompt[`first.${prefix}sample`]!.inputs[panelKey]).toBeCloseTo(after)
+        expect(run.artifact.prompt[`second.${prefix}sample`]!.inputs[panelKey]).toBe(sibling)
+      }
+      const root = store.doc.graphs.root!
+      const disconnected = { ...store.doc, graphs: { ...store.doc.graphs, root: { ...root,
+        links: Object.fromEntries(Object.entries(root.links).filter(([id]) => id !== 'mask-first')),
+      } } }
+      expect(sceneOf(disconnected).boundaryNodes.find((node) => node.side === 'inputs')!.layout.rows
+        .some((row) => row.kind === 'widget' && row.valueKey === 'source.gain')).toBe(false)
+    }
+  })
+
   it('materializes the offered record member through an aliased ancestor without changing its definition prefix', () => {
     const sample: NodeSchema = { type: 'Sample', displayName: 'Sample', category: 'test', source: 'v3', isOutputNode: false, body: [
       { kind: 'group', id: 'layers', keys: { kind: 'numbered', prefix: 'layer', start: 0, pad: 0 }, grows: 'filled',
