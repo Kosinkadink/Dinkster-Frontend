@@ -1540,8 +1540,16 @@ describe('Boundary sample acceptance compilation', () => {
           graphId: 'detail', side: 'outputs', itemId: 'output91', node: 'sample', port: 'result',
         } })
         expect(refused.ok).toBe(false)
+        expect(refused.diagnostics.some((entry) => entry.code ===
+          (command === 'boundary.addItem' ? 'boundary.duplicateId' : 'boundary.itemMissing'))).toBe(true)
         expect(store.doc).toBe(wired)
       }
+      const malformed = JSON.parse(JSON.stringify(wired))
+      malformed.graphs.detail.boundary.body.find((row: { id: string }) => row.id === 'output91')
+        .alsoBinds = [{ kind: 'port', node: 'sample', port: 'result' }]
+      const rejected = loadDocument(malformed)
+      expect(rejected.document).toBeUndefined()
+      expect(rejected.diagnostics.some((entry) => entry.message.includes('an output has exactly one source'))).toBe(true)
       expect(store.undo()).toBe(true)
       expect(prompt(store.doc).otherSink!.inputs).not.toHaveProperty('number')
       expect(prompt(store.doc).sink!.inputs.number).toEqual([path, 6])
