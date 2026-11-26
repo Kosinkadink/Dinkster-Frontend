@@ -1,4 +1,12 @@
-import { For, Index, Show, createUniqueId, type JSX } from 'solid-js'
+import {
+  For,
+  Index,
+  Show,
+  createContext,
+  createUniqueId,
+  useContext,
+  type JSX,
+} from 'solid-js'
 import { ChevronLeft, Plus, TriangleAlert } from 'lucide-solid'
 import { ProductButton, ProductIcon, ProductTextButton } from './controls.js'
 import { ProductDisclosure } from './account.js'
@@ -15,6 +23,8 @@ export interface ProductProjectEntry {
   state?: 'opening' | 'failed' | 'draft' | undefined
 }
 
+const ProjectBack = createContext<() => JSX.Element>()
+
 /** The projects page body: the list on the left and one project on the right. */
 export function ProductProjectsView(props: {
   list?: JSX.Element
@@ -24,26 +34,58 @@ export function ProductProjectsView(props: {
 }) {
   let backButton: HTMLDivElement | undefined
   return (
-    <div class="dinkster-projects-viewport" onKeyDown={(event) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || props.back?.disabled || !backButton?.getClientRects().length) return
-      if ((event.target as Element).closest('input, textarea, select, [contenteditable="true"], dialog, [role="menu"]')) return
-      event.preventDefault()
-      props.back?.onSelect()
-    }}>
-    <div class="dinkster-projects" data-list={props.list ? undefined : 'none'} data-narrow-panel={props.narrowPanel ?? 'detail'}>
-      <Show when={props.list}>
-        <div class="dinkster-projects-panel dinkster-projects-list">
-          {props.list}
+    <ProjectBack.Provider
+      value={() => (
+        <Show when={props.back}>
+          {(back) => (
+            <div class="dinkster-projects-back" ref={backButton}>
+              <ProductTextButton
+                label={back().label}
+                icon={ChevronLeft}
+                disabled={back().disabled}
+                onClick={() => back().onSelect()}
+              />
+            </div>
+          )}
+        </Show>
+      )}
+    >
+      <div
+        class="dinkster-projects-viewport"
+        onKeyDown={(event) => {
+          if (
+            event.key !== 'Escape' ||
+            event.defaultPrevented ||
+            props.back?.disabled ||
+            !backButton?.getClientRects().length
+          )
+            return
+          if (
+            (event.target as Element).closest(
+              'input, textarea, select, [contenteditable="true"], dialog, [role="menu"]',
+            )
+          )
+            return
+          event.preventDefault()
+          props.back?.onSelect()
+        }}
+      >
+        <div
+          class="dinkster-projects"
+          data-list={props.list ? undefined : 'none'}
+          data-narrow-panel={props.narrowPanel ?? 'detail'}
+        >
+          <Show when={props.list}>
+            <div class="dinkster-projects-panel dinkster-projects-list">
+              {props.list}
+            </div>
+          </Show>
+          <div class="dinkster-projects-panel dinkster-projects-detail">
+            {props.children}
+          </div>
         </div>
-      </Show>
-      <div class="dinkster-projects-panel dinkster-projects-detail">
-        <Show when={props.back}>{(back) => <div class="dinkster-projects-back" ref={backButton}>
-          <ProductTextButton label={back().label} icon={ChevronLeft} disabled={back().disabled} onClick={() => back().onSelect()} />
-        </div>}</Show>
-        {props.children}
       </div>
-    </div>
-    </div>
+    </ProjectBack.Provider>
   )
 }
 
@@ -238,8 +280,10 @@ export function ProductProjectHeader(props: {
   subtitle?: string | undefined
   actions?: JSX.Element
 }) {
+  const back = useContext(ProjectBack)
   return (
     <header class="dinkster-project-header">
+      {back?.()}
       <div class="dinkster-project-header-copy">
         <h2 class="dinkster-title">{props.title}</h2>
         <Show when={props.subtitle}>

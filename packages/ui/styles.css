@@ -724,7 +724,6 @@
 @keyframes dinkster-progress { from { translate: -100% 0; } to { translate: 250% 0; } }
 .dinkster-projects-detail { container: project-detail / inline-size; gap: var(--dinkster-space-24); padding: var(--dinkster-space-24) var(--dinkster-space-32) var(--dinkster-space-32); }
 .dinkster-projects-detail:has(> .dinkster-page-load[data-known]) { padding: 0; gap: 0; overflow: hidden; }
-.dinkster-projects-detail:has(> .dinkster-page-load[data-known]) > .dinkster-projects-back { margin: var(--dinkster-space-24) var(--dinkster-space-32) 0; }
 .dinkster-projects-detail > .dinkster-page-load[data-known] { flex: 1; padding: var(--dinkster-space-24) var(--dinkster-space-32) var(--dinkster-space-32); gap: var(--dinkster-space-12); }
 .dinkster-projects-detail > .dinkster-page-load > .dinkster-page-load-known { gap: var(--dinkster-space-24); }
 .dinkster-project-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dinkster-space-16); }
@@ -733,7 +732,7 @@
 .dinkster-project-header .dinkster-actions { flex: none; flex-wrap: nowrap; }
 .dinkster-project-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--dinkster-space-16); }
 .dinkster-project-header + .dinkster-project-facts { margin-top: calc(-1 * var(--dinkster-space-8)); }
-.dinkster-project-facts-box { margin: 0; padding: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2) var(--dinkster-space-16); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-quiet); min-width: 0; }
+.dinkster-project-facts-box { container: project-facts / inline-size; margin: 0; padding: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2) var(--dinkster-space-16); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-quiet); min-width: 0; }
 .dinkster-project-fact { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: var(--dinkster-space-12); min-width: 0; min-height: 34px; }
 .dinkster-project-fact dt { color: var(--dinkster-text-secondary); white-space: nowrap; }
 .dinkster-project-fact dd { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; margin: 0; }
@@ -775,12 +774,24 @@
   .dinkster-projects { grid-template-columns: minmax(0, 1fr); }
   .dinkster-projects[data-narrow-panel='detail'] > .dinkster-projects-list,
   .dinkster-projects[data-narrow-panel='list']:not([data-list='none']) > .dinkster-projects-detail { display: none; }
-  .dinkster-projects-back { display: block; }
+  .dinkster-projects-back { display: flex; align-items: center; }
+  .dinkster-project-header:has(.dinkster-projects-back) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--dinkster-space-24) var(--dinkster-space-16); }
+  .dinkster-project-header:has(.dinkster-projects-back) > .dinkster-projects-back { grid-column: 1; grid-row: 1; align-self: stretch; }
+  .dinkster-project-header:has(.dinkster-projects-back) > .dinkster-actions { grid-column: 2; grid-row: 1; justify-self: end; }
+  .dinkster-project-header:has(.dinkster-projects-back) > .dinkster-project-header-copy { grid-column: 1 / -1; grid-row: 2; }
+  .dinkster-project-header-copy > .dinkster-title { white-space: normal; overflow-wrap: anywhere; }
+  .dinkster-project-facts { grid-template-columns: minmax(0, 1fr); }
+  @container project-facts (max-width: 420px) {
+    .dinkster-project-fact { grid-template-columns: minmax(0, 1fr) auto; gap: var(--dinkster-space-4) var(--dinkster-space-12); padding-block: var(--dinkster-space-8); }
+    .dinkster-project-fact dt { grid-column: 1; grid-row: 1; }
+    .dinkster-project-fact dd { display: contents; }
+    .dinkster-project-fact dd > :not(.dinkster-project-fact-value) { grid-column: 2; grid-row: 1; justify-self: end; }
+    .dinkster-project-fact-value { grid-column: 1 / -1; grid-row: 2; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  }
 }
 @container project-detail (max-width: 420px) {
   .dinkster-project-form { grid-template-columns: minmax(0, 1fr); gap: var(--dinkster-space-12); }
   .dinkster-project-form > .dinkster-actions { grid-column: 1; }
-  .dinkster-project-facts { grid-template-columns: minmax(0, 1fr); }
 }
 .dinkster-projects-setup { display: grid; align-content: center; justify-items: center; height: 100%; padding: var(--dinkster-space-32); }
 .dinkster-projects-setup > .dinkster-project-form { width: min(100%, 780px); }
