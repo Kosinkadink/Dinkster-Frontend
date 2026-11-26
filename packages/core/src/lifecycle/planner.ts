@@ -359,6 +359,8 @@ function planFlattenState(
   }
 
   const occurrenceSchema = deriveBoundarySchema(body, resolveSchema)
+  const boundaryError = occurrenceSchema.diagnostics.find((diagnostic) => diagnostic.severity === 'error')
+  if (boundaryError !== undefined) fail('subgraph.lifecycle.boundaryUnresolved', boundaryError.message)
 
   for (const [{ side, item }, routePlan] of items.map((item, index) => [item, boundaryPlan[index]!] as const)) {
     const stateRoute: {

@@ -241,7 +241,7 @@ describe('LiteGraph subgraphs', () => {
     )
     expect(result.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
     expect(result.diagnostics.map((item) => item.code)).toContain('import.schema.missing')
-    expect(result.diagnostics.filter((item) => item.code === 'import.subgraphs.boundaryUnresolved')).toHaveLength(1)
+    expect(result.diagnostics.map((item) => item.code)).toContain('import.subgraphs.boundaryUnresolved')
     expect(Object.keys(result.document!.graphs).sort()).toEqual(['g0', 'inner', 'outer'])
     expect(result.document!.graphs['outer']!.nodes.n1!.type).toBe('#inner')
     expect(result.document!.graphs.g0!.nodes.n1!.type).toBe('#outer')
@@ -582,7 +582,12 @@ describe('LiteGraph subgraphs', () => {
     const missingMember = deriveBoundarySchema({ ...body, nodes: { ...body.nodes,
       n1: { ...body.nodes.n1!, dynamic: { items: { members: ['item1'], seq: 2 } } },
     } }, resolver)
-    expect(missingMember.schema).toBeUndefined()
+    expect(missingMember.schema?.body.find((row) => 'id' in row && row.id === 'in')).toMatchObject({
+      kind: 'input', unavailable: { code: 'boundary.memberMissing' }, sent: false,
+    })
+    expect(missingMember.schema?.body.find((row) => 'id' in row && row.id === 'out')).toMatchObject({
+      kind: 'output', type: { kind: 'concrete', name: 'INT' },
+    })
     expect(missingMember.diagnostics.some((item) => item.severity === 'error')).toBe(true)
   })
 
@@ -630,7 +635,13 @@ describe('LiteGraph subgraphs', () => {
       outer: { members: ['row0'], seq: 1 },
       'outer.row0.inner': { members: ['sub1'], seq: 3 },
     } } } } as unknown as typeof body
-    expect(deriveBoundarySchema(missingMember, resolver).schema).toBeUndefined()
+    const missingSchema = deriveBoundarySchema(missingMember, resolver).schema
+    expect(missingSchema?.body.find((row) => 'id' in row && row.id === 'in')).toMatchObject({
+      kind: 'input', unavailable: { code: 'boundary.memberMissing' }, sent: false,
+    })
+    expect(missingSchema?.body.find((row) => 'id' in row && row.id === 'out')).toMatchObject({
+      kind: 'output', type: { kind: 'concrete', name: 'INT' },
+    })
     expect(planFlattenBoundaryRoutes(missingMember, resolver, doc.graphs.g0!.nodes.n1!, doc.graphs.g0!).statePlan.status)
       .toBe('refused')
   })
