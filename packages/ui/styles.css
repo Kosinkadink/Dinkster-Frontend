@@ -68,6 +68,10 @@
 .dinkster-resource-live { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); }
 .dinkster-resource-model { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--dinkster-space-8); font-variant-numeric: tabular-nums; }
 .dinkster-resource-model > span:first-child { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.dinkster-resource-model-action { position: relative; display: inline-flex; }
+.dinkster-resource-model-action > [aria-hidden] { visibility: hidden; display: inline-flex; align-items: center; min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-12); border: var(--dinkster-border-width) solid transparent; white-space: nowrap; }
+.dinkster-resource-model-action > :not([aria-hidden]) { position: absolute; inset: 0; display: inline-flex; align-items: center; justify-content: center; }
+.dinkster-resource-model-action > span:not([aria-hidden]) { color: var(--dinkster-text-secondary); }
 .dinkster-resources .dinkster-fact { grid-template-columns: max-content minmax(0, 1fr); }
 .dinkster-resources .dinkster-fact dt { white-space: nowrap; }
 .dinkster-resource-peak { display: inline-flex; gap: var(--dinkster-space-8); align-items: center; }
