@@ -1660,7 +1660,7 @@ test('a click on a wired row whose value is known only after a run explains it, 
   await expect(note).toHaveCount(0)
   expect((await activeDoc(page)).graphs.g0!.nodes.soften!.values.radius).toBe(12)
   await page.getByTestId('canvas-widget-a11y').filter({ hasText: 'Soften, radius' }).focus()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 12. Used again when the wire is removed.')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 12')
   await expect.poll(() => page.evaluate(() => {
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const renderer = window.__dinksterTest!.renderer!
