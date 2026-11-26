@@ -6,6 +6,7 @@ import { placeRow, rowPlacement, visibleCanvas } from './row-placement.js'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
 import { resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote, widgetCommitError } from '../widget-commit.js'
 import { createTextCompletions } from './text-completions.js'
+import type { RowRepresentation } from './RowFocusOverlay.js'
 import { useAppMessage } from '../locale.js'
 
 /**
@@ -94,7 +95,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const [mode, setMode] = createSignal<CanvasSeedMode | undefined>(inRow.controllerMode)
   const chooseMode = (next: CanvasSeedMode): void => {
     const previous = mode()
-    if (next === previous) return
+    if (next === previous || ed.target.kind !== 'input') return
     setMode(next)
     void props.commitCommand({ command: 'node.setController', params: {
       graphId: ed.target.familyOwner?.graphId ?? ed.graphId,
@@ -109,7 +110,25 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     input?.select()
   }
 
+  // Switching the look first settles the field by its own rules: a draft
+  // that can be stored is stored as the value edit it is, and a draft that
+  // cannot keeps the field open with its problem and nothing switches. The
+  // switch itself writes view state only, never the value.
+  const chooseRepresentation = (representation: RowRepresentation, id: string): void => {
+    if (id === representation.selected) return
+    void commit().then((closed) => {
+      if (!closed) return
+      void host.app.dispatchTo(ed.tab, { command: 'view.setWidgetRepresentation', params: {
+        graphId: representation.graphId,
+        nodeId: representation.nodeId,
+        inputId: representation.inputId,
+        representation: id,
+      } })
+    })
+  }
+
   const commitText = (value: string): Promise<boolean> => {
+    if (ed.target.kind !== 'input') return props.commitValue(value)
     const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
     const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
     const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
@@ -199,7 +218,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
       // Stored with Enter, the keyboard stays on the row.
       const target = ed.target
       void commit().then((closed) => {
-        if (closed) host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
+        if (closed && target.kind === 'input') host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
       })
     }
     else if (event.key === 'Escape') { event.preventDefault(); props.close() }
@@ -207,6 +226,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
       event.preventDefault()
       const direction = event.shiftKey ? -1 : 1
       const target = ed.target
+      if (target.kind !== 'input') return
       void commit().then((closed) => { if (closed) host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, direction) })
     }
   }
@@ -222,7 +242,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   }
 
   const placement = createMemo(() => rowPlacement(
-    { rect: ed.rect, look: inRow.look, nodeTop: inRow.nodeTop, nodeBottom: inRow.nodeBottom },
+    { ...inRow, rect: ed.rect },
     host.viewport(),
     bounds(),
     sideSize(),
@@ -294,10 +314,17 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     const blocked = props.commitError() ?? invalid()
     const line = shownProblem() ?? automaticWarning()
     const result = blocked === undefined && resolved?.kind === 'store' ? resolved.result : undefined
+    const representation = inRow.representation
     const noteLine = lookupNote()
-    if (facts.length === 0 && line === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined && noteLine === undefined) return undefined
+    if (facts.length === 0 && line === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined && representation === undefined && noteLine === undefined) return undefined
     return (
       <CanvasSidePart
+        {...(representation === undefined ? {} : { representation: {
+          choices: representation.choices,
+          selected: representation.selected,
+          ...(representation.note === undefined ? {} : { note: representation.note }),
+          onChoose: (id: string) => chooseRepresentation(representation, id),
+        } })}
         {...(inRow.controllerMode === undefined && noteLine === undefined ? {} : {
           children: (
             <>

@@ -110,6 +110,14 @@ export const intKind: WidgetKind<IntegerWidgetValue> = {
     : isIntegerWidgetValue(spec.options['min']) ? spec.options['min'] : 0,
   validate: (value, spec) => integerRangeDiags(value, spec),
   defaultView: (spec) => spec.options['display'] === 'color' ? 'core.integerColor' : 'core.number',
+  representations: (spec) => spec.options['display'] === 'color' ? {
+    default: 'color',
+    userSwitchable: true,
+    representations: [
+      { id: 'color', displayName: 'Color', widget: { ...spec } },
+      { id: 'number', displayName: 'Number', widget: { ...spec, options: { ...spec.options, display: 'number' } } },
+    ],
+  } : undefined,
 }
 
 /**
@@ -937,6 +945,12 @@ export const curveView: WidgetView<Json> = {
   kind: 'CURVE',
   isCompatible: () => true,
   measure: () => ({ rows: 2 }),
+  readout(value, spec) {
+    if (!isCurveValue(value)) return []
+    const kinds = curveEditorInterpolations(spec.options)
+    const interpolation = kinds.length === 1 ? kinds[0] : value.interpolation ?? 'linear'
+    return [`${value.points.length} ${value.points.length === 1 ? 'point' : 'points'}, ${t(interpolation === 'step' ? 'inNodeCurve.step' : interpolation === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic')}`]
+  },
   drawCompact(ctx, value, spec, state) {
     ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
     // A wire decides a connected curve: what it brought is drawn, and nothing before a run.
@@ -1136,11 +1150,15 @@ export const saveTargetView: WidgetView<SaveTarget | ProjectDefaultTarget | null
     const projectMount = facts?.projectMount ?? t(facts === undefined ? 'saveTargetWidget.projectDefault' : 'saveTargetWidget.noOutputMount')
     const declared = isSaveTarget(spec.default) || isProjectDefaultTarget(spec.default) ? spec.default : undefined
     const shown: SaveTarget | ProjectDefaultTarget | null = value === null && declared !== undefined ? { prefix: declared.prefix } : value
+    const named = isSaveTarget(shown) ? shown : undefined
+    if (facts !== undefined && (named === undefined || !facts.ready.includes(named.mount))) {
+      const severity = facts.projectMount === undefined ? 'error' : named === undefined ? undefined : 'warning'
+      if (severity !== undefined) ctx.rect(0, 0, 1, 1, { role: 'widgetProblem', severity })
+    }
     if (shown === null) {
       compactRow(ctx, label, t('saveTargetWidget.default'), state, 'widget.edit', true)
       return
     }
-    const named = isSaveTarget(shown) ? shown : undefined
     if (named !== undefined && (facts === undefined || facts.ready.includes(named.mount))) {
       compactRow(ctx, label, `${named.mount}/${named.prefix}`, state, 'widget.edit', false,
         { shorter: named.prefix.includes('/') ? [`${named.mount}/.../${named.prefix.split('/').at(-1)}`] : [] })
@@ -1149,7 +1167,7 @@ export const saveTargetView: WidgetView<SaveTarget | ProjectDefaultTarget | null
     compactRow(ctx, label, named !== undefined ? `${named.mount}/${named.prefix}` : `${projectMount}/${shown.prefix}`, state, 'widget.edit', false, {
       parts: [
         ...(named !== undefined ? [{ text: named.mount, look: 'gone' }] : []),
-        ...(named !== undefined && facts?.projectMount === undefined ? [] : [{ text: projectMount, look: 'resolved' }]),
+        { text: projectMount, look: 'resolved' },
         { text: `/${shown.prefix}` },
       ],
     })

@@ -1,5 +1,4 @@
 const MAX_HEADER_BYTES = 4 * 1024 * 1024
-const MAX_DATA_BYTES = 1024 * 1024 * 1024
 const MAX_WORKFLOW_BYTES = 2 * 1024 * 1024
 const MAX_PROMPT_BYTES = 1024 * 1024
 const MAX_SCHEMA_BYTES = 64 * 1024
@@ -134,7 +133,6 @@ const exactInteger = (value: unknown): number | undefined => {
 }
 
 const tensorTable = (header: Record<string, unknown>, bodyBytes: number): ReadonlyMap<string, TensorDescriptor> | undefined => {
-  if (bodyBytes > MAX_DATA_BYTES) return undefined
   const ranges: Array<readonly [number, number]> = []
   const tensors = new Map<string, TensorDescriptor>()
   for (const [name, raw] of Object.entries(header)) {
@@ -153,10 +151,10 @@ const tensorTable = (header: Record<string, unknown>, bodyBytes: number): Readon
     let elements = 1
     for (const dim of shape as number[]) {
       elements *= dim
-      if (!Number.isSafeInteger(elements) || elements > MAX_DATA_BYTES) return undefined
+      if (!Number.isSafeInteger(elements)) return undefined
     }
     const [start, end] = offsets as [number, number]
-    if (start > end || end > bodyBytes || end - start !== elements * width) return undefined
+    if (!Number.isSafeInteger(elements * width) || start > end || end > bodyBytes || end - start !== elements * width) return undefined
     ranges.push([start, end])
     tensors.set(name, { dtype: raw['dtype'], shape: shape as number[], start, end })
     if (tensors.size > 64) return undefined

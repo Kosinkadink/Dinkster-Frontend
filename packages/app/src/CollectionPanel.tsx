@@ -445,9 +445,10 @@ export function CollectionPanel(props: {
     if (id === undefined) return
     const entry = rootEl?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(id)}"]`)
     if (entry == null) return
-    entry.focus({ preventScroll: true })
     const viewport = entry.closest<HTMLElement>('.collection-items')
-    if (viewport === null) return
+    const scrolls = viewport !== null && /^(auto|scroll)$/.test(getComputedStyle(viewport).overflowY)
+    entry.focus({ preventScroll: scrolls })
+    if (viewport === null || !scrolls) return
     const entryRect = entry.getBoundingClientRect()
     const viewportRect = viewport.getBoundingClientRect()
     if (entryRect.bottom > viewportRect.bottom) viewport.scrollTop += entryRect.bottom - viewportRect.bottom

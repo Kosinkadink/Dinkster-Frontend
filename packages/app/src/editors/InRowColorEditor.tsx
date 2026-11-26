@@ -176,6 +176,7 @@ export const InRowColorImplementation: Component<WidgetEditorImplementationProps
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.isComposing) return
+    if (event.key === 'Enter' && event.target instanceof Element && event.target.closest('.dinkster-canvas-side-representation') !== null) return
     const at = stopOf(event.target) ?? 'text'
     if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
@@ -217,12 +218,12 @@ export const InRowColorImplementation: Component<WidgetEditorImplementationProps
   const [panelHeight, setPanelHeight] = createSignal(0)
   const placement = createMemo(() => {
     const row = rowPlacement(
-      { rect: ed.rect, look: inRow.look, nodeTop: inRow.nodeTop, nodeBottom: inRow.nodeBottom },
+      { ...inRow, rect: ed.rect },
       host.viewport(),
       bounds(),
       sideSize(),
     )
-    return { ...row, ...canvasColorLayout(row.screen, bounds(), panelHeight(), sideSize(), row.scale) }
+    return { ...row, ...canvasColorLayout(row.screen, bounds(), panelHeight(), sideSize(), row.scale, row.sideEdges) }
   })
   createEffect(() => placeRow(frame, placement()))
 
@@ -231,8 +232,26 @@ export const InRowColorImplementation: Component<WidgetEditorImplementationProps
   const side = createMemo(() => {
     const result = draft()
     const shown = problem()
+    const representation = inRow.representation
     return (
       <CanvasColorSide
+        {...(representation === undefined ? {} : { representation: {
+          choices: representation.choices,
+          selected: representation.selected,
+          ...(representation.note === undefined ? {} : { note: representation.note }),
+          onChoose: (id: string) => {
+            if (id === representation.selected) return
+            void commit().then((closed) => {
+              if (!closed) return
+              void host.app.dispatchTo(ed.tab, { command: 'view.setWidgetRepresentation', params: {
+                graphId: representation.graphId,
+                nodeId: representation.nodeId,
+                inputId: representation.inputId,
+                representation: id,
+              } })
+            })
+          },
+        } })}
         {...(shown === undefined ? {} : { problem: shown, problemId })}
         pending={props.commitPending()}
         droppedOpacity={result.droppedOpacity}

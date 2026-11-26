@@ -155,8 +155,7 @@
 .widget-modal-metadata dt { color: var(--dinkster-text-muted); }
 .widget-modal-metadata dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 
-/* ASSET widget presentation keeps browsing primary while preserving a fixed
-   action boundary and independent list overflow. */
+/* The dialog body owns scrolling; its heading and actions stay outside it. */
 .modal-surface[data-modal='widget-asset'] .widget-modal-help {
   flex: none;
   padding: var(--dinkster-space-8) var(--dinkster-space-16);
@@ -190,6 +189,9 @@
   flex-direction: column;
   gap: var(--dinkster-space-12);
   overflow-y: auto;
+  padding-bottom: var(--dinkster-space-12);
+  scroll-padding-block: var(--dinkster-space-12);
+  scrollbar-gutter: stable;
 }
 .asset-editor-context {
   display: flex;
@@ -288,7 +290,7 @@
   min-height: 0;
   flex-direction: column;
   gap: var(--dinkster-space-8);
-  overflow: auto;
+  overflow: visible;
 }
 .asset-selection-summary .asset-multi-selection { flex-direction: column; align-items: stretch; }
 .asset-preview {
@@ -382,10 +384,10 @@
   flex: 1;
   flex-direction: column;
   gap: var(--dinkster-space-8);
-  overflow: hidden;
+  overflow: visible;
 }
 .asset-browser-section > .search-feedback { margin: 0; }
-.asset-editor .collection-panel { min-width: 0; min-height: 180px; flex: 1; padding: 0; }
+.asset-editor .collection-panel { min-width: 0; min-height: 180px; flex: none; padding: 0; overflow: visible; }
 .asset-editor .collection-items.grid {
   grid-auto-rows: max-content;
   grid-template-columns: repeat(auto-fill, minmax(min(144px, 100%), 1fr));
@@ -396,8 +398,9 @@
 .asset-editor .collection-toolbar .product-select { width: auto; min-width: 120px; flex: 0 1 180px; }
 .asset-editor .collection-toolbar button { width: auto; flex: none; }
 .asset-editor .collection-toolbar input { width: auto; flex: 1 1 160px; min-width: 100px; }
-.asset-editor .collection-content { flex-wrap: nowrap; overflow: hidden; }
-.asset-editor .collection-items { min-width: 0; min-height: 0; }
+.asset-editor .collection-content { flex: none; flex-wrap: nowrap; overflow: visible; }
+.asset-editor .collection-items,
+.asset-editor .collection-state-list { min-width: 0; min-height: 0; max-height: none; overflow: visible; }
 .asset-browser-selection { width: min(220px, 50%); box-sizing: border-box; flex: none; max-height: 100%; }
 .asset-browser-selection .asset-section-heading { flex-wrap: wrap; }
 .asset-browser-selection .asset-section-heading > div { flex: 1 1 120px; }
@@ -455,15 +458,9 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto;
   }
-  .asset-selection-summary { max-height: 30vh; }
   .assets-panel .collection-content:has(.model-visibility-action) { flex-direction: column; flex-wrap: nowrap; }
   .assets-panel .asset-browser-selection:has(.model-visibility-action) { width: 100%; max-height: 50vh; }
-  .asset-browser-section { min-height: min(440px, 60vh); }
-  .asset-editor .collection-content { min-height: 40vh; flex-direction: column; flex-wrap: nowrap; }
-  /* Definite cap so the list stays an internal scrollbox while the body
-     sizes to content (its min-content would otherwise include the whole
-     uncapped list). */
-  .asset-editor .collection-items { max-height: 60vh; }
+  .asset-editor .collection-content { flex-direction: column; flex-wrap: nowrap; }
   .asset-match-candidates button { grid-template-columns: minmax(0, 1fr); }
   .asset-match-candidate-size,
   .asset-match-candidates code { grid-column: 1; }

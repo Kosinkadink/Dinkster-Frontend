@@ -31,7 +31,7 @@ import { UploadDestination } from '../UploadDestination.js'
 import { activeProjectId } from '../projects.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
 import { AssetFileLocation } from '../AssetFileLocation.js'
-import { resolveDroppedAsset } from '../desktop-bridge.js'
+import { importNativeAsset, resolveDroppedAsset } from '../desktop-bridge.js'
 import { useAppMessage } from '../locale.js'
 import { tabDocumentUnchanged } from '../widget-editor-anchor.js'
 
@@ -143,6 +143,13 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
    * from the logical model picker: feeds the Details disclosure. */
   const [assetSelectedModel, setAssetSelectedModel] = createSolidSignal<LogicalModelPickDetail | undefined>(undefined)
   const [assetError, setAssetError] = createSolidSignal<string | undefined>(undefined)
+  let assetScroll: HTMLDivElement | undefined
+  createEffect(() => {
+    if (assetError() === undefined) return
+    queueMicrotask(() => {
+      if (live) assetScroll?.querySelector('.asset-error')?.scrollIntoView({ block: 'nearest' })
+    })
+  })
   const [assetUploading, setAssetUploading] = createSolidSignal(false)
   const uploadBackend = props.app.backendForTab(ed.tab)
   const project = activeProjectId()
@@ -223,20 +230,22 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     ? uploadKind
     : undefined
   const classifiedLatent = ed.spec?.widgetType === 'ASSET' && uploadKind === 'data/latent'
-  const assetUploadMaxBytes = classifiedMediaKind === 'media/image'
+  const legacyUploadMaxBytes = classifiedMediaKind === 'media/image'
     ? IMAGE_UPLOAD_MAX_BYTES
     : classifiedMediaKind !== undefined
       ? MEDIA_UPLOAD_MAX_BYTES
       : classifiedLatent ? LATENT_UPLOAD_MAX_BYTES : GENERIC_UPLOAD_MAX_BYTES
-  // Display copy exists only for kinds with a deliberate, user-facing limit.
-  // Model kinds fall into the generic enforcement bucket, whose 16 MiB bound
-  // is not an authoritative model limit, so they render no limit copy
-  // (enforcement still applies through assetUploadMaxBytes).
-  const assetUploadLimitLabel = classifiedMediaKind === 'media/image'
-    ? '256 MiB per file'
-    : classifiedMediaKind !== undefined || classifiedLatent
-      ? '1 GiB per file'
-      : uploadKind?.startsWith('model/') === true ? undefined : '16 MiB per file'
+  const uploadLimits = openedRegistry?.uploadLimits
+  const assetUploadMaxBytes = uploadLimits === null ? undefined
+    : uploadLimits === undefined ? legacyUploadMaxBytes
+      : uploadLimits[classifiedMediaKind ?? (classifiedLatent ? 'data/latent' : 'generic')]
+  // Older engines did not advertise an authoritative model upload limit.
+  const assetUploadLimitLabel = assetUploadMaxBytes === undefined ||
+    (uploadLimits === undefined && uploadKind?.startsWith('model/') === true)
+    ? undefined
+    : `${assetUploadMaxBytes % MEDIA_UPLOAD_MAX_BYTES === 0
+      ? `${assetUploadMaxBytes / MEDIA_UPLOAD_MAX_BYTES} GiB`
+      : formatSize(assetUploadMaxBytes)} per file`
   // The SCALAR MERGE arm specifically (multi-select whose declaration is
   // NOT list-outer): an empty selection cannot commit `[]` there - the
   // declared type is scalar T, and a bare empty array would compile as raw
@@ -446,7 +455,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         setAssetError(`Unsupported file type: ${effectiveType || 'unknown'}`)
         return false
       }
-      if (!existing && file.size > assetUploadMaxBytes) {
+      if (!existing && assetUploadMaxBytes !== undefined && file.size > assetUploadMaxBytes) {
         setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatSize(assetUploadMaxBytes)} upload limit`)
         return false
       }
@@ -455,7 +464,14 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         ...(choice.mount ? { mount: choice.mount } : {}),
         ...(choice.folder ? { folder: choice.folder } : {}),
       }
-      const ref = existing ?? (classifiedMediaKind !== undefined
+      const imported = existing ? undefined : await importNativeAsset(backend.baseUrl, file, {
+        name: mediaUploadName(file.name),
+        mediaType: classifiedLatent ? 'application/x-comfy-latent' : effectiveType || 'application/octet-stream',
+        ...(classifiedMediaKind !== undefined ? { kind: classifiedMediaKind } : {}),
+        ...(classifiedLatent ? { kind: 'data/latent' } : uploadDestination),
+      }, current)
+      if (!current()) return false
+      const ref = existing ?? imported ?? (classifiedMediaKind !== undefined
         ? await backend.connection.uploadMediaAsset(file, {
             scope: 'local',
             kind: classifiedMediaKind,
@@ -498,6 +514,34 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       return false
     }
   }
+
+  /**
+   * Upload chosen files in order. Sequential on purpose: parallel uploads
+   * would race the shared error slot. The batch stops at the first failed or
+   * refused file (its error must stay visible) and when the editor closes
+   * mid-flight.
+   */
+  const uploadFiles = (files: readonly File[]): void => {
+    void (async () => {
+      const abort = new AbortController()
+      assetUploadAbort = abort
+      setAssetUploading(true)
+      try {
+        for (const file of assetMulti ? files : files.slice(0, 1)) {
+          if (!live || abort.signal.aborted || !(await pickAsset(file))) break
+        }
+      } finally {
+        if (assetUploadAbort === abort) assetUploadAbort = undefined
+        if (live) {
+          setAssetUploading(false)
+          setDestination(readUploadDestination(String(uploadBackend.id), project))
+          restoreAssetUploadFocus()
+        }
+      }
+    })()
+  }
+  // A button's PasteImage opens the picker with the clipboard image already uploading.
+  if (ed.stagedFile !== undefined) queueMicrotask(() => uploadFiles([ed.stagedFile!]))
 
   const pickBrowsedAsset = (item: AssetBrowserItem): void => {
     // Refuse picks while an upload batch is pending: the staged selection
@@ -698,7 +742,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               before this body sees the event, so the refusal is advertised
               through data-dismiss-blocked. */}
           <div class="widget-editor asset-editor widget-modal-editor" data-testid="asset-editor" data-dismiss-blocked={assetUploading() ? 'uploading' : undefined}>
-            <div class="asset-editor-scroll">
+            <div class="asset-editor-scroll" ref={assetScroll}>
             <div class="asset-editor-context" data-testid="asset-schema-metadata" aria-label="Asset requirements">
               <strong>{assetMulti ? `Multiple ${assetVocabulary().plural}` : `Single ${assetVocabulary().singular}`}</strong>
               <Show when={assetBrowseKind()}>{(kind) => <span>{kind()}</span>}</Show>
@@ -979,27 +1023,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 onChange={(event) => {
                   const files = Array.from(event.currentTarget.files ?? [])
                   event.currentTarget.value = ''
-                  // Sequential on purpose: parallel uploads would race the
-                  // shared error slot. The batch stops at the first failed
-                  // or refused file (its error must stay visible) and when
-                  // the editor closes mid-flight.
-                  void (async () => {
-                    const abort = new AbortController()
-                    assetUploadAbort = abort
-                    setAssetUploading(true)
-                    try {
-                      for (const file of assetMulti ? files : files.slice(0, 1)) {
-                        if (!live || abort.signal.aborted || !(await pickAsset(file))) break
-                      }
-                    } finally {
-                      if (assetUploadAbort === abort) assetUploadAbort = undefined
-                      if (live) {
-                        setAssetUploading(false)
-                        setDestination(readUploadDestination(String(uploadBackend.id), project))
-                        restoreAssetUploadFocus()
-                      }
-                    }
-                  })()
+                  uploadFiles(files)
                 }}
               />
               {/* Cancel stays enabled DURING an upload as the lock's escape

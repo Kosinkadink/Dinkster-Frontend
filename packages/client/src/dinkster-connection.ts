@@ -51,11 +51,14 @@ import {
   graphFeaturesFromDinksterWire,
   mergeableTypesFromDinksterWire,
   serverInfoFromDinksterWire,
+  uploadLimitsFromDinksterWire,
   parseOccurrenceKey,
   schemaForEditorRole,
   validateDinksterGraph,
   type CompileArtifact,
   type ComfyTranslation,
+  type CallAnswer,
+  type CallRequest,
   type ConnectionId,
   type Diagnostic,
   type ExecutionArm,
@@ -91,6 +94,8 @@ import {
 } from './reconnecting-socket.js'
 import { DinksterValuesClient } from './values.js'
 import { expandDynamicPrompt } from './dynamic-prompts.js'
+import { callPackFunction } from './pack-functions.js'
+import { createLookupClient, type LookupClient } from './lookups.js'
 import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
 /** Existing /api/nodes capability flag for the placement submission sidecar. */
@@ -2905,6 +2910,23 @@ export class DinksterConnection {
     }
   }
 
+  private lookupClient: LookupClient | undefined
+
+  /** This backend's one lookup client: its answers are shared by fields, notes and button presses. */
+  get lookups(): LookupClient {
+    this.lookupClient ??= createLookupClient({ baseUrl: this.baseUrl, fetchFn: this.fetchFn })
+    return this.lookupClient
+  }
+
+  /** Run a node's declared pack function for a button press, with this backend's authority. */
+  callPackFunction(
+    request: CallRequest,
+    progress: (fraction: number, text: string) => void,
+    signal: AbortSignal,
+  ): Promise<CallAnswer> {
+    return callPackFunction({ baseUrl: this.baseUrl, fetchFn: this.fetchFn }, request, progress, signal)
+  }
+
   clearLibraryStorage(): Promise<LibraryStorageCleanup> {
     return this.clearLibraryStorageUsing(this.fetchFn)
   }
@@ -4644,6 +4666,7 @@ export function buildDinksterRegistry(
   const server = serverInfoFromDinksterWire(raw)
   const graphFeatures = graphFeaturesFromDinksterWire(raw)
   const mergeableTypes = mergeableTypesFromDinksterWire(raw)
+  const uploadLimits = uploadLimitsFromDinksterWire(raw)
   // Additive fields, absent on older backends: epoch is a positive int
   // (surface generation), composing is present-only-when-true.
   const epoch =
@@ -4661,6 +4684,7 @@ export function buildDinksterRegistry(
     ...(server !== undefined ? { server } : {}),
     ...(graphFeatures !== undefined ? { graphFeatures } : {}),
     ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
+    ...(uploadLimits !== undefined ? { uploadLimits } : {}),
     ...(extensionSnapshotPair !== undefined ? { extensionSnapshotPair } : {}),
     ...(epoch !== undefined ? { epoch } : {}),
     ...(raw.composing === true ? { composing: true as const } : {}),

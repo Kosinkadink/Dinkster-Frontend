@@ -2,17 +2,15 @@ import { defaultValuesOf, type AssetRef, type CommandInvocation, type Json, type
 import { readLatentMetadata, type LatentMetadata } from './latent-metadata.js'
 import { mediaAcceptsFile } from './asset-browser/helpers.js'
 
-const MAX_FILE_BYTES = 64 * 1024 * 1024
-const MAX_LATENT_FILE_BYTES = 1024 * 1024 * 1024
 const MAX_JSON_BYTES = 8 * 1024 * 1024
-const MAX_PNG_CHUNKS = 512
-const MAX_PNG_CHUNK_BYTES = 16 * 1024 * 1024
+const MAX_PNG_TEXT_BYTES = 16 * 1024 * 1024
 const MAX_WORKFLOW_BYTES = 1024 * 1024
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10] as const
 
 export type FileDropClassification =
   | { readonly kind: 'workflow'; readonly document: unknown }
   | { readonly kind: 'image'; readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp'; readonly embeddedWorkflow?: unknown; readonly embeddedPrompt?: JsonObject }
+  | { readonly kind: 'video'; readonly mediaType: 'video/mp4' | 'video/webm' }
   | { readonly kind: 'latent'; readonly metadata: LatentMetadata }
   | { readonly kind: 'rejected'; readonly code: string; readonly message: string }
 
@@ -33,10 +31,9 @@ for (let index = 0; index < CRC32_TABLE.length; index += 1) {
   CRC32_TABLE[index] = value >>> 0
 }
 
-const crc32 = (bytes: Uint8Array): number => {
-  let crc = 0xffffffff
+const updateCrc32 = (crc: number, bytes: Uint8Array): number => {
   for (const byte of bytes) crc = CRC32_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8)
-  return (crc ^ 0xffffffff) >>> 0
+  return crc
 }
 
 /** Synchronous one-shot gate for mutually exclusive embedded-PNG actions. */
@@ -88,25 +85,39 @@ export function watchFileDropGraphOwner(p: {
   }
 }
 
-const pngWorkflow = (bytes: Uint8Array): { readonly ok: true; readonly workflow?: unknown; readonly prompt?: JsonObject } | { readonly ok: false; readonly message: string } => {
+const pngWorkflow = async (file: Pick<File, 'size' | 'slice'>): Promise<{ readonly ok: true; readonly workflow?: unknown; readonly prompt?: JsonObject } | { readonly ok: false; readonly message: string }> => {
   let offset: number = PNG_SIGNATURE.length
   let chunks = 0
   let workflow: unknown | undefined
   let prompt: JsonObject | undefined
   let sawHeader = false
   let sawImageData = false
-  while (offset < bytes.length) {
-    if (++chunks > MAX_PNG_CHUNKS) return { ok: false, message: 'PNG contains too many chunks' }
-    if (offset + 12 > bytes.length) return { ok: false, message: 'PNG has a truncated chunk header' }
-    const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 4)
+  while (offset < file.size) {
+    chunks += 1
+    if (offset + 12 > file.size) return { ok: false, message: 'PNG has a truncated chunk header' }
+    const prefix = await file.slice(offset, offset + 8).arrayBuffer()
+    if (prefix.byteLength !== 8) return { ok: false, message: 'PNG has a truncated chunk header' }
+    const view = new DataView(prefix)
     const length = view.getUint32(0)
-    if (length > MAX_PNG_CHUNK_BYTES) return { ok: false, message: 'PNG chunk exceeds the safe size limit' }
+    const typeBytes = new Uint8Array(prefix, 4, 4)
+    const type = String.fromCharCode(...typeBytes)
+    if (type === 'IHDR' && length !== 13) return { ok: false, message: 'PNG must begin with a valid IHDR chunk' }
+    const text = type === 'tEXt' || type === 'iTXt'
+    if (text && length > MAX_PNG_TEXT_BYTES) return { ok: false, message: 'PNG text exceeds the safe size limit' }
     const end = offset + 12 + length
-    if (end > bytes.length) return { ok: false, message: 'PNG has a truncated chunk' }
-    const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8))
-    const data = bytes.subarray(offset + 8, offset + 8 + length)
-    const expectedCrc = new DataView(bytes.buffer, bytes.byteOffset + offset + 8 + length, 4).getUint32(0)
-    if (crc32(bytes.subarray(offset + 4, offset + 8 + length)) !== expectedCrc) return { ok: false, message: 'PNG chunk checksum is invalid' }
+    if (end > file.size) return { ok: false, message: 'PNG has a truncated chunk' }
+    const data = new Uint8Array(type === 'IHDR' || text ? length : 0)
+    let crc = updateCrc32(0xffffffff, typeBytes)
+    for (let cursor = offset + 8; cursor < end - 4; cursor += 64 * 1024) {
+      const pieceEnd = Math.min(cursor + 64 * 1024, end - 4)
+      const piece = new Uint8Array(await file.slice(cursor, pieceEnd).arrayBuffer())
+      if (piece.byteLength !== pieceEnd - cursor) return { ok: false, message: 'PNG has a truncated chunk' }
+      crc = updateCrc32(crc, piece)
+      if (data.length !== 0) data.set(piece, cursor - offset - 8)
+    }
+    const checksum = await file.slice(end - 4, end).arrayBuffer()
+    if (checksum.byteLength !== 4) return { ok: false, message: 'PNG has a truncated chunk' }
+    if (((crc ^ 0xffffffff) >>> 0) !== new DataView(checksum).getUint32(0)) return { ok: false, message: 'PNG chunk checksum is invalid' }
     if (chunks === 1) {
       if (type !== 'IHDR' || length !== 13) return { ok: false, message: 'PNG must begin with a valid IHDR chunk' }
       const header = new DataView(data.buffer, data.byteOffset, data.byteLength)
@@ -167,7 +178,7 @@ const pngWorkflow = (bytes: Uint8Array): { readonly ok: true; readonly workflow?
     }
     offset = end
     if (type === 'IEND') {
-      if (length !== 0 || offset !== bytes.length || !sawHeader || !sawImageData) return { ok: false, message: 'PNG has an invalid IEND or no image data' }
+      if (length !== 0 || offset !== file.size || !sawHeader || !sawImageData) return { ok: false, message: 'PNG has an invalid IEND or no image data' }
       return { ok: true, ...(workflow !== undefined ? { workflow } : {}), ...(prompt !== undefined ? { prompt } : {}) }
     }
   }
@@ -175,25 +186,25 @@ const pngWorkflow = (bytes: Uint8Array): { readonly ok: true; readonly workflow?
 }
 
 interface Classifier {
-  readonly classify: (bytes: Uint8Array) => FileDropClassification | undefined
+  readonly classify: (bytes: Uint8Array, file: Pick<File, 'size' | 'slice'>) => FileDropClassification | undefined | Promise<FileDropClassification | undefined>
 }
 
 /** Ordered, data-only ingress registry. Entries classify bytes and never dispatch plugin code. */
 const CLASSIFIERS: readonly Classifier[] = [
   {
-    classify: (bytes) => {
+    classify: async (bytes, file) => {
       let first = 0
       while (first < bytes.length && [9, 10, 13, 32].includes(bytes[first]!)) first += 1
-      if (bytes[first] !== 0x7b && bytes[first] !== 0x5b) return undefined
-      if (bytes.byteLength > MAX_JSON_BYTES) return rejected('fileDrop.jsonTooLarge', 'Workflow JSON exceeds the safe size limit')
-      try { return { kind: 'workflow', document: decodeJson(bytes) } }
+      if (first < bytes.length && bytes[first] !== 0x7b && bytes[first] !== 0x5b) return undefined
+      if (file.size > MAX_JSON_BYTES) return rejected('fileDrop.jsonTooLarge', 'Workflow JSON exceeds the safe size limit')
+      try { return { kind: 'workflow', document: decodeJson(new Uint8Array(await file.slice(0, file.size).arrayBuffer())) } }
       catch { return rejected('fileDrop.invalidJson', 'Dropped workflow is not valid UTF-8 JSON') }
     },
   },
   {
-    classify: (bytes) => {
+    classify: async (bytes, file) => {
       if (!startsWith(bytes, PNG_SIGNATURE)) return undefined
-      const metadata = pngWorkflow(bytes)
+      const metadata = await pngWorkflow(file)
       return metadata.ok
         ? { kind: 'image', mediaType: 'image/png', ...(metadata.workflow !== undefined ? { embeddedWorkflow: metadata.workflow } : {}), ...(metadata.prompt !== undefined ? { embeddedPrompt: metadata.prompt } : {}) }
         : rejected('fileDrop.invalidPngMetadata', metadata.message)
@@ -201,33 +212,32 @@ const CLASSIFIERS: readonly Classifier[] = [
   },
   { classify: (bytes) => startsWith(bytes, [0xff, 0xd8, 0xff]) ? { kind: 'image', mediaType: 'image/jpeg' } : undefined },
   { classify: (bytes) => startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) && startsWith(bytes.subarray(8), [0x57, 0x45, 0x42, 0x50]) ? { kind: 'image', mediaType: 'image/webp' } : undefined },
+  { classify: (bytes) => bytes.length >= 12 && startsWith(bytes.subarray(4), [0x66, 0x74, 0x79, 0x70]) ? { kind: 'video', mediaType: 'video/mp4' } : undefined },
+  { classify: (bytes) => startsWith(bytes, [0x1a, 0x45, 0xdf, 0xa3]) ? { kind: 'video', mediaType: 'video/webm' } : undefined },
 ]
 
-export async function classifyDroppedFile(file: Pick<File, 'name' | 'size' | 'slice' | 'arrayBuffer'>): Promise<FileDropClassification> {
+export async function classifyDroppedFile(file: Pick<File, 'name' | 'size' | 'slice'>): Promise<FileDropClassification> {
+  if (!Number.isSafeInteger(file.size) || file.size <= 0) return rejected('fileDrop.invalidSize', 'Dropped file is empty or has an invalid size')
   if (/\.(?:latent|safetensors)$/i.test(file.name)) {
-    if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > MAX_LATENT_FILE_BYTES) {
-      return rejected('fileDrop.invalidLatentSize', 'Dropped latent is empty or exceeds the safe size limit')
-    }
     const result = await readLatentMetadata(file)
     return result.ok
       ? { kind: 'latent', metadata: result.metadata }
       : rejected('fileDrop.invalidLatent', result.message)
   }
-  if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > MAX_FILE_BYTES) {
-    return rejected('fileDrop.invalidSize', 'Dropped file is empty or exceeds the safe size limit')
-  }
   let bytes: Uint8Array
-  try { bytes = new Uint8Array(await file.arrayBuffer()) }
+  try { bytes = new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer()) }
   catch { return rejected('fileDrop.readFailed', 'Dropped file could not be read') }
-  for (const classifier of CLASSIFIERS) {
-    const result = classifier.classify(bytes)
-    if (result !== undefined) return result
-  }
+  try {
+    for (const classifier of CLASSIFIERS) {
+      const result = await classifier.classify(bytes, file)
+      if (result !== undefined) return result
+    }
+  } catch { return rejected('fileDrop.readFailed', 'Dropped file could not be read') }
   return rejected('fileDrop.unsupported', 'Unsupported dropped file type')
 }
 
-export type ImageInsertOutcome = 'inserted' | 'upload-failed' | 'invalid-asset' | 'stale-tab' | 'stale-graph' | 'frozen' | 'schema-missing' | 'rejected'
-export type LatentInsertOutcome = ImageInsertOutcome
+export type MediaInsertOutcome = 'inserted' | 'upload-failed' | 'invalid-asset' | 'stale-tab' | 'stale-graph' | 'frozen' | 'schema-missing' | 'rejected'
+export type LatentInsertOutcome = MediaInsertOutcome
 
 const loaderForMediaType = (
   schemas: Iterable<NodeSchema>,
@@ -251,10 +261,10 @@ const loaderForMediaType = (
   return fallback
 }
 
-/** Upload and atomically insert a catalog loader for the image MIME type. */
-export async function insertDroppedImage(p: {
+/** Upload and atomically insert a catalog loader for the media MIME type. */
+export async function insertDroppedMedia(p: {
   readonly file: File
-  readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp'
+  readonly mediaType: string
   readonly graphId: string
   readonly position: { readonly x: number; readonly y: number }
   readonly tabStillOpen: () => boolean
@@ -267,7 +277,7 @@ export async function insertDroppedImage(p: {
   readonly upload: (body: File) => Promise<AssetRef>
   readonly dispatch: (invocation: CommandInvocation) => boolean | Promise<boolean>
   readonly onInserted: (nodeId: string) => void
-}): Promise<ImageInsertOutcome> {
+}): Promise<MediaInsertOutcome> {
   if (!p.tabStillOpen()) return 'stale-tab'
   if (!p.graphStillOwned() || p.currentGraphId() !== p.graphId || p.document().graphs[p.graphId] === undefined) return 'stale-graph'
   if (p.frozen()) return 'frozen'
