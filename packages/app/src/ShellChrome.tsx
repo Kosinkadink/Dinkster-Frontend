@@ -18,6 +18,7 @@ import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
 import { useAppMessage } from './locale.js'
 import type { TooltipContent, VisibleTooltip } from './tooltips.js'
+import { ProductShortcut } from '@dinkster/ui'
 
 export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   const message = useAppMessage()
@@ -126,8 +127,12 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   return (
     <aside ref={element} class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip">
       <div ref={content} role="tooltip">
-        <Show when={displayed().title}><div class="app-tooltip-title">{displayed().title}</div></Show>
-        <For each={displayed().lines}>{(line) => <div>{line}</div>}</For>
+        <Show when={displayed().title}><div class="app-tooltip-title">
+          {displayed().title}<Show when={displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
+        </div></Show>
+        <For each={displayed().lines}>{(line, index) => <div>
+          {line}<Show when={index() === 0 && !displayed().title && displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
+        </div>}</For>
         <Show when={props.tip.detailed}><For each={displayed().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
       </div>
     </aside>
@@ -169,7 +174,7 @@ export function ActivityBarButton(props: {
   readonly label: string
   readonly accessibleName: string
   readonly tooltip: string
-  readonly tooltipDetail?: string | undefined
+  readonly tooltipShortcut?: string | undefined
   readonly pressed: boolean | undefined
   readonly panelId?: string | undefined
   readonly testId?: string | undefined
@@ -185,7 +190,7 @@ export function ActivityBarButton(props: {
       data-testid={props.testId}
       data-panel-toggle={props.panelId}
       data-tooltip-label={tooltip()}
-      data-tooltip-detail={props.tooltipDetail}
+      data-tooltip-shortcut={props.tooltipShortcut}
       data-tooltip-immediate="true"
       aria-label={props.accessibleName === props.label ? props.label : `${props.label}: ${props.accessibleName}`}
       aria-pressed={props.pressed}
@@ -223,7 +228,7 @@ export function IconBar(props: {
         label={message('shell.panel.settings.title')}
         accessibleName={message('shell.panel.settings.title')}
         tooltip={message('shell.panel.settings.title')}
-        tooltipDetail="Ctrl+,"
+        tooltipShortcut="Ctrl+,"
         pressed={undefined}
         testId="settings-button"
         class="sidebar-settings-button"
@@ -283,7 +288,7 @@ export function ShellResizeHandle(props: {
   }
   return (
     <div
-      class={`${props.region === 'left' ? 'dock' : props.region === 'right' ? 'rail' : 'bottom'}-resize`}
+      class={`${props.region === 'left' ? 'dock' : props.region === 'right' ? 'rail' : 'bottom'}-resize panel-resize-handle`}
       data-testid={props.testId}
       role="separator"
       tabindex="0"
@@ -292,7 +297,13 @@ export function ShellResizeHandle(props: {
       aria-valuemin={props.min}
       aria-valuemax={props.max}
       aria-valuenow={props.value}
-      onPointerDown={props.onPointerDown}
+      onPointerMove={positionResizeGrip}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        positionResizeGrip(event)
+        event.currentTarget.setPointerCapture(event.pointerId)
+        props.onPointerDown(event)
+      }}
       onKeyDown={resizeFromKey}
     />
   )
@@ -310,6 +321,13 @@ export interface DockZoneSectionView {
 
 /** Keyboard resize step for the section divider, as a share of the zone. */
 export const DOCK_SECTION_SPLIT_STEP = 0.05
+
+function positionResizeGrip(event: PointerEvent & { currentTarget: HTMLDivElement }): void {
+  const element = event.currentTarget
+  const rect = element.getBoundingClientRect()
+  const horizontal = element.getAttribute('aria-orientation') === 'horizontal'
+  element.style.setProperty('--dinkster-resize-grip-position', `${horizontal ? event.clientX - rect.left : event.clientY - rect.top}px`)
+}
 
 /**
  * Draggable, keyboard-operable divider between a zone's two sections. The
@@ -369,7 +387,7 @@ function DockSectionDivider(props: {
   return (
     <div
       ref={divider}
-      class="dock-section-divider"
+      class="dock-section-divider panel-resize-handle"
       data-testid={`dock-section-divider-${props.zone}`}
       role="separator"
       tabindex="0"
@@ -378,7 +396,11 @@ function DockSectionDivider(props: {
       aria-valuemin={Math.round(MIN_ZONE_SPLIT * 100)}
       aria-valuemax={Math.round(MAX_ZONE_SPLIT * 100)}
       aria-valuenow={Math.round(props.split * 100)}
-      onPointerDown={beginDrag}
+      onPointerMove={positionResizeGrip}
+      onPointerDown={(event) => {
+        positionResizeGrip(event)
+        beginDrag(event)
+      }}
       onKeyDown={resizeFromKey}
     />
   )
@@ -440,8 +462,6 @@ function DockZoneSection(props: {
             id: panel.id,
             // The title tooltip is suppressed while the placement menu is open
             // so it cannot overlap the menu (the menu opens at the tab).
-            // The badge sits outside the truncating text span so a narrow tab
-            // ellipsizes its title but never clips the attention badge.
             label: <span class="tab-title" data-tooltip-label={props.menuOpen() ? undefined : panel.title}>
               <span class="tab-title-text">{panel.title}</span>
               <Show when={activePanelIndicator(panel)} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show>
@@ -457,8 +477,7 @@ function DockZoneSection(props: {
   }
   const active = (): PanelDescriptor | undefined => props.panels.find((panel) => panel.id === props.activeId)
 
-  // Tabs shrink to an ellipsis floor instead of scrolling. Tabs beyond the
-  // last whole floor are hidden and remain reachable through the menu.
+  // Tabs that cannot fit whole remain reachable through the menu.
   const tabsClipped = (): boolean => hiddenTabIds().size > 0
   // A clipped tab's indicator would otherwise vanish with the tab; surface
   // the aggregate on the all-tabs trigger so attention stays discoverable.
@@ -478,29 +497,46 @@ function DockZoneSection(props: {
       return
     }
     const tablist = root.querySelector<HTMLElement>('[role="tablist"]')
-    const tab = tablist?.querySelector<HTMLElement>('[role="tab"]')
-    if (tablist === null || tab === null || tab === undefined) {
+    if (tablist === null) {
       if (hiddenTabIds().size > 0) setHiddenTabIds(new Set<string>())
       return
     }
-    const count = props.panels.length
-    const gap = Number.parseFloat(getComputedStyle(tablist).columnGap) || 0
-    const floor = Number.parseFloat(getComputedStyle(tab).minWidth) || 64
+    const style = getComputedStyle(tablist)
+    const gap = Number.parseFloat(style.columnGap) || 0
+    const padding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight)
+    // Hidden tabs still participate in fit calculations, including live badges.
+    const widths = new Map(Array.from(tablist.querySelectorAll<HTMLElement>('[role="tab"]'), (tab) => {
+      const display = tab.style.display
+      tab.style.display = 'block'
+      const width = tab.getBoundingClientRect().width
+      tab.style.display = display
+      return [tab.dataset['tabId']!, width] as const
+    }))
     const actions = root.querySelector<HTMLElement>('.dock-zone-actions')
     const actionGap = actions === null ? 0 : Number.parseFloat(getComputedStyle(actions).columnGap) || 0
     const overflowWidth = overflowRoot !== undefined && root.contains(overflowRoot)
       ? overflowRoot.getBoundingClientRect().width + actionGap
       : 0
-    const widthWithoutOverflow = tablist.clientWidth + overflowWidth
-    const allFloorsWidth = count * floor + Math.max(0, count - 1) * gap
-    const visibleCount = allFloorsWidth <= widthWithoutOverflow + 1
-      ? count
-      : Math.max(1, Math.min(count, Math.floor((tablist.clientWidth + gap) / (floor + gap))))
-    const visibleIds = new Set(props.panels.slice(0, visibleCount).map((panel) => panel.id))
-    if (props.activeId !== undefined && !visibleIds.has(props.activeId)) {
-      const last = props.panels[visibleCount - 1]
-      if (last !== undefined) visibleIds.delete(last.id)
-      visibleIds.add(props.activeId)
+    const available = tablist.clientWidth - padding
+    const allWidth = [...widths.values()].reduce((sum, width) => sum + width, 0)
+      + Math.max(0, widths.size - 1) * gap
+    const visibleIds = new Set<string>()
+    if (allWidth <= available + overflowWidth) {
+      for (const id of widths.keys()) visibleIds.add(id)
+    } else {
+      // Reserve the active title first, then fit the remaining complete tabs.
+      let used = 0
+      if (props.activeId !== undefined && widths.has(props.activeId)) {
+        visibleIds.add(props.activeId)
+        used = widths.get(props.activeId)!
+      }
+      for (const [id, width] of widths) {
+        if (visibleIds.has(id)) continue
+        const nextWidth = used + (visibleIds.size > 0 ? gap : 0) + width
+        if (nextWidth > available) continue
+        visibleIds.add(id)
+        used = nextWidth
+      }
     }
     const next = new Set(props.panels.filter((panel) => !visibleIds.has(panel.id)).map((panel) => panel.id))
     const previous = hiddenTabIds()
@@ -513,7 +549,12 @@ function DockZoneSection(props: {
     if (tablist === null || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measureTabs)
     observer.observe(tablist)
-    onCleanup(() => observer.disconnect())
+    const contentObserver = new MutationObserver(measureTabs)
+    contentObserver.observe(tablist, { childList: true, subtree: true, characterData: true })
+    onCleanup(() => {
+      observer.disconnect()
+      contentObserver.disconnect()
+    })
   })
   // Panel and active-tab changes can alter complete-tab fit without resizing
   // the strip itself, which the observer cannot see.

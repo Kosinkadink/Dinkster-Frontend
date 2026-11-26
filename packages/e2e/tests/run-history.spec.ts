@@ -203,6 +203,81 @@ test('a durable stamped record: click selects, the open action reopens the produ
   expect(after.type).toBe('dev.image.gradient')
 })
 
+test('a run\'s details name the workflow it was queued under, in both scopes, and say when none was recorded', async ({ page }) => {
+  const jobId = await queueAndComplete(page)
+  await expect.poll(async () => (await durableRecords()).some((record) => record.jobId === jobId)).toBe(true)
+  // Renaming the workflow afterwards leaves the run under the name it was queued with.
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.renameTab(app.activeTabId.get(), 'Renamed afterwards')
+  })
+  const workflowLine = (details: Locator) => details.locator('div').filter({ has: page.getByText('Workflow', { exact: true }) })
+
+  await openRailPanel(page, 'Runs')
+  await chooseRunScope(page, 'workflow')
+  const row = page.getByTestId('runs-panel').getByTestId('execution-row').first()
+  await expect(row.getByRole('button', { name: /^More for / })).toBeVisible()
+  await chosenRunMenu(page, row, 'Details')
+  await expect(workflowLine(row.getByTestId('chosen-run-details'))).toHaveText('WorkflowRun History')
+
+  await chooseRunScope(page, 'all')
+  const entry = entryFor(page, jobId)
+  await entry.click()
+  await chosenRunMenu(page, entry, 'Details')
+  await expect(workflowLine(entry.getByTestId('chosen-run-details'))).toHaveText('WorkflowRun History')
+
+  // A record kept before names were stored has none, and its details say so.
+  await page.route('**/api/history?*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json() as { records: Record<string, unknown>[] }
+    await route.fulfill({ response, json: { ...body, records: body.records.map(({ workflowName: _name, ...record }) => record) } })
+  })
+  await chooseRunScope(page, 'workflow')
+  await chooseRunScope(page, 'all')
+  const unnamed = entryFor(page, jobId)
+  await unnamed.click()
+  await chosenRunMenu(page, unnamed, 'Details')
+  await expect(workflowLine(unnamed.getByTestId('chosen-run-details'))).toHaveText('WorkflowNot recorded')
+})
+
+test('a run\'s row is named after the workflow it was queued under, through a rename and a reload, and keeps its state when none was recorded', async ({ page }) => {
+  const jobId = await queueAndComplete(page)
+  await expect.poll(async () => (await durableRecords()).some((record) => record.jobId === jobId)).toBe(true)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.renameTab(app.activeTabId.get(), 'Renamed afterwards')
+  })
+
+  await openRailPanel(page, 'Runs')
+  await chooseRunScope(page, 'workflow')
+  const row = page.getByTestId('runs-panel').getByTestId('execution-row').first()
+  await expect(row.locator('.run-row-name')).toHaveText('Run History')
+  await expect(row.getByRole('button', { name: 'More for Run History' })).toBeVisible()
+
+  await chooseRunScope(page, 'all')
+  await expect(entryFor(page, jobId).locator('.run-row-name')).toHaveText('Run History')
+
+  // After a reload the run is read back from the engine's record alone.
+  await page.reload()
+  await waitForWorkspaceReady(page)
+  await openRuns(page)
+  const stored = entryFor(page, jobId)
+  await expect(stored.locator('.run-row-name')).toHaveText('Run History')
+  await stored.click()
+  await expect(stored.getByRole('button', { name: 'More for Run History' })).toBeVisible()
+
+  // A record kept before names were stored keeps its state as its name.
+  await page.route('**/api/history?*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json() as { records: Record<string, unknown>[] }
+    await route.fulfill({ response, json: { ...body, records: body.records.map(({ workflowName: _name, ...record }) => record) } })
+  })
+  await page.reload()
+  await waitForWorkspaceReady(page)
+  await openRuns(page)
+  await expect(entryFor(page, jobId).locator('.run-row-name')).toHaveText('Completed run')
+})
+
 test('two cached runs collapse into one expandable no-op history row', async ({ page }) => {
   // Give this test a unique workflow digest, warm its engine cache once,
   // then clear only durable records. The next two submissions are both
@@ -345,6 +420,39 @@ test('runs lingering through a backend switch can never clear the incoming backe
   await expect(clear).toBeEnabled({ timeout: 10_000 })
   await page.unrouteAll({ behavior: 'wait' })
   expect(clearCalls).toEqual([])
+})
+
+test('with a page tab in front Runs shows all workflows, and the earlier choice returns on the workflow tab', async ({ page }) => {
+  await queueAndComplete(page)
+  await openRailPanel(page, 'Runs')
+  const scope = page.getByTestId('runs-scope')
+  const thisWorkflow = scope.getByRole('radio', { name: 'This workflow', exact: true })
+  await chooseRunScope(page, 'workflow')
+  const workflowTab = await page.evaluate(() => window.__dinksterTest!.app.activeTabId.get())
+  const pageTab = await page.evaluate(() => {
+    const pages = (window.__dinksterTest!.app as unknown as { pages: {
+      register(page: unknown): unknown; open(id: string): { id: string } | undefined } }).pages
+    pages.register({ id: 'example', title: 'Example', icon: () => undefined, component: () => null })
+    return pages.open('example')!.id
+  })
+  const showTab = (id: string) => page.evaluate((id) => window.__dinksterTest!.app.activeTabId.set(id), id)
+
+  // A page is not a workflow: All workflows shows, and This workflow stays in place but cannot be chosen.
+  await expect(scope).toHaveAttribute('data-selected-id', 'all')
+  await expect(page.getByTestId('runs-panel').getByText('No runs for this workflow')).toHaveCount(0)
+  await expect(thisWorkflow).toBeDisabled()
+  await expect(thisWorkflow).toHaveAccessibleDescription('A page is in front, not a workflow.')
+  await expect(scope.locator('.dinkster-segment').first()).toHaveAttribute('data-tooltip-label', 'A page is in front, not a workflow.')
+
+  // Back on the workflow, its earlier choice returns; a choice of All workflows also survives the page.
+  await showTab(workflowTab)
+  await expect(scope).toHaveAttribute('data-selected-id', 'workflow')
+  await expect(thisWorkflow).toBeEnabled()
+  await chooseRunScope(page, 'all')
+  await showTab(pageTab)
+  await expect(scope).toHaveAttribute('data-selected-id', 'all')
+  await showTab(workflowTab)
+  await expect(scope).toHaveAttribute('data-selected-id', 'all')
 })
 
 nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ page }) => {

@@ -64,9 +64,11 @@ import {
 import { InNodeEditorsGallery } from './in-node-editors.js'
 import { RowAutomaticGallery } from './row-automatic.js'
 import { RowListsGallery } from './row-lists.js'
+import { BoundaryTreeGallery } from './boundary-tree.js'
 import { SaveTargetBoxGallery } from './save-target-box.js'
 import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
+import { RowFilePreviewsGallery } from './row-file-previews.js'
 
 type Theme = 'dark' | 'light'
 
@@ -104,6 +106,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'collection-rows',
         'editor-rows',
         'row-summaries',
+        'row-file-previews',
         'in-node-editors',
         'widget-driven',
         'widget-offered',
@@ -114,7 +117,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       ],
     ],
     ['Wires', ['types', 'structure', 'wire-looks']],
-    ['Subgraphs', ['boundary', 'boundary-names', 'subgraph-icon']],
+    ['Subgraphs', ['boundary', 'boundary-names', 'boundary-tree', 'subgraph-icon']],
     ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
     ['Problems with fixes', ['problem-box']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
@@ -215,6 +218,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'What a closed row shows for its value, for the 15 kinds of field: empty or initial, set, and in a node too narrow for the whole value. Lists show values in stored order and then how many more, or only the count when not even one fits; a color keeps its square and code; Markdown shows its first line and how many lines it has; crop regions and video edits fall back to shorter forms. The save target row keeps its mount and last path segment when the full prefix does not fit. Rows that only open an editor say what they open. Resolution preview is removed by the node rewrite, where a note replaces it, and is shown unchanged. Pointing at a row lists its whole value, below. Known after a run and Nothing come from the row looks work and are not drawn here yet.',
   'in-node-editors':
     'The audio recorder, webcam, 3D viewer, image comparison, camera angle and curve fold out inside the node under their editor button row, and the rows below move down; clicking the row again folds them back. A folded row says what the editor holds. A palette is a group of color rows: it grows as colors are added and shows a limit only when its group declares one.',
+  'row-file-previews':
+    'Closed file rows use the shared preview loader and production node renderer. The stored values, incoming values, empty fields and narrow fallbacks below never open an editor or change the document.',
   'widget-driven':
     'A row whose value comes from a wire is dimmed and its stored value is struck through.',
   'widget-offered':
@@ -235,6 +240,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires; strength and the edge dropdown are shown on the node without a wire and carry the subgraph icon.",
   'boundary-names':
     "The names on a subgraph's panels and on its collapsed node; After shows ids as written.",
+  'boundary-tree':
+    "The Boundary panel lists a subgraph node's rows as one ordered tree: rows, lines of fields, sections and whole groups and choices, in the order the node draws them, with the selected row's settings in the fixed area below. Click a row to select it, a section's arrow to open or close it.",
   zoom: 'Three nodes at 75 percent, the smallest zoom that still draws controls.',
   'zoom-content':
     'The same nodes at 50 percent, where text stays and controls are hidden.',
@@ -613,10 +620,11 @@ function ExampleCard(props: {
 // Every face the canvas paints with, loaded as the editor does before its
 // first paint.
 const canvasFontsLoaded = () => {
-  const { fontSize, titleFontSize, fontFamily } = defaultTokens
+  const { fontSize, titleFontSize, fontFamily, fontMono } = defaultTokens
   const semibold = canvasPaintTokens.type.semiboldWeight
   return Promise.all([
     document.fonts.load(`${fontSize}px ${fontFamily}`),
+    document.fonts.load(`${fontSize}px ${fontMono}`),
     document.fonts.load(`${semibold} ${titleFontSize}px ${fontFamily}`),
     document.fonts.load(`italic ${semibold} ${titleFontSize}px ${fontFamily}`),
   ])
@@ -655,7 +663,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'save-target-box') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -763,6 +771,9 @@ export function CanvasGallery() {
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
         </Show>
+        <Show when={page() === 'boundary-tree'}>
+          <BoundaryTreeGallery />
+        </Show>
         <Show when={fontsReady() && page() === 'save-target-box'}>
           <SaveTargetBoxGallery theme={theme()} />
         </Show>
@@ -774,6 +785,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'problem-box'}>
           <ProblemBoxGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'row-file-previews'}>
+          <RowFilePreviewsGallery theme={theme()} registry={registry} />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (

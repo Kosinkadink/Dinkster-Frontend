@@ -5,8 +5,85 @@ import { asLinkId, asNodeId, asPortId, coreCommandRegistry, createSignal, Docume
 import type { ExecutionState } from '@dinkster/client'
 import type { AppState, Tab } from '../src/app-state.js'
 import { WidgetEditor, type WidgetEditorProps, type WidgetEditorState } from '../src/WidgetEditor.js'
+import { CurveSpace } from '../src/InNodeEditorSpaces.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('stores Step interpolation without changing points', async () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'linear' as const, points: [
+    { position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.9, value: 0.3 },
+  ] }
+  const commit = vi.fn()
+  const root = document.createElement('div'); document.body.append(root)
+  const mount = (interpolation: 'linear' | 'step') => render(() => <CurveSpace
+    value={{ ...value, interpolation }} options={{}} histogram={undefined} histogramInput="none" commit={commit}
+  />, root)
+  let dispose = mount('linear')
+  try {
+    const choice = root.querySelector('.dinkster-canvas-editor-field-slot')!
+    ;(choice.querySelector('button') as HTMLButtonElement).click()
+    const step = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent?.trim() === 'Step')!
+    expect(step).toBeDefined()
+    step.click()
+    expect(commit).toHaveBeenCalledExactlyOnceWith({ ...value, interpolation: 'step' })
+    dispose()
+    dispose = mount('step')
+    expect(root.textContent).toContain('Step')
+    expect(root.textContent).not.toContain('Histogram')
+  } finally { dispose() }
+})
+
+it('draws a Step-only curve without a selector or a ramp even for an incoming linear value', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'linear' as const, points: [
+    { position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.9, value: 0.3 },
+  ] }
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn()
+  const dispose = render(() => <CurveSpace value={value} options={{ interpolations: ['step'] }}
+    histogram={undefined} histogramInput="none" commit={commit} />, root)
+  try {
+    expect(root.textContent).not.toContain('Interpolation')
+    expect(root.textContent).not.toContain('Histogram')
+    const vertices = root.querySelector('.dinkster-canvas-curve-line[data-held="false"]')!.getAttribute('points')!
+      .split(' ').map((point) => point.split(',').map(Number))
+    let jumps = 0
+    for (let index = 1; index < vertices.length; index++) {
+      const [x, y] = vertices[index]!
+      const [beforeX, beforeY] = vertices[index - 1]!
+      expect(x === beforeX || y === beforeY).toBe(true)
+      if (y !== beforeY) { expect(x).toBe(beforeX); jumps++ }
+    }
+    expect(jumps).toBe(2)
+    expect(commit).not.toHaveBeenCalled()
+    expect(value.interpolation).toBe('linear')
+  } finally { dispose() }
+})
+
+it('bounds an expanded Step plot without changing extreme source points', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'step' as const, points: [
+    { position: -1e308, value: -2 }, { position: 0.25, value: 0.4 },
+    { position: 0.75, value: 2 }, { position: 1e308, value: 0.8 },
+  ] }
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn()
+  const dispose = render(() => <CurveSpace value={value} options={{}} histogram={undefined} histogramInput="none" commit={commit} />, root)
+  try {
+    const vertices = Array.from(root.querySelectorAll('.dinkster-canvas-curve-line')).flatMap((line) =>
+      line.getAttribute('points')!.split(' ').map((point) => point.split(',').map(Number)))
+    const expected = [[8.5, 171.5], [84.25, 171.5], [84.25, 106.3], [235.75, 106.3], [235.75, 8.5], [311.5, 8.5]]
+    expect(vertices).toHaveLength(expected.length)
+    vertices.forEach((point, index) => point.forEach((coordinate, axis) => expect(coordinate).toBeCloseTo(expected[index]![axis]!)))
+    const handles = root.querySelectorAll('.dinkster-canvas-curve-point')
+    expect(handles).toHaveLength(1)
+    expect(Number(handles[0]!.getAttribute('cx'))).toBeCloseTo(84.25)
+    expect(Number(handles[0]!.getAttribute('cy'))).toBeCloseTo(106.3)
+    expect(commit).not.toHaveBeenCalled()
+    expect(value.points[0]!.position).toBe(-1e308)
+  } finally { dispose() }
+})
 
 it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {
   const schema = parseDinksterSchema('SaveTargetFixture', { body: [
@@ -63,51 +140,6 @@ it.each([false, true])('edits structured save destinations with writable grants 
     expect(store.doc.graphs.g0!.nodes.n1!.values.target).toEqual({ mount: 'archive', prefix: 'old' })
     dispose()
   }
-})
-
-it('previews resolution with half-even rounding and edits descriptor-named siblings as one undo', async () => {
-  const schema = parseDinksterSchema('ResolutionFixture', { body: [
-    { kind: 'input', id: 'ratio', type: { kind: 'concrete', types: ['COMBO'] }, default: '1:1 (Square)', widget: { type: 'COMBO', options: ['1:1 (Square)', '16:9 (Widescreen)'] } },
-    { kind: 'input', id: 'mp', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
-    { kind: 'input', id: 'step', type: { kind: 'concrete', types: ['INT'] }, default: 8 },
-    { kind: 'input', id: 'preview', type: { kind: 'concrete', types: ['RESOLUTION_PREVIEW'] }, default: null, widget: { type: 'RESOLUTION_PREVIEW', ratio_widget: 'ratio', megapixels_widget: 'mp', multiple_widget: 'step' } },
-  ] }).schema!
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
-  const store = new DocumentStore(imported.document!, coreCommandRegistry())
-  const before = store.doc.graphs.g0!.nodes.n1!.values
-  const tab = { store } as unknown as Tab
-  const registry = createWidgetRegistry()
-  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    registryForTab: () => ({ resolve: () => schema }),
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
-  } as unknown as AppState
-  const root = document.createElement('div'); document.body.append(root)
-  const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'preview' }, label: 'Preview',
-    spec: inputsOf(schema)[3]!.widget, multiline: false, initial: null,
-    rect: { x: 0, y: 0, width: 180, height: 24 },
-  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  const input = (field: string, value: string) => {
-    const element = root.querySelector<HTMLInputElement>(`#resolution-${field}`)!
-    expect(element.getAttribute('aria-labelledby')).toBeTruthy()
-    element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
-  }
-  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply resolution')!
-  expect(root.querySelector('output')!.textContent).toBe('1,024 x 1,024 pixels')
-  input('megapixels', '0.2539215087890625')
-  expect(root.querySelector('output')!.textContent).toBe('512 x 512 pixels')
-  input('megapixels', '0.2618560791015625')
-  expect(root.querySelector('output')!.textContent).toBe('528 x 528 pixels')
-  for (const value of ['', '0.09', '16.1', 'NaN']) { input('megapixels', value); expect(apply.disabled).toBe(true) }
-  input('megapixels', '1.3')
-  for (const value of ['', '7', '129', '8.5']) { input('multiple', value); expect(apply.disabled).toBe(true) }
-  input('multiple', '64')
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  apply.click()
-  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, ratio: '1:1 (Square)', mp: 1.3, step: 64 }))
-  expect(store.undo()).toBe(true)
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  dispose()
 })
 
 it.each([

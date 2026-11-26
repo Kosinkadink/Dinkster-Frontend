@@ -42,26 +42,98 @@ const doLayout = (items: NodeSchema['body'], displayName?: string) =>
   layoutNode(schemaOf(items, displayName), nodeData, defaultTokens, measure, widgetMeasure)
 
 describe('pairing', () => {
+  it('keeps a three-field line as tall as its tallest field with wired pins clustered at its ends', () => {
+    for (const middle of [widget('middle'), widget('middle', { widget: { widgetType: 'STRING', options: { multiline: true } } })]) {
+      const layout = layoutNode(schemaOf([
+        { kind: 'row', rows: [widget('first'), middle, widget('last')] },
+        widget('after'), output('first'),
+      ]), nodeData, defaultTokens, measure, widgetMeasure, {
+        connectedPorts: new Set(['in:first', 'in:last', 'out:middle']),
+      })
+      const height = doLayout([middle]).rows[0]!.height
+      const [first, second, last, after] = layout.rows
+      expect([first, second, last].map((row) => [row!.y, row!.height])).toEqual([
+        [first!.y, defaultTokens.rowHeight], [first!.y, height], [first!.y, defaultTokens.rowHeight],
+      ])
+      expect(after!.y).toBe(first!.y + height)
+      const center = first!.y + defaultTokens.rowHeight / 2
+      expect(layout.pins.filter((pin) => pin.pressed).map((pin) => [pin.direction, pin.portId, pin.y])).toEqual([
+        ['in', 'first', center - 3.5], ['in', 'last', center + 3.5], ['out', 'middle', center],
+      ])
+      expect(layout.pins.find((pin) => pin.portId === 'first' && pin.direction === 'out' && !pin.widgetTap)!.y)
+        .toBeGreaterThan(after!.y)
+      if (middle.widget?.options['multiline'] === true) {
+        for (const projected of [projectNodeLayoutHeight(layout, layout.height + 61, defaultTokens), projectTextBoxLines(layout, 'middle', 5, defaultTokens)]) {
+          expect(projected.rows[0]).toMatchObject({ y: first!.y, height: defaultTokens.rowHeight })
+          expect(projected.rows[2]).toMatchObject({ y: first!.y, height: defaultTokens.rowHeight })
+          expect(projected.rows[3]!.y).toBe(projected.rows[1]!.y + projected.rows[1]!.height)
+          expect(projected.pins.filter((pin) => pin.pressed)).toEqual(layout.pins.filter((pin) => pin.pressed))
+        }
+      }
+    }
+  })
+
+  it('keeps short controls and each text box at their own heights inside a shared boxed line', () => {
+    const text = (id: string) => widget(id, { widget: { widgetType: 'STRING', options: { multiline: true } } })
+    const schema = schemaOf([
+      { kind: 'section', id: 'fields', displayName: 'Fields', rows: [{ kind: 'row', rows: [
+        widget('number'),
+        widget('toggle', { widget: { widgetType: 'BOOLEAN', options: {} } }),
+        widget('choice', { widget: { widgetType: 'COMBO', options: { values: ['a', 'b'] } } }),
+        widget('line', { widget: { widgetType: 'STRING', options: {} } }),
+        text('shorter'), text('taller'),
+        { kind: 'button', id: 'run', label: 'Run', steps: [] },
+      ] }] },
+      input('after'),
+    ])
+    const options = { textBoxLines: { shorter: 3, taller: 5 } }
+    const layout = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, options)
+    const controls = layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
+    const boxHeight = (lines: number) => defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight +
+      lines * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding
+    expect(controls.map((row) => [row.y, row.height])).toEqual([
+      ...Array.from({ length: 4 }, () => [controls[0]!.y, defaultTokens.rowHeight]),
+      [controls[0]!.y, boxHeight(3)], [controls[0]!.y, boxHeight(5)], [controls[0]!.y, defaultTokens.rowHeight],
+    ])
+    const grown = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
+      ...options, size: { width: layout.width, height: layout.height + 61 },
+    })
+    const projected = projectNodeLayoutHeight(layout, grown.height, defaultTokens)
+    expect(projected.rows).toEqual(grown.rows)
+    expect(projected.boxes).toEqual(grown.boxes)
+    expect(projectNodeLayoutHeight(projected, layout.height, defaultTokens).rows).toEqual(layout.rows)
+    const resized = projectTextBoxLines(layout, 'taller', 7, defaultTokens)
+    const committed = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
+      textBoxLines: { shorter: 3, taller: 7 },
+    })
+    expect(resized.rows).toEqual(committed.rows)
+    expect(resized.boxes).toEqual(committed.boxes)
+  })
+
   it('places an appended adjacent widget after its sibling without changing schema or value order', () => {
     const items = [widget('prefix'), widget('quality'), widget('mount', { adjacentTo: 'prefix' }), widget('tail')]
     const before = JSON.stringify(items)
-    const layout = doLayout(items)
+    const layout = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
+      connectedPorts: new Set(['in:prefix', 'in:mount']),
+    })
     expect(layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
     expect(JSON.stringify(items)).toBe(before)
-    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
+    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId).sort()).toEqual(['mount', 'prefix', 'quality', 'tail'])
     const [prefix, mount, quality] = layout.rows
     expect(mount!.y).toBe(prefix!.y)
     expect(quality!.y).toBe(prefix!.y + prefix!.height)
     for (const projected of [layout, withPreviewRegion(layout, defaultTokens), withCompactPreviewRegion(layout, defaultTokens), withTextOutputRegion(layout, defaultTokens)]) {
       expect(projected.rows[1]!.y).toBe(projected.rows[0]!.y)
-      const inputs = projected.pins.filter((pin) => pin.direction === 'in')
-      expect(inputs[1]!.y - inputs[0]!.y).toBeGreaterThan(18)
+      const inputs = projected.pins.filter((pin) => pin.direction === 'in' && pin.pressed)
+      expect(inputs[1]!.y - inputs[0]!.y).toBe(7)
       expect(inputs[1]!.y).toBeLessThan(projected.rows[0]!.y + projected.rows[0]!.height)
     }
   })
 
   it('keeps a same-id real output separate from the adjacent widget value output', () => {
-    const layout = doLayout([widget('prefix'), widget('mount', { adjacentTo: 'prefix' }), output('prefix')])
+    const layout = layoutNode(schemaOf([widget('prefix'), widget('mount', { adjacentTo: 'prefix' }), output('prefix')]), nodeData, defaultTokens, measure, widgetMeasure, {
+      connectedPorts: new Set(['out:prefix']),
+    })
     const realOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.direction === 'out' && !pin.widgetTap)!
     const valueOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.widgetTap)!
     expect(realOutput.y).toBeGreaterThan(valueOutput.y)
@@ -108,12 +180,12 @@ describe('pairing', () => {
       kind: 'choice', id: 'mode', required: true, shared: [],
       options: [{ key: 'a', rows: [note('shown', 'under a')] }, { key: 'b', rows: [note('hidden', 'under b'), button('go', 'Go')] }],
     }
-    const layout = doLayout([
+    const layout = layoutNode(schemaOf([
       note('intro', 'Plain text'),
       { kind: 'row', rows: [widget('w'), note('size', { formula: 'w * 2' }, 'pending'), button('swap', 'Swap')] },
       widget('after'),
       mode,
-    ])
+    ]), nodeData, defaultTokens, measure, widgetMeasure, { connectedPorts: new Set(['in:w']) })
     const kinds = layout.rows.map((row) => row.kind === 'note' ? `note:${row.noteId}:${row.text}${row.unknown ? ':unknown' : ''}`
       : row.kind === 'button' ? `button:${row.buttonId}:${row.label}`
         : row.kind === 'widget' ? `widget:${row.inputId}` : row.kind)
@@ -128,7 +200,7 @@ describe('pairing', () => {
     expect(span(size)[1]).toBeLessThanOrEqual(span(swap)[0]!)
     expect(after!.y).toBe(w!.y + w!.height)
     // Neither kind is a pin target.
-    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['w', 'after'])
+    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId).sort()).toEqual(['after', 'w'])
   })
 
   it('outputs pair with connection-input rows top-down', () => {
@@ -1541,6 +1613,35 @@ describe('editors shown in the node', () => {
     }
     const pinsOf = (layout: ReturnType<typeof lay>, id: string) =>
       layout.pins.filter((pin) => pin.portId === id && pin.direction === 'in').map((pin) => pin.y)
+
+    it('leaves the same clearance below a member as beside it, folded or unfolded', () => {
+      const schema = schemaOf([{
+        kind: 'group', id: 'curves', member: [editor('curve', 'CURVE', { histogram: 'histogram' }), histogram('histogram')],
+        keys: { kind: 'numbered', prefix: '', start: 1, pad: 0 }, grows: 'button', minMembers: 2,
+      }])
+      const node = { ...nodeData, dynamic: { curves: { members: ['1', '2'], seq: 2 } } }
+      for (const unfolded of [false, true]) {
+        const layout = lay(schema, [], { editorUnfolded: { 'curves.1.curve': unfolded } }, node)
+        const box = layout.boxes!.find((item) => item.id === 'member:curves.1')!
+        const row = layout.rows.find((item) => item.kind === (unfolded ? 'editorSpace' : 'widget') && item.valueKey === 'curves.1.curve')!
+        if (row.kind !== 'widget' && row.kind !== 'editorSpace') throw new Error('Missing curve row')
+        const left = row.inset - box.x - canvasPaintTokens.node.box.stroke
+        const right = box.x + box.width - canvasPaintTokens.node.box.stroke - (layout.width - row.inset)
+        const bottom = box.y + box.height - canvasPaintTokens.node.box.stroke -
+          (row.y + row.height - defaultTokens.rowGeometry.fieldInsetY)
+        expect({ left, right, bottom }, unfolded ? 'unfolded member' : 'folded member').toEqual({ left: 8, right: 8, bottom: 8 })
+      }
+    })
+
+    it('removes the interpolation row and moves the histogram pin up for a fixed curve', () => {
+      const fixed = schemaOf([editor('curve', 'CURVE', { unfolded: true, histogram: 'bins', interpolations: ['step'] }), histogram('bins'), histogram('gamma')])
+      const normal = lay(tied, ['in:bins'])
+      const restricted = lay(fixed, ['in:bins'])
+      expect(normal.height - restricted.height).toBe(defaultTokens.rowHeight)
+      expect(spaceOf(normal)!.height - spaceOf(restricted)!.height).toBe(defaultTokens.rowHeight)
+      expect(pinsOf(normal, 'bins')[0]! - pinsOf(restricted, 'bins')[0]!).toBe(defaultTokens.rowHeight)
+      expect(spaceOf(restricted)!.histogram).toEqual({ portId: 'bins', connected: true })
+    })
 
     it('draws the input the curve names as a pin on a line inside its editor, wired or not', () => {
       const untied = schemaOf([editor('curve', 'CURVE', { unfolded: true }), histogram('histogram'), histogram('gamma')])

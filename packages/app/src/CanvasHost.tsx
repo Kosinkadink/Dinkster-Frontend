@@ -9,7 +9,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack, type JSX } from 'solid-js'
-import type { ExecutionLogEntry, ExecutionState, LookupClient } from '@dinkster/client'
+import type { ExecutionLogEntry, ExecutionState, LookupClient, PreviewData } from '@dinkster/client'
 import {
   buildScene,
   boundarySceneId,
@@ -70,6 +70,8 @@ import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type C
 import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
+  buildRerouteIndex,
+  portRefKey,
   initialDynamicStateOf,
   ruleProblemRefs,
   documentResolver,
@@ -144,7 +146,7 @@ import { liveExactnessFor } from './companion-display.js'
 import { drawnAnewInputs, RunStandingMemory, runStandingFor } from './run-problem-standing.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
-import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
+import { assetRowThumbnails, createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
 import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
@@ -158,6 +160,7 @@ import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { pendingClipboardText, writeClipboardText } from './clipboard-text.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
+import { catalogNodeKey, runSearchAction } from './universal-search.js'
 import { isNativeTextScopeTarget, shortcutSuppressed } from './settings.js'
 import { bookmarkJumpMode, bookmarkJumpPlan, bookmarkMarkerWorldPoint, bookmarkSaveMode, bookmarkViewFromViewport, bookmarkViewportForView, createCameraAnimator, viewportCenteredOnNode, type BookmarkJumpPlan } from './bookmark-camera.js'
 import { Icon } from './Icon.js'
@@ -196,11 +199,13 @@ import {
 import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
 import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
-import { imageCompareFrames } from './image-compare-frames.js'
+import { imageCompareFrames, IMAGE_COMPARE_SIDES, readImageCompareInput, type ImageCompareSide } from './image-compare-frames.js'
+import { readEditorCurve } from './in-node-editor-source.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
 import { formatByteSize } from './collections.js'
+import { boundaryItems } from '@dinkster/core'
 
 type WidgetLayoutRow = Extract<Hit, { kind: 'widget' }>['row']
 
@@ -801,7 +806,7 @@ export function selectionDeleteInvocation(args: {
     if (link.from.kind === 'boundary' && link.to.kind === 'port') {
       const boundaryFrom = link.from
       const primaryDeleted = boundaryFrom.side === 'inputs' &&
-        deletedNodes.has(def.boundary?.inputs.find((item) => item.id === boundaryFrom.item)?.binds.node ?? '')
+        deletedNodes.has(boundaryItems(def.boundary, 'inputs').find((item) => item.id === boundaryFrom.item)?.binds.node ?? '')
       if (deletedNodes.has(link.to.node) || primaryDeleted) continue
       boundaryOps.push({
         command: 'boundary.unbind',
@@ -848,7 +853,7 @@ export function selectionDeleteInvocation(args: {
       if (!deletedNodes.has(net.source.node)) continue
       for (const sink of net.sinks) if (!deletedNodes.has(sink.node)) freedNodes.add(sink.node)
     }
-    for (const item of def.boundary?.inputs ?? []) {
+    for (const item of boundaryItems(def.boundary, 'inputs') ?? []) {
       if (item.binds.kind === 'unbound') continue
       if (!deletedNodes.has(item.binds.node)) continue
       for (const binding of item.alsoBinds ?? []) {
@@ -1374,6 +1379,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const collabTabs = useSignal(props.app.collabTabs)
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
+  const boundaryFocus = useSignal(props.app.boundaryFocus)
   const problems = useSignal(props.app.problems)
   const reviewReplacements = (): boolean => (settingsTick(), props.app.settings.get<boolean>('execution.reviewUpgrades'))
   // Scene/widget diagnostics for THIS editor instance. The app-level
@@ -2180,6 +2186,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // (query, highlight, filters, clamping) lives in NodePalette and dies
   // with it when the anchor clears.
   const [palette, setPalette] = createSolidSignal<PaletteAnchor | undefined>(undefined)
+  const searchCatalog = useSignal(props.app.searchCatalog)
+  createEffect(on(() => palette() !== undefined, (open) => {
+    if (open) props.app.searchCatalogRequests.set(props.app.searchCatalogRequests.get() + 1)
+  }))
   const [linkDoubleClickMenu, setLinkDoubleClickMenu] = createSolidSignal<{ x: number; y: number; context: LinkDoubleClickContext } | undefined>(undefined)
   /**
    * When the link menu opened. A midpoint single click opens it on release,
@@ -2323,6 +2333,22 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
       }
     }
+    if (tab !== undefined && tab.execution === undefined) {
+      const installed = new Set(entries.map((entry) => entry.type))
+      for (const entry of searchCatalog()) {
+        const schema = entry.schema
+        if (installed.has(schema.type) || reg?.packs?.has(entry.pack.name) || searchVisibilityOf(schema) !== 'normal') continue
+        installed.add(schema.type)
+        entries.push({
+          type: schema.type, name: schema.displayName, category: schema.category, kind: 'node', schema,
+          ...(schema.description === undefined ? {} : { description: schema.description }),
+          pack: entry.pack.displayName, fields: nodeSearchFields(schema),
+          install: { kind: 'host', action: 'node.previewInstall', params: {
+            type: schema.type, backendId: props.app.backendForTab(tab).id, schemaKey: catalogNodeKey(entry),
+          } },
+        })
+      }
+    }
     return entries.sort((a, b) => a.name.localeCompare(b.name))
   }
 
@@ -2439,8 +2465,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (editorOpen && isInside(event, '.product-select[aria-expanded="true"]')) return
       // So does the open mount list in a save target's box: it closes before the box.
       if (editorOpen && isInside(event, '.dinkster-canvas-target-choice[aria-expanded="true"]')) return
-      // An expanded palette type filter owns the first Escape and restores its trigger focus.
-      if (paletteOpen && isInside(event, '.palette-type-filter[data-expanded="true"]')) return
+      // A shared type menu owns the first Escape and restores its trigger focus.
+      if (paletteOpen && isInside(event, '.dinkster-menu-popover')) return
       // A suggestion surface is part of the live text editor, not a
       // request to close that editor. Let its target handler close only the
       // surface; the ordinary host-owned editor Escape path resumes once the
@@ -3312,10 +3338,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           tooltipOwner,
         )
       },
+      onBoundaryRowSelect: (_side, itemId) => {
+        const tab = activeTab()
+        if (tab) props.app.boundaryFocus.set({ tabId: tab.id, graphId: currentGraphId(tab), item: itemId })
+      },
       onBoundaryRenameRequest: (side, itemId, screenX, screenY) => {
         const tab = activeTab()
         if (!tab || refuseFrozenEdit()) return
-        const item = tab.store.doc.graphs[currentGraphId(tab)]?.boundary?.[side]?.find((i) => i.id === itemId)
+        const item = boundaryItems(tab.store.doc.graphs[currentGraphId(tab)]?.boundary, side).find((i) => i.id === itemId)
         if (!item) return
         closePalette()
         setEditor(undefined)
@@ -4901,7 +4931,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       setEditorSpaces(editorSpaceItems([...renderer.getScene().nodes, ...(panelFace === undefined ? [] : [panelFace])], editorWires))
       setNodeBoxes(renderer.getScene().nodes.map((node) => ({ id: node.id, box: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height } })))
-      renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown')))
+      renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown'),
+        (value, width) => assetRowThumbnails(value, previewLoader, widgetRegistry(), width)))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
         if (node.layout.minimized) return []
         const media = model.previews[node.id]
@@ -5004,6 +5035,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // nodes (the Nodes 2.0 above-node control strip). Host-derived like
     // badges: recomputed on selection/document changes, placed by the canvas.
     // Frozen execution views are read-only, so they grow no toolbox.
+    // The row selected in the Boundary panel, marked where it is on screen:
+    // its boundary row and every inner pin or field it goes to.
+    createEffect(() => {
+      docTick()
+      const focus = boundaryFocus()
+      const tab = activeTab()
+      const def = tab && focus?.tabId === tab.id && focus.graphId === currentGraphId(tab)
+        ? tab.store.doc.graphs[focus.graphId] : undefined
+      const find = (side: 'inputs' | 'outputs') => boundaryItems(def?.boundary, side).find((candidate) => candidate.id === focus?.item)
+      const side = find('inputs') !== undefined ? 'inputs' as const : find('outputs') !== undefined ? 'outputs' as const : undefined
+      const item = side === undefined ? undefined : find(side)
+      if (!item || !side) {
+        renderer.setBoundaryFocus(undefined)
+        return
+      }
+      const inputs: Record<string, Set<string>> = {}
+      const outputs: Record<string, Set<string>> = {}
+      for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+        if (binding.kind === 'widgetTap') (inputs[binding.node] ??= new Set()).add(binding.tap)
+        else if (binding.kind !== 'unbound') {
+          ((side === 'inputs' ? inputs : outputs)[binding.node] ??= new Set()).add(binding.port)
+        }
+      }
+      renderer.setBoundaryFocus({ side, item: item.id, inputs, outputs })
+    })
     createEffect(on([selVersion, docTick], () => {
       // A hover belongs to this selection/document, not the next one.
       hoveredToolboxButtonId = undefined
@@ -5030,9 +5086,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }),
       ]
       const rows: ToolboxRow[] = []
-      if (currentGraphId(tab) === tab.store.doc.root && registry()) {
-        const scopes = props.app.previewSelectionExecutionScopes(tab, sel)
-        rows.push(partialExecutionButtons(scopes === undefined ? {
+      if (currentGraphId(tab) === tab.store.doc.root) {
+        backendsTick()
+        const blockedReason = props.app.engineOffReason(tab, message)
+        const scopes = blockedReason === undefined ? props.app.previewSelectionExecutionScopes(tab, sel) : undefined
+        rows.push(partialExecutionButtons(blockedReason !== undefined ? {
+          upTo: blockedReason,
+          between: blockedReason,
+          fromOnwards: blockedReason,
+        } : scopes === undefined ? {
           upTo: message('execution.scopes.checking'),
           between: message('execution.scopes.checking'),
           fromOnwards: message('execution.scopes.checking'),
@@ -5561,7 +5623,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     armPaletteEntry = (entry): boolean => {
       const tab = activeTab()
-      if (!tab || frozen() || entry.type === '__dinkster.reroute') {
+      if (!tab || frozen() || entry.install !== undefined || entry.type === '__dinkster.reroute') {
         clearArmedPlacement()
         return false
       }
@@ -6318,6 +6380,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const entry = paletteEntries().find((candidate) =>
           candidate.type === type &&
           candidate.kind === 'node' &&
+          candidate.install === undefined &&
           candidate.schema !== undefined &&
           (expected === undefined || placementSchemaKey(candidate.schema) === expected.schemaKey))
         if (
@@ -6776,10 +6839,52 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const graphId = currentGraphId(tab)
           const owner = current.field.familyOwner
           const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.valueKey }
-          const commit = (value: Json): void => void props.app.dispatchTo(tab,
-            withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+          const commit = (value: Json): void => {
+            // A capture started before wiring must not write the now-dormant value.
+            const graph = tab.store.doc.graphs[target.graphId]
+            if (graph === undefined) return
+            const index = buildRerouteIndex(graph)
+            const port = portRefKey({ node: asNodeId(target.nodeId), port: asPortId(target.inputId) })
+            if (item()?.wired === true || index.inputDriverOf.has(port) || index.netSourceOf.has(port)) return
+            void props.app.dispatchTo(tab,
+              withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+          }
           return { tab, graphId, current, target, commit }
         }
+        const [arrivingCurve, setArrivingCurve] = createSolidSignal<Json>()
+        const [arrivingImages, setArrivingImages] = createSolidSignal<Readonly<Record<ImageCompareSide, readonly PreviewData[]>>>({ image_a: [], image_b: [] })
+        const arrivalKey = createMemo(() => {
+          docTick()
+          executions()
+          const at = valueTarget()
+          if (at === undefined) return ''
+          const execution = props.app.executionForTab(at.tab)
+          return JSON.stringify([at.tab.id, at.tab.store.doc.lineage, at.tab.store.revision, at.target, viewInstancePath(at.tab),
+            props.app.backendForTab(at.tab).id, at.current.key, at.current.wired, [...at.current.wiredParts],
+            execution?.key, execution?.status, execution?.nodes])
+        })
+        createEffect(on(arrivalKey, () => {
+          const at = valueTarget()
+          setArrivingCurve(undefined)
+          setArrivingImages({ image_a: [], image_b: [] })
+          if (at === undefined) return
+          const abort = new AbortController()
+          onCleanup(() => abort.abort())
+          if (at.current.row.viewId === 'core.curve' && at.current.wired) {
+            void readEditorCurve(props.app, at.tab, at.target, abort.signal).then((value) => {
+              if (!abort.signal.aborted) setArrivingCurve(value)
+            }).catch(() => undefined)
+          } else if (at.current.row.viewId === 'core.imageCompare') {
+            const parts = at.current.field.parts
+            for (const side of IMAGE_COMPARE_SIDES) {
+              const inputId = parts?.reads[side] ?? parts?.writes[side]
+              if (inputId === undefined) continue
+              void readImageCompareInput(props.app, at.tab, { ...at.target, inputId }, abort.signal).then((frames) => {
+                if (!abort.signal.aborted) setArrivingImages((previous) => ({ ...previous, [side]: frames }))
+              }).catch(() => undefined)
+            }
+          }
+        }))
         const recorder = () => {
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.audioRecord') return undefined
@@ -6796,8 +6901,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.curve') return undefined
           const fallback = effectiveWidgetDefault(at.current.field.spec)
-          const value = isCurveValue(at.current.value) ? at.current.value : isCurveValue(fallback) ? fallback : undefined
-          if (value === undefined) return undefined
+          const carried = at.current.value ?? arrivingCurve()
+          const value = isCurveValue(carried) ? carried : !at.current.wired && isCurveValue(fallback) ? fallback : undefined
+          if (value === undefined && !at.current.wired) return undefined
           executions()
           return {
             value,
@@ -6838,7 +6944,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const sourceKey = JSON.stringify([backend.id, ['model_file', 'model_3d'].map((part) => {
             const at = row(part)
             return at === undefined ? null : node?.values[at] ?? null
-          }), at.current.wiredParts.size > 0 ? props.app.executionForTab(at.tab)?.key ?? null : null])
+          }), at.current.carriedParts, at.current.value, at.current.wired,
+          at.current.wiredParts.size > 0 ? props.app.executionForTab(at.tab)?.key ?? null : null])
           return {
             sourceKey,
             captures: parts === undefined || !Object.hasOwn(parts.writes, 'state'),
@@ -6856,7 +6963,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.imageCompare') return undefined
           executions()
-          return imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+          const streamed = imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+          return { image_a: streamed.image_a.length > 0 ? streamed.image_a : arrivingImages().image_a,
+            image_b: streamed.image_b.length > 0 ? streamed.image_b : arrivingImages().image_b }
         }
         const cameraAngle = () => {
           const at = valueTarget()
@@ -6900,25 +7009,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 commit: (height) => editorPictureHeights?.commitPictureHeight(item()!.nodeId, item()!.row.valueKey, height),
               }}>
               <Show when={recorder()}>
-                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
+                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} wired={item()?.wired === true} />}
               </Show>
               <Show when={webcam()}>
                 {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
                   wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
               </Show>
               <Show when={curve()}>
-                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram}
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wired={item()?.wired === true}
                   histogramInput={item()?.row.histogram === undefined ? 'none' : item()!.row.histogram!.connected ? 'wired' : 'unwired'}
                   options={item()?.field.spec.options ?? {}} />}
               </Show>
               <Show when={load3d()}>
-                {(at) => <Load3dSpace value={item()?.value}
+                {(at) => <Load3dSpace value={item()?.value} wired={item()?.wired === true}
                   sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
                   live={liveModelViews().has(key) && !covered()}
                   onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}
                   openSections={item()?.row.openSections ?? []}
-                  cameraWired={item()?.wiredParts.has('camera_info') === true}
-                  placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
+                  cameraWired={item()?.wired === true || item()?.wiredParts.has('camera_info') === true}
+                  placementWired={item()?.wired === true || item()?.wiredParts.has('model_3d_info') === true} />}
               </Show>
               <Show when={cameraAngle()}>
                 {(at) => <CameraAngleSpace fields={at().fields} commit={at().commit} />}
@@ -7252,7 +7361,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             recentTypes={recentNodeTypes}
             widgetRegistry={widgetRegistry()}
             bounds={() => canvasClientRect()}
-            onCommit={(entry) => paletteCommit(entry)}
+            onCommit={async (entry) => {
+              if (entry.install !== undefined) {
+                const anchor = palette()
+                if (await runSearchAction(props.app, entry.install) && palette() === anchor) closePalette()
+              } else paletteCommit(entry)
+            }}
+            onRemoveLinkDrop={() => {
+              const anchor = palette()
+              if (anchor === undefined) return
+              const { linkDrop: _drop, ...ordinary } = anchor
+              clearPaletteGhost()
+              setPalette(ordinary)
+            }}
             onHelp={(entry) => {
               const tab = activeTab()
               if (tab && props.app.openNodeHelp(tab, entry.type)) closePalette()

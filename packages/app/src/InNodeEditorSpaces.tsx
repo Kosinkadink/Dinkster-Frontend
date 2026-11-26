@@ -1,6 +1,6 @@
 import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
 import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
-import { audioRecordKind, curveInterpolator, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
+import { audioRecordKind, curveEditorInterpolations, curveInterpolator, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
   CanvasAnglePicture,
   CanvasCurvePlot,
@@ -70,6 +70,8 @@ export function editorSpaceItems(nodes: readonly {
       const written = field.editor === true && field.parts !== undefined ? Object.values(field.parts.writes) : []
       const valueKey = written.length === 1 ? written[0]! : row.valueKey
       const parts = field.parts === undefined ? [] : [...Object.entries(field.parts.reads), ...Object.entries(field.parts.writes)]
+      const wired = wires.wired(node.id, row.inputId)
+      const carried = wires.carried(node.id, row.valueKey)
       return [{
         key: `${node.id}:${row.valueKey}`,
         nodeId: node.id,
@@ -79,10 +81,10 @@ export function editorSpaceItems(nodes: readonly {
         // The controls stop at the editor's outline, above the row's bottom band.
         space: { x: row.inset, y: row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height - defaultTokens.rowGeometry.fieldInsetY },
         valueKey,
-        value: node.node.values?.[valueKey],
-        wired: wires.wired(node.id, row.inputId),
+        value: wired ? carried : node.node.values?.[valueKey],
+        wired,
         wiredParts: new Set(parts.flatMap(([part, partRow]) => wires.wired(node.id, partRow) ? [part] : [])),
-        carried: wires.carried(node.id, row.valueKey),
+        carried,
         carriedParts: Object.fromEntries(parts.flatMap(([part, partRow]) =>
           wires.wired(node.id, partRow) ? [[part, wires.carried(node.id, partRow)]] : [])),
       }]
@@ -91,23 +93,34 @@ export function editorSpaceItems(nodes: readonly {
 }
 
 /**
- * What the row of an editor shown in the node shows while a wire decides its
- * value, folded or not: what the wire brought in the last run, read by its
- * name when it has one, or `notKnown` in the placeholder color before one.
- * The value stored under the wire is not shown.
+ * Derived closed-file pictures and editor summaries. A wire shows its own
+ * carried value or `notKnown`, never the stored value under it. Unfolded
+ * editors keep their full preview instead of adding pictures to the row.
  */
 export function wiredEditorSummaries(nodes: readonly {
   readonly id: string
-  readonly layout: { readonly rows: readonly LayoutRow[] }
-}[], wires: EditorWires, notKnown: string): EditorSummaryMap {
+  readonly layout: { readonly width?: number; readonly rows: readonly LayoutRow[] }
+  readonly node?: { readonly values?: Readonly<Record<string, Json>> }
+}[], wires: EditorWires, notKnown: string, thumbnails?: (value: Json, width: number) => EditorSummary['thumbnails']): EditorSummaryMap {
   return Object.fromEntries(nodes.flatMap((node) => {
     const summaries = Object.fromEntries(node.layout.rows.flatMap((row): [string, EditorSummary][] => {
-      if (row.kind !== 'widget' || IN_NODE_EDITORS[row.viewId] === undefined || !wires.wired(node.id, row.inputId)) return []
+      if (row.kind !== 'widget') return []
+      const wired = wires.wired(node.id, row.inputId)
+      if (!wired) {
+        const value = node.node?.values?.[row.valueKey]
+        const pictures = row.viewId === 'core.asset' && !row.unfolded && value !== undefined ? thumbnails?.(value, node.layout.width ?? Infinity) : undefined
+        return pictures === undefined ? [] : [[row.valueKey, { thumbnails: pictures }]]
+      }
+      if (IN_NODE_EDITORS[row.viewId] === undefined && row.viewId !== 'core.asset') return []
       const carried = wires.carried(node.id, row.valueKey)
       if (carried === undefined) return [[row.valueKey, { text: notKnown, placeholder: true, value: null }]]
       const named = typeof carried === 'object' && carried !== null && !Array.isArray(carried) ? (carried as JsonObject)['name'] : undefined
       const name = typeof carried === 'string' ? carried : typeof named === 'string' ? named : undefined
-      return [[row.valueKey, name === undefined || name === '' ? { value: carried } : { text: name, value: carried }]]
+      const pictures = row.viewId === 'core.asset' && !row.unfolded ? thumbnails?.(carried, node.layout.width ?? Infinity) : undefined
+      return [[row.valueKey, {
+        ...(name === undefined || name === '' ? {} : { text: name }), value: carried,
+        ...(pictures === undefined ? {} : { thumbnails: pictures }),
+      }]]
     }))
     return Object.keys(summaries).length === 0 ? [] : [[node.id, summaries]]
   }))
@@ -514,11 +527,13 @@ const isClip = (value: Json | undefined): value is AudioClip =>
   value !== null && audioRecordKind.valueSchema.validate(value)
 
 /** The recorder's controls in the node: the strip, the microphone, the limit and what is stored. */
-export function AudioRecordSpace(props: { readonly controller: AudioRecordController; readonly value: Json | undefined }) {
+export function AudioRecordSpace(props: { readonly controller: AudioRecordController; readonly value: Json | undefined; readonly wired?: boolean }) {
   const message = useAppMessage()
   const recorder = props.controller
+  createEffect(on(() => props.wired, (wired) => { if (wired) recorder.discard() }))
   const stored = () => isClip(props.value) ? props.value : undefined
-  const shown = (): AudioRecordStatus | 'ready' => recorder.status() === 'idle' && stored() !== undefined ? 'ready' : recorder.status()
+  const shown = (): AudioRecordStatus | 'ready' => props.wired ? stored() === undefined ? 'idle' : 'ready'
+    : recorder.status() === 'idle' && stored() !== undefined ? 'ready' : recorder.status()
   const recording = () => recorder.status() === 'recording'
   const busy = () => recorder.status() === 'waiting' || recorder.status() === 'saving'
   const defaultLabel = () => message('inNodeAudio.defaultMicrophone')
@@ -536,7 +551,7 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
       return [
         { label: message(recorder.playing() ? 'inNodeAudio.stopPlaying' : 'inNodeAudio.play'),
           icon: recorder.playing() ? canvasEditorIcons.stop : canvasEditorIcons.play, onClick: () => void recorder.play(clip) },
-        { label: message('inNodeAudio.removeClip'), icon: canvasEditorIcons.remove, intent: 'remove' as const, onClick: () => recorder.remove() },
+        { label: message('inNodeAudio.removeClip'), icon: canvasEditorIcons.remove, intent: 'remove' as const, disabled: props.wired === true, onClick: () => recorder.remove() },
       ]
     }
     if (status === 'uploadFailed') {
@@ -551,23 +566,24 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
     return []
   }
   const detail = () => {
+    if (props.wired) return undefined
     if (recording()) return `${clock(recorder.seconds())}, ${roundedSize(recorder.bytes())}`
     const seconds = recorder.clipSeconds()
     return (shown() === 'ready' || shown() === 'uploadFailed') && seconds !== undefined ? clock(seconds) : undefined
   }
   return (
-    <Show when={recorder.canUpload} fallback={<CanvasEditorNote tone="muted" wrap>{message('audioRecordWidget.native')}</CanvasEditorNote>}>
+    <Show when={recorder.canUpload || props.wired} fallback={<CanvasEditorNote tone="muted" wrap>{message('audioRecordWidget.native')}</CanvasEditorNote>}>
       <CanvasRecorderStrip
         recording={recording()}
         roundLabel={message(recording() ? 'inNodeAudio.stop' : 'inNodeAudio.record')}
-        roundDisabled={busy()}
+        roundDisabled={props.wired || busy()}
         onRound={() => recording() ? recorder.stop() : void recorder.record()}
-        status={message(`inNodeAudio.status.${shown()}`)}
+        status={props.wired ? stored() === undefined ? message('inNodeEditor.notKnown') : '' : message(`inNodeAudio.status.${shown()}`)}
         {...(detail() === undefined ? {} : { detail: detail()! })}
         waveform={recorder.waveform()}
         actions={actions()}
       />
-      <CanvasEditorLine dimmed={recording() || busy()}>
+      <CanvasEditorLine dimmed={props.wired || recording() || busy()}>
         <CanvasEditorChoice label={message('inNodeAudio.microphone')} value={chosen()} options={choices()}
           onOpen={() => void recorder.findMicrophones()}
           onChange={(label) => {
@@ -575,14 +591,16 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
             recorder.setDevice(index < 0 ? '' : recorder.devices()[index]!.deviceId)
           }} />
       </CanvasEditorLine>
-      <CanvasEditorLine dimmed={recording() || busy()}>
+      <CanvasEditorLine dimmed={props.wired || recording() || busy()}>
         <CanvasEditorNumber label={message('inNodeAudio.limit')} value={recorder.limit()} min={1} max={300}
           onChange={(seconds) => recorder.setLimit(Math.round(seconds))} />
       </CanvasEditorLine>
       <Show when={shown() === 'uploadFailed'} fallback={
-        <CanvasEditorNote tone={stored() === undefined ? 'muted' : undefined}>
-          {stored() === undefined ? message('inNodeAudio.nothingStored') : message('inNodeAudio.stored', { name: stored()!.name ?? stored()!.digest })}
-        </CanvasEditorNote>
+        <Show when={!props.wired || stored() !== undefined}>
+          <CanvasEditorNote tone={stored() === undefined ? 'muted' : undefined}>
+            {stored() === undefined ? message('inNodeAudio.nothingStored') : props.wired ? stored()!.name ?? stored()!.digest : message('inNodeAudio.stored', { name: stored()!.name ?? stored()!.digest })}
+          </CanvasEditorNote>
+        </Show>
       }>
         <CanvasEditorNote tone="problem">{recorder.error()}</CanvasEditorNote>
       </Show>
@@ -642,7 +660,8 @@ const stripOf = (colors: unknown): CanvasCurveStrip | undefined =>
  * Which point is selected is the editor's own and is not stored.
  */
 export function CurveSpace(props: {
-  readonly value: CurveValue
+  readonly value: CurveValue | undefined
+  readonly wired?: boolean
   /** The curve widget's declared options, which name its strips. */
   readonly options: Readonly<Record<string, unknown>>
   /** The latest run's histogram bins for this curve, when it sent one. */
@@ -654,8 +673,10 @@ export function CurveSpace(props: {
   const message = useAppMessage()
   const [selected, setSelected] = createSignal<number>()
   const [draft, setDraft] = createSignal<CurveValue>()
-  const curve = () => draft() ?? props.value
-  const interpolation = () => curve().interpolation ?? 'linear'
+  createEffect(on(() => props.wired, (wired) => { if (wired) setDraft(undefined) }))
+  const curve = () => draft() ?? props.value ?? { points: [] }
+  const kinds = () => curveEditorInterpolations(props.options)
+  const interpolation = () => kinds().length === 1 ? kinds()[0]! : curve().interpolation ?? 'linear'
   const points = () => curve().points
   const point = () => {
     const index = selected()
@@ -691,14 +712,18 @@ export function CurveSpace(props: {
   }
   const linear = () => message('inNodeCurve.linear')
   const cubic = () => message('inNodeCurve.monotoneCubic')
+  const step = () => message('inNodeCurve.step')
   return (
     <>
-      <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}>
+      <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}
+        {...(props.wired && props.value === undefined ? { message: message('inNodeEditor.notKnown') } : {})}>
         <CanvasCurvePlot
           label={message('inNodeCurve.plot')}
-          tooltip={message('inNodeCurve.addPoint')}
+          {...(props.wired ? {} : { tooltip: message('inNodeCurve.addPoint') })}
+          disabled={props.wired}
           points={points()}
-          sample={curveInterpolator(curve())}
+          sample={curveInterpolator({ ...curve(), interpolation: interpolation() })}
+          step={interpolation() === 'step'}
           selected={selected()}
           histogram={bars()}
           inputStrip={stripOf(props.options['inputStrip'])}
@@ -721,22 +746,24 @@ export function CurveSpace(props: {
           onDelete={remove}
         />
       </CanvasEditorPicture>
-      <CanvasEditorLine>
-        <CanvasEditorChoice label={message('inNodeCurve.interpolation')} value={interpolation() === 'linear' ? linear() : cubic()}
-          options={[linear(), cubic()]}
-          onChange={(label) => store(points(), label === linear() ? 'linear' : 'monotone_cubic')} />
-      </CanvasEditorLine>
-      <CanvasEditorLine dimmed={point() === undefined}>
+      <Show when={kinds().length > 1}>
+        <CanvasEditorLine dimmed={props.wired === true}>
+          <CanvasEditorChoice label={message('inNodeCurve.interpolation')} value={props.wired && props.value === undefined ? '' : interpolation() === 'step' ? step() : interpolation() === 'linear' ? linear() : cubic()}
+            options={kinds().map((kind) => kind === 'step' ? step() : kind === 'linear' ? linear() : cubic())}
+            onChange={(label) => store(points(), label === step() ? 'step' : label === linear() ? 'linear' : 'monotone_cubic')} />
+        </CanvasEditorLine>
+      </Show>
+      <CanvasEditorLine dimmed={props.wired || point() === undefined}>
         <CanvasEditorNumber label={message('inNodeCurve.position')} value={point()?.position} min={0} max={1} step={0.01} precision={2}
           onChange={(position) => place({ position })} />
       </CanvasEditorLine>
-      <CanvasEditorLine dimmed={point() === undefined}>
+      <CanvasEditorLine dimmed={props.wired || point() === undefined}>
         <CanvasEditorNumber label={message('inNodeCurve.value')} value={point()?.value} min={0} max={1} step={0.01} precision={2}
           onChange={(value) => place({ value })} />
       </CanvasEditorLine>
       {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
       <CanvasEditorButtons buttons={[{ label: message('inNodeCurve.deletePoint'), icon: canvasEditorIcons.remove, intent: 'remove',
-        disabled: selected() === undefined || points().length < 2, onClick: () => {
+        disabled: props.wired || selected() === undefined || points().length < 2, onClick: () => {
           const index = selected()
           if (index !== undefined) remove(index)
         } }]} />
@@ -853,7 +880,7 @@ export function WebcamSpace(props: {
   }
   // Covered, the camera turns off as it does when its node leaves the screen.
   createEffect(() => {
-    if (props.covered && untrack(camera) !== 'off' && untrack(camera) !== 'error') stop()
+    if ((props.covered || props.wired) && untrack(camera) !== 'off' && untrack(camera) !== 'error') stop()
   })
   const capture = async () => {
     const upload = props.ports.upload
@@ -881,7 +908,7 @@ export function WebcamSpace(props: {
     return stored() === undefined ? message('inNodeWebcam.noFrame') : undefined
   }
   const note = () => {
-    if (props.wired) return carried() === undefined ? message('inNodeWebcam.byWire') : message('inNodeWebcam.lastRun')
+    if (props.wired) return carried() === undefined ? undefined : message('inNodeWebcam.lastRun')
     if (props.ports.upload === undefined) return message('inNodeWebcam.native')
     if (camera() !== 'error' && error() !== undefined) return error()
     return stored() === undefined ? message('inNodeWebcam.nothingStored') : message('inNodeWebcam.stored', { name: stored()!.name ?? stored()!.digest })
@@ -914,7 +941,7 @@ export function WebcamSpace(props: {
           ]
         : [{ label: message('inNodeWebcam.start'), icon: canvasEditorIcons.capture,
             disabled: props.wired || camera() === 'starting' || props.ports.upload === undefined, onClick: () => void start() }]} />
-      <CanvasEditorNote tone={noteTone()}>{note()}</CanvasEditorNote>
+      <Show when={note()}>{(text) => <CanvasEditorNote tone={noteTone()}>{text()}</CanvasEditorNote>}</Show>
     </>
   )
 }
@@ -969,7 +996,8 @@ export function CameraAngleSpace(props: {
     <>
       <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}>
         <CanvasAnglePicture label={message('cameraAngleWidget.preview')}
-          horizontal={angle('horizontal_angle')} vertical={angle('vertical_angle')}
+          horizontal={{ ...angle('horizontal_angle'), degrees: place() === undefined ? undefined : value('horizontal_angle') }}
+          vertical={{ ...angle('vertical_angle'), degrees: place() === undefined ? undefined : value('vertical_angle') }}
           onMove={(part, degrees) => setDraft({ part: part === 'horizontal' ? 'horizontal_angle' : 'vertical_angle', value: degrees })}
           onMoveEnd={() => {
             const moved = draft()

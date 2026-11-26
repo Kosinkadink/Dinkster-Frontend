@@ -56,6 +56,7 @@ import {
   boundaryNamesGalleryScene,
   structuralGalleryScene,
 } from './structure.js'
+import { boundaryTreeGallery } from './boundary-tree.js'
 import { smallFlowNodesGallery } from './small-flow-nodes.js'
 import { subgraphIconGallery } from './subgraph-icon.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
@@ -91,6 +92,7 @@ export const canvasGalleryPages = [
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
   ['row-summaries', 'Closed row summaries'],
+  ['row-file-previews', 'Thumbnails in closed file rows'],
   ['in-node-editors', 'Editors in the node'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
@@ -101,6 +103,7 @@ export const canvasGalleryPages = [
   ['structure', 'Structural parts'],
   ['boundary', 'Subgraph boundaries'],
   ['boundary-names', 'Subgraph names'],
+  ['boundary-tree', 'Subgraph boundary tree'],
   ['subgraph-icon', 'Subgraph icon'],
   ['badges', 'Badges and toolbar'],
   ['previews', 'Previews'],
@@ -219,7 +222,6 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
   widget('markdown', 'MARKDOWN', '# Heading\nBody text'),
   widget('compare', 'IMAGECOMPARE', null),
   widget('camera_angle', 'CAMERA_ANGLE_VIEW', ''),
-  widget('resolution', 'RESOLUTION_PREVIEW', null),
   widget('save_target', 'SAVE_TARGET', null),
   widget('bounding_box', 'BOUNDING_BOX', {
     x: 8,
@@ -463,11 +465,10 @@ function subgraphAcceptsListScenes(
           single: { type: 'Single', title: 'One image' },
         }),
         boundary: {
-          inputs: [
-            { id: 'lists', displayName: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
-            { id: 'mixed', displayName: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
+          body: [
+            { kind: 'input', id: 'lists', displayName: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
+            { kind: 'input', id: 'mixed', displayName: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
           ],
-          outputs: [],
         },
       },
     },
@@ -753,7 +754,6 @@ export function createCanvasGalleryFixture(
         'list',
         'curve',
         'camera_angle',
-        'resolution',
       ].includes(item.id),
     )
     const checkpoint: InputSpec = {
@@ -972,6 +972,13 @@ export function createCanvasGalleryFixture(
     const cards = switchPrimitiveGallery(tokens, measure, widgetMeasure)
     // Each card draws its own scene; the page's scene is the first card's,
     // for checks that read one scene per page.
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
+    fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
+  } else if (page === 'boundary-tree') {
+    const cards = boundaryTreeGallery(tokens, measure, widgetMeasure)
     const first = cards[0]!.scene
     fixture.scene.nodes = [...first.nodes]
     fixture.scene.links = [...first.links]
@@ -2222,7 +2229,7 @@ export const nodeLookExamples = [
     'A collapsed section with a changed value, and the open Advanced section with its wash.',
   ],
   ['collapsed', 'Collapsed', 'A collapsed node is its title bar alone.'],
-  ['selected', 'Selected', 'The selection outline.'],
+  ['selected', 'Selected', 'A thin edge and a lifted title bar.'],
   ['running', 'Running', 'Running, 45 percent done.'],
   ['error', 'Error', 'The run failed on this node.'],
   ['muted', 'Muted', 'A muted node is dimmed.'],

@@ -249,6 +249,25 @@ test('shell separators expose values and resize from the keyboard', async ({ pag
   await expect(separator).toHaveAttribute('aria-valuenow', await separator.getAttribute('aria-valuemin') ?? '')
   await separator.press('End')
   await expect(separator).toHaveAttribute('aria-valuenow', await separator.getAttribute('aria-valuemax') ?? '')
+  await separator.press('Home')
+  await page.locator('body').click({ position: { x: 1, y: 1 } })
+  const start = await center(separator)
+  await page.mouse.move(start.x, start.y)
+  const mark = () => separator.evaluate((element) => {
+    const line = getComputedStyle(element, '::after')
+    const grip = getComputedStyle(element, '::before')
+    return { line: line.backgroundColor, width: line.width, grip: grip.backgroundColor, gripWidth: grip.width, gripHeight: grip.height }
+  })
+  const neutralMark = { line: 'rgb(79, 98, 101)', width: '1px', grip: 'rgb(164, 181, 183)', gripWidth: '3px', gripHeight: '40px' }
+  expect(await mark()).toEqual(neutralMark)
+  const beforeDrag = Number(await separator.getAttribute('aria-valuenow'))
+  await page.mouse.down()
+  await page.mouse.move(start.x + 40, start.y + 30)
+  expect(await mark()).toEqual(neutralMark)
+  await page.mouse.up()
+  await expect(separator).toHaveAttribute('aria-valuenow', String(beforeDrag + 40))
+  await page.mouse.move(1, 1)
+  await expect.poll(mark).toMatchObject({ line: 'rgba(0, 0, 0, 0)', grip: 'rgba(0, 0, 0, 0)' })
 })
 
 test('tab strip suppresses vertical scrolling and retains horizontal overflow', async ({ page }) => {

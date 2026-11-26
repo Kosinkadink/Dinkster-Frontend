@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { asConnectionId } from '@dinkster/core'
-import { DinksterConnection, EngineNotReadyError, noEngineOpen, parseSupervisorStatus, probeSupervisorStatus, restartSupervisorEngine, type FetchLike } from '../src/index.js'
+import { DinksterConnection, EngineNotReadyError, fetchSupervisorEngineLog, noEngineOpen, parseSupervisorStatus, probeSupervisorStatus, restartSupervisorEngine, type FetchLike } from '../src/index.js'
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -78,6 +78,38 @@ describe('restartSupervisorEngine', () => {
       throw new Error('boom')
     })
     expect(result).toEqual({ ok: false, error: 'boom' })
+  })
+})
+
+describe('fetchSupervisorEngineLog', () => {
+  it('keeps the real tail and distinguishes a missing log from an empty log', async () => {
+    for (const log of [
+      { available: true, text: 'last engine failure\n', truncated: true },
+      { available: true, text: '', truncated: false },
+      { available: false, text: '', truncated: false },
+    ]) {
+      const result = await fetchSupervisorEngineLog('http://test', async (url, init) => {
+        expect(url).toBe('http://test/supervisor/engine/log')
+        expect(init?.method ?? 'GET').toBe('GET')
+        return jsonResponse(200, log)
+      })
+      expect(result).toEqual({ ok: true, ...log })
+    }
+  })
+
+  it('does not show refusal bodies or other response shapes as an engine log', async () => {
+    for (const status of [403, 404, 409, 500]) {
+      expect(await fetchSupervisorEngineLog('http://test', async () =>
+        jsonResponse(status, { text: 'not the engine log' }),
+      )).toEqual({ ok: false, error: `GET /supervisor/engine/log failed: ${status}` })
+    }
+    for (const body of [null, {}, { available: true, text: 5, truncated: false }, { available: 'yes', text: '', truncated: false }, { available: true, text: '' }]) {
+      expect(await fetchSupervisorEngineLog('http://test', async () => jsonResponse(200, body)))
+        .toEqual({ ok: false, error: 'Invalid engine log response' })
+    }
+    expect(await fetchSupervisorEngineLog('http://test', async () => {
+      throw new Error('connection refused')
+    })).toEqual({ ok: false, error: 'connection refused' })
   })
 })
 

@@ -171,14 +171,6 @@ export const cameraAngleKind: WidgetKind<string> = {
   defaultView: () => 'core.cameraAngle',
 }
 
-export const resolutionKind: WidgetKind<null> = {
-  type: 'RESOLUTION_PREVIEW',
-  valueSchema: { version: 1, validate: (value): value is null => value === null },
-  defaultValue: () => null,
-  validate: () => [],
-  defaultView: () => 'core.resolution',
-}
-
 type SaveTarget = { mount: string; prefix: string }
 /**
  * A target on Project default: it names no mount, so each project saves it
@@ -335,8 +327,13 @@ export interface CurvePoint {
 }
 
 export interface CurveValue {
-  readonly interpolation?: 'linear' | 'monotone_cubic'
+  readonly interpolation?: 'linear' | 'monotone_cubic' | 'step'
   readonly points: readonly CurvePoint[]
+}
+
+export function curveEditorInterpolations(options: Readonly<Record<string, unknown>>): readonly NonNullable<CurveValue['interpolation']>[] {
+  return options['interpolations'] as readonly NonNullable<CurveValue['interpolation']>[] | undefined
+    ?? ['linear', 'monotone_cubic', 'step']
 }
 
 const hasExactKeys = (value: object, keys: readonly string[]): boolean => {
@@ -347,7 +344,7 @@ const hasExactKeys = (value: object, keys: readonly string[]): boolean => {
 export function isCurveValue(value: unknown): value is CurveValue {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const curve = value as Partial<CurveValue>
-  if (curve.interpolation !== undefined && curve.interpolation !== 'linear' && curve.interpolation !== 'monotone_cubic') return false
+  if (curve.interpolation !== undefined && curve.interpolation !== 'linear' && curve.interpolation !== 'monotone_cubic' && curve.interpolation !== 'step') return false
   if (!hasExactKeys(value, curve.interpolation === undefined ? ['points'] : ['interpolation', 'points'])) return false
   if (!Array.isArray(curve.points) || curve.points.length < 1 || curve.points.length > 4096) return false
   let previous = -Infinity
@@ -508,6 +505,7 @@ export function curveInterpolator(curve: CurveValue): (position: number) => numb
     }
     const left = points[low]!
     const right = points[high]!
+    if (curve.interpolation === 'step') return left.value
     const span = right.position - left.position
     const amount = Number.isFinite(span)
       ? (position - left.position) / span
@@ -942,8 +940,10 @@ export const curveView: WidgetView<Json> = {
   drawCompact(ctx, value, spec, state) {
     ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
     // A wire decides a connected curve: what it brought is drawn, and nothing before a run.
-    const curve = isCurveValue(value) ? value
+    const stored = isCurveValue(value) ? value
       : state.connected ? undefined : curveKind.defaultValue(spec) as unknown as CurveValue
+    const kinds = curveEditorInterpolations(spec.options)
+    const curve = stored === undefined ? undefined : kinds.length === 1 ? { ...stored, interpolation: kinds[0]! } : stored
     const points = curve?.points ?? []
     const interpolate = curve === undefined ? undefined : curveInterpolator(curve)
     const samples = interpolate === undefined ? []
@@ -953,13 +953,14 @@ export const curveView: WidgetView<Json> = {
     // The folded square of the raised look: the plot in small, with its points.
     ctx.rect(0, 0, 1, 2, {
       role: 'curveSketch',
+      interpolation: curve?.interpolation ?? 'linear',
       samples,
       points: points.map((point) => [point.position, point.value]),
       held: points.length === 0 ? [] : [points[0]!.position, points[points.length - 1]!.position],
     })
     ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'}`, { role: 'widgetValue', align: 'right', width: 1 })
     if (curve !== undefined) {
-      ctx.text(0, 1, t((curve.interpolation ?? 'linear') === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic'), { role: 'curveJoin' })
+      ctx.text(0, 1, t(curve.interpolation === 'step' ? 'inNodeCurve.step' : (curve.interpolation ?? 'linear') === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic'), { role: 'curveJoin' })
     }
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 2, 'widget.edit')
   },
@@ -1099,13 +1100,6 @@ export const cameraAngleView: WidgetView<string> = {
       t('cameraAngleWidget.open'), state, 'widget.edit', false, { labelFirst: true })
   },
   readout: () => [],
-}
-export const resolutionView: WidgetView<null> = {
-  ...makeCompactView<null>('core.resolution', 'RESOLUTION_PREVIEW'),
-  drawCompact(ctx, _value, spec, state) {
-    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      t('resolutionWidget.title'), state, 'widget.edit')
-  },
 }
 /**
  * What the host tells a closed save target row about this machine's
@@ -1255,11 +1249,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, painterKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, painterKind, cameraAngleKind, saveTargetKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, audioRecordView, webcamView, boundingBoxView, imageCompareView, painterView, cameraAngleView, resolutionView, saveTargetView]) {
+    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, audioRecordView, webcamView, boundingBoxView, imageCompareView, painterView, cameraAngleView, saveTargetView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

@@ -54,6 +54,29 @@ for (const theme of ['dark', 'light'] as const) {
       const id = await inactive.getAttribute('data-tab-id')
       await inactive.click()
       await expect(panel.locator(`[data-tab-id="${id}"]`)).toHaveAttribute('aria-selected', 'true')
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      const focused = panel.locator(`[data-tab-id="${id}"]`)
+      await expect(focused).toBeFocused()
+      expect(await focused.evaluate((element) => element.matches(':focus-visible'))).toBe(true)
+      const clipped = await focused.evaluate((element) => {
+        const bounds = element.getBoundingClientRect()
+        const style = getComputedStyle(element)
+        const extent = Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset)
+        const failures: string[] = []
+        for (let ancestor = element.parentElement; ancestor !== null; ancestor = ancestor.parentElement) {
+          const clip = getComputedStyle(ancestor)
+          const box = ancestor.getBoundingClientRect()
+          const left = box.left + ancestor.clientLeft
+          const top = box.top + ancestor.clientTop
+          if (/hidden|clip|auto|scroll/.test(clip.overflowX) &&
+              (bounds.left - extent < left || bounds.right + extent > left + ancestor.clientWidth)) failures.push(`${ancestor.className}: horizontal`)
+          if (/hidden|clip|auto|scroll/.test(clip.overflowY) &&
+              (bounds.top - extent < top || bounds.bottom + extent > top + ancestor.clientHeight)) failures.push(`${ancestor.className}: vertical`)
+        }
+        return failures
+      })
+      expect(clipped).toEqual([])
       await panel.locator(`[data-tab-id="${id}"]`).blur()
       await page.mouse.move(600, 400)
       await expect(page.getByTestId('app-tooltip')).toBeHidden()
@@ -251,7 +274,7 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     }] } })
   } else if (path.endsWith('/api/sessions')) {
     await route.fulfill({ json: { sessions: [] } })
-  } else if (path.endsWith('/api/history/runs')) {
+  } else if (path.endsWith('/api/history') || path.endsWith('/api/history/runs')) {
     await route.fulfill({ json: { records: [] } })
   } else if (path.endsWith('/api/projects/default')) {
     await route.fulfill({ json: { project: {
@@ -460,7 +483,7 @@ test('Boundary is hidden at root and shows definition empty states at desktop an
         },
         sub: {
           id: 'sub', name: 'Nested workflow', nodes: {}, links: {}, nets: {}, reroutes: {},
-          boundary: { inputs: [], outputs: [] }, nextOrdinal: 1,
+          boundary: { body: [] }, nextOrdinal: 1,
         },
       },
       view: { graphs: {
@@ -475,9 +498,8 @@ test('Boundary is hidden at root and shows definition empty states at desktop an
     await page.mouse.dblclick(mark.x, mark.y)
     await openRail(page, 'Boundary')
     await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
-    await expect(page.getByTestId('boundary-empty')).toHaveCount(2)
-    await expect(page.getByTestId('boundary-empty').first()).toContainText('No workflow inputs are exposed.')
-    await expect(page.getByTestId('boundary-empty').last()).toContainText('No workflow outputs are exposed.')
+    await expect(page.getByTestId('boundary-empty')).toHaveCount(1)
+    await expect(page.getByTestId('boundary-empty')).toContainText('No rows yet.')
     await screenshot(page, `boundary-empty-sections-${width}`)
   }
 })

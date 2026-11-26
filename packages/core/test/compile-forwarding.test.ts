@@ -12,7 +12,8 @@ import type { ExecutionScope } from '../src/compile/artifact.js'
 import { compile, documentResolver, type CompileInput } from '../src/compile/compile.js'
 import { definitionPick, occurrenceDynamicView } from '../src/compile/occurrence-view.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
-import type { WorkflowDocument } from '../src/format/document.js'
+import { boundaryOf } from '../src/format/document.js'
+import type { BoundaryItem, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 import { withPrimitives } from './fixtures/primitive-schemas.js'
@@ -120,7 +121,7 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
       ),
       reroutes: Object.fromEntries((g.reroutes ?? []).map((r) => [r, { id: r }])),
       nextOrdinal: 100,
-      ...(g.boundary ? { boundary: { inputs: g.boundary.inputs ?? [], outputs: g.boundary.outputs ?? [] } } : {}),
+      ...(g.boundary ? { boundary: boundaryOf((g.boundary.inputs ?? []) as BoundaryItem[], (g.boundary.outputs ?? []) as BoundaryItem[]) } : {}),
     }
   }
   return {

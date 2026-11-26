@@ -544,6 +544,7 @@ describe('model download planning and owned jobs', () => {
 
   it.each([
     { status: 'local', name: selected.name, kind: selected.kind },
+    { status: 'duplicate' },
     { status: 'destination-required' },
     { status: 'folder-disabled', disabledLocations: ['studio'], detail: 'Folder not enabled for this project' },
     { status: 'picker-required', sources: ['https://huggingface.co/first', 'https://huggingface.co/second'] },
@@ -3774,6 +3775,17 @@ describe('persistent history wire', () => {
     const records = (await conn.listHistory({ scope: 'local' })).records
     expect(records).toEqual([interrupted])
     expect(records[0]?.error?.['phase']).toBe('running')
+  })
+
+  it('keeps a record\'s workflow name and rejects a record whose name is malformed', async () => {
+    const named = { ...run, runId: 'run-named', workflowName: 'Portrait pass' }
+    const { conn } = submitHarness(() => jsonResponse(200, { records: [
+      named, run,
+      { ...run, runId: 'run-empty-name', workflowName: '' },
+      { ...run, runId: 'run-number-name', workflowName: 42 },
+      { ...run, runId: 'run-null-name', workflowName: null },
+    ] }))
+    expect((await conn.listHistory({ scope: 'local' })).records).toEqual([named, run])
   })
 
   it('keeps valid image/video thumbnails and omits malformed optional media without losing history', async () => {

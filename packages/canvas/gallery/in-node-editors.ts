@@ -111,6 +111,16 @@ export const inNodeEditorSchemas: readonly NodeSchema[] = [
     socket('histogram', 'HISTOGRAM', true),
     output('curve', 'CURVE'),
   ]),
+  schema('Sample curve', [
+    editor('curve', 'CURVE'),
+    field('count', 'INT', 10, { min: 1, step: 1 }),
+    { kind: 'output', id: 'values', type: { kind: 'list', element: concrete('FLOAT') } },
+  ]),
+  schema('Hook keyframes from curve', [
+    editor('curve', 'CURVE', { interpolations: ['step'] }),
+    socket('prev_hook_kf', 'HOOK_KEYFRAMES', true),
+    output('HOOK_KF', 'HOOK_KEYFRAMES'),
+  ]),
   // Each curve of a group names the histogram beside it in its own member.
   schema('Curves with histograms', [
     {
@@ -304,6 +314,9 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
   { id: 'curve-folded-primitive', card: 35, caption: 'Folded, fed by a Primitive holding 3 points, before a run: the curve it holds, muted with the row', type: 'Curve editor',
     wired: { curve: 'CURVE' },
     carried: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0.2 }, { position: 0.6, value: 0.4 }, { position: 1, value: 0.9 }] } } },
+  { id: 'curve-unfolded-wired', card: 35, caption: 'Unfolded, fed by a wire: its curve with muted points and dimmed editing controls', type: 'Curve editor',
+    wired: { curve: 'CURVE' }, view: unfold('curve'), states: { curve: { selected: 1 } },
+    carried: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0.2 }, { position: 0.6, value: 0.4 }, { position: 1, value: 0.9 }] } } },
   { id: 'curve-histogram-unwired', card: 36, caption: 'The histogram input has no wire: its pin is on the line Histogram inside the editor', type: 'Curve editor',
     values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } }, view: unfold('curve') },
   { id: 'curve-histogram-before', card: 36, caption: 'A histogram wired in, before a run: no bars yet', type: 'Curve editor',
@@ -345,6 +358,15 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
     },
     wired: { 'curves.1.histogram': 'HISTOGRAM', 'curves.2.histogram': 'HISTOGRAM' }, view: unfold('curves.1.curve', 'curves.2.curve'),
     width: 324, states: { 'curves.1.curve': { histogram: 'rising' }, 'curves.2.curve': { histogram: 'falling' } } },
+  { id: 'sample-curve', card: 40, caption: 'Sample curve: evenly spaced values for the requested count, with no histogram input', type: 'Sample curve',
+    values: { curve: { interpolation: 'step', points: [{ position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.75, value: 0.35 }, { position: 0.9, value: 0.6 }] } },
+    view: unfold('curve') },
+  { id: 'hook-keyframes-curve', card: 40, caption: 'Hook keyframes from curve: each point sets a strength at its position, holding it until the next point', type: 'Hook keyframes from curve',
+    values: { curve: { interpolation: 'step', points: [{ position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.75, value: 0.35 }, { position: 0.9, value: 0.6 }] } },
+    view: unfold('curve') },
+  { id: 'step-curve-folded', card: 40, caption: 'Folded Step curve: the same staircase in its small plot', type: 'Hook keyframes from curve',
+    values: { curve: { interpolation: 'step', points: [{ position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.75, value: 0.35 }, { position: 0.9, value: 0.6 }] } },
+    view: fold('curve') },
 ]
 
 /**
@@ -457,8 +479,7 @@ function createInputsPanelScene(
         id: 'inside', name: 'Inside', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
         nodes: { [example.id]: { id: example.id, type: target.type, values: { ...defaultValuesOf(target), ...(example.values ?? {}) } } },
         boundary: {
-          inputs: editors.map((id) => ({ id, promoted: true, binds: { kind: 'port', node: example.id, port: id } })),
-          outputs: [],
+          body: editors.map((id) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: example.id, port: id } })),
         },
       },
     },

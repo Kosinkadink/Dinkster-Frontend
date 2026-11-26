@@ -87,10 +87,12 @@ export async function subgraphMarkPoint(page: Page, nodeId: string): Promise<{ x
 }
 
 /**
- * Clicks the row of an editor shown in the node, which folds the editor out
- * under it, and returns the editor's controls laid over its space.
+ * Opens a closed editor through its row, or keeps an already open editor,
+ * and returns the controls laid over its space.
  */
 export async function unfoldNodeEditor(page: Page, nodeId: string, inputId: string): Promise<Locator> {
+  const editor = page.locator(`.node-editor-space-overlay[data-node-id="${nodeId}"][data-value-key="${inputId}"]`)
+  if (await editor.isVisible()) return editor
   const point = await page.waitForFunction(({ nodeId, inputId }) => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((entry) => entry.id === nodeId)
@@ -105,7 +107,6 @@ export async function unfoldNodeEditor(page: Page, nodeId: string, inputId: stri
   }, { nodeId, inputId })
   const { x, y } = await point.jsonValue() as { x: number; y: number }
   await page.mouse.click(x, y)
-  const editor = page.locator(`.node-editor-space-overlay[data-node-id="${nodeId}"][data-value-key="${inputId}"]`)
   await expect(editor).toBeVisible()
   return editor
 }
@@ -211,7 +212,7 @@ export const nativeTest = base.extend<{ appView: boolean; seedWorkflows: boolean
       const basic = structuredClone(seedBasic)
       basic.graphs.g0.links.l2.from.port = 'IMAGE'
       const subgraph = structuredClone(seedSubgraph)
-      subgraph.graphs.g1.boundary.outputs[0]!.binds.port = 'IMAGE'
+      subgraph.graphs.g1.boundary.body[1]!.binds.port = 'IMAGE'
       await page.addInitScript(({ basic, subgraph }) => {
         if (localStorage.getItem('dinkster.openTabs') !== null) return
         localStorage.setItem('dinkster.openTabs', JSON.stringify({

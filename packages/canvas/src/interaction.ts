@@ -49,6 +49,7 @@ import {
   hasKnownLinkDropAnchorType,
   dragNumericValue,
   isIntegerWidgetValue,
+  isNumberWidget,
   numericStepConstraints,
   numericStepPrecision,
   stepNumericValue,
@@ -70,7 +71,7 @@ import { controllerChipContains } from './controller-chip.js'
 import { subgraphMarkRect } from './registry-painter.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
 import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, previewEdgeShown, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
-import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { canvasPaintTokens, IN_NODE_EDITORS, type DesignTokens } from './tokens.js'
 import { BOUNDARY_ADD_SLOT, clampTextBoxLines, memberSpans, multilineWidgetHeight, projectPictureHeight, projectTextBoxLines, type LayoutRow, type MemberGrip, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
@@ -491,6 +492,8 @@ export interface InteractionHost {
   onNodeHover?(nodeId: string | undefined): void
   /** Double-click a boundary pseudo-node pin/row: host opens a rename prompt. */
   onBoundaryRenameRequest?(side: 'inputs' | 'outputs', itemId: string, screenX: number, screenY: number): void
+  /** Click (no drag) on a boundary pseudo-node row's name: host selects that boundary item. */
+  onBoundaryRowSelect?(side: 'inputs' | 'outputs', itemId: string): void
 }
 
 export type BoundaryExposureSource =
@@ -767,12 +770,14 @@ type Gesture =
       readonly side: 'inputs' | 'outputs'
       readonly startWX: number
       readonly startWY: number
+      /** The row pressed, when the press began on a row's name. */
+      readonly rowItem?: string
       moved: boolean
     }
 
 /** A row drawn and stepped as a number; an integer color is drawn as a color. */
 const isNumberRow = (row: Extract<LayoutRow, { kind: 'widget' }>): boolean =>
-  (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
+  isNumberWidget(row.spec) && row.viewId !== 'core.integerColor'
 
 export class InteractionController {
   private selection = new Set<string>()
@@ -1834,7 +1839,7 @@ export class InteractionController {
         return
       case 'boundary-pin':
         if (hit.row && !hit.regionIndex) {
-          this.gesture = { kind: 'boundary-move', side: hit.bnode.side, startWX: w.x, startWY: w.y, moved: false }
+          this.gesture = { kind: 'boundary-move', side: hit.bnode.side, startWX: w.x, startWY: w.y, rowItem: hit.item, moved: false }
           return
         }
         // Boundary pins are link-drag sources: existing items fan out
@@ -3462,9 +3467,10 @@ export class InteractionController {
           const connected = scene.links.some(
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,
           )
-          // The connected value wins; editing the dormant value invites confusion.
+          // Folding changes the view, not the value the wire supplies.
           if (connected) {
-            this.host.onWiredWidgetActivate?.(g.hit)
+            if (IN_NODE_EDITORS[g.hit.row.viewId] !== undefined) this.host.onWidgetActivate?.(g.hit, clientX, clientY)
+            else this.host.onWiredWidgetActivate?.(g.hit)
             return
           }
           const row = g.hit.row
@@ -3684,6 +3690,7 @@ export class InteractionController {
         return
       }
       case 'boundary-move': {
+        if (!g.moved && g.rowItem !== undefined) this.host.onBoundaryRowSelect?.(g.side, g.rowItem)
         if (g.moved) {
           const bnode = scene.boundaryNodes.find((b) => b.side === g.side)
           if (bnode) {

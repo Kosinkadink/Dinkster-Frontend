@@ -5,7 +5,7 @@ import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from './editors.js'
 import { Icon } from './Icon.js'
 import { useAppMessage } from './locale.js'
 import { ProductButton, ProductTextInput } from './ProductControls.js'
-import { CanvasClosedRow } from '@dinkster/ui'
+import { CanvasClosedRow, ProductShortcut } from '@dinkster/ui'
 import { ProductNotice } from './ProductForm.js'
 
 /**
@@ -297,8 +297,8 @@ export function CanvasCornerControls(props: {
                   onOpen={() => startTyping()}
                   onStep={(direction) => props.onZoomBy(direction > 0 ? 1.2 : 1 / 1.2)}
                   steps={{
-                    decrease: { label: message('canvas.corner.zoomOut'), detail: props.shortcuts?.zoomOut },
-                    increase: { label: message('canvas.corner.zoomIn'), detail: props.shortcuts?.zoomIn },
+                    decrease: { label: message('canvas.corner.zoomOut'), shortcut: props.shortcuts?.zoomOut },
+                    increase: { label: message('canvas.corner.zoomIn'), shortcut: props.shortcuts?.zoomIn },
                   }}
                 />
               }>
@@ -321,8 +321,8 @@ export function CanvasCornerControls(props: {
                 </label>
               </Show>
             </div>
-            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-in" onClick={() => props.onZoomBy(1.2)}><span>{message('canvas.corner.zoomIn')}</span><Show when={props.shortcuts?.zoomIn}>{(keys) => <span class="menu-shortcut">{keys()}</span>}</Show></ProductButton>
-            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-out" onClick={() => props.onZoomBy(1 / 1.2)}><span>{message('canvas.corner.zoomOut')}</span><Show when={props.shortcuts?.zoomOut}>{(keys) => <span class="menu-shortcut">{keys()}</span>}</Show></ProductButton>
+            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-in" onClick={() => props.onZoomBy(1.2)}><span>{message('canvas.corner.zoomIn')}</span><Show when={props.shortcuts?.zoomIn}>{(keys) => <span class="menu-shortcut"><ProductShortcut keys={keys()} /></span>}</Show></ProductButton>
+            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-out" onClick={() => props.onZoomBy(1 / 1.2)}><span>{message('canvas.corner.zoomOut')}</span><Show when={props.shortcuts?.zoomOut}>{(keys) => <span class="menu-shortcut"><ProductShortcut keys={keys()} /></span>}</Show></ProductButton>
             <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-reset" onClick={() => { props.onZoomTo(1); props.onCloseMenu() }}><span>{message('canvas.corner.zoomReset')}</span></ProductButton>
           </div>
         </Show>

@@ -76,7 +76,7 @@ export function CanvasEditorPicture(props: {
 /** One line of an editor's own controls, as tall as a canvas row. */
 export function CanvasEditorLine(props: { dimmed?: boolean; children: JSX.Element }) {
   return (
-    <div class="dinkster-canvas-editor-line" data-dimmed={props.dimmed === true ? 'true' : undefined}>
+    <div class="dinkster-canvas-editor-line" data-dimmed={props.dimmed === true ? 'true' : undefined} inert={props.dimmed === true}>
       {props.children}
     </div>
   )
@@ -460,6 +460,9 @@ const CURVE_POINT_REACH = 8
 export function CanvasCurvePlot(props: {
   points: readonly CanvasCurvePoint[]
   sample: (position: number) => number
+  /** Hold each point until the next, with a vertical jump at that next point. */
+  step?: boolean
+  disabled?: boolean | undefined
   selected?: number | undefined
   /** Bar heights from 0 to 1, from the low end of the input. */
   histogram?: readonly number[] | undefined
@@ -502,6 +505,15 @@ export function CanvasCurvePlot(props: {
     const last = props.points.at(-1)
     if (first === undefined || last === undefined) return []
     const run = (from: number, to: number, held: boolean) => {
+      if (props.step) {
+        const path = [{ position: from, value: props.sample(from) }]
+        for (const point of props.points) {
+          if (point.position <= from || point.position > to) continue
+          path.push({ position: point.position, value: path.at(-1)!.value }, point)
+        }
+        path.push({ position: to, value: props.sample(to) })
+        return { held, points: path.map((point) => `${x(point.position)},${y(Math.max(0, Math.min(1, point.value)))}`).join(' ') }
+      }
       const samples = Math.max(2, Math.ceil((x(to) - x(from)) / 2))
       const points = Array.from({ length: samples + 1 }, (_, index) => {
         const position = from + (to - from) * index / samples
@@ -509,10 +521,12 @@ export function CanvasCurvePlot(props: {
       }).join(' ')
       return { held, points }
     }
+    const start = Math.max(0, Math.min(1, first.position))
+    const end = Math.max(0, Math.min(1, last.position))
     return [
-      ...(first.position > 0 ? [run(0, first.position, true)] : []),
-      run(first.position, last.position, false),
-      ...(last.position < 1 ? [run(last.position, 1, true)] : []),
+      ...(start > 0 ? [run(0, start, true)] : []),
+      run(start, end, false),
+      ...(end < 1 ? [run(end, 1, true)] : []),
     ]
   }
   const [hover, setHover] = createSignal(untrack(() => props.hover))
@@ -542,6 +556,7 @@ export function CanvasCurvePlot(props: {
     return nearest
   }
   const track = (event: PointerEvent) => {
+    if (props.disabled) return
     const at = local(event)
     if (!at) return
     if (drag !== undefined && drag.pointerId === event.pointerId) {
@@ -560,7 +575,7 @@ export function CanvasCurvePlot(props: {
     setHover(inside && pointAt(at) === undefined ? point : undefined)
   }
   const press = (event: PointerEvent) => {
-    if (event.button !== 0) return
+    if (props.disabled || event.button !== 0) return
     svgElement?.focus({ preventScroll: true })
     const at = local(event)
     if (!at) return
@@ -571,11 +586,13 @@ export function CanvasCurvePlot(props: {
     svgElement?.setPointerCapture(event.pointerId)
   }
   const release = (event: PointerEvent) => {
+    if (props.disabled) { drag = undefined; return }
     if (drag?.pointerId !== event.pointerId) return
     drag = undefined
     props.onMoveEnd?.()
   }
   const add = (event: MouseEvent) => {
+    if (props.disabled) return
     const at = local(event)
     if (!at || pointAt(at) !== undefined) return
     const point = plotPoint(at)
@@ -585,6 +602,7 @@ export function CanvasCurvePlot(props: {
     props.onAdd?.(point)
   }
   const key = (event: KeyboardEvent) => {
+    if (props.disabled) return
     const index = props.selected
     if ((event.key !== 'Delete' && event.key !== 'Backspace') || index === undefined || props.onDelete === undefined) return
     // The key is the curve's: the canvas behind it must not also delete the node.
@@ -595,7 +613,8 @@ export function CanvasCurvePlot(props: {
   const label = (h: CanvasCurvePoint) => `${h.position.toFixed(2)}, ${h.value.toFixed(2)}`
   return (
     <svg ref={svgElement} viewBox={`0 0 ${size().width} ${size().height}`} class="dinkster-canvas-curve"
-      tabindex={props.onSelect === undefined ? undefined : 0} role={props.onSelect === undefined ? 'img' : 'application'}
+      data-disabled={props.disabled ? 'true' : undefined}
+      tabindex={props.disabled || props.onSelect === undefined ? undefined : 0} role={props.disabled || props.onSelect === undefined ? 'img' : 'application'}
       aria-label={props.label} data-tooltip-label={props.tooltip}
       onPointerDown={press} onPointerMove={track} onPointerUp={release} onPointerCancel={release}
       onLostPointerCapture={release} onPointerLeave={() => setHover(undefined)} onDblClick={add} on:keydown={key}>
@@ -650,11 +669,13 @@ export function CanvasCurvePlot(props: {
       </For>
       <For each={props.points}>
         {(point, index) => (
-          <circle class="dinkster-canvas-curve-point" data-selected={index() === props.selected ? 'true' : 'false'}
-            cx={x(point.position)} cy={y(point.value)} r="5" />
+          <Show when={point.position >= 0 && point.position <= 1 && point.value >= 0 && point.value <= 1}>
+            <circle class="dinkster-canvas-curve-point" data-selected={index() === props.selected ? 'true' : 'false'}
+              cx={x(point.position)} cy={y(point.value)} r="5" />
+          </Show>
         )}
       </For>
-      <Show when={hover()}>
+      <Show when={props.disabled ? undefined : hover()}>
         {(h) => {
           const hx = () => x(h().position)
           const hy = () => y(h().value)
