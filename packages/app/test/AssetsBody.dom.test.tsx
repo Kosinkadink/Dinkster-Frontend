@@ -35,6 +35,42 @@ const stubConnection = <T extends object>(members: T): DinksterConnection => ({
 } as unknown as DinksterConnection)
 
 describe('Assets dock body', () => {
+  it('shows file modification dates and decoded dimensions below unselected pictures', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:preview')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+    vi.stubGlobal('fetch', async () => new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } }))
+    const connection = stubConnection({
+      assetUrl: () => '/image',
+      listMounts: async () => [{ id: 'input', mode: 'read', state: 'ready' }],
+      listMountEntries: async () => ({ entries: [
+        { virtualPath: 'mounts/input/wide.png', name: 'wide.png', digest: 'blake3:a', size: 7, mediaType: 'image/png', modifiedAt: 1700000000 },
+        { virtualPath: 'mounts/input/tall.png', name: 'tall.png', digest: 'blake3:b', size: 9, mediaType: 'image/png', modifiedAt: 0 },
+      ] }),
+    })
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
+    try {
+      await vi.waitFor(() => expect(root.querySelectorAll('img.collection-thumb')).toHaveLength(2))
+      const rows = [...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')]
+      for (const [index, [width, height]] of [[1024, 256], [320, 800]].entries()) {
+        const image = rows[index]!.querySelector<HTMLImageElement>('img')!
+        Object.defineProperties(image, { naturalWidth: { value: width }, naturalHeight: { value: height } })
+        image.dispatchEvent(new Event('load'))
+        expect(rows[index]!.querySelector('.asset-entry-dimensions')?.textContent).toBe(`${width} x ${height}`)
+      }
+      expect(rows[0]!.querySelector('time')?.dateTime).toBe('2023-11-14T22:13:20.000Z')
+      expect(rows[1]!.querySelector('time')?.dateTime).toBe('1970-01-01T00:00:00.000Z')
+      expect(root.querySelector('[data-testid="asset-selection-summary"]')).toBeNull()
+      const pictures = root.querySelector<HTMLInputElement>('[aria-label="File view"] input[value="grid"]')!
+      pictures.checked = true; pictures.dispatchEvent(new Event('change', { bubbles: true }))
+      expect(rows[0]!.textContent).toContain('1024 x 256')
+      expect(rows[1]!.textContent).toContain('320 x 800')
+      rows[0]!.querySelector('img')!.dispatchEvent(new Event('error'))
+      expect(rows[0]!.querySelector('.asset-entry-dimensions')).toBeNull()
+      expect(rows[1]!.textContent).toContain('320 x 800')
+    } finally { dispose() }
+  })
+
   it('opens on files in available non-model mounts and keeps scope and depth explicit while scrolling', async () => {
     const requests: URL[] = []
     const mounts = [

@@ -4,6 +4,7 @@ export interface AssetBrowserItem {
   readonly kind?: string
   readonly mediaType?: string
   readonly size?: number
+  readonly modifiedAt?: number
   readonly digest?: string
   readonly availability?: 'available' | 'missing' | 'unavailable'
   readonly source: { readonly id: string; readonly label: string; readonly path?: string }

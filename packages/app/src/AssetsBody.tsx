@@ -6,7 +6,7 @@ import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js
 import { assetCollectionSource } from './asset-browser/collection-adapter.js'
 import { VIEW_PREFERENCE_KEY } from './asset-browser/helpers.js'
 import { mountAssetSource } from './asset-browser/mountAssetSource.js'
-import { AssetEntryFallback } from './asset-browser/presentation.js'
+import { AssetEntryContent } from './asset-browser/presentation.js'
 import { AssetEntrySelection } from './asset-browser/rail.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
@@ -139,7 +139,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
             path: `${selectedId() === 'all-mounts' ? message('assets.mounts.all') : selectedId().slice('mount:'.length)}${folder() ? `/${folder()}` : ''}`,
           })}</p>
         </>}
-        renderState={(state) => assetState(state, message)} entryFallback={(entry) => <AssetEntryFallback entry={entry} />}
+        renderState={(state) => assetState(state, message)} entryContent={(entry) => <AssetEntryContent entry={entry()} />}
         detailPlacement="inline" detailRail={(entry) => <Show when={entry}>{(selected) => <AssetEntrySelection entry={selected()} adapters={adapters()}
           backendId={props.backendId} connection={props.connection} backendUrl={props.baseUrl ?? ''} backendLabel={props.backendLabel} />}</Show>}
       />

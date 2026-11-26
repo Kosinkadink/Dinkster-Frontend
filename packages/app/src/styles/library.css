@@ -589,6 +589,13 @@
 .assets-panel .collection-subtitle,
 .assets-panel .collection-badge { color: var(--dinkster-text-secondary); }
 .assets-panel .collection-subtitle { display: block; max-width: 100%; }
+.asset-modified-time,
+.asset-entry-dimensions {
+  color: var(--dinkster-text-muted);
+  font-size: var(--dinkster-type-metadata-size);
+  white-space: nowrap;
+}
+.assets-panel .collection-items:not(.grid) .asset-modified-time { margin-left: auto; }
 .assets-panel .collection-items.grid .collection-entry.selected {
   border-color: var(--dinkster-border-focus);
   box-shadow: inset 0 0 0 1px var(--dinkster-border-focus);

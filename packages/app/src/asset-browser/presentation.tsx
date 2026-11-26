@@ -1,9 +1,40 @@
-import type { CollectionEntry } from '@dinkster/core'
+import { createSignal, For, Show } from 'solid-js'
+import { formatDate, type CollectionEntry } from '@dinkster/core'
 import { AudioLines, Box, File, Film, Folder, Image as ImageIcon } from 'lucide-solid'
+import { CollectionImage } from '../CollectionImage.js'
+import { formatCollectionDate } from '../collections.js'
 import { Icon } from '../Icon.js'
 import { useAppMessage } from '../locale.js'
-import { assetEntryKindOf } from './collection-adapter.js'
+import { assetEntryKindOf, assetItemOf } from './collection-adapter.js'
 import { logicalModelPickDetailOf } from './logical-model-collection-source.js'
+
+export function AssetModifiedTime(props: { readonly value: number }) {
+  return <time class="asset-modified-time" dateTime={new Date(props.value * 1000).toISOString()}
+    title={formatCollectionDate(props.value * 1000)}>{formatDate(props.value * 1000, { dateStyle: 'short' })}</time>
+}
+
+export function AssetEntryContent(props: { readonly entry: CollectionEntry }) {
+  const [dimensions, setDimensions] = createSignal<string>()
+  return <>
+    <CollectionImage entry={props.entry} class="collection-thumb" alt="" fallback={<AssetEntryFallback entry={props.entry} />}
+      onError={() => setDimensions(undefined)} onLoad={(event) => {
+        const image = event.currentTarget
+        if (image.naturalWidth > 0 && image.naturalHeight > 0) setDimensions(`${image.naturalWidth} x ${image.naturalHeight}`)
+      }} />
+    <div class="collection-text">
+      <span class="collection-title">{props.entry.title}</span>
+      <Show when={dimensions() !== undefined || (props.entry.badges ?? []).length > 0}>
+        <span class="collection-badges">
+          <Show when={dimensions()}>{(value) => <span class="asset-entry-dimensions">{value()}</span>}</Show>
+          <For each={props.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For>
+        </span>
+      </Show>
+    </div>
+    <Show when={assetItemOf(props.entry)?.modifiedAt !== undefined}>
+      <AssetModifiedTime value={assetItemOf(props.entry)!.modifiedAt!} />
+    </Show>
+  </>
+}
 
 const middleDigest = (digest: string): string => digest.length > 23
   ? `${digest.slice(0, 12)}...${digest.slice(-8)}`

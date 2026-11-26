@@ -9,6 +9,7 @@ export function normalizeMountEntry(adapterId: string, label: string, entry: Mou
   return {
     id: `${adapterId}:${entry.virtualPath}`, name: entry.name, digest: entry.digest, size: entry.size,
     mediaType: entry.mediaType, ...(entry.kind ? { kind: entry.kind } : {}), virtualPath: entry.virtualPath,
+    ...(entry.modifiedAt !== undefined ? { modifiedAt: entry.modifiedAt } : {}),
     source: { id: adapterId, label, path: entry.virtualPath }, rawRef: entry,
   }
 }

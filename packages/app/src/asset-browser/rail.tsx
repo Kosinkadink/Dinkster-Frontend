@@ -22,7 +22,7 @@ import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
 import { committableAssetRef, formatSize, isBrowserPreviewable } from './helpers.js'
 import { inspectAssetMetadata, METADATA_INSPECTION_UNSUPPORTED } from './metadata.js'
 import { assetEntryKindOf, assetItemOf, assetKindOf } from './collection-adapter.js'
-import { DigestValue } from './presentation.js'
+import { AssetModifiedTime, DigestValue } from './presentation.js'
 import {
   logicalModelVariantName,
   type LogicalModelPickDetail,
@@ -134,6 +134,7 @@ function AssetEntrySelectionContent(props: {
       <Show when={!previewFailed() ? dimensions() : undefined}>
         {(value) => <div class="asset-preview-caption" data-testid="asset-preview-caption">{value().width} x {value().height}</div>}
       </Show>
+      <Show when={props.item.modifiedAt !== undefined}><AssetModifiedTime value={props.item.modifiedAt!} /></Show>
       <AssetSelectionDetails item={props.item} dimensions={dimensions()} adapters={props.adapters} backendId={props.backendId} additionalFacts={props.additionalFacts} />
     </>
   )
