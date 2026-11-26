@@ -423,6 +423,54 @@ describe('showing a field on the subgraph node', () => {
   const derivedInput = (store: DocumentStore, id: string) =>
     deriveBoundarySchema(store.doc.graphs.sub!, documentResolver(store.doc, resolve)).schema?.body.find((row) => row.kind === 'input' && row.id === id)
 
+  it('promotes along only the chosen ancestor path, reuses hops and undoes all additions together', () => {
+    const original = fieldDoc()
+    const nested = doc({ ...original.graphs,
+      middle: graph({ id: 'middle', nodes: {
+        first: node('first', { type: '#sub' }), second: node('second', { type: '#sub' }),
+        collision: node('collision', { type: 'Blur' }),
+      }, boundary: boundaryOf([{ id: 'radius', binds: { kind: 'port', node: asNodeId('collision'), port: asPortId('radius') }, promoted: true }], []) }),
+      outer: graph({ id: 'outer', nodes: { detail: node('detail', { type: '#middle' }) }, boundary: boundaryOf([], []) }),
+    })
+    const store = schemaStore(nested)
+    const invocation = { command: 'boundary.showOnAncestor', params: {
+      graphId: 'sub', node: 'blur', port: 'radius', ancestors: [{ graphId: 'middle', node: 'first' }, { graphId: 'outer', node: 'detail' }],
+    } }
+    expect(store.dispatch(invocation).ok).toBe(true)
+    expect(boundaryItems(store.doc.graphs.middle!.boundary, 'inputs')).toMatchObject([
+      { id: 'radius', binds: { node: 'collision', port: 'radius' } },
+      { id: 'radius_2', binds: { node: 'first', port: 'radius' }, promoted: true },
+    ])
+    expect(boundaryItems(store.doc.graphs.outer!.boundary, 'inputs')).toMatchObject([
+      { id: 'radius_2', binds: { node: 'detail', port: 'radius_2' } },
+    ])
+    const promoted = store.doc
+    expect(store.dispatch(invocation).ok).toBe(true)
+    store.undo()
+    expect(store.doc.graphs).toEqual(nested.graphs)
+    store.redo()
+    expect(store.doc.graphs).toEqual(promoted.graphs)
+
+    // An intermediate whole-construct owner must reject the entire operation.
+    const groupInvocation = { ...invocation, params: { ...invocation.params, node: 'weigh', port: 'weights' } }
+    const conflict = schemaStore(doc({ ...nested.graphs, middle: {
+      ...nested.graphs.middle!, boundary: boundaryOf([{ id: 'one', binds: { kind: 'port', node: asNodeId('first'), port: asPortId('weights.w0') } }], []),
+    } }))
+    const before = conflict.doc
+    expect(conflict.dispatch(groupInvocation).ok).toBe(false)
+    expect(conflict.doc).toBe(before)
+    expect(store.dispatch(groupInvocation).ok).toBe(true)
+    expect(boundaryItems(store.doc.graphs.outer!.boundary, 'inputs').at(-1)).toMatchObject({ binds: { kind: 'construct', node: 'detail', port: 'weights' } })
+
+    const command = coreCommandRegistry().get('boundary.showOnAncestor')!
+    const prepared = command.prepareForSharedReplay!(nested, groupInvocation.params, { kind: 'initial', schemaResolverFor: () => resolve }, undefined)!
+    expect(prepared.ok).toBe(true)
+    const replay = new DocumentStore(nested, coreCommandRegistry(), 200, undefined, () => ({ kind: 'shared-replay' }))
+    expect(replay.dispatch({ ...groupInvocation, params: prepared.ok ? prepared.params : null }).ok).toBe(true)
+    expect(boundaryItems(replay.doc.graphs.outer!.boundary, 'inputs')).toMatchObject([{ binds: { kind: 'construct', node: 'detail', port: 'weights' } }])
+    expect(replay.dispatch({ ...invocation, params: { ...invocation.params, ancestors: [{ graphId: 'middle', node: 'collision' }] } }).ok).toBe(false)
+  })
+
   it('adds the field as a promoted input drawn without a wire, in one undo step', () => {
     const store = schemaStore(fieldDoc())
     const before = store.doc

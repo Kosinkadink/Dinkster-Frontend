@@ -14,6 +14,7 @@ import { boundaryBindingKey, boundaryItems, boundaryItemsWithPaths, isNodeBounda
 import { asNodeId, asPortId, asRerouteId, isPortEndpoint, samePortRef, type PortRef } from '../ids.js'
 import { Formula, FormulaRefused } from '../mirror/formula.js'
 import type { CommandDefinition, CommandExecutionContext, SharedReplayPreparation, TransactionBuilder } from './contract.js'
+import { createTransactionBuilder } from './contract.js'
 import { boundaryConditionScope, boundaryInnerInput, constructsAround, deriveBoundarySchema, familyStateAt, numberFieldRange, resolveBoundaryRoute } from '../schema/derive-boundary.js'
 import type { InputSpec } from '../schema/model.js'
 import { documentNodeResolver, documentResolver } from '../compile/compile.js'
@@ -486,6 +487,67 @@ const boundaryShowOnSubgraphNode: CommandDefinition = {
   },
 }
 
+/** Follow only the explicitly chosen occurrence chain, never other uses of a definition. */
+const boundaryShowOnAncestor: CommandDefinition = {
+  id: 'boundary.showOnAncestor',
+  prepareForSharedReplay(doc, params, context, actor) {
+    if (!isObj(params)) return undefined
+    const resolve = context.schemaResolverFor?.(doc)
+    const node = typeof params.graphId === 'string' && typeof params.node === 'string'
+      ? doc.graphs[params.graphId]?.nodes[params.node] : undefined
+    const schema = node === undefined || resolve === undefined || typeof params.graphId !== 'string'
+      ? undefined : documentNodeResolver(doc, resolve)(params.graphId, node)
+    const construct = schema === undefined ? undefined
+      : constructsAround(schema, String(params.port)).find((entry) => entry.path === params.port)
+    const prepared = construct === undefined ? params : { ...params, side: construct.side }
+    const diagnostics = boundaryShowOnAncestor.run(doc, prepared, createTransactionBuilder(doc, actor), context)
+    return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+      ? { ok: false, diagnostics } : { ok: true, params: prepared }
+  },
+  run(doc, params, tx, context) {
+    if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.node !== 'string' ||
+        typeof params.port !== 'string' || !Array.isArray(params.ancestors) || params.ancestors.length === 0 ||
+        params.ancestors.some((hop) => !isObj(hop) || typeof hop.graphId !== 'string' || typeof hop.node !== 'string'))
+      return [err('params.invalid', 'boundary.showOnAncestor: identify a field or construct and its enclosing occurrences')]
+    const hops = [{ graphId: params.graphId, node: params.node },
+      ...params.ancestors as { graphId: string; node: string }[]]
+    const seen = new Set<string>()
+    for (const [index, hop] of hops.entries()) {
+      if (hop.graphId === doc.root || seen.has(hop.graphId) || doc.graphs[hop.graphId]?.nodes[hop.node] === undefined ||
+          (index > 0 && doc.graphs[hop.graphId]!.nodes[hop.node]?.type !== `#${hops[index - 1]!.graphId}`))
+        return [err('boundary.ancestorPath', 'The selected enclosing subgraph path is no longer available.')]
+      seen.add(hop.graphId)
+    }
+    const resolve = context.kind === 'initial' ? context.schemaResolverFor?.(doc) : undefined
+    const first = doc.graphs[params.graphId]?.nodes[params.node]
+    const schema = first === undefined || resolve === undefined ? undefined
+      : documentNodeResolver(doc, resolve)(params.graphId, first)
+    const construct = schema === undefined ? undefined : constructsAround(schema, params.port).find((entry) => entry.path === params.port)
+    const side = construct?.side ?? (context.kind === 'shared-replay' && isSide(params.side) ? params.side : undefined)
+    let port = params.port
+    for (const hop of hops) {
+      const def = tx.current.graphs[hop.graphId]!
+      const binding: NodeBoundaryBinding = { kind: side === undefined ? 'port' : 'construct', node: asNodeId(hop.node), port: asPortId(port) }
+      const equivalent = boundaryItems(def.boundary, side ?? 'inputs').find((item) =>
+        (side !== undefined || item.promoted === true) && [item.binds, ...(item.alsoBinds ?? [])]
+          .some((candidate) => boundaryBindingKey(candidate) === boundaryBindingKey(binding)))
+      if (equivalent !== undefined) {
+        port = equivalent.id
+        continue
+      }
+      const diagnostics = boundaryShowOnSubgraphNode.run(tx.current, {
+        ...hop, port, ...(side === undefined ? {} : { side }),
+      }, tx, context)
+      if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return diagnostics
+      const added = boundaryItems(tx.current.graphs[hop.graphId]!.boundary, side ?? 'inputs')
+        .find((item) => boundaryBindingKey(item.binds) === boundaryBindingKey(binding))
+      if (added === undefined) return [err('boundary.ancestorPath', 'The intermediate exposure could not be created.')]
+      port = added.id
+    }
+    return []
+  },
+}
+
 // ---------------------------------------------------------------------------
 // boundary.setWireHidden {graphId, itemId, hidden}
 //
@@ -824,6 +886,7 @@ export const BOUNDARY_COMMANDS: readonly CommandDefinition[] = [
   boundaryRemoveBinding,
   boundaryAddItem,
   boundaryShowOnSubgraphNode,
+  boundaryShowOnAncestor,
   boundarySetWireHidden,
   boundaryRenameItem,
   boundarySetTooltip,

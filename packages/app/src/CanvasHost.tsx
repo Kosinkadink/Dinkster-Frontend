@@ -67,8 +67,11 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { CanvasColorArriving } from '@dinkster/ui'
+import { BoundaryPromotionPreview, CanvasColorArriving } from '@dinkster/ui'
 import {
+  coreCommandRegistry,
+  createTransactionBuilder,
+  executeCommand,
   defaultValuesOf,
   buildRerouteIndex,
   portRefKey,
@@ -168,7 +171,7 @@ import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap
 import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
 import { ContextMenu } from './ContextMenu.js'
-import { canvasMenuContext, curveHistogramMenuGroup, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
+import { ancestorPromotionMenuGroup, canvasMenuContext, curveHistogramMenuGroup, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
 import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
 import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
@@ -1864,6 +1867,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly valid: () => boolean
   }>()
   const [canvasDestination, setCanvasDestination] = createSolidSignal<UploadDestinationChoice>({ remember: false })
+  const [ancestorPromotion, setAncestorPromotion] = createSolidSignal<{
+    readonly definitions: readonly { readonly name: string; readonly uses: number; readonly changed: boolean }[]
+    readonly confirm: () => void
+    readonly cancel: () => void
+    readonly valid: () => boolean
+  }>()
+  onCleanup(() => ancestorPromotion()?.cancel())
   /** Set in onMount; canvas chrome delegates to the mounted renderer. */
   let repaintMinimap: (() => void) | undefined
   let zoomCanvas: ((factor: number) => void) | undefined
@@ -1878,6 +1888,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     if (choice !== undefined && !choice.valid()) choice.cancel()
     const importChoice = canvasImportChoice()
     if (importChoice !== undefined && !importChoice.valid()) importChoice.cancel()
+    const promotion = ancestorPromotion()
+    if (promotion !== undefined && !promotion.valid()) promotion.cancel()
   })
 
   createEffect(() => {
@@ -2908,6 +2920,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }),
         ...additionalGroups,
       ]
+      const ancestorGroup = ancestorPromotionMenuGroup(resolvedGroups, tab.store.doc,
+        tab.graphStack.get(), viewInstancePath(tab), tab.execution !== undefined, target)
+      if (ancestorGroup !== undefined) resolvedGroups.push(ancestorGroup)
       const submenu = submenuId === undefined
         ? undefined
         : resolvedGroups.flatMap((group) => group.items).find((item) => item.id === submenuId)
@@ -3751,6 +3766,39 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // well-known names). Extensions add document behavior via commands; host
     // actions cover navigation/UI concerns only.
     const hostActions: Record<string, (params: Json | undefined, m: OwnedMenuAnchor) => void> = {
+      showOnAncestor: (params, m) => {
+        if (params === undefined || m.tab.execution !== undefined) return
+        const reg = props.app.registryForTab(m.tab)
+        if (reg === undefined) return
+        const before = m.tab.store.doc
+        const command = coreCommandRegistry().get('boundary.showOnAncestor')!
+        const tx = createTransactionBuilder(before)
+        const diagnostics = executeCommand(command, before, params, tx, {
+          kind: 'initial', schemaResolverFor: () => reg.resolve,
+        })
+        if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+          showGestureRefusal(diagnostics)
+          return
+        }
+        const p = params as JsonObject
+        const definitions = [p.graphId as string, ...(p.ancestors as { graphId: string }[]).map((hop) => hop.graphId)]
+          .map((id) => ({
+            name: before.graphs[id]!.name || id,
+            uses: Object.values(before.graphs).reduce((count, graph) =>
+              count + Object.values(graph.nodes).filter((node) => subgraphDefIdOf(node.type) === id).length, 0),
+            changed: before.graphs[id]!.boundary !== tx.current.graphs[id]!.boundary,
+          }))
+        if (!definitions.some((definition) => definition.changed)) return
+        ancestorPromotion()?.cancel()
+        const target = captureLifecycleTarget(m.tab, m.graphId)
+        const valid = () => target.isCurrent() && m.tab.execution === undefined && m.tab.store.doc === before && props.app.registryForTab(m.tab) === reg
+        const cancel = () => { setAncestorPromotion(undefined); target.dispose() }
+        setAncestorPromotion({ definitions, valid, cancel, confirm: () => {
+          const current = valid()
+          cancel()
+          if (current) void dispatchGesture(m.tab, { command: 'boundary.showOnAncestor', params })
+        } })
+      },
       openSubgraph: (params) => {
         const tab = activeTab()
         const nodeId =
@@ -7096,6 +7144,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         </div>
       </Show>
       <CanvasPreviewA11y targets={previewA11yTargets()} />
+      <Show when={ancestorPromotion()} keyed>{(promotion) => <ModalSurface
+        title="Show on ancestor" modalId="boundary-ancestor" testId="boundary-ancestor-dialog"
+        onRequestClose={promotion.cancel}>
+        <BoundaryPromotionPreview definitions={promotion.definitions} onConfirm={promotion.confirm} onCancel={promotion.cancel} />
+      </ModalSurface>}</Show>
       <Show when={canvasImportChoice()} keyed>{(choice) => <ModalSurface
         title={message('canvasImport.title')} modalId="canvas-import" testId="canvas-import-dialog"
         onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); choice.cancel() } }}

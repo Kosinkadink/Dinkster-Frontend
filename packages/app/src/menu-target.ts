@@ -61,6 +61,51 @@ export function selectionLifecycleMenuGroups(
   }
 }
 
+/** Offer enclosing definitions only along the navigation's exact occurrence path. */
+export function ancestorPromotionMenuGroup(
+  groups: readonly ResolvedMenuGroup[],
+  doc: WorkflowDocument,
+  graphStack: readonly string[],
+  instancePath: readonly string[] | undefined,
+  disabled: boolean,
+  target?: MenuTarget,
+): ResolvedMenuGroup | undefined {
+  if (instancePath === undefined || instancePath.length !== graphStack.length - 1 || graphStack.length < 3) return undefined
+  const candidates = groups.flatMap((group) => group.items).filter((item) =>
+    item.id === 'core.widget.subgraphNode.show' || item.id === 'core.widget.subgraphNode.remove' ||
+    item.id.startsWith('core.boundary.showWhole.') || item.id.startsWith('core.boundary.hideWhole.'))
+  const graphId = graphStack.at(-1)!
+  if (target?.kind === 'widget' && target.synthetic !== true && target.address !== undefined &&
+      !candidates.some((item) => item.id.startsWith('core.widget.subgraphNode.')) &&
+      boundaryItems(doc.graphs[graphId]?.boundary, 'inputs').some((item) => item.promoted === true &&
+        [item.binds, ...(item.alsoBinds ?? [])].some((binding) => binding.kind === 'port' && binding.node === target.nodeId && binding.port === target.address!.port))) {
+    candidates.push({ id: 'core.widget.subgraphNode.show', label: 'Show on subgraph node', action: {
+      kind: 'command', invocation: { command: 'boundary.showOnSubgraphNode', params: { graphId, node: target.nodeId, port: target.address.port } },
+    } })
+  }
+  const items = candidates.flatMap((item) => {
+    const action = item.action
+    if (action?.kind !== 'command') return []
+    const params = action.invocation.params
+    if (params === null || typeof params !== 'object' || Array.isArray(params)) return []
+    const { graphId, node, port } = params as { readonly [key: string]: Json }
+    if (typeof graphId !== 'string' || typeof node !== 'string' || typeof port !== 'string') return []
+    return [{ id: `ancestor.${item.id}`, label: item.label.replace(/^Remove (.+) from subgraph node$/, 'Show $1 on ancestor')
+      .replace('Remove from subgraph node', 'Show on ancestor').replace('on subgraph node', 'on ancestor'),
+    disabled: disabled || item.disabled === true,
+    children: graphStack.slice(1, -1).map((ancestor, index) => ({
+      id: `ancestor.${item.id}.${index}`, label: doc.graphs[ancestor]?.name || ancestor,
+      action: { kind: 'host' as const, action: 'showOnAncestor', params: {
+        graphId, node, port,
+        ancestors: graphStack.slice(index + 1, -1).map((parent, offset) => ({
+          graphId: parent, node: instancePath[index + 1 + offset]!,
+        })).reverse(),
+      } },
+    })).reverse() }]
+  })
+  return items.length === 0 ? undefined : { group: '86-ancestor-promotion', items }
+}
+
 /**
  * Context-menu switcher for a schema-authorized representation set. The command
  * writes view state only; the schema/default/value/socket remain untouched.

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildScene, defaultTokens, type Hit } from '@dinkster/canvas'
 import { asNodeId, boundaryItems, coreCommandRegistry, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 import { toolboxMenuRequest } from '../src/CanvasHost.js'
-import { canvasMenuContext, curveHistogramMenuGroup, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
+import { ancestorPromotionMenuGroup, canvasMenuContext, curveHistogramMenuGroup, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
 
 const item = (id: string): MenuItem => ({
   id,
@@ -13,6 +13,29 @@ const item = (id: string): MenuItem => ({
 const group = (name: string, ...ids: string[]): ResolvedMenuGroup => ({
   group: name,
   items: ids.map(item),
+})
+
+it('offers each enclosing definition with the selected occurrence path, not its sibling', () => {
+  const groups: ResolvedMenuGroup[] = [{ group: 'expose', items: [{ id: 'core.widget.subgraphNode.remove',
+    label: 'Remove from subgraph node', action: { kind: 'command', invocation: {
+      command: 'boundary.unbind', params: { graphId: 'inner', node: 'blend', port: 'mix' },
+    } },
+  }] }]
+  const document = { graphs: { outer: { name: 'Portrait fix' }, middle: { name: 'Detail pass' },
+    inner: { boundary: { body: [{ kind: 'input', id: 'amount', promoted: true, binds: { kind: 'port', node: 'blend', port: 'mix' } }] } },
+  } } } as unknown as WorkflowDocument
+  const result = ancestorPromotionMenuGroup(groups, document, ['root', 'outer', 'middle', 'inner'], ['portrait', 'right', 'second'], false)!
+  expect(result.items[0]!.label).toBe('Show on ancestor')
+  expect(result.items[0]!.children!.map((item) => item.label)).toEqual(['Detail pass', 'Portrait fix'])
+  expect(result.items[0]!.children![1]!.action).toEqual({ kind: 'host', action: 'showOnAncestor', params: {
+    graphId: 'inner', node: 'blend', port: 'mix', ancestors: [{ graphId: 'middle', node: 'second' }, { graphId: 'outer', node: 'right' }],
+  } })
+  expect(ancestorPromotionMenuGroup(groups, document, ['root', 'outer', 'inner'], undefined, false)).toBeUndefined()
+  expect(ancestorPromotionMenuGroup(groups, document, ['root', 'inner'], ['portrait'], false)).toBeUndefined()
+  expect(ancestorPromotionMenuGroup(groups, document, ['root', 'outer', 'inner'], ['portrait', 'right'], true)!.items[0]!.disabled).toBe(true)
+  expect(ancestorPromotionMenuGroup([], document, ['root', 'outer', 'middle', 'inner'], ['portrait', 'right', 'second'], false, {
+    kind: 'widget', nodeId: 'blend', inputId: 'mix', address: { port: 'mix' }, owner: { graphId: 'middle', nodeId: 'second', inputId: 'amount' },
+  })!.items[0]!.label).toBe('Show on ancestor')
 })
 
 describe('curve histogram menu', () => {
