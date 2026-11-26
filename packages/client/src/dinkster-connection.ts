@@ -51,6 +51,7 @@ import {
   graphFeaturesFromDinksterWire,
   mergeableTypesFromDinksterWire,
   serverInfoFromDinksterWire,
+  uploadLimitsFromDinksterWire,
   parseOccurrenceKey,
   schemaForEditorRole,
   validateDinksterGraph,
@@ -4653,6 +4654,7 @@ export function buildDinksterRegistry(
   const server = serverInfoFromDinksterWire(raw)
   const graphFeatures = graphFeaturesFromDinksterWire(raw)
   const mergeableTypes = mergeableTypesFromDinksterWire(raw)
+  const uploadLimits = uploadLimitsFromDinksterWire(raw)
   // Additive fields, absent on older backends: epoch is a positive int
   // (surface generation), composing is present-only-when-true.
   const epoch =
@@ -4670,6 +4672,7 @@ export function buildDinksterRegistry(
     ...(server !== undefined ? { server } : {}),
     ...(graphFeatures !== undefined ? { graphFeatures } : {}),
     ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
+    ...(uploadLimits !== undefined ? { uploadLimits } : {}),
     ...(extensionSnapshotPair !== undefined ? { extensionSnapshotPair } : {}),
     ...(epoch !== undefined ? { epoch } : {}),
     ...(raw.composing === true ? { composing: true as const } : {}),

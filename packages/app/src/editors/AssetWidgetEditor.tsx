@@ -223,20 +223,22 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     ? uploadKind
     : undefined
   const classifiedLatent = ed.spec?.widgetType === 'ASSET' && uploadKind === 'data/latent'
-  const assetUploadMaxBytes = classifiedMediaKind === 'media/image'
+  const legacyUploadMaxBytes = classifiedMediaKind === 'media/image'
     ? IMAGE_UPLOAD_MAX_BYTES
     : classifiedMediaKind !== undefined
       ? MEDIA_UPLOAD_MAX_BYTES
       : classifiedLatent ? LATENT_UPLOAD_MAX_BYTES : GENERIC_UPLOAD_MAX_BYTES
-  // Display copy exists only for kinds with a deliberate, user-facing limit.
-  // Model kinds fall into the generic enforcement bucket, whose 16 MiB bound
-  // is not an authoritative model limit, so they render no limit copy
-  // (enforcement still applies through assetUploadMaxBytes).
-  const assetUploadLimitLabel = classifiedMediaKind === 'media/image'
-    ? '256 MiB per file'
-    : classifiedMediaKind !== undefined || classifiedLatent
-      ? '1 GiB per file'
-      : uploadKind?.startsWith('model/') === true ? undefined : '16 MiB per file'
+  const uploadLimits = openedRegistry?.uploadLimits
+  const assetUploadMaxBytes = uploadLimits === null ? undefined
+    : uploadLimits === undefined ? legacyUploadMaxBytes
+      : uploadLimits[classifiedMediaKind ?? (classifiedLatent ? 'data/latent' : 'generic')]
+  // Older engines did not advertise an authoritative model upload limit.
+  const assetUploadLimitLabel = assetUploadMaxBytes === undefined ||
+    (uploadLimits === undefined && uploadKind?.startsWith('model/') === true)
+    ? undefined
+    : `${assetUploadMaxBytes % MEDIA_UPLOAD_MAX_BYTES === 0
+      ? `${assetUploadMaxBytes / MEDIA_UPLOAD_MAX_BYTES} GiB`
+      : formatSize(assetUploadMaxBytes)} per file`
   // The SCALAR MERGE arm specifically (multi-select whose declaration is
   // NOT list-outer): an empty selection cannot commit `[]` there - the
   // declared type is scalar T, and a bare empty array would compile as raw
@@ -446,7 +448,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         setAssetError(`Unsupported file type: ${effectiveType || 'unknown'}`)
         return false
       }
-      if (!existing && file.size > assetUploadMaxBytes) {
+      if (!existing && assetUploadMaxBytes !== undefined && file.size > assetUploadMaxBytes) {
         setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatSize(assetUploadMaxBytes)} upload limit`)
         return false
       }

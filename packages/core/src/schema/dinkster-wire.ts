@@ -2798,6 +2798,19 @@ export function graphFeaturesFromDinksterWire(payload: DinksterNodesPayload): re
   return raw.filter((f): f is string => typeof f === 'string')
 }
 
+/** Null disables admission limits; absent or malformed metadata keeps older-client defaults. */
+export function uploadLimitsFromDinksterWire(payload: DinksterNodesPayload): Readonly<Record<string, number>> | null | undefined {
+  const header = payload.dinkster
+  if (typeof header !== 'object' || header === null || Array.isArray(header)) return undefined
+  const limits = (header as { uploadLimits?: unknown }).uploadLimits
+  if (limits === null) return null
+  if (typeof limits !== 'object' || limits === null || Array.isArray(limits)) return undefined
+  const entries = Object.entries(limits)
+  if (!['generic', 'media/image', 'media/audio', 'media/video', 'media/model3d', 'data/latent'].every((kind) => Object.hasOwn(limits, kind))
+    || entries.some(([, value]) => typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0)) return undefined
+  return Object.fromEntries(entries) as Readonly<Record<string, number>>
+}
+
 /**
  * Decode the /api/nodes "dinkster" header's mergeableTypes list:
  * the sorted ATOM type ids with a

@@ -3,8 +3,8 @@
 import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DinksterConnection } from '@dinkster/client'
-import { asConnectionId, createSignal as createCoreSignal, setLocale, type NodeSchema } from '@dinkster/core'
+import { buildDinksterRegistry, DinksterConnection } from '@dinkster/client'
+import { asConnectionId, createSignal as createCoreSignal, DINKSTER_SCHEMA_WIRE_VERSION, setLocale, type NodeSchema } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
@@ -1100,14 +1100,18 @@ describe('ASSET widget modal integration', () => {
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:image-preview')
   })
 
-  it('routes a native typed video widget through classified media upload without sourceFilename', async () => {
+  it.each([
+    { policy: undefined, label: '1 GiB per file', maximum: 1024 * 1024 * 1024 },
+    { policy: null, label: undefined, maximum: undefined },
+    { policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MiB per file', maximum: 32 * 1024 * 1024 },
+  ])('routes a native typed video widget using engine upload policy $label', async ({ policy, label, maximum }) => {
     const root = document.createElement('div')
     document.body.append(root)
     const digest = `blake3:${'f'.repeat(64)}`
     const canonical = {
       digest,
       name: 'large.webm',
-      size: 17 * 1024 * 1024,
+      size: maximum === undefined ? 1024 * 1024 * 1024 + 1 : 17 * 1024 * 1024,
       mediaType: 'video/webm',
       virtualPath: '',
     }
@@ -1130,6 +1134,11 @@ describe('ASSET widget modal integration', () => {
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: null,
     }
+    const registry = buildDinksterRegistry(asConnectionId('native'), {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      nodes: {},
+      dinkster: { ...(policy !== undefined ? { uploadLimits: policy } : {}) },
+    })
     const app = {
       retainPickerAssets: vi.fn().mockResolvedValue(undefined),
       backendForTab: vi.fn().mockReturnValue({ protocol: 'dinkster', id: 'native', connection: {
@@ -1139,10 +1148,13 @@ describe('ASSET widget modal integration', () => {
       } }),
       dispatchTo,
       widgetRegistry: { kind: () => undefined },
+      registryForTab: () => registry,
     } as unknown as AppState
     const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GiB per file')
+    const metadata = root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent
+    if (label !== undefined) expect(metadata).toContain(label)
+    else expect(metadata).not.toContain('per file')
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
     expect(input.accept).toBe('video/*')
 
@@ -1152,12 +1164,14 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('Unsupported file type: image/png'))
     expect(uploadMediaAsset).not.toHaveBeenCalled()
 
-    const oversized = new File(['video'], 'too-large.webm', { type: 'video/webm' })
-    Object.defineProperty(oversized, 'size', { configurable: true, value: 1024 * 1024 * 1024 + 1 })
-    Object.defineProperty(input, 'files', { configurable: true, value: [oversized] })
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('File exceeds the 1 GiB upload limit'))
-    expect(uploadMediaAsset).not.toHaveBeenCalled()
+    if (maximum !== undefined) {
+      const oversized = new File(['video'], 'too-large.webm', { type: 'video/webm' })
+      Object.defineProperty(oversized, 'size', { configurable: true, value: maximum + 1 })
+      Object.defineProperty(input, 'files', { configurable: true, value: [oversized] })
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain(`File exceeds the ${label!.replace(' per file', '')} upload limit`))
+      expect(uploadMediaAsset).not.toHaveBeenCalled()
+    }
 
     const file = new File(['webm bytes'], 'large.webm', { type: 'video/webm' })
     Object.defineProperty(file, 'size', { configurable: true, value: canonical.size })
