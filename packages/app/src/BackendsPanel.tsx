@@ -79,7 +79,7 @@ function BackendRow(props: {
   return <ProductListRow testId="backend-row" dataAttributes={{ 'data-connection': props.backend?.id ?? props.url, 'data-status': status() }}
     title={<span class="backend-row-identity"><strong>{props.name}</strong><span class="backend-row-summary" data-problem={problem() || undefined}>{summary()}</span></span>}
     leading={<span class="backend-state-dot" role="img" aria-label={message(`backendsPanel.connection.${status()}`)} data-status={status()} data-problem={problem() || undefined} />}
-    expanded={opened()} onToggle={setOpened}
+    expanded={opened()} onToggle={(value) => { if (!props.removing || !(busy() || props.connections.busy())) setOpened(value) }}
     action={<Show when={!props.removing && (props.backend !== props.defaultBackend || (validProfileUrl(props.url) && props.connections.custody()))}><ProductMenu icon={Ellipsis} iconOnly fill="quiet" label={message('backendsPanel.aria.actions', { backend: props.name })}
       items={[
         ...(validProfileUrl(props.url) && props.connections.custody() ? [{ label: message('backendsPanel.action.changeToken'), disabled: props.connections.busy(), onSelect: () => { setOpened(true); setEditingToken(true) } }] : []),
