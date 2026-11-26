@@ -22,7 +22,9 @@ import {
   coreCommandRegistry,
   compile,
   DocumentStore,
+  effectiveOccurrenceTopology,
   occurrenceDynamicView,
+  planOccurrenceLinkMutation,
   loadDocument,
   type Json,
   type NodeProgress,
@@ -968,6 +970,35 @@ describe('buildScene', () => {
       expect(types(store.doc, 'second')).toEqual(concrete('LATENT', 'LATENT', 'IMAGE', 'IMAGE', 'IMAGE', 'IMAGE'))
       expect(store.undo()).toBe(true)
       check(store.doc, 'IMAGE')
+      const owner = { instancePath: depth === 1 ? [] : [asNodeId('first')], node: asNodeId(depth === 1 ? 'first' : 'detail') }
+      const projected = effectiveOccurrenceTopology(store.doc, resolve, owner).projectedParentLinks
+        .find((link) => 'node' in link.to.endpoint && link.to.endpoint.node === 'members' &&
+          'port' in link.to.endpoint && link.to.endpoint.port === 'items.a.in')!
+      const disconnect = planOccurrenceLinkMutation(store.doc, resolve, {
+        kind: 'disconnect', owner, bodyGraph: 'detail', link: projected.identity,
+      })
+      expect(disconnect.ok).toBe(true)
+      if (!disconnect.ok) throw new Error(JSON.stringify(disconnect.diagnostics))
+      const disconnected = store.dispatch(disconnect.invocation)
+      expect(disconnected.ok, JSON.stringify(disconnected.diagnostics)).toBe(true)
+      expect(store.doc.graphs.root!.links.wire0).toEqual(document.graphs.root!.links.wire0)
+      expect(types(store.doc, 'first').slice(0, 2)).toEqual([expect.objectContaining({ kind: 'variable' }), expect.objectContaining({ kind: 'variable' })])
+      expect(types(store.doc, 'first').slice(2)).toEqual(concrete('IMAGE', 'IMAGE', 'INT', 'INT'))
+      expect(types(store.doc, 'second')).toEqual(concrete('LATENT', 'LATENT', 'IMAGE', 'IMAGE', 'IMAGE', 'IMAGE'))
+      expect(store.undo()).toBe(true)
+      check(store.doc, 'IMAGE')
+      expect(store.redo()).toBe(true)
+      expect(types(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, 'first').slice(0, 2))
+        .toEqual([expect.objectContaining({ kind: 'variable' }), expect.objectContaining({ kind: 'variable' })])
+
+      const aliased = JSON.parse(JSON.stringify(document))
+      aliased.graphs.detail.nodes.alias = node('alias', 'Members')
+      aliased.graphs.detail.boundary.body[0].alsoBinds = [{ kind: 'construct', node: 'alias', port: 'items' }]
+      aliased.graphs.root.nodes.observer = node('observer', 'Match')
+      aliased.graphs.root.links.outgoing = { id: 'outgoing', from: { node: 'first', port: `${groupId}.a.out` }, to: { node: 'observer', port: 'in' } }
+      const outgoing = effectiveOccurrenceTopology(aliased, resolve, owner).projectedParentLinks
+        .filter((link) => 'node' in link.to.endpoint && link.to.endpoint.node === 'observer')
+      expect(outgoing.map((link) => link.from.endpoint)).toEqual([{ node: 'members', port: 'items.a.out' }])
     }
   })
 })

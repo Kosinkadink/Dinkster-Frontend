@@ -296,7 +296,7 @@ function projectedEndpoints(
   if (!match.ok) return []
   const item = match.item
   const resolveNode = documentNodeResolver(document, resolver)
-  const bindings = [item.binds, ...(item.alsoBinds ?? [])]
+  const bindings = side === 'from' ? [item.binds] : [item.binds, ...(item.alsoBinds ?? [])]
   const out: { endpoint: ResolvedOccurrenceEndpoint; route: readonly BoundaryRouteLeg[] }[] = []
   for (const binding of bindings) {
     const route = [{ graph: at.bodyGraph.id, boundaryId: item.id, binding }]

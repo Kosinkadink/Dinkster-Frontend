@@ -38,7 +38,7 @@ function validLinkEndpoint(value: Json | undefined): boolean {
 
 function validBinding(value: Json | undefined): boolean {
   return isObj(value) && exactKeys(value, ['kind', 'node', 'port']) &&
-    value.kind === 'port' && nonEmptyString(value.node) && nonEmptyString(value.port)
+    (value.kind === 'port' || value.kind === 'construct') && nonEmptyString(value.node) && nonEmptyString(value.port)
 }
 
 function validRoute(value: Json | undefined): boolean {
