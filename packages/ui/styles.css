@@ -873,6 +873,7 @@
 .dinkster-canvas-list-option { display: flex; align-items: center; gap: var(--dinkster-space-4); box-sizing: border-box; height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2 + var(--dinkster-border-width)); color: var(--dinkster-text-primary); cursor: pointer; user-select: none; }
 .dinkster-canvas-list-option[data-detail='true'] { height: calc(var(--dinkster-space-32) + var(--dinkster-space-8)); }
 .dinkster-canvas-list-option[data-active='true'] { background: var(--dinkster-surface-selected); }
+.dinkster-canvas-list-option[aria-disabled='true'] { color: var(--dinkster-text-disabled); cursor: default; }
 .dinkster-canvas-list[data-frozen='true'] .dinkster-canvas-list-option { cursor: default; }
 .dinkster-canvas-list-copy { display: grid; flex: 1 1 auto; min-width: 0; }
 .dinkster-canvas-list-label, .dinkster-canvas-list-detail { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -1000,6 +1001,8 @@
 .dinkster-canvas-editor-section[open] > summary > .dinkster-canvas-editor-section-arrow { transform: rotate(90deg); }
 /* A row the canvas does not paint, drawn as the canvas draws it closed; it opens in place over itself. */
 .dinkster-canvas-editor-field-slot { position: relative; flex: 1; min-width: 0; }
+.dinkster-canvas-editor-choice-list { position: fixed; z-index: 30; transform-origin: top left; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
+.dinkster-canvas-choice-example .dinkster-canvas-editor { overflow: hidden; }
 .dinkster-canvas-closed-row { width: 100%; box-sizing: border-box; padding: 0; border: 0; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-field); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .dinkster-canvas-closed-row:focus-visible, .dinkster-canvas-closed-row-open:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); }
 .dinkster-canvas-closed-row .dinkster-canvas-field-step { width: var(--dinkster-space-24); }

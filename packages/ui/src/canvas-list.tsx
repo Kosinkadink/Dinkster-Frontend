@@ -28,6 +28,8 @@ export interface CanvasListOption {
   readonly kind?: 'option' | 'folder' | 'back'
   /** The stored value: drawn with a check. */
   readonly saved?: boolean
+  /** An unavailable entry stays visible but cannot be picked. */
+  readonly disabled?: boolean
 }
 
 /** A text action at the foot of a list or on its status line. */
@@ -316,13 +318,14 @@ export function CanvasRowList(
               class="dinkster-canvas-list-option"
               role="option"
               aria-selected={props.highlight === index()}
+              aria-disabled={option.disabled === true}
               data-kind={option.kind ?? 'option'}
               data-active={props.highlight === index()}
               data-saved={option.saved === true}
               data-detail={option.detail !== undefined}
               onPointerDown={(event) => event.preventDefault()}
               onPointerMove={() => { if (props.highlight !== index()) props.onHighlight?.(index()) }}
-              onClick={() => { if (props.frozen !== true) props.onPick?.(index()) }}
+              onClick={() => { if (props.frozen !== true && option.disabled !== true) props.onPick?.(index()) }}
             >
               <Show when={option.kind === 'back'}>
                 <ChevronLeft class="dinkster-canvas-list-glyph" aria-hidden="true" />
