@@ -333,8 +333,16 @@ test('delete removes the record only: the collection re-pages and asset bytes su
   const sourceDoc = (await durableRecords()).find((record) => record.jobId === jobId)?.sourceDocument
   expect(sourceDoc).toMatch(/^blake3:[0-9a-f]{64}$/)
 
-  // Choosing Delete record removes the record at once, with no confirmation.
   await chosenRunMenu(page, entry, 'Delete record')
+  const question = entry.locator('.dinkster-confirmation')
+  await expect(question.getByRole('heading')).toContainText('Delete the record of')
+  await expect(question.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  expect((await durableRecords()).some((record) => record.jobId === jobId)).toBe(true)
+  await question.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(entry).toHaveCount(1)
+  await entry.click()
+  await chosenRunMenu(page, entry, 'Delete record')
+  await question.getByRole('button', { name: 'Delete record', exact: true }).click()
   await expect(entry).toHaveCount(0, { timeout: 10_000 })
 
   // Record-only by contract: the producing document's asset bytes survive.
@@ -358,6 +366,8 @@ test('a delete failure lands in Problems and keeps the record', async ({ page })
   const entry = entryFor(page, jobId)
   await entry.click()
   await chosenRunMenu(page, entry, 'Delete record')
+  await entry.locator('.dinkster-confirmation').getByRole('button', { name: 'Delete record', exact: true }).click()
+  await expect(entry.locator('.dinkster-confirmation')).toContainText('The run record was not deleted:')
   await expect(page.getByTestId('problems-panel')).toContainText('history.deleteFailed')
   await expect(entry).toHaveCount(1)
   await chooseRunScope(page, 'workflow')

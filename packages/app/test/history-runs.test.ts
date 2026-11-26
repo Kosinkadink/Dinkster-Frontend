@@ -414,7 +414,7 @@ describe('delete and clear', () => {
   it('delete failures land in Problems', async () => {
     const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'deleteHistoryRun').mockRejectedValue(new Error('boom'))
-    expect(await app.deleteHistoryRun('run-1', backend.id)).toBe(false)
+    await expect(app.deleteHistoryRun('run-1', backend.id)).rejects.toThrow('boom')
     expect(app.problems.get().some((d) => d.code === 'history.deleteFailed')).toBe(true)
   })
 

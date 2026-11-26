@@ -231,16 +231,16 @@ export function StorageFolders(props: {
       <Show when={!settings()?.mountChangesAllowed}><ProductNotice>{message('projectFolders.disabled')}</ProductNotice></Show>
       <Show when={editing()} fallback={<>
         <p class="dinkster-metadata">{message('storagePanel.folderCount', { count: usedModels().length + folders().length })}</p>
-        <div class="storage-group-heading"><h3>{message('storagePanel.models')}</h3><Show when={models()?.changesAllowed}><ProductButton intent="add" onClick={() => setEditing('models')}>{message('storagePanel.add')}</ProductButton></Show></div>
+        <div class="storage-group-heading"><h3>{message('storagePanel.models')}</h3><Show when={models()?.changesAllowed}><ProductButton intent="add" disabled={busy()} onClick={() => setEditing('models')}>{message('storagePanel.add')}</ProductButton></Show></div>
         <For each={usedModels()}>{modelCard}</For>
         <Show when={usedModels().length === 0}><p class="dinkster-metadata">{message('storagePanel.noModels')}</p></Show>
-        <div class="storage-group-heading"><h3>{message('storagePanel.folders')}</h3><Show when={settings()?.mountChangesAllowed}><ProductButton intent="add" onClick={() => setEditing('folders')}>{message('storagePanel.add')}</ProductButton></Show></div>
+        <div class="storage-group-heading"><h3>{message('storagePanel.folders')}</h3><Show when={settings()?.mountChangesAllowed}><ProductButton intent="add" disabled={busy()} onClick={() => setEditing('folders')}>{message('storagePanel.add')}</ProductButton></Show></div>
         <For each={folders()}>{(mount) => folderCard(mount, true)}</For>
         <Show when={folders().length === 0}><p class="dinkster-metadata">{message('storagePanel.noProjectFolders')}</p></Show>
         <Show when={unusedCount() > 0}><ProductDisclosure title={message('storagePanel.unused', { count: unusedCount() })}>
           <For each={unusedModels()}>{modelCard}</For><For each={unusedFolders()}>{(mount) => folderCard(mount, false)}</For>
         </ProductDisclosure></Show>
-        <ProductButton onClick={() => setEditing('output')}>{message('storagePanel.defaultSave')}</ProductButton>
+        <ProductButton disabled={busy()} onClick={() => setEditing('output')}>{message('storagePanel.defaultSave')}</ProductButton>
       </>}>
         {(editor) => <>
           <ProductButton onClick={() => { setEditing(undefined); void load() }}>{message('storagePanel.back')}</ProductButton>

@@ -90,3 +90,34 @@ it('groups model grants under one folder and switches project membership without
   expect(root.querySelector('[data-mount-id="plates"]')?.textContent).not.toContain('Open in Assets')
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
 })
+
+it('keeps a pending folder removal visible when edit controls are activated', async () => {
+  let finish!: () => void
+  const gate = new Promise<void>((resolve) => { finish = resolve })
+  const mounts: MountDescriptor[] = [
+    { id: 'renders', mode: 'readwrite', state: 'ready' },
+    { id: 'plates', mode: 'read', state: 'ready' },
+  ]
+  const connection = {
+    fetchMountSettings: async () => ({ mounts, outputMount: 'renders', mountChangesAllowed: true }),
+    fetchMountLocations: async () => ({ mounts }),
+    fetchModelSettings: async () => ({ settings: { locations: [] }, locations: [], changesAllowed: true }),
+    onMountsChanged: () => () => {},
+    updateProjectFolders: async () => gate,
+  } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
+  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"]')).not.toBeNull())
+  root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] [aria-haspopup="menu"]')!.click()
+  ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Stop using')!.click()
+  ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using this folder')!.click()
+  try {
+    for (const control of [...root.querySelectorAll<HTMLButtonElement>('button')].filter((button) => button.textContent === 'Default save folder' || button.textContent === 'Add').reverse()) {
+      control.click()
+      expect(root.querySelector('.dinkster-confirmation [aria-busy="true"]')).not.toBeNull()
+    }
+  } finally {
+    finish()
+    await vi.waitFor(() => expect(root.querySelector('.dinkster-confirmation')).toBeNull())
+  }
+})
