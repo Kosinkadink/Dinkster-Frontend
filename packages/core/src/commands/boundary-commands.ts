@@ -17,7 +17,7 @@ import { Formula, FormulaRefused } from '../mirror/formula.js'
 import type { CommandDefinition, CommandExecutionContext, SharedReplayPreparation, TransactionBuilder } from './contract.js'
 import { createTransactionBuilder } from './contract.js'
 import { boundaryConditionScope, boundaryInnerInput, constructsAround, deriveBoundarySchema, familyStateAt, numberFieldRange, resolveBoundaryRoute } from '../schema/derive-boundary.js'
-import type { InputSpec } from '../schema/model.js'
+import { inputsOf, type InputSpec } from '../schema/model.js'
 import { documentNodeResolver, documentResolver } from '../compile/compile.js'
 import { schemaResolverForCommand } from './command-support.js'
 import { elaborateInterface } from '../schema/elaborate.js'
@@ -77,9 +77,17 @@ const boundaryAddBinding: CommandDefinition = {
     if (binding === undefined || resolve === undefined) return []
     const resolveNode = (node: typeof def.nodes[string]) => documentNodeResolver(doc, resolve)(def.id, node)
     if (found.item.binds.kind === 'port' && binding.kind === 'port') {
-      const solved = solveGraphTypes(def, documentResolver(doc, resolve), { resolveNode })
-      const from = solved.portTypeOf(found.item.binds.node, 'input', found.item.binds.port)
+      const resolver = documentResolver(doc, resolve)
+      const schema = deriveBoundarySchema(def, resolver, undefined, resolveNode).schema
+      const from = schema === undefined ? undefined : inputsOf(schema).find((input) => input.id === found.item.id)?.type
+      const solved = solveGraphTypes(def, resolver, { resolveNode })
+      // Inactive option rows are absent from elaboration but still have a
+      // structural declaration, including selected type-choice bindings.
+      const targetSchema = solved.portTypeOf(binding.node, 'input', binding.port) === undefined
+        ? deriveBoundarySchema({ ...def, boundary: withBoundaryItems(def.boundary, 'inputs', [{ id: found.item.id, binds: binding }]) }, resolver, undefined, resolveNode).schema
+        : undefined
       const to = solved.portTypeOf(binding.node, 'input', binding.port)
+        ?? (targetSchema === undefined ? undefined : inputsOf(targetSchema).find((input) => input.id === found.item.id)?.type)
       if (from !== undefined && to !== undefined && !typesCompatible(from, to)) return [err(
         'boundary.fanoutTypeMismatch',
         `Cannot add '${binding.node}/${binding.port}' to subgraph input '${found.item.id}': the field needs ${typeProblemWords(to)}, but the subgraph input sends ${typeProblemWords(from)}.`,

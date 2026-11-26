@@ -417,6 +417,41 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
 
   const params = (node: string, port = 'in') => ({ graphId: 'sub', itemId: 'in', node, port })
 
+  it.each([false, true])('uses boundary-facing types even when inner ports are solved or inactive: %s', (inactive) => {
+    const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
+    const local: Record<string, NodeSchema> = {
+      Primary: schemaOf('Primary', [input('value', { type: inactive ? IMAGE : variable }), { ...output('out'), type: variable }]),
+      Consumer: schemaOf('Consumer', [input('value', { type: FLOAT })]),
+      Target: inactive ? {
+        ...schemaOf('Target', []),
+        body: [{ kind: 'choice', id: 'mode', required: true, shared: [], options: [
+          { key: 'a', rows: [] },
+          { key: 'b', rows: [input('amount', { type: FLOAT })] },
+        ] }],
+      } : schemaOf('Target', [input('value', { type: { kind: 'concrete', name: 'STRING' } })]),
+    }
+    const resolve = (type: string) => local[type]
+    const doc = docOf({ g0: { nodes: {} }, sub: {
+      nodes: { primary: { type: 'Primary' }, consumer: { type: 'Consumer' }, target: { type: 'Target', dynamic: { mode: { selected: 'a' } } } },
+      links: [[['primary', 'out'], ['consumer', 'value']]],
+      boundary: { inputs: [{ id: 'in', binds: bind('primary', 'value') }] },
+    } })
+    const store = new DocumentStore(doc, coreCommandRegistry([], resolve), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const before = store.doc
+    const port = inactive ? 'mode.amount' : 'value'
+    const outcome = store.dispatch({ command: 'boundary.addBinding', params: params('target', port) })
+    expect(outcome.ok, JSON.stringify(outcome)).toBe(!inactive)
+    if (inactive) {
+      expect(outcome.diagnostics.map((item) => item.code)).toContain('boundary.fanoutTypeMismatch')
+      expect(store.doc).toBe(before)
+      expect(store.canUndo).toBe(false)
+    } else {
+      expect(itemOf(store).alsoBinds).toEqual([bind('target', port)])
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(before)
+    }
+  })
+
   it.each([
     [{ kind: 'asset', element: IMAGE }, IMAGE, true],
     [IMAGE, { kind: 'asset', element: IMAGE }, false],
