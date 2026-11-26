@@ -176,6 +176,7 @@
 .dinkster-field { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
 .dinkster-input { width: 100%; min-width: 0; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-8) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); color: var(--dinkster-text-primary); }
 .dinkster-input[data-density='panel'] { height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-8); }
+.dinkster-input[data-language='formula'] { font-family: var(--dinkster-font-mono); }
 .dinkster-input:where(:not(:disabled):hover) { border-color: var(--dinkster-border-hover); }
 .dinkster-input:focus { border-color: var(--dinkster-border-subtle); }
 :where(:root[data-field-focus='pointer']) .dinkster-input:focus { border-color: var(--dinkster-border-focus); }
@@ -1011,11 +1012,14 @@
 .boundary-tree-settings > * { grid-column: 1 / -1; }
 .boundary-tree-settings > .dinkster-choice { justify-self: start; }
 .boundary-tree-settings > .dinkster-choice > .dinkster-check { margin-left: 0; }
+.boundary-tree-settings > .dinkster-field > label { color: var(--dinkster-text-muted); font: inherit; }
 /* A name is level with the first line of its value: the row aligns to the top and the name fills one line as high as the canvas-density controls beside it. */
 .boundary-tree-setting { display: grid; grid-template-columns: subgrid; align-items: start; min-width: 0; }
 .boundary-tree-setting-label { color: var(--dinkster-text-muted); line-height: var(--dinkster-input-canvas-height); white-space: nowrap; }
 .boundary-tree-setting-value { display: flex; flex-wrap: wrap; align-items: center; min-height: var(--dinkster-input-canvas-height); gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; color: var(--dinkster-text-secondary); }
 .boundary-tree-setting-value > .dinkster-input { flex: 1 1 140px; min-width: 0; }
+.boundary-tree-setting-value > .boundary-show-select { flex: 1 1 140px; min-width: 0; }
+.boundary-tree-settings .product-select { min-height: 0; height: var(--dinkster-input-canvas-height); padding-block: 0; }
 /* A link to what a row reads or feeds, drawn as a node's open-field panel draws its links: secondary text over a dotted line. */
 .boundary-tree-setting-value > .dinkster-link { color: var(--dinkster-text-secondary); text-decoration: none; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); }
 .boundary-tree-setting-value > .dinkster-link:hover { color: var(--dinkster-text-primary); }
@@ -1172,6 +1176,68 @@
 .dinkster-problem-box-frame { position: relative; }
 /* Shared chrome for bounded menus, listboxes, and expanded editors. */
 .floating-surface { box-sizing: border-box; color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); box-shadow: var(--dinkster-elevation-high); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
+.product-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dinkster-space-8);
+  min-width: 0;
+  min-height: var(--dinkster-input-primary-height);
+  padding: var(--dinkster-space-4) var(--dinkster-space-8);
+  border: 1px solid var(--dinkster-border-subtle);
+  border-radius: var(--dinkster-radius-control);
+  background: var(--dinkster-surface-inset);
+  color: var(--dinkster-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.product-select:hover:not(:disabled),
+.product-select[aria-expanded='true'] { border-color: var(--dinkster-border-hover); background: var(--dinkster-interaction-hover); }
+.product-select[aria-expanded='true'] { border-color: var(--dinkster-border-strong); }
+.product-select:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.product-select:disabled { color: var(--dinkster-text-disabled); background: var(--dinkster-surface-raised); cursor: default; }
+.product-select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.product-select-caret {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+}
+.product-select-listbox {
+  position: fixed;
+  z-index: 1002;
+  overflow-y: auto;
+  padding: var(--dinkster-space-4);
+}
+.product-select-option {
+  display: grid;
+  grid-template-columns: var(--dinkster-space-12) minmax(0, 1fr);
+  gap: var(--dinkster-space-8);
+  align-items: center;
+  min-height: var(--dinkster-control-compact-height);
+  padding: var(--dinkster-space-4) var(--dinkster-space-8);
+  border-radius: var(--dinkster-radius-small);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.product-select-option::before {
+  box-sizing: border-box;
+  width: 7px;
+  height: 11px;
+  margin-left: 2px;
+  content: '';
+  transform: rotate(45deg);
+}
+.product-select-option.active { background: var(--dinkster-surface-selected); color: var(--dinkster-text-on-selected); }
+.product-select-option.selected::before {
+  border-right: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  border-bottom: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+}
+.product-select-option.disabled { color: var(--dinkster-text-disabled); cursor: default; }
+.product-select-option.disabled.active { background: transparent; }
 /* Context menu: the canvas and shell right-click menus and their submenus. */
 .context-menu-cascade { position: absolute; inset: 0; z-index: 11; pointer-events: none; outline: none; }
 .context-menu { position: absolute; box-sizing: border-box; min-width: min(180px, calc(100% - var(--dinkster-space-16))); max-height: 400px; overflow: auto; pointer-events: auto; padding: var(--dinkster-space-4) 0; outline: none; }

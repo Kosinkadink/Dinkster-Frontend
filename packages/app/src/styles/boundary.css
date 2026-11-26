@@ -38,10 +38,8 @@
   border-top: 1px solid var(--dinkster-border-subtle);
 }
 .boundary-settings-area > .boundary-tree-settings { margin-top: 0; padding-top: 0; border-top: 0; }
-.boundary-tree-setting-value > .boundary-show-select { flex: 1 1 140px; min-width: 0; }
 /* The panel's other controls are as short as its text fields. */
-.boundary-tree-settings :is(.product-number, .product-select) { min-height: 0; height: var(--dinkster-input-canvas-height); }
-.boundary-tree-settings .product-select { padding-block: 0; }
+.boundary-tree-settings .product-number { min-height: 0; height: var(--dinkster-input-canvas-height); }
 .boundary-tree-settings .product-number-field { padding-block: 0; }
 .boundary-tree-settings .product-number-steppers button { min-height: 0; height: 100%; min-width: var(--dinkster-input-canvas-height); }
 .boundary-tree-setting-value .boundary-default-number { flex: none; width: 9rem; }

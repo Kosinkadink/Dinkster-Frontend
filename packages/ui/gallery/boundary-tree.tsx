@@ -1,6 +1,7 @@
 import { Show, createSignal, type JSX } from 'solid-js'
 import { Plus, Trash2, TriangleAlert } from 'lucide-solid'
 import { defaultTokens, typeColor } from '@dinkster/canvas'
+import { ProductSelect } from '../../app/src/ProductSelect.js'
 import {
   BoundaryTree,
   BoundaryPromotionPreview,
@@ -239,8 +240,19 @@ const fieldSettings = (invalid = false) => (
     <Setting label="Default">
       <ProductTextInput density="panel" value="0.45" aria-label="Default" />
     </Setting>
-    <ProductField label="Formula" error={invalid ? 'This condition cannot be used: unknown name missing.' : ''}>
-      {(attributes) => <ProductTextInput {...attributes} density="panel" value={invalid ? 'missing > 0' : 'linked(mask) and strength > 0.2'} />}
+    <Setting label="Show">
+      <ProductSelect
+        class="boundary-show-select"
+        ariaLabel="Show"
+        selectedId="condition"
+        options={[
+          { id: 'always', label: 'Always', value: '' },
+          { id: 'condition', label: 'When mask is plugged in', value: 'linked(mask)' },
+        ]}
+      />
+    </Setting>
+    <ProductField label="Formula" error={invalid ? 'This condition cannot be used: unknown name "missing".' : ''}>
+      {(attributes) => <ProductTextInput {...attributes} density="panel" data-language="formula" placeholder="Always" value={invalid ? 'missing > 0' : 'linked(mask)'} />}
     </ProductField>
   </>
 )
