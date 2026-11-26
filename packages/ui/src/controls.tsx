@@ -13,7 +13,7 @@ import githubMark from '../../../branding/providers/github-mark.svg?url'
 import googleMark from '../../../branding/providers/google-mark.svg?url'
 
 export type ProductRole = keyof typeof rules.buttonRoles
-export type ProductFill = Exclude<keyof typeof rules.buttonFills, 'quiet'>
+export type ProductFill = keyof typeof rules.buttonFills
 
 type ButtonAttributes = Omit<
   JSX.ButtonHTMLAttributes<HTMLButtonElement>,

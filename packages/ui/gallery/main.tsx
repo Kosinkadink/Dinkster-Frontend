@@ -173,6 +173,8 @@ function Gallery() {
               <Section title="Card memory" components="ProductResourceUsage">
                 <For each={[false, true]}>
                   {(compact) => (
+                    <section class="dinkster-resource-card">
+                    <header class="dinkster-resource-card-heading"><strong>{compact ? 'RTX 3090' : 'RTX 4090'}</strong><span>12.0 GB of 24.0 GB</span></header>
                     <ProductResourceUsage
                       label={compact ? 'Compact card memory' : 'Card memory'}
                       total={24}
@@ -194,6 +196,8 @@ function Gallery() {
                       limitLabel="Limit"
                       compact={compact}
                     />
+                    <dl class="dinkster-resource-live"><div><dt>Busy</dt><dd>73%</dd></div><div><dt>Temperature</dt><dd>61 C</dd></div><div><dt>Power</dt><dd>310 W</dd></div></dl>
+                    </section>
                   )}
                 </For>
               </Section>
@@ -203,7 +207,7 @@ function Gallery() {
                     <span>Flux model</span><span>3.0 GB</span>
                     <span class="dinkster-resource-model-action">
                       <span aria-hidden="true">Unload</span>
-                      <Show when={inUse} fallback={<ProductButton intent="remove">Unload</ProductButton>}>
+                      <Show when={inUse} fallback={<ProductButton intent="remove" fill="quiet" data-resource-release>Unload</ProductButton>}>
                         <span>In use</span>
                       </Show>
                     </span>
