@@ -2185,7 +2185,7 @@ describe('subgraph lifecycle deterministic geometry', () => {
     { id: 'group', kind: 'group' as const, x: 0, y: 0, width: 200, height: 100 },
   ]
 
-  it('expands selected groups with the pinned center-inside rule and records explicit membership', () => {
+  it('expands legacy groups by full bounds rather than partial overlap', () => {
     const result = expandLifecycleSelectionFromGroups({ groupIds: ['g'], nodeIds: ['preselected'] }, [
       { id: 'g', kind: 'group', x: 0, y: 0, width: 100, height: 100 },
       { id: 'n', kind: 'node', x: 90, y: 90, width: 20, height: 20 },
@@ -2194,9 +2194,9 @@ describe('subgraph lifecycle deterministic geometry', () => {
     ])
     expect(result).toEqual({
       selection: {
-        nodeIds: ['n', 'preselected'], rerouteIds: ['r'], groupIds: ['g'],
+        nodeIds: ['preselected'], rerouteIds: ['r'], groupIds: ['g'],
       },
-      groups: [{ groupId: 'g', nodeIds: ['n'], rerouteIds: ['r'] }],
+      groups: [{ groupId: 'g', nodeIds: [], rerouteIds: ['r'] }],
     })
     expect(expandLifecycleSelectionFromGroups({ groupIds: ['empty'] }, [
       { id: 'empty', kind: 'group', x: 0, y: 0, width: 1, height: 1 },

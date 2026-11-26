@@ -34,6 +34,7 @@ import type {
 import { predictAllocatedId } from './alloc.js'
 import type { PatchOp } from './patch.js'
 import { DocumentStore, type BoundaryPositionResolver, type NodeHeightResolver, type DocumentCommitPolicy, type HistorySnapshot, type PreparedDocumentDispatch } from './store.js'
+import type { GroupGeometryResolver } from '../group-membership.js'
 
 /**
  * One committed change, shaped to the collab envelope. Locally minted
@@ -144,6 +145,7 @@ export interface LocalSessionOptions {
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
   readonly boundaryPositionsFor?: BoundaryPositionResolver
   readonly nodeHeightFor?: NodeHeightResolver
+  readonly groupGeometryFor?: GroupGeometryResolver
   readonly validateCommit?: DocumentCommitPolicy
 }
 
@@ -174,6 +176,7 @@ class LocalDocumentSession implements DocumentSession {
       options?.validateCommit,
       options?.boundaryPositionsFor,
       options?.nodeHeightFor,
+      options?.groupGeometryFor,
     )
     this.store.onTransaction((event) => {
       this.opCounter += 1

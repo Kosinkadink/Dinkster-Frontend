@@ -36,6 +36,7 @@ import {
 } from './contract.js'
 import { applyOwnedOps, getAtPath, type PatchOp } from './patch.js'
 import { nodesChangedBy, storeStartState } from './start-state.js'
+import { groupMembershipAfter, type GroupGeometryResolver } from '../group-membership.js'
 
 /** New deliveries fold open editors in the wire's undo step, not on value arrivals or disconnects. */
 function foldEditorsOnWireArrival(before: WorkflowDocument, tx: ReturnType<typeof createTransactionBuilder>, resolve: SchemaResolver): void {
@@ -450,6 +451,7 @@ export class DocumentStore implements DocumentStoreContract {
     private readonly validateCommit?: DocumentCommitPolicy,
     private readonly boundaryPositionsFor?: BoundaryPositionResolver,
     private readonly nodeHeightFor?: NodeHeightResolver,
+    private readonly groupGeometryFor?: GroupGeometryResolver,
   ) {
     // Ownership boundary (CO1): the store never retains or exposes caller-
     // mutable data. The initial document is validated, deep-copied, and
@@ -607,6 +609,15 @@ export class DocumentStore implements DocumentStoreContract {
               height: Math.max(0, Math.max(view.size.height, oldHeight) + newHeight - oldHeight),
             })
           }
+        }
+      }
+      if (!hasErrors(commandDiags) && !def.replaysHistory && tx.forward.length > 0 && this.groupGeometryFor) {
+        for (const [graphId, view] of Object.entries(tx.current.view.graphs)) {
+          if (view === this.doc.view.graphs[graphId] && tx.current.graphs[graphId] === this.doc.graphs[graphId]) continue
+          if (!Object.keys(view.groups ?? {}).length && !this.doc.view.graphs[graphId]?.groupMembership) continue
+          const membership = groupMembershipAfter(this.doc, tx.current, graphId, ownedInvocation, this.groupGeometryFor)
+          if (!jsonSameValue(view.groupMembership as unknown as Json, membership as unknown as Json))
+            tx.set(['view', 'graphs', graphId, 'groupMembership'], membership as unknown as Json)
         }
       }
       if (!hasErrors(commandDiags) && !def.replaysHistory && tx.forward.length > 0 && this.boundaryPositionsFor) {

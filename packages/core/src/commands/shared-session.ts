@@ -71,6 +71,7 @@ import { predictAllocatedId } from './alloc.js'
 import { isValidActorId } from '../ids.js'
 import { applyOps, type PatchOp } from './patch.js'
 import { DocumentStore, jsonSameValue, replayHistoryOps, type BoundaryPositionResolver, type NodeHeightResolver, type DocumentCommitPolicy, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
+import type { GroupGeometryResolver } from '../group-membership.js'
 import { toWirePatch, type DocumentSession, type SessionOp, type WirePatchOp } from './session.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
@@ -159,6 +160,7 @@ export interface SharedSessionOptions {
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
   readonly boundaryPositionsFor?: BoundaryPositionResolver
   readonly nodeHeightFor?: NodeHeightResolver
+  readonly groupGeometryFor?: GroupGeometryResolver
   /** Synchronous local command, history and rebased intention policy. */
   readonly validateCommit?: DocumentCommitPolicy
   /** Confirm ownership before adoption; the receipt callback runs after commit, before observers. */
@@ -249,6 +251,7 @@ class SharedDocumentSession implements DocumentSession {
   private readonly schemaResolverFor: ((doc: WorkflowDocument) => SchemaResolver) | undefined
   private readonly boundaryPositionsFor: SharedSessionOptions['boundaryPositionsFor']
   private readonly nodeHeightFor: SharedSessionOptions['nodeHeightFor']
+  private readonly groupGeometryFor: SharedSessionOptions['groupGeometryFor']
   private readonly validateCommit: SharedSessionOptions['validateCommit']
   private readonly beforeRemoteDocument: SharedSessionOptions['beforeRemoteDocument']
   private rebasing = false
@@ -327,6 +330,7 @@ class SharedDocumentSession implements DocumentSession {
     this.schemaResolverFor = options?.schemaResolverFor
     this.boundaryPositionsFor = options?.boundaryPositionsFor
     this.nodeHeightFor = options?.nodeHeightFor
+    this.groupGeometryFor = options?.groupGeometryFor
     this.validateCommit = options?.validateCommit
     this.beforeRemoteDocument = options?.beforeRemoteDocument
     this.snapshotPolicy = new SnapshotPublicationPolicy(
@@ -1240,6 +1244,7 @@ class SharedDocumentSession implements DocumentSession {
       undefined,
       this.boundaryPositionsFor,
       this.nodeHeightFor,
+      this.groupGeometryFor,
     )
   }
 

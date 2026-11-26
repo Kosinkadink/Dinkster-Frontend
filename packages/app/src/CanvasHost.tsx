@@ -2901,6 +2901,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       rerouteIds: [...controller.getRerouteSelection()],
       groupIds: [...controller.getGroupSelection()],
       geometry: geometryOfLifecycleScene(scene),
+      ...(scene.groupMembership !== undefined ? { groupMembership: scene.groupMembership } : {}),
     })
     const canExtractSubgraph = (): boolean => hasExtractSelection(lifecycleSelection())
     const canFlattenSubgraph = (): boolean => {

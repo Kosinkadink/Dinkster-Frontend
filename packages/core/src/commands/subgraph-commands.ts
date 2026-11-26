@@ -62,6 +62,7 @@ import { buildGraphConnectivity } from '../schema/elaborate.js'
 import { graphAllocator } from './alloc.js'
 import type { CommandDefinition, CommandExecutionContext, TransactionBuilder } from './contract.js'
 import { groupAllocationFloor } from '../group-alloc.js'
+import { remapGroupMembership } from '../group-membership.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
 import { planSubgraphDefinitionCleanup } from '../lifecycle/definition-cleanup.js'
 import { NET_VIEWS_EXT_KEY, netViewToJson, parseNetViewPosition, type NetViewGeometry } from '../format/net-views.js'
@@ -839,9 +840,11 @@ const subgraphExtract: CommandDefinition = {
     }
     const parentGroups = { ...(parentViewState.groups ?? {}) }
     const innerGroups: Record<string, GroupViewState> = {}
+    const groupIds = new Map<string, string>()
     for (const [index, oldId] of selection.groupIds.entries()) {
       const group = parentViewState.groups![oldId]!
       const id = `grp${index}`
+      groupIds.set(oldId, id)
       delete parentGroups[oldId]
       const position = translatedPosition(translatedGeometry, 'group', oldId)
       innerGroups[id] = { ...group, id, bounds: { ...group.bounds, ...position } }
@@ -858,6 +861,9 @@ const subgraphExtract: CommandDefinition = {
       .map(([, newId]) => newId)
     const freshView: GraphViewState = {
       nodes: innerViewNodes,
+      ...(parentViewState.groupMembership !== undefined ? { groupMembership: remapGroupMembership(parentViewState.groupMembership, {
+        nodes: nodeIds, reroutes: rerouteIds, groups: groupIds, boundary: new Map(),
+      }) } : {}),
       ...(selection.rerouteIds.length > 0 ? { reroutes: innerViewReroutes } : {}),
       ...(selection.groupIds.length > 0 ? { groups: innerGroups, groupSeq: selection.groupIds.length } : {}),
       ...(innerCollapsedNets.length > 0 ? { collapsedNets: innerCollapsedNets } : {}),
@@ -1838,9 +1844,11 @@ const subgraphFlatten: CommandDefinition = {
       }
     }
     const groups = { ...(parentView.groups ?? {}) }
+    const groupIds = new Map<string, string>()
     for (const [index, oldId] of bodySelection.groupIds.entries()) {
       const old = bodyView!.groups![oldId]!
       const id = `grp${groupFloor + index}`
+      groupIds.set(oldId, id)
       const position = translatedPosition(translated, 'group', oldId)
       groups[id] = { ...old, id, bounds: { ...old.bounds, ...position } }
     }
@@ -1855,6 +1863,15 @@ const subgraphFlatten: CommandDefinition = {
     const stagedView: GraphViewState = {
       ...parentView,
       nodes: viewNodes,
+      ...(bodyView?.groupMembership !== undefined ? { groupMembership: (() => {
+        const cloned = remapGroupMembership(bodyView.groupMembership, { nodes: nodeIds, reroutes: rerouteIds, groups: groupIds, boundary: new Map() })
+        return {
+          nodes: { ...parentView.groupMembership?.nodes, ...cloned.nodes },
+          reroutes: { ...parentView.groupMembership?.reroutes, ...cloned.reroutes },
+          groups: { ...parentView.groupMembership?.groups, ...cloned.groups },
+          boundary: { ...parentView.groupMembership?.boundary },
+        }
+      })() } : {}),
       ...(Object.keys(viewReroutes).length > 0 || parentView.reroutes !== undefined ? { reroutes: viewReroutes } : {}),
       ...(Object.keys(groups).length > 0 || parentView.groups !== undefined ? { groups } : {}),
       ...(groupCount > 0 ? { groupSeq: groupFloor + groupCount } : {}),

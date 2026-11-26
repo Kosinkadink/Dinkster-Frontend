@@ -27,6 +27,7 @@ import {
   initializeBoundaryViews,
   type BoundaryPositionResolver,
   type NodeHeightResolver,
+  type GroupGeometryResolver,
   coreMenuContributions,
   createMenuRegistry,
   createReplacementRegistry,
@@ -188,7 +189,7 @@ import {
   webcamKind,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { BYPASSED_BADGE, boundaryPositions, buildScene, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Model3dCameraState, type Model3dTransform, type Viewport } from '@dinkster/canvas'
+import { BYPASSED_BADGE, boundaryPositions, buildScene, groupItemGeometry, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Model3dCameraState, type Model3dTransform, type Viewport } from '@dinkster/canvas'
 import { canvasMeasures } from './canvas-measures.js'
 import { batch, createComponent } from 'solid-js'
 import { layoutGroups, moveTabToGroup, repairEditorLayout } from './editor-layout.js'
@@ -5878,7 +5879,7 @@ export class AppState {
     return editorKind === APP_EDITOR_KIND && !this.appViewEnabled ? GRAPH_EDITOR_KIND : editorKind
   }
 
-  private geometryResolvers(resolve: SchemaResolver): { boundaryPositionsFor: BoundaryPositionResolver; nodeHeightFor: NodeHeightResolver } {
+  private geometryResolvers(resolve: SchemaResolver): { boundaryPositionsFor: BoundaryPositionResolver; nodeHeightFor: NodeHeightResolver; groupGeometryFor: GroupGeometryResolver } {
     const input = (document: WorkflowDocument, graphId: string): Parameters<typeof buildScene>[0] => {
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
       const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab), () =>
@@ -5899,6 +5900,7 @@ export class AppState {
     }
     return {
       boundaryPositionsFor: (document, graphId) => boundaryPositions(input(document, graphId)),
+      groupGeometryFor: (document, graphId) => groupItemGeometry(buildScene(input(document, graphId))),
       nodeHeightFor: (document, graphId, nodeId) => {
         const graph = document.view.graphs[graphId]
         const view = graph?.nodes[nodeId]
