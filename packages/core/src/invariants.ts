@@ -57,6 +57,7 @@ import {
   type PortRef,
 } from './ids.js'
 import { matchBoundaryItem } from './compile/crossing.js'
+import { boundaryItems } from './format/document.js'
 
 const SUBGRAPH_PREFIX = '#'
 
@@ -194,7 +195,7 @@ export function routeMatchesOwnerChain(
     const graph = doc.graphs[ownerHop.bodyGraphId]!
     const leg = route[offset]!
     if (leg.graph !== graph.id) return false
-    const items = side === 'from' ? graph.boundary?.outputs : graph.boundary?.inputs
+    const items = side === 'from' ? boundaryItems(graph.boundary, 'outputs') : boundaryItems(graph.boundary, 'inputs')
     const match = matchBoundaryItem(items ?? [], address)
     if (!match.ok || match.item.id !== leg.boundaryId) return false
     const item = match.item
@@ -614,7 +615,7 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
     const boundaryIds = new Set<string>()
     const boundaryReroutes = new Set<string>()
     for (const side of ['inputs', 'outputs'] as const) {
-      for (const item of def.boundary[side]) {
+      for (const item of boundaryItems(def.boundary, side)) {
         if (boundaryIds.has(item.id)) {
           diags.push(diag('error', 'invariant', 'doc.boundary.duplicateId', where(`duplicate boundary id '${item.id}'`)))
         }
@@ -622,6 +623,12 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
         if (item.wireHidden !== undefined &&
             !(side === 'inputs' && item.binds.kind === 'port' && item.promoted === true)) {
           diags.push(diag('error', 'invariant', 'doc.boundary.wireHidden', where(`boundary '${item.id}' hides its wire but is not shown as a field on the subgraph node`)))
+        }
+        if (item.limits !== undefined && !(side === 'inputs' && item.promoted === true)) {
+          diags.push(diag('error', 'invariant', 'doc.boundary.limits', where(`boundary '${item.id}' has limits but is not a field on the subgraph node`)))
+        }
+        if (item.limits?.min !== undefined && item.limits.max !== undefined && item.limits.min > item.limits.max) {
+          diags.push(diag('error', 'invariant', 'doc.boundary.limits', where(`boundary '${item.id}' has a lowest limit above its highest`)))
         }
         for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
           if (b.kind === 'unbound') {
@@ -681,8 +688,8 @@ function checkRegion(
     return
   }
 
-  const inputIds = new Set(body.boundary.inputs.map((item) => item.id as string))
-  const outputIds = new Set(body.boundary.outputs.map((item) => item.id as string))
+  const inputIds = new Set(boundaryItems(body.boundary, 'inputs').map((item) => item.id as string))
+  const outputIds = new Set(boundaryItems(body.boundary, 'outputs').map((item) => item.id as string))
   const elements = new Set(region.elementPorts ?? [])
   const states = new Set(region.statePorts ?? [])
   const outputRoles = region.outputRoles ?? {}
@@ -696,7 +703,7 @@ function checkRegion(
   for (const id of elements) {
     if (!inputIds.has(id)) report('error', 'doc.region.elementPortUndeclared', `element port '${id}' is not a boundary input`, id, 'input')
     if (states.has(id)) report('error', 'doc.region.portRoleOverlap', `input '${id}' is both an element and state port`, id, 'input')
-    const boundary = body.boundary.inputs.find((item) => item.id === id)
+    const boundary = boundaryItems(body.boundary, 'inputs').find((item) => item.id === id)
     if (boundary?.promoted === true) {
       report('error', 'doc.region.elementPromoted', `element port '${id}' cannot promote a scalar widget`, id, 'input')
     }

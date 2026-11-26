@@ -40,7 +40,7 @@ async function openStructuralWorkflow(page: Page): Promise<void> {
           },
           nets: {},
           reroutes: { junction: { id: 'junction' } },
-          boundary: { inputs: [], outputs: [] },
+          boundary: { body: [] },
           nextOrdinal: 20,
         },
       },

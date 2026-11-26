@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   asConnectionId,
   asPromptId,
+  boundaryItems,
+  boundaryOf,
   compile,
   type CommandInvocation,
   type CompileArtifact,
@@ -285,8 +287,10 @@ describe('compiled occurrence controller ownership', () => {
     view: { graphs: {} },
   })
   const promotedBoundary = (node: string) => ({
-    inputs: [{ id: 'seed', binds: { kind: 'port', node, port: 'seed' }, promoted: true }],
-    outputs: [{ id: 'out', binds: { kind: 'port', node, port: 'out' } }],
+    body: [
+      { kind: 'input', id: 'seed', binds: { kind: 'port', node, port: 'seed' }, promoted: true },
+      { kind: 'output', id: 'out', binds: { kind: 'port', node, port: 'out' } },
+    ],
   })
 
   it('advances controllers inside choice options, type choice rows, and group members', () => {
@@ -374,13 +378,16 @@ describe('compiled occurrence controller ownership', () => {
         instance: { id: 'instance', type: '#sub', values: {} },
       }),
       sub: graph('sub', Object.fromEntries(order.map((node) => [node, innerNodes[node]])), {}, {
-        inputs: [{
-          id: 'seed',
-          binds: { kind: 'port', node: 'primary', port: 'seed' },
-          alsoBinds: [{ kind: 'port', node: 'secondary', port: 'seed' }],
-          promoted: true,
-        }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' } }],
+        body: [
+          {
+            kind: 'input',
+            id: 'seed',
+            binds: { kind: 'port', node: 'primary', port: 'seed' },
+            alsoBinds: [{ kind: 'port', node: 'secondary', port: 'seed' }],
+            promoted: true,
+          },
+          { kind: 'output', id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' } },
+        ],
       }),
     }) as any
 
@@ -439,8 +446,10 @@ describe('compiled occurrence controller ownership', () => {
       sub: graph('sub', {
         leaf: { id: 'leaf', type: promotedSchema.type, values: { seed: 5 }, controllers: { seed: 'increment' } },
       }, {}, {
-        inputs: [{ id: 'seed', binds: { kind: 'port', node: 'leaf', port: 'seed' } }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'leaf', port: 'out' } }],
+        body: [
+          { kind: 'input', id: 'seed', binds: { kind: 'port', node: 'leaf', port: 'seed' } },
+          { kind: 'output', id: 'out', binds: { kind: 'port', node: 'leaf', port: 'out' } },
+        ],
       }),
     }) as any
     expect(controllerAdvancement(doc, compileControllers(doc), () => 0)).toEqual({

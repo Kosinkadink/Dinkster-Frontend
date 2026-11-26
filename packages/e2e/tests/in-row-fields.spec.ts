@@ -131,7 +131,7 @@ for (const known of [false, true]) test(`a ${known ? 'known' : 'unknown'} wire o
           source: { id: 'source', type: 'WireSource', values: { source: 7 } },
         }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 },
         sub: { id: 'sub', name: 'Sampler inputs', nodes: { n1: sampler }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
-          boundary: { inputs: [{ id: 'steps', binds: { kind: 'port', node: 'n1', port: 'steps' }, promoted: true }], outputs: [] } },
+          boundary: { body: [{ kind: 'input', id: 'steps', binds: { kind: 'port', node: 'n1', port: 'steps' }, promoted: true }] } },
       },
       view: { graphs: {
         g0: { nodes: { outer: { position: { x: 300, y: 100 } }, source: { position: { x: 0, y: 100 } } } },
@@ -194,15 +194,15 @@ test('promoted representations and Inputs edits stay with the entered instance t
         }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 },
         sub: { id: 'sub', name: 'Outer', nodes: { nested: { id: 'nested', type: '#leaf', values: { radius: 6, caption: 'definition caption' } } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
-          boundary: { inputs: [
-            { id: 'radius', binds: { kind: 'port', node: 'nested', port: 'radius' }, promoted: true, wireHidden: true },
-            { id: 'caption', binds: { kind: 'port', node: 'nested', port: 'caption' }, promoted: true, wireHidden: true },
-          ], outputs: [] } },
+          boundary: { body: [
+            { kind: 'input', id: 'radius', binds: { kind: 'port', node: 'nested', port: 'radius' }, promoted: true, wireHidden: true },
+            { kind: 'input', id: 'caption', binds: { kind: 'port', node: 'nested', port: 'caption' }, promoted: true, wireHidden: true },
+          ] } },
         leaf: { id: 'leaf', name: 'Inner', nodes: { n1: sampler }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
-          boundary: { inputs: [
-            { id: 'radius', binds: { kind: 'port', node: 'n1', port: 'cfg' }, promoted: true, wireHidden: true },
-            { id: 'caption', binds: { kind: 'port', node: 'n1', port: 'prefix' }, promoted: true, wireHidden: true },
-          ], outputs: [] } },
+          boundary: { body: [
+            { kind: 'input', id: 'radius', binds: { kind: 'port', node: 'n1', port: 'cfg' }, promoted: true, wireHidden: true },
+            { kind: 'input', id: 'caption', binds: { kind: 'port', node: 'n1', port: 'prefix' }, promoted: true, wireHidden: true },
+          ] } },
       },
       view: { graphs: {
         g0: { nodes: { first: { position: { x: 100, y: 100 } }, second: { position: { x: 550, y: 100 } } } },
@@ -334,7 +334,7 @@ test('a kept promoted disabled row restores its boundary by undo and by choosing
           sink: { id: 'sink', type: 'RadiusSink', values: {} },
         }, links: { l1: { id: 'l1', from: { node: 'radius', tap: 'mode.radius' }, to: { node: 'sink', port: 'value' } } },
           nets: {}, reroutes: {}, nextOrdinal: 3,
-          boundary: { inputs: [{ id: 'radius', binds: { kind: 'port', node: 'radius', port: 'mode.radius' }, promoted: true, wireHidden: true }], outputs: [] } },
+          boundary: { body: [{ kind: 'input', id: 'radius', binds: { kind: 'port', node: 'radius', port: 'mode.radius' }, promoted: true, wireHidden: true }] } },
       },
       view: { graphs: {
         g0: { nodes: { outer: { position: { x: 100, y: 100 } } } },

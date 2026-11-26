@@ -212,13 +212,13 @@ function promotedOccurrenceScene(
         id: 'outer', name: 'Soften', nextOrdinal: 2,
         nodes: { nested: { id: 'nested', type: '#inner', values: { innerRadius: 6 } } },
         links: {}, nets: {}, reroutes: {},
-        boundary: { inputs: [{ id: 'radius', binds: { kind: 'port', node: 'nested', port: 'innerRadius' }, promoted: true, wireHidden: true }], outputs: [] },
+        boundary: { body: [{ kind: 'input', id: 'radius', binds: { kind: 'port', node: 'nested', port: 'innerRadius' }, promoted: true, wireHidden: true }] },
       },
       inner: {
         id: 'inner', name: 'Inner soften', nextOrdinal: 2,
         nodes: { soften: { id: 'soften', type: soften.type, values: { radius: 7, mix: 0.65 } } },
         links: {}, nets: {}, reroutes: {},
-        boundary: { inputs: [{ id: 'innerRadius', displayName: 'Inner radius', binds: { kind: 'port', node: 'soften', port: 'radius' }, promoted: true, wireHidden: true }], outputs: [] },
+        boundary: { body: [{ kind: 'input', id: 'innerRadius', displayName: 'Inner radius', binds: { kind: 'port', node: 'soften', port: 'radius' }, promoted: true, wireHidden: true }] },
       },
     },
     view: { graphs: {
@@ -269,7 +269,7 @@ function retainedOccurrenceScene(
         },
         links: { l1: { id: 'l1', from: { node: 'radius', tap: 'mode.radius' }, to: { node: 'sink', port: 'value' } } },
         nets: {}, reroutes: {},
-        boundary: { inputs: [{ id: 'radius', binds: { kind: 'port', node: 'radius', port: 'mode.radius' }, promoted: true, wireHidden: true }], outputs: [] },
+        boundary: { body: [{ kind: 'input', id: 'radius', binds: { kind: 'port', node: 'radius', port: 'mode.radius' }, promoted: true, wireHidden: true }] },
       },
     },
     view: { graphs: {

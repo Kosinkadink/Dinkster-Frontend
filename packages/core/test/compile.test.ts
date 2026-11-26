@@ -9,7 +9,8 @@ import { describe, expect, it } from 'vitest'
 import { compile, scopeClosure, type CompileInput } from '../src/compile/compile.js'
 import { semanticHashOf, sha256Hex } from '../src/compile/hash.js'
 import type { ExecutionScope } from '../src/compile/artifact.js'
-import type { Json, WorkflowDocument } from '../src/format/document.js'
+import { boundaryOf } from '../src/format/document.js'
+import type { BoundaryItem, Json, WorkflowDocument } from '../src/format/document.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { LookupAnswerState } from '../src/schema/elaborate.js'
 import { loadDocument } from '../src/format/migrate.js'
@@ -1019,7 +1020,7 @@ const dynDoc = (parts: {
     }])) : {},
     reroutes: Object.fromEntries(reroutes.map((reroute) => [reroute, { id: reroute }])),
     nextOrdinal: 100,
-    ...(boundary ? { boundary: { inputs: boundary.inputs ?? [], outputs: boundary.outputs ?? [] } } : {}),
+    ...(boundary ? { boundary: boundaryOf((boundary.inputs ?? []) as BoundaryItem[], (boundary.outputs ?? []) as BoundaryItem[]) } : {}),
   })
   const graphs: Record<string, unknown> = {
     g0: defOf('g0', parts.nodes, parts.links ?? [], undefined, parts.reroutes),

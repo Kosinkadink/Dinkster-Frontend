@@ -28,7 +28,7 @@ import { DocumentStore } from '../commands/store.js'
 import { occurrenceMemberReferenced } from '../compile/effective-topology.js'
 import type { ControllerMode, GraphDef, Json, NodeData, WorkflowDocument } from '../format/document.js'
 import type { LinkEndpoint, PortRef } from '../ids.js'
-import { resolveDynamicAddress } from '../format/document.js'
+import { boundaryItems, resolveDynamicAddress } from '../format/document.js'
 import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaOutcome, type FormulaValue } from '../mirror/formula.js'
 import { constructsOf, rowKind } from '../schema/body.js'
 import { isComboValue, normalizeComboOption, normalizedComboOptions, type NormalizedComboOption } from '../schema/combo-options.js'
@@ -396,7 +396,7 @@ function memberWired(view: View, group: string, member: string): boolean {
   const ends = [
     ...Object.values(graph.links).flatMap((link) => [link.from, link.to]),
     ...Object.values(graph.nets).flatMap((net) => [net.source, ...net.sinks]),
-    ...[...(graph.boundary?.inputs ?? []), ...(graph.boundary?.outputs ?? [])].flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])]),
+    ...[...boundaryItems(graph.boundary, 'inputs'), ...boundaryItems(graph.boundary, 'outputs')].flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])]),
   ]
   // A wire leaving a member field's output is a widget tap named by the field's flattened id.
   return ends.some((end) => 'node' in end && end.node === view.node.id &&

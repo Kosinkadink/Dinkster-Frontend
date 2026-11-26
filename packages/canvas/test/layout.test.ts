@@ -238,10 +238,12 @@ describe('pairing', () => {
     expect(widths).toHaveLength(3)
     expect(new Set(widths).size).toBe(1)
     // Beside a field, a button with an icon is a square and the field takes the rest of the line.
-    const beside = doLayout([{ kind: 'row', rows: [widget('rate'), { ...button('reset', 'Reset the frame rate'), icon: 'rotate-ccw' }] }])
-    const [rate, reset] = beside.rows
-    expect(reset).toMatchObject({ kind: 'button', width: reset!.height - defaultTokens.rowGeometry.fieldInsetY * 2 })
-    expect(rate!.kind === 'widget' && rate!.width).toBeGreaterThan(beside.width / 2)
+    for (const field of [widget('rate'), widget('name', { widget: { widgetType: 'STRING', options: { multiline: true } } })]) {
+      const beside = doLayout([{ kind: 'row', rows: [field, { ...button('reset', 'Reset the frame rate'), icon: 'rotate-ccw' }] }])
+      const [rate, reset] = beside.rows
+      expect(reset).toMatchObject({ kind: 'button', width: reset!.height - defaultTokens.rowGeometry.fieldInsetY * 2 })
+      expect(rate!.kind === 'widget' && rate!.width).toBeGreaterThan(beside.width / 2)
+    }
   })
 
   it('shares mixed cells evenly with one outer inset and 4 px between their faces', () => {

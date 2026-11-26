@@ -279,11 +279,13 @@ describe('reviewed fixes', () => {
       graphId: 'g0',
       def: deletionDef({
         boundary: {
-          inputs: [{
-            id: 'value', binds: { kind: 'port', node: 'source', port: 'in' },
-            alsoBinds: [{ kind: 'port', node: 'target', port: 'images.image1' }],
-          }],
-          outputs: [],
+          body: [
+            {
+              kind: 'input',
+              id: 'value', binds: { kind: 'port', node: 'source', port: 'in' },
+              alsoBinds: [{ kind: 'port', node: 'target', port: 'images.image1' }],
+            },
+          ],
         },
       }),
       scene: deletionScene([boundaryLink] as any),

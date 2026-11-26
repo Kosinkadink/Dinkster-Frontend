@@ -487,7 +487,7 @@ test('44px toolbar keeps account and full compact metadata in one row', async ({
       }
       await page.keyboard.press('Tab')
       await account.focus()
-      await expect(account).toHaveCSS('outline-width', '2px')
+      await expect(account).toHaveCSS('outline-width', '1px')
       await expect(account).toHaveCSS('outline-offset', '2px')
     }
   }

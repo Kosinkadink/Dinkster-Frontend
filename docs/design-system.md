@@ -169,6 +169,13 @@ every core tab once.
   `pending` covers the whole read, `value` retains the previous answer during
   refresh, and `error` exposes a failed read. A newer `load` supersedes an older
   completion; Solid owner disposal cancels timers and ignores late answers.
+  A project list can use `ProductProjectListHeader` with an `id` outside the
+  loading region and `ProductProjectRows` with that `labelledBy` inside it;
+  `ProductProjectList` composes both for callers that load them together.
+  Both loading components also accept persistent JSX children that read
+  `page.value()` reactively, preserving interactive rows and focus through
+  refresh completion; render functions instead replace the complete answer.
+  Project fact values also accept these shared answer regions.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as
   solid/outline, and accepts native button attributes. `ProductIconButton` is
   the quiet, square icon-only control with a required accessible label and the

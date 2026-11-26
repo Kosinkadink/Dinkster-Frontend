@@ -959,7 +959,7 @@ describe('scene visual bounds and fitting', () => {
     expect(bounds).toEqual({ minX: -204, minY: 96, maxX: 604, maxY: 304 })
   })
 
-  it('floats tab lanes 3 px outside state and selection outlines and includes them in camera bounds', () => {
+  it('floats tab lanes 3 px outside state outlines and includes them in camera bounds', () => {
     const { ctx } = recordingCtx()
     const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
     const list = [{ ...ERROR_BADGE, placement: 'above' as const }, { ...ERROR_BADGE, id: 'below', placement: 'below' as const }]
@@ -975,8 +975,7 @@ describe('scene visual bounds and fitting', () => {
           const top = entries.find((entry) => entry.badge.placement === 'above')!
           const bottom = entries.find((entry) => entry.badge.placement === 'below')!
           const strong = state === 'running' || state === 'done' || state === 'error'
-          const outset = selected ? (scale === 0.5 ? 5 : 4)
-            : strong ? (scale === 0.5 ? 2 : 1.25) : (scale === 0.5 ? 1 : 0.625)
+          const outset = strong ? (scale === 0.5 ? 2 : 1.25) : (scale === 0.5 ? 1 : 0.625)
           expect(top.y + top.height).toBe(node.y - outset - 3)
           expect(bottom.y).toBe(node.y + node.layout.height + outset + 3)
           const bounds = sceneVisualBounds(renderer.getScene(), {}, (current) => renderer.getNodeBadgeBounds(current))!
@@ -1974,8 +1973,8 @@ describe('node chrome paint on the live renderer', () => {
     )).toBe(false)
     expect(calls.some((call) =>
       call.method === 'roundRect' &&
-      call.args[0] === preview.x - 3 && call.args[1] === preview.y - 3 &&
-      call.args[2] === preview.width + 6 && call.args[3] === preview.height + 6,
+      call.args[0] === preview.x + 0.5 && call.args[1] === preview.y + 0.5 &&
+      call.args[2] === preview.width - 1 && call.args[3] === preview.height - 1,
     )).toBe(true)
     const outputPin = node.layout.pins.find((pin) => pin.direction === 'out')!
     expect(calls.some((call) =>
@@ -2029,6 +2028,9 @@ describe('node chrome paint on the live renderer', () => {
 
     const single = paintWith(scene, (r) => r.setOverlay({ selection: new Set(['c1']) }))
     expect(single.some((c) => c.method === 'setLineDash' && JSON.stringify(c.args[0]) === '[5,4]')).toBe(false)
+    expect(single.some((c) => c.method === 'stroke' && c.strokeStyle === defaultTokens.colors.nodeSelectedEdge && c.lineWidth === 1)).toBe(true)
+    expect(single.some((c) => c.method === 'fill' && c.fillStyle === defaultTokens.colors.nodeSelectedHeader)).toBe(true)
+    expect(single.some((c) => c.method === 'roundRect' && c.args[0] === node.x - 3 && c.args[1] === node.y - 3)).toBe(false)
   })
 
   it('keeps an unknown wired value in its own widget look with the stored value struck through', () => {
@@ -2692,10 +2694,12 @@ describe('node chrome paint on the live renderer', () => {
           lists: { id: 'lists', type: 'Join', values: {} },
           mixed: { id: 'mixed', type: 'Join', values: {} },
           single: { id: 'single', type: 'Single', values: {} },
-        }, boundary: { inputs: [
-          { id: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
-          { id: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
-        ], outputs: [] } },
+        }, boundary: {
+          body: [
+            { kind: 'input', id: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
+            { kind: 'input', id: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
+          ],
+        } },
       },
       view: { graphs: {
         root: { nodes: { sub: { position: { x: 400, y: 40 } } } },
@@ -3415,8 +3419,10 @@ function boundaryScene(): Scene {
         nets: {},
         reroutes: {},
         boundary: {
-          inputs: [{ id: 'image-in', binds: { kind: 'port', node: 'snk', port: 'in' } }],
-          outputs: [{ id: 'image-out', binds: { kind: 'port', node: 'lat', port: 'out' } }],
+          body: [
+            { kind: 'input', id: 'image-in', binds: { kind: 'port', node: 'snk', port: 'in' } },
+            { kind: 'output', id: 'image-out', binds: { kind: 'port', node: 'lat', port: 'out' } },
+          ],
         },
         nextOrdinal: 10,
       },

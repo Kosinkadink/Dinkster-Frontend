@@ -11,6 +11,8 @@ export interface MeaningToken {
   readonly foreground: string
   readonly background: string
   readonly border: string
+  /** The foreground, faint over the panel: fills a message box so it does not read as an outlined button. */
+  readonly fill: string
   /** A coloured outline button's outline at rest: the foreground at 55%. */
   readonly restBorder: string
   /** A message's outline: the foreground at 38%. */
@@ -22,6 +24,25 @@ export interface MeaningToken {
   /** The same control while pressed: the foreground at 20%. */
   readonly washPressed: string
 }
+
+/**
+ * The share of a color laid over what is behind it to fill a label or message
+ * with that color dimly: a meaning's fill and a node's tab on the canvas.
+ */
+export const DIM_FILL_SHARE = 0.16
+
+/** `top` laid over `bottom` at `amount` (0 to 1), both #RRGGBB. */
+const mixHex = (top: string, bottom: string, amount: number): string =>
+  '#' +
+  [1, 3, 5]
+    .map((offset) => {
+      const channel = (hex: string) => Number.parseInt(hex.slice(offset, offset + 2), 16)
+      return Math.round(channel(top) * amount + channel(bottom) * (1 - amount))
+        .toString(16)
+        .padStart(2, '0')
+    })
+    .join('')
+    .toUpperCase()
 
 const deepFreeze = <T>(value: T): T => {
   if (typeof value !== 'object' || value === null || Object.isFrozen(value))
@@ -136,6 +157,7 @@ export interface SemanticDesignTokens {
     readonly primaryInputHeight: number
     readonly canvasInputHeight: number
     readonly focusRingWidth: number
+    readonly indicatorWidth: number
     readonly hoverOverlay: string
     readonly pressedOverlay: string
     readonly selectedOverlay: string
@@ -170,6 +192,7 @@ export const semanticTokensForTheme = (
     foreground,
     background: colors.bg.surface,
     border: foreground,
+    fill: mixHex(foreground, colors.bg.surface, DIM_FILL_SHARE),
     restBorder: withAlpha(foreground, 0.55),
     quietBorder: withAlpha(foreground, 0.38),
     quietBackground: withAlpha(foreground, 0.07),
@@ -260,7 +283,7 @@ export interface CanvasSemanticTokenProjection {
   readonly shape: SemanticDesignTokens['shape']
   readonly interaction: Pick<
     SemanticDesignTokens['interaction'],
-    'focusRingWidth' | 'selectedOverlay' | 'disabledOpacity'
+    'focusRingWidth' | 'indicatorWidth' | 'selectedOverlay' | 'disabledOpacity'
   >
 }
 
@@ -279,6 +302,7 @@ export const canvasSemanticTokens: CanvasSemanticTokenProjection = deepFreeze({
   shape: semanticDesignTokens.shape,
   interaction: {
     focusRingWidth: semanticDesignTokens.interaction.focusRingWidth,
+    indicatorWidth: semanticDesignTokens.interaction.indicatorWidth,
     selectedOverlay: semanticDesignTokens.interaction.selectedOverlay,
     disabledOpacity: semanticDesignTokens.interaction.disabledOpacity,
   },
@@ -296,6 +320,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-action-primary-bg': semanticDesignTokens.action.primaryBg,
     '--dinkster-action-primary-text': semanticDesignTokens.action.primaryText,
     '--dinkster-action-remove-text': semanticDesignTokens.action.removeText,
+    '--dinkster-border-width': px(components.layout.borderWidth),
     '--dinkster-space-4': px(semanticDesignTokens.space[4]),
     '--dinkster-space-8': px(semanticDesignTokens.space[8]),
     '--dinkster-space-12': px(semanticDesignTokens.space[12]),
@@ -383,6 +408,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-accent-background':
       semanticDesignTokens.meaning.accent.background,
     '--dinkster-accent-border': semanticDesignTokens.meaning.accent.border,
+    '--dinkster-accent-fill': semanticDesignTokens.meaning.accent.fill,
     '--dinkster-accent-rest-border':
       semanticDesignTokens.meaning.accent.restBorder,
     '--dinkster-accent-quiet-border':
@@ -398,6 +424,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-success-background':
       semanticDesignTokens.meaning.success.background,
     '--dinkster-success-border': semanticDesignTokens.meaning.success.border,
+    '--dinkster-success-fill': semanticDesignTokens.meaning.success.fill,
     '--dinkster-success-rest-border':
       semanticDesignTokens.meaning.success.restBorder,
     '--dinkster-success-quiet-border':
@@ -413,6 +440,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-warning-background':
       semanticDesignTokens.meaning.warning.background,
     '--dinkster-warning-border': semanticDesignTokens.meaning.warning.border,
+    '--dinkster-warning-fill': semanticDesignTokens.meaning.warning.fill,
     '--dinkster-warning-rest-border':
       semanticDesignTokens.meaning.warning.restBorder,
     '--dinkster-warning-quiet-border':
@@ -428,6 +456,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-danger-background':
       semanticDesignTokens.meaning.danger.background,
     '--dinkster-danger-border': semanticDesignTokens.meaning.danger.border,
+    '--dinkster-danger-fill': semanticDesignTokens.meaning.danger.fill,
     '--dinkster-danger-rest-border':
       semanticDesignTokens.meaning.danger.restBorder,
     '--dinkster-danger-quiet-border':
@@ -441,6 +470,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-info-foreground': semanticDesignTokens.meaning.info.foreground,
     '--dinkster-info-background': semanticDesignTokens.meaning.info.background,
     '--dinkster-info-border': semanticDesignTokens.meaning.info.border,
+    '--dinkster-info-fill': semanticDesignTokens.meaning.info.fill,
     '--dinkster-info-rest-border':
       semanticDesignTokens.meaning.info.restBorder,
     '--dinkster-info-quiet-border':
@@ -466,6 +496,9 @@ export const semanticCssVariablesForTheme = (
     ),
     '--dinkster-focus-ring-width': px(
       semanticDesignTokens.interaction.focusRingWidth,
+    ),
+    '--dinkster-indicator-width': px(
+      semanticDesignTokens.interaction.indicatorWidth,
     ),
     '--dinkster-interaction-hover':
       semanticDesignTokens.interaction.hoverOverlay,

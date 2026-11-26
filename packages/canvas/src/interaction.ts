@@ -49,6 +49,7 @@ import {
   hasKnownLinkDropAnchorType,
   dragNumericValue,
   isIntegerWidgetValue,
+  isNumberWidget,
   numericStepConstraints,
   numericStepPrecision,
   stepNumericValue,
@@ -494,6 +495,8 @@ export interface InteractionHost {
   onNodeHover?(nodeId: string | undefined): void
   /** Double-click a boundary pseudo-node pin/row: host opens a rename prompt. */
   onBoundaryRenameRequest?(side: 'inputs' | 'outputs', itemId: string, screenX: number, screenY: number): void
+  /** Click (no drag) on a boundary pseudo-node row's name: host selects that boundary item. */
+  onBoundaryRowSelect?(side: 'inputs' | 'outputs', itemId: string): void
 }
 
 export type BoundaryExposureSource =
@@ -775,12 +778,14 @@ type Gesture =
       readonly side: 'inputs' | 'outputs'
       readonly startWX: number
       readonly startWY: number
+      /** The row pressed, when the press began on a row's name. */
+      readonly rowItem?: string
       moved: boolean
     }
 
 /** A row drawn and stepped as a number; an integer color is drawn as a color. */
 const isNumberRow = (row: Extract<LayoutRow, { kind: 'widget' }>): boolean =>
-  (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
+  isNumberWidget(row.spec) && row.viewId !== 'core.integerColor'
 
 export class InteractionController {
   private selection = new Set<string>()
@@ -1849,7 +1854,7 @@ export class InteractionController {
         return
       case 'boundary-pin':
         if (hit.row && !hit.regionIndex) {
-          this.gesture = { kind: 'boundary-move', side: hit.bnode.side, startWX: w.x, startWY: w.y, moved: false }
+          this.gesture = { kind: 'boundary-move', side: hit.bnode.side, startWX: w.x, startWY: w.y, rowItem: hit.item, moved: false }
           return
         }
         // Boundary pins are link-drag sources: existing items fan out
@@ -3733,6 +3738,7 @@ export class InteractionController {
         return
       }
       case 'boundary-move': {
+        if (!g.moved && g.rowItem !== undefined) this.host.onBoundaryRowSelect?.(g.side, g.rowItem)
         if (g.moved) {
           const bnode = scene.boundaryNodes.find((b) => b.side === g.side)
           if (bnode) {

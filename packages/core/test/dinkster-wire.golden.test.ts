@@ -418,7 +418,7 @@ describe('Dinkster schema wire', () => {
     const nested = { ...imported.document!, graphs: {
       g0: { ...graph, nodes: { a: instance('a', ['Detailed', 'Quick']), b: instance('b', ['Fine', 'Detailed']) } },
       soften: { ...graph, id: asGraphDefId('soften'), name: 'soften', nodes: { inner }, boundary: {
-        inputs: [{ id: 'choice', binds: { kind: 'port', node: 'inner', port: 'choice' }, promoted: true }], outputs: [],
+        body: [{ kind: 'input', id: 'choice', binds: { kind: 'port', node: 'inner', port: 'choice' }, promoted: true }],
       } },
     } }
     const compiledNested = compile({ document: nested as never, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('authored'), schemaHash: 'authored' })

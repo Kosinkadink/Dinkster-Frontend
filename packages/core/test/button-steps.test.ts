@@ -271,9 +271,8 @@ describe('each step', () => {
     // A boundary input's additional binding is a wire too, not just its primary target.
     const boundary = documentOf({ n1: { type: 'dev.buttons.member_steps', values: start.values, ...start.extra } })
     const boundSession = sessionOf({ ...boundary, graphs: { g0: { ...boundary.graphs['g0']!, boundary: {
-      inputs: [{ id: 'clip', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('loras.lora_1.clip') },
+      body: [{ kind: 'input', id: 'clip', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('loras.lora_1.clip') },
         alsoBinds: [{ kind: 'port', node: asNodeId('n1'), port: asPortId('loras.lora_3.clip') }] }],
-      outputs: [],
     } } } })
     const boundOutcome = await runPress(boundSession, at('clear'), hostOf())
     expect(boundSession.doc.graphs['g0']!.nodes['n1']!.dynamic!['loras']!.members).toEqual(['lora_1', 'lora_3'])

@@ -1288,6 +1288,7 @@ export function App(props: {
   const cancelling = useSignal(app.cancellingExecutions)
   const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
     const live = () => liveTabOf(p.exec)
+    const pending = createMemo(() => runIsPending(p.exec))
     // A finished run shows its outputs while it is the chosen run; a running or
     // queued one only once its name is pressed, so the list stays one line each.
     const selected = () => selectedRunKey() === p.exec.key ||
@@ -1338,7 +1339,7 @@ export function App(props: {
               else app.pinExecutionOverlay(tab.id, p.exec.ref)
             } : undefined}
           />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
-          {...(runIsPending(p.exec) ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
+          {...(pending() ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
             detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
             menuMount={menuMount()} onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
       </Show>

@@ -66,6 +66,7 @@ import { RowStatesGallery } from './row-states.js'
 import { EditorChoicePlacementGallery } from './editor-choice-placement.js'
 import { RowAutomaticGallery } from './row-automatic.js'
 import { RowListsGallery } from './row-lists.js'
+import { BoundaryTreeGallery } from './boundary-tree.js'
 import { SaveTargetBoxGallery } from './save-target-box.js'
 import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
@@ -121,7 +122,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       ],
     ],
     ['Wires', ['types', 'structure', 'wire-looks']],
-    ['Subgraphs', ['boundary', 'boundary-names', 'subgraph-icon']],
+    ['Subgraphs', ['boundary', 'boundary-names', 'boundary-tree', 'subgraph-icon']],
     ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
     ['Problems with fixes', ['problem-box']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
@@ -250,6 +251,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires; strength and the edge dropdown are shown on the node without a wire and carry the subgraph icon.",
   'boundary-names':
     "The names on a subgraph's panels and on its collapsed node; After shows ids as written.",
+  'boundary-tree':
+    "The Boundary panel lists a subgraph node's rows as one ordered tree: rows, lines of fields, sections and whole groups and choices, in the order the node draws them, with the selected row's settings in the fixed area below. Click a row to select it, a section's arrow to open or close it.",
   zoom: 'Three nodes at 75 percent, the smallest zoom that still draws controls.',
   'zoom-content':
     'The same nodes at 50 percent, where text stays and controls are hidden.',
@@ -777,6 +780,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
+        </Show>
+        <Show when={page() === 'boundary-tree'}>
+          <BoundaryTreeGallery />
         </Show>
         <Show when={fontsReady() && page() === 'save-target-box'}>
           <SaveTargetBoxGallery theme={theme()} />

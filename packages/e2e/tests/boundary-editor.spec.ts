@@ -7,6 +7,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { boundaryItems, type Boundary } from '@dinkster/core'
 import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_BOUNDARY_PROOF_DIR']
@@ -116,19 +117,19 @@ async function openBoundaryWorkflow(page: Page): Promise<void> {
             nets: {},
             reroutes: {},
             boundary: {
-              inputs: [
-                { id: 'workflow.input.masks_m4', binds: { kind: 'port', node: 'n1', port: 'masks_m4' } },
-                { id: 'workflow.input.masks_m7', binds: { kind: 'port', node: 'n1', port: 'masks_m7' } },
-                { id: 'image_3', binds: { kind: 'port', node: 'n1', port: 'image_3' } },
+              body: [
+                { kind: 'input', id: 'workflow.input.masks_m4', binds: { kind: 'port', node: 'n1', port: 'masks_m4' } },
+                { kind: 'input', id: 'workflow.input.masks_m7', binds: { kind: 'port', node: 'n1', port: 'masks_m7' } },
+                { kind: 'input', id: 'image_3', binds: { kind: 'port', node: 'n1', port: 'image_3' } },
                 ...Array.from({ length: 6 }, (_, index) => ({
+                  kind: 'input' as const,
                   id: `workflow.input.${'long-path-segment.'.repeat(index === 5 ? 3 : 0)}${index}`,
                   binds: { kind: 'port' as const, node: 'n1', port: `dense_input_${index}` },
                 })),
-              ],
-              outputs: [
-                { id: 'image', binds: { kind: 'port', node: 'n1', port: 'out0' } },
-                { id: 'MASK', binds: { kind: 'port', node: 'n1', port: 'MASK' } },
+                { kind: 'output', id: 'image', binds: { kind: 'port', node: 'n1', port: 'out0' } },
+                { kind: 'output', id: 'MASK', binds: { kind: 'port', node: 'n1', port: 'MASK' } },
                 ...Array.from({ length: 6 }, (_, index) => ({
+                  kind: 'output' as const,
                   id: `workflow.output.${'long-path-segment.'.repeat(index === 5 ? 3 : 0)}${index}`,
                   binds: { kind: 'port' as const, node: 'n1', port: `dense_output_${index}` },
                 })),
@@ -195,40 +196,41 @@ test('boundary edits await acceptance and preserve refused drafts for retry', {
     })
   })
   const panel = page.getByTestId('boundary-panel')
-  const item = page.locator('[data-testid=boundary-item][data-boundary-id="workflow.input.masks_m4"]')
-  const input = item.getByTestId('boundary-name-input')
+  const item = page.locator('[data-entry-id="workflow.input.masks_m4"]')
+  const input = panel.getByTestId('boundary-name-input')
   const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => {
     ;(window as any).__boundaryPending[index](accepted)
   }, { index, accepted })
+  await item.click()
   await page.screenshot({ path: testInfo.outputPath('boundary-default.png') })
   await input.fill('  Batch Masks  ')
   await input.press('Tab')
   await expect(panel).toHaveAttribute('aria-busy', 'true')
   await expect(input).toBeDisabled()
   await expect(input).toHaveValue('  Batch Masks  ')
-  expect((await activeDoc(page)).graphs.sub!.boundary!.inputs[0]).not.toHaveProperty('displayName')
+  expect(boundaryItems((await activeDoc(page)).graphs.sub!.boundary as Boundary | undefined, 'inputs')[0]).not.toHaveProperty('displayName')
   await input.dispatchEvent('change')
   expect(await page.evaluate(() => (window as any).__boundaryPending.length)).toBe(1)
   await page.screenshot({ path: testInfo.outputPath('boundary-pending.png') })
   await settle(0, false)
   await expect(input).toBeEnabled()
   await expect(input).toHaveValue('  Batch Masks  ')
-  await expect(item.getByTestId('boundary-notice')).toHaveText('Boundary edit refused for test')
+  await expect(panel.getByTestId('boundary-notice')).toHaveText('Boundary edit refused for test')
   await page.screenshot({ path: testInfo.outputPath('boundary-refused.png') })
   await input.focus()
   await input.press('Tab')
   await settle(1, true)
   await expect(input).toBeEnabled()
   await expect(input).toHaveValue('Batch Masks')
-  await expect(item.getByTestId('boundary-notice')).toHaveCount(0)
-  expect((await activeDoc(page)).graphs.sub!.boundary!.inputs[0]).toMatchObject({ displayName: 'Batch Masks' })
+  await expect(panel.getByTestId('boundary-notice')).toHaveCount(0)
+  expect(boundaryItems((await activeDoc(page)).graphs.sub!.boundary as Boundary | undefined, 'inputs')[0]).toMatchObject({ displayName: 'Batch Masks' })
   await page.screenshot({ path: testInfo.outputPath('boundary-accepted.png') })
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
   await expect(input).toHaveValue('')
 })
 
 test('root prompt reopens definitions and the panel follows the drilled tab', async ({ page }) => {
-  await expect(page.locator('[data-testid=boundary-item][data-boundary-id=image]')).toBeVisible()
+  await expect(page.locator('[data-entry-id="image"]')).toBeVisible()
 
   const drilledTabId = await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
@@ -266,29 +268,29 @@ test('root prompt reopens definitions and the panel follows the drilled tab', as
   // The root offers navigation, not definition-editing controls.
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
   await expect(boundaryTab(page)).toHaveCount(0)
-  await expect(page.getByTestId('boundary-item')).toHaveCount(0)
+  await expect(page.locator('.boundary-tree [data-entry-id]')).toHaveCount(0)
   await capture(page, 'boundary-root-hidden')
   await drillIntoOccurrence(page)
   await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
-  await expect(page.locator('[data-testid=boundary-item][data-boundary-id=image]')).toBeVisible()
+  await expect(page.locator('[data-entry-id="image"]')).toBeVisible()
 })
 
 test('exact ids and custom names round-trip through document persistence', async ({ page }) => {
   const panel = page.getByTestId('boundary-panel')
-  const item = (id: string) => panel.locator(`[data-testid=boundary-item][data-boundary-id="${id}"]`)
-  const itemName = (id: string) => item(id).locator('.boundary-name')
+  const item = (id: string) => panel.locator(`[data-entry-id="${id}"]`)
+  const itemName = (id: string) => item(id).locator('.boundary-tree-label')
   const firstMask = 'workflow.input.masks_m4'
 
   await expect(itemName(firstMask)).toHaveText('masks_m4')
   await expect(itemName('workflow.input.masks_m7')).toHaveText('masks_m7')
   await expect(itemName('image_3')).toHaveText('image_3')
   await expect(itemName('MASK')).toHaveText('MASK')
-  await expect(item(firstMask).getByTestId('boundary-name-input')).toHaveAttribute('placeholder', 'masks_m4')
+  await item(firstMask).click()
+  await expect(panel.getByTestId('boundary-name-input')).toHaveAttribute('placeholder', 'masks_m4')
 
-  await item(firstMask).scrollIntoViewIfNeeded()
   await capture(page, 'before-boundary-generated-names-wide')
 
-  const input = item(firstMask).getByTestId('boundary-name-input')
+  const input = panel.getByTestId('boundary-name-input')
   await input.focus()
   await expect(input).toBeFocused()
   await input.fill('Subject mask')
@@ -330,7 +332,8 @@ test('exact ids and custom names round-trip through document persistence', async
   await drillIntoOccurrence(page)
   await expect(itemName(firstMask)).toHaveText('Subject mask')
 
-  const persistedInput = item(firstMask).getByTestId('boundary-name-input')
+  await item(firstMask).click()
+  const persistedInput = panel.getByTestId('boundary-name-input')
   await persistedInput.fill('')
   await persistedInput.press('Enter')
   await expect(itemName(firstMask)).toHaveText('masks_m4')
@@ -354,9 +357,10 @@ test('empty and frozen states preserve inspection semantics', async ({ page }) =
   })
   await openRailPanel(page, 'Boundary')
   await expect(panel.getByTestId('boundary-frozen')).toHaveAttribute('role', 'status')
-  await expect(panel.getByTestId('boundary-name-input').first()).toBeDisabled()
-  await expect(panel.getByTestId('boundary-unavailable')).toHaveCount(0)
-  await expect(panel.getByTestId('boundary-show-on-canvas').first()).toBeEnabled()
+  await panel.locator('[data-entry-id="image_3"]').click()
+  await expect(panel.getByTestId('boundary-name-input')).toBeDisabled()
+  await expect(panel.getByTestId('boundary-remove')).toBeDisabled()
+  await expect(panel.getByTestId('boundary-show-on-canvas')).toBeEnabled()
   await capture(page, 'after-boundary-frozen-wide')
 
   await page.reload()
@@ -364,18 +368,19 @@ test('empty and frozen states preserve inspection semantics', async ({ page }) =
   await openBoundaryWorkflow(page)
   await page.evaluate(() => {
     type BoundItem = {
+      kind: string
       id: string
       binds: { node: string; port: string }
     }
     const tab = window.__dinksterTest!.app.activeTab()! as unknown as {
       store: {
-        doc: { graphs: Record<string, { boundary?: { inputs: readonly BoundItem[]; outputs: readonly BoundItem[] } }> }
+        doc: { graphs: Record<string, { boundary?: { body: readonly BoundItem[] } }> }
         dispatch(command: unknown): { ok: boolean; diagnostics?: readonly { message: string }[] }
       }
     }
     const boundary = tab.store.doc.graphs.sub!.boundary!
     for (const side of ['inputs', 'outputs'] as const) {
-      for (const item of [...boundary[side]]) {
+      for (const item of boundary.body.filter((entry) => entry.kind === (side === 'inputs' ? 'input' : 'output'))) {
         const outcome = tab.store.dispatch({
           command: 'boundary.unbind',
           params: {
@@ -390,7 +395,7 @@ test('empty and frozen states preserve inspection semantics', async ({ page }) =
       }
     }
   })
-  await expect(page.locator('[data-testid=boundary-empty]')).toHaveCount(2)
+  await expect(page.locator('[data-testid=boundary-empty]')).toHaveCount(1)
   await capture(page, 'after-boundary-empty-wide')
 })
 
@@ -419,8 +424,11 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
   await drillIntoOccurrence(page)
   const region = page.getByTestId('region-panel')
   await expect(region).toHaveAttribute('aria-label', 'While region settings')
-  await expect(page.locator('[data-region-role=state]')).toHaveCount(2)
-  await expect(page.locator('[data-region-role=continuation]')).toHaveCount(1)
+  await page.locator('[data-entry-id="workflow.input.0"]').click()
+  await expect(page.locator('[data-region-input="workflow.input.0"][data-role-choice=state]')).toHaveAttribute('aria-pressed', 'true')
+  await page.locator('[data-entry-id="workflow.output.1"]').click()
+  await expect(page.locator('[data-region-output="workflow.output.1"][data-role-choice=continue]')).toHaveAttribute('aria-pressed', 'true')
+  await page.locator('[data-entry-id="image"]').click()
   const compact = page.locator('[data-region-output=image][data-role-choice=compact]')
   await compact.click()
   await expect(compact).toHaveAttribute('aria-pressed', 'true')
@@ -463,7 +471,7 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
   await expect(page.getByTestId('app-tooltip')).toContainText('If absent:', { timeout: 1_500 })
   await capture(page, 'after-boundary-consumer-absence-explanation-wide')
   if (proofDir) {
-    await compact.locator('xpath=ancestor::*[@data-testid="boundary-item"]')
+    await compact.locator('xpath=ancestor::*[@data-testid="boundary-settings"]')
       .screenshot({ path: join(proofDir, 'boundary-region-compact-output.png'), animations: 'disabled' })
   }
   expect(await page.evaluate(async () => {
