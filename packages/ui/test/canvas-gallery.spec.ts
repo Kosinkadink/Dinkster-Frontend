@@ -111,8 +111,10 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
       editor.style.transformOrigin = 'top right'
       editor.style.transform = `scale(${zoom})`
     }, scale)
+    const closedBelow = await mount.screenshot()
     await stage.getByRole('button', { name: 'Mount archive', exact: true }).click()
     await expect(popup.locator('.dinkster-canvas-field')).toHaveAttribute('data-panel', 'below')
+    expect(await mount.screenshot()).toEqual(closedBelow)
     await expect.poll(async () => {
       const bounds = (await stage.boundingBox())!
       const panel = (await list.boundingBox())!

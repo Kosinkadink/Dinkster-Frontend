@@ -1113,6 +1113,9 @@
 .dinkster-canvas-editor-choice-list input { appearance: none; }
 .dinkster-canvas-editor-choice-list .dinkster-canvas-field-outline { display: none; }
 .dinkster-canvas-editor-choice-list .dinkster-canvas-field-panel { border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); box-shadow: var(--dinkster-elevation-high); }
+/* The list casts a shadow over other rows, but not over the row it belongs to. */
+.dinkster-canvas-editor-choice-list .dinkster-canvas-field-panel[data-place='above'] { clip-path: inset(-100vmax -100vmax 0); }
+.dinkster-canvas-editor-choice-list .dinkster-canvas-field-panel[data-place='below'] { clip-path: inset(0 -100vmax -100vmax); }
 .dinkster-canvas-closed-row-value[data-filtering='true']::after, .dinkster-canvas-target-value-text[data-filtering='true']::after { content: ''; border-right: var(--dinkster-border-width) solid currentColor; }
 .dinkster-canvas-choice-example .dinkster-canvas-editor { overflow: hidden; }
 .dinkster-canvas-closed-row { width: 100%; box-sizing: border-box; padding: 0; border: 0; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-field); color: inherit; font: inherit; text-align: left; cursor: pointer; }
