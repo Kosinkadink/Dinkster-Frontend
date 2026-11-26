@@ -510,7 +510,7 @@ test('toolbar search is outlined, capped and centered with native reservations',
 }) => {
   await page.setViewportSize({ width: 2000, height: 900 })
   await page.goto('/#window-toolbar')
-  await expect(page.getByRole('region', { name: 'Shortcut keys', exact: true }).locator('kbd')).toHaveText(['Ctrl', 'Shift', 'K', 'Cmd', ',', 'Alt', '+'])
+  await expect(page.getByRole('region', { name: 'Shortcut keys', exact: true }).locator('kbd')).toHaveText(['Ctrl', 'Shift', 'K', 'Cmd', ',', 'Alt', '+', 'Ctrl', 'Wheel', 'Cmd', ','])
   for (const theme of ['dark', 'light']) {
     for (const platform of ['linux', 'darwin', 'win32']) {
       const bar = page
