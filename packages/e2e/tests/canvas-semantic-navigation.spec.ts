@@ -138,6 +138,20 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   await page.keyboard.press('Escape')
   await expect(page.locator('.widget-in-row-field')).toHaveCount(0)
 
+  await page.setViewportSize({ width: 900, height: 620 })
+  await setShellRegion(page, 'bottom', true)
+  await navigator.focus()
+  await page.keyboard.press('Home')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(active).toHaveAttribute('data-kind', 'port')
+  await expect.poll(() => navigator.evaluate((listbox) => {
+    const panel = listbox.parentElement!.getBoundingClientRect()
+    const toolbar = listbox.closest('.canvas-stage')!.querySelector('.canvas-stage-toolbar')!.getBoundingClientRect()
+    return panel.top >= toolbar.bottom
+  })).toBe(true)
+
   await page.setViewportSize({ width: 390, height: 844 })
   await setShellRegion(page, 'right', false)
   await navigator.focus()

@@ -412,14 +412,15 @@ export function CanvasSemanticNavigator(props: {
   const [focused, setFocused] = createSignal(false)
   createEffect(() => {
     if (!focused()) return
-    const stage = panel.offsetParent
-    if (!(stage instanceof HTMLElement)) return
+    const container = panel.offsetParent
+    const stage = panel.closest<HTMLElement>('.canvas-stage')
+    if (!(container instanceof HTMLElement) || stage === null) return
     const bar = stage.querySelector<HTMLElement>('.canvas-corner-bar')
     const toolbar = stage.querySelector<HTMLElement>('.canvas-stage-toolbar')
     const item = props.items[cursor()]
     const point = item === undefined ? undefined : props.activePoint?.(item)
     const place = (): void => {
-      const bounds = stage.getBoundingClientRect()
+      const bounds = container.getBoundingClientRect()
       const gap = Number.parseFloat(getComputedStyle(panel).paddingTop) || 0
       const top = toolbar === null ? gap : toolbar.getBoundingClientRect().bottom - bounds.top + gap
       const bottom = bar === null ? gap : bounds.bottom - bar.getBoundingClientRect().top + gap
@@ -446,6 +447,7 @@ export function CanvasSemanticNavigator(props: {
     place()
     const observer = new ResizeObserver(place)
     observer.observe(stage)
+    if (container !== stage) observer.observe(container)
     if (bar !== null) observer.observe(bar)
     if (toolbar !== null) observer.observe(toolbar)
     onCleanup(() => observer.disconnect())
