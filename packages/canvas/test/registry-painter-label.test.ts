@@ -436,6 +436,47 @@ describe('registry painter label/value split', () => {
     expect(fills[0]!.x + fills[0]!.width).toBeLessThanOrEqual(160)
   })
 
+  it('aligns color squares beside different equal-length codes without changing label type', () => {
+    const colorView: WidgetView = {
+      ...stubView, id: 'core.color', kind: 'COLOR',
+      drawCompact: (scene, value) => {
+        scene.text(0, 0, 'Tint', { role: 'widgetLabel', width: 0.42 })
+        scene.text(1, 0, String(value), {
+          role: 'widgetValue', align: 'right', width: 0.58, swatch: value,
+        })
+      },
+    }
+    const colorRegistry: WidgetRegistry = {
+      ...registry,
+      kind: () => ({ ...stubKind, type: 'COLOR' }),
+      viewsFor: () => [colorView],
+    }
+    const paintColor = (value: string) => {
+      const painted = fakeCtx()
+      painted.ctx.font = `13px ${defaultTokens.fontFamily}`
+      painted.ctx.measureText = (text) => ({
+        width: [...text].reduce((width, char) => width + (painted.ctx.font.includes('Mono') ? 7 : char === 'f' ? 4 : 7), 0),
+      } as TextMetrics)
+      createRegistryPainter(colorRegistry)({
+        ctx: painted.ctx,
+        row: { ...rowWith(value), label: 'color', viewId: 'core.color', spec: { widgetType: 'COLOR', options: {} } },
+        value, x: 0, y: 0, width: 240, rowHeight: 24, connected: false, tokens: defaultTokens,
+      })
+      return painted
+    }
+    const white = paintColor('#ffffff')
+    const black = paintColor('#000000')
+    const whiteSquare = white.fills.find((fill) => fill.fillStyle === '#ffffff')!
+    const blackSquare = black.fills.find((fill) => fill.fillStyle === '#000000')!
+    expect(whiteSquare).toBeDefined()
+    expect(blackSquare).toBeDefined()
+    expect(whiteSquare.x).toBe(blackSquare.x)
+    expect(white.textCalls.find((call) => call.text === 'color')?.font).toBe(`13px ${defaultTokens.fontFamily}`)
+    expect(white.textCalls.find((call) => call.text === 'Tint')?.font).toBe(`13px ${defaultTokens.fontFamily}`)
+    expect(white.textCalls.some((call) => call.text === '#ffffff')).toBe(true)
+    expect(black.textCalls.some((call) => call.text === '#000000')).toBe(true)
+  })
+
   it('a long label beside a short value renders in full at comfortable widths', () => {
     const texts = paint(20, 240)
     expect(texts).toContain(LABEL) // no '...' - the value did not need the space
