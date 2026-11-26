@@ -1329,15 +1329,80 @@ describe('Boundary sample acceptance compilation', () => {
         expect(prompt(absentMiddle)[path]!.inputs.strength).toBe(0.3)
         expect(prompt(absentMiddle)[second]!.inputs.strength).toBe(0.8)
       }
+
+      const detached = storeFor(boundarySample(level))
+      const shared = detached.doc
+      edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
+      const copyId = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+      expect(copyId).not.toBe(level === 1 ? 'detail' : 'portrait')
+      expect(prompt(detached.doc)[path]!.inputs.strength).toBe(0.2)
+      edit(detached, 'node.setValue', {
+        graphId: copyId, nodeId: level === 1 ? 'sample' : 'detail', inputId: 'strength', value: 0.55,
+      })
+      // The unique definition does not replace the occurrence's stored override.
+      expect(prompt(detached.doc)[path]!.inputs.strength).toBe(0.2)
+      edit(detached, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'strength', value: 0.7 })
+      expect(prompt(detached.doc)[path]!.inputs.strength).toBe(0.7)
+      expect(prompt(detached.doc)[second]!.inputs.strength).toBe(0.8)
+      expect(detached.doc.graphs.detail).toEqual(shared.graphs.detail)
+      if (level === 2) expect(detached.doc.graphs.portrait).toEqual(shared.graphs.portrait)
+      expect(detached.undo()).toBe(true)
+      expect(prompt(detached.doc)[path]!.inputs.strength).toBe(0.2)
+      expect(detached.undo()).toBe(true)
+      expect(detached.undo()).toBe(true)
+      expect(detached.doc).toEqual(shared)
+      expect(detached.redo()).toBe(true)
+      expect(detached.redo()).toBe(true)
+      expect(detached.redo()).toBe(true)
+      const detachedReload = loadDocument(JSON.parse(JSON.stringify(detached.doc))).document!
+      expect(prompt(detachedReload)[path]!.inputs.strength).toBe(0.7)
+      expect(prompt(detachedReload)[second]!.inputs.strength).toBe(0.8)
+      expect(detachedReload.graphs[copyId]!.nodes[level === 1 ? 'sample' : 'detail']!.values.strength).toBe(0.55)
+      expect(detachedReload.graphs.detail).toEqual(shared.graphs.detail)
+      if (level === 2) expect(detachedReload.graphs.portrait).toEqual(shared.graphs.portrait)
+      const detachedFirst = detachedReload.graphs.root!.nodes.first!
+      const { strength: _strength, ...remainingValues } = detachedFirst.values
+      const withoutOverride = { ...detachedReload, graphs: { ...detachedReload.graphs, root: {
+        ...detachedReload.graphs.root!, nodes: { ...detachedReload.graphs.root!.nodes,
+          first: { ...detachedFirst, values: remainingValues },
+        },
+      } } }
+      expect(prompt(withoutOverride)[path]!.inputs.strength).toBe(0.55)
+      expect(prompt(withoutOverride)[second]!.inputs.strength).toBe(0.8)
     })
 
     it(`boundary/plain-pin/${context}`, () => {
       const store = storeFor(boundarySample(level))
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      const shared = store.doc.graphs.detail
+      const outerSchema = documentResolver(store.doc, resolveBoundarySample)(store.doc.graphs.root!.nodes.first!.type)!
+      const exposed = inputsOf(outerSchema).find((row) => row.id === 'image')!
+      expect(exposed.type).toEqual(inputsOf(boundarySampleSchema).find((row) => row.id === 'image')!.type)
+      expect(exposed.optional).toBe(true)
+      expect(exposed.widget).toBeUndefined()
+      expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('image')
+      expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('mask')
+      expect(prompt(boundarySample(0)).first!.inputs).not.toHaveProperty('image')
       edit(store, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'image' } })
       expect(prompt(store.doc)[path]!.inputs.image).toEqual(['imageA', 0])
       edit(store, 'link.connect', { graphId: 'root', from: { node: 'maskB', port: 'mask' }, to: { node: 'first', port: 'mask' } })
       expect(prompt(store.doc)[path]!.inputs.mask).toEqual(['maskB', 0])
       expect(prompt(store.doc)[path]!.inputs.image).toEqual(['imageA', 0])
+      expect(prompt(store.doc)[second]!.inputs).not.toHaveProperty('image')
+      expect(prompt(store.doc)[second]!.inputs).not.toHaveProperty('mask')
+      const imageLink = Object.values(store.doc.graphs.root!.links).find((link) => 'port' in link.to && link.to.port === 'image')!
+      edit(store, 'link.disconnect', { graphId: 'root', linkId: imageLink.id })
+      expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('image')
+      expect(prompt(store.doc)[path]!.inputs.mask).toEqual(['maskB', 0])
+      expect(store.undo()).toBe(true)
+      expect(prompt(store.doc)[path]!.inputs.image).toEqual(['imageA', 0])
+      expect(store.redo()).toBe(true)
+      const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(prompt(reopened)[path]!.inputs).not.toHaveProperty('image')
+      expect(prompt(reopened)[path]!.inputs.mask).toEqual(['maskB', 0])
+      expect(reopened.graphs.detail).toEqual(shared)
+      expect(reopened.graphs.root!.nodes.first!.values).not.toHaveProperty('image')
+      expect(reopened.graphs.root!.nodes.second!.values).not.toHaveProperty('image')
     })
 
     it(`boundary/output/${context}`, () => {

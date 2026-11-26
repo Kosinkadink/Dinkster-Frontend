@@ -250,6 +250,24 @@ describe('buildParamRows', () => {
       expect(rows().map((row) => row.entry.inputId)).toEqual(['mode.text'])
       expect(store.undo()).toBe(true)
       expect(rows().map((row) => live(row).value)).toEqual([0.4, 0.8, 'second text'])
+      const pins = new DocumentStore({ ...reopened, ext: { 'dinkster.exposed': [
+        { graphId: 'root', nodeId: 'first', inputId: 'image' },
+        { graphId: 'root', nodeId: 'second', inputId: 'image' },
+      ] } }, coreCommandRegistry())
+      const pinRows = (document = pins.doc) => buildParamRows(document, resolveBoundarySample).map(live)
+      expect(pinRows().map((row) => [row.entry.nodeId, row.spec, row.value, row.linked]))
+        .toEqual([['first', undefined, undefined, false], ['second', undefined, undefined, false]])
+      expect(pins.dispatch({ command: 'link.connect', params: {
+        graphId: 'root', from: port('imageA', 'image'), to: port('first', 'image'),
+      } }).ok).toBe(true)
+      expect(pinRows().map((row) => [row.entry.nodeId, row.spec, row.value, row.linked]))
+        .toEqual([['first', undefined, undefined, true], ['second', undefined, undefined, false]])
+      expect(pins.undo()).toBe(true)
+      expect(pinRows().map((row) => row.linked)).toEqual([false, false])
+      expect(pins.redo()).toBe(true)
+      const pinsReloaded = loadDocument(JSON.parse(JSON.stringify(pins.doc))).document!
+      expect(pinRows(pinsReloaded).map((row) => [row.entry.nodeId, row.spec, row.linked]))
+        .toEqual([['first', undefined, true], ['second', undefined, false]])
     }
   })
 
