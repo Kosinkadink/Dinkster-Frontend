@@ -33,6 +33,11 @@
   "layout": {
     "borderWidth": 1,
     "topBarHeight": 44,
+    "shortcutCompactHeight": 18,
+    "shortcutSettingsHeight": 22,
+    "shortcutCompactTextSize": 11,
+    "shortcutSettingsTextSize": 12,
+    "shortcutRadius": 5,
     "toolbarFullRowWidth": 406,
     "toolbarExpandedRowWidth": 940,
     "toolbarMinimumWidthLinux": 384,

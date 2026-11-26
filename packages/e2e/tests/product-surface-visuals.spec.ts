@@ -54,6 +54,29 @@ for (const theme of ['dark', 'light'] as const) {
       const id = await inactive.getAttribute('data-tab-id')
       await inactive.click()
       await expect(panel.locator(`[data-tab-id="${id}"]`)).toHaveAttribute('aria-selected', 'true')
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      const focused = panel.locator(`[data-tab-id="${id}"]`)
+      await expect(focused).toBeFocused()
+      expect(await focused.evaluate((element) => element.matches(':focus-visible'))).toBe(true)
+      const clipped = await focused.evaluate((element) => {
+        const bounds = element.getBoundingClientRect()
+        const style = getComputedStyle(element)
+        const extent = Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset)
+        const failures: string[] = []
+        for (let ancestor = element.parentElement; ancestor !== null; ancestor = ancestor.parentElement) {
+          const clip = getComputedStyle(ancestor)
+          const box = ancestor.getBoundingClientRect()
+          const left = box.left + ancestor.clientLeft
+          const top = box.top + ancestor.clientTop
+          if (/hidden|clip|auto|scroll/.test(clip.overflowX) &&
+              (bounds.left - extent < left || bounds.right + extent > left + ancestor.clientWidth)) failures.push(`${ancestor.className}: horizontal`)
+          if (/hidden|clip|auto|scroll/.test(clip.overflowY) &&
+              (bounds.top - extent < top || bounds.bottom + extent > top + ancestor.clientHeight)) failures.push(`${ancestor.className}: vertical`)
+        }
+        return failures
+      })
+      expect(clipped).toEqual([])
       await panel.locator(`[data-tab-id="${id}"]`).blur()
       await page.mouse.move(600, 400)
       await expect(page.getByTestId('app-tooltip')).toBeHidden()
