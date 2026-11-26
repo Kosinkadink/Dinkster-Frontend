@@ -5,6 +5,10 @@ export interface ModelRequirement {
   readonly kind: string
 }
 
+export class ModelDownloadBusyError extends Error {
+  constructor() { super('The engine is busy downloading another model.') }
+}
+
 export type ModelPresence = ModelRequirement & (
   | { readonly status: 'local' | 'model-hidden' | 'duplicate' }
   | { readonly status: 'folder-disabled'; readonly disabledLocations: readonly string[] }
@@ -31,7 +35,10 @@ export type ModelDownloadPlan =
   | { readonly status: 'folder-disabled'; readonly disabledLocations: readonly string[]; readonly detail: string }
   | { readonly status: 'picker-required'; readonly sources: readonly string[] }
   | { readonly status: 'destination-required' }
-  | { readonly status: 'credential-required' | 'provider-grant-required' | 'civitai-access-required' | 'model-hidden' | 'duplicate' }
+  | { readonly status: 'credential-required' | 'provider-grant-required' | 'civitai-access-required'
+      readonly provider?: 'huggingface' | 'civitai'
+      readonly source?: string }
+  | { readonly status: 'model-hidden' | 'duplicate' }
 
 export type ModelDownloadPhase = 'starting' | 'checking-existing' | 'downloading' | 'verifying' |
   'publishing' | 'indexing' | 'cancelling' | 'cancelled' | 'completed' | 'failed'
@@ -113,7 +120,15 @@ export function decodeModelDownloadPlan(raw: unknown): ModelDownloadPlan {
     case 'destination-required': return { status: 'destination-required' }
     case 'credential-required':
     case 'provider-grant-required':
-    case 'civitai-access-required':
+    case 'civitai-access-required': {
+      const provider = row['provider']
+      if (provider !== undefined && provider !== 'huggingface' && provider !== 'civitai')
+        throw new Error('Malformed model download provider')
+      return { status: row['status'],
+        ...(provider === undefined ? {} : { provider }),
+        ...(row['source'] === undefined ? {} : { source: text(row, 'source') }),
+      }
+    }
     case 'model-hidden':
     case 'duplicate': return { status: row['status'] }
     default: throw new Error('Unknown model download plan state')

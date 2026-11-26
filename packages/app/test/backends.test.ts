@@ -13,6 +13,7 @@ import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, resolveImport
 import { buildDinksterRegistry, EngineNotReadyError, type DinksterJobRecord, type SchemaRegistry, type WorkerInfo } from '@dinkster/client'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
+import { installAssetConsent } from '../src/dialog-requests.js'
 import { historicalSchemas } from './historical-schemas.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
@@ -170,6 +171,28 @@ describe('compileInputForTab capabilities', () => {
 })
 
 describe('addBackend / removeBackend', () => {
+
+  it('disconnect retires only its own download dialog and permits a fresh review', async () => {
+    const first = addOffline('http://first:8188')
+    const second = addOffline('http://second:8188')
+    const controller = app.modelDownloadsFor(first, 'studio')
+    const open = () => installAssetConsent({ models: [{ name: 'weights.safetensors', kind: 'model/vae' }],
+      slot: app.assetConsent, modelDownloads: { connection: first.connection, project: 'studio', controller } })
+    open()
+    const request = app.assetConsent.get()
+    app.disconnectBackend(second)
+    expect(app.assetConsent.get()).toBe(request)
+    app.disconnectBackend(first)
+    expect(app.assetConsent.get()).toBeUndefined()
+    const replacement = app.modelDownloadsFor(first, 'studio')
+    expect(replacement).not.toBe(controller)
+    installAssetConsent({ models: [{ name: 'weights.safetensors', kind: 'model/vae' }], slot: app.assetConsent,
+      modelDownloads: { connection: first.connection, project: 'studio', controller: replacement } })
+    vi.spyOn(first.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'engine', jobs: [] })
+    vi.spyOn(first.connection, 'planModelDownload').mockResolvedValue({ status: 'destination-required' })
+    await app.assetConsent.get()!.reviewModel!(0)
+    expect(app.assetConsent.get()?.models?.[0]?.plan).toEqual({ status: 'destination-required' })
+  })
 
   it('rejects a duplicate url with a diagnostic instead of a second entry', () => {
     addOffline('http://other:8188')

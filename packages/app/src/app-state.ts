@@ -200,6 +200,7 @@ import type { CanvasLens } from './data-lens.js'
 import { registerLocaleSetting } from './locale.js'
 import { runClock } from './execution-activity.js'
 import { registerThemeSetting } from './theme.js'
+import { ModelDownloadsController } from './model-downloads.js'
 import {
   assetGuessCandidateToRef,
   installAssetConsent,
@@ -2869,6 +2870,26 @@ export class AppState {
   readonly frozenEditRefusal = createSignal<{ readonly tabId: string } | undefined>(undefined)
   readonly cancellingExecutions = createSignal<ReadonlySet<string>>(new Set())
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
+  private readonly modelDownloadControllers = new Map<Backend, Map<string, ModelDownloadsController>>()
+
+  modelDownloadsFor(backend: Backend, project = activeProjectId()): ModelDownloadsController {
+    let projects = this.modelDownloadControllers.get(backend)
+    if (!projects) { projects = new Map(); this.modelDownloadControllers.set(backend, projects) }
+    let controller = projects.get(project)
+    if (!controller) {
+      controller = new ModelDownloadsController(backend.connection, project)
+      projects.set(project, controller)
+    }
+    return controller
+  }
+
+  private releaseModelDownloads(backend: Backend): void {
+    for (const controller of this.modelDownloadControllers.get(backend)?.values() ?? []) {
+      if (this.assetConsent.get()?.modelDownloadController === controller) this.assetConsent.set(undefined)
+      controller.dispose()
+    }
+    this.modelDownloadControllers.delete(backend)
+  }
   readonly storageOpenRequest = createSignal<{ readonly id: string; readonly hiddenModels: boolean } | undefined>(undefined)
   private modelReview: AbortController | undefined
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
@@ -3570,6 +3591,8 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    for (const projects of this.modelDownloadControllers.values()) for (const controller of projects.values()) controller.dispose()
+    this.modelDownloadControllers.clear()
     this.pages.dispose()
     for (const request of this.pendingComparisonCompiles.values()) {
       if (request.frame !== undefined) cancelAnimationFrame(request.frame)
@@ -4221,7 +4244,7 @@ export class AppState {
     const unsubscribe = [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate), this.backendsTick.subscribe(invalidate)]
     installAssetConsent({
       models: [{ name: data['name'], kind: data['kind'] }], slot: this.assetConsent, signal: controller.signal,
-      modelDownloads: { connection: backend.connection, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+      modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
       onSettled: () => {
         unsubscribe.forEach((dispose) => dispose())
@@ -5116,6 +5139,7 @@ export class AppState {
     const list = this.backends.get()
     const entry = list.find((b) => b.id === id)
     if (!entry || entry === list[0]) return // default is not removable
+    this.releaseModelDownloads(entry)
     this.supervisorPolls.get(id)?.()
     entry.connection.disconnect()
     entry.dispose()
@@ -5135,6 +5159,7 @@ export class AppState {
 
   /** Stop transport and supervisor polling without forgetting the server or its targets. */
   disconnectBackend(backend: Backend): void {
+    this.releaseModelDownloads(backend)
     this.supervisorPolls.get(backend.id)?.()
     backend.connection.disconnect()
   }
@@ -9582,7 +9607,7 @@ export class AppState {
     installAssetConsent({
       result: submitted,
       slot: this.assetConsent,
-      modelDownloads: { connection: backend.connection, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+      modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
       signal: lease.signal,
       onSettled: lease.release,

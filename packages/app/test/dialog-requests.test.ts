@@ -6,8 +6,9 @@
  * busy toggles on someone else's request, no stale accept/cancel dispatch.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { createSignal, type CommandInvocation } from '@dinkster/core'
-import type { AssetGuessCandidate, AssetGuessMatch, DinksterSubmitResult, MissingAsset } from '@dinkster/client'
+import { asConnectionId, createSignal, type CommandInvocation } from '@dinkster/core'
+import { DinksterConnection, type AssetGuessCandidate, type AssetGuessMatch, type DinksterSubmitResult, type MissingAsset, type ModelDownloadJob, type WebSocketLike } from '@dinkster/client'
+import { ModelDownloadsController } from '../src/model-downloads.js'
 import {
   assetGuessCandidateToRef,
   installAssetConsent,
@@ -60,6 +61,133 @@ const consentCallbacks = () => ({
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
 describe('installAssetConsent ownership', () => {
+  it('keeps a batch live across dismissal, queues busy folders and stops only the chosen model', async () => {
+    const requirements = [
+      { name: 'weights.safetensors', kind: 'model/vae' },
+      { name: 'weights.safetensors', kind: 'model/checkpoint' },
+      { name: 'three.safetensors', kind: 'model/vae' },
+      { name: 'four.safetensors', kind: 'model/vae' },
+      { name: 'five.safetensors', kind: 'model/vae' },
+      { name: 'six.safetensors', kind: 'model/vae' },
+    ]
+    const selections = requirements.map((requirement, index) => ({
+      ...requirement, project: 'studio', provider: 'huggingface' as const,
+      source: `https://huggingface.co/example/model/resolve/main/${requirement.name}`,
+      repo: 'example/model', revision: 'a'.repeat(40), file: requirement.name,
+      sha256: 'b'.repeat(64), size: 8192, license: 'apache-2.0',
+      destination: `/models/${index === 1 ? 0 : index}/${requirement.name}`, mount: `folder-${index === 1 ? 0 : index}`,
+      status: 'consent-required' as const, planId: `plan-${index}`,
+    }))
+    const jobs = new Map<string, ModelDownloadJob>()
+    const complete = (id: string): void => {
+      const job = jobs.get(id)!
+      jobs.set(id, { ...job, status: 'completed', received: job.size, path: job.destination, reused: false, renamed: false,
+        asset: { digest: `blake3:${'c'.repeat(64)}`, name: job.name, size: job.size,
+          mediaType: 'application/octet-stream', virtualPath: `models/${job.name}` } })
+    }
+    let lastStartBusy = true
+    let discoveryFails = false
+    let acceptStart!: () => void
+    let observeStart!: () => void
+    const startObserved = new Promise<void>((resolve) => { observeStart = resolve })
+    const startAccepted = new Promise<void>((resolve) => { acceptStart = resolve })
+    const connection = new DinksterConnection({ id: asConnectionId('downloads'), baseUrl: '/engine', clientId: 'test', project: 'studio',
+      webSocketFactory: () => ({}) as WebSocketLike,
+      fetchFn: async (url, init) => {
+        const path = new URL(url, 'http://localhost').pathname
+        if (path.endsWith('/plan')) {
+          const requested = JSON.parse(String(init?.body)) as { name: string; kind: string }
+          return new Response(JSON.stringify(selections.find((selection) => selection.name === requested.name && selection.kind === requested.kind)))
+        }
+        if (path.endsWith('/start')) {
+          const body = JSON.parse(String(init?.body)) as { planId: string; consent: boolean }
+          const selection = selections.find((selection) => selection.planId === body.planId)!
+          const active = [...jobs.values()].filter((job) => job.status === 'downloading')
+          if (!body.consent) return new Response('{}', { status: 403 })
+          if (selection.planId === 'plan-5' && lastStartBusy) {
+            lastStartBusy = false
+            return new Response(JSON.stringify({ error: 'model-download-busy' }), { status: 409 })
+          }
+          if (active.length >= 4 || active.some((job) => job.mount === selection.mount))
+            return new Response(JSON.stringify({ error: 'model-download-busy' }), { status: 409 })
+          const job = { ...selection, jobId: selection.planId, status: 'downloading' as const, received: 1024 }
+          jobs.set(job.jobId, job)
+          if (selection.planId === 'plan-0') { observeStart(); await startAccepted }
+          return new Response(JSON.stringify(job), { status: 202 })
+        }
+        if (path.endsWith('/downloads')) {
+          if (discoveryFails) throw new Error('Temporary observation failure')
+          return new Response(JSON.stringify({ instance: 'engine-one', jobs: [...jobs.values()] }))
+        }
+        const id = path.split('/').at(-1)!
+        const job = jobs.get(id)!
+        if (init?.method === 'DELETE') jobs.set(id, { ...job, status: 'cancelled' })
+        return new Response(JSON.stringify(jobs.get(id)))
+      },
+    })
+    const controller = new ModelDownloadsController(connection, 'studio')
+    const slot = slotOf<AssetConsentRequest>()
+    const open = () => installAssetConsent({ models: requirements, slot,
+      modelDownloads: { connection, project: 'studio', controller } })
+    try {
+      open()
+      for (let index = 0; index < requirements.length; index++) await slot.value!.reviewModel!(index)
+      discoveryFails = true
+      await slot.value!.downloadModels!([0, 1, 2, 3, 4, 5])
+      expect(slot.value!.models!.every((row) => row.queued)).toBe(true)
+      expect(jobs.size).toBe(0)
+      discoveryFails = false
+      const starting = controller.refresh()
+      await startObserved
+      controller.invalidate(requirements[0]!)
+      acceptStart()
+      await starting
+      expect(slot.value!.models!.map((row) => row.queued ? 'waiting' : row.job?.status)).toEqual([
+        'downloading', 'waiting', 'downloading', 'downloading', 'downloading', 'waiting',
+      ])
+      const dismissed = slot.value!
+      slot.set(undefined)
+      jobs.set('plan-2', { ...jobs.get('plan-2')!, received: 3072 })
+      await controller.refresh()
+      expect(slot.value).toBeUndefined()
+      open()
+      expect(slot.value!.models![2]!.job?.received).toBe(3072)
+      expect(slot.value!.retry).toBeUndefined()
+      await slot.value!.cancelModel!(1)
+      expect(slot.value!.models![1]!.queued).toBe(false)
+      expect(jobs.has('plan-1')).toBe(false)
+      await slot.value!.cancelModel!(0)
+      await controller.refresh()
+      expect(slot.value!.models![5]!.queued).toBe(true)
+      expect(slot.value!.models![5]!.error).toBeUndefined()
+      await controller.refresh()
+      expect(slot.value!.models!.map((row) => row.job?.status)).toEqual([
+        'cancelled', undefined, 'downloading', 'downloading', 'downloading', 'downloading',
+      ])
+      expect(slot.value!.models![2]!.job?.received).toBe(3072)
+      await dismissed.cancelModel!(2)
+      expect(jobs.get('plan-2')?.status).toBe('downloading')
+
+      complete('plan-2')
+      await controller.refresh()
+      expect(slot.value!.models![2]!.job?.status).toBe('completed')
+      await slot.value!.reviewModel!(2)
+      expect(slot.value!.models![2]!.plan?.status).toBe('consent-required')
+      expect(slot.value!.models![2]!.job).toBeUndefined()
+
+      complete('plan-5')
+      await controller.refresh()
+      const submitted = rejection([])
+      installAssetConsent({ result: { ...submitted.result, assetsMissing: { ...submitted.result.assetsMissing, models: [requirements[5]!] } },
+        slot, modelDownloads: { connection, project: 'studio', controller }, ...consentCallbacks() })
+      expect(slot.value!.models![0]!.job).toBeUndefined()
+      await slot.value!.retry!([])
+      expect(submitted.retries).toHaveLength(0)
+      await slot.value!.reviewModel!(0)
+      expect(slot.value!.models![0]!.plan?.status).toBe('consent-required')
+    } finally { slot.set(undefined); controller.dispose() }
+  })
+
   it('reviews and transfers one model without holding any submission retry', async () => {
     const slot = slotOf<AssetConsentRequest>()
     const requirement = { name: 'requested.safetensors', kind: 'model/vae' }

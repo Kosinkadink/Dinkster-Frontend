@@ -418,13 +418,19 @@ describe('model provider credentials', () => {
 
   it('returns credential and provider-grant refusals without treating either as download consent', async () => {
     let error = 'credential-required'
+    let provider = 'huggingface'
+    let source = 'https://huggingface.co/example/gated/resolve/main/gated.safetensors'
     const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test',
-      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider: 'huggingface', requirementId: 'opaque' }) })
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required' })
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider, source, requirementId: 'opaque', token: 'private-canary' }) })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required', provider, source })
     error = 'provider-grant-required'
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required' })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required', provider, source })
     error = 'civitai-access-required'
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'civitai-access-required' })
+    provider = 'civitai'
+    source = 'https://civitai.com/models/123'
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'civitai-access-required', provider, source })
+    provider = 'untrusted-host'
+    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Malformed model download provider')
     error = 'unrecognized-private-message'
     await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Model download POST failed: 409')
   })

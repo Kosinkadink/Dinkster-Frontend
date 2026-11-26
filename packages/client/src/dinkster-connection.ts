@@ -27,7 +27,7 @@ import { credentialFetch, mintDelegation, type CollabCredentials, type Delegatio
 import { requestWithDeadline } from './request-deadline.js'
 import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
   type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
-import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs, decodeModelPresence,
+import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs, decodeModelPresence, ModelDownloadBusyError,
   type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob, type ModelPresence } from './model-downloads.js'
 import {
   asPromptId,
@@ -3548,7 +3548,9 @@ export class DinksterConnection {
         const raw: unknown = await res.json().catch(() => undefined)
         if (path === 'plan' && res.status === 409 && record(raw) &&
           (raw['error'] === 'credential-required' || raw['error'] === 'provider-grant-required' || raw['error'] === 'civitai-access-required' || raw['error'] === 'model-hidden'))
-          return { status: raw['error'] }
+          return { ...raw, status: raw['error'], ...(typeof body?.['source'] === 'string' ? { source: body['source'] } : {}) }
+        if (path === 'start' && res.status === 409 && record(raw) && raw['error'] === 'model-download-busy')
+          throw new ModelDownloadBusyError()
         throw new Error(`Model download ${method} failed: ${res.status}`)
       }
       return res.json() as Promise<unknown>
