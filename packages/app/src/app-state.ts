@@ -46,6 +46,7 @@ import {
   connectSharedSession,
   type HistorySnapshot,
   type HistorySnapshotRecord,
+  type LinkEndpoint,
   type PatchOp,
   replayHistoryOps,
   jsonSameValue,
@@ -1407,7 +1408,7 @@ export interface AdjustmentNotice {
   readonly owner: string
   readonly adjustments: readonly Adjustment[]
   /** The recorded patches of every batch that made them, oldest first. */
-  readonly records: readonly HistorySnapshotRecord[]
+  readonly records: readonly (HistorySnapshotRecord & { readonly before: WorkflowDocument })[]
   /** The kind of adjustment each record made, in the order of `records`. */
   readonly recordKinds: readonly Adjustment['kind'][]
   /** Dismissed by its cross: only the status bar count remains. */
@@ -1488,6 +1489,34 @@ const adjustmentKeys = (op: PatchOp, kind: Adjustment['kind']): readonly string[
   if (kind === 'removedChoice' && path[0] === 'graphs' && path[2] === 'nodes' && path[4] === 'dynamic' && path.length >= 6)
     return [`${path[1]}/${path[3]}#${path[5]}`]
   return opNodeKeys(op)
+}
+
+/** Connected addresses, keeping input ports, output ports and widget taps distinct. */
+const graphAttachments = (graph: GraphDef): ReadonlyMap<string, readonly [NodeId, string, 'input' | 'output' | 'tap' | 'construct']> => {
+  const ends = new Map<string, readonly [NodeId, string, 'input' | 'output' | 'tap' | 'construct']>()
+  const add = (node: NodeId, port: string, kind: 'input' | 'output' | 'tap' | 'construct'): void => {
+    const end = [node, port, kind] as const
+    ends.set(JSON.stringify(end), end)
+  }
+  const endpoint = (end: LinkEndpoint, side: 'input' | 'output'): void => {
+    if ('node' in end) add(end.node, 'tap' in end ? end.tap : end.port, 'tap' in end ? 'tap' : side)
+  }
+  for (const link of Object.values(graph.links)) {
+    endpoint(link.from, 'output')
+    endpoint(link.to, 'input')
+  }
+  for (const net of Object.values(graph.nets)) {
+    endpoint(net.source, 'output')
+    for (const sink of net.sinks) endpoint(sink, 'input')
+  }
+  for (const side of ['inputs', 'outputs'] as const) for (const item of boundaryItems(graph.boundary, side)) {
+    for (const binding of [item.binds, ...item.alsoBinds ?? []]) {
+      if (binding.kind === 'widgetTap') add(binding.node, binding.tap, 'tap')
+      else if (binding.kind === 'construct') add(binding.node, binding.port, 'construct')
+      else if (binding.kind === 'port') add(binding.node, binding.port, side === 'inputs' ? 'input' : 'output')
+    }
+  }
+  return ends
 }
 
 const sameProblemIdentity = (a: OwnedDiagnostic, b: OwnedDiagnostic): boolean =>
@@ -5456,12 +5485,13 @@ export class AppState {
    */
   reportAdjustments(tab: Tab, record: HistorySnapshotRecord, adjustments: readonly Adjustment[]): void {
     if (adjustments.length === 0 || !this.tabs.get().includes(tab)) return
+    const before = replayHistoryOps(tab.store.doc, record.inverse).doc
     this.adjustmentNotices.update((current) => {
       const notice = current.get(tab.id)
       return new Map(current).set(tab.id, {
         owner: tab.id,
         adjustments: [...notice?.adjustments ?? [], ...adjustments],
-        records: [...notice?.records ?? [], record],
+        records: [...notice?.records ?? [], { ...record, before }],
         recordKinds: [...notice?.recordKinds ?? [], adjustments[0]!.kind],
         dismissed: notice?.dismissed ?? false,
       })
@@ -5504,7 +5534,9 @@ export class AppState {
       const ops = inverse.filter((entry) => !entry.keys.some((key) => kept.has(key))).map((entry) => entry.op)
       let stale: PatchOp | undefined
       try {
-        stale = replayHistoryOps(tab.store.doc, ops, { requireRecordedValues: true }).stale
+        const replay = replayHistoryOps(tab.store.doc, ops, { requireRecordedValues: true })
+        stale = replay.stale
+        if (stale === undefined && !this.adjustmentWiresSurvive(tab, notice, replay.doc)) return undefined
       } catch {
         return undefined
       }
@@ -5514,6 +5546,38 @@ export class AppState {
       if (keys.length === 0 || keys.every((key) => kept.has(key)) || !own.some((op) => pathsOverlap(op.path, stale.path))) return undefined
       for (const key of keys) kept.add(key)
     }
+  }
+
+  /** A new connection must still have its address after restoring the old node. */
+  private adjustmentWiresSurvive(tab: Tab, notice: AdjustmentNotice, restored: WorkflowDocument): boolean {
+    const registry = this.registryForTab(tab)
+    const resolve = registry === undefined ? undefined : documentNodeResolver(restored, this.resolverWithVirtualNodes(registry.resolve))
+    for (const graph of Object.values(restored.graphs)) {
+      const current = tab.store.doc.graphs[graph.id]
+      if (current === undefined || current === graph) continue
+      const currentEnds = graphAttachments(current)
+      const connected = buildGraphConnectivity(graph)
+      for (const [key, [id, port, kind]] of graphAttachments(graph)) {
+        const node = graph.nodes[id]
+        if (node === current.nodes[id] || !currentEnds.has(key)) continue
+        if (node === undefined) return false
+        const schema = resolve?.(graph.id, node)
+        if (schema === undefined) {
+          // An unavailable old schema can only vouch for addresses already
+          // connected before the first adjustment to this node.
+          const before = notice.records.find((record) => record.forward.some((op) =>
+            op.path[0] === 'graphs' && op.path[1] === graph.id && op.path[2] === 'nodes' && op.path[3] === id))?.before.graphs[graph.id]
+          if (before === undefined || !graphAttachments(before).has(key)) return false
+          continue
+        }
+        const elaborated = elaborateInterface(schema, node, connected(id))
+        const supported = kind === 'construct' ? elaborated.constructs.includes(port)
+          : kind === 'output' ? elabOutputsOf(elaborated).some((row) => row.address.port === port)
+          : elabInputsOf(elaborated).some((row) => row.address.port === port && (kind !== 'tap' || row.spec.widget !== undefined))
+        if (!supported) return false
+      }
+    }
+    return true
   }
 
   /**

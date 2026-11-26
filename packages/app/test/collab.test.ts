@@ -420,6 +420,77 @@ describe('the notice of the editor\'s own fixes in a shared workflow', () => {
     expect(sharedA().store.doc.graphs.g0!.nodes.n2!.values).toEqual({ amount: 30 })
     expect(sharedA().store.doc.graphs.g0!.nodes.n1!.type).toBe('Current')
   })
+
+  it.each([
+    { oldSchemaServed: false, side: 'input' }, { oldSchemaServed: true, side: 'input' },
+    { oldSchemaServed: false, side: 'output' }, { oldSchemaServed: true, side: 'output' },
+  ])('refuses notice Undo while a peer wire needs a replacement $side, old schema served=$oldSchemaServed', async ({ oldSchemaServed, side }) => {
+    const server = new FakeCollabServer()
+    const appA = makeApp(server)
+    const appB = makeApp(server)
+    const common = [
+      { kind: 'input', id: 'sharedIn', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+      { kind: 'output', id: 'sharedOut', type: { kind: 'concrete', types: ['INT'] } },
+    ]
+    for (const app of [appA, appB]) for (const backend of app.backends.get()) {
+      backend.registry.set(buildDinksterRegistry(asConnectionId(backend.id), {
+        schemaVersion: 1, epoch: 1, dinkster: { version: 'notice-collab', schemaWire: 2 }, packs: {},
+        nodes: {
+          ...(oldSchemaServed ? { Previous: { body: [...common,
+            { kind: 'input', id: 'oldAmount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+          ] } } : {}),
+          Current: {
+            body: [...common,
+              { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+              { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+            ],
+            replacements: [{ from: 'Previous', cases: [{ to: 'Current', inputs: {
+              amount: { kind: 'copy', input: 'oldAmount' }, sharedIn: { kind: 'copy', input: 'sharedIn' },
+            }, outputs: { sharedOut: 'sharedOut' } }] }],
+          },
+        },
+      } as DinksterNodesPayload))
+    }
+    expect(await appA.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'notice-peer-wire', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 3,
+        links: { original: { id: 'original', from: { node: 'n2', port: 'sharedOut' }, to: { node: 'n1', port: 'sharedIn' } } },
+        nets: {}, reroutes: {}, nodes: {
+          n1: { id: 'n1', type: 'Previous', values: { oldAmount: 11 } },
+          n2: { id: 'n2', type: 'Previous', values: { oldAmount: 29 } },
+        },
+      } }, view: { graphs: { g0: { nodes: {} } } },
+    }, 'Shared upgrade')).toEqual([])
+    const tabA = activeTab(appA)
+    await until(() => appA.adjustmentNoticeState(tabA.id) === 'ready', 'notice on open')
+    expect(await appA.shareActiveTab()).toBeUndefined()
+    expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
+    const tabB = activeTab(appB)
+    const sharedA = () => appA.tabs.get().find((tab) => tab.id === tabA.id)!
+    expect(tabB.store.dispatch({ command: 'link.connect', params: { graphId: 'g0',
+      from: { node: 'n1', port: side === 'output' ? 'out' : 'sharedOut' },
+      to: { node: 'n2', port: side === 'input' ? 'amount' : 'sharedIn' } } }).ok).toBe(true)
+    await sharedSession(appB, tabB.id).settle()
+    await until(() => Object.keys(sharedA().store.doc.graphs.g0!.links).length === 2, 'foreign wire')
+    const before = JSON.stringify(sharedA().store.doc)
+    expect(appA.adjustmentNoticeState(tabA.id)).toBe('refused')
+    expect(appA.undoAdjustments(tabA.id)).toBe(false)
+    expect(JSON.stringify(sharedA().store.doc)).toBe(before)
+    const linkId = Object.keys(tabB.store.doc.graphs.g0!.links).find((id) => id !== 'original')!
+    expect(tabB.store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId } }).ok).toBe(true)
+    if (oldSchemaServed) expect(tabB.store.dispatch({ command: 'link.connect', params: { graphId: 'g0',
+      from: { node: 'n1', port: 'sharedOut' }, to: { node: 'n2', port: 'sharedIn' } } }).ok).toBe(true)
+    await sharedSession(appB, tabB.id).settle()
+    await until(() => sharedA().store.doc.graphs.g0!.links[linkId] === undefined, 'peer removed replacement wire')
+    expect(appA.adjustmentNoticeState(tabA.id)).toBe('ready')
+    expect(appA.undoAdjustments(tabA.id)).toBe(true)
+    expect(sharedA().store.doc.graphs.g0!.nodes.n1!.type).toBe('Previous')
+    expect(sharedA().store.doc.graphs.g0!.links.original).toEqual({ id: 'original',
+      from: { node: 'n2', port: 'sharedOut' }, to: { node: 'n1', port: 'sharedIn' } })
+    expect(Object.values(sharedA().store.doc.graphs.g0!.links).filter((link) => link.id !== 'original')).toEqual(oldSchemaServed ? [
+      expect.objectContaining({ from: { node: 'n1', port: 'sharedOut' }, to: { node: 'n2', port: 'sharedIn' } }),
+    ] : [])
+  })
 })
 
 describe('share', () => {
