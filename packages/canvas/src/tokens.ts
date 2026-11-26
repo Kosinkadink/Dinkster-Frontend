@@ -724,10 +724,10 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   'core.audioRecord': { controlRows: 5 },
   // Start camera or Capture frame and Stop; the stored frame's line.
   'core.webcam': { picture: 180, controlRows: 2 },
-  // Camera projection, Field of view, then Model placement and Animation closed.
+  // Camera projection, Field of view, Model placement and Animation closed, then room for a problem note.
   'core.load3d': {
     picture: 200,
-    controlRows: 4,
+    controlRows: 5,
     // Model position, rotation and scale; Animation clip, its time, its speed, Play.
     sections: [{ id: 'placement', rows: 3 }, { id: 'animation', rows: 4 }],
   },
