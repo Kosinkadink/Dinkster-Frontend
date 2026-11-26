@@ -2647,12 +2647,21 @@ function compileImpl(
           continue
         }
       }
-      // The canvas shows a row this refuses even when it is hidden, by the same rule.
+      // A visible-hidden row is revealed; a declaration-hidden field belongs to the node.
       if (missingInputValue(input, value)) {
         // Server-side validation is authoritative; surface early as a warning.
-        diags.push(diag('warning', 'compile', 'compile.input.missing', `'${fn.node.type}' required input '${spec.id}' has no value or connection`, {
+        const hidden = input.hiddenByDeclaration === true
+        const label = spec.displayName ?? spec.id
+        const duplicate = hidden && fn.elab.inputs.some((other) => other !== input && other.hiddenByDeclaration === true
+          && !other.spec.optional && (other.spec.displayName ?? other.spec.id) === label)
+        const name = duplicate ? `${label} (${spec.id})` : label
+        const message = hidden
+          ? `${nameOf(fn.graphId, fn.node)} requires ${name} but hides it, so it cannot be set. The node's author has to fix this.`
+          : `'${fn.node.type}' required input '${spec.id}' has no value or connection`
+        diags.push(diag('warning', 'compile', 'compile.input.missing', message, {
           blocksExecution: true,
-          anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef },
+          ...(hidden ? { hiddenRequiredField: name } : {}),
+          anchor: { occurrence: fn.occ, ...(hidden ? {} : { port: { node: fn.occ.node, port: input.address.port } as PortRef }) },
         }))
       }
     }

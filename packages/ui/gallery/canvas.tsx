@@ -1,5 +1,10 @@
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
-import { registerCatalog, type WidgetRegistry } from '@dinkster/core'
+import {
+  registerCatalog,
+  type Json,
+  type WidgetRegistry,
+  type WidgetSpec,
+} from '@dinkster/core'
 import english from '../../app/src/locales/en.json'
 import {
   CanvasRenderer,
@@ -32,6 +37,11 @@ import {
 } from '../../canvas/gallery/fixtures.js'
 import { earlierWidgetRows } from '../../canvas/gallery/earlier-widget-rows.js'
 import {
+  earlierRowSummaries,
+  rowSummaryFocusSchema,
+  rowSummaryReadouts,
+} from '../../canvas/gallery/row-summaries.js'
+import {
   ProductButton,
   ProductDialog,
   ProductField,
@@ -44,8 +54,14 @@ import {
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
+import {
+  MARGIN,
+  NODE_WIDTH,
+  RowEditingExample,
+  RowEditingGallery,
+  SIDE_ROOM,
+} from './row-editing.js'
 import { InNodeEditorsGallery } from './in-node-editors.js'
-import { RowEditingGallery } from './row-editing.js'
 import { RowAutomaticGallery } from './row-automatic.js'
 import { RowListsGallery } from './row-lists.js'
 import { SaveTargetBoxGallery } from './save-target-box.js'
@@ -88,6 +104,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'save-target-box',
         'collection-rows',
         'editor-rows',
+        'row-summaries',
         'in-node-editors',
         'widget-driven',
         'widget-offered',
@@ -197,6 +214,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Multi-choice, list and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
     'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for. On a narrow node an empty row keeps its label whole and cuts what it asks for first.',
+  'row-summaries':
+    'What a closed row shows for its value, for the 15 kinds of field: empty or initial, set, and in a node too narrow for the whole value. Lists show values in stored order and then how many more, or only the count when not even one fits; a color keeps its square and code; Markdown shows its first line and how many lines it has; crop regions and video edits fall back to shorter forms. The save target row keeps its mount and last path segment when the full prefix does not fit. Rows that only open an editor say what they open. Resolution preview is removed by the node rewrite, where a note replaces it, and is shown unchanged. Pointing at a row lists its whole value, below. Known after a run and Nothing come from the row looks work and are not drawn here yet.',
   'in-node-editors':
     'The audio recorder, webcam, 3D viewer, image comparison, camera angle and curve fold out inside the node under their editor button row, and the rows below move down; clicking the row again folds them back. A folded row says what the editor holds. A palette is a group of color rows: it grows as colors are added and shows a limit only when its group declares one.',
   'widget-driven':
@@ -260,6 +279,12 @@ const rowsAfter: Variant = {
   id: 'raised-editors',
   caption: 'After',
 }
+const summariesBefore: Variant = {
+  id: 'earlier-summaries',
+  caption: 'Before',
+  tokens: (t) => t,
+  registry: earlierRowSummaries,
+}
 
 function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
   switch (page) {
@@ -320,6 +345,8 @@ function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
     case 'widget-companions':
     case 'widget-states':
       return [rowsBefore, rowsAfter]
+    case 'row-summaries':
+      return [summariesBefore, { ...current, id: 'summaries', caption: 'After' }]
     default:
       return [current]
   }
@@ -618,6 +645,13 @@ export function CanvasGallery() {
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
   registerCoreWidgets(widgetRegistrationDoors(registry))
+  const readoutLines = (spec: WidgetSpec, value: Json) => {
+    const kind = registry.kind(spec.widgetType)
+    const view = registry
+      .viewsFor(spec.widgetType)
+      .find((candidate) => candidate.id === kind?.defaultView(spec))
+    return view?.readout?.(value, spec) ?? []
+  }
   createEffect(() => {
     const currentTheme = theme()
     const currentPage = page()
@@ -839,6 +873,54 @@ export function CanvasGallery() {
               )}
             </ProductField>
           </ProductPanel>
+        </ProductSection>
+      </Show>
+      <Show when={page() === 'row-summaries'}>
+        <ProductSection
+          title="Readout on pointing"
+          description="Pointing at a row shows its whole value in the canvas tooltip, without opening the editor and without changing anything: the summary, then each item with its position, at most 20 before a count of the rest."
+        >
+          <div class="dinkster-canvas-examples">
+            <For each={rowSummaryReadouts}>
+              {(readout) => (
+                <ProductPanel>
+                  <p class="dinkster-metadata">{readout.label}</p>
+                  <For each={readoutLines(readout.spec, readout.value)}>
+                    {(line) => <p class="dinkster-description">{line}</p>}
+                  </For>
+                </ProductPanel>
+              )}
+            </For>
+          </div>
+        </ProductSection>
+        <ProductSection
+          title="Values beside the open row"
+          description="A value the side part names, such as the field's default, reads as the closed row would read it, in full, and never as JSON."
+        >
+          <div class="dinkster-canvas-comparison">
+            <h3>The crop row has the keyboard; its side part names the default.</h3>
+            <div class="dinkster-canvas-examples">
+              <For each={[['Before', true], ['After', false]] as const}>
+                {([caption, jsonDefault]) => (
+                  <RowEditingExample
+                    example={{
+                      id: 'crop-default',
+                      caption,
+                      scale: 1,
+                      width: MARGIN + NODE_WIDTH + SIDE_ROOM,
+                      node: { x: MARGIN, y: MARGIN },
+                      focus: 'crop',
+                      schema: rowSummaryFocusSchema,
+                    }}
+                    theme={theme()}
+                    registry={jsonDefault ? earlierRowSummaries(registry) : registry}
+                    jsonDefault={jsonDefault}
+                    testIdPrefix={`row-summaries-focus-${caption.toLowerCase()}`}
+                  />
+                )}
+              </For>
+            </div>
+          </div>
         </ProductSection>
       </Show>
       <Show when={badgeDetails()}>

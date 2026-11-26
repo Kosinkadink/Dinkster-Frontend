@@ -103,6 +103,22 @@ component gallery on loopback port 5276 after `pnpm build:ui`; production galler
 files are in `packages/ui/dist/gallery`. The gallery is an isolated reference,
 not an account service or a replacement for the app.
 
+The standalone `#page-tabs` gallery uses `WorkflowTabs` and the shared
+`createPageTabHost` from `packages/app/src/page-tabs.tsx`. A registered page
+has an id, title, icon and component; opening it again focuses its existing
+tab without replacing its opening parameters. The caller owns the mixed
+tab list and active id. `PageTabPanel` renders page content without a workflow
+document, and its context can close the page or replace it with a workflow
+at the same active position. Disabled or unregistered pages close; dirty,
+save and snapshot callbacks stay owned by each page.
+
+The app uses that same host as `app.pages`: register a descriptor, then call
+`app.pages.open(id, parameters)`. The shell renders its component beside real
+workflow tabs and confirms closing dirty pages. Pages remain session-only;
+`app.tabs`, workflow persistence and execution contain only documents. A page
+context's `replaceWithWorkflow(tab)` takes the real tab returned by a workflow
+open and retains the page's position in its editor group, including splits.
+
 The Canvas pages include Tabs at controls and content zoom in both themes:
 the subgraph mark in the title bar, tabs above and below the node, crowded
 icon strips and an overflow count, on open and minimized nodes. Hover reveals
@@ -134,6 +150,17 @@ every core tab once.
   focused. Navigation retains real link targets.
   `ProductPage` owns the page title and the normal/table content width;
   `ProductSection` owns a titled section inside it.
+- `createPageLoad` accepts one async read containing every fact that decides
+  the page, such as a `Promise.all` of independent requests. Before the first
+  result, `loading` stays false for 200ms; once true it stays visible for at
+  least 300ms, including on failure. `ProductPageLoad` draws the content area:
+  blank waiting, centred loading, or a failure notice with a retry button above
+  any retained answer. Pass the helper as `page`, the retry `read`, a
+  `loadingLabel` and a content render function. Its parent supplies the content
+  area's height; arriving content fades over 200ms unless motion is reduced.
+  `pending` covers the whole read, `value` retains the previous answer during
+  refresh, and `error` exposes a failed read. A newer `load` supersedes an older
+  completion; Solid owner disposal cancels timers and ignores late answers.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as
   solid/outline, and accepts native button attributes. `ProductIconButton` is
   the quiet, square icon-only control with a required accessible label and the
@@ -817,6 +844,8 @@ family members, propagated values and diagnostics. The widget-state page selects
 each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
 cover controls, content and overview detail. The minimap includes groups, links and reroutes.
 Core widget rows compares selected, empty and long values for the core kinds.
+Closed row summaries draws each kind's closed row empty, populated and in a
+narrow node, with incoming values, problems and the pointer readout.
 The default `widgetRowLook: 'raised-editors'` keeps a value typed in its row,
 color included, in an inset field, and raises every row that opens an editor:
 asset, recording, camera, 3D model, crop, compare, save target, video edit,
@@ -826,14 +855,26 @@ choice row. A row whose editor is parked (`PARKED_EDITOR_VIEWS`, today the
 compositor's layers) opens nothing, so it is drawn inset with its summary as
 plain text and no hover wash; its icon stays listed for when an editor
 returns. A color's 10 px square sits directly before its code, over a
-checker pattern when the color has opacity. A list shows as many values as fit,
-separated by a comma, then `+N`, each number written as stored in the shortest
-text that reads back as the same number, never rounded to the element's step;
-colors show as many squares as fit, then `+N`.
+checker pattern when the color has opacity. A list, several choices or several
+files show as many values as fit, in stored order and separated by a comma,
+then `+N`, each number written as stored in the shortest text that reads back
+as the same number, never rounded to the element's step; a choice reads as its
+option label, an empty item as `""`. When none fits whole the first is cut,
+unless less of it would stay visible than the count, which then stands alone
+(`3 selected`, `3 items`, `3 assets`). Markdown shows its first line
+with text and its line count, `# Heading (3 lines)`. A crop region reads
+`x 8, y 12; 512 x 768` and a video edit its trim and crop numbers, each with
+a shorter form for a narrow row (`8, 12 / 512 x 768`, `Trim + crop`); a value that fails its kind's
+validation reads `Invalid value` with its problem outline. The 3D, image
+comparison and camera angle rows say what they open (`Open 3D viewport`,
+`Open image comparison`, `Open camera angle`). Pointing at a row shows its
+summary and each item with its position in the tooltip, at most 20 and then
+how many more, fewer when the window is too short to hold them; the tooltip
+opens above the row when it does not fit below.
 A curve is drawn on its row's second line from the row's start, clear of the
 row's edges. An empty row says what it asks for ("Choose image", "Choose
-model", "Record audio", "Capture frame", "No edits", "Default output", "Empty",
-"No colors"); an empty number shows its declared `placeholder` or nothing. A
+model", "No clip", "No frame", "No edits", "Default output", "Empty",
+"No selections"); an empty number shows its declared `placeholder` or nothing. A
 value passed down a wire shows the same text, square or squares its own row
 would. The widget pages (Widget kinds, Core widget rows, Collection widget rows,
 Rows that open an editor, and the link-driven, offered, propagated and state
