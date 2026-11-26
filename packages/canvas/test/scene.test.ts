@@ -25,6 +25,8 @@ import {
   type NodeProgress,
   type NodeSchema,
   type WorkflowDocument,
+  boundaryOf,
+  boundaryItems,
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
 import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, nodeStatesForGraph, scenesEqual, updateSceneNodePositions, updateSceneNodeValues, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, type Scene } from '../src/scene.js'
@@ -703,8 +705,8 @@ describe('buildScene', () => {
           links: {},
           nets: {},
           reroutes: {},
-          boundary: {
-            inputs: [{
+          boundary: boundaryOf(
+            [{
               id: 'input',
               binds: {
                 kind: 'port',
@@ -712,8 +714,8 @@ describe('buildScene', () => {
                 port: asPortId('items.value0'),
               },
             }],
-            outputs: [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('result') } }],
-          },
+            [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('result') } }],
+          ),
           nextOrdinal: 1,
         },
       },
@@ -827,10 +829,10 @@ describe('buildScene', () => {
           links: {},
           nets: {},
           reroutes: {},
-          boundary: {
-            inputs: [{ id: 'input', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('input') } }],
-            outputs: [{ id: 'output', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('output') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: 'input', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('input') } }],
+            [{ id: 'output', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('output') } }],
+          ),
           nextOrdinal: 1,
         },
         body: {
@@ -840,10 +842,10 @@ describe('buildScene', () => {
           links: {},
           nets: {},
           reroutes: {},
-          boundary: {
-            inputs: [{ id: 'input', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('in') } }],
-            outputs: [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('out') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: 'input', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('in') } }],
+            [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('out') } }],
+          ),
           nextOrdinal: 1,
         },
       },
@@ -1524,10 +1526,10 @@ describe('solver verdicts on scene edges', () => {
           id: asGraphDefId('body'), name: 'Body',
           nodes: { work: { id: asNodeId('work'), type: bodyNode.type, values: {} } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-          boundary: {
-            inputs: [{ id: asPortId('item'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
-            outputs: [{ id: asPortId('result'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: asPortId('item'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
+            [{ id: asPortId('result'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
+          ),
         },
       },
       view: { graphs: { root: { nodes: {} }, body: { nodes: {} } } },
@@ -1830,10 +1832,10 @@ describe('boundary pseudo-nodes', () => {
         ...doc.graphs,
         g1: {
           ...g1,
-          boundary: {
-            ...g1.boundary!,
-            outputs: [{ id: 'color', binds: { kind: 'widgetTap', node: 'n0', tap: 'color' } }],
-          },
+          boundary: boundaryOf(
+            boundaryItems(g1.boundary, 'inputs'),
+            [{ id: asPortId('color'), binds: { kind: 'widgetTap', node: asNodeId('n0'), tap: asPortId('color') } }],
+          ),
         },
       },
     } as unknown as WorkflowDocument
@@ -1872,17 +1874,17 @@ describe('boundary pseudo-nodes', () => {
   it('fan-out (alsoBinds) renders one noodle per binding from the same boundary pin', () => {
     const doc = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document as WorkflowDocument
     const g1 = doc.graphs['g1']!
-    const item = g1.boundary!.inputs[0]! // 'color' -> n0/color
+    const item = boundaryItems(g1.boundary, 'inputs')[0]! // 'color' -> n0/color
     const patched: WorkflowDocument = {
       ...doc,
       graphs: {
         ...doc.graphs,
         g1: {
           ...g1,
-          boundary: {
-            ...g1.boundary!,
-            inputs: [{ ...item, alsoBinds: [{ kind: 'port', node: 'n0', port: 'width' } as (typeof item)['binds']] }],
-          },
+          boundary: boundaryOf(
+            [{ ...item, alsoBinds: [{ kind: 'port', node: 'n0', port: 'width' } as (typeof item)['binds']] }],
+            boundaryItems(g1.boundary, 'outputs'),
+          ),
         },
       },
     } as WorkflowDocument
@@ -1923,9 +1925,9 @@ describe('boundary pseudo-nodes', () => {
       }, g1: { ...body,
       reroutes: { junction: { id: r } },
       links: { feed: { id: asLinkId('feed'), from: { reroute: r }, to: { node: asNodeId('n0'), port: asPortId('color') } } },
-      boundary: { ...body.boundary!, inputs: [{ ...body.boundary!.inputs[0]!, binds: {
+      boundary: boundaryOf([{ ...boundaryItems(body.boundary, 'inputs')[0]!, binds: {
         kind: 'port', node: asNodeId('n0'), port: asPortId('color'), viaReroute: r,
-      } }] },
+      } }], boundaryItems(body.boundary, 'outputs')),
     } }, view: { ...original.view, graphs: { ...original.view.graphs, g1: {
       ...original.view.graphs.g1!, reroutes: { junction: { position: { x: -80, y: 95 } } },
     } } } }
@@ -1995,7 +1997,7 @@ describe('an editor on the Inputs panel', () => {
         g1: {
           id: 'g1', name: 'Sub', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
           nodes: { inner: { id: 'inner', type: 'Rec', values: {} } },
-          boundary: { inputs: [{ id: 'clip', promoted: true, binds: { kind: 'port', node: 'inner', port: 'clip' } }], outputs: [] },
+          boundary: { body: [{ kind: 'input', id: 'clip', promoted: true, binds: { kind: 'port', node: 'inner', port: 'clip' } }] },
         },
       },
       view: { graphs: {

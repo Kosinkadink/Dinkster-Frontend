@@ -44,15 +44,15 @@
       "nets": {},
       "reroutes": {},
       "boundary": {
-        "inputs": [
+        "body": [
           {
+            "kind": "input",
             "id": "color",
             "binds": { "kind": "port", "node": "n0", "port": "color" },
             "promoted": true
-          }
-        ],
-        "outputs": [
+          },
           {
+            "kind": "output",
             "id": "image",
             "binds": { "kind": "port", "node": "n0", "port": "out0" }
           }

@@ -224,6 +224,77 @@ test('setup feedback exposes known fractions, unknown progress and non-dismissab
   }
 })
 
+test('opt-in menus filter labels and keep keyboard editing, enabled selection and dismissal', async ({ page }, testInfo) => {
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/?theme=dark#menu-filter')
+    const trigger = page.getByRole('button', { name: 'Choose a format', exact: true })
+    await trigger.click()
+    const input = page.getByRole('textbox', { name: 'Filter formats' })
+    const menu = page.getByRole('menu', { name: 'Choose a format' })
+    await expect(input).toBeFocused()
+    const active = () => menu.locator('[data-active]')
+    await expect(active()).toHaveAccessibleName('Image')
+    await expect(input).toHaveCSS('outline-style', 'none')
+    await expect(input).toHaveCSS('border-top-color', await token(page, '--dinkster-text-secondary'))
+    await expect(active()).toHaveCSS('background-color', await token(page, '--dinkster-interaction-hover'))
+    await page.screenshot({ path: testInfo.outputPath(`menu-filter-open-dark-${width}.png`) })
+    await input.press('ArrowDown')
+    await input.press('ArrowDown')
+    await expect(active()).toHaveAccessibleName('Audio')
+    await expect(input).toBeFocused()
+    await page.screenshot({ path: testInfo.outputPath(`menu-filter-moved-dark-${width}.png`) })
+    await input.fill('iMaGe')
+    await expect(active()).toHaveAccessibleName('Image')
+    await expect(menu.getByRole('menuitemcheckbox')).toHaveCount(2)
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Image', exact: true })).toBeChecked()
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Image file', exact: true })).toHaveAccessibleDescription('An image stored in a file.')
+    await expect(menu.getByRole('menuitem', { name: 'Image sequence' })).toBeDisabled()
+    await input.press('Home')
+    expect(await input.evaluate((node: HTMLInputElement) => node.selectionStart)).toBe(0)
+    await input.press('End')
+    expect(await input.evaluate((node: HTMLInputElement) => node.selectionStart)).toBe(5)
+    await input.press('ArrowUp')
+    await expect(active()).toHaveAccessibleName('Image file')
+    await expect(input).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(active()).toHaveAccessibleName('Image')
+    await page.keyboard.press('ArrowDown')
+    await page.screenshot({ path: testInfo.outputPath(`menu-filter-filtered-dark-${width}.png`) })
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    await expect(page.getByRole('status').filter({ hasText: 'Image file selected' })).toBeVisible()
+    await trigger.press('ArrowDown')
+    await expect(input).toBeFocused()
+    await expect(input).toHaveValue('')
+    await input.fill('sequence')
+    await expect(active()).toHaveCount(0)
+    await input.press('ArrowDown')
+    await input.press('Enter')
+    await expect(input).toBeFocused()
+    await expect(menu.getByRole('menuitem', { name: 'Image sequence' })).toBeDisabled()
+    await input.fill('stored')
+    await expect(menu.getByRole('menuitem')).toHaveCount(0)
+    await expect(page.getByRole('status', { name: '', exact: true }).filter({ hasText: 'No matches' })).toBeVisible()
+    await expect(active()).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath(`menu-filter-empty-dark-${width}.png`) })
+    await input.press('ArrowDown')
+    await input.press('Enter')
+    await expect(input).toBeFocused()
+    await input.fill('AuD')
+    await input.press('Enter')
+    await expect(menu).toHaveCount(0)
+    await expect(page.getByRole('status').filter({ hasText: 'Audio selected' })).toBeVisible()
+    await trigger.click()
+    await input.press('Escape')
+    await expect(trigger).toBeFocused()
+    await trigger.click()
+    await page.getByRole('heading', { name: 'Menu filter', exact: true }).click()
+    await expect(menu).toHaveCount(0)
+  }
+})
+
 test('described menu choices keep separate accessible descriptions, checks and ordinary item behavior', async ({ page }) => {
   for (const theme of ['dark', 'light']) {
     for (const width of [1280, 390]) {
@@ -577,6 +648,48 @@ test('quiet text menus keep shared focus, checked selection and dismissal withou
     await expect(section.getByRole('menu')).toBeVisible()
     await expect(outlined).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await page.keyboard.press('Escape')
+  }
+})
+
+test('menu end alignment preserves the trigger edge and viewport containment', async ({ page }, testInfo) => {
+  for (const width of [1280, 600, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/?theme=dark#menu-alignment')
+    const end = page.getByRole('button', { name: 'End actions', exact: true })
+    const start = page.getByRole('button', { name: 'Start actions', exact: true })
+    await end.click()
+    const menu = page.getByRole('menu', { name: 'End actions', exact: true })
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Recommended build', exact: true })).toBeFocused()
+    const anchor = (await end.boundingBox())!
+    const bounds = (await menu.boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(8)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8)
+    if (width === 1280) {
+      expect(anchor.x + bounds.width).toBeLessThanOrEqual(width - 8)
+      expect(anchor.x + anchor.width - bounds.width).toBeGreaterThanOrEqual(8)
+    }
+    if (anchor.x + anchor.width - bounds.width >= 8) {
+      expect(bounds.x + bounds.width).toBe(anchor.x + anchor.width)
+    }
+    await page.screenshot({ path: testInfo.outputPath(`menu-end-${width}.png`) })
+    await page.keyboard.press('ArrowDown')
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Alternative build', exact: true })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveCount(0)
+    await expect(end).toBeFocused()
+    await start.click()
+    const startMenu = page.getByRole('menu', { name: 'Start actions', exact: true })
+    const startAnchor = (await start.boundingBox())!
+    const startBounds = (await startMenu.boundingBox())!
+    expect(startBounds.x).toBeGreaterThanOrEqual(8)
+    expect(startBounds.x + startBounds.width).toBeLessThanOrEqual(width - 8)
+    if (startAnchor.x + startBounds.width <= width - 8) expect(startBounds.x).toBe(startAnchor.x)
+    await page.screenshot({ path: testInfo.outputPath(`menu-start-${width}.png`) })
+    await page.keyboard.press('Escape')
+    await expect(start).toBeFocused()
+    await end.click()
+    await page.getByRole('heading', { name: 'Menu alignment', exact: true }).click()
+    await expect(menu).toHaveCount(0)
   }
 })
 

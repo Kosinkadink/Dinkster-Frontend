@@ -14,6 +14,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { JsonObject } from '../src/format/document.js'
+import { boundaryItems } from '../src/format/document.js'
 import { importLitegraph, resolveImportedNodePacks, type ComfyNodeUpgradeTable, type ComfyTranslation } from '../src/format/import-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
@@ -3471,7 +3472,7 @@ it('imports a ComfyUI FLOATS wire into Create Hook Keyframes From Floats as list
   expect(solved.portTypeOf(asNodeId('n3'), 'output', 'list')).toEqual({ kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } })
   expect([...solved.linkVerdicts.values()]).toEqual(['ok', 'ok', 'ok'])
   // A FLOATS slot with nothing inside to take its type from still names list<FLOAT>.
-  expect(imported.document!.graphs.sg!.boundary!.inputs[0]!.binds).toEqual(
+  expect(boundaryItems(imported.document!.graphs.sg!.boundary, 'inputs')[0]!.binds).toEqual(
     { kind: 'unbound', type: { kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } } })
 
   // FLOATS outputs in the wild come from custom packs: an uninstalled producer

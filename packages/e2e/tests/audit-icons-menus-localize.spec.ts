@@ -44,7 +44,7 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
         },
         shared: {
           id: 'shared', name: 'Shared', nodes: {}, links: {}, nets: {}, reroutes: {},
-          boundary: { inputs: [], outputs: [] }, nextOrdinal: 0,
+          boundary: { body: [] }, nextOrdinal: 0,
         },
         loopBody: {
           id: 'loopBody', name: 'Loop body',
@@ -54,10 +54,10 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
           },
           links: {}, nets: {}, reroutes: {},
           boundary: {
-            inputs: [{ id: 'state', binds: { kind: 'port', node: 'state', port: 'value' } }],
-            outputs: [
-              { id: 'result', binds: { kind: 'port', node: 'state', port: 'FLOAT' } },
-              { id: 'continue', binds: { kind: 'port', node: 'condition', port: 'BOOLEAN' } },
+            body: [
+              { kind: 'input', id: 'state', binds: { kind: 'port', node: 'state', port: 'value' } },
+              { kind: 'output', id: 'result', binds: { kind: 'port', node: 'state', port: 'FLOAT' } },
+              { kind: 'output', id: 'continue', binds: { kind: 'port', node: 'condition', port: 'BOOLEAN' } },
             ],
           },
           nextOrdinal: 2,

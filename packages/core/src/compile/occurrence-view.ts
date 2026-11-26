@@ -4,6 +4,7 @@ import { subgraphDefIdOf } from '../invariants.js'
 import { resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, projectConstructs, projectEditableOptions } from './crossing.js'
 import { documentNodeResolver } from './compile.js'
+import { boundaryItems } from '../format/document.js'
 
 export interface ValueOwner {
   readonly graphId: string
@@ -30,7 +31,7 @@ export interface OccurrenceDynamicView {
  */
 export function definitionPick(doc: WorkflowDocument, defId: string, port: string, resolveSchema: SchemaResolver): string | undefined {
   const child = doc.graphs[defId]
-  const match = child?.boundary === undefined ? undefined : matchBoundaryItem(child.boundary.inputs, { port })
+  const match = child?.boundary === undefined ? undefined : matchBoundaryItem(boundaryItems(child.boundary, 'inputs'), { port })
   if (!match?.ok) return undefined
   const resolveNode = documentNodeResolver(doc, resolveSchema)
   for (const binding of [match.item.binds, ...(match.item.alsoBinds ?? [])]) {
@@ -118,7 +119,7 @@ export function occurrenceDynamicView(
     const childEvidence = authoredInputEvidence(doc, child, [...traversedPath, hop])
     const childOwner = { instancePath: traversedPath.map(asNodeId), node: asNodeId(hop) }
     const suppressed = new Set((doc.occurrenceTopologies?.[occurrenceKey(childOwner)]?.suppressedDeliveries ?? []).map(suppressedDeliveryKey))
-    for (const evidence of instanceEvidence) for (const item of child.boundary.inputs) {
+    for (const evidence of instanceEvidence) for (const item of boundaryItems(child.boundary, 'inputs')) {
       const whole = item.binds.kind === 'construct'
       if (evidence.ref.port !== item.id && !(whole && evidence.ref.port.startsWith(`${item.id}.`))) continue
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
@@ -139,7 +140,7 @@ export function occurrenceDynamicView(
     const constructs = projectConstructs(child, { values: instanceValues, ...(instanceDynamic !== undefined ? { dynamic: instanceDynamic } : {}) }, (inner) => resolveNode(child.id, inner), childOverlays)
     for (const [target, dynamic] of constructs.dynamic) childOverlays.set(target, dynamic)
     for (const [target, projected] of constructs.values) childValues.set(target, projected)
-    for (const item of child.boundary.inputs) {
+    for (const item of boundaryItems(child.boundary, 'inputs')) {
       const owner = valueOwners.get(hop)?.get(item.id) ?? { graphId: def.id, nodeId: hop, valueKey: item.id }
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.kind !== 'port') continue
