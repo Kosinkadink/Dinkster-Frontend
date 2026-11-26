@@ -3267,6 +3267,20 @@ describe('numeric widget steppers', () => {
     expect(activate).not.toHaveBeenCalled()
   })
 
+  it.each(['core.audioRecord', 'core.webcam', 'core.load3d', 'core.imageCompare', 'core.cameraAngle', 'core.curve'])(
+    'keeps the fold action reachable on a wired %s row without writing a value', (viewId) => {
+      const scene = interactionScene() as any
+      scene.nodes[0].layout.rows[0].viewId = viewId
+      scene.links = [{ id: 'l1', from: { kind: 'port', node: 'n2', port: 'out' }, to: { kind: 'port', node: 'n1', port: 'amount' }, x1: 0, y1: 0, x2: 0, y2: 0 }]
+      const opened: string[] = []
+      const harness = interactionHarness(scene, { onWidgetActivate: (hit) => opened.push(hit.row.valueKey) })
+      harness.fire('pointerdown', 55, 35)
+      harness.fire('pointerup', 55, 35)
+      expect(opened).toEqual(['amount'])
+      expect(harness.dispatched).toEqual([])
+    },
+  )
+
   it('allows a selector row stepper when its only incoming link is a boundary binding', () => {
     const scene = interactionScene() as any
     scene.nodes[0].layout.rows[0].selector = 'occurrence-selector'

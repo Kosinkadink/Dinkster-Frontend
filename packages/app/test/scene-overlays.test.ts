@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { buildScene, defaultTokens, DEPRECATED_BADGE, executionErrorBadge, LAST_RUN_BADGE, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
-import { asConnectionId, asGraphDefId, asLinkId, asNodeId, asPortId, compile, occurrenceKey, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { asConnectionId, asGraphDefId, asLinkId, asNodeId, asPortId, compile, documentNodeResolver, documentPrimitiveResolver, inputsOf, occurrenceKey, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, representedPreviewAssetForNode, withRecordedAutomaticValues, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
@@ -1017,7 +1017,7 @@ describe('deriveSceneOverlays', () => {
     expect(m.companions).toEqual({ sink: { number: { value: 0 }, text: { value: '' } } })
   })
 
-  it('shows on a field an empty primitive feeds the default of the first field it feeds, and a run sends it', () => {
+  it('shows and sends the first fed field value or default for an empty primitive without changing stored values', () => {
     const variable = { kind: 'variable', templateId: 'value' }
     const curve = { interpolation: 'monotone_cubic', points: [[0, 0], [1, 1]] }
     const twoPoints = { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }
@@ -1073,6 +1073,29 @@ describe('deriveSceneOverlays', () => {
       c: { count: { value: 50 } },
       editor: { curve: { value: twoPoints } },
     })
+
+    const storedDef: GraphDef = { ...def, nodes: { ...def.nodes,
+      a: { ...def.nodes['a']!, values: { count: 12 } },
+      b: { ...def.nodes['b']!, values: { count: 27 } },
+      c: { ...def.nodes['c']!, values: { count: 0 } },
+    } }
+    const storedDoc = { ...doc, graphs: { g0: storedDef } }
+    const resolved = documentNodeResolver(storedDoc, resolveSchema, documentPrimitiveResolver(storedDoc, resolveSchema))
+    expect(inputsOf(resolved('g0', storedDef.nodes['number']!)!).find((field) => field.id === 'value')?.widget?.default).toBe(12)
+    expect(inputsOf(resolved('g0', storedDef.nodes['int']!)!).find((field) => field.id === 'value')?.widget?.default).toBe(1)
+    expect(deriveSceneOverlays({ ...base, doc: storedDoc, def: storedDef, resolveSchema }).companions).toMatchObject({
+      a: { count: { value: 12 } }, b: { count: { value: 12 } }, c: { count: { value: 1 } },
+    })
+    const storedRun = compile({ document: storedDoc, revision: 2, resolve: resolveSchema, scope: { kind: 'full' },
+      connection: asConnectionId('c0'), schemaHash: 'h', graphFeatures: ['regions', 'typedLiteral'] })
+    expect(storedRun.ok).toBe(true)
+    if (!storedRun.ok) return
+    const storedSent = storedRun.artifact.dinksterGraph!.nodes as Record<string, { inputs: Record<string, unknown> }>
+    expect(storedSent['number']!.inputs).toEqual({ value: { $typed: { type: 'INT', value: 12 } } })
+    expect(storedSent['c']!.inputs).toEqual({ count: 1 })
+    expect(storedDef.nodes['a']!.values).toEqual({ count: 12 })
+    expect(storedDef.nodes['b']!.values).toEqual({ count: 27 })
+    expect(storedDef.nodes['c']!.values).toEqual({ count: 0 })
   })
 
   it('shows on a field a tap feeds the automatic value the tapped field has in use, as a run sends it', () => {

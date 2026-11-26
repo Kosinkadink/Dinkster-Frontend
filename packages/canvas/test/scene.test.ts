@@ -1445,8 +1445,9 @@ describe('solver verdicts on scene edges', () => {
     const scene = verdictScene('link')
     const bad = scene.links.find((l) => l.id === 'bad')!
     expect(bad.mismatch).toBe(true)
+    expect(bad.mismatchKind).toBe('warning')
     expect(bad.diagnostics).toEqual([
-      expect.objectContaining({ code: 'solve.linkMismatch', message: 'c1.in: IMAGE cannot feed LATENT' }),
+      expect.objectContaining({ code: 'solve.linkMismatch', message: 'Sink: In needs latent data, but IMAGE sends an image.' }),
     ])
     const good = scene.links.find((l) => l.id === 'good')!
     expect(good.mismatch).toBeUndefined()
@@ -1460,12 +1461,15 @@ describe('solver verdicts on scene edges', () => {
     const [bad, good] = scene.links.filter((l) => l.netId === 'n')
     expect(bad).toMatchObject({
       mismatch: true,
+      mismatchKind: 'warning',
       diagnostics: [expect.objectContaining({ code: 'solve.linkMismatch' })],
     })
     expect(good!.mismatch).toBeUndefined()
     expect(good!.diagnostics).toBeUndefined()
     expect(scene.netStubs.find((stub) => stub.role === 'source')!.mismatch).toBe(true)
+    expect(scene.netStubs.find((stub) => stub.role === 'source')!.mismatchKind).toBe('warning')
     expect(scene.netStubs.find((stub) => stub.nodeId === 'c1')!.mismatch).toBe(true)
+    expect(scene.netStubs.find((stub) => stub.nodeId === 'c1')!.mismatchKind).toBe('warning')
     expect(scene.netStubs.find((stub) => stub.nodeId === 'cImage')!.mismatch).toBeUndefined()
   })
 
@@ -1474,8 +1478,9 @@ describe('solver verdicts on scene edges', () => {
     expect(links).toHaveLength(2)
     for (const link of links) {
       expect(link.mismatch).toBe(true)
+      expect(link.mismatchKind).toBe('warning')
       expect(link.diagnostics).toEqual([
-        expect.objectContaining({ code: 'solve.varConflict', message: 'sw.T: connected types have no common match' }),
+        expect.objectContaining({ code: 'solve.varConflict', message: 'Variable switch: In receives an image, but its output feeds the input in of Sink, which needs latent data.' }),
       ])
     }
   })

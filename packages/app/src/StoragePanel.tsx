@@ -15,7 +15,7 @@ type NativeBackend = Extract<Backend, { protocol: 'dinkster' }>
 
 export function StoragePanel(props: {
   readonly app: AppState
-  readonly focusBackend: { readonly id: string } | undefined
+  readonly focusBackend: { readonly id: string; readonly hiddenModels?: boolean } | undefined
   readonly activeBackend: () => Backend
   readonly onOpenAssets: (backend: Backend) => void
 }) {
@@ -33,7 +33,8 @@ export function StoragePanel(props: {
     </Show>
     <Show when={backend().protocol === 'dinkster' ? backend() as NativeBackend : undefined} keyed
       fallback={<ProductNotice>{message('storagePanel.noFolders')}</ProductNotice>}>
-      {(native) => <StorageFolders connection={native.connection} backendUrl={native.baseUrl} onOpenAssets={() => props.onOpenAssets(native)} />}
+      {(native) => <StorageFolders connection={native.connection} backendUrl={native.baseUrl}
+        focus={props.focusBackend?.id === native.id ? props.focusBackend : undefined} onOpenAssets={() => props.onOpenAssets(native)} />}
     </Show>
   </section>
 }
@@ -42,6 +43,7 @@ export function StorageFolders(props: {
   readonly connection: DinksterConnection
   readonly backendUrl: string
   readonly onOpenAssets: () => void
+  readonly focus?: { readonly hiddenModels?: boolean } | undefined
 }) {
   const message = useAppMessage()
   const [settings, setSettings] = createSignal<MountSettings>()
@@ -89,6 +91,10 @@ export function StorageFolders(props: {
     onCleanup(connection.onMountsChanged(() => { if (!busy()) void load() }))
     onCleanup(() => { generation++; read++ })
     untrack(() => { void load() })
+  })
+  createEffect(() => {
+    const request = props.focus
+    if (request !== undefined) setEditing(request.hiddenModels ? 'models' : undefined)
   })
   const perform = async (action: () => Promise<unknown>) => {
     if (busy()) return
@@ -222,7 +228,7 @@ export function StorageFolders(props: {
         {(editor) => <>
           <ProductButton onClick={() => { setEditing(undefined); void load() }}>{message('storagePanel.back')}</ProductButton>
           <Show when={editor() === 'model'}><ModelSettings connection={props.connection} backendLabel="" backendUrl={props.backendUrl} editLocation={editModel()} onChanged={() => { setEditing(undefined); void load() }} /></Show>
-          <Show when={editor() === 'models'}><ModelSettings connection={props.connection} providerConnection={props.connection} visibilityConnection={props.connection} backendLabel="" backendUrl={props.backendUrl} onChanged={() => { void load() }} /></Show>
+          <Show when={editor() === 'models'}><ModelSettings connection={props.connection} providerConnection={props.connection} visibilityConnection={props.connection} backendLabel="" backendUrl={props.backendUrl} focusHiddenModels={props.focus?.hiddenModels === true} onChanged={() => { void load() }} /></Show>
           <Show when={editor() === 'folders'}><ProductSection title={message('storagePanel.addFolder')}><MountFolderForm connection={props.connection} backendUrl={props.backendUrl} onGranted={() => { setEditing(undefined); void load() }} /></ProductSection></Show>
           <Show when={editor() === 'output'}><OutputMountSettings connection={props.connection} /></Show>
         </>}

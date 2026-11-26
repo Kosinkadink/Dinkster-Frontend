@@ -2094,14 +2094,14 @@ function setEditorViewEntry(
   tx: Parameters<CommandDefinition['run']>[2],
   id: string,
   params: JsonObject,
-  record: 'editors' | 'pictureHeights',
+  record: 'editors' | 'pictureHeights' | 'histogramVisibility',
   entry: Json | null,
 ): readonly Diagnostic[] {
   const def = graphOf(doc, params.graphId)
   if (!def) return [err('graph.missing', `${id}: unknown graph '${String(params.graphId)}'`)]
   const graphId = params.graphId as string
   const valueKey = params.valueKey as string
-  let owner: Readonly<Partial<Record<'editors' | 'pictureHeights', Readonly<Record<string, Json>>>>> | undefined
+  let owner: Readonly<Partial<Record<'editors' | 'pictureHeights' | 'histogramVisibility', Readonly<Record<string, Json>>>>> | undefined
   let ownerPath: string[]
   if (params.inputsPanel === true) {
     if (!def.boundary) return [err('graph.notSubgraph', `${id}: graph '${graphId}' has no Inputs panel`)]
@@ -2152,6 +2152,16 @@ const viewSetEditorUnfolded: CommandDefinition = {
     }
     return setEditorViewEntry(doc, tx, 'view.setEditorUnfolded', params, 'editors',
       params.unfolded === null ? null : { unfolded: params.unfolded })
+  },
+}
+
+const viewSetHistogramVisible: CommandDefinition = {
+  id: 'view.setHistogramVisible',
+  run(doc, params, tx) {
+    if (!hasEditorTarget(params) || params.inputsPanel === true || typeof params.visible !== 'boolean') {
+      return [err('params.invalid', 'view.setHistogramVisible: params must be {graphId, nodeId, valueKey, visible: boolean}')]
+    }
+    return setEditorViewEntry(doc, tx, 'view.setHistogramVisible', params, 'histogramVisibility', params.visible)
   },
 }
 
@@ -2731,6 +2741,7 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   viewSetPreviewFolded,
   viewSetSectionCollapsed,
   viewSetEditorUnfolded,
+  viewSetHistogramVisible,
   viewSetPictureHeight,
   viewCreateGroup,
   viewMoveGroup,

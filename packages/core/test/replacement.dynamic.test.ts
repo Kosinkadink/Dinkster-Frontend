@@ -26,6 +26,7 @@ const fixture: { schemas: (DinksterWireSchema & { nodeType: string; replacements
   {
     schemaVersion: 2, nodeType: 'fixture.dynamic-legacy', displayName: 'Dynamic Legacy', category: 'fixture',
     body: [
+      { kind: 'input', id: 'color_source', type: concrete('INT'), required: false },
       { kind: 'input', id: 'color_value', type: concrete('INT'), required: false, default: 0 },
       { kind: 'input', id: 'tolerance', type: concrete('FLOAT'), required: false, default: 0.1, afterRun: 'fixed' },
       { kind: 'input', id: 'metric', type: concrete('STRING'), required: false, default: 'rgb' },
@@ -59,6 +60,7 @@ const fixture: { schemas: (DinksterWireSchema & { nodeType: string; replacements
         to: 'fixture.dynamic-modern',
         nodes: { audit: { type: 'fixture.dynamic-helper', values: { 'mode.label': 'migration' } } },
         inputs: {
+          'policy.color_source': { kind: 'link', input: 'color_source' },
           'policy.color_source.color_value': { kind: 'value', input: 'color_value' },
           'policy.tolerance': { kind: 'value', input: 'tolerance' },
           'policy.metric': { kind: 'value', input: 'metric' },
@@ -75,6 +77,10 @@ const fixture: { schemas: (DinksterWireSchema & { nodeType: string; replacements
         slotVariants: { policy: 'tolerance_color', 'policy.color_source': 'integer', 'audit:mode': 'details' },
       }],
     }],
+  },
+  {
+    schemaVersion: 2, nodeType: 'fixture.integer-source', displayName: 'Integer Source', category: 'fixture',
+    body: [{ kind: 'output', id: 'out', type: concrete('INT') }],
   },
   {
     schemaVersion: 2, nodeType: 'fixture.dynamic-helper', displayName: 'Dynamic Helper', category: 'fixture',
@@ -133,6 +139,7 @@ function sourceDocument(): WorkflowDocument {
       g0: graph({
         id: 'g0',
         nodes: {
+          source: { id: asNodeId('source'), type: 'fixture.integer-source', values: {} },
           old: {
             id: asNodeId('old'),
             type: 'fixture.dynamic-legacy',
@@ -152,6 +159,7 @@ function sourceDocument(): WorkflowDocument {
           sink: { id: asNodeId('sink'), type: 'fixture.sink', values: {} },
         },
         links: {
+          colorLink: { id: asLinkId('colorLink'), from: port('source', 'out'), to: port('old', 'color_source') },
           result: {
             id: asLinkId('result'),
             from: port('old', 'result'),

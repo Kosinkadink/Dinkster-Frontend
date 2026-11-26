@@ -9,12 +9,14 @@ import {
   asNodeId,
   asPortId,
   boundaryBindingKey,
+  buildBypassCandidates,
   buildGraphConnectivity,
   buildRerouteIndex,
   canonicalTypeIdOf,
   companionSourcesOf,
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
+  diagnosticBlocksExecution,
   documentNodeResolver,
   documentPrimitiveResolver,
   primitiveOf,
@@ -47,9 +49,9 @@ import {
   traceEndpoint,
   traceEndpointAll,
   typeExprFromTypeId,
+  missingInputValue,
   valueKeyOf,
   type BoundaryItem,
-  type BypassCandidate,
   type BoundaryPositionResolver,
   type CommandInvocation,
   type Connectivity,
@@ -384,9 +386,11 @@ export interface SceneLink {
   /**
    * The solver PROVED this edge's endpoint types incompatible. 'unknown'
    * verdicts (generic or wildcard endpoints) deliberately do not mark:
-   * uncertainty is normal, only demonstrated conflict earns error paint.
+   * uncertainty is normal, only demonstrated conflict earns problem paint.
    */
   readonly mismatch?: true
+  /** Strongest problem attributed to a mismatching edge. */
+  readonly mismatchKind?: 'error' | 'warning'
   /** Solver diagnostics attributed to this proven-mismatch noodle. */
   readonly diagnostics?: readonly Diagnostic[]
   /** The net's user-facing name (drawn as a midpoint label). */
@@ -465,6 +469,7 @@ export interface SceneNetStub {
   readonly role: 'source' | 'sink'
   /** Solver-proven mismatch for this sink, or any sink for a source tag. */
   readonly mismatch?: true
+  readonly mismatchKind?: 'error' | 'warning'
   readonly nodeId: string
   readonly portId: string
   /** Pin center the tag points at, world coords. */
@@ -926,8 +931,9 @@ export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
   /**
    * A node's interface as drawn. A row hidden by its `visible` shows while it
-   * has a problem: a solver problem on its port, or a stored value its
-   * widget's own check refuses.
+   * has a problem: a solver problem on its port, a stored value its
+   * widget's own check refuses, or nothing stored where a run needs a value
+   * (`compile.input.missing`).
    */
   const elaborateShown = (
     schema: NodeSchema,
@@ -936,18 +942,25 @@ export function buildScene(input: BuildSceneInput): Scene {
     nodeId: string,
     solverProblems: ReadonlySet<string> | undefined,
     representations: Readonly<Record<string, string>> | undefined,
+    runs: boolean,
   ): ElaboratedInterface => {
     const problemRows = new Set(solverProblems)
     const lookups = input.lookupAnswers === undefined ? {} : { lookupAnswers: input.lookupAnswers }
     const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows, ...lookups } : lookups)
     const check = input.storedValueProblem
-    if (check === undefined) return elaborated
     for (const item of elabInputsOf(elaborated)) {
-      const widget = item.spec.widget
-      if (item.spec.hidden !== true || widget === undefined) continue
+      if (item.spec.hidden !== true) continue
       const valueKey = valueKeyOf(item)
+      const stored = node.values[valueKey]
+      // A row with a wire already shows, so a hidden row here has none.
+      if (runs && item.hiddenByScope === true && missingInputValue(item, stored)) {
+        problemRows.add(item.address.port)
+        continue
+      }
+      const widget = item.spec.widget
+      if (check === undefined || widget === undefined) continue
       const spec = resolveWidgetRepresentation(widget, representations?.[valueKey]).spec
-      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, node.values[valueKey])) problemRows.add(item.address.port)
+      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, stored)) problemRows.add(item.address.port)
     }
     return problemRows.size > (solverProblems?.size ?? 0)
       ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
@@ -957,6 +970,16 @@ export function buildScene(input: BuildSceneInput): Scene {
   const sourcePath = input.occurrence === undefined
     ? input.graphId === input.document.root ? [] : undefined
     : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
+  // Compile reports a missing value only on a node that runs: it skips a
+  // muted or bypassed node and everything inside one.
+  let enclosingRuns = sourcePath !== undefined
+  let enclosing: GraphDef | undefined = input.document.graphs[input.document.root]
+  for (const id of sourcePath ?? []) {
+    const owner = enclosing?.nodes[id]
+    if (owner === undefined || (owner.mode ?? 'active') !== 'active') { enclosingRuns = false; break }
+    const body = subgraphDefIdOf(owner.type)
+    enclosing = body === undefined ? undefined : input.document.graphs[body]
+  }
   let resolvePrimitive: ReturnType<typeof documentPrimitiveResolver> | undefined
   const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, node, path) => {
     resolvePrimitive ??= documentPrimitiveResolver(input.document, input.resolve)
@@ -1018,14 +1041,15 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     if (isPortEndpoint(toEndpoint)) markConnected(toEndpoint, 'in')
   }
-  for (const net of Object.values(def.nets)) {
+  for (const net of effective === undefined ? Object.values(def.nets) : []) {
     markConnected(net.source, 'out')
     for (const sink of net.sinks) markConnected(sink, 'in')
   }
   // Boundary bindings are connections too: a bound port inside a collapsed
   // section must keep its pin so the boundary noodle never dangles. Family
   // forwarding has no single pin; its noodle anchors dynamically below.
-  if (def.boundary) {
+  // Concrete occurrences use only their unsuppressed effective deliveries.
+  if (def.boundary && effective === undefined) {
     for (const item of boundaryItems(def.boundary, 'inputs')) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (b.kind === 'port')
@@ -1210,7 +1234,8 @@ export function buildScene(input: BuildSceneInput): Scene {
         }
     const schema = resolveNode(input.graphId, occurrenceNode, sourcePath)
     const elaborated = schema
-      ? elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views)
+      ? elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views,
+          enclosingRuns && (node.mode ?? 'active') === 'active')
       : undefined
     for (const diagnostic of elaborated?.diagnostics ?? []) {
       const port = diagnostic.data?.['input']
@@ -1229,6 +1254,7 @@ export function buildScene(input: BuildSceneInput): Scene {
             ? { editorUnfolded: Object.fromEntries(Object.entries(view.editors).map(([key, e]) => [key, e.unfolded])) }
             : {}),
           ...(view?.pictureHeights ? { pictureHeights: view.pictureHeights } : {}),
+          ...(view?.histogramVisibility ? { histogramVisibility: view.histogramVisibility } : {}),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
           ...(elaborated !== undefined ? { elaborated } : {}),
         })
@@ -1389,21 +1415,26 @@ export function buildScene(input: BuildSceneInput): Scene {
     if (trace.kind !== 'output') return undefined
     return outputTypeName(trace.ref)
   }
-  /**
-   * True when the REAL producer behind `from` declares an optional output
-   * (may deliberately emit no value at runtime) - a static schema fact, so
-   * it needs no solver.
-   */
-  /**
-   * The real producers behind `from`, routed as the compiler routes a
-   * value: past a bypassed node to the input its passthrough matcher picks,
-   * and past an output that passes on one of its node's inputs (knownValue)
-   * to that input's wire. A muted node stops the walk: it is the producer.
-   */
-  const passedOn = (ref: PortRef): LinkEndpoint | undefined => {
+  const bypassInput = (ref: PortRef, consumerType?: TypeExpr) => {
+    const node = byId.get(ref.node)
+    const elab = node?.elaborated
+    if (node?.node.mode !== 'bypassed' || elab === undefined) return undefined
+    const outputs = elabOutputsOf(elab).filter((output) => output.wireable !== false)
+    const index = outputs.findIndex((output) => output.address.port === ref.port)
+    const output = outputs[index]
+    if (output === undefined) return undefined
+    const candidates = buildBypassCandidates(elabInputsOf(elab), (input) => {
+      const key = portRefKey({ node: ref.node, port: asPortId(input.address.port) })
+      const from = rerouteIndex.inputDriverOf.get(key)?.from ?? rerouteIndex.netSourceOf.get(key)
+      return from === undefined ? undefined : { input, from }
+    })
+    return matchBypassInput({ index, type: consumerType ?? output.spec.type }, candidates)?.driver
+  }
+  const passedOn = (ref: PortRef, consumerType?: TypeExpr): LinkEndpoint | undefined => {
     const node = byId.get(ref.node)
     const elab = node?.elaborated
     if (node === undefined || elab === undefined || node.node.mode === 'muted') return undefined
+    if (node.node.mode === 'bypassed') return bypassInput(ref, consumerType)?.from
     const address = portAddressKey(ref.port)
     const outputs = elabOutputsOf(elab)
     const output = outputs.find((candidate) => portAddressKey(candidate.address.port) === address)
@@ -1412,35 +1443,23 @@ export function buildScene(input: BuildSceneInput): Scene {
       const key = portRefKey({ node: ref.node, port: asPortId(port) })
       return rerouteIndex.inputDriverOf.get(key)?.from ?? rerouteIndex.netSourceOf.get(key)
     }
-    if (node.node.mode === 'bypassed') {
-      const index = outputs.filter((candidate) => candidate.wireable !== false).indexOf(output)
-      if (index < 0) return undefined
-      const candidates: BypassCandidate<LinkEndpoint>[] = []
-      let wireIndex = 0
-      for (const input of elabInputsOf(elab)) {
-        if (input.apiName === undefined || input.ancestry?.some((entry) => entry.synthetic) === true) continue
-        const candidateIndex = wireIndex++
-        const driver = driverOf(input.address.port)
-        if (driver !== undefined) candidates.push({ index: candidateIndex, type: input.spec.type, driver })
-      }
-      return matchBypassInput({ index, type: output.spec.type }, candidates)?.driver
-    }
     const known = output.spec.knownValue
     if (known === undefined) return undefined
     const input = elabInputsOf(elab).find((candidate) => candidate.spec.id === known.input)
     return input === undefined ? undefined : driverOf(input.address.port)
   }
-  const tracedProducers = (from: LinkEndpoint, seen = new Set<string>()): RerouteTrace[] =>
+  /** Real producers behind bypass and knownValue routes; a muted node stops the walk. */
+  const tracedProducers = (from: LinkEndpoint, consumerType?: TypeExpr, seen = new Set<string>()): RerouteTrace[] =>
     traceEndpointAll(def, from, rerouteIndex).flatMap((t) => {
       if (t.kind !== 'output') return [t]
       const key = portRefKey(t.ref)
       if (seen.has(key)) return []
       seen.add(key)
-      const next = passedOn(t.ref)
-      return next === undefined ? [t] : tracedProducers(next, seen)
+      const next = passedOn(t.ref, consumerType)
+      return next === undefined ? [t] : tracedProducers(next, consumerType, seen)
     })
-  const tracedMaybeAbsent = (from: LinkEndpoint): boolean => {
-    for (const t of tracedProducers(from)) {
+  const tracedMaybeAbsent = (from: LinkEndpoint, consumerType?: TypeExpr): boolean => {
+    for (const t of tracedProducers(from, consumerType)) {
       if (t.kind !== 'output') continue
       const producer = byId.get(t.ref.node)
       const key = t.ref.port
@@ -1452,8 +1471,8 @@ export function buildScene(input: BuildSceneInput): Scene {
    * True when every real producer behind `from` is an output of a muted
    * node, traced like {@link tracedMaybeAbsent}.
    */
-  const tracedSourceMuted = (from: LinkEndpoint): boolean => {
-    const traces = tracedProducers(from)
+  const tracedSourceMuted = (from: LinkEndpoint, consumerType?: TypeExpr): boolean => {
+    const traces = tracedProducers(from, consumerType)
     return traces.length > 0 && traces.every((t) => t.kind === 'output' && byId.get(t.ref.node)?.node.mode === 'muted')
   }
   for (const reroute of Object.values(def.reroutes)) {
@@ -1568,11 +1587,46 @@ export function buildScene(input: BuildSceneInput): Scene {
         })),
       ),
   ]
+  const endpointKey = (end: LinkEndpoint): string => isRerouteRef(end)
+    ? `reroute:${end.reroute}`
+    : isPortEndpoint(end) ? `port:${portRefKey(end)}` : `tap:${end.node}:${end.tap}`
+  const successors = new Map<string, LinkEndpoint[]>()
+  for (const c of connections) {
+    const key = endpointKey(c.from)
+    const next = successors.get(key) ?? []
+    next.push(c.to)
+    successors.set(key, next)
+  }
+  // A shared segment uses each final consumer's declared type, not the
+  // solved type of the junction. Bypass inputs count only for routes that
+  // actually select them. A cycle contributes no additional consumers.
+  const consumerTypes = (end: LinkEndpoint, path = new Set<string>()): (TypeExpr | undefined)[] => {
+    const key = endpointKey(end)
+    if (path.has(key)) return []
+    const nextPath = new Set([...path, key])
+    if (isRerouteRef(end)) {
+      return (successors.get(key) ?? []).flatMap((to) => consumerTypes(to, nextPath))
+    }
+    if (!isPortEndpoint(end)) return []
+    const node = byId.get(end.node)
+    const elab = node?.elaborated
+    if (node === undefined || elab === undefined) return []
+    if (node.node.mode !== 'bypassed') {
+      return [elabInputsOf(elab).find((input) => input.address.port === end.port)?.spec.type]
+    }
+    return elabOutputsOf(elab).flatMap((output) => {
+      const ref = { node: end.node, port: asPortId(output.address.port) }
+      return (successors.get(endpointKey(ref)) ?? []).flatMap((to) =>
+        consumerTypes(to, nextPath).filter((type) => bypassInput(ref, type)?.input.address.port === end.port))
+    })
+  }
   for (const c of connections) {
     const from = endPoint(c.from, 'out')
     const to = endPoint(c.to, 'in')
     if (!from || !to) continue
     const typeName = tracedTypeName(c.from)
+    const types = consumerTypes(c.to)
+    if (types.length === 0) types.push(undefined)
     links.push({
       id: c.id,
       from: from.end,
@@ -1584,10 +1638,13 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(from.type !== undefined ? { fromType: from.type } : typeName !== undefined ? { fromType: typeExprFromTypeId(typeName) } : {}),
       ...(to.type !== undefined ? { toType: to.type } : typeName !== undefined ? { toType: typeExprFromTypeId(typeName) } : {}),
       ...(typeName !== undefined ? { typeName } : {}),
-      ...(tracedMaybeAbsent(c.from) ? { maybeAbsent: true as const } : {}),
-      ...(tracedSourceMuted(c.from) ? { sourceMuted: true as const } : {}),
+      ...(types.every((type) => tracedMaybeAbsent(c.from, type)) ? { maybeAbsent: true as const } : {}),
+      ...(types.every((type) => tracedSourceMuted(c.from, type)) ? { sourceMuted: true as const } : {}),
       ...(from.kept === true ? { dimmed: true as const } : {}),
-      ...(c.mismatch === true ? { mismatch: true as const } : {}),
+      ...(c.mismatch === true ? {
+        mismatch: true as const,
+        mismatchKind: c.diagnostics?.some(diagnosticBlocksExecution) ? 'error' as const : 'warning' as const,
+      } : {}),
       ...(c.diagnostics !== undefined && c.diagnostics.length > 0 ? { diagnostics: c.diagnostics } : {}),
       ...(c.netId !== undefined ? { netId: c.netId } : {}),
       ...(c.netName !== undefined ? { netName: c.netName } : {}),
@@ -1599,14 +1656,14 @@ export function buildScene(input: BuildSceneInput): Scene {
   // Named nets expose one authorable Set view at the source and one Get view
   // per sink. collapsedNets controls noodles only; the endpoint views remain.
   const netStubs: SceneNetStub[] = []
-  const mismatchedNetSinkIds = new Set(
-    links.filter((link) => link.netId !== undefined && link.mismatch === true).map((link) => link.id),
+  const mismatchedNetSinks = new Map(
+    links.filter((link) => link.netId !== undefined && link.mismatch === true).map((link) => [link.id, link.mismatchKind!]),
   )
   for (const net of Object.values(def.nets)) {
     const sinkMismatches = net.sinks.map((_, i) =>
-      mismatchedNetSinkIds.has(netDeliveryLinkId(net.id, i)),
+      mismatchedNetSinks.get(netDeliveryLinkId(net.id, i)),
     )
-    const push = (role: 'source' | 'sink', ref: PortRef, mismatch: boolean): void => {
+    const push = (role: 'source' | 'sink', ref: PortRef, mismatchKind: 'error' | 'warning' | undefined): void => {
       const node = byId.get(ref.node)
       if (!node) return
       const direction = role === 'source' ? 'out' : 'in'
@@ -1633,7 +1690,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         netId: net.id,
         name: net.name,
         role,
-        ...(mismatch ? { mismatch: true as const } : {}),
+        ...(mismatchKind === undefined ? {} : { mismatch: true as const, mismatchKind }),
         nodeId: ref.node,
         portId: ref.port,
         pinX,
@@ -1648,7 +1705,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         ...(canonicalTypeIdOf(pin.type) !== undefined ? { typeName: canonicalTypeIdOf(pin.type)! } : {}),
       })
     }
-    push('source', net.source, sinkMismatches.some(Boolean))
+    push('source', net.source, sinkMismatches.includes('error') ? 'error' : sinkMismatches.includes('warning') ? 'warning' : undefined)
     for (const [i, sink] of net.sinks.entries()) push('sink', sink, sinkMismatches[i]!)
   }
 

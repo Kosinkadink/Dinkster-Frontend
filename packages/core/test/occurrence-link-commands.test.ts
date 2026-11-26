@@ -328,11 +328,15 @@ describe('occurrence-local link commands', () => {
   })
 
   it('unsuppresses an unchanged shared delivery without allocating a local link', () => {
-    const store = new DocumentStore(document(), coreCommandRegistry())
+    const store = new DocumentStore(document(), coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
     const shared: EffectiveLinkIdentity = { kind: 'definition', graphId: asGraphDefId('body'), linkId: 'shared' as never }
     expect(store.dispatch(planned(store.doc, {
       command: 'occurrence.link.disconnect', owner: owner('a'), bodyGraph: 'body', link: shared,
     }).invocation).ok).toBe(true)
+    expect(store.dispatch({ command: 'view.setEditorUnfolded', params: {
+      graphId: 'body', nodeId: 'sink', valueKey: 'in', unfolded: true,
+    } }).ok).toBe(true)
     expect(store.dispatch(planned(store.doc, {
       command: 'occurrence.link.connect', owner: owner('a'), bodyGraph: 'body',
       from: body({ node: 'producerOne', port: 'out' }), to: body({ node: 'sink', port: 'in' }),
@@ -340,6 +344,7 @@ describe('occurrence-local link commands', () => {
     expect(store.doc.occurrenceTopologies!.a!.suppressedDeliveries).toBeUndefined()
     expect(store.doc.occurrenceTopologies!.a!.links).toEqual({})
     expect(store.doc.occurrenceTopologies!.a!.nextOrdinal).toBe(0)
+    expect(store.doc.view.graphs.body?.nodes.sink?.editors?.in).toEqual({ unfolded: false })
   })
 
   it('rejects definition deletion while a local endpoint references the node', () => {

@@ -18,7 +18,7 @@
  * lives in the gated dev pack and a plain dinkster-serve does not compose it.
  * Skips loudly when no backend answers. Missing required dev nodes fail.
  */
-import { expect, nativeTest, openRailPanel, productOption, selectProductOption, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeTest, openRailPanel, productOption, selectProductOption, test, waitForWorkspaceReady, type Locator, type Page, chooseRunScope } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -128,12 +128,18 @@ async function durableRecords(): Promise<readonly {
 /** Open backend history in the right-side Runs panel. */
 async function openRuns(page: Page): Promise<void> {
   await openRailPanel(page, 'Runs')
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
+  await chooseRunScope(page, 'all')
 }
 
 /** The runs entry whose subtitle is the run's jobId prefix. */
 const entryFor = (page: Page, jobId: string) =>
-  page.getByTestId('collection-entry').filter({ hasText: jobId.slice(0, 8) })
+  page.getByTestId('collection-entry').filter({ has: page.locator(`[data-job^="${jobId.slice(0, 8)}"]`) })
+
+/** Picks an item from a chosen stored run's "..." menu. */
+async function chosenRunMenu(page: Page, entry: Locator, item: 'Details' | 'Copy job ID' | 'Delete record'): Promise<void> {
+  await entry.getByRole('button', { name: /^More for / }).click()
+  await page.getByRole('menuitem', { name: item, exact: true }).click()
+}
 
 test.beforeEach(async ({ page }, testInfo) => {
   // Probe outside the skip calls: test.skip signals by throwing, so a skip
@@ -159,15 +165,20 @@ test('a durable stamped record: click selects, the open action reopens the produ
   await openRuns(page)
   const entry = entryFor(page, jobId)
   await expect(entry).toHaveCount(1)
-  await expect(entry.locator('.collection-badges')).toContainText('completed')
-  await expect(entry.locator('.collection-badges')).toContainText('Source recorded')
 
   // Click selects and inspects - it must NOT open anything or close the
   // panel (that would make the delete affordance unreachable).
   await entry.click()
   await expect(page.getByTestId('runs-panel')).toBeVisible()
-  await entry.locator('.runs-details > summary').click()
-  await expect(entry.locator('.output-facts').first()).toContainText('source document')
+  // Details is a few plain lines; the job ID is copied from the menu, never shown.
+  await chosenRunMenu(page, entry, 'Details')
+  const details = entry.getByTestId('chosen-run-details')
+  await expect(details).toContainText(/\d+ ran, \d+ from cache/)
+  await expect(details).toContainText('Ran on')
+  await expect(details).not.toContainText(jobId)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await chosenRunMenu(page, entry, 'Copy job ID')
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(jobId)
 
   // Diverge the live document, then reopen the run: the open action must
   // restore the EXACT producing document. Tab identity is the document
@@ -179,7 +190,7 @@ test('a durable stamped record: click selects, the open action reopens the produ
     }).dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'grad', inputId: 'width', value: 99 } })
   })
   const tabsBefore = await page.evaluate(() => window.__dinksterTest!.app.tabs.get().length)
-  await entry.locator('[data-testid=collection-action][data-action=open]').click()
+  await entry.getByTestId('chosen-run-open').click()
   await expect(page.getByTestId('runs-panel')).toBeVisible()
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes['grad']!.values['width'],
@@ -231,8 +242,10 @@ test('two cached runs collapse into one expandable no-op history row', async ({ 
   await expect(grouped.getByTestId('collection-expand')).toHaveAttribute('aria-expanded', 'true')
   await expect(page.locator('.collection-entry.collection-child')).toHaveCount(2)
   for (const child of await page.locator('.collection-entry.collection-child').all()) {
-    await expect(child.locator('.collection-badges')).toContainText('0 run')
-    await expect(child.locator('.collection-badges')).not.toContainText('0 cached')
+    // A chosen stored row's Details count what ran and what came from cache.
+    await child.click()
+    await chosenRunMenu(page, child, 'Details')
+    await expect(child.getByTestId('chosen-run-details')).toContainText(/0 ran, [1-9]\d* from cache/)
   }
 })
 
@@ -242,16 +255,11 @@ test('delete removes the record only: the collection re-pages and asset bytes su
   const entry = entryFor(page, jobId)
   await expect(entry).toHaveCount(1)
   await entry.click()
-  await entry.locator('.runs-details > summary').click()
-  const sourceDoc = await entry.locator('.output-facts').first().locator('dd')
-    .filter({ hasText: /^blake3:/ }).first().textContent()
+  const sourceDoc = (await durableRecords()).find((record) => record.jobId === jobId)?.sourceDocument
   expect(sourceDoc).toMatch(/^blake3:[0-9a-f]{64}$/)
 
-  const remove = entry.locator('[data-testid=collection-action][data-action=delete]')
-  await remove.click()
-  await expect(remove).toHaveText('Confirm delete')
-  await expect(entry).toHaveCount(1)
-  await remove.click()
+  // Choosing Delete record removes the record at once, with no confirmation.
+  await chosenRunMenu(page, entry, 'Delete record')
   await expect(entry).toHaveCount(0, { timeout: 10_000 })
 
   // Record-only by contract: the producing document's asset bytes survive.
@@ -261,7 +269,7 @@ test('delete removes the record only: the collection re-pages and asset bytes su
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=100`)).json() as
     { records: { jobId: string }[] }
   expect(listing.records.some((r) => r.jobId === jobId)).toBe(false)
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await chooseRunScope(page, 'workflow')
   await expect(page.getByTestId('runs-panel').getByTestId('execution-row')).toHaveCount(0)
 })
 
@@ -274,13 +282,10 @@ test('a delete failure lands in Problems and keeps the record', async ({ page })
   await openRuns(page)
   const entry = entryFor(page, jobId)
   await entry.click()
-  const remove = entry.locator('[data-testid=collection-action][data-action=delete]')
-  await remove.click()
-  await expect(remove).toHaveText('Confirm delete')
-  await remove.click()
+  await chosenRunMenu(page, entry, 'Delete record')
   await expect(page.getByTestId('problems-panel')).toContainText('history.deleteFailed')
   await expect(entry).toHaveCount(1)
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await chooseRunScope(page, 'workflow')
   await expect(page.getByTestId('runs-panel').getByTestId('execution-row')).toHaveCount(1)
 })
 
@@ -367,7 +372,7 @@ nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ p
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=10`)).json() as
     { records: unknown[] }
   expect(listing.records).toHaveLength(0)
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await chooseRunScope(page, 'workflow')
   await expect(runs.getByTestId('execution-row')).toHaveCount(0)
   await expect(runs).toContainText('No runs for this workflow')
 })

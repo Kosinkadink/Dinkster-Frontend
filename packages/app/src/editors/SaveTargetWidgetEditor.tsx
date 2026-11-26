@@ -1,19 +1,20 @@
 import type { MountSettings } from '@dinkster/client'
 import { inputsOf } from '@dinkster/core'
-import { isSaveTarget } from '@dinkster/widgets'
+import { isProjectDefaultTarget, isSaveTarget } from '@dinkster/widgets'
 import { createSignal, onCleanup, Show, type Component } from 'solid-js'
 import { ProductButton, ProductTextInput } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
 import { ProductSelect } from '../ProductSelect.js'
 import { useAppMessage } from '../locale.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
+import { InRowSaveTargetImplementation } from './InRowSaveTargetEditor.js'
 
 const SaveTargetImplementation: Component<WidgetEditorImplementationProps> = (props) => {
   const message = useAppMessage()
   const ed = props.editor.ed
   const initial = ed.initial === undefined ? ed.spec?.default : ed.initial
   const [mount, setMount] = createSignal(isSaveTarget(initial) ? initial.mount : '')
-  const [prefix, setPrefix] = createSignal(isSaveTarget(initial) ? initial.prefix : '')
+  const [prefix, setPrefix] = createSignal(isSaveTarget(initial) || isProjectDefaultTarget(initial) ? initial.prefix : '')
   const [settings, setSettings] = createSignal(undefined as MountSettings | undefined)
   const [error, setError] = createSignal(undefined as string | undefined)
   const target = ed.target.kind === 'input' ? ed.target : undefined
@@ -64,4 +65,4 @@ const SaveTargetImplementation: Component<WidgetEditorImplementationProps> = (pr
   </div>
 }
 
-export const SaveTargetWidgetEditor: Component<WidgetEditorProps> = (props) => <WidgetEditorController {...props} implementation={SaveTargetImplementation} />
+export const SaveTargetWidgetEditor: Component<WidgetEditorProps> = (props) => <WidgetEditorController {...props} implementation={props.ed.inRow === undefined ? SaveTargetImplementation : InRowSaveTargetImplementation} />

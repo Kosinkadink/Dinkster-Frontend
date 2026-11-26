@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import type { ExecutionScope } from '../src/compile/artifact.js'
 import { compile, documentResolver, type CompileInput } from '../src/compile/compile.js'
 import { definitionPick, occurrenceDynamicView } from '../src/compile/occurrence-view.js'
-import { elaborateInterface } from '../src/schema/elaborate.js'
+import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import { boundaryOf } from '../src/format/document.js'
 import type { BoundaryItem, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
@@ -613,11 +613,14 @@ describe('whole constructs shown on a subgraph node', () => {
     expect(prompt['first.d.n']!.slotVariants).toEqual({ src: 'mask' })
     // Nothing stored outside: the middle definition's value is used.
     expect(prompt['second.d.n']!.inputs).toEqual({ src: ['b', 0], 'src.sharpen': 3 })
-    expect(prompt['second.d.n']!.slotVariants).toEqual({ src: 'image' })    // A subgraph node that stores no variant shows, and runs, the one its definition picks.
+    expect(prompt['second.d.n']!.slotVariants).toEqual({ src: 'image' })
+    // A disconnected instance keeps its definition's pick without sending it.
     const third = { ...doc, graphs: { ...doc.graphs, g0: { ...doc.graphs.g0!, links: {}, nodes: { third: { id: asNodeId('third'), type: '#outer', values: {} } } } } }
     const shown = documentResolver(third, (type) => constructSchemas[type])('#outer')!
-    expect(elaborateInterface(shown, { values: {} }).choices).toEqual({ pick: 'image' })
-    expect(okConstructPrompt(third)['third.d.n']!.slotVariants).toEqual({ src: 'image' })
+    const disconnected = elaborateInterface(shown, { values: {} })
+    expect(elabInputsOf(disconnected).find((input) => input.address.port === 'pick')?.origin).toMatchObject({ selected: 'image' })
+    expect(disconnected.choices).toBeUndefined()
+    expect(okConstructPrompt(third)['third.d.n']!.slotVariants).toBeUndefined()
   })
 
   it('a whole described row keeps each instance\'s description and values through two boundaries', () => {

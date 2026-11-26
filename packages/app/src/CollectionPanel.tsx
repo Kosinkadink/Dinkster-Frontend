@@ -577,7 +577,8 @@ export function CollectionPanel(props: {
       role="option"
       aria-selected={highlighted(p.entry)}
       aria-disabled={props.pick !== undefined && p.entry.folder === undefined && !props.pick.pickable(p.entry) ? 'true' : undefined}
-      data-tooltip-label={`${p.entry.title}${p.entry.subtitle ? `\n${p.entry.subtitle}` : ''}`}
+      // A host that draws its own entry content already shows these facts, and the tooltip would cover the rows under it.
+      data-tooltip-label={props.entryContent === undefined ? `${p.entry.title}${p.entry.subtitle ? `\n${p.entry.subtitle}` : ''}` : undefined}
       tabindex={p.entry.id === rovingId() ? '0' : '-1'}
       onClick={() => activate(p.entry)}
     >
@@ -867,7 +868,10 @@ export function CollectionPanel(props: {
                     <Entry entry={entry()} />
                     <Show when={expandedIds().has(id)}>
                       <div id={`${resultsId}-group-${id}`} class="collection-children" role="group" aria-label={message('collection.group.runsIn', { title: entry().title })}>
-                        <For each={visibleChildren(entry())}>{(child) => <Entry entry={child} child />}</For>
+                        {/* Keyed by id, like the rows above, so a re-page keeps a chosen child's own state. */}
+                        <For each={visibleChildren(entry()).map((child) => child.id)}>{(childId) => (
+                          <Show when={visibleChildren(entry()).find((child) => child.id === childId)}>{(child) => <Entry entry={child()} child />}</Show>
+                        )}</For>
                       </div>
                     </Show>
                   </>

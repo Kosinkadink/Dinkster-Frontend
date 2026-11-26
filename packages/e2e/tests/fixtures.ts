@@ -56,6 +56,13 @@ export async function productOption(page: Page, optionId: string): Promise<Locat
   return option
 }
 
+/** Shows this workflow's runs or every workflow's in the Runs panel. */
+export async function chooseRunScope(page: Page, scope: 'workflow' | 'all'): Promise<void> {
+  const control = page.getByTestId('runs-scope')
+  await control.locator('.dinkster-segment').filter({ has: page.locator(`input[value="${scope}"]`) }).click()
+  await expect(control).toHaveAttribute('data-selected-id', scope)
+}
+
 export async function selectProductOption(page: Page, control: Locator, optionId: string, selectedId = optionId): Promise<void> {
   await control.click()
   await (await productOption(page, optionId)).click()
@@ -80,10 +87,12 @@ export async function subgraphMarkPoint(page: Page, nodeId: string): Promise<{ x
 }
 
 /**
- * Clicks the row of an editor shown in the node, which folds the editor out
- * under it, and returns the editor's controls laid over its space.
+ * Opens a closed editor through its row, or keeps an already open editor,
+ * and returns the controls laid over its space.
  */
 export async function unfoldNodeEditor(page: Page, nodeId: string, inputId: string): Promise<Locator> {
+  const editor = page.locator(`.node-editor-space-overlay[data-node-id="${nodeId}"][data-value-key="${inputId}"]`)
+  if (await editor.isVisible()) return editor
   const point = await page.waitForFunction(({ nodeId, inputId }) => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((entry) => entry.id === nodeId)
@@ -98,17 +107,38 @@ export async function unfoldNodeEditor(page: Page, nodeId: string, inputId: stri
   }, { nodeId, inputId })
   const { x, y } = await point.jsonValue() as { x: number; y: number }
   await page.mouse.click(x, y)
-  const editor = page.locator(`.node-editor-space-overlay[data-node-id="${nodeId}"][data-value-key="${inputId}"]`)
   await expect(editor).toBeVisible()
   return editor
 }
 
-export async function executionDetails(row: Locator): Promise<Locator> {
-  const details = row.locator('details.runs-details')
-  if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) {
-    await details.locator('summary').click()
+/**
+ * Opens a run's inspection and returns it: a finished chosen run's "Inspect
+ * run" from its menu, or a running or queued run's Details fold.
+ */
+export async function inspectRun(row: Locator): Promise<Locator> {
+  const chosen = row.getByTestId('chosen-run')
+  const fold = row.locator('details.runs-details')
+  // A running or queued row shows its outputs once its name is pressed.
+  if (await chosen.count() === 0 && await fold.count() === 0) await row.locator('.run-row-name').click()
+  // A chosen run whose menu sits on its title line can have no box of its own, so presence is the check.
+  await expect(chosen.or(fold).first()).toBeAttached()
+  if (await chosen.count() > 0) {
+    const inspection = row.getByTestId('run-inspection')
+    if (await inspection.count() === 0) {
+      await row.getByRole('button', { name: /^More for / }).click()
+      await row.page().getByRole('menuitem', { name: 'Inspect run', exact: true }).click()
+    }
+    await expect(inspection).toBeVisible()
+    return inspection
   }
-  return details.getByTestId('run-details')
+  if (!await fold.evaluate((element) => (element as HTMLDetailsElement).open)) await fold.locator('summary').click()
+  return fold
+}
+
+/** A run's activity card, inside its inspection; it stays found when the run finishes. */
+export async function executionDetails(row: Locator): Promise<Locator> {
+  await inspectRun(row)
+  return row.getByTestId('run-details')
 }
 
 const regionSwitches = {
