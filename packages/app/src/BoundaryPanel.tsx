@@ -1260,6 +1260,7 @@ export function BoundaryPanel(props: { app: AppState }) {
               <UiTextInput
                 {...attributes}
                 density="panel"
+                data-language="formula"
                 data-testid="boundary-show-formula"
                 placeholder={message('boundaryPanel.show.always')}
                 value={drafts()[`show:${id()}`] ?? row().item.visible?.formula ?? ''}

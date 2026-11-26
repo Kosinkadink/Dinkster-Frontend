@@ -1124,7 +1124,7 @@ class Checker {
     }
     if (this.scope.tables?.has(name)) return
     const kind = this.scope.names.get(name)
-    if (kind === undefined) refuse(`unknown name ${name}`)
+    if (kind === undefined) refuse(`unknown name "${name}"`)
     if (asValue && kind === 'opaque') refuse(`${name} has no value in a formula; ask about it with a fact`)
     if (asValue && kind === 'group') refuse(`group ${name} has no value in a formula; use len(${name})`)
   }
@@ -1137,7 +1137,7 @@ class Checker {
         this.name(path)
         return
       }
-      refuse(`unknown name ${path}`)
+      refuse(`unknown name "${path}"`)
     }
     switch (node.type) {
       case 'constant':
