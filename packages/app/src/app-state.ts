@@ -290,6 +290,7 @@ type WorkspaceExecutionMessage =
       readonly timestamp?: number
       readonly jobRef?: string
       readonly sourceDocument?: string
+      readonly workflowName?: string
     }
 
 interface WorkspaceRegistration {
@@ -303,6 +304,7 @@ interface WorkspaceRegistration {
   readonly timestamp?: number
   readonly jobRef?: string
   readonly sourceDocument?: string
+  readonly workflowName?: string
 }
 
 const workspaceRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {
@@ -407,10 +409,12 @@ const decodeWorkspaceRegistration = (
   const timestamp = value['timestamp']
   const jobRef = value['jobRef']
   const sourceDocument = value['sourceDocument']
+  const workflowName = value['workflowName']
   if (ref === undefined || rawArtifact === undefined ||
     (timestamp !== undefined && !workspaceNumber(timestamp)) ||
     (jobRef !== undefined && !workspaceString(jobRef)) ||
     (sourceDocument !== undefined && !workspaceString(sourceDocument)) ||
+    (workflowName !== undefined && !workspaceString(workflowName)) ||
     !workspaceInteger(rawArtifact['revision']) ||
     !workspaceString(rawArtifact['connection']) || rawArtifact['connection'] !== ref.connection ||
     !workspaceString(rawArtifact['schemaHash']) || !workspaceString(rawArtifact['semanticHash']) ||
@@ -433,6 +437,7 @@ const decodeWorkspaceRegistration = (
     ...(timestamp === undefined ? {} : { timestamp }),
     ...(jobRef === undefined ? {} : { jobRef }),
     ...(sourceDocument === undefined ? {} : { sourceDocument }),
+    ...(workflowName === undefined ? {} : { workflowName }),
   }
 }
 
@@ -8149,6 +8154,7 @@ export class AppState {
       automaticValues: automaticValuesOfJob(job),
       jobRef: result.jobRef,
       sourceDocument: result.sourceDocument,
+      ...(history.workflowName === undefined ? {} : { workflowName: history.workflowName }),
       queuedAt: result.queuedAt,
       endedAt: result.endedAt,
     }
@@ -8975,7 +8981,7 @@ export class AppState {
     artifact: CompileArtifact,
     plan: AdvancementPlan | undefined,
     timestamp?: number,
-    identity?: { readonly jobRef?: string; readonly sourceDocument?: string },
+    identity?: { readonly jobRef?: string; readonly sourceDocument?: string; readonly workflowName?: string },
   ): void {
     if (plan) this.advancementPlans.set(executionKey(ref), plan)
     // Belt-and-braces retention for artifacts that did not come through
@@ -8996,6 +9002,7 @@ export class AppState {
       ...(timestamp === undefined ? {} : { timestamp }),
       ...(identity?.jobRef === undefined ? {} : { jobRef: identity.jobRef }),
       ...(identity?.sourceDocument === undefined ? {} : { sourceDocument: identity.sourceDocument }),
+      ...(identity?.workflowName === undefined ? {} : { workflowName: identity.workflowName }),
     } satisfies WorkspaceExecutionMessage)
   }
 
@@ -9058,6 +9065,7 @@ export class AppState {
       this.store.register(registration.ref, registered, registration.timestamp, {
         ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
         ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
+        ...(registration.workflowName === undefined ? {} : { workflowName: registration.workflowName }),
       })
       this.pendingWorkspaceRegistrations.delete(key)
     }
@@ -9488,6 +9496,8 @@ export class AppState {
         ...(hasWorkflow ? { extraPnginfo: { workflow: originalWorkflow } as JsonObject } : {}),
       } : undefined
       const sourceDocument = await this.sourceDocumentFor(tab, backend)
+      // The name the run is recorded under, as the tab read when it was sent.
+      const workflowName = tab.title
       if (lease.signal.aborted) return
       // Shared authority can adopt this editing session after queue entry.
       // Independent replacements do not have a recorded continuation.
@@ -9503,6 +9513,7 @@ export class AppState {
       lease.markPosted()
       const submitted = await backend.connection.submit(result.artifact, {
         ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+        workflowName,
         ...(exportSnapshot !== undefined ? { exportSnapshot } : {}),
         // Overrides come from the artifact snapshot (the exact document
         // that compiled), layered global < workflow < node.
@@ -9529,6 +9540,7 @@ export class AppState {
             compiledDocument,
             backend,
             sourceDocument,
+            workflowName,
             lease,
           )
           consentOwnsLease = true
@@ -9545,6 +9557,7 @@ export class AppState {
       this.installRun(submitted.execution, result.artifact, plan, undefined, {
         ...(submitted.jobRef === undefined ? {} : { jobRef: submitted.jobRef }),
         ...(sourceDocument?.sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+        workflowName,
       })
       this.log('info', backend.label, `job submitted: ${submitted.execution.prompt}`)
     } catch (e) {
@@ -9601,6 +9614,7 @@ export class AppState {
     compiledDocument: WorkflowDocument,
     backend: Backend,
     sourceDocument: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
+    workflowName: string,
     lease: { readonly signal: AbortSignal; readonly release: () => void },
   ): void {
     // Problems callbacks re-prove exact-object tab liveness at fire time: a
@@ -9632,6 +9646,7 @@ export class AppState {
         this.installRun(ok.execution, artifact, plan, undefined, {
           ...(ok.jobRef === undefined ? {} : { jobRef: ok.jobRef }),
           ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+          workflowName,
         })
         this.log(
           'info',
