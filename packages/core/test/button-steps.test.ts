@@ -1623,6 +1623,40 @@ describe('steps outside the workflow', () => {
 })
 
 describe('steps inside a subgraph occurrence', () => {
+  it('sets a promoted Unpack count without changing another occurrence or its definition', async () => {
+    const root = documentOf({
+      left: { type: '#g1', values: { count: 3 } },
+      right: { type: '#g1', values: { count: 1 } },
+    })
+    const inner = documentOf({ inner: { type: 'dinkster.utilities.unpack', values: { count: 4 } } }).graphs.g0!
+    const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: {
+      ...inner, id: asGraphDefId('g1'), boundary: { body: [{
+        kind: 'input', id: asPortId('count'), promoted: true,
+        binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('count') },
+      }] },
+    } } }
+    const host = hostOf({
+      schemaResolverFor: (current) => documentResolver(current, resolve),
+      ask: async () => ({ new_count: 2 }),
+    })
+    const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    expect(await runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: ['left'], button: 'set_count' }, host))
+      .toMatchObject({ kind: 'done' })
+    expect(valuesOf(session, 'left')).toEqual({ count: 2 })
+    expect(valuesOf(session, 'right')).toEqual({ count: 1 })
+    expect(session.doc.graphs.g1).toEqual(doc.graphs.g1)
+    const result = compile({ document: session.doc, revision: 1, resolve,
+      scope: { kind: 'partial', targets: ['left', 'right'].map((id) => ({ instancePath: [asNodeId(id)], node: asNodeId('inner') })) },
+      connection: asConnectionId('test'), schemaHash: 'test', graphFeatures: ['regions'] })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    expect(result.artifact.dinksterGraph?.nodes['left.inner']).toMatchObject({ outputMembers: { items: ['0', '1'] } })
+    expect(result.artifact.dinksterGraph?.nodes['right.inner']).toMatchObject({ outputMembers: { items: ['0'] } })
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(doc)
+    expect(session.canUndo).toBe(false)
+  })
+
   it('reports only shared values left changed at commit, after restored writes and skipped targets', async () => {
     addSchema('test.shared_source', [{ kind: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } }])
     addSchema('test.shared_restored', [
