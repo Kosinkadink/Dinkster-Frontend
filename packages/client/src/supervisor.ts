@@ -3,12 +3,14 @@
  *
  * A Dinkster deployment may put `dinkster-supervisor` in front of the engine: a
  * layer-0 process that owns the public port, binds in milliseconds, and
- * proxies to the engine once healthy. Its whole wire surface is:
+ * proxies to the engine once healthy. The shared wire surface is:
  *
  *   GET  /supervisor/status         -> { protocol, state, detail?, engine?, progress? }
  *   POST /supervisor/engine/restart -> 200 | 409 {"error":"restart-unavailable", "message"?}
  *
- * and, before the engine is ready, EVERY other route answers
+ * The always-on process also serves GET /supervisor/engine/log, returning
+ * { available, text, truncated } for the open installation, even with its
+ * engine stopped. Engine-only routes before readiness answer
  * 503 {"error":"engine-not-ready", "state":..., "status":"/supervisor/status"}.
  *
  * Standalone `dinkster-serve` has none of this: /supervisor/status is a plain
@@ -175,6 +177,29 @@ export async function restartSupervisorEngine(
     return { ok: false, error }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** Read the open installation's real engine log; never substitute status or client logs. */
+export async function fetchSupervisorEngineLog(
+  baseUrl: string,
+  fetchFn: FetchLike = (url, init) => fetch(url, init),
+): Promise<
+  | { readonly ok: true; readonly available: boolean; readonly text: string; readonly truncated: boolean }
+  | { readonly ok: false; readonly error: string }
+> {
+  try {
+    const response = await fetchFn(`${baseUrl}/supervisor/engine/log`)
+    if (!response.ok) return { ok: false, error: `GET /supervisor/engine/log failed: ${response.status}` }
+    const body: unknown = await response.json()
+    if (typeof body !== 'object' || body === null) return { ok: false, error: 'Invalid engine log response' }
+    const log = body as { available?: unknown; text?: unknown; truncated?: unknown }
+    if (typeof log.available !== 'boolean' || typeof log.text !== 'string' || typeof log.truncated !== 'boolean') {
+      return { ok: false, error: 'Invalid engine log response' }
+    }
+    return { ok: true, available: log.available, text: log.text, truncated: log.truncated }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 

@@ -198,7 +198,7 @@ every core tab once.
   by position, so a host that passes new item objects while the menu is open
   (a count arriving) does not move focus or close it. Disabled items are
   skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
-  to its trigger's left edge, or to its right edge when it would not fit, and
+  to its trigger's left edge, or to its right edge with `align="end"` or when it would not fit, and
   then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
   to clamp and to flip above when needed. Scroll outside or resize dismisses
   the menu rather than leaving a stale anchor. Its document listeners exist

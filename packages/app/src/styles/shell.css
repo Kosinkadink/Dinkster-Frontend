@@ -668,7 +668,6 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .engine-spinner { animation-duration: var(--dinkster-motion-reduced); }
   .canvas-file-drop-icon svg { animation: none !important; }
 }
 

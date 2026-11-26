@@ -26,6 +26,7 @@ import {
   coreCommandRegistry,
   initializeBoundaryViews,
   type BoundaryPositionResolver,
+  type NodeHeightResolver,
   coreMenuContributions,
   createMenuRegistry,
   createReplacementRegistry,
@@ -187,7 +188,7 @@ import {
   webcamKind,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Model3dCameraState, type Model3dTransform, type Viewport } from '@dinkster/canvas'
+import { BYPASSED_BADGE, boundaryPositions, buildScene, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Model3dCameraState, type Model3dTransform, type Viewport } from '@dinkster/canvas'
 import { canvasMeasures } from './canvas-measures.js'
 import { batch, createComponent } from 'solid-js'
 import { layoutGroups, moveTabToGroup, repairEditorLayout } from './editor-layout.js'
@@ -4014,7 +4015,7 @@ export class AppState {
         {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
-          boundaryPositionsFor: this.boundaryPositionResolver(resolve),
+          ...this.geometryResolvers(resolve),
           onConflict: (conflict) => this.reportProblems(tab.id, conflict.diagnostics),
           onError: (message) => this.reportProblems(tab.id, [
             diag('error', 'command', 'workspace.authority.failed', message),
@@ -5272,7 +5273,10 @@ export class AppState {
   /** Why what the engine answers is off for this tab: no engine is open, or its real node table has not arrived. */
   engineOffReason(tab: Tab, message: (key: string) => string): string | undefined {
     const backend = this.backendForTab(tab)
-    if (noEngineOpen(backend.supervisor.get())) return message('shell.engine.notRunning')
+    const supervisor = backend.supervisor.get()
+    if (supervisor?.state === 'failed') return message('shell.engine.failed')
+    if (noEngineOpen(supervisor) || supervisor?.state === 'stopped') return message('shell.engine.notRunning')
+    if (supervisor?.state === 'starting') return message('shell.engine.stillStarting')
     if (tab.execution || this.registryForTab(tab) !== undefined) return undefined
     return message(backend.schemaState.get().status === 'error' ? 'shell.engine.notAnswering' : 'shell.engine.stillStarting')
   }
@@ -5860,13 +5864,14 @@ export class AppState {
     return editorKind === APP_EDITOR_KIND && !this.appViewEnabled ? GRAPH_EDITOR_KIND : editorKind
   }
 
-  private boundaryPositionResolver(resolve: SchemaResolver): BoundaryPositionResolver {
-    return (document, graphId) => {
+  private geometryResolvers(resolve: SchemaResolver): { boundaryPositionsFor: BoundaryPositionResolver; nodeHeightFor: NodeHeightResolver } {
+    const input = (document: WorkflowDocument, graphId: string): Parameters<typeof buildScene>[0] => {
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
-      const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab))
+      const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab), () =>
+        tab !== undefined && this.backendForTab(tab).protocol !== 'dinkster')
       const path = tab?.graphStack.get().at(-1) === graphId ? tab.instancePath.get() : []
       const resolver = documentResolver(document, (type) => this.virtualNodeSchema(type) ?? resolve(type))
-      return boundaryPositions({
+      return {
         document, graphId, resolve: resolver,
         tokens: defaultTokens, ...measurements,
         seedControllerEnabled: this.settings.get<boolean>('features.seedController.enabled'),
@@ -5876,7 +5881,21 @@ export class AppState {
           owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path[path.length - 1]!) },
           plannerAvailable: false,
         } } : {}),
-      })
+      }
+    }
+    return {
+      boundaryPositionsFor: (document, graphId) => boundaryPositions(input(document, graphId)),
+      nodeHeightFor: (document, graphId, nodeId) => {
+        const graph = document.view.graphs[graphId]
+        const view = graph?.nodes[nodeId]
+        // Arrival can fold an editor while its whole node is minimized.
+        const expanded = view?.collapsed ? {
+          ...document, view: { ...document.view, graphs: { ...document.view.graphs,
+            [graphId]: { ...graph!, nodes: { ...graph!.nodes, [nodeId]: { ...view, collapsed: false } } },
+          } },
+        } : document
+        return buildScene(input(expanded, graphId)).nodes.find((node) => node.id === nodeId)?.layout.minHeight
+      },
     }
   }
 
@@ -5907,7 +5926,7 @@ export class AppState {
       // A caller-provided store (shared session) replaces the local default.
       store: store ?? createLocalSession(document, coreCommandRegistry([], resolve), {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
-        boundaryPositionsFor: this.boundaryPositionResolver(resolve),
+        ...this.geometryResolvers(resolve),
       }),
       graphStack: createSignal<readonly string[]>([document.root]),
       instancePath: createSignal<readonly string[]>([]),
@@ -6395,7 +6414,7 @@ export class AppState {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
-        boundaryPositionsFor: this.boundaryPositionResolver(sessionResolver),
+        ...this.geometryResolvers(sessionResolver),
         onConflict: (conflict: SessionConflict) =>
           report(conflict.during === 'refused'
             ? conflict.diagnostics[0]!
@@ -7870,7 +7889,7 @@ export class AppState {
     ], registry.schemas.values())
     const imported = result.document === undefined ? result : {
       ...result,
-      document: initializeBoundaryViews(result.document, this.boundaryPositionResolver(registry.resolve)).doc,
+      document: initializeBoundaryViews(result.document, this.geometryResolvers(registry.resolve).boundaryPositionsFor).doc,
     }
     if (!unavailable) return imported
     return { ...imported, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'

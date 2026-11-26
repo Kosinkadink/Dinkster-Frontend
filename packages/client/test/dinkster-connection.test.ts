@@ -544,6 +544,7 @@ describe('model download planning and owned jobs', () => {
 
   it.each([
     { status: 'local', name: selected.name, kind: selected.kind },
+    { status: 'duplicate' },
     { status: 'destination-required' },
     { status: 'folder-disabled', disabledLocations: ['studio'], detail: 'Folder not enabled for this project' },
     { status: 'picker-required', sources: ['https://huggingface.co/first', 'https://huggingface.co/second'] },

@@ -53,6 +53,121 @@ function sceneOf(workflow: string, graphId = 'g0') {
 }
 
 describe('buildScene', () => {
+  it('gives folded editors and sections their height back through one-step undo and redo, sized or not', async () => {
+    const base = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
+    const editorViews = [
+      ['CURVE', 'core.curve', 3], ['WEBCAM', 'core.webcam', 1],
+      ['AUDIO_RECORD', 'core.audioRecord', 1], ['LOAD_3D', 'core.load3d', 1],
+      ['CAMERA_ANGLE', 'core.cameraAngle', 1], ['COMPARE_IMAGES', 'core.imageCompare', 1],
+    ] as const
+    for (const kind of ['local', 'shared']) for (const sized of [false, true]) for (const startsOpen of [false, true]) {
+      const schema: NodeSchema = {
+        type: 'Fold heights', displayName: 'Fold heights', category: 'test', source: 'v3', isOutputNode: false,
+        body: [{ kind: 'section', id: 'outer', rows: [
+          ...editorViews.map(([widgetType], index) => ({
+            kind: 'input' as const, id: `editor${index}`, optional: false, type: { kind: 'concrete' as const, name: widgetType },
+            widget: { widgetType, options: { unfolded: startsOpen } },
+          })),
+          { kind: 'section', id: 'inner', collapsedByDefault: startsOpen, rows: [{
+            kind: 'input', id: 'tail', optional: false, type: { kind: 'concrete', name: 'INT' },
+            widget: { widgetType: 'INT', options: {} },
+          }] },
+          { kind: 'group', id: 'extras', keys: { kind: 'named', names: ['first', 'second'] }, grows: 'button', minMembers: 0,
+            value: { kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } } },
+        ] }],
+      }
+      const graph = base.graphs.g0!
+      const document = {
+        ...base, graphs: { ...base.graphs, g0: { ...graph, nodes: {
+          n0: { ...graph.nodes.n0!, type: schema.type, values: {}, dynamic: { extras: { members: ['first', 'second'] } } },
+        }, links: {} } },
+        view: { ...base.view, graphs: { g0: { nodes: { n0: { position: { x: 100, y: 100 } } } } } },
+      } as WorkflowDocument
+      const layoutFor = (doc: WorkflowDocument) => buildScene({
+        document: doc, graphId: 'g0', resolve: () => schema, tokens: defaultTokens, measure,
+        widgetMeasure: (spec) => {
+          const editor = editorViews.find(([type]) => type === spec.widgetType)
+          return editor ? { viewId: editor[1], rows: editor[2] } : { viewId: 'core.number', rows: 1 }
+        },
+      }).nodes[0]!.layout
+      const options = { nodeHeightFor: (doc: WorkflowDocument) => layoutFor(doc).minHeight }
+      let receive: Parameters<Parameters<typeof connectSharedSession>[0]['onEvent']>[0] = () => {}
+      const session = kind === 'local' ? createLocalSession(document, coreCommandRegistry(), options)
+        : await connectSharedSession({
+          sessionId: 'fold-heights',
+          fetchSnapshot: async () => ({ revision: 0, document }), fetchOps: async () => ({ kind: 'ops', ops: [] }),
+          postOp: () => new Promise(() => {}), putSnapshot: async () => ({ kind: 'ok' }),
+          sendPresence: () => {}, onEvent: (listener) => { receive = listener; return () => {} }, close: () => {},
+        }, coreCommandRegistry(), { ...options, actorId: 'fold-heights' })
+      const scene = () => layoutFor(session.doc)
+      const natural = scene()
+      const storedSize = { width: 473, height: natural.height + 73 }
+      if (sized) expect(session.dispatch({ command: 'view.setNodeSize', params: { graphId: 'g0', nodeId: 'n0', size: storedSize } }).ok).toBe(true)
+      const checkFold = (command: string, params: Record<string, string | boolean>) => {
+        const beforeDoc = session.doc
+        const before = scene()
+        expect(session.dispatch({ command, params: { graphId: 'g0', nodeId: 'n0', ...params } }).ok).toBe(true)
+        const afterDoc = session.doc
+        const after = scene()
+        const delta = after.minHeight - before.minHeight
+        expect(delta).not.toBe(0)
+        expect(after.height - before.height).toBe(delta)
+        expect(session.doc.view.graphs.g0!.nodes.n0!.size).toEqual(sized
+          ? { width: storedSize.width, height: storedSize.height + after.minHeight - natural.minHeight }
+          : undefined)
+        expect(session.undo()).toBe(true)
+        expect(session.doc).toEqual(beforeDoc)
+        expect(scene()).toEqual(before)
+        expect(session.redo()).toBe(true)
+        expect(session.doc).toEqual(afterDoc)
+        expect(scene()).toEqual(after)
+      }
+      for (const [index] of editorViews.entries()) {
+        checkFold('view.setEditorUnfolded', { valueKey: `editor${index}`, unfolded: !startsOpen })
+        checkFold('view.setEditorUnfolded', { valueKey: `editor${index}`, unfolded: startsOpen })
+      }
+      if (!startsOpen) checkFold('view.setEditorUnfolded', { valueKey: 'editor3', unfolded: true })
+      for (const section of ['placement', 'animation']) {
+        checkFold('view.setSectionCollapsed', { sectionId: `editor3.${section}`, collapsed: false })
+        checkFold('view.setSectionCollapsed', { sectionId: `editor3.${section}`, collapsed: true })
+      }
+      if (!startsOpen) checkFold('view.setEditorUnfolded', { valueKey: 'editor3', unfolded: false })
+      checkFold('view.setSectionCollapsed', { sectionId: 'inner', collapsed: !startsOpen })
+      checkFold('view.setSectionCollapsed', { sectionId: 'inner', collapsed: startsOpen })
+      checkFold('view.setSectionCollapsed', { sectionId: 'group:extras', collapsed: true })
+      checkFold('view.setSectionCollapsed', { sectionId: 'group:extras', collapsed: false })
+      checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
+      checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: false })
+      const openHeight = scene().height
+      checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
+      const foldedHeight = scene().height
+      const foldedSize = session.doc.view.graphs.g0!.nodes.n0!.size
+      if (kind === 'shared') {
+        receive({ kind: 'op', op: {
+          opId: 'peer#1', actorId: 'peer', baseRevision: 0, revision: 1, timestamp: 1,
+          patch: [{ op: 'replace', path: ['view', 'graphs', 'g0', 'nodes', 'n0', 'position'], value: { x: 111, y: 222 } }],
+        } })
+        expect(session.doc.view.graphs.g0!.nodes.n0!.position).toEqual({ x: 111, y: 222 })
+        expect(scene().height).toBe(foldedHeight)
+        expect(session.doc.view.graphs.g0!.nodes.n0!.size).toEqual(foldedSize)
+        expect(session.undo()).toBe(true)
+        expect(scene().height).toBe(openHeight)
+        expect(session.redo()).toBe(true)
+        expect(scene().height).toBe(foldedHeight)
+      }
+      if (sized) {
+        storedSize.height += 41
+        expect(session.dispatch({ command: 'view.setNodeSize', params: {
+          graphId: 'g0', nodeId: 'n0', size: { width: storedSize.width, height: foldedHeight + 41 },
+        } }).ok).toBe(true)
+        checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: false })
+        expect(scene().height).toBe(openHeight + 41)
+        checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
+      }
+      if ('close' in session && typeof session.close === 'function') session.close()
+    }
+  })
+
   it('lists an automatic value that cannot be worked out as a warning on its field, until a value is fixed', () => {
     const base = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
     const automatic = (type: string): NodeSchema | undefined => {
