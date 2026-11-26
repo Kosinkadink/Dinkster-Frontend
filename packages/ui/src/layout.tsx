@@ -511,6 +511,9 @@ export function ProductListRow(props: {
   expanded?: boolean
   onToggle?: (expanded: boolean) => void
   onActivate?: () => void
+  ref?: (element: HTMLButtonElement) => void
+  tabIndex?: number
+  pressed?: boolean
   children?: JSX.Element
   testId?: string
   dataAttributes?: Readonly<Record<`data-${string}`, string | undefined>>
@@ -535,6 +538,9 @@ export function ProductListRow(props: {
           <button
             type="button"
             class="dinkster-row-main"
+            ref={props.ref}
+            tabIndex={props.tabIndex}
+            aria-pressed={props.pressed}
             aria-expanded={props.expanded}
             aria-controls={expandable() ? detailsId : undefined}
             onClick={() => props.onToggle ? props.onToggle(!props.expanded) : props.onActivate?.()}

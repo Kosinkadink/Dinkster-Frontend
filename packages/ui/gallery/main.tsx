@@ -172,6 +172,8 @@ function Gallery() {
   const [quietType, setQuietType] = createSignal('Any type')
   const [serverOpen, setServerOpen] = createSignal(false)
   const [progressOpen, setProgressOpen] = createSignal(false)
+  const [versionSelected, setVersionSelected] = createSignal(false)
+  let versionButton: HTMLButtonElement | undefined
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
@@ -844,6 +846,13 @@ function Gallery() {
                     status={<ProductProgress label="Downloading Studio checkpoint" value={0.42} />}>
                     <p class="dinkster-metadata">Download continues when details are closed.</p>
                   </ProductListRow>
+                </ProductList>
+              </Section>
+              <Section title="Selectable rows" components="ProductList, ProductListRow, ProductTextButton">
+                <ProductTextButton label="Focus version" onClick={() => versionButton?.focus()} />
+                <ProductList label="Model versions" variant="plain">
+                  <ProductListRow title="Studio checkpoint fp16" ref={(element) => { versionButton = element }} tabIndex={-1}
+                    pressed={versionSelected()} onActivate={() => setVersionSelected(!versionSelected())} />
                 </ProductList>
               </Section>
               <Section title="Storage folders" components="ProductDisclosure, ProductMenu">
