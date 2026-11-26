@@ -3125,6 +3125,37 @@ describe('presence egress callbacks (onDragOffsets / onNodeHover / onLinkDragPre
 })
 
 describe('group movement', () => {
+  it('shows only the receiving group during a node drag and clears it on exit, drop or cancellation', () => {
+    const scene: Scene = { ...interactionScene(), groups: [
+      { id: 'outer', title: 'Outer', x: 400, y: 0, width: 500, height: 250 },
+      { id: 'inner', title: 'Inner', x: 500, y: 20, width: 180, height: 150 },
+    ] }
+    const harness = interactionHarness(scene)
+    const receiving = () => harness.renderer.getOverlay().receivingGroups
+    harness.fire('pointerdown', 30, 15)
+    expect(receiving()).toBeUndefined()
+    harness.fire('pointermove', 530, 45)
+    expect(receiving()).toEqual(new Set(['inner']))
+    harness.fire('pointermove', 630, 45)
+    expect(receiving()).toEqual(new Set(['outer']))
+    harness.fire('pointermove', 880, 45)
+    expect(receiving()).toEqual(new Set())
+    harness.fire('pointermove', 530, 45)
+    expect(receiving()).toEqual(new Set(['inner']))
+    harness.fire('pointerup', 530, 45)
+    expect(receiving()).toBeUndefined()
+    harness.fire('pointerdown', 30, 15)
+    harness.fire('pointermove', 530, 45)
+    expect(receiving()).toEqual(new Set(['inner']))
+    harness.fireWindow('keydown', { code: 'Escape' })
+    expect(receiving()).toBeUndefined()
+    harness.fire('pointerdown', 850, 13)
+    harness.fire('pointermove', 860, 23)
+    expect(receiving()).toBeUndefined()
+    harness.fire('pointerup', 860, 23)
+    harness.controller.dispose()
+  })
+
   it('keeps membership through covering, resizing, drops, reopen and undo', () => {
     const schema: NodeSchema = { type: 'Example', displayName: 'Example', category: 'test', source: 'v3', isOutputNode: false, body: [] }
     const loaded = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'members', root: 'g0',

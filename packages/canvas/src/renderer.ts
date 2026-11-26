@@ -736,6 +736,8 @@ export interface OverlayState {
   readonly resizePreview?: { readonly nodeId: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number }
   /** Live group-drag offset (member nodes ride dragOffsets); committed as view.moveGroup. */
   readonly groupDragOffset?: { readonly groupId: string; readonly dx: number; readonly dy: number }
+  /** Groups that directly dragged nodes would join on release. */
+  readonly receivingGroups?: ReadonlySet<string>
   /** Live group-resize preview; committed as view.setGroupBounds on release. */
   readonly groupResizeGhost?: { readonly groupId: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number }
   /** Pending node placement preview, centered near the live pointer in world coordinates. */
@@ -3413,10 +3415,11 @@ export class CanvasRenderer {
     ctx.globalAlpha = canvasPaintTokens.group.headerOpacity
     ctx.fill()
     // Border.
-    ctx.globalAlpha = canvasPaintTokens.group.borderOpacity
+    const receiving = this.overlay.receivingGroups?.has(group.id) === true
+    ctx.globalAlpha = receiving ? 1 : canvasPaintTokens.group.borderOpacity
     ctx.beginPath()
     ctx.roundRect(x, y, group.width, group.height, t.cornerRadius)
-    ctx.strokeStyle = color
+    ctx.strokeStyle = receiving ? t.colors.label : color
     ctx.lineWidth = screenAwareStroke(canvasPaintTokens.group.stroke, this.viewport.scale, canvasPaintTokens.group.stroke)
     ctx.stroke()
     // Title.

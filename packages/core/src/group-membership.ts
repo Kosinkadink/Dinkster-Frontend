@@ -43,7 +43,7 @@ export function belongsToGroup(membership: GroupMembership, kind: keyof GroupMem
   return false
 }
 
-function containingGroup(item: GroupItemGeometry, geometry: readonly GroupItemGeometry[], membership: GroupMembership): string | undefined {
+export function containingGroup(item: GroupItemGeometry, geometry: readonly GroupItemGeometry[], membership: GroupMembership): string | undefined {
   return [...geometry].reverse().find((group) => group.kind === 'groups' &&
     !(item.kind === 'groups' && (item.id === group.id || belongsToGroup(membership, 'groups', group.id, item.id))) &&
     item.x >= group.x && item.y >= group.y &&

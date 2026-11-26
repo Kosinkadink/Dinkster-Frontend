@@ -45,6 +45,9 @@
 
 import {
   canonicalTypeIdOf,
+  belongsToGroup,
+  containingGroup,
+  initialGroupMembership,
   groupBoxKey,
   hasKnownLinkDropAnchorType,
   dragNumericValue,
@@ -94,6 +97,7 @@ import {
   boundaryNodesInGroup,
   nodesInGroup,
   groupsInGroup,
+  groupItemGeometry,
   reroutesInGroup,
   sceneEndId,
   previewFoldedOf,
@@ -1216,6 +1220,7 @@ export class InteractionController {
         this.pushOverlay({
           ...(live.marquee !== undefined ? { marquee: live.marquee } : {}),
           ...(live.dragOffsets !== undefined ? { dragOffsets: live.dragOffsets } : {}),
+          ...(live.receivingGroups !== undefined ? { receivingGroups: live.receivingGroups } : {}),
           ...(live.resizePreview !== undefined ? { resizePreview: live.resizePreview } : {}),
           ...(live.groupDragOffset !== undefined ? { groupDragOffset: live.groupDragOffset } : {}),
           ...(live.groupResizeGhost !== undefined ? { groupResizeGhost: live.groupResizeGhost } : {}),
@@ -3195,7 +3200,19 @@ export class InteractionController {
         const dy = w.y - g.startWY
         const ids = [...g.nodeIds, ...g.rerouteIds, ...g.boundarySides.map(boundarySceneId), ...g.groupIds, ...g.netViewIds]
         const offsets = new Map(ids.map((id) => [id, { dx, dy }]))
-        this.pushOverlay({ dragOffsets: offsets })
+        const scene = this.renderer.getScene()
+        const geometry = groupItemGeometry(scene)
+        const membership = scene.groupMembership ?? initialGroupMembership(geometry)
+        const snap = (v: number) => Math.round(v * 100) / 100
+        const preview = geometry.map((item) => (item.kind === 'nodes' && g.nodeIds.includes(item.id)) || (item.kind === 'groups' && g.groupIds.includes(item.id))
+          ? { ...item, x: snap(item.x + dx), y: snap(item.y + dy) } : item)
+        const receivingGroups = new Set(preview.flatMap((item) => {
+          if (item.kind !== 'nodes' || !g.nodeIds.includes(item.id) ||
+            g.groupIds.some((group) => belongsToGroup(membership, 'nodes', item.id, group))) return []
+          const parent = containingGroup(item, preview, membership)
+          return parent === undefined ? [] : [parent]
+        }))
+        this.pushOverlay({ dragOffsets: offsets, receivingGroups })
         return
       }
       case 'reroute-move': {
@@ -4729,6 +4746,7 @@ export class InteractionController {
   private pushOverlay(
     extra: {
       dragOffsets?: ReadonlyMap<string, { dx: number; dy: number }>
+      receivingGroups?: ReadonlySet<string>
       ghostLink?: GhostLink
       ghostLinks?: readonly GhostLink[]
       hiddenLinkIds?: ReadonlySet<string>
