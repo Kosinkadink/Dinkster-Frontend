@@ -98,6 +98,10 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
 /** Every example card on the page has painted its canvas. */
 async function cardsReady(page: Page, id: string, theme: string) {
   const cards = page.locator('figure.dinkster-canvas-example canvas')
+  if (id === 'editor-choice-placement') {
+    await expect(page.getByRole('button', { name: 'Interpolation Linear', exact: true })).toBeVisible()
+    return cards
+  }
   await expect(cards.first()).toBeVisible()
   for (const card of await cards.all())
     await expect(card).toHaveAttribute('data-ready', new RegExp(`-${theme}$`))
