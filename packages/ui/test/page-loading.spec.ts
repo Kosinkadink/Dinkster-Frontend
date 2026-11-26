@@ -30,7 +30,7 @@ test('a quick page waits for both reads without a loading sign and retains its a
   ).toBeVisible()
   await expect(section.locator('.dinkster-page-load-answer')).toHaveCSS(
     'animation-duration',
-    '0.2s',
+    '0.24s',
   )
   await expect(summary.locator('.dinkster-page-load-answer')).toHaveCSS(
     'animation-duration',
@@ -163,7 +163,6 @@ test('the content frame stays fixed, centres loading, and retains the last answe
   page,
 }) => {
   const section = page.getByRole('region', { name: 'Page loading' })
-  await section.getByText('Fade and rise', { exact: true }).click()
   const frame = section.locator('.dinkster-page-load-example')
   const summary = page.getByRole('region', { name: 'Account summary' })
   const bounds = await frame.boundingBox()
@@ -220,14 +219,13 @@ test('the content frame stays fixed, centres loading, and retains the last answe
   expect(await frame.boundingBox()).toEqual(bounds)
 })
 
-test('the rise arrival moves only the new answer six pixels over 240ms', async ({
+test('the default arrival moves only the new answer six pixels over 240ms', async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   const section = page.getByRole('region', { name: 'Page loading' })
   const heading = section.getByRole('heading', { name: 'Page loading' })
   const bounds = await heading.boundingBox()
-  await section.getByText('Fade and rise', { exact: true }).click()
   await section.getByRole('button', { name: 'Load quickly' }).click()
   await page.clock.runFor(80)
   const answer = section.locator('.dinkster-page-load-answer')

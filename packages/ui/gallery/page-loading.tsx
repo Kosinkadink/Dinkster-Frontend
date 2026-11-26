@@ -8,12 +8,10 @@ import {
   ProductProjectListHeader,
   ProductProjectRows,
   ProductSection,
-  ProductSegmented,
 } from '../src/index.js'
 
 export function PageLoadingGallery(props: { activity: string }) {
   const page = createPageLoad<[string, string]>()
-  const [arrival, setArrival] = createSignal<'fade' | 'rise'>('fade')
   let request: () => Promise<[string, string]>
   const read = (delay: number, fail = false, email = 'alex@example.test') => {
     let failNext = fail
@@ -44,15 +42,6 @@ export function PageLoadingGallery(props: { activity: string }) {
           The account and its settings arrive together. A quick read has no
           loading sign. Re-reading keeps the last answer visible.
         </p>
-        <ProductSegmented
-          label="Answer arrival"
-          value={arrival()}
-          options={[
-            { value: 'fade', label: 'Fade' },
-            { value: 'rise', label: 'Fade and rise' },
-          ]}
-          onChange={(value) => setArrival(value as 'fade' | 'rise')}
-        />
         <div class="dinkster-actions">
           <ProductButton onClick={() => void read(80)}>
             Load quickly
@@ -77,7 +66,6 @@ export function PageLoadingGallery(props: { activity: string }) {
             page={page}
             read={() => request()}
             loadingLabel="Loading account"
-            arrival={arrival()}
           >
             {(account) => (
               <div class="dinkster-stack">

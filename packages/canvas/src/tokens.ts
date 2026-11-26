@@ -144,13 +144,14 @@ export const canvasPaintTokens = {
     /** Rows an open text result shows at least. */
     textOutputMinRows: 2,
     /**
-     * The bar on the bottom edge of a node whose preview is open: the text
-     * box's bar (`widget.textBoxEdge`), its top `barRise` above the node's
-     * edge so it sits on the edge, and a band around the edge that drags it.
-     * Arrow keys on a pressed bar step a picture's height by `keyStep`; a text
-     * result steps one row.
+     * The bar of a node whose preview is open: the text box's bar
+     * (`widget.textBoxEdge`), its top `barRise` above the node's bottom edge
+     * so it sits inside the node under the preview, as a text box's bar sits
+     * inside its box, and a band around the edge that drags it. Arrow keys on
+     * a pressed bar step a picture's height by `keyStep`; a text result steps
+     * one row.
      */
-    previewEdge: { barRise: 1, hitAbove: 5, hitBelow: 5, keyStep: 10 },
+    previewEdge: { barRise: 5, hitAbove: 5, hitBelow: 5, keyStep: 10 },
     missing: { portLabelPadding: 4, pairedPortGap: 16, tapLabelPadding: 20 },
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
@@ -533,15 +534,15 @@ export const canvasPaintTokens = {
     /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
     subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     /**
-     * A folded curve in the raised look: a square of its plot at the row's
-     * start, `inset` inside the row and as tall as the row allows, `gap`
-     * before the name; the plot sits `plotInset` inside its frame.
+     * A folded curve in the raised look: a square before its count, `inset`
+     * inside the row and as tall as the row allows, `gap` before the count;
+     * the plot sits `plotInset` inside its frame.
      */
     curve: { inset: 5, gap: 8, plotInset: 3, lineWidth: 1.5, pointRadius: 1.75, dash: [2, 2], lineStep: 16, edge: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
     valueSwatch: { size: 10, radius: 2, gap: 6, checkerCell: 3, edge: 1 },
     /** A folded editor's small picture before its value, such as the stored frame. */
-    valueThumbnail: { size: 16, radius: 2, gap: 6 },
+    valueThumbnail: { size: 16, radius: 2, gap: 6, fileNameGap: 4, entryGap: 8 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,

@@ -45,6 +45,7 @@ const plain = (value: unknown): Json => JSON.parse(JSON.stringify(value)) as Jso
  */
 export function Load3dSpace(props: {
   readonly value: Json | undefined
+  readonly wired?: boolean
   /** Changes when what the view reads changes, which reads it again. */
   readonly sourceKey: string
   readonly ports: Load3dPorts
@@ -271,6 +272,7 @@ export function Load3dSpace(props: {
     const shown = state()
     if (shown === 'ready') return undefined
     if (shown === 'native') return message('load3dWidget.native')
+    if (shown === 'noModel' && props.wired) return message('inNodeLoad3d.notKnown')
     return message(`inNodeLoad3d.${shown}`)
   }
   const ready = () => state() === 'ready'

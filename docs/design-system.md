@@ -157,13 +157,14 @@ every core tab once.
   blank waiting, centred loading, or a failure notice with a retry button above
   any retained answer. Pass the helper as `page`, the retry `read`, a
   `loadingLabel` and a content render function. Its parent supplies the content
-  area's height; arriving content fades over 200ms unless motion is reduced.
+  area's height; arriving content fades and rises 6px over 240ms unless motion
+  is reduced.
   For other regions fed by the same `page`, `ProductPageAnswer` takes that
   helper and a content render function, showing only the retained or arriving
   answer without another loading sign, error or retry. Keep known headings and
   actions outside both pieces so they stay mounted through reads and refreshes.
   Both accept `arrival="fade"` (200ms) or `arrival="rise"` (240ms, 6px upward
-  settling). Main content defaults to fade; secondary regions default to rise.
+  settling). Both default to rise; callers do not need to choose an arrival.
   Reduced motion disables both animations.
   `pending` covers the whole read, `value` retains the previous answer during
   refresh, and `error` exposes a failed read. A newer `load` supersedes an older
@@ -201,7 +202,7 @@ every core tab once.
   by position, so a host that passes new item objects while the menu is open
   (a count arriving) does not move focus or close it. Disabled items are
   skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
-  to its trigger's left edge, or to its right edge when it would not fit, and
+  to its trigger's left edge, or to its right edge with `align="end"` or when it would not fit, and
   then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
   to clamp and to flip above when needed. Scroll outside or resize dismisses
   the menu rather than leaving a stale anchor. Its document listeners exist
@@ -860,7 +861,7 @@ narrow node, with incoming values, problems and the pointer readout.
 The default `widgetRowLook: 'raised-editors'` keeps a value typed in its row,
 color included, in an inset field, and raises every row that opens an editor:
 asset, recording, camera, 3D model, crop, compare, save target, video edit,
-list, colors, curve, camera angle and resolution preview. A raised row has a
+list, colors, curve and camera angle. A raised row has a
 lucide icon for its kind and an opening chevron; an output mount is drawn as a
 choice row. A row whose editor is parked (`PARKED_EDITOR_VIEWS`, today the
 compositor's layers) opens nothing, so it is drawn inset with its summary as
