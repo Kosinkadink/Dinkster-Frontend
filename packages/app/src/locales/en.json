@@ -1408,7 +1408,7 @@
   "settings.canvas.minimap.size.medium": "Medium",
   "settings.canvas.minimap.size.large": "Large",
   "settings.canvas.minimap.visible": "Show minimap",
-  "settings.canvas.scrollBehavior.description": "Zoom makes wheel and two-finger scroll zoom about the pointer. Pan makes ordinary scrolling move the canvas while Ctrl+wheel or trackpad pinch zooms.",
+  "settings.canvas.scrollBehavior.description": "Zoom makes wheel and two-finger scroll zoom about the pointer. Pan makes ordinary scrolling move the canvas while `Ctrl+wheel` or trackpad pinch zooms.",
   "settings.canvas.scrollBehavior.name": "Canvas scroll behavior",
   "settings.canvas.scrollBehavior.option.pan": "Pan",
   "settings.canvas.scrollBehavior.option.zoom": "Zoom",

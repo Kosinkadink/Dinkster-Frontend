@@ -1,4 +1,5 @@
 import { Show, type JSX } from 'solid-js'
+import { ProductShortcutText } from '@dinkster/ui'
 
 export interface ProductFieldIds {
   readonly label: string
@@ -42,7 +43,7 @@ export function ProductField(props: {
     >
       <div class="product-field-copy">
         <label id={ids.label} class="product-field-label" for={props.controlId}>{props.label}</label>
-        <Show when={props.description}><span id={ids.description} class="product-field-description">{props.description}</span></Show>
+        <Show when={props.description}>{(text) => <span id={ids.description} class="product-field-description"><ProductShortcutText text={text()} /></span>}</Show>
         <Show when={props.metadata}><span class="product-field-metadata">{props.metadata}</span></Show>
       </div>
       <div class="product-field-control">{props.children}</div>

@@ -9,6 +9,7 @@ import {
 } from 'solid-js'
 import { DraftingCompass, ChevronRight, Search, X, type LucideIcon } from 'lucide-solid'
 import { ProductIcon, ProductSwitch } from './controls.js'
+import { ProductShortcut } from './shortcut.js'
 
 /** A kind of result, shown as a named tab; Tab steps through them. */
 export interface ProductSearchKind {
@@ -341,7 +342,7 @@ export function ProductSearch(props: {
           <Show when={row.keys}>
             {(chips) => (
               <span class="dinkster-search-row-keys">
-                <For each={chips()}>{(key) => <kbd class="dinkster-key">{key}</kbd>}</For>
+                <ProductShortcut keys={chips()} />
               </span>
             )}
           </Show>
@@ -506,7 +507,7 @@ export function ProductSearch(props: {
             <For each={props.hints}>
               {(hint) => (
                 <span class="dinkster-search-hint">
-                  <For each={hint.keys}>{(key) => <kbd class="dinkster-key">{key}</kbd>}</For>
+                  <ProductShortcut keys={hint.keys} />
                   <span>{hint.label}</span>
                 </span>
               )}
