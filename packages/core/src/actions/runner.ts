@@ -1196,8 +1196,21 @@ class Press {
       case 'FLOAT': {
         const limits = numericStepConstraints(widget)
         if (limits.integer) return
-        const lowest = Math.max(limits.min, typeof low === 'number' || typeof low === 'bigint' ? Number(low) : limits.min)
-        const highest = Math.min(limits.max, typeof high === 'number' || typeof high === 'bigint' ? Number(high) : limits.max)
+        const bound = (value: number | bigint, lower: boolean): number => {
+          const number = Number(value)
+          if (lower && number === -Infinity) return -Number.MAX_VALUE
+          if (!lower && number === Infinity) return Number.MAX_VALUE
+          if (typeof value === 'bigint' && Number.isFinite(number) && (lower ? number < value : number > value)) {
+            // Integer bounds can round out of the interval; use the adjacent float inside it.
+            const bits = new DataView(new ArrayBuffer(8))
+            bits.setFloat64(0, number)
+            bits.setBigUint64(0, bits.getBigUint64(0) + ((number > 0) === lower ? 1n : -1n))
+            return bits.getFloat64(0)
+          }
+          return number
+        }
+        const lowest = Math.max(limits.min, typeof low === 'number' || typeof low === 'bigint' ? bound(low, true) : limits.min)
+        const highest = Math.min(limits.max, typeof high === 'number' || typeof high === 'bigint' ? bound(high, false) : limits.max)
         if (!Number.isFinite(lowest) || !Number.isFinite(highest) || lowest > highest) {
           return refuse(`Randomize needs a lowest and a highest value for ${step.field}.`)
         }

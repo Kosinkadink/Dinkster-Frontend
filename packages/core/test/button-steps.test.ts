@@ -435,7 +435,7 @@ describe('each step', () => {
         expect(draws).toBe(0)
       }
     }
-    const intervals = [
+    const intervals: { kind: 'INT' | 'FLOAT'; min?: number; max?: number; step: number; offset?: number; low?: string; high?: string; expected?: readonly number[] }[] = [
       { min: 0, max: 100, step: 1, low: '10.5', high: '20.5', expected: [11, 13, 20] },
       { min: 0, max: 100, step: 5, low: '10.5', high: '20.5', expected: [15, 15, 20] },
       { min: 0, max: 100, step: 5, offset: 1, low: '10.5', high: '20.5', expected: [11, 11, 16] },
@@ -444,25 +444,40 @@ describe('each step', () => {
       { min: 0, max: 100, step: 5, high: '20.5', expected: [0, 5, 20] },
       { min: 0, max: 100, step: 5, low: '90.5', expected: [95, 95, 100] },
       { min: 0, max: 100, step: 5, low: '20', high: '20', expected: [20, 20, 20] },
-      { min: 0, max: 100, step: 5, low: '10.2', high: '14.8', expected: undefined },
-    ].map((interval) => ({ kind: 'INT', ...interval }))
+      { min: 0, max: 100, step: 5, low: '10.2', high: '14.8' },
+    ].map((interval) => ({ kind: 'INT' as const, ...interval }))
     intervals.push(
       { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '100', high: '120', expected: [100, 100, 100] },
       { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '-30', high: '0', expected: [0, 0, 0] },
       { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '20', high: '20', expected: [20, 20, 20] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '10.5', high: '20.5', expected: [11.75, 13, 19.25] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '-10', high: '20.5', expected: [2.5625, 5.125, 17.9375] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, high: '20.5', expected: [2.5625, 5.125, 17.9375] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '90.5', expected: [91.6875, 92.875, 98.8125] },
+      { kind: 'FLOAT', min: 0, max: 9007199254741000, step: 1, low: '9007199254740993', high: '9007199254740994', expected: [9007199254740994, 9007199254740994, 9007199254740994] },
+      { kind: 'FLOAT', min: 0, max: 9007199254741000, step: 1, low: '9007199254740994', high: '9007199254740995', expected: [9007199254740994, 9007199254740994, 9007199254740994] },
+      { kind: 'FLOAT', min: -9007199254741000, max: 0, step: 1, low: '-9007199254740995', high: '-9007199254740993', expected: [-9007199254740994, -9007199254740994, -9007199254740994] },
+      { kind: 'FLOAT', min: 0, max: 9007199254741000, step: 1, low: '9007199254740993', high: '9007199254740993' },
+      { kind: 'FLOAT', step: 1, low: '0', high: '2 ** 2000', expected: [Number.MAX_VALUE / 8, Number.MAX_VALUE / 4, Number.MAX_VALUE * 0.875] },
+      { kind: 'FLOAT', step: 1, low: '-(2 ** 2000)', high: '0', expected: [-Number.MAX_VALUE * 0.875, -Number.MAX_VALUE * 0.75, -Number.MAX_VALUE / 8] },
+    )
+    for (const kind of ['INT', 'FLOAT'] as const) intervals.push(
+      { kind, step: 1, min: 0 },
+      { kind, step: 1, max: 100 },
+      { kind, step: 1, low: '10.5', high: '20.5', expected: kind === 'INT' ? [11, 13, 20] : [11.75, 13, 19.25] },
     )
     for (const [index, { kind, low, high, expected, ...widget }] of intervals.entries()) {
       const type = `test.random_interval.${index}`
       addSchema(type, [
-        { kind: 'input', id: 'value', type: { kind: 'concrete', types: [kind] }, default: widget.min, widget: { type: 'NUMBER', ...widget } },
+        { kind: 'input', id: 'value', type: { kind: 'concrete', types: [kind] }, default: widget.min ?? 0, widget: { type: 'NUMBER', ...widget } },
         { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
         { kind: 'button', id: 'random', label: 'Random', steps: [
           { step: 'set', field: 'marker', value: { value: 19 } },
           { step: 'randomize', field: 'value', ...(low === undefined ? {} : { low: { formula: low } }), ...(high === undefined ? {} : { high: { formula: high } }) },
         ] },
       ])
-      for (const [drawIndex, draw] of [0, 0.25, 0.999999].entries()) {
-        const doc = documentOf({ n1: { type, values: { value: widget.min, marker: 41 } } })
+      for (const [drawIndex, draw] of (kind === 'INT' ? [0, 0.25, 0.999999] : [0.125, 0.25, 0.875]).entries()) {
+        const doc = documentOf({ n1: { type, values: { value: widget.min ?? 0, marker: 41 } } })
         const session = sessionOf(doc)
         let draws = 0
         const outcome = await runPress(session, at('random'), hostOf({ random: () => { draws++; return draw } }))
