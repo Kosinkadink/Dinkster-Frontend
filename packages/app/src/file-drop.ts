@@ -11,6 +11,7 @@ const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10] as const
 export type FileDropClassification =
   | { readonly kind: 'workflow'; readonly document: unknown }
   | { readonly kind: 'image'; readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp'; readonly embeddedWorkflow?: unknown; readonly embeddedPrompt?: JsonObject }
+  | { readonly kind: 'video'; readonly mediaType: 'video/mp4' | 'video/webm' }
   | { readonly kind: 'latent'; readonly metadata: LatentMetadata }
   | { readonly kind: 'rejected'; readonly code: string; readonly message: string }
 
@@ -203,6 +204,8 @@ const CLASSIFIERS: readonly Classifier[] = [
   },
   { classify: (bytes) => startsWith(bytes, [0xff, 0xd8, 0xff]) ? { kind: 'image', mediaType: 'image/jpeg' } : undefined },
   { classify: (bytes) => startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) && startsWith(bytes.subarray(8), [0x57, 0x45, 0x42, 0x50]) ? { kind: 'image', mediaType: 'image/webp' } : undefined },
+  { classify: (bytes) => bytes.length >= 12 && startsWith(bytes.subarray(4), [0x66, 0x74, 0x79, 0x70]) ? { kind: 'video', mediaType: 'video/mp4' } : undefined },
+  { classify: (bytes) => startsWith(bytes, [0x1a, 0x45, 0xdf, 0xa3]) ? { kind: 'video', mediaType: 'video/webm' } : undefined },
 ]
 
 export async function classifyDroppedFile(file: Pick<File, 'name' | 'size' | 'slice'>): Promise<FileDropClassification> {
@@ -225,8 +228,8 @@ export async function classifyDroppedFile(file: Pick<File, 'name' | 'size' | 'sl
   return rejected('fileDrop.unsupported', 'Unsupported dropped file type')
 }
 
-export type ImageInsertOutcome = 'inserted' | 'upload-failed' | 'invalid-asset' | 'stale-tab' | 'stale-graph' | 'frozen' | 'schema-missing' | 'rejected'
-export type LatentInsertOutcome = ImageInsertOutcome
+export type MediaInsertOutcome = 'inserted' | 'upload-failed' | 'invalid-asset' | 'stale-tab' | 'stale-graph' | 'frozen' | 'schema-missing' | 'rejected'
+export type LatentInsertOutcome = MediaInsertOutcome
 
 const loaderForMediaType = (
   schemas: Iterable<NodeSchema>,
@@ -250,10 +253,10 @@ const loaderForMediaType = (
   return fallback
 }
 
-/** Upload and atomically insert a catalog loader for the image MIME type. */
-export async function insertDroppedImage(p: {
+/** Upload and atomically insert a catalog loader for the media MIME type. */
+export async function insertDroppedMedia(p: {
   readonly file: File
-  readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp'
+  readonly mediaType: string
   readonly graphId: string
   readonly position: { readonly x: number; readonly y: number }
   readonly tabStillOpen: () => boolean
@@ -266,7 +269,7 @@ export async function insertDroppedImage(p: {
   readonly upload: (body: File) => Promise<AssetRef>
   readonly dispatch: (invocation: CommandInvocation) => boolean | Promise<boolean>
   readonly onInserted: (nodeId: string) => void
-}): Promise<ImageInsertOutcome> {
+}): Promise<MediaInsertOutcome> {
   if (!p.tabStillOpen()) return 'stale-tab'
   if (!p.graphStillOwned() || p.currentGraphId() !== p.graphId || p.document().graphs[p.graphId] === undefined) return 'stale-graph'
   if (p.frozen()) return 'frozen'

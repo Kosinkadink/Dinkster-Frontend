@@ -189,12 +189,13 @@ import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type EditorTarget, type WidgetEditorState } from './WidgetEditor.js'
 import { GLSL_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
-import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
+import { classifyDroppedFile, insertDroppedMedia, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
 import { ModalSurface } from './ModalSurface.js'
 import { UploadDestination } from './UploadDestination.js'
 import { AssetFileLocation } from './AssetFileLocation.js'
-import { resolveDroppedAsset } from './desktop-bridge.js'
+import { formatSize } from './asset-browser/helpers.js'
+import { importNativeAsset, resolveDroppedAsset } from './desktop-bridge.js'
 import { activeProjectId } from './projects.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 import { palettePreviewLayout, placementSchemaKey } from './palette-node-preview.js'
@@ -2038,6 +2039,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [canvasImportChoice, setCanvasImportChoice] = createSolidSignal<{
     readonly backend: Extract<Backend, { protocol: 'dinkster' }>
     readonly name: string
+    readonly video: boolean
+    readonly maxBytes?: number
     readonly confirm: (destination: UploadDestinationChoice) => void
     readonly cancel: () => void
     readonly valid: () => boolean
@@ -6271,6 +6274,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         props.app.reportProblems(tab.id, [diag('warning', 'import', code, message)])
         presentFileDropResult({ state: 'error', title, detail: message })
       }
+      const uploadLimit = (kind: 'media/image' | 'media/video' | 'data/latent'): number | undefined => {
+        const limits = props.app.registryForTab(tab)?.uploadLimits
+        return limits === null ? undefined : limits === undefined
+          ? (kind === 'media/image' ? 256 * 1024 * 1024 : 1024 * 1024 * 1024)
+          : limits[kind]
+      }
+      const withinUploadLimit = (kind: 'media/image' | 'media/video' | 'data/latent'): boolean => {
+        const limit = uploadLimit(kind)
+        if (limit === undefined || file.size <= limit) return true
+        finish()
+        report('fileDrop.tooLarge', `File exceeds the ${formatSize(limit)} upload limit. Nothing was imported.`)
+        return false
+      }
       const openWorkflow = async (document: unknown, originalPrompt?: JsonObject): Promise<void> => {
         if (!ownerLive()) { finish(); return }
         setFileDropSurface({
@@ -6284,6 +6300,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       const loadLatent = async (metadata: LatentMetadata, existing?: AssetRef): Promise<void> => {
         if (!ownerLive()) { finish(); return }
+        if (!existing && !withinUploadLimit('data/latent')) return
         setFileDropSurface({
           state: 'uploading',
           title: 'Adding latent',
@@ -6301,9 +6318,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           document: () => tab.store.doc,
           schemas: () => props.app.registryForTab(tab)?.schemas.values(),
           predictedNodeId: () => tab.store.predictedNodeId(graphId),
-          upload: (body) => existing ? Promise.resolve(existing) : backend.protocol === 'dinkster'
-            ? backend.connection.uploadLatentAsset(body, { scope: 'local', name: 'dropped-latent.latent', signal: abort.signal })
-            : Promise.reject(new Error('latent upload requires a Dinkster backend')),
+          upload: async (body) => {
+            if (existing) return existing
+            if (backend.protocol !== 'dinkster') throw new Error('latent upload requires a Dinkster backend')
+            const imported = await importNativeAsset(backend.baseUrl, file, {
+              name: body.name, mediaType: 'application/x-comfy-latent', kind: 'data/latent',
+            }, ownerLive)
+            if (!ownerLive()) throw new Error('File import cancelled')
+            return imported ?? backend.connection.uploadLatentAsset(body, { scope: 'local', name: body.name, signal: abort.signal })
+          },
           dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },
         })
@@ -6344,17 +6367,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (imported || !ownerLive()) finish()
         else await loadLatent(metadata)
       }
-      const uploadImage = async (mediaType: 'image/png' | 'image/jpeg' | 'image/webp', destination?: UploadDestinationChoice, existing?: AssetRef): Promise<void> => {
+      const uploadMedia = async (mediaType: string, destination?: UploadDestinationChoice, existing?: AssetRef): Promise<void> => {
         if (!ownerLive()) { finish(); return }
         const project = activeProjectId()
+        const video = mediaType.startsWith('video/')
+        const noun = video ? 'video' : 'image'
+        const titleNoun = video ? 'Video' : 'Image'
+        const loaderName = video ? 'Load Video' : 'Load Image'
+        const kind = video ? 'media/video' : 'media/image'
+        if (!existing && !withinUploadLimit(kind)) return
         let uploaded: AssetRef | undefined
         setFileDropSurface({
           state: 'uploading',
-          title: 'Adding image',
-          detail: existing ? 'Using the existing file and preparing Load Image.' : 'Uploading the image and preparing Load Image.',
+          title: `Adding ${noun}`,
+          detail: existing ? `Using the existing file and preparing ${loaderName}.` : `Importing the ${noun} and preparing ${loaderName}.`,
           cancelable: true,
         })
-        const outcome = await insertDroppedImage({
+        const outcome = await insertDroppedMedia({
           file,
           mediaType,
           graphId,
@@ -6369,12 +6398,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           upload: async (body) => {
             if (backend.protocol !== 'dinkster') throw new Error('asset upload requires a Dinkster backend')
             if (existing) { uploaded = existing; return existing }
-            uploaded = await backend.connection.uploadMediaAsset(
+            const target = {
+              kind, name: body.name, mediaType,
+              ...(destination?.mount ? { mount: destination.mount } : {}),
+              ...(destination?.folder ? { folder: destination.folder } : {}),
+            }
+            const imported = await importNativeAsset(backend.baseUrl, file, target, ownerLive)
+            if (!ownerLive()) throw new Error('File import cancelled')
+            uploaded = imported ?? await backend.connection.uploadMediaAsset(
               body.type === mediaType ? body : new File([body], body.name, { type: mediaType }),
-              { scope: 'local', kind: 'media/image', name: body.name, signal: abort.signal,
-                ...(destination?.mount ? { mount: destination.mount } : {}),
-                ...(destination?.folder ? { folder: destination.folder } : {}),
-              },
+              { ...target, scope: 'local', kind, signal: abort.signal },
             )
             return uploaded
           },
@@ -6390,27 +6423,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           }
           presentFileDropResult({
             state: 'success',
-            title: 'Image added',
-            detail: existing ? 'Using existing file; no copy made. Load Image was inserted without running the workflow.' : 'Load Image was inserted without running the workflow.',
+            title: `${titleNoun} added`,
+            detail: `${existing ? 'Using existing file; no copy made. ' : ''}${loaderName} was inserted without running the workflow.`,
             facts: [{ label: message('canvasImport.machine'), value: backend.label }, { label: message('canvasImport.file'), value: uploaded.virtualPath }],
             location: { backend, digest: uploaded.digest, project },
           })
         }
-        else if (outcome === 'upload-failed') report('fileDrop.uploadFailed', `${origin === 'drop' ? 'Dropped' : 'Pasted'} image upload failed; no node was inserted`, 'Image could not be added')
-        else if (outcome === 'invalid-asset') report('fileDrop.invalidAsset', 'Image upload returned an incomplete asset reference; no node was inserted', 'Image could not be added')
-        else if (outcome === 'schema-missing') report('fileDrop.loadImageUnavailable', 'The active catalog has no canonical Load Image ASSET node; no node was inserted', 'Load Image unavailable')
-        else if (outcome === 'rejected') report('fileDrop.insertRejected', 'Load Image insertion was rejected atomically', 'Image could not be added')
+        else if (outcome === 'upload-failed') report('fileDrop.uploadFailed', `${origin === 'drop' ? 'Dropped' : 'Pasted'} ${noun} import failed; no node was inserted`, `${titleNoun} could not be added`)
+        else if (outcome === 'invalid-asset') report('fileDrop.invalidAsset', `${titleNoun} import returned an incomplete asset reference; no node was inserted`, `${titleNoun} could not be added`)
+        else if (outcome === 'schema-missing') report('fileDrop.loaderUnavailable', `The active catalog has no loader accepting this ${noun}; no node was inserted`, `${loaderName} unavailable`)
+        else if (outcome === 'rejected') report('fileDrop.insertRejected', `${loaderName} insertion was rejected atomically`, `${titleNoun} could not be added`)
       }
-      const loadImage = async (mediaType: 'image/png' | 'image/jpeg' | 'image/webp'): Promise<void> => {
+      const loadMedia = async (mediaType: string): Promise<void> => {
         if (!ownerLive()) { finish(); return }
         setEmbeddedDropChoice(undefined)
         if (backend.protocol !== 'dinkster') { finish(); report('fileDrop.uploadFailed', 'Asset uploads require a native Dinkster backend'); return }
+        const video = mediaType.startsWith('video/')
+        const kind = video ? 'media/video' : 'media/image'
+        if (!withinUploadLimit(kind)) return
+        const maxBytes = uploadLimit(kind)
         setFileDropSurface(undefined)
         setCanvasDestination(readUploadDestination(String(backend.id), activeProjectId()))
         const choice = singleUseFileDropChoice(() => setCanvasImportChoice(undefined))
         setCanvasImportChoice({
-          backend, name: file.name, valid: ownerLive,
-          confirm: (destination) => { choice.run(() => { void uploadImage(mediaType, destination) }) },
+          backend, name: file.name, video, ...(maxBytes === undefined ? {} : { maxBytes }), valid: ownerLive,
+          confirm: (destination) => { choice.run(() => { void uploadMedia(mediaType, destination) }) },
           cancel: () => { choice.run(finish) },
         })
       }
@@ -6424,13 +6461,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           }
           if (!ownerLive()) return
           if (existing) {
-            if (existing.mediaType === 'image/png' || existing.mediaType === 'image/jpeg' || existing.mediaType === 'image/webp') {
-              await uploadImage(existing.mediaType, undefined, existing)
+            if (existing.mediaType === 'image/png' || existing.mediaType === 'image/jpeg' || existing.mediaType === 'image/webp' || existing.mediaType.startsWith('video/')) {
+              await uploadMedia(existing.mediaType, undefined, existing)
             } else if (existing.mediaType === 'application/x-comfy-latent') {
               await loadLatent({}, existing)
             } else {
               finish()
-              report('fileDrop.unsupportedNativeAsset', 'The existing file is not a supported image or latent; no node was inserted. Nothing was uploaded.')
+              report('fileDrop.unsupportedNativeAsset', 'The existing file is not a supported image, video or latent; no node was inserted. Nothing was uploaded.')
             }
             return
           }
@@ -6456,17 +6493,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           void openWorkflow(classification.document)
         } else if (classification.kind === 'latent') {
           void recoverLatentWorkflow(classification.metadata)
-        } else if (classification.embeddedWorkflow !== undefined) {
+        } else if (classification.kind === 'image' && classification.embeddedWorkflow !== undefined) {
           const choice = singleUseFileDropChoice(() => setEmbeddedDropChoice(undefined))
           const cancel = (): void => { choice.run(finish) }
           setEmbeddedDropChoice({
-            loadImage: () => { choice.run(() => { void loadImage(classification.mediaType) }) },
+            loadImage: () => { choice.run(() => { void loadMedia(classification.mediaType) }) },
             openWorkflow: () => { choice.run(() => { void openWorkflow(classification.embeddedWorkflow, classification.embeddedPrompt) }) },
             cancel,
             valid: ownerLive,
           })
         } else {
-          void loadImage(classification.mediaType)
+          void loadMedia(classification.mediaType)
         }
       }, () => {
         if (fileDropRequest !== request || !ownerLive()) {
@@ -7670,15 +7707,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
       <CanvasPreviewA11y targets={previewA11yTargets()} />
       <Show when={canvasImportChoice()} keyed>{(choice) => <ModalSurface
-        title={message('canvasImport.title')} modalId="canvas-import" testId="canvas-import-dialog"
+        title={message(choice.video ? 'canvasImport.videoTitle' : 'canvasImport.title')} modalId="canvas-import" testId="canvas-import-dialog"
         onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); choice.cancel() } }}
         closeLabel={message('canvasImport.cancel')} onRequestClose={choice.cancel}>
         <div class="canvas-import-choice">
           <p>{message('canvasImport.description', { name: choice.name })}</p>
+          <Show when={choice.maxBytes !== undefined}><p data-testid="canvas-import-limit">{message('canvasImport.limit', { size: formatSize(choice.maxBytes) })}</p></Show>
           <UploadDestination connection={choice.backend.connection} machine={choice.backend.label}
             value={canvasDestination()} onChange={setCanvasDestination} />
           <ProductActionFooter>
-            <ProductButton type="button" variant="primary" data-testid="canvas-import-confirm" onClick={() => choice.confirm(canvasDestination())}>{message('canvasImport.confirm')}</ProductButton>
+            <ProductButton type="button" variant="primary" data-testid="canvas-import-confirm" onClick={() => choice.confirm(canvasDestination())}>{message(choice.video ? 'canvasImport.videoTitle' : 'canvasImport.confirm')}</ProductButton>
             <ProductButton type="button" onClick={choice.cancel}>{message('canvasImport.cancel')}</ProductButton>
           </ProductActionFooter>
         </div>

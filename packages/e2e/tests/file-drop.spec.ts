@@ -26,6 +26,13 @@ const STARTUP_CATALOG = {
         { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
       ],
     },
+    'dinkster.video.load_video': {
+      schemaVersion: 2, nodeType: 'dinkster.video.load_video', displayName: 'Load Video', category: 'video',
+      body: [
+        { kind: 'input', id: 'video', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['comfy.VIDEO'] } }, widget: { type: 'ASSET', accept: ['video/*'], kind: 'media/video' } },
+        { kind: 'output', id: 'video', type: { kind: 'concrete', types: ['comfy.VIDEO'] } },
+      ],
+    },
     'dinkster.latent.load_latent': {
       schemaVersion: 2, nodeType: 'dinkster.latent.load_latent', displayName: 'Load Latent', category: 'latent',
       body: [
@@ -58,13 +65,23 @@ async function dropDeferredBytes(page: Page, bytes: number[], name: string, type
   await page.getByTestId('graph-canvas').evaluate((canvas, payload) => {
     const transfer = new DataTransfer()
     const file = new File([Uint8Array.from(payload.bytes)], payload.name, { type: payload.type })
-    const read = file.arrayBuffer.bind(file)
-    Object.defineProperty(file, 'arrayBuffer', {
-      value: () => new Promise<ArrayBuffer>((resolve, reject) => {
-        ;(window as unknown as { __resolveFileInspection: () => void }).__resolveFileInspection = () => {
-          void read().then(resolve, reject)
-        }
-      }),
+    const slice = file.slice.bind(file)
+    let first = true
+    Object.defineProperty(file, 'slice', {
+      value: (start?: number, end?: number) => {
+        const blob = slice(start, end)
+        if (!first) return blob
+        first = false
+        const read = blob.arrayBuffer.bind(blob)
+        Object.defineProperty(blob, 'arrayBuffer', {
+          value: () => new Promise<ArrayBuffer>((resolve, reject) => {
+            ;(window as unknown as { __resolveFileInspection: () => void }).__resolveFileInspection = () => {
+              void read().then(resolve, reject)
+            }
+          }),
+        })
+        return blob
+      },
     })
     transfer.items.add(file)
     canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: 420, clientY: 320, dataTransfer: transfer }))
@@ -133,8 +150,8 @@ const exponentShapeLatentBytes = (): number[] => {
   return [...prefix, ...raw, ...bytes.slice(8 + headerLength)]
 }
 
-async function installImageDropBackend(page: Page, uploadDigest: string, deferred = false): Promise<void> {
-  await page.evaluate(({ digest, deferred }) => {
+async function installImageDropBackend(page: Page, uploadDigest: string, deferred = false, mediaType = 'image/png'): Promise<void> {
+  await page.evaluate(({ digest, deferred, mediaType }) => {
     const app = window.__dinksterTest!.app
     const backend = (app as unknown as {
       backendForTab: (tab: unknown) => { protocol: string; connection: {
@@ -155,17 +172,18 @@ async function installImageDropBackend(page: Page, uploadDigest: string, deferre
     const state = window as unknown as { __imageDropUploads: unknown[] }
     state.__imageDropUploads = []
     backend.connection.uploadMediaAsset = async (body, options) => {
-      if (body.type !== 'image/png' || options.kind !== 'media/image' || options.scope !== 'local' || options.name !== body.name)
-        throw new Error('Incorrect classified image upload')
+      if (body.type !== mediaType || options.kind !== (mediaType.startsWith('video/') ? 'media/video' : 'media/image') || options.scope !== 'local' || options.name !== body.name)
+        throw new Error('Incorrect classified media upload')
       state.__imageDropUploads.push(options)
-      const asset = { digest, name: 'canonical-image-2.png', size: body.size, mediaType: 'image/png', virtualPath: 'imports/canonical-image-2.png' }
+      const name = mediaType.startsWith('video/') ? 'canonical-video.webm' : 'canonical-image-2.png'
+      const asset = { digest, name, size: body.size, mediaType, virtualPath: `imports/${name}` }
       if (!deferred) return asset
       return new Promise((resolve) => {
         ;(window as unknown as { __resolveFileDropUpload: () => void }).__resolveFileDropUpload = () => resolve(asset)
       })
     }
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  }, { digest: uploadDigest, deferred })
+  }, { digest: uploadDigest, deferred, mediaType })
 }
 
 async function installLatentDropBackend(page: Page, deferred = false, ignoreAbort = false): Promise<void> {
@@ -202,7 +220,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'none' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: STARTUP_CATALOG }))
   await page.goto('/')
-  await waitForWorkspaceReady(page, 2)
+  await waitForWorkspaceReady(page, 3)
   await expect.poll(() => page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const registry = (app as unknown as {
@@ -271,6 +289,76 @@ test('plain image preserves the canonical AssetRef at drop coordinates and undo 
   })).toBe(0)
 })
 
+test('video imports insert the canonical loader through native and streamed paths, but native errors leave the document unchanged', async ({ page }, testInfo) => {
+  const digest = `blake3:${'c'.repeat(64)}`
+  await installImageDropBackend(page, digest, false, 'video/webm')
+  await page.evaluate((digest) => {
+    const state = window as unknown as { videoImportMode: string; dinksterDesktop: unknown }
+    state.videoImportMode = 'native'
+    state.dinksterDesktop = {
+      fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: false }),
+      importFile: async () => {
+        if (state.videoImportMode === 'error') throw new Error('/private/video/path')
+        if (state.videoImportMode === 'stream') return { status: 'refused', reason: 'unsupported-backend' }
+        return { status: 'imported', asset: { digest, name: 'native.webm', size: 12, mediaType: 'video/webm', virtualPath: 'mounts/camera-imports/native.webm' } }
+      },
+    }
+  }, digest)
+  const bytes = [0x1a, 0x45, 0xdf, 0xa3, 0x87, 0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6d]
+  for (const [index, mode] of ['native', 'stream', 'error'].entries()) {
+    await page.evaluate((mode) => { (window as unknown as { videoImportMode: string }).videoImportMode = mode }, mode)
+    await dropBytes(page, bytes, 'untrusted.bin', 'text/html')
+    await expect(page.getByTestId('canvas-import-dialog')).toContainText('Import video')
+    await page.getByTestId('canvas-import-confirm').click()
+    const surface = page.getByTestId('canvas-file-drop-surface')
+    if (mode === 'error') {
+      await expect(surface).toContainText('video import failed; no node was inserted')
+      await expect(surface).not.toContainText('/private/video/path')
+    } else {
+      await expect(surface).toContainText('Load Video was inserted without running the workflow.')
+      expect(await page.evaluate((index) => {
+        const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+        return Object.values(doc.graphs[doc.root]!.nodes)[index]
+      }, index)).toMatchObject({ type: 'dinkster.video.load_video', values: { video: {
+        digest, mediaType: 'video/webm', virtualPath: mode === 'native' ? 'mounts/camera-imports/native.webm' : 'imports/canonical-video.webm',
+      } } })
+    }
+    expect(await page.evaluate(() => {
+      const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+      return Object.keys(doc.graphs[doc.root]!.nodes).length
+    })).toBe(Math.min(index + 1, 2))
+  }
+  await page.screenshot({ path: testInfo.outputPath('video-native-import-error.png') })
+})
+
+test('canvas video admission follows the reported policy, including saved lower limits and explicit uncapped mode', async ({ page }, testInfo) => {
+  for (const limit of [32, 8, null]) {
+    const limits = limit === null ? null : Object.fromEntries(
+      ['generic', 'media/image', 'media/audio', 'media/video', 'media/model3d', 'data/latent'].map((kind) => [kind, limit]),
+    )
+    await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+      ...STARTUP_CATALOG, dinkster: { ...STARTUP_CATALOG.dinkster, uploadLimits: limits },
+    } }))
+    await page.reload()
+    await waitForWorkspaceReady(page, 3)
+    await installImageDropBackend(page, `blake3:${'d'.repeat(64)}`, false, 'video/webm')
+    await dropBytes(page, [0x1a, 0x45, 0xdf, 0xa3, 0x87, 0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6d], 'video.webm', 'video/webm')
+    if (limit === 8) {
+      await expect(page.getByTestId('canvas-file-drop-surface')).toContainText('upload limit. Nothing was imported.')
+      await expect(page.getByTestId('canvas-import-dialog')).toHaveCount(0)
+    } else {
+      await expect(page.getByTestId('canvas-import-dialog')).toBeVisible()
+      await expect(page.getByTestId('canvas-import-limit')).toHaveCount(limit === null ? 0 : 1)
+      await page.screenshot({ path: testInfo.outputPath(limit === null ? 'video-import-uncapped.png' : 'video-import-limited.png') })
+      await page.getByTestId('canvas-import-dialog').locator('footer').getByRole('button', { name: 'Cancel import', exact: true }).click()
+    }
+    expect(await page.evaluate(() => {
+      const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+      return Object.keys(doc.graphs[doc.root]!.nodes).length
+    })).toBe(0)
+  }
+})
+
 test('native image resolution preserves mounted identity without upload and only explicit refusal offers copying', async ({ page }, testInfo) => {
   const digest = `blake3:${'b'.repeat(64)}`
   await installImageDropBackend(page, digest)
@@ -312,7 +400,7 @@ test('native image resolution preserves mounted identity without upload and only
     await page.evaluate((mode) => { (window as unknown as { nativeDropMode: string }).nativeDropMode = mode }, mode)
     await dropBytes(page, pngBytes(), 'native.png', 'image/png')
     if (mode === 'incompatible') {
-      await expect(surface).toContainText('not a supported image or latent; no node was inserted')
+      await expect(surface).toContainText('not a supported image, video or latent; no node was inserted')
       await expect(page.getByTestId('canvas-import-confirm')).toHaveCount(0)
       expect(await page.evaluate(() => {
         const doc = window.__dinksterTest!.app.activeTab()!.store.doc

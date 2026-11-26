@@ -325,6 +325,8 @@
   "widgetEditor.writeWired": "{row} 已连接，因此此编辑器不会更改它。",
   "widgetEditor.commitRefused": "The edit was not accepted. Retry or cancel to keep the stored value.",
   "canvasImport.title": "Import image",
+  "canvasImport.videoTitle": "Import video",
+  "canvasImport.limit": "Up to {size} per file",
   "canvasImport.description": "Choose where to import {name}. Nothing is uploaded until you confirm.",
   "canvasImport.confirm": "Import image",
   "canvasImport.cancel": "Cancel import",
