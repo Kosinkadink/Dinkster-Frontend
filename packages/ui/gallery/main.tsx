@@ -190,7 +190,7 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#menu-filter' ? 'Menu filter' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
+              (route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
@@ -223,6 +223,20 @@ function Gallery() {
                     { label: 'Video', onSelect: () => setActivity('Video selected') },
                   ]}
                 />
+              </Section>
+            </Match>
+            <Match when={route() === '#menu-alignment'}>
+              <Section title="Trigger edges" components="ProductMenu">
+                <div class="dinkster-actions">
+                  <ProductMenu label="End actions" align="end" fill="quiet" items={[
+                    { label: 'Recommended build', description: 'Matches the detected graphics card.', checked: true, onSelect: () => complete('Recommended build selected') },
+                    { label: 'Alternative build', description: 'Use an earlier runtime for this driver.', checked: false, onSelect: () => complete('Alternative build selected') },
+                  ]} />
+                  <ProductMenu label="Start actions" items={[
+                    { label: 'View package', onSelect: () => complete('Package viewed') },
+                    { label: 'Unavailable action', disabled: true, onSelect: () => {} },
+                  ]} />
+                </div>
               </Section>
             </Match>
             <Match when={route() === '#setup-components'}>

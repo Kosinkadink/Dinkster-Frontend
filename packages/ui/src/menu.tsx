@@ -82,6 +82,7 @@ function Menu(props: {
   project?: boolean
   iconOnly?: boolean | undefined
   fill?: 'quiet' | undefined
+  align?: 'start' | 'end' | undefined
   busy?: boolean
   title?: string
   attention?: ProductAttention | undefined
@@ -149,14 +150,15 @@ function Menu(props: {
         ;(props.filter ? filterInput : items[last ? items.length - 1 : 0] ?? menu)?.focus({ preventScroll: !!props.filter })
         return
       }
-      // Left edges align; a trigger too near the right edge of the window
-      // aligns right edges instead, before the shared clamp applies.
+      // Explicit end alignment and triggers near the window's right edge
+      // align right edges before the shared clamp applies.
       const fitsFromLeft =
         anchor.left + surface.width <= window.innerWidth - margin
       const placement = placeFloatingSurface({
         surface,
         anchor: {
           left:
+            props.align !== 'end' &&
             fitsFromLeft &&
             !(props.account && trigger.closest('[data-density="site"]'))
               ? anchor.left
@@ -436,6 +438,8 @@ export function ProductMenu(props: {
   iconOnly?: boolean
   /** A borderless text trigger; absent keeps the outlined trigger. */
   fill?: 'quiet'
+  /** The preferred trigger edge, before viewport clamping. */
+  align?: 'start' | 'end'
   /** Shown on the trigger's corner and read after its name. */
   attention?: ProductAttention | undefined
   /** Filters canonical item labels; descriptions and custom presentation do not affect matches. */
@@ -449,6 +453,7 @@ export function ProductMenu(props: {
       identity={props.identity}
       iconOnly={props.iconOnly}
       fill={props.fill}
+      align={props.align}
       attention={props.attention}
       filter={props.filter}
     >
