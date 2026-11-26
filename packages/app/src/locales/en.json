@@ -99,6 +99,8 @@
   "runs.chosen.openFile": "Open {name}",
   "runs.chosen.copyJob": "Copy job ID",
   "runs.chosen.delete": "Delete record",
+  "runs.chosen.workflow": "Workflow",
+  "runs.chosen.workflowUnknown": "Not recorded",
   "runs.chosen.finished": "Finished",
   "runs.chosen.took": "Took",
   "runs.chosen.nodes": "Nodes",
