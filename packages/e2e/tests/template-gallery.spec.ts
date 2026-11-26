@@ -11,6 +11,8 @@ test('reviews template models without opening or submitting a workflow and revok
   let started = false
   let phase = 'downloading'
   let jobId = 'template-job'
+  let modelsPresent = false
+  let notifyMountsChanged = (): void => { throw new Error('Events socket not connected') }
   const selection = {
     name: 'missing.safetensors', kind: 'model/vae', project: 'default', provider: 'huggingface',
     source: 'https://huggingface.co/example/models/resolve/main/missing.safetensors', repo: 'example/models',
@@ -22,7 +24,9 @@ test('reviews template models without opening or submitting a workflow and revok
       asset: { digest: `blake3:${'c'.repeat(64)}`, name: selection.name, size: 1000,
         mediaType: 'application/octet-stream', virtualPath: 'models/missing.safetensors' } } : {}),
   })
-  await page.routeWebSocket('**/api/events*', () => {})
+  await page.routeWebSocket('**/api/events*', (socket) => {
+    notifyMountsChanged = () => socket.send(JSON.stringify({ type: 'mounts_changed' }))
+  })
   await page.route('/api/settings', (route) => route.fulfill({ json: {
     features: { templates: { enabled: true } }, categories: { granted: [], available: [] }, settings: {},
   } }))
@@ -49,7 +53,8 @@ test('reviews template models without opening or submitting a workflow and revok
   } }))
   await page.route('/api/models/presence', (route) => {
     const { models } = route.request().postDataJSON() as { models: Array<{ name: string; kind: string }> }
-    return route.fulfill({ json: { models: models.map((model) => ({ ...model, status: 'missing', plannable: true })) } })
+    return route.fulfill({ json: { models: models.map((model) => ({ ...model,
+      status: modelsPresent ? 'local' : 'missing', plannable: true })) } })
   })
   await page.route('/api/models/downloads?*', (route) => route.fulfill({ json: { instance: 'test', jobs: [
     ...(started ? [job()] : []),
@@ -187,6 +192,28 @@ test('reviews template models without opening or submitting a workflow and revok
   expect(starts).toHaveLength(1)
   expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
   await captureProof(page, 'template-canvas-review.png')
+  const plansBeforeCanvasReview = plans.length
+  await dialog.getByRole('button', { name: 'Review source', exact: true }).click()
+  await expect.poll(() => plans.length).toBe(plansBeforeCanvasReview + 1)
+  expect(starts).toHaveLength(1)
+  phase = 'downloading'
+  jobId = 'canvas-job'
+  await dialog.getByRole('button', { name: 'Download', exact: true }).click()
+  await expect.poll(() => starts.length).toBe(2)
+  await expect(dialog.getByTestId('model-consent-bytes')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Dismiss', exact: true }).click()
+  await expect(banner).toBeVisible()
+  phase = 'completed'
+  modelsPresent = true
+  notifyMountsChanged()
+  await expect(banner).toBeHidden()
+  expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
+  await captureProof(page, 'template-canvas-model-present.png')
+  modelsPresent = false
+  notifyMountsChanged()
+  await expect(banner).toBeVisible()
+  await banner.getByRole('button', { name: 'Review download', exact: true }).click()
+  await expect(dialog).toBeVisible()
   await page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get().find((item) => item.protocol === 'dinkster')!
     ;(backend as unknown as { templatesEnabled: { set(enabled: boolean): void } }).templatesEnabled.set(false)
