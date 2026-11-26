@@ -14,6 +14,22 @@ const SELECTION_DEFAULTS: Record<string, string> = {
 
 describe('Dinkster schema wire', () => {
 
+  it('keeps portable Mount inputs and their legacy string union without accepting other sockets', () => {
+    const decode = (type: unknown) => parseDinksterSchema('Save', { body: [
+      { kind: 'input', id: 'mount', type, required: false, default: null, widget: { type: 'MOUNT' } },
+    ] } as never)
+    for (const type of [concrete('MOUNT'), concrete('STRING'),
+      { kind: 'union', types: ['MOUNT', 'STRING'] }, { kind: 'union', types: ['STRING', 'MOUNT'] }]) {
+      const { schema, diagnostics } = decode(type)
+      expect(diagnostics).toEqual([])
+      expect(inputsOf(schema!)[0]).toMatchObject({ id: 'mount', widget: { widgetType: 'MOUNT', default: null } })
+    }
+    for (const type of [concrete('INT'), { kind: 'union', types: ['MOUNT', 'INT'] },
+      { kind: 'union', types: ['MOUNT', 'STRING', 'INT'] }, { kind: 'list', element: concrete('MOUNT') }]) {
+      expect(decode(type).schema).toBeUndefined()
+    }
+  })
+
   it('decodes a Switch selector as its pick and group of branches, and refuses the two-branch form', () => {
     // The engine's schema_to_wire output for a Switch.
     const body = [

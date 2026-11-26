@@ -743,8 +743,13 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
   const socket = type.kind === 'concrete' ? type.name : undefined
   switch (descriptor['type']) {
     case 'STRING':
-    case 'MOUNT':
       if (socket !== 'STRING') throw new Error(`${where} requires a concrete STRING input`)
+      return
+    case 'MOUNT':
+      if (socket !== 'STRING' && socket !== 'MOUNT' && !(type.kind === 'union' &&
+        type.names.length === 2 && type.names.includes('MOUNT') && type.names.includes('STRING'))) {
+        throw new Error(`${where} requires MOUNT, STRING or their union`)
+      }
       return
     case 'COLOR':
       if (socket !== 'STRING' && socket !== 'COLOR') throw new Error(`${where} requires a concrete COLOR or STRING input`)
