@@ -202,8 +202,8 @@ it('groups model grants under one folder and switches project membership without
   } as unknown as DinksterConnection
   const root = document.createElement('div'); document.body.append(root)
   const opened: string[] = []
-  let assetsOpened = 0
-  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => assetsOpened++} focus={{ modelLocationId: 'models' }} onOpenModels={(id) => opened.push(id)} />, root))
+  const assetsOpened: string[] = []
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={(id) => assetsOpened.push(id!)} focus={{ modelLocationId: 'models' }} onOpenModels={(id) => opened.push(id)} />, root))
   await vi.waitFor(() => expect(root.querySelectorAll('[data-model-location]')).toHaveLength(1))
   expect([...root.querySelectorAll('h3')].map((heading) => heading.textContent)).toEqual(['Model folders', 'Mounts'])
   expect([...root.querySelectorAll('button')].some((button) => button.textContent === 'Default save folder')).toBe(false)
@@ -226,7 +226,7 @@ it('groups model grants under one folder and switches project membership without
   expect(navigate.textContent).toContain('11 files')
   expect(navigate.hasAttribute('aria-expanded')).toBe(false)
   navigate.click()
-  expect(assetsOpened).toBe(1)
+  expect(assetsOpened).toEqual(['renders'])
   expect([...renders.querySelectorAll('button')].some((button) => button.textContent === 'Open in Assets')).toBe(false)
   const unused = [...root.querySelectorAll('details')].find((element) => element.querySelector('summary')?.textContent?.includes('not used by this project'))!
   expect(unused.open).toBe(false)
@@ -236,6 +236,8 @@ it('groups model grants under one folder and switches project membership without
   use.click()
   await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"] button:not([aria-haspopup])')).not.toBeNull())
   expect(root.textContent).toContain('3 folders used by this project')
+  root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] button:not([aria-haspopup])')!.click()
+  expect(assetsOpened).toEqual(['renders', 'plates'])
   root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] [aria-haspopup="menu"]')!.click()
   ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Stop using')!.click()
   expect(root.textContent).toContain('No files will be deleted')

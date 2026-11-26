@@ -18,7 +18,7 @@ export function StoragePanel(props: {
   readonly app: AppState
   readonly focusBackend: { readonly id: string; readonly hiddenModels?: boolean; readonly modelLocationId?: string; readonly addModelFolder?: boolean } | undefined
   readonly activeBackend: () => Backend
-  readonly onOpenAssets: (backend: Backend) => void
+  readonly onOpenAssets: (backend: Backend, mountId?: string) => void
   readonly onOpenModels?: (backend: Backend, modelLocationId: string) => void
 }) {
   const message = useAppMessage()
@@ -36,7 +36,7 @@ export function StoragePanel(props: {
     <Show when={backend().protocol === 'dinkster' ? backend() as NativeBackend : undefined} keyed
       fallback={<ProductNotice>{message('storagePanel.noFolders')}</ProductNotice>}>
       {(native) => <StorageFolders connection={native.connection} backendUrl={native.baseUrl}
-        focus={props.focusBackend?.id === native.id ? props.focusBackend : undefined} onOpenAssets={() => props.onOpenAssets(native)}
+        focus={props.focusBackend?.id === native.id ? props.focusBackend : undefined} onOpenAssets={(id) => props.onOpenAssets(native, id)}
         onOpenModels={props.onOpenModels ? (id) => props.onOpenModels?.(native, id) : undefined} />}
     </Show>
   </section>
@@ -45,7 +45,7 @@ export function StoragePanel(props: {
 export function StorageFolders(props: {
   readonly connection: DinksterConnection
   readonly backendUrl: string
-  readonly onOpenAssets: () => void
+  readonly onOpenAssets: (mountId?: string) => void
   readonly focus?: { readonly hiddenModels?: boolean; readonly modelLocationId?: string; readonly addModelFolder?: boolean } | undefined
   readonly onOpenModels?: ((modelLocationId: string) => void) | undefined
 }) {
@@ -221,7 +221,7 @@ export function StorageFolders(props: {
     </ProductListRow>
   }
   const folderRow = (mount: MountDescriptor, used: boolean) => <ProductListRow dataAttributes={{ 'data-mount-id': mount.id }}
-    title={<strong>{mount.id}</strong>} {...(used ? { onActivate: props.onOpenAssets } : {})}
+    title={<strong>{mount.id}</strong>} {...(used ? { onActivate: () => props.onOpenAssets(mount.id) } : {})}
     description={<span class="storage-folder-description">
       <Show when={path(mount)}>{(value) => folderPath(value())}</Show>
       <Show when={mount.mode === 'read'}><span>{message('storagePanel.readOnly')}</span></Show>
@@ -234,7 +234,7 @@ export function StorageFolders(props: {
     </Show>}
     status={mount.state === 'failed' || reading([mount]) ? <>{mountFailure(mount)}<Show when={reading([mount])}>{(progress) => scan(progress())}</Show></> : undefined}
     action={<ProductMenu icon={Ellipsis} iconOnly fill="quiet" label={message('storagePanel.actions', { folder: mount.id })} items={used ? [
-        { label: message('storagePanel.openAssets'), onSelect: props.onOpenAssets },
+        { label: message('storagePanel.openAssets'), onSelect: () => props.onOpenAssets(mount.id) },
         ...(mount.mode === 'readwrite' && mount.id !== settings()?.outputMount ? [{ label: message('storagePanel.saveHere'), disabled: disabled(), onSelect: () => setOutput(mount) }] : []),
         { label: message('projectFolders.up'), disabled: disabled() || selected()[0]?.id === mount.id, onSelect: () => move(mount.id, -1) },
         { label: message('projectFolders.down'), disabled: disabled() || selected().at(-1)?.id === mount.id, onSelect: () => move(mount.id, 1) },
