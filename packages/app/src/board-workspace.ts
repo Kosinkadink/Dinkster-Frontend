@@ -95,7 +95,7 @@ export class BoardWorkspace {
     } else {
       record = await connection.createLibraryRecord({ scope: 'local', name: entry.title, digest, mediaType: BOARD_MEDIA_TYPE, labels: ['board'] })
     }
-    if (!current()) return
+    if (!current()) throw new Error('Board was saved, but its original document is no longer active')
     this.saved.set(entry.id, { connection, record, snapshot })
     this.changed.update((value) => value + 1)
   }
@@ -122,6 +122,11 @@ export class BoardWorkspace {
       const existing = this.entries.get().find((entry) => entry.id === loaded.document!.lineage)
       if (existing) {
         if (existing.baseUrl !== baseUrl) throw new Error('This Board is already open on another backend')
+        const link = this.saved.get(existing.id)
+        if (link?.connection !== connection || link.record.id !== record.id)
+          throw new Error('Another Board with this document identity is already open; close it before opening this record')
+        if (link.record.revision !== record.revision || link.record.digest !== record.digest)
+          throw new Error('Saved Board changed since it was opened; close and reopen it to load the saved version')
         return existing
       }
       const entry = this.open(loaded.document, record.name, baseUrl)
