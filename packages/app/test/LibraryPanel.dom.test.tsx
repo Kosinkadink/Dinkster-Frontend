@@ -3,8 +3,10 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { registerCatalog, setLocale, type CollectionEntry, type CollectionSource } from '@dinkster/core'
+import { asConnectionId, registerCatalog, setLocale, type CollectionEntry, type CollectionSource } from '@dinkster/core'
+import { DinksterConnection } from '@dinkster/client'
 import { LibraryPanel } from '../src/LibraryPanel.js'
+import { LibraryModels } from '../src/LibraryModels.js'
 import '../src/locale.js'
 
 const source = (id: string, label: string, entries: readonly CollectionEntry[]): CollectionSource => ({
@@ -23,6 +25,80 @@ afterEach(() => {
 })
 
 describe('LibraryPanel', () => {
+  it('filters equal-digest copies by their actual folder and hides the selected revision in its project', async () => {
+    const digest = `blake3:${'a'.repeat(64)}`
+    const otherDigest = `blake3:${'b'.repeat(64)}`
+    const locations = ['studio', 'archive'].map((id) => ({ id, path: `/${id}`, mode: 'read' as const, visibility: 'default-on' as const, mounts: [id], enabled: true, active: true }))
+    const state = { settings: { version: 1, downloadLocation: null, locations }, locations, revision: 'first', project: 'commercial', changesAllowed: true, restartRequired: false, pendingRemovals: [] }
+    let hidden = false
+    const writes: unknown[] = []
+    const connection = new DinksterConnection({ id: asConnectionId('library'), baseUrl: '', clientId: 'human', project: 'commercial', fetchFn: async (input, init) => {
+      const url = new URL(String(input), 'http://example.test')
+      if (url.pathname === '/api/models/hidden/commercial') {
+        writes.push(JSON.parse(String(init?.body)))
+        hidden = true
+        return Response.json(state)
+      }
+      if (url.pathname === '/api/models/settings') return Response.json(state)
+      if (url.pathname === '/api/mounts') return Response.json({ mounts: locations.map((location) => ({ id: location.id, mode: 'read', state: location.id === 'archive' ? 'scanning' : 'ready', kind: 'model/checkpoint' })) })
+      if (url.pathname.endsWith('/entries')) {
+        const archive = url.pathname.includes('/archive/')
+        const entries = hidden ? [] : [
+          { name: archive ? 'zeta.safetensors' : 'alpha.safetensors', virtualPath: archive ? 'renamed/zeta.safetensors' : 'alpha.safetensors', digest, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' },
+          ...(!archive ? [{ name: 'unique.safetensors', virtualPath: 'unique.safetensors', digest: otherDigest, size: 2048, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] : []),
+        ]
+        return Response.json({ entries: entries.filter((entry) => !url.searchParams.has('kind') || entry.kind === url.searchParams.get('kind')) })
+      }
+      throw new Error(`Unexpected route ${url.pathname}`)
+    } })
+    const folders: (string | undefined)[] = []
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <LibraryModels connection={connection} onOpenStorage={(id) => folders.push(id)} onAddModelFolder={() => {}} />, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('2 models in 2 folders'))
+      root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()
+      const archive = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'archive')!
+      archive.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('1 model in 1 folder'))
+      expect(root.textContent).not.toContain('unique.safetensors')
+      expect(root.textContent).toContain('Reading archive')
+      root.querySelector<HTMLButtonElement>('.dinkster-row-main')!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('renamed/zeta.safetensors'))
+      const action = (label: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === label)!
+      action('Show folder').click()
+      expect(folders).toEqual(['archive'])
+      action('Hide in this project').click()
+      await vi.waitFor(() => expect(root.textContent).toContain('No matching models'))
+      expect(writes).toEqual([{ asset: { digest, name: 'zeta.safetensors', size: 1024, mediaType: 'application/x-safetensors', virtualPath: 'renamed/zeta.safetensors' }, kind: 'model/checkpoint' }])
+    } finally { dispose() }
+  })
+
+  it('opens Models without leaving collection results reachable and returns to the chosen collection', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <LibraryPanel
+      backend={() => backend}
+      sources={[source('packs', 'Packs', [{ id: 'installed', title: 'Installed pack' }])]}
+      models={() => <p>Models in this project</p>}
+    />, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('Installed pack'))
+      const models = root.querySelector<HTMLButtonElement>('[data-source="models"]')!
+      expect(models).not.toBeNull()
+      models.click()
+      expect(root.querySelector('[data-testid="library-overlay"]')?.getAttribute('data-source')).toBe('models')
+      expect(root.textContent).toContain('Models in this project')
+      expect(root.querySelector('.library-collection-body')?.hasAttribute('hidden')).toBe(true)
+      root.querySelector<HTMLButtonElement>('[data-source="packs"]')!.click()
+      await vi.waitFor(() => {
+        expect(root.textContent).not.toContain('Models in this project')
+        expect(root.querySelector('.library-collection-body')?.hasAttribute('hidden')).toBe(false)
+        expect(root.textContent).toContain('Installed pack')
+      })
+    } finally { dispose() }
+  })
+
   it('adds and withdraws a capability-controlled source without leaving its results reachable', async () => {
     const packs = source('packs', 'Packs', [{ id: 'pack', title: 'Installed pack' }])
     const templates = source('templates', 'Templates', [{ id: 'starter', title: 'Starter workflow' }])
