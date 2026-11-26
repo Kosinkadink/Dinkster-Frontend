@@ -691,6 +691,7 @@ export function CurveSpace(props: {
   }
   const linear = () => message('inNodeCurve.linear')
   const cubic = () => message('inNodeCurve.monotoneCubic')
+  const step = () => message('inNodeCurve.step')
   return (
     <>
       <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}>
@@ -699,6 +700,7 @@ export function CurveSpace(props: {
           tooltip={message('inNodeCurve.addPoint')}
           points={points()}
           sample={curveInterpolator(curve())}
+          step={interpolation() === 'step'}
           selected={selected()}
           histogram={bars()}
           inputStrip={stripOf(props.options['inputStrip'])}
@@ -722,9 +724,9 @@ export function CurveSpace(props: {
         />
       </CanvasEditorPicture>
       <CanvasEditorLine>
-        <CanvasEditorChoice label={message('inNodeCurve.interpolation')} value={interpolation() === 'linear' ? linear() : cubic()}
-          options={[linear(), cubic()]}
-          onChange={(label) => store(points(), label === linear() ? 'linear' : 'monotone_cubic')} />
+        <CanvasEditorChoice label={message('inNodeCurve.interpolation')} value={interpolation() === 'step' ? step() : interpolation() === 'linear' ? linear() : cubic()}
+          options={[linear(), cubic(), step()]}
+          onChange={(label) => store(points(), label === step() ? 'step' : label === linear() ? 'linear' : 'monotone_cubic')} />
       </CanvasEditorLine>
       <CanvasEditorLine dimmed={point() === undefined}>
         <CanvasEditorNumber label={message('inNodeCurve.position')} value={point()?.position} min={0} max={1} step={0.01} precision={2}

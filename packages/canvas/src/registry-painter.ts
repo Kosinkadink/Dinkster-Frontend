@@ -624,11 +624,25 @@ function paintCurveSketch(
   ctx.setLineDash([])
   if (samples.length > 1) {
     const line = new Path2D()
-    samples.forEach((sample, index) => {
-      const point = at(index / (samples.length - 1), sample)
-      if (index === 0) line.moveTo(point.x, point.y)
-      else line.lineTo(point.x, point.y)
-    })
+    if (style['interpolation'] === 'step' && points.length > 0) {
+      let previous = samples[0]!
+      const firstPoint = at(0, previous)
+      line.moveTo(firstPoint.x, firstPoint.y)
+      for (const [position, value] of style['points'] as readonly (readonly [number, number])[]) {
+        const before = at(position, previous)
+        const after = at(position, value)
+        line.lineTo(before.x, before.y)
+        line.lineTo(after.x, after.y)
+        previous = value
+      }
+      line.lineTo(left + span, at(0, previous).y)
+    } else {
+      samples.forEach((sample, index) => {
+        const point = at(index / (samples.length - 1), sample)
+        if (index === 0) line.moveTo(point.x, point.y)
+        else line.lineTo(point.x, point.y)
+      })
+    }
     ctx.lineWidth = paint.lineWidth
     ctx.lineJoin = 'round'
     // Before the first point and after the last the curve holds that point's value, drawn muted.

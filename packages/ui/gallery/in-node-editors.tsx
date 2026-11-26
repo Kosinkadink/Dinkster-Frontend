@@ -313,7 +313,7 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
     }
     case 'core.curve': {
       const value = props.example.values?.[props.row.valueKey] as
-        { interpolation?: 'linear' | 'monotone_cubic'; points?: { position: number; value: number }[] } | undefined
+        { interpolation?: 'linear' | 'monotone_cubic' | 'step'; points?: { position: number; value: number }[] } | undefined
       const interpolation = value?.interpolation ?? 'monotone_cubic'
       const points = value?.points ?? []
       const selected = num(state(), 'selected')
@@ -331,12 +331,12 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       return (
         <>
           {picture(
-            <CanvasCurvePlot points={points} sample={curveInterpolator({ interpolation, points })} selected={selected}
+            <CanvasCurvePlot points={points} sample={curveInterpolator({ interpolation, points })} step={interpolation === 'step'} selected={selected}
               histogram={bars()}
               inputStrip={inputStrip} outputStrip={outputStrip} {...(hover ? { hover } : {})} />,
           )}
           <CanvasEditorLine>
-            <GalleryChoice label="Interpolation" value={interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic']} />
+            <GalleryChoice label="Interpolation" value={interpolation === 'step' ? 'Step' : interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic', 'Step']} />
           </CanvasEditorLine>
           <CanvasEditorLine dimmed={selected === undefined}>
             <GalleryNumber label="Position" value={selected === undefined ? undefined : points[selected]!.position} min={0} max={1} step={0.01} precision={2} />
@@ -476,7 +476,8 @@ export function InNodeEditorsGallery(props: { theme: 'dark' | 'light' }) {
     ['Image comparison', (example) => example.card >= 27 && example.card <= 29],
     ['Camera angle', (example) => example.card >= 30 && example.card <= 32],
     ['Curve', (example) => example.card >= 34 && example.card <= 36],
-    ['Off the node', (example) => example.card >= 37],
+    ['Off the node', (example) => example.card >= 37 && example.card <= 39],
+    ['Curve to steps', (example) => example.card === 40],
   ]
   return (
     <For each={groups}>

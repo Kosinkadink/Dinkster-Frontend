@@ -335,7 +335,7 @@ export interface CurvePoint {
 }
 
 export interface CurveValue {
-  readonly interpolation?: 'linear' | 'monotone_cubic'
+  readonly interpolation?: 'linear' | 'monotone_cubic' | 'step'
   readonly points: readonly CurvePoint[]
 }
 
@@ -347,7 +347,7 @@ const hasExactKeys = (value: object, keys: readonly string[]): boolean => {
 export function isCurveValue(value: unknown): value is CurveValue {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const curve = value as Partial<CurveValue>
-  if (curve.interpolation !== undefined && curve.interpolation !== 'linear' && curve.interpolation !== 'monotone_cubic') return false
+  if (curve.interpolation !== undefined && curve.interpolation !== 'linear' && curve.interpolation !== 'monotone_cubic' && curve.interpolation !== 'step') return false
   if (!hasExactKeys(value, curve.interpolation === undefined ? ['points'] : ['interpolation', 'points'])) return false
   if (!Array.isArray(curve.points) || curve.points.length < 1 || curve.points.length > 4096) return false
   let previous = -Infinity
@@ -508,6 +508,7 @@ export function curveInterpolator(curve: CurveValue): (position: number) => numb
     }
     const left = points[low]!
     const right = points[high]!
+    if (curve.interpolation === 'step') return left.value
     const span = right.position - left.position
     const amount = Number.isFinite(span)
       ? (position - left.position) / span
@@ -900,13 +901,14 @@ export const curveView: WidgetView<Json> = {
     // The folded square of the raised look: the plot in small, with its points.
     ctx.rect(0, 0, 1, 2, {
       role: 'curveSketch',
+      interpolation: curve?.interpolation ?? 'linear',
       samples,
       points: points.map((point) => [point.position, point.value]),
       held: points.length === 0 ? [] : [points[0]!.position, points[points.length - 1]!.position],
     })
     ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'}`, { role: 'widgetValue', align: 'right', width: 1 })
     if (curve !== undefined) {
-      ctx.text(0, 1, t((curve.interpolation ?? 'linear') === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic'), { role: 'curveJoin' })
+      ctx.text(0, 1, t(curve.interpolation === 'step' ? 'inNodeCurve.step' : (curve.interpolation ?? 'linear') === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic'), { role: 'curveJoin' })
     }
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 2, 'widget.edit')
   },

@@ -460,6 +460,8 @@ const CURVE_POINT_REACH = 8
 export function CanvasCurvePlot(props: {
   points: readonly CanvasCurvePoint[]
   sample: (position: number) => number
+  /** Hold each point until the next, with a vertical jump at that next point. */
+  step?: boolean
   selected?: number | undefined
   /** Bar heights from 0 to 1, from the low end of the input. */
   histogram?: readonly number[] | undefined
@@ -502,6 +504,15 @@ export function CanvasCurvePlot(props: {
     const last = props.points.at(-1)
     if (first === undefined || last === undefined) return []
     const run = (from: number, to: number, held: boolean) => {
+      if (props.step) {
+        const path = [{ position: from, value: props.sample(from) }]
+        for (const point of props.points) {
+          if (point.position <= from || point.position > to) continue
+          path.push({ position: point.position, value: path.at(-1)!.value }, point)
+        }
+        path.push({ position: to, value: props.sample(to) })
+        return { held, points: path.map((point) => `${x(point.position)},${y(Math.max(0, Math.min(1, point.value)))}`).join(' ') }
+      }
       const samples = Math.max(2, Math.ceil((x(to) - x(from)) / 2))
       const points = Array.from({ length: samples + 1 }, (_, index) => {
         const position = from + (to - from) * index / samples
