@@ -22,6 +22,17 @@ test('multiline fields grow, scroll at their height cap, and shrink after deleti
   await page.goto('/#controls')
   const notes = page.getByRole('textbox', { name: 'Notes', exact: true })
   const height = async () => (await notes.boundingBox())!.height
+  for (const density of ['app', 'site']) {
+    await page.evaluate((density) => { document.documentElement.dataset.density = density }, density)
+    for (const value of ['', 'One line']) {
+      await notes.fill(value)
+      const size = await notes.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { content: element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom), line: parseFloat(style.lineHeight) }
+      })
+      expect(size.content).toBeGreaterThanOrEqual(size.line * 2)
+    }
+  }
   await notes.fill('One line')
   const short = await height()
   await notes.fill('First\nSecond\nThird\nFourth\nFifth')
