@@ -723,6 +723,40 @@ describe('while a press waits', () => {
     expect(outcome.message).toBe('Set 1 field. first was changed while the button waited and keeps that value.')
   })
 
+  it('rolls back all staged writes when a saved member is removed during Pick', async () => {
+    addSchema('test.removed-saved-member', [
+      { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['STRING'] }, default: 'before' },
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+        keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+        ] },
+      { kind: 'button', id: 'apply', label: 'Apply', steps: [
+        { step: 'set', field: 'marker', value: { value: 'after' } },
+        { step: 'setEach', group: 'items', field: 'value', value: { formula: 'value * 2' } },
+        { step: 'pick', name: 'answer', options: { value: ['continue'] } },
+      ] },
+    ])
+    const session = sessionOf(documentOf({ n1: {
+      type: 'test.removed-saved-member',
+      values: { marker: 'before', 'items.m0.value': 7, 'items.m1.value': 13 },
+      dynamic: { items: { members: ['m0', 'm1'], seq: 2 } },
+    } }))
+    const entered = later<void>()
+    const answer = later<string>()
+    const pressing = runPress(session, at('apply'), hostOf({ pick: () => { entered.settle(); return answer.promise } }))
+    await entered.promise
+    expect(session.dispatch({ command: 'dynamic.removeMember', params: {
+      graphId: 'g0', nodeId: 'n1', construct: 'items', member: 'm0',
+    } }).ok).toBe(true)
+    const beforeReply = structuredClone(session.doc)
+    answer.settle('continue')
+    expect(await pressing).toMatchObject({ kind: 'failed', message: 'Nothing was changed. A member this button sets was removed while it waited.' })
+    expect(session.doc).toEqual(beforeReply)
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ marker: 'before', 'items.m0.value': 7, 'items.m1.value': 13 })
+    expect(session.canUndo).toBe(false)
+  })
+
   describe('changes to what the press writes into', () => {
     const text = { kind: 'concrete', types: ['STRING'] }
     const pickThen = (step: unknown) => [{ step: 'pick', name: 'chosen', options: { value: ['p', 'q'] } }, step]

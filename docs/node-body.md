@@ -354,7 +354,9 @@ undo step.
   where every step did its work leaves no box.
 - **Waits.** A field the user edits while the press waits keeps the user's
   value and is reported; a target that gained a wire is skipped and reported.
-  A press whose node or document is gone writes nowhere.
+  A needed member, group or option that is gone fails the whole press, even
+  when removing it also deleted a saved value. A press whose node or
+  document is gone writes nowhere.
 - **Pick** opens the ordinary choice list at the button. A lookup's stale
   list can be picked from, with Try again; a failed or empty one offers
   nothing. **Ask** opens a form beside the node with the ordinary field
@@ -363,11 +365,13 @@ undo step.
 - **Menu buttons** (`NodeSchema.menu`) come first in the node's context menu
   and run the same way; an off one is dimmed with its reason beside it.
 - **Open link** shows an address built from fields before it opens the tab.
-- **Subgraphs.** A button inside a subgraph writes that instance. AddNode
-  adds its node to the shared definition but wires only the pressing instance,
-  inserting between a driver in that subgraph and skipping a field wired
-  from outside it. It never makes an instance unique. With multiple uses,
-  its result says "Added to all N uses of <subgraph name>. Wired only here."
+- **Subgraphs.** A button inside a subgraph writes that instance's fields.
+  AddNode adds its node and wires to the shared definition, so every use
+  gets the same insertion. It skips a field whose effective driver in the
+  pressing use is not a definition wire. It never makes an instance unique.
+  With two uses, its result says "Also added in the other use of <subgraph name>."
+  With more, it says "Also added in the other N uses of <subgraph name>.",
+  counting only the other uses; with one use, it says nothing.
   A subgraph node does not show its inner buttons yet: a shown
   button needs a place among the node's rows, which the boundary's ordered
   body will give it (comfy-vibe-station#1229 comment 7094212597).

@@ -1259,6 +1259,11 @@ class Press {
     for (const action of this.actions) {
       const view = viewOf(live.doc, this.target, this.host) ?? refuse('The node was removed while the button waited.')
       if (action.kind === 'value' || action.kind === 'mode') {
+        if (resolveDynamicAddress({ port: action.path }, view.node.dynamic).kind === 'missing') {
+          return refuse('A member this button sets was removed while it waited.')
+        }
+        // Missing structure aborts the press even when its removal also deleted a saved value.
+        if (inputAt(view, action.path) === undefined) return refuse('A field this button sets is no longer on the node.')
         if (edited.has(`${action.kind === 'value' ? 'values' : 'controllers'}:${action.path}`)) {
           if (this.options.strict === true) return refuse(this.options.staleMessage ?? STALE_MESSAGE, this.options.staleMessage !== undefined)
           this.skip(action.path, 'edited')
@@ -1268,11 +1273,6 @@ class Press {
           this.skip(action.path)
           continue
         }
-        if (resolveDynamicAddress({ port: action.path }, view.node.dynamic).kind === 'missing') {
-          return refuse('A member this button sets was removed while it waited.')
-        }
-        // A choice switched to another option, or a group or member gone, takes the field away.
-        if (inputAt(view, action.path) === undefined) return refuse('A field this button sets is no longer on the node.')
         written.add(action.path)
       } else if (action.kind === 'materialize') {
         if (action.adds !== undefined && view.node.dynamic?.[action.adds.group]?.members?.includes(action.adds.member) === true) {
