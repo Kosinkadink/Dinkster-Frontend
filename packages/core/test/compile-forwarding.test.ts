@@ -180,6 +180,25 @@ describe('unavailable boundary routes', () => {
         expect(!result.ok && result.diagnostics.some((d) => d.severity === 'error' && d.code === 'boundary.danglingNode')).toBe(true)
       }
     }
+    for (const kind of ['port', 'construct']) {
+      const valid = { kind, node: 'valid', port: kind === 'port' ? 'in' : 'images' }
+      const inactive = { kind, node: 'choice', port: kind === 'port' ? 'mode.in' : 'mode.images' }
+      const wrongShape = { kind: 'construct', node: 'other', port: 'weights' }
+      const cases = kind === 'port'
+        ? [[valid, valid, inactive], [inactive, valid, valid]]
+        : [[valid, wrongShape, inactive], [inactive, valid, wrongShape]]
+      const code = kind === 'port' ? 'boundary.duplicateBind' : 'boundary.constructShapeMismatch'
+      for (const [binds, ...alsoBinds] of cases) {
+        const doc = docOf({
+          g0: { nodes: { source: { type: 'Src' }, sub: { type: '#sub' } }, links: [[['source', 'out'], ['sub', 'in']]] },
+          sub: { nodes: { valid: { type: kind === 'port' ? 'OptSink' : 'Batch' }, other: { type: 'Weigh' }, choice: { type: 'Choice', dynamic: { mode: { selected: 'off' } } } },
+            boundary: { inputs: [{ id: 'in', binds, alsoBinds }] } },
+        })
+        const result = compile({ ...inputOf(doc), resolve: choiceResolve, graphFeatures: ['absentInput'] })
+        expect(result.ok).toBe(false)
+        expect(!result.ok && result.diagnostics.some((d) => d.severity === 'error' && d.code === code)).toBe(true)
+      }
+    }
   })
 
   it('preserves an inactive output explanation through a bypassed relay', () => {

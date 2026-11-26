@@ -735,10 +735,10 @@ export function deriveBoundarySchema(
 
   /**
    * Resolve schema + route for one binding; undefined = failed, with one
-   * diagnostic. A route must reach a port that exists in the definition:
-   * the chosen option of each choice it crosses and a wired or chosen type
-   * choice. A port binding names a single row; a construct binding names
-   * a whole group, choice, type choice or described row.
+   * diagnostic. Inactive routes still resolve so item-level fan-out checks
+   * can reject malformed rows before the final inert row is substituted.
+   * A port binding names a single row; a construct binding names a whole
+   * group, choice, type choice or described row.
    */
   const routeForBinding = (
     binds: BoundaryBinding,
@@ -772,7 +772,7 @@ export function deriveBoundarySchema(
       if (currentItem !== undefined && !knownTypes.has(currentItem.id)) knownTypes.set(currentItem.id, freshenType(route.terminal.slot.type, binds.node, typeBindingsFor(node)))
       if (route.terminal.slot.unavailable !== undefined) {
         fail(route.terminal.slot.unavailable.code, `${describe}: ${route.terminal.slot.unavailable.message}`)
-        return undefined
+        if (!route.terminal.slot.unavailable.inactive) return undefined
       }
     }
     if (binds.kind === 'port' && route.terminal.kind !== 'port') {
@@ -789,17 +789,14 @@ export function deriveBoundarySchema(
         const active = stored ?? hop.spec.default ?? (hop.spec.required ? hop.spec.options[0]?.key : undefined)
         if (active === undefined || !hop.options.includes(active)) {
           fail('boundary.branchInactive', `${describe}: '${binds.port}' is not a row of the chosen option of '${hop.constructPath}'; the chosen option is '${active ?? ''}'`)
-          return undefined
         }
       } else if (hop.kind === 'slotVariant') {
         const active = node.dynamic?.[hop.constructPath]?.selected
         if (active !== hop.key) {
           fail('boundary.branchInactive', `${describe}: variant '${hop.key}' of '${hop.constructPath}' is not chosen; the chosen variant is '${active ?? ''}'`)
-          return undefined
         }
       } else if (hop.kind === 'slot' && hop.spec.variants === undefined && !isInternallyConnected(binds, hop.constructPath)) {
         fail('boundary.slotDisconnected', `${describe} binds '${binds.port}' beneath type choice '${hop.constructPath}', which is not connected inside the definition`)
-        return undefined
       } else if (hop.kind === 'member' && !(node.dynamic?.[hop.familyPath]?.members ?? []).includes(hop.member) &&
           typeof hop.spec.grows !== 'object') {
         fail('boundary.memberMissing', `${describe}: member '${hop.member}' of group '${hop.familyPath}' is not stored on the node`)
@@ -1055,7 +1052,7 @@ export function deriveBoundarySchema(
   for (const item of boundaryItems(def.boundary, 'inputs')) {
     currentItem = item
     if (!checkId(item)) continue
-    if (unavailable.has(item.id)) continue
+    if (unavailable.has(item.id) && !unavailable.get(item.id)!.inactive) continue
     if (item.binds.kind === 'construct') {
       const row = constructRow(item, 'input')
       if (row !== undefined) items.push(row)
@@ -1173,7 +1170,7 @@ export function deriveBoundarySchema(
   for (const item of boundaryItems(def.boundary, 'outputs')) {
     currentItem = item
     if (!checkId(item)) continue
-    if (unavailable.has(item.id)) continue
+    if (unavailable.has(item.id) && !unavailable.get(item.id)!.inactive) continue
     if (item.binds.kind === 'construct') {
       if (item.alsoBinds !== undefined) {
         fail('boundary.fanoutOnOutput', `boundary output '${item.id}': 'alsoBinds' is invalid on outputs (an output has exactly one source)`)
