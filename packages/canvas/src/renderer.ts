@@ -340,6 +340,8 @@ export interface EditorSummary {
   readonly placeholder?: boolean
   /** A small picture before the text, such as the stored frame or the last 3D view. */
   readonly thumbnail?: CanvasImageSource
+  /** Pictures before each asset name; null reserves a pending picture, undefined needs no picture. */
+  readonly thumbnails?: readonly (CanvasImageSource | null | undefined)[]
 }
 
 /** node id -> value key -> what that folded editor row reads. Derived by the host, never stored. */
@@ -5157,6 +5159,8 @@ export interface SummaryFit {
   readonly text: string
   /** Shown as many as fit, then "+N" for the rest. */
   readonly items?: readonly string[]
+  /** One picture per name, with null reserving its space while it loads. */
+  readonly thumbnails?: readonly (CanvasImageSource | null | undefined)[]
   /** Kept whole at the end of `text` while the rest of it is cut. */
   readonly suffix?: string
   /** Shown alone when too little of the text or of the first item would remain. */
@@ -5182,6 +5186,98 @@ export function fitSummary(ctx: CanvasRenderingContext2D, summary: SummaryFit, m
   return fitText(ctx, summary.shorter?.at(-1) ?? text, maxWidth)
 }
 
+interface SummaryPart {
+  readonly text: string
+  readonly separator?: string
+  readonly thumbnail?: CanvasImageSource | null
+}
+
+/** Extra width pictures add to a summary whose names are joined with comma-space. */
+export function summaryThumbnailReserve(ctx: CanvasRenderingContext2D, thumbnails: SummaryFit['thumbnails']): number {
+  const { size, fileNameGap, entryGap } = canvasPaintTokens.widget.valueThumbnail
+  return thumbnails?.reduce((width, picture, index) => width + (picture === undefined ? 0
+    : size + fileNameGap + (index > 0 ? entryGap - measureWidth(ctx, ' ') : 0)), 0) ?? 0
+}
+
+/** Fit names and their pictures together; a count stands alone without a picture. */
+export function fitSummaryParts(ctx: CanvasRenderingContext2D, summary: SummaryFit, maxWidth: number): readonly SummaryPart[] {
+  if (summary.thumbnails === undefined) return [{ text: fitSummary(ctx, summary, maxWidth) }]
+  const items = summary.items ?? [summary.text]
+  const { size, fileNameGap, entryGap } = canvasPaintTokens.widget.valueThumbnail
+  const reserve = size + fileNameGap
+  const more = (shown: number) => shown < items.length ? ` +${items.length - shown}` : ''
+  const parts = (shown: number, first?: string): SummaryPart[] => [
+    ...items.slice(0, shown).map((name, index) => ({
+      text: first ?? name,
+      ...(index > 0 ? { separator: ', ' } : {}),
+      ...(summary.thumbnails![index] !== undefined ? { thumbnail: summary.thumbnails![index]! } : {}),
+    })),
+    { text: more(shown) },
+  ]
+  let width = 0
+  let shown = 0
+  for (let index = 0; index < items.length; index++) {
+    const pictured = summary.thumbnails[index] !== undefined
+    width += measureWidth(ctx, items[index]!) + (index > 0 ? pictured ? measureWidth(ctx, ',') + entryGap : measureWidth(ctx, ', ') : 0)
+      + (summary.thumbnails[index] !== undefined ? reserve : 0)
+    if (width + measureWidth(ctx, more(index + 1)) <= maxWidth) shown = index + 1
+    if (width > maxWidth) break
+  }
+  if (shown > 0) return parts(shown)
+  const first = items[0] ?? ''
+  const cut = fitText(ctx, first, Math.max(0, maxWidth - measureWidth(ctx, more(1))
+    - (summary.thumbnails[0] !== undefined ? reserve : 0)))
+  if (summary.count !== undefined && !cutSaysMore(ctx, cut, first, summary.count)) return [{ text: fitText(ctx, summary.count, maxWidth) }]
+  return cut === '' ? [{ text: fitText(ctx, summary.count ?? '', maxWidth) }] : parts(1, cut)
+}
+
+export function summaryPartsWidth(ctx: CanvasRenderingContext2D, parts: readonly SummaryPart[]): number {
+  return parts.reduce((width, part) => width + measureWidth(ctx, (part.separator ?? '') + part.text)
+    + (part.thumbnail !== undefined ? canvasPaintTokens.widget.valueThumbnail.size + canvasPaintTokens.widget.valueThumbnail.fileNameGap
+      + (part.separator !== undefined ? canvasPaintTokens.widget.valueThumbnail.entryGap - measureWidth(ctx, ' ') : 0) : 0), 0)
+}
+
+/** Right-aligned value text, with a picture directly before each name that survived fitting. */
+export function paintSummaryParts(ctx: CanvasRenderingContext2D, parts: readonly SummaryPart[], right: number, y: number, tokens: DesignTokens): void {
+  let left = right - summaryPartsWidth(ctx, parts)
+  const align = ctx.textAlign
+  if (parts.every((part) => part.thumbnail === undefined)) {
+    ctx.textAlign = 'right'
+    ctx.fillText(parts.map((part) => (part.separator ?? '') + part.text).join(''), right, y)
+    ctx.textAlign = align
+    return
+  }
+  ctx.textAlign = 'left'
+  for (const part of parts) {
+    // The separator belongs before the next picture, not between that picture and its name.
+    const separator = part.separator ?? ''
+    if (separator !== '') {
+      ctx.fillText(separator, left, y)
+      left += measureWidth(ctx, separator)
+    }
+    if (part.thumbnail !== undefined) {
+      const { size, radius, fileNameGap, entryGap } = canvasPaintTokens.widget.valueThumbnail
+      if (part.separator !== undefined) left += entryGap - measureWidth(ctx, ' ')
+      const top = Math.round(y - size / 2)
+      ctx.save()
+      ctx.beginPath()
+      ctx.roundRect(Math.round(left), top, size, size, radius)
+      if (part.thumbnail === null) {
+        ctx.strokeStyle = tokens.colors.nodeIdleOutline
+        ctx.stroke()
+      } else {
+        ctx.clip()
+        ctx.drawImage(part.thumbnail, Math.round(left), top, size, size)
+      }
+      ctx.restore()
+      left += size + fileNameGap
+    }
+    if (part.text !== '') ctx.fillText(part.text, left, y)
+    left += measureWidth(ctx, part.text)
+  }
+  ctx.textAlign = align
+}
+
 /**
  * The text a row's own view shows for a value, with the color square before
  * it or the list items it fits.
@@ -5199,7 +5295,7 @@ export interface CompanionSummary extends SummaryFit {
  * the state distinguishable without color. `summary`, when given, is the
  * text the row's own view shows for the value, used instead of its code.
  */
-export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y, width, rowHeight, tokens }: WidgetPaintArgs, summary?: CompanionSummary): void {
+export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y, width, rowHeight, tokens }: WidgetPaintArgs, summary?: CompanionSummary, bounds?: { readonly left: number; readonly right: number }): void {
   if (companion === undefined) return
   const prevFont = ctx.font
   const prevAlpha = ctx.globalAlpha
@@ -5211,10 +5307,11 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const swatch = summary?.swatch
   const swatchReserve = swatch === undefined ? 0 : canvasPaintTokens.widget.valueSwatch.size + canvasPaintTokens.widget.valueSwatch.gap
   const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-  const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
+  const field = bounds ?? widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
   // The subgraph mark before the name widens the name's share, as the painter lays it out.
   const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
-  const labelZone = shareRowWidth(field.right - field.left, mark + measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + canvasPaintTokens.widget.labelWidthPadding)
+  const picturesWidth = summaryThumbnailReserve(ctx, summary?.thumbnails)
+  const labelZone = shareRowWidth(field.right - field.left, mark + measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + picturesWidth + canvasPaintTokens.widget.labelWidthPadding)
   const availableWidth = Math.max(0, field.right - field.left - labelZone - swatchReserve)
   const unproven = companion.state === 'stale' || (companion.state === undefined && companion.stale === true)
   const color = unproven
@@ -5224,22 +5321,22 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   ctx.globalAlpha = companionAlpha ?? prevAlpha
   const textY = y + rowHeight / 2
   const textRight = x + field.right
-  const displayText = summary !== undefined ? prefix + fitSummary(ctx, summary, Math.max(0, availableWidth - measureWidth(ctx, prefix)))
-    : fitText(ctx, text, availableWidth)
+  const parts = summary === undefined ? [{ text: fitText(ctx, text, availableWidth) }]
+    : [{ text: prefix }, ...fitSummaryParts(ctx, summary, Math.max(0, availableWidth - measureWidth(ctx, prefix)))]
+  const displayWidth = summaryPartsWidth(ctx, parts)
   ctx.fillStyle = color
-  ctx.textAlign = 'right'
-  ctx.fillText(displayText, textRight, textY)
+  paintSummaryParts(ctx, parts, textRight, textY, tokens)
   if (swatch !== undefined) {
     const { size, gap } = canvasPaintTokens.widget.valueSwatch
-    paintValueSwatch(ctx, swatch, textRight - measureWidth(ctx, displayText) - gap - size, textY - size / 2, tokens)
+    paintValueSwatch(ctx, swatch, textRight - displayWidth - gap - size, textY - size / 2, tokens)
   }
-  if (unproven && displayText.length > 0) {
+  if (unproven && displayWidth > 0) {
     ctx.save()
     ctx.strokeStyle = color
     ctx.lineWidth = canvasPaintTokens.widget.companion.stroke
     ctx.setLineDash([...canvasPaintTokens.dash.companionUnderline])
     ctx.beginPath()
-    ctx.moveTo(textRight - measureWidth(ctx, displayText), textY + canvasPaintTokens.widget.companion.underlineOffset)
+    ctx.moveTo(textRight - displayWidth, textY + canvasPaintTokens.widget.companion.underlineOffset)
     ctx.lineTo(x + field.right, textY + canvasPaintTokens.widget.companion.underlineOffset)
     ctx.stroke()
     ctx.restore()
