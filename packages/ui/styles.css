@@ -1832,6 +1832,12 @@
 .dinkster-settings .product-number-steppers button:hover { background: var(--dinkster-interaction-hover); }
 .dinkster-setting-warning { margin: 0; color: var(--dinkster-warning-foreground); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: normal; }
 .dinkster-setting-copy > .dinkster-setting-warning { color: var(--dinkster-warning-foreground); }
+.dinkster-button[data-shortcut-capture] { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-8); min-width: 0; min-height: var(--dinkster-shortcut-settings-height); padding: 0; border: 0; border-radius: var(--dinkster-shortcut-radius); background: transparent; box-shadow: none; }
+.dinkster-button[data-shortcut-capture]:hover { background: transparent; }
+.dinkster-button[data-shortcut-capture]:hover > .dinkster-shortcut, .dinkster-setting-row:hover [data-shortcut-capture] > .dinkster-shortcut { border-color: var(--dinkster-border-hover); }
+.dinkster-button[data-shortcut-capture][data-recording='true'] { padding: var(--dinkster-space-4) var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-border-focus); background: var(--dinkster-surface-inset); }
+.dinkster-setting-row:has([data-shortcut-capture]):hover { background: var(--dinkster-interaction-hover); }
+.dinkster-setting-none { color: var(--dinkster-text-muted); }
 .dinkster-setting-cancel { color: var(--dinkster-text-secondary); }
 .dinkster-setting-menu { opacity: 0; }
 .dinkster-setting-row:is(:hover, :focus-within) .dinkster-setting-menu { opacity: 1; }

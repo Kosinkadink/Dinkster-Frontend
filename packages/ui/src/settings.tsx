@@ -1,8 +1,27 @@
-import { For, Show, createSignal, createUniqueId, onCleanup, onMount, type ComponentProps, type JSX } from 'solid-js'
+import { For, Show, createSignal, createUniqueId, onCleanup, onMount, splitProps, type ComponentProps, type JSX } from 'solid-js'
 import { Ellipsis } from 'lucide-solid'
-import { ProductTextButton } from './controls.js'
+import { ProductButton, ProductTextButton } from './controls.js'
 import { ProductMenu } from './menu.js'
 import { ProductSearch } from './search.js'
+import { ProductShortcut } from './shortcut.js'
+
+/** The caller owns recording, cancellation and stored bindings. */
+export function ProductShortcutCapture(props: Omit<ComponentProps<typeof ProductButton>, 'children' | 'intent' | 'fill' | 'pending' | 'density'> & {
+  keys?: string | readonly string[] | undefined
+  recording?: boolean | undefined
+  pendingKeys?: string | readonly string[] | undefined
+  noneLabel: string
+  recordingLabel: string
+  cancelLabel: string
+}) {
+  const [local, button] = splitProps(props, ['keys', 'recording', 'pendingKeys', 'noneLabel', 'recordingLabel', 'cancelLabel'])
+  return <ProductButton {...button} data-shortcut-capture data-recording={local.recording}>
+    <Show when={local.recording} fallback={<Show when={local.keys && local.keys.length > 0} fallback={<span class="dinkster-setting-none">{local.noneLabel}</span>}><ProductShortcut keys={local.keys!} size="settings" /></Show>}>
+      <Show when={local.pendingKeys && local.pendingKeys.length > 0} fallback={<span>{local.recordingLabel}</span>}><ProductShortcut keys={local.pendingKeys!} size="settings" /></Show>
+      <span class="dinkster-setting-cancel">{local.cancelLabel}</span>
+    </Show>
+  </ProductButton>
+}
 
 /** Page chrome shared by the gallery and the persisted settings editor. */
 export function ProductSettingsPage(props: {

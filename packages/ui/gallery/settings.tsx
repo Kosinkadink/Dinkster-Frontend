@@ -3,8 +3,8 @@ import { captureKeydown, KeybindingRegistry, SettingsRegistry } from '../../app/
 import { useSignal } from '../../app/src/solid-adapter.js'
 import { ProductNumberInput } from '../../app/src/ProductNumberInput.js'
 import {
-  ProductButton, ProductPage, ProductSelect, ProductSettingRow,
-  ProductSettingsPage, ProductSettingsSection, ProductShortcut, ProductSwitch,
+  ProductPage, ProductSelect, ProductSettingRow,
+  ProductSettingsPage, ProductSettingsSection, ProductShortcutCapture, ProductShortcutText, ProductSwitch,
   ProductTextArea, ProductTextInput, ProductToast, ProductErrorBanner, type ProductSearchGroup,
 } from '../src/index.js'
 
@@ -33,7 +33,7 @@ const settings: readonly Setting[] = [
   { id: 'tooltips.delayMs', label: 'Tooltip delay', group: 'general', section: 'Workspace', value: 500, unit: 'ms', description: 'Between 0 and 5000 milliseconds.' },
   { id: 'canvas.grid.visible', label: 'Show dot grid', group: 'canvas', section: 'View', value: true },
   { id: 'canvas.smoothWheelZoom', label: 'Smooth wheel zoom', group: 'canvas', section: 'View', value: true, description: 'Glide briefly between wheel zoom steps.' },
-  { id: 'canvas.scrollBehavior', label: 'Scroll behaviour', group: 'canvas', section: 'View', value: 'Zoom', options: ['Zoom', 'Pan'], description: 'What the wheel and a two-finger scroll do on the canvas.' },
+  { id: 'canvas.scrollBehavior', label: 'Canvas scroll behavior', group: 'canvas', section: 'View', value: 'Zoom', options: ['Zoom', 'Pan'], description: 'Zoom makes wheel and two-finger scroll zoom about the pointer. Pan makes ordinary scrolling move the canvas while `Ctrl+wheel` or trackpad pinch zooms.' },
   { id: 'canvas.bookmarkTransitions', label: 'Animate bookmark jumps', group: 'canvas', section: 'View', value: true },
   { id: 'canvas.minimap.visible', label: 'Show minimap', group: 'canvas', section: 'Minimap', value: true },
   { id: 'canvas.minimap.size', label: 'Size', group: 'canvas', section: 'Minimap', value: 'Small', options: ['Small', 'Medium', 'Large'] },
@@ -107,11 +107,11 @@ export function SettingsGallery() {
     </>
   }
   const shortcutError = (id: string) => combo(id) && keybindings.conflicts().get(combo(id)) ? `Also used by ${commands.filter((other) => other.id !== id && combo(other.id) === combo(id)).map((other) => other.label).join(', ')}.` : undefined
-  const shortcutControl = (command: typeof commands[number]) => <ProductButton id={command.id}
+  const shortcutControl = (command: typeof commands[number]) => <ProductShortcutCapture id={command.id}
     aria-label={`Record shortcut for ${command.label}`} aria-describedby={shortcutError(command.id) ? `${command.id}-warning` : undefined}
-    onClick={() => { setPendingKeys(''); setCapture(command.id) }}>
-    <Show when={capture() !== command.id} fallback={<Show when={pendingKeys()} fallback={<>Press the keys, <span class="dinkster-setting-cancel">Esc cancels</span></>}>{(keys) => <ProductShortcut keys={keys()} />}</Show>}><Show when={combo(command.id)} fallback="Set">{(keys) => <ProductShortcut keys={keys()} />}</Show></Show>
-  </ProductButton>
+    keys={combo(command.id)} recording={capture() === command.id} pendingKeys={pendingKeys()}
+    noneLabel="None" recordingLabel="Press the keys" cancelLabel="Esc cancels"
+    onClick={() => { setPendingKeys(''); setCapture(command.id) }} />
   const shortcutMenu = (command: typeof commands[number]) => ({
     label: `Actions for ${command.label}`,
     get items() { return [
@@ -152,7 +152,7 @@ export function SettingsGallery() {
     }
   }
   const row = (setting: Setting) => {
-    return <ProductSettingRow id={setting.id} label={setting.label} description={setting.description} error={error(setting)}
+    return <ProductSettingRow id={setting.id} label={setting.label} description={setting.description ? <ProductShortcutText text={setting.description} /> : undefined} error={error(setting)}
       fullWidth={typeof setting.value === 'string' && !setting.options} modified={value(setting) !== setting.value} resetLabel="Reset" menuLabel={`Actions for ${setting.label}`}
       resetDefaultLabel="Reset to default" copyIdLabel="Copy setting ID"
       onReset={() => update(setting.id, setting.value)} onCopyId={() => { void copyId(setting.id) }}>

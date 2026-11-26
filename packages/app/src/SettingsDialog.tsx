@@ -19,7 +19,7 @@ import { ProductField, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect as PackSelect } from './ProductSelect.js'
 import { LibraryStorageSettings } from './LibraryStorageSettings.js'
-import { ProductButton, ProductShortcut, ProductShortcutText, ProductSwitch, ProductSelect, ProductTextInput, ProductSettingRow, ProductSettingsPage, ProductSettingsSection, ProductToast, ProductErrorBanner, productSearchMarks, type ProductSearchGroup } from '@dinkster/ui'
+import { ProductButton, ProductShortcutCapture, ProductShortcutText, ProductSwitch, ProductSelect, ProductTextInput, ProductSettingRow, ProductSettingsPage, ProductSettingsSection, ProductToast, ProductErrorBanner, productSearchMarks, type ProductSearchGroup } from '@dinkster/ui'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import type { Backend } from './app-state.js'
@@ -315,22 +315,22 @@ export function SettingsDialog(props: {
     }
     const captureText = () => capture()?.command === command.id ? capture()?.pending || message('settingsDialog.keybinding.pressKeys') : combo() ?? message('settingsDialog.keybinding.unbound')
     const modified = () => combo() !== props.keybindings.defaultCombo(command.id)
-    const control = () => <ProductButton
+    const control = () => <ProductShortcutCapture
         id={controlId}
         type="button"
         aria-label={message('settingsDialog.keybinding.shortcutAria', { name: commandLabel(), shortcut: captureText() })}
         aria-describedby={conflict() ? `${controlId}-warning` : undefined}
+        keys={combo()} recording={capture()?.command === command.id} pendingKeys={capture()?.pending}
+        noneLabel={message('settingsPage.noneShortcut')} recordingLabel={message('settingsPage.pressKeys')} cancelLabel={message('settingsPage.escapeCancels')}
         onClick={() => setCapture({ command: command.id, pending: '' })}
-      ><Show when={capture()?.command === command.id} fallback={<Show when={combo()} fallback={message('settingsPage.setShortcut')}>{(keys) => <ProductShortcut keys={keys()} />}</Show>}>
-        <Show when={capture()?.pending} fallback={<>{message('settingsPage.pressKeys')} <span class="dinkster-setting-cancel">{message('settingsPage.escapeCancels')}</span></>}>{(keys) => <ProductShortcut keys={keys()} />}</Show>
-      </Show></ProductButton>
+      />
     return <div data-command-id={command.id}><Show when={!inline} fallback={<>{control()}<Show when={conflictMessage()}>{(text) => <p id={`${controlId}-warning`} class="dinkster-setting-warning" role="status">{text()}</p>}</Show></>}>
       <ProductSettingRow id={command.id} controlId={controlId} label={commandLabel()} modified={modified()} warning={conflictMessage()}
         resetLabel={message('settingsDialog.action.reset')} menuLabel={message('settingsPage.actions', { name: commandLabel() })} resetDefaultLabel={message('settingsPage.resetDefault')} copyIdLabel={message('settingsPage.copyCommandId')}
         onReset={() => props.keybindings.reset(command.id)} onCopyId={() => { void copyId(command.id) }}>{control()}</ProductSettingRow>
     </Show></div>
   }
-  const searchGroups = createMemo<readonly ProductSearchGroup[]>(() => searching() ? [{ key: 'settings', label: message('settingsDialog.search.summary', { count: matches().length, query: query().trim() }), rows: matches().map((match) => {
+  const searchGroups = createMemo<readonly ProductSearchGroup[]>(() => searching() && matches().length > 0 ? [{ key: 'settings', label: message('settingsDialog.search.summary', { count: matches().length, query: query().trim() }), rows: matches().map((match) => {
     let reset = () => props.settings.reset(match.id)
     return { key: `${match.source}:${match.id}`, title: match.name, detail: match.detail, ...(match.note === undefined ? {} : { note: match.note }),
       control: match.source === 'setting' ? settingRow(match.definition, true, (next) => { reset = next }) : keybindingRow(match.command, true),
