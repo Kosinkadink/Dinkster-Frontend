@@ -390,8 +390,8 @@ export function SettingsDialog(props: {
         <Show when={group() === 'general' && props.settings.list().some((d) => layoutIds.has(d.id))}><ProductSettingsSection title={message('settingsPage.section.layout')}><ProductButton id="settings-reset-layout" onClick={() => { for (const d of props.settings.list()) if (layoutIds.has(d.id)) props.settings.reset(d.id) }}>{message('settingsPage.resetLayout')}</ProductButton></ProductSettingsSection></Show>
         <Show when={group() === 'shortcuts'}><For each={shortcutGroups()}>{(area) => <ProductSettingsSection title={sectionLabel('shortcuts', area.id)}><For each={area.commands}>{(command) => keybindingRow(command)}</For></ProductSettingsSection>}</For></Show>
         <Show when={group() === 'storage'}>
-          <Show when={props.onOpenStorage}><ProductButton onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton></Show>
-          <Show when={props.storageConnection} keyed>{(connection) => <LibraryStorageSettings connection={connection} />}</Show>
+          <Show when={props.onOpenStorage}><p class="dinkster-settings-note">{message('storageSettings.mounts')} <ProductTextButton label={message('storageSettings.openStorage')} onClick={() => props.onOpenStorage?.()} /></p></Show>
+          <Show when={props.storageConnection} keyed>{(connection) => <LibraryStorageSettings connection={connection} onCopyId={(id) => { void copyId(id) }} />}</Show>
         </Show>
         <Show when={group() === 'packs' && props.packSettings}>{(packSettings) => <For each={packSettings().packs()}>{(pack) => <ProductSettingsSection title={pack.displayName}><PackSettingsPanel packId={pack.id} client={packSettings().client} onCopyId={(id) => { void copyId(id) }} /></ProductSettingsSection>}</For>}</Show>
         <Show when={group() === 'engine'}><For each={(props.backends ?? []).filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')}>{(backend) => <ProductSettingsSection title={backend.label}>

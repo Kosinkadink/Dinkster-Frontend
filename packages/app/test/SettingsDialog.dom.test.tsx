@@ -116,17 +116,18 @@ describe('SettingsDialog search', () => {
     expect(root.textContent).toContain('Loading storage accounting')
     setConnection({ fetchLibraryStorage: async () => status, updateLibraryStorageLimit: async () => {},
       clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') } })
-    await vi.waitFor(() => expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('313 bytes'))
-    resolve({ ...status, vaultBytes: 999 })
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-temporaryBytes')?.textContent).toBe('37 bytes'))
+    resolve({ ...status, temporaryBytes: 999 })
     await Promise.resolve()
-    expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('313 bytes')
+    expect(root.querySelector('#library-storage-temporaryBytes')?.textContent).toBe('37 bytes')
+    expect(root.querySelector('#library-storage-vaultBytes')).toBeNull()
     unmount()
   })
 
   it('distinguishes unknown storage from zero and saves a limit without enabling Clear', async () => {
     let limit: number | null = 8193
     const connection = {
-      fetchLibraryStorage: async () => ({ temporaryBytes: 37, vaultBytes: 0, adoptedBytes: 211,
+      fetchLibraryStorage: async () => ({ temporaryBytes: 8193, vaultBytes: 8193, adoptedBytes: 0,
         reclaimableBytes: null, blocked: ['owner_completeness_unknown'], collectionEnabled: false,
         policyAvailable: true, limitBytes: limit }),
       updateLibraryStorageLimit: async (next: number | null) => { limit = next },
@@ -135,17 +136,29 @@ describe('SettingsDialog search', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <LibraryStorageSettings connection={connection} />, root)
-    await vi.waitFor(() => expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('0 bytes'))
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-adoptedBytes')?.textContent).toBe('0 bytes'))
     expect(root.querySelector('#library-storage-reclaimableBytes')?.textContent).toBe('Unknown')
-    const clear = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Clear eligible assets')!
+    const clear = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Clear')!
     expect(clear.disabled).toBe(true)
-    root.querySelector<HTMLButtonElement>('#library-storage-unlimited')!.click()
-    const apply = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Apply limit')!
-    apply.click()
+    const overLimit = 'Files in use are kept, so the total can stay above the limit.'
+    expect(root.textContent).not.toContain(overLimit)
+    const input = root.querySelector<HTMLInputElement>('#library-storage-limit')!
+    for (const [raw, above] of [['4097', true], ['8193', false]] as const) {
+      await vi.waitFor(() => expect(input.disabled).toBe(false))
+      input.value = raw
+      input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await vi.waitFor(() => expect(limit).toBe(Number(raw)))
+      expect(root.textContent?.includes(overLimit)).toBe(above)
+    }
+    await vi.waitFor(() => expect(input.disabled).toBe(false))
+    root.querySelector<HTMLButtonElement>('#library-storage-limited')!.click()
     await vi.waitFor(() => expect(limit).toBeNull())
-    await vi.waitFor(() => expect(apply.disabled).toBe(true))
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-limit')).toBeNull())
     expect(clear.disabled).toBe(true)
-    expect(root.textContent).toContain('Saving a limit does not enable cleanup')
+    expect(root.textContent).toContain('The backend cannot confirm which files are in use.')
+    expect(root.querySelector('dialog')).toBeNull()
+    expect(root.textContent).not.toContain('Apply limit')
     unmount()
   })
 
@@ -153,6 +166,7 @@ describe('SettingsDialog search', () => {
     let enabled = true
     let finish!: () => void
     let fail = true
+    let clearRequests = 0
     let pending = new Promise<void>((resolve) => { finish = resolve })
     const connection = {
       fetchLibraryStorage: async () => ({ temporaryBytes: 37, vaultBytes: 513, adoptedBytes: 299,
@@ -160,6 +174,7 @@ describe('SettingsDialog search', () => {
         collectionEnabled: enabled, policyAvailable: true, limitBytes: 21474836480 }),
       updateLibraryStorageLimit: async () => {},
       clearLibraryStorage: async () => {
+        clearRequests += 1
         await pending
         if (fail) throw new Error('Cleanup unavailable')
         return { collectionEnabled: enabled, blocked: enabled ? [] : ['owner_completeness_unknown'],
@@ -169,24 +184,35 @@ describe('SettingsDialog search', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <LibraryStorageSettings connection={connection} />, root)
-    const clear = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Clear eligible assets')!
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-reclaimableBytes')?.textContent).toBe('113 bytes'))
+    const clear = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Clear')!
     await vi.waitFor(() => expect(clear.disabled).toBe(false))
     clear.click()
-    expect(clear.disabled).toBe(true)
-    expect(root.textContent).toContain('Clearing eligible assets...')
+    expect(root.querySelector('dialog')?.textContent).toContain('Removes 113 bytes of files that no run or project is using. This cannot be undone.')
+    ;[...root.querySelectorAll<HTMLButtonElement>('dialog button')].find((button) => button.textContent === 'Cancel')!.click()
+    expect(clearRequests).toBe(0)
+    expect(root.querySelector('dialog')).toBeNull()
+    const confirm = () => [...root.querySelectorAll<HTMLButtonElement>('dialog button')].find((button) => button.textContent === 'Clear')!
+    clear.click()
+    confirm().click()
+    expect(confirm().getAttribute('aria-disabled')).toBe('true')
+    confirm().click()
+    expect(clearRequests).toBe(1)
     finish()
     await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Cleanup unavailable'))
     expect(clear.disabled).toBe(false)
     fail = false
     pending = Promise.resolve()
     clear.click()
+    confirm().click()
     await vi.waitFor(() => expect(root.textContent).toContain('113 bytes freed across 2 files'))
     await vi.waitFor(() => expect(clear.disabled).toBe(false))
     enabled = false
     clear.click()
+    confirm().click()
     await vi.waitFor(() => expect(root.textContent).toContain('The backend cannot confirm which files are in use.'))
     expect(clear.disabled).toBe(true)
-    expect(root.textContent).not.toContain('Clearing eligible assets...')
+    expect(root.querySelector('dialog')).toBeNull()
     expect(root.textContent).not.toContain('owner_completeness_unknown')
     unmount()
   })
@@ -204,16 +230,22 @@ describe('SettingsDialog search', () => {
     document.body.append(root)
     const unmount = render(() => <LibraryStorageSettings connection={connection} />, root)
     await vi.waitFor(() => expect(root.textContent).toContain('The saved policy is unavailable'))
-    const unlimited = root.querySelector<HTMLButtonElement>('#library-storage-unlimited')!
-    expect(unlimited.getAttribute('aria-checked')).toBe('false')
-    expect(unlimited.disabled).toBe(true)
+    const limited = root.querySelector<HTMLButtonElement>('#library-storage-limited')!
+    expect(limited.getAttribute('aria-checked')).toBe('false')
+    expect(limited.disabled).toBe(true)
     available = true
     ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Refresh')!.click()
-    await vi.waitFor(() => expect(unlimited.disabled).toBe(false))
-    unlimited.click()
-    ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Apply limit')!.click()
+    await vi.waitFor(() => expect(limited.disabled).toBe(false))
+    limited.click()
     await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Operator permission denied'))
-    expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('Unknown')
+    expect(limited.getAttribute('aria-checked')).toBe('true')
+    expect(root.querySelector('#library-storage-temporaryBytes')?.textContent).toBe('Unknown')
+    const input = root.querySelector<HTMLInputElement>('#library-storage-limit')!
+    input.value = '4097'
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-limit-error')?.textContent).toBe('Operator permission denied'))
+    expect(input.value).toBe('8193')
     unmount()
   })
 

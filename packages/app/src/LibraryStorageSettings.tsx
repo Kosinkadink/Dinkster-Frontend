@@ -1,21 +1,24 @@
 import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import type { DinksterConnection, LibraryStorage, LibraryStorageCleanup } from '@dinkster/client'
-import { ProductButton, ProductCheckbox } from './ProductControls.js'
-import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from './ProductForm.js'
+import { ProductConfirmation, ProductDialog, ProductErrorBanner, ProductSettingsSection, ProductSettingRow, ProductSwitch, ProductTextButton, ProductToast } from '@dinkster/ui'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { useAppMessage } from './locale.js'
 
 export function LibraryStorageSettings(props: {
   readonly connection: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit' | 'clearLibraryStorage'>
+  readonly onCopyId?: (id: string) => void
 }) {
   const message = useAppMessage()
   const [status, setStatus] = createSignal<LibraryStorage>()
   const [limit, setLimit] = createSignal<number | null>(null)
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal('')
+  const [saveError, setSaveError] = createSignal<{ id: string; text: string }>()
   const [clearing, setClearing] = createSignal(false)
+  const [confirmClear, setConfirmClear] = createSignal(false)
   const [result, setResult] = createSignal<LibraryStorageCleanup>()
-  const canClear = (): boolean => status()?.collectionEnabled === true && status()?.blocked.length === 0
+  const canClear = (): boolean => status()?.collectionEnabled === true && status()?.blocked.length === 0 && (status()?.reclaimableBytes ?? 0) > 0
+  const bytes = (value: number | null): string => value === null ? message('storageSettings.unknown') : message('storageSettings.bytes', { count: value })
   const blockedReason = (reason: string): string => reason === 'owner_completeness_unknown'
     ? message('storageSettings.ownerCompletenessUnknown')
     : message('storageSettings.backendBlocked', { reason: reason.replaceAll('_', ' ') })
@@ -40,16 +43,21 @@ export function LibraryStorageSettings(props: {
     }
   }
   onMount(() => { void refresh() })
-  const save = async (): Promise<void> => {
-    if (busy() || !status()?.policyAvailable || limit() === status()?.limitBytes) return
+  const save = async (next: number | null, id: string): Promise<void> => {
+    const previous = status()
+    if (busy() || !previous?.policyAvailable || next === previous.limitBytes) return
+    setLimit(next)
     setBusy(true)
-    setError('')
+    setSaveError(undefined)
     try {
-      await props.connection.updateLibraryStorageLimit(limit())
+      await props.connection.updateLibraryStorageLimit(next)
       if (!current) return
-      setStatus(undefined)
+      setStatus({ ...previous, limitBytes: next })
     } catch (cause) {
-      if (current) setError(cause instanceof Error ? cause.message : String(cause))
+      if (current) {
+        setLimit(previous.limitBytes)
+        setSaveError({ id, text: cause instanceof Error ? cause.message : String(cause) })
+      }
       return
     } finally {
       if (current) setBusy(false)
@@ -65,7 +73,7 @@ export function LibraryStorageSettings(props: {
     try {
       const next = await props.connection.clearLibraryStorage()
       if (!current) return
-      setResult(next)
+      setResult(next.collectionEnabled && next.blocked.length === 0 ? next : undefined)
       setStatus((previous) => previous === undefined ? undefined : {
         ...previous, collectionEnabled: next.collectionEnabled, blocked: next.blocked, reclaimableBytes: null,
       })
@@ -73,54 +81,52 @@ export function LibraryStorageSettings(props: {
       if (current) setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       if (current) {
+        setConfirmClear(false)
         setClearing(false)
         setBusy(false)
       }
     }
     if (current && result()?.collectionEnabled) await refresh()
   }
-  const ids = productFieldIds('library-storage-limit')
-  const byteFields = ['temporaryBytes', 'vaultBytes', 'adoptedBytes', 'reclaimableBytes'] as const
-  return <section class="runtime-settings library-storage-settings" data-testid="library-storage-settings">
-    <div class="runtime-settings-body">
-      <h2>{message('storageSettings.title')}</h2>
-      <p>{message('storageSettings.description')}</p>
-      <Show when={status() && !canClear()}><ProductNotice tone="info">{message('storageSettings.blocked')}</ProductNotice></Show>
-      <Show when={clearing()}><ProductNotice tone="status">{message('storageSettings.clearing')}</ProductNotice></Show>
-      <Show when={result()}>{(finished) => <ProductNotice tone="status">{message('storageSettings.cleared', {
-        bytes: finished().reclaimedBytes, files: finished().reclaimedFiles,
-      })}</ProductNotice>}</Show>
-      <Show when={error()}>{(text) => <p role="alert">{text()}</p>}</Show>
-      <Show when={status()} fallback={<p role="status">{message(busy() ? 'storageSettings.loading' : 'storageSettings.unavailable')}</p>}>
-        {(loaded) => <>
-          <For each={byteFields}>{(field) => <ProductField layout="compact" controlId={`library-storage-${field}`} label={message(`storageSettings.${field}`)}>
-            <output id={`library-storage-${field}`}>{loaded()[field] === null ? message('storageSettings.unknown') : message('storageSettings.bytes', { count: loaded()[field]! })}</output>
-          </ProductField>}</For>
-          <Show when={loaded().blocked.length > 0}>
-            <ul><For each={loaded().blocked}>{(reason) => <li>{blockedReason(reason)}</li>}</For></ul>
-          </Show>
-          <ProductField controlId="library-storage-unlimited" label={message('storageSettings.unlimited')}>
-            <ProductCheckbox id="library-storage-unlimited" ariaLabel={message('storageSettings.unlimited')}
-              checked={loaded().policyAvailable && limit() === null} disabled={busy() || !loaded().policyAvailable}
-              onChange={(unlimited) => setLimit(unlimited ? null : loaded().limitBytes ?? 21474836480)} />
-          </ProductField>
-          <Show when={limit() !== null && loaded().policyAvailable}>
-            <ProductField controlId="library-storage-limit" label={message('storageSettings.limit')}>
-              <ProductNumberInput id="library-storage-limit" ariaLabelledBy={ids.label} value={limit()!}
-                min={1} max={Number.MAX_SAFE_INTEGER} integer disabled={busy()}
-                onCommit={(raw) => { const value = Number(raw); if (Number.isSafeInteger(value) && value > 0) setLimit(value) }} />
-            </ProductField>
-          </Show>
-          <Show when={!loaded().policyAvailable}><p role="status">{message('storageSettings.policyUnavailable')}</p></Show>
-        </>}
-      </Show>
-      <ProductActionFooter>
-        <ProductButton disabled={busy()} onClick={() => { void refresh() }}>{message('storageSettings.refresh')}</ProductButton>
-        <ProductButton disabled={busy() || !status()?.policyAvailable || limit() === status()?.limitBytes}
-          onClick={() => { void save() }}>{message('storageSettings.apply')}</ProductButton>
-        <ProductButton disabled={busy() || !canClear()} title={canClear() ? undefined : message('storageSettings.blocked')}
-          onClick={() => { void clear() }}>{message('storageSettings.clear')}</ProductButton>
-      </ProductActionFooter>
-    </div>
+  const byteFields = ['temporaryBytes', 'adoptedBytes', 'reclaimableBytes'] as const
+  return <section class="dinkster-stack" data-testid="library-storage-settings">
+    <Show when={error()}>{(text) => <ProductErrorBanner onDismiss={() => setError('')}>{text()}</ProductErrorBanner>}</Show>
+    <Show when={status()} fallback={<p role="status">{message(busy() ? 'storageSettings.loading' : 'storageSettings.unavailable')}</p>}>
+      {(loaded) => <>
+        <ProductSettingsSection title={message('storageSettings.title')}>
+          <dl class="dinkster-settings-facts"><For each={byteFields}>{(field) => <div>
+            <dt>{message(`storageSettings.${field}`)}</dt>
+            <dd><output id={`library-storage-${field}`}>{bytes(loaded()[field])}</output>
+              <Show when={field === 'reclaimableBytes'}><ProductTextButton label={message('storageSettings.clear')} disabled={busy() || !canClear()} onClick={() => setConfirmClear(true)} /></Show>
+            </dd>
+          </div>}</For></dl>
+          <For each={loaded().blocked}>{(reason) => <p class="dinkster-settings-note">{blockedReason(reason)}</p>}</For>
+        </ProductSettingsSection>
+        <ProductSettingsSection title={message('storageSettings.limitSection')}>
+          <For each={['library-storage-limited', ...(limit() !== null && loaded().policyAvailable ? ['library-storage-limit'] : [])]}>{(id) => {
+            const label = () => message(id === 'library-storage-limited' ? 'storageSettings.limited' : 'storageSettings.limit')
+            return <ProductSettingRow id={id} label={label()} modified={false} resetLabel="" resetDefaultLabel=""
+              error={saveError()?.id === id ? saveError()?.text : undefined}
+              menuLabel={message('settingsPage.actions', { name: label() })} copyIdLabel={message('runtimeSettings.page.copyId')}
+              onReset={() => {}} onCopyId={() => props.onCopyId?.(id)} menuItems={[{ label: message('runtimeSettings.page.copyId'), description: id, disabled: !props.onCopyId, onSelect: () => props.onCopyId?.(id) }]}>
+              <Show when={id === 'library-storage-limited'} fallback={<ProductNumberInput id={id} ariaLabel={label()} unit="B" value={limit()!}
+                min={1} max={Number.MAX_SAFE_INTEGER} integer disabled={busy()} ariaInvalid={saveError()?.id === id} ariaDescribedBy={saveError()?.id === id ? `${id}-error` : undefined}
+                onCommit={(raw) => { const next = Number(raw); if (Number.isSafeInteger(next) && next > 0) void save(next, id) }} />}>
+                <ProductSwitch id={id} label={label()} checked={loaded().policyAvailable && limit() !== null} disabled={busy() || !loaded().policyAvailable}
+                  aria-describedby={saveError()?.id === id ? `${id}-error` : undefined} onChange={(limited) => { void save(limited ? 21474836480 : null, id) }} />
+              </Show>
+            </ProductSettingRow>
+          }}</For>
+          <Show when={limit() !== null && loaded().temporaryBytes !== null && loaded().temporaryBytes! > limit()!}><p class="dinkster-settings-note">{message('storageSettings.overLimit')}</p></Show>
+          <Show when={!loaded().policyAvailable}><p class="dinkster-settings-note" role="status">{message('storageSettings.policyUnavailable')}</p></Show>
+        </ProductSettingsSection>
+      </>}
+    </Show>
+    <Show when={!status() || !status()?.policyAvailable}><ProductTextButton label={message('storageSettings.refresh')} disabled={busy()} onClick={() => { void refresh() }} /></Show>
+    <Show when={confirmClear()}><ProductDialog title={message('storageSettings.confirmTitle')} pending={clearing()} onDismiss={() => setConfirmClear(false)}>
+      <ProductConfirmation consequence={message('storageSettings.confirmDescription', { size: bytes(status()?.reclaimableBytes ?? null) })} actionLabel={message('storageSettings.clear')} intent="remove" pending={clearing()} disabled={!canClear()}
+        onCancel={() => setConfirmClear(false)} onConfirm={() => { void clear() }} />
+    </ProductDialog></Show>
+    <ProductToast notification={result() ? { message: message('storageSettings.cleared', { bytes: result()!.reclaimedBytes, files: result()!.reclaimedFiles }) } : undefined} onDismiss={() => setResult(undefined)} />
   </section>
 }
