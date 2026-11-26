@@ -61,7 +61,7 @@ export class ShellLayout {
       const bounds = REGION_SIZE_BOUNDS[region]
       settings.register({
         id: sizeKey(region),
-        name: `${region[0]!.toUpperCase()}${region.slice(1)} panel size (px)`,
+        name: `${region[0]!.toUpperCase()}${region.slice(1)} panel size`,
         category: 'shell',
         type: 'number',
         defaultValue: bounds.fallback,

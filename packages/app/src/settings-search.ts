@@ -41,7 +41,7 @@ export function settingsCategoryLabel(category: string, translate: (key: string)
     .join(' ')
 }
 
-const INTERNAL_SETTING_IDS = new Set(['keybindings.overrides', 'search.recentActivations'])
+const INTERNAL_SETTING_IDS = new Set(['keybindings.overrides', 'search.recentActivations', 'shell.dock.layout'])
 
 /** Settings represented by user-facing rows in SettingsDialog and search. */
 export function searchableSettingsDefinitions(definitions: readonly SettingDefinition[]): readonly SettingDefinition[] {

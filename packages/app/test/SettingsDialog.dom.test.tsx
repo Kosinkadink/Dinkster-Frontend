@@ -529,15 +529,26 @@ describe('SettingsDialog search', () => {
     for (const registry of [settings, other]) {
       registry.register({ id: 'shell.layout.left.width', name: 'Left panel size', type: 'number', defaultValue: 380, projectScoped: true })
       registry.register({ id: 'shell.layout.activityBar.visible', name: 'Activity bar visible', type: 'boolean', defaultValue: true, projectScoped: true })
+      registry.register({ id: 'shell.dock.layout', name: 'Dock layout', type: 'string', defaultValue: '', projectScoped: true })
     }
     settings.set('shell.layout.left.width', 512)
     settings.set('shell.layout.activityBar.visible', false)
+    settings.set('shell.dock.layout', 'stored layout')
     other.set('shell.layout.left.width', 417)
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} />, root)
+    expect(root.querySelector('[data-setting-id="shell.dock.layout"]')).toBeNull()
+    const search = root.querySelector<HTMLInputElement>('[role="combobox"]')!
+    search.value = 'shell.dock.layout'
+    search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    expect(root.querySelector('[data-setting-id="shell.dock.layout"]')).toBeNull()
+    expect(root.querySelector('.dinkster-search-empty-title')?.textContent).toBe('No matching settings')
+    search.value = ''
+    search.dispatchEvent(new InputEvent('input', { bubbles: true }))
     ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Reset layout')!.click()
     expect(settings.get('shell.layout.left.width')).toBe(380)
+    expect(settings.get('shell.dock.layout')).toBe('')
     expect(settings.get('shell.layout.activityBar.visible')).toBe(false)
     expect(other.get('shell.layout.left.width')).toBe(417)
     expect(JSON.parse(data.get('project.one')!).values).toEqual({ 'shell.layout.activityBar.visible': false })
@@ -566,7 +577,7 @@ describe('SettingsDialog search', () => {
 
     root.querySelector<HTMLAnchorElement>('a[href="#packs"]')!.click()
     await vi.waitFor(() => expect(root.querySelector('[data-pack-id="render.pack"]')).not.toBeNull())
-    const enabled = root.querySelector<HTMLButtonElement>('[data-pack-setting-id="enabled"] [role="checkbox"]')!
+    const enabled = root.querySelector<HTMLButtonElement>('[data-pack-setting-id="enabled"] [role="switch"]')!
     expect(enabled.getAttribute('aria-describedby')).toBe('pack-setting-render.pack-enabled-description')
     enabled.click()
     await vi.waitFor(() => expect(updatePackSettings).toHaveBeenCalledWith('render.pack', { enabled: false, quality: 2 }))

@@ -14,10 +14,8 @@ import { captureKeydown } from './settings.js'
 import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel, type SettingsSearchItem } from './settings-search.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
-import { ProductCheckbox } from './ProductControls.js'
-import { ProductField, productFieldIds } from './ProductForm.js'
+import { productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
-import { ProductSelect as PackSelect } from './ProductSelect.js'
 import { LibraryStorageSettings } from './LibraryStorageSettings.js'
 import { ProductButton, ProductShortcutCapture, ProductShortcutText, ProductSwitch, ProductSelect, ProductTextInput, ProductSettingRow, ProductSettingsPage, ProductSettingsSection, ProductToast, ProductErrorBanner, productSearchMarks, type ProductSearchGroup } from '@dinkster/ui'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
@@ -35,6 +33,7 @@ export interface PackSettingsClient {
 function PackSettingsPanel(props: {
   readonly packId: string
   readonly client: PackSettingsClient
+  readonly onCopyId: (id: string) => void
 }) {
   const message = useAppMessage()
   const [settings, setSettings] = createSignal<PackSettings>()
@@ -47,7 +46,7 @@ function PackSettingsPanel(props: {
   })
   const update = async (name: string, value: string | number | boolean): Promise<void> => {
     const current = settings()
-    if (current === undefined) return
+    if (current === undefined || saving()) return
     setSaving(true)
     setError(undefined)
     try {
@@ -76,26 +75,24 @@ function PackSettingsPanel(props: {
         if (!Number.isFinite(value) || (field.type === 'integer' && !Number.isSafeInteger(value))) return
         void update(name, value)
       }
-      return <ProductField
-        controlId={controlId}
-        label={field.title}
-        description={field.description}
-        metadata={<code>{name}</code>}
-        dataAttributes={{ 'data-pack-setting-id': name }}
-      >
+      return <div data-pack-setting-id={name}><ProductSettingRow id={name} controlId={controlId}
+        label={field.title} description={field.description} modified={!Object.is(value(), field.default)}
+        resetLabel={message('settingsDialog.action.reset')} menuLabel={message('settingsPage.actions', { name: field.title })}
+        resetDefaultLabel={message('settingsPage.resetDefault')} copyIdLabel={message('settingsPage.copySettingId')}
+        onReset={() => { void update(name, field.default) }} onCopyId={() => props.onCopyId(name)}>
         <Show when={field.type === 'boolean'}>
-          <ProductCheckbox id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy} checked={value() as boolean} disabled={saving()} onChange={(next) => { void update(name, next) }} />
+          <ProductSwitch id={controlId} label={field.title} aria-describedby={describedBy} checked={value() as boolean} disabled={saving()} onChange={(next) => { void update(name, next) }} />
         </Show>
         <Show when={field.type === 'number' || field.type === 'integer'}>
           <ProductNumberInput id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy} value={value() as number} min={field.minimum} max={field.maximum} step={field.multipleOf} integer={field.type === 'integer'} disabled={saving()} onCommit={commitNumber} />
         </Show>
         <Show when={field.type === 'string' && field.enum !== undefined}>
-          <PackSelect id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy} disabled={saving()} options={(field.enum ?? []).map((option) => ({ id: option, label: option, value: option }))} selectedId={String(value())} onSelect={(option) => { void update(name, option.value) }} />
+          <ProductSelect id={controlId} aria-labelledby={ids.label} aria-describedby={describedBy} disabled={saving()} value={String(value())} onChange={(event) => { void update(name, event.currentTarget.value) }}><For each={field.enum ?? []}>{(option) => <option value={option}>{option}</option>}</For></ProductSelect>
         </Show>
         <Show when={field.type === 'string' && field.enum === undefined}>
-          <input id={controlId} aria-labelledby={ids.label} aria-describedby={describedBy} disabled={saving()} value={String(value())} onChange={(event) => { void update(name, event.currentTarget.value) }} />
+          <ProductTextInput id={controlId} aria-labelledby={ids.label} aria-describedby={describedBy} disabled={saving()} value={String(value())} onChange={(event) => { void update(name, event.currentTarget.value) }} />
         </Show>
-      </ProductField>
+      </ProductSettingRow></div>
     }}</For>
   </div>}</Show>
 }
@@ -153,7 +150,7 @@ function SettingField(props: {
   props.resetRef?.(resetValue)
   const control = () => <>
       <Show when={definition.type === 'boolean'}><ProductSwitch id={controlId} label={name()} aria-describedby={describedBy()} checked={value() as boolean} onChange={setValue} /></Show>
-      <Show when={definition.type === 'number'}><ProductNumberInput id={controlId} ariaLabel={name()} {...(props.inline ? {} : { ariaLabelledBy: ids.label })} ariaDescribedBy={describedBy()} ariaInvalid={validation() !== undefined} value={String(value())} min={definition.min} max={definition.max} step={definition.step} unit={definition.id === 'tooltips.delayMs' ? 'ms' : undefined} onCommit={commitNumber} onRevert={() => setValidation(undefined)} /></Show>
+      <Show when={definition.type === 'number'}><ProductNumberInput id={controlId} ariaLabel={name()} {...(props.inline ? {} : { ariaLabelledBy: ids.label })} ariaDescribedBy={describedBy()} ariaInvalid={validation() !== undefined} value={String(value())} min={definition.min} max={definition.max} step={definition.step} unit={definition.id === 'tooltips.delayMs' ? 'ms' : ['shell.layout.left.width', 'shell.layout.right.width', 'shell.layout.bottom.height'].includes(definition.id) ? 'px' : undefined} onCommit={commitNumber} onRevert={() => setValidation(undefined)} /></Show>
       <Show when={definition.type === 'string'}><ProductTextInput
         id={controlId}
         aria-label={props.inline ? name() : undefined}
@@ -235,7 +232,7 @@ export function SettingsDialog(props: {
     } catch { setCopyError(message('settingsPage.copyFailed')) }
   }
   const focus = (id: string) => queueMicrotask(() => {
-    const control = root.querySelector<HTMLElement>([layoutIds.has(id) ? 'settings-reset-layout' : `setting-${id}`, `keybinding-${id}`, id].map((candidate) => `#${CSS.escape(candidate)}`).join(', '))
+    const control = root.querySelector<HTMLElement>([id === 'shell.dock.layout' || id === 'editor.splitLayout' ? 'settings-reset-layout' : `setting-${id}`, `keybinding-${id}`, id].map((candidate) => `#${CSS.escape(candidate)}`).join(', '))
     control?.focus()
     control?.scrollIntoView?.({ block: 'nearest' })
   })
@@ -291,7 +288,7 @@ export function SettingsDialog(props: {
     }
     return [{ ...match, detail, note }]
   }))
-  const visible = () => definitions().filter((d) => location(d).group === group() && !layoutIds.has(d.id))
+  const visible = () => definitions().filter((d) => location(d).group === group() && d.id !== 'editor.splitLayout')
   const sections = () => [...new Set(visible().map((d) => location(d).section))]
   const conflicts = () => { changed(); return props.keybindings.conflicts() }
   const selectGroup = (next: string): void => {
@@ -374,13 +371,13 @@ export function SettingsDialog(props: {
       <ProductSettingsPage title={message('settingsDialog.search.regionAria')} groupsLabel={message('settingsDialog.category.regionAria')} groups={groups()} group={group()} onGroup={selectGroup}
         search={{ label: message('settingsDialog.search.label'), placeholder: message('settingsDialog.search.placeholder'), get query() { return query() }, onQuery: (next) => { setQuery(next); setCurrent(''); setCapture(undefined) }, get groups() { return searchGroups() }, get current() { return current() }, onCurrent: setCurrent, onActivate: activate, onClose: clearSearch, inputRef: (input) => { searchInput = input }, empty: { title: message('settingsDialog.search.emptyTitle'), detail: message('settingsDialog.search.emptyBody') } }}>
         <For each={sections()}>{(section) => <ProductSettingsSection title={sectionLabel(group(), section)}><For each={visible().filter((d) => location(d).section === section)}>{(d) => settingRow(d)}</For></ProductSettingsSection>}</For>
-        <Show when={group() === 'general' && definitions().some((d) => layoutIds.has(d.id))}><ProductSettingsSection title={message('settingsPage.section.layout')}><ProductButton id="settings-reset-layout" onClick={() => { for (const d of definitions()) if (layoutIds.has(d.id)) props.settings.reset(d.id) }}>{message('settingsPage.resetLayout')}</ProductButton></ProductSettingsSection></Show>
+        <Show when={group() === 'general' && props.settings.list().some((d) => layoutIds.has(d.id))}><ProductSettingsSection title={message('settingsPage.section.layout')}><ProductButton id="settings-reset-layout" onClick={() => { for (const d of props.settings.list()) if (layoutIds.has(d.id)) props.settings.reset(d.id) }}>{message('settingsPage.resetLayout')}</ProductButton></ProductSettingsSection></Show>
         <Show when={group() === 'shortcuts'}><ProductSettingsSection title={message('settingsPage.section.commands')}><For each={(changed(), props.commands.list())}>{(command) => keybindingRow(command)}</For></ProductSettingsSection></Show>
         <Show when={group() === 'storage'}>
           <Show when={props.onOpenStorage}><ProductButton onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton></Show>
           <Show when={props.storageConnection} keyed>{(connection) => <LibraryStorageSettings connection={connection} />}</Show>
         </Show>
-        <Show when={group() === 'packs' && props.packSettings}>{(packSettings) => <For each={packSettings().packs()}>{(pack) => <ProductSettingsSection title={pack.displayName}><PackSettingsPanel packId={pack.id} client={packSettings().client} /></ProductSettingsSection>}</For>}</Show>
+        <Show when={group() === 'packs' && props.packSettings}>{(packSettings) => <For each={packSettings().packs()}>{(pack) => <ProductSettingsSection title={pack.displayName}><PackSettingsPanel packId={pack.id} client={packSettings().client} onCopyId={(id) => { void copyId(id) }} /></ProductSettingsSection>}</For>}</Show>
         <Show when={group() === 'engine'}><For each={(props.backends ?? []).filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')}>{(backend) => <ProductSettingsSection title={backend.label}>
           <RuntimeSettingsPanel connection={backend.connection} backendLabel={backend.label} categories={(category) => !['memory-budgets', 'memory-headroom', 'aimdo-policy'].includes(category)} alwaysOpen />
           <AgentPermissionsPanel connection={backend.connection} backendLabel={backend.label} />
