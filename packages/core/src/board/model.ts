@@ -77,12 +77,17 @@ export type BoardItem = (BoardMediaItem | BoardNoteItem | BoardSectionItem) & {
 export interface BoardDocument {
   readonly format: typeof BOARD_FORMAT
   readonly formatVersion: typeof BOARD_FORMAT_VERSION
+  readonly lineage: string
   readonly items: Readonly<Record<string, BoardItem>>
   readonly order: readonly string[]
 }
 
 export const emptyBoard = (): BoardDocument =>
-  Object.freeze({ format: BOARD_FORMAT, formatVersion: BOARD_FORMAT_VERSION, items: Object.freeze({}), order: Object.freeze([]) })
+  Object.freeze({
+    format: BOARD_FORMAT, formatVersion: BOARD_FORMAT_VERSION,
+    lineage: `board-${Array.from(crypto.getRandomValues(new Uint32Array(4)), (word) => word.toString(16).padStart(8, '0')).join('')}`,
+    items: Object.freeze({}), order: Object.freeze([]),
+  })
 
 export const isBoardMediaKind = (kind: string): kind is BoardMediaKind =>
   kind === 'picture' || kind === 'video' || kind === 'sound'
@@ -136,8 +141,8 @@ export function boardDropSection(board: BoardDocument, item: BoardItem, rect: Bo
   })
 }
 
-const ITEM_ID = /^[a-z][a-z0-9-]{0,63}$/
-const DIGEST = /^blake3:[0-9a-f]{64}$/
+const ITEM_ID = /^[a-z][a-z0-9-]{0,63}(?![\s\S])/
+const DIGEST = /^blake3:[0-9a-f]{64}(?![\s\S])/
 
 const fail = (code: string, message: string): Diagnostic => diag('error', 'import', `board.${code}`, message)
 
@@ -149,6 +154,7 @@ const finite = (value: Json | undefined, max: number): value is number =>
 
 function readRect(value: Json | undefined, where: string): BoardRect | Diagnostic {
   if (!isObject(value)) return fail('rect.invalid', `${where}: rect must be an object`)
+  if (Object.keys(value).some((key) => !['x', 'y', 'width', 'height'].includes(key))) return fail('rect.invalid', `${where}: rect contains unsupported fields`)
   const { x, y, width, height } = value
   if (!finite(x, BOARD_MAX_EXTENT) || !finite(y, BOARD_MAX_EXTENT)) return fail('rect.invalid', `${where}: x and y must be finite numbers within ${BOARD_MAX_EXTENT}`)
   if (!finite(width, BOARD_MAX_EXTENT) || !finite(height, BOARD_MAX_EXTENT) || width < BOARD_MIN_SIDE || height < BOARD_MIN_SIDE) {
@@ -161,6 +167,7 @@ const text = (value: Json | undefined, max: number): value is string => typeof v
 
 function readAsset(value: Json | undefined, where: string): BoardAsset | Diagnostic {
   if (!isObject(value)) return fail('asset.invalid', `${where}: asset must be an object`)
+  if (Object.keys(value).some((key) => !['digest', 'mediaType', 'name', 'width', 'height', 'duration', 'origin'].includes(key))) return fail('asset.invalid', `${where}: asset contains unsupported fields`)
   const { digest, mediaType, name, width, height, duration, origin } = value
   if (typeof digest !== 'string' || !DIGEST.test(digest)) return fail('asset.invalid', `${where}: asset digest must be 'blake3:<64 hex>'`)
   if (!text(mediaType, BOARD_MAX_NAME) || mediaType.length === 0) return fail('asset.invalid', `${where}: asset mediaType must be a nonempty string`)
@@ -191,6 +198,8 @@ export function readBoardItem(id: string, value: Json | undefined): BoardItem | 
   if (sectionId !== undefined && (typeof sectionId !== 'string' || !ITEM_ID.test(sectionId))) return fail('item.section', `${where}: sectionId must be an item id`)
   const membership = sectionId === undefined ? {} : { sectionId: sectionId as string }
   const kind = value['kind']
+  const content = kind === 'note' ? 'text' : kind === 'section' ? 'name' : 'asset'
+  if (Object.keys(value).some((key) => !['id', 'kind', 'rect', 'sectionId', content].includes(key))) return fail('item.invalid', `${where}: item contains unsupported fields`)
   const rect = readRect(value['rect'], where)
   if ('severity' in rect) return rect
   if (typeof kind === 'string' && isBoardMediaKind(kind)) {
@@ -226,6 +235,9 @@ export function loadBoard(input: unknown): BoardLoadResult {
   if (!owned.ok) return { diagnostics: [fail('json.invalid', `board is not JSON: ${owned.reason}`)] }
   const raw = owned.value
   if (!isObject(raw)) return { diagnostics: [fail('shape.invalid', 'board must be an object')] }
+  if (Object.keys(raw).some((key) => !['format', 'formatVersion', 'lineage', 'items', 'order'].includes(key))) return { diagnostics: [fail('shape.invalid', 'board contains unsupported fields')] }
+  const lineage = raw['lineage']
+  if (typeof lineage !== 'string' || lineage.length === 0) return { diagnostics: [fail('lineage.invalid', 'board needs a stable nonempty lineage')] }
   if (raw['format'] !== BOARD_FORMAT) return { diagnostics: [fail('format.invalid', `format must be '${BOARD_FORMAT}'`)] }
   const version = raw['formatVersion']
   if (version !== BOARD_FORMAT_VERSION) {
@@ -257,7 +269,7 @@ export function loadBoard(input: unknown): BoardLoadResult {
       parent = parsed[parent]!.sectionId
     }
   }
-  const document: BoardDocument = { format: BOARD_FORMAT, formatVersion: BOARD_FORMAT_VERSION, items: parsed, order: order as string[] }
+  const document: BoardDocument = { format: BOARD_FORMAT, formatVersion: BOARD_FORMAT_VERSION, lineage, items: parsed, order: order as string[] }
   const frozen = ownJson(document)
   if (!frozen.ok) return { diagnostics: [fail('json.invalid', frozen.reason)] }
   return { document: frozen.value as unknown as BoardDocument, diagnostics: [] }

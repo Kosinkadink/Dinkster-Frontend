@@ -14,11 +14,14 @@ const everyKind: readonly BoardItemInput[] = [
 describe('board document', () => {
   it('saves and reopens every item kind unchanged, in order', () => {
     const store = new BoardStore(emptyBoard())
+    const lineage = store.doc.lineage
+    expect(lineage).not.toBe(emptyBoard().lineage)
     const added = store.dispatch({ command: 'board.item.add', params: { items: everyKind } })
     expect(added.ok && added.created).toEqual(['section-1', 'picture-1', 'video-1', 'sound-1', 'note-1'])
     const reopened = loadBoard(JSON.parse(JSON.stringify(store.doc)))
     expect(reopened.diagnostics).toEqual([])
     expect(reopened.document).toEqual(store.doc)
+    expect(reopened.document!.lineage).toBe(lineage)
     expect(reopened.document!.items['picture-1']).toMatchObject({ asset: { name: 'Diner 04', width: 1216, origin: { kind: 'produced', job: 'job-1' } } })
     expect(reopened.document!.items['note-1']).toMatchObject({ text: 'Keep the rain on the window.' })
   })
@@ -34,6 +37,11 @@ describe('board document', () => {
     expect(loadBoard(unlisted).diagnostics[0]!.code).toBe('board.order.invalid')
     const newer = { ...JSON.parse(JSON.stringify(store.doc)), formatVersion: 2 }
     expect(loadBoard(newer).diagnostics[0]!.code).toBe('board.version.future')
+    expect(loadBoard({ ...store.doc, lineage: '' }).document).toBeUndefined()
+    expect(loadBoard({ ...store.doc, camera: { x: 0, y: 0 } }).document).toBeUndefined()
+    saved.items['picture-1'].asset.digest = digest(1)
+    saved.items['picture-1'].playing = true
+    expect(loadBoard(saved).document).toBeUndefined()
   })
 
   it('moves what a section holds with it, and nothing outside it', () => {
