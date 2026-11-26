@@ -76,7 +76,7 @@ function BackendRow(props: {
     <Show when={error() || connectFailed()}><ProductErrorBanner onDismiss={() => { setError(''); setConnectFailed(false) }}>{connectFailed() ? message('connectionProfiles.error.connect', { name: props.name }) : error()}</ProductErrorBanner></Show>
     <Show when={removing()} fallback={<>
           <Show when={schemaState()?.status === 'error'}><ProductNotice tone="warning">
-            {message('backendsPanel.notice.schemaFailed', { message: (schemaState() as { message: string }).message })}
+            {message('backendsPanel.notice.schemaFailed', { message: (schemaState() as { message: string }).message })}{' '}
             <ProductTextButton disabled={busy()} onClick={() => { void perform(() => props.app.refreshBackendSchemas(props.backend!)) }} data-testid="backend-schema-retry" label={message('backendsPanel.action.retrySchemas')} />
           </ProductNotice></Show>
           <ProductFacts label={props.name} items={[
