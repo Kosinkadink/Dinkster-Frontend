@@ -214,7 +214,7 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
+              (route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
@@ -235,6 +235,22 @@ function Gallery() {
             </Match>
             <Match when={route() === '#segmented-states'}>
               <SegmentedStates />
+            </Match>
+            <Match when={route() === '#menu-filter'}>
+              <Section title="Filtered menu" components="ProductMenu, ProductTextInput">
+                <ProductMenu
+                  label="Choose a format"
+                  filter={{ label: 'Filter formats', placeholder: 'Find a format' }}
+                  items={[
+                    { label: 'Image', checked: true, onSelect: () => setActivity('Image selected') },
+                    { label: 'Image file', description: 'An image stored in a file.', checked: false, onSelect: () => setActivity('Image file selected') },
+                    { label: 'Image sequence', description: 'Not available for this example.', disabled: true, onSelect: () => setActivity('Unavailable format selected') },
+                    'separator',
+                    { label: 'Audio', description: 'A sound recording.', onSelect: () => setActivity('Audio selected') },
+                    { label: 'Video', onSelect: () => setActivity('Video selected') },
+                  ]}
+                />
+              </Section>
             </Match>
             <Match when={route() === '#menu-alignment'}>
               <Section title="Trigger edges" components="ProductMenu">
