@@ -475,6 +475,8 @@ export interface PinLayout extends DynamicAnnotations {
    * it; the pins of one side press together around the row's middle.
    */
   readonly collapsedSection?: string
+  /** Pin in a shared field line's compact cluster. */
+  readonly pressed?: true
   /** A wire's end under the last drawn pin of a full closed-box cluster: not drawn and not grabbed. */
   readonly stacked?: true
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
@@ -667,7 +669,7 @@ const flexibleLineHeight = (layout: NodeLayout, row: LayoutRow, tokens: DesignTo
 
 /** Reflow text boxes back to their own heights, without any resize surplus. */
 const ownHeightRows = (layout: NodeLayout, tokens: DesignTokens): LayoutRow[] =>
-  reflowRows(layout, (row) => isTextBoxRow(row) ? flexibleLineHeight(layout, row, tokens) : row.height)
+  reflowRows(layout, (row) => isTextBoxRow(row) ? multilineWidgetHeight(row.rows, tokens) : row.height)
 
 const remappedPins = (layout: NodeLayout, rows: readonly LayoutRow[]): PinLayout[] =>
   layout.pins.map((pin) => {
@@ -776,9 +778,9 @@ const projectedBoxes = (
   return {
     boxes: layout.boxes.map((box) => {
       const first = layout.rows[box.first]!
-      const last = layout.rows[box.last]!
       const top = box.y + rows[box.first]!.y - first.y
-      const bottom = box.y + box.height + (rows[box.last]!.y + rows[box.last]!.height) - (last.y + last.height)
+      const bottomOf = (rs: readonly LayoutRow[]): number => Math.max(...rs.slice(box.first, box.last + 1).map((row) => row.y + row.height))
+      const bottom = box.y + box.height + bottomOf(rows) - bottomOf(layout.rows)
       return { ...box, y: top, height: bottom - top }
     }),
   }
@@ -1005,7 +1007,9 @@ export function projectNodeLayoutHeight(
   const flexibleIndexes = flexibleTextRowIndexes(layout)
   if (flexibleIndexes.length === 0) return { ...layout, height }
   const rows = reflowRows(layout, (row, index) => isTextBoxRow(row)
-    ? flexibleLineHeight(layout, row, tokens) + (flexibleIndexes.includes(index) ? extra : 0)
+    ? extra > 0 && flexibleIndexes.includes(index)
+      ? flexibleLineHeight(layout, row, tokens) + extra
+      : multilineWidgetHeight(row.rows, tokens)
     : row.height)
   const textOutput = layout.textOutput === undefined
     ? undefined
@@ -1708,10 +1712,7 @@ export function layoutNode(
     : (row.widget!.viewId === 'core.text'
       ? multilineWidgetHeight(row.widget!.rows, tokens)
       : row.widget!.rows * tokens.rowHeight)
-  const lineBaseHeight = (line: PendingRow[]): number => Math.max(
-    ...line.map(rowBaseHeight),
-    line.length > 1 ? line.length * (tokens.pinRadius * 2 + WIDGET_PIN_GAP * 2) : 0,
-  )
+  const lineBaseHeight = (line: PendingRow[]): number => Math.max(...line.map(rowBaseHeight))
   // Only the last text box takes the node's resize surplus; every other text
   // box keeps the height it was given in lines.
   const flexibleRows = pending.filter((row) =>
@@ -1890,7 +1891,7 @@ export function layoutNode(
         y += height
       } else if (row.kind === 'note' || row.kind === 'button') {
         const line = lines.get(row)!
-        const height = lineBaseHeight(line)
+        const height = rowBaseHeight(row)
         const inset = fieldInset(depth)
         rowIndex.set(row, rows.length)
         push(row.note
@@ -1918,10 +1919,10 @@ export function layoutNode(
       } else {
         const w = row.widget!
         const flexible = flexibleRows.includes(row)
-        const baseHeight = lineBaseHeight(lines.get(row)!)
-        const height = baseHeight + (flexible
+        const extra = flexible
           ? flexibleShare + (flexibleIndex === flexibleRows.length - 1 ? flexibleRemainder : 0)
-          : 0)
+          : 0
+        const height = (extra > 0 ? lineBaseHeight(lines.get(row)!) : rowBaseHeight(row)) + extra
         if (flexible) flexibleIndex += 1
         // Keep the capsule and its edge controls clear of sockets on either
         // border. The symmetric side also reserves space for output widgets.
@@ -1978,6 +1979,11 @@ export function layoutNode(
   // A closed box's row carries the pins of the fields inside it, each side
   // pressed together around the row's middle. Wired pins come first and at
   // most `clusterMax` are drawn; a further wire ends on the last drawn pin.
+  const pressed = (index: number, count: number): { dy: number; stacked: boolean } => {
+    const drawn = Math.min(count, box.clusterMax)
+    const pitch = drawn === 2 ? box.clusterPitch.two : box.clusterPitch.three
+    return { dy: (Math.min(index, drawn - 1) - (drawn - 1) / 2) * pitch, stacked: index >= drawn }
+  }
   const clusters = new Map<string, typeof collapsedPins>()
   for (const p of collapsedPins) {
     const key = `${p.sectionId}\n${p.direction}`
@@ -1987,14 +1993,11 @@ export function layoutNode(
     const center = anchorY.get(all[0]!.sectionId)
     if (center === undefined) continue
     const ordered = [...all.filter((p) => p.connected), ...all.filter((p) => !p.connected)]
-    const drawn = Math.min(ordered.length, box.clusterMax)
-    const pitch = drawn === 2 ? box.clusterPitch.two : box.clusterPitch.three
     for (const [index, p] of ordered.entries()) {
-      const stacked = index >= drawn
+      const { dy, stacked } = pressed(index, ordered.length)
       if (stacked && !p.connected) break
-      const slot = Math.min(index, drawn - 1)
       pins.push({
-        ...annotationsOf(p), portId: p.portId, label: p.label, direction: p.direction, y: center + (slot - (drawn - 1) / 2) * pitch, type: p.type, collapsedSection: p.sectionId,
+        ...annotationsOf(p), portId: p.portId, label: p.label, direction: p.direction, y: center + dy, type: p.type, collapsedSection: p.sectionId,
         ...(stacked ? { stacked: true as const } : {}),
         ...(p.optional ? { optional: true as const } : {}), ...(p.maybeAbsent ? { maybeAbsent: true as const } : {}),
         ...(p.widgetTap ? { widgetTap: true as const } : {}),
@@ -2088,13 +2091,20 @@ export function layoutNode(
       const cellInset = row.inset - boxInset
       const cellWidth = column === 0 ? lineWidth - (line.length - 1) * (compactWidth + gap) : compactWidth
       rows[index] = { ...row, inset: left + cellInset, width: cellWidth - cellInset * 2 }
-      for (const [index, pin] of pins.entries()) {
-        if (row.kind === 'widget' && pin.portId === row.inputId && (pin.direction === 'in' || pin.widgetTap === true))
-          // Border sockets keep noodles outside the node body. Distinct slots
-          // retain independent hit targets while the controls share a line.
-          pins[index] = { ...pin, y: row.y + (column + 0.5) * lineBaseHeight(line) / line.length }
-      }
       left += cellWidth + gap
+    }
+    // Only wired fields keep pins on a shared line, clustered at its ends
+    // without making the fields taller. Real outputs retain their own rows.
+    const fields = new Set(line.flatMap((row) => row.widget ? [row.widget.inputId] : []))
+    const center = rows[rowIndex.get(line[0]!)!]!.y + tokens.rowHeight / 2
+    for (const direction of ['in', 'out'] as const) {
+      const own = (pin: PinLayout): boolean => fields.has(pin.portId) && pin.direction === direction &&
+        (direction === 'in' ? pin.widgetBacked === true : pin.widgetTap === true)
+      const wired = pins.filter((pin) => own(pin) && isConnected(direction, pin.portId))
+      pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...wired.map((pin, index) => {
+        const { dy, stacked } = pressed(index, wired.length)
+        return { ...pin, y: center + dy, pressed: true as const, ...(stacked ? { stacked: true as const } : {}) }
+      }))
     }
   }
   // A member that can be moved has its grip at the left end, and its field
