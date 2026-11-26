@@ -1700,6 +1700,7 @@
   "boundaryPanel.limits.noLowest": "无最低",
   "boundaryPanel.limits.noHighest": "无最高",
   "boundaryPanel.show": "显示",
+  "boundaryPanel.wireDrawn": "显示连线",
   "boundaryPanel.show.always": "始终",
   "boundaryPanel.show.linked": "当 {name} 已连接时",
   "boundaryPanel.show.equals": "当 {name} 为 {value} 时",

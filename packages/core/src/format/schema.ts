@@ -750,6 +750,7 @@ export const WORKFLOW_SCHEMA = {
         inputsPanel: {
           type: 'object',
           properties: {
+            sections: { $ref: '#/$defs/nodeViewState/properties/sections' },
             editors: { $ref: '#/$defs/editorFolds' },
             pictureHeights: { $ref: '#/$defs/pictureHeights' },
           },

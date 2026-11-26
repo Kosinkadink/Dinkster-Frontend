@@ -490,7 +490,7 @@ const boundaryShowOnSubgraphNode: CommandDefinition = {
 // boundary.setWireHidden {graphId, itemId, hidden}
 //
 // Draws or hides the wire of a boundary input shown on the subgraph node as a
-// field. The row keeps its id, so every subgraph node keeps its value.
+// field or whole construct. Its id and per-instance values remain unchanged.
 // ---------------------------------------------------------------------------
 
 const boundarySetWireHidden: CommandDefinition = {
@@ -502,7 +502,7 @@ const boundarySetWireHidden: CommandDefinition = {
     if (!def) return [err('graph.missing', `boundary.setWireHidden: unknown graph '${params.graphId}'`)]
     const found = findItem(def, 'inputs', params.itemId)
     if (!found) return [err('boundary.itemMissing', `boundary.setWireHidden: no boundary input '${params.itemId}' in graph '${params.graphId}'`)]
-    if (found.item.binds.kind !== 'port' || found.item.promoted !== true) return [err('boundary.notField', `boundary.setWireHidden: boundary input '${params.itemId}' is not shown as a field on the subgraph node`)]
+    if (found.item.binds.kind !== 'construct' && (found.item.binds.kind !== 'port' || found.item.promoted !== true)) return [err('boundary.notField', `boundary.setWireHidden: boundary input '${params.itemId}' is not shown as a field on the subgraph node`)]
     const path = [...found.path, 'wireHidden']
     if (params.hidden === (found.item.wireHidden === true)) return []
     if (params.hidden) tx.set(path, true)
@@ -562,7 +562,7 @@ const boundarySetBinding: CommandDefinition = {
     if (bindingKey(current) === bindingKey(binding)) return []
     tx.set([...found.path, 'binds'], binding as unknown as Json)
     // A row that stops being a field on the subgraph node draws its wire again.
-    const stillField = binding.kind === 'port' && found.item.promoted === true
+    const stillField = binding.kind === 'construct' || (binding.kind === 'port' && found.item.promoted === true)
     if (found.item.wireHidden === true && !stillField)
       tx.remove([...found.path, 'wireHidden'])
     return []

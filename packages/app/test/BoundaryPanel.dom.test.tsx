@@ -152,6 +152,14 @@ describe('BoundaryPanel rows and settings', () => {
     } } } } as WorkflowDocument
     const { app, tab, root, unmount } = await mountPanel({ schema, document: workflow })
     select(root, 'mode')
+    const wire = root.querySelector<HTMLInputElement>('[data-testid="boundary-wire-drawn"]')!
+    expect(wire.checked).toBe(true)
+    wire.click()
+    await idle(root)
+    expect(itemOf(app, 'mode')?.wireHidden).toBe(true)
+    expect(tab.store.undo()).toBe(true)
+    await idle(root)
+    expect(itemOf(app, 'mode')?.wireHidden).toBeUndefined()
     const help = root.querySelector<HTMLInputElement>('[data-testid="boundary-help-input"]')!
     help.value = 'Choose the treatment'
     help.dispatchEvent(new Event('input', { bubbles: true }))

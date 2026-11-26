@@ -13,7 +13,7 @@ import {
 import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type CanvasHoverTarget, type InteractionHost } from '../src/interaction.js'
 import { subgraphMarkRect } from '../src/registry-painter.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
-import { BOUNDARY_ADD_SLOT, layoutNode, memberAt, type LayoutRow } from '../src/layout.js'
+import { BOUNDARY_ADD_SLOT, layoutNode, memberAt, sectionSubgraphMarkRect, type LayoutRow } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
 import { buildScene, REROUTE_SOCKET_OFFSET, scenesEqual, type Scene, type SceneNode } from '../src/scene.js'
 import { layoutNodeBadges, SUBGRAPH_BADGE } from '../src/badges.js'
@@ -4178,6 +4178,147 @@ describe('a wire dragged from the Inputs panel to a field', () => {
 })
 
 describe('Inputs panel fields', () => {
+  it('edits whole-construct fields at the entered owner and folds their panel independently at both depths', () => {
+    const field = (id: string) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'FLOAT' }, optional: false,
+      widget: { widgetType: 'FLOAT', options: { min: 0, max: 1 }, default: 0.3 } })
+    const sample: NodeSchema = { type: 'Sample', displayName: 'Sample', category: 'test', source: 'v3', isOutputNode: false, body: [
+      { kind: 'group', id: 'layers', keys: { kind: 'numbered', prefix: 'layer', start: 0, pad: 0 }, grows: 'button',
+        minMembers: 0, maxMembers: 8, reorderable: true, value: field('strength') },
+      { kind: 'choice', id: 'mode', required: true, default: 'image', shared: [field('mix')], options: [
+        { key: 'image', rows: [{ kind: 'use', id: 'mix' }] }, { key: 'text', rows: [{ kind: 'use', id: 'mix' }] },
+      ] },
+    ] }
+    for (const depth of [1, 2] as const) {
+      const graph = (id: string, nodes: unknown, target?: string) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
+        ...(target === undefined ? {} : { boundary: { body: ['group', 'mode'].map((id) => ({ kind: 'input', id,
+          binds: { kind: 'construct', node: target, port: id === 'group' && target === 'sample' ? 'layers' : id } })) } }),
+      })
+      const document = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-construct', root: 'root',
+        graphs: {
+          root: graph('root', { first: { id: 'first', type: depth === 2 ? '#portrait' : '#detail', values: { 'mode.mix': 0.2 },
+            dynamic: { group: { members: ['layer0', 'layer1'] } } },
+            second: { id: 'second', type: depth === 2 ? '#portrait' : '#detail', values: { 'mode.mix': 0.8 } } }),
+          portrait: graph('portrait', { detail: { id: 'detail', type: '#detail', values: {} } }, 'detail'),
+          detail: graph('detail', { sample: { id: 'sample', type: 'Sample', values: {}, dynamic: { layers: { members: ['layer0', 'layer1'] } } } }, 'sample'),
+        }, view: { graphs: {} },
+      }).document as WorkflowDocument
+      const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial',
+        schemaResolverFor: (doc) => documentResolver(doc, (type) => type === sample.type ? sample : undefined),
+      }))
+      const sceneOf = (entered = true) => {
+        const resolve = documentResolver(store.doc, (type) => type === sample.type ? sample : undefined)
+        const path = depth === 2 ? ['first', 'detail'] : ['first']
+        return buildScene({ document: store.doc, graphId: 'detail', resolve, tokens: defaultTokens,
+          measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+          ...(entered ? { occurrence: { owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }, plannerAvailable: false },
+            occurrenceView: occurrenceDynamicView(store.doc, resolve, path) } : {}),
+        })
+      }
+      for (const entered of [true, false]) {
+        const scene = sceneOf(entered)
+        const panel = scene.boundaryNodes[0]!
+        const row = panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'mode.mix')
+        if (row?.kind !== 'widget') throw new Error('missing whole-choice field on Inputs')
+        const width = row.width ?? panel.layout.width - row.inset * 2
+        const x = panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2
+        const y = panel.y + row.y + row.height / 2
+        const harness = interactionHarness(scene)
+        harness.fire('pointerdown', x, y)
+        harness.fire('pointerup', x, y)
+        expect(harness.dispatched).toHaveLength(1)
+        expect(store.dispatch(harness.dispatched[0] as CommandInvocation).ok).toBe(true)
+        const owner = entered ? store.doc.graphs.root!.nodes.first! : store.doc.graphs.detail!.nodes.sample!
+        expect(owner.values['mode.mix']).toBeCloseTo(entered ? 0.3 : 0.4)
+        expect(store.doc.graphs.root!.nodes.second!.values['mode.mix']).toBe(0.8)
+        expect(store.undo()).toBe(true)
+      }
+      const growthScene = sceneOf()
+      const growthPanel = growthScene.boundaryNodes[0]!
+      const growth = growthPanel.layout.rows.find((row) => row.kind === 'growth')
+      if (growth?.kind !== 'growth') throw new Error('missing whole-group Add on Inputs')
+      const growing = interactionHarness(growthScene)
+      const gx = growthPanel.x + growthPanel.layout.width / 2
+      const gy = growthPanel.y + growth.y + growth.height / 2
+      growing.fire('pointerdown', gx, gy)
+      growing.fire('pointerup', gx, gy)
+      expect(growing.dispatched).toHaveLength(1)
+      expect(store.dispatch(growing.dispatched[0] as CommandInvocation).ok).toBe(true)
+      expect(store.doc.graphs.root!.nodes.first!.dynamic?.group?.members).toEqual(['layer0', 'layer1', 'layer2'])
+      expect(store.doc.graphs.detail!.nodes.sample!.dynamic?.layers?.members).toEqual(['layer0', 'layer1'])
+      expect(store.doc.graphs.root!.nodes.second!.dynamic).toBeUndefined()
+      expect(store.undo()).toBe(true)
+
+      const reorderScene = sceneOf()
+      const reorderPanel = reorderScene.boundaryNodes[0]!
+      const memberRows = reorderPanel.layout.rows.filter((row) => 'reorder' in row && row.reorder !== undefined)
+      const from = memberRows.at(-1)!
+      const to = memberRows.at(-2)!
+      if (!('reorder' in from) || from.reorder === undefined) throw new Error('missing member grip on Inputs')
+      const moving = interactionHarness(reorderScene)
+      const mx = reorderPanel.x + from.reorder.gripX
+      moving.fire('pointerdown', mx, reorderPanel.y + from.y + from.height / 2)
+      moving.fire('pointermove', mx, reorderPanel.y + to.y)
+      moving.fire('pointerup', mx, reorderPanel.y + to.y)
+      expect(moving.dispatched).toHaveLength(1)
+      expect(store.dispatch(moving.dispatched[0] as CommandInvocation).ok).toBe(true)
+      expect(store.doc.graphs.root!.nodes.first!.dynamic?.group?.members).toEqual(['layer1', 'layer0'])
+      expect(store.doc.graphs.detail!.nodes.sample!.dynamic?.layers?.members).toEqual(['layer0', 'layer1'])
+      expect(store.undo()).toBe(true)
+
+      const scene = sceneOf()
+      const panel = scene.boundaryNodes[0]!
+      const header = panel.layout.rows.find((row) => row.kind === 'section' && row.sectionId === 'group:group')
+      if (header?.kind !== 'section') throw new Error('missing whole-group box on Inputs')
+      const harness = interactionHarness(scene)
+      const x = panel.x + header.inset + 30
+      const y = panel.y + header.y + header.height / 2
+      harness.fire('pointerdown', x, y)
+      harness.fire('pointerup', x, y)
+      expect(harness.dispatched).toHaveLength(1)
+      expect(store.dispatch(harness.dispatched[0] as CommandInvocation).ok).toBe(true)
+      expect(sceneOf().boundaryNodes[0]!.layout.rows.some((row) => row.kind === 'widget' && row.inputId.startsWith('group.'))).toBe(false)
+      expect(sceneOf().nodes[0]!.layout.rows.some((row) => row.kind === 'widget' && row.inputId.startsWith('layers.'))).toBe(true)
+      expect(loadDocument(JSON.parse(JSON.stringify(store.doc))).diagnostics).toEqual([])
+      expect(store.undo()).toBe(true)
+      expect(sceneOf().boundaryNodes[0]!.layout.rows.some((row) => row.kind === 'widget' && row.inputId.startsWith('group.'))).toBe(true)
+
+      for (const itemId of ['group', 'mode']) {
+        expect(store.dispatch({ command: 'boundary.setWireHidden', params: { graphId: 'detail', itemId, hidden: true } }).ok).toBe(true)
+        const hidden = sceneOf()
+        expect(hidden.boundaryNodes[0]!.layout.pins.some((pin) => pin.portId === itemId)).toBe(false)
+        for (const node of [hidden.boundaryNodes[0]!, hidden.nodes[0]!]) {
+          const marked = node.layout.rows.filter((row) => (row.kind === 'widget' || row.kind === 'section') && row.subgraphMark?.item === itemId)
+          expect(marked).toHaveLength(1)
+          const markRow = marked[0]!
+          if (markRow.kind !== 'widget' && markRow.kind !== 'section') throw new Error('missing construct mark')
+          const rect = markRow.kind === 'section'
+            ? sectionSubgraphMarkRect(markRow, node.layout.width, defaultTokens, (text) => text.length * 6)
+            : subgraphMarkRect(markRow, markRow.width ?? node.layout.width - markRow.inset * 2, defaultTokens.rowHeight, defaultTokens, false, false)
+          const x = node.x + (markRow.kind === 'widget' ? markRow.inset : 0) + rect.x + rect.size / 2
+          const y = node.y + (markRow.kind === 'widget' ? markRow.y : 0) + rect.y + rect.size / 2
+          const activate = vi.fn()
+          const clicking = interactionHarness(hidden, { onSubgraphMarkActivate: activate })
+          clicking.fire('pointerdown', x, y)
+          clicking.fire('pointerup', x, y)
+          expect(activate).toHaveBeenCalledWith(itemId)
+          expect(clicking.dispatched).toEqual([])
+        }
+        const inner = hidden.nodes[0]!
+        const value = inner.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'mode.mix')
+        if (value?.kind !== 'widget') throw new Error('missing inner field')
+        const activate = vi.fn()
+        const clicking = interactionHarness(hidden, { onWidgetActivate: activate })
+        const x = inner.x + value.inset + (value.width ?? inner.layout.width - value.inset * 2) - 8
+        const y = inner.y + value.y + value.height / 2
+        clicking.fire('pointerdown', x, y)
+        clicking.fire('pointerup', x, y)
+        expect(activate).not.toHaveBeenCalled()
+        expect(clicking.dispatched).toEqual([])
+        expect(store.undo()).toBe(true)
+      }
+    }
+  })
+
   const blur: NodeSchema = {
     type: 'Blur', displayName: 'Blur', category: 'test', source: 'v3', isOutputNode: false,
     body: [

@@ -1170,6 +1170,15 @@ export function BoundaryPanel(props: { app: AppState }) {
             <DefaultEditor row={row()} />
           </Setting>
         </Show>
+        <Show when={row().side === 'inputs' && (isField(row()) || construct())}>
+          <UiCheckbox
+            label={message('boundaryPanel.wireDrawn')}
+            data-testid="boundary-wire-drawn"
+            checked={row().item.wireHidden !== true}
+            disabled={editingDisabled()}
+            onChange={(event) => void dispatch('boundary.setWireHidden', { itemId: id(), hidden: !event.currentTarget.checked }, rowKey(row()))}
+          />
+        </Show>
         <Show when={range()}>
           {(inner) => (
             <Setting label={message('boundaryPanel.limits')}>

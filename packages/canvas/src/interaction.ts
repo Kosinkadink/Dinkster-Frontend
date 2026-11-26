@@ -72,7 +72,7 @@ import { subgraphMarkRect } from './registry-painter.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
 import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, previewEdgeShown, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
 import { canvasPaintTokens, IN_NODE_EDITORS, type DesignTokens } from './tokens.js'
-import { BOUNDARY_ADD_SLOT, clampTextBoxLines, memberSpans, multilineWidgetHeight, projectPictureHeight, projectTextBoxLines, type LayoutRow, type MemberGrip, type PinLayout } from './layout.js'
+import { BOUNDARY_ADD_SLOT, clampTextBoxLines, memberSpans, multilineWidgetHeight, projectPictureHeight, projectTextBoxLines, sectionSubgraphMarkRect, type LayoutRow, type MemberGrip, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
 import { wheelNavigationViewport, type WheelNavigationMode } from './zoom.js'
@@ -2892,7 +2892,7 @@ export class InteractionController {
     if (this.renderer.getDesignTokens().widgetEditing !== 'in-row' || pointerType === 'touch') return undefined
     const row = hit.row
     if (row.viewId !== 'core.number' && row.viewId !== 'core.slider') return undefined
-    if (row.derivedValue !== undefined || row.ghost) return undefined
+    if (row.derivedValue !== undefined || row.ghost || row.readOnly) return undefined
     const scene = this.renderer.getScene()
     if (scene.links.some((link) => link.to.kind === 'port' && link.to.node === hit.node.id && link.to.port === row.inputId)) return undefined
     const start = this.numberRowValue(hit)
@@ -2937,6 +2937,13 @@ export class InteractionController {
     const tokens = this.renderer.getDesignTokens()
     const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, this.renderer.showsArrivingValue(hit.node.id, hit.row), isNumberRow(hit.row))
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.size && hit.localY >= rect.y && hit.localY <= rect.y + rect.size
+  }
+
+  private sectionMarkContains(hit: Extract<Hit, { kind: 'section' }>, wx: number, wy: number): boolean {
+    if (hit.row.subgraphMark === undefined) return false
+    const rect = sectionSubgraphMarkRect(hit.row, hit.node.layout.width, this.renderer.getDesignTokens(), (text) => this.renderer.measureWidgetText(text))
+    return wx >= hit.node.x + rect.x && wx <= hit.node.x + rect.x + rect.size &&
+      wy >= hit.node.y + rect.y && wy <= hit.node.y + rect.y + rect.size
   }
 
   /**
@@ -3077,6 +3084,7 @@ export class InteractionController {
       && this.controllerChipContains(hit)
     const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
     const subgraphMark = hit?.kind === 'widget' && this.subgraphMarkContains(hit) ? hit.row.subgraphMark
+      : hit?.kind === 'section' && this.sectionMarkContains(hit, w.x, w.y) ? hit.row.subgraphMark
       : wiredPanelMark?.row.subgraphMark
     this.host.onHoverTarget?.(toolboxButton
       ? { kind: 'toolbox', button: toolboxButton, x: clientX, y: clientY }
@@ -3463,6 +3471,7 @@ export class InteractionController {
             this.host.onSubgraphMarkActivate?.(g.hit.row.subgraphMark!.item)
             return
           }
+          if (g.hit.row.readOnly) return
           const bindingOk = (link: SceneLink) => g.hit.row.selector === undefined || link.boundary !== true
           const connected = scene.links.some(
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,
@@ -3541,11 +3550,15 @@ export class InteractionController {
       case 'section':
         this.pushOverlay()
         if (!g.moved) {
+          if (this.sectionMarkContains(g.hit, w.x, w.y)) {
+            this.host.onSubgraphMarkActivate?.(g.hit.row.subgraphMark!.item)
+            return
+          }
           this.host.dispatch({
             command: 'view.setSectionCollapsed',
             params: {
               graphId: scene.graphId,
-              nodeId: g.hit.node.id,
+              ...(g.hit.bnode !== undefined ? { inputsPanel: true } : { nodeId: g.hit.node.id }),
               sectionId: g.hit.row.sectionId,
               collapsed: !g.hit.row.collapsed,
             },
@@ -3558,11 +3571,11 @@ export class InteractionController {
           this.host.dispatch({
             command: 'dynamic.moveMember',
             params: {
-              graphId: scene.graphId,
-              nodeId: g.hit.node.id,
-              construct: g.hit.grip.construct,
-              member: g.hit.grip.member,
-              index: g.index,
+              graphId: g.hit.grip.owner?.graphId ?? scene.graphId,
+              nodeId: g.hit.grip.owner?.nodeId ?? g.hit.node.id,
+              construct: g.hit.grip.owner?.construct ?? g.hit.grip.construct,
+              member: g.hit.grip.ownerMember ?? g.hit.grip.member,
+              index: Math.max(0, g.index - (g.hit.grip.ownerOffset ?? 0)),
             },
           })
         }
@@ -3576,8 +3589,8 @@ export class InteractionController {
           this.host.dispatch({
             command: 'dynamic.materialize',
             params: {
-              graphId: scene.graphId,
-              nodeId: g.hit.node.id,
+              graphId: g.hit.row.editOwner?.graphId ?? scene.graphId,
+              nodeId: g.hit.row.editOwner?.nodeId ?? g.hit.node.id,
               frames: g.hit.row.frames.map((f) => ({ ...f, members: [...f.members] })),
             },
           })

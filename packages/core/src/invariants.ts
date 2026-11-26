@@ -621,7 +621,7 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
         }
         boundaryIds.add(item.id)
         if (item.wireHidden !== undefined &&
-            !(side === 'inputs' && item.binds.kind === 'port' && item.promoted === true)) {
+            !(side === 'inputs' && (item.binds.kind === 'construct' || (item.binds.kind === 'port' && item.promoted === true)))) {
           diags.push(diag('error', 'invariant', 'doc.boundary.wireHidden', where(`boundary '${item.id}' hides its wire but is not shown as a field on the subgraph node`)))
         }
         if (item.limits !== undefined && !(side === 'inputs' && item.promoted === true)) {

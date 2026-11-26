@@ -89,6 +89,7 @@ export type Hit =
       readonly kind: 'section'
       readonly node: SceneNode
       readonly row: Extract<LayoutRow, { kind: 'section' }>
+      readonly bnode?: SceneBoundaryNode
     }
   | {
       /** Grow-family affordance row: click materializes the offered member. */
@@ -339,7 +340,14 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (wy <= bnode.y + l.headerHeight) return { kind: 'boundary-header', bnode }
     if (contentDetail) {
       const face = boundaryFieldNode(bnode)
+      const grip = face === undefined ? undefined : gripAt(face, wx, wy)
+      if (grip !== undefined) return { kind: 'grip', node: face!, grip }
       for (const row of l.rows) {
+        if (face !== undefined && wy >= bnode.y + row.y && wy <= bnode.y + row.y + row.height) {
+          if (row.kind === 'section' && wx >= bnode.x + row.inset && wx <= bnode.x + l.width - row.inset)
+            return { kind: 'section', node: face, row, bnode }
+          if (row.kind === 'growth') return { kind: 'growth', node: face, row }
+        }
         // A field wired outside the subgraph is not edited here: it is body.
         if (row.kind === 'widget' && face !== undefined && !Object.hasOwn(bnode.fields!.wired, row.valueKey)) {
           const ry = bnode.y + row.y
@@ -353,7 +361,7 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
         }
         if (row.kind !== 'ports') continue
         const slot = row.input ?? row.output
-        if (slot && slot.portId !== '__add__' && wy >= bnode.y + row.y && wy <= bnode.y + row.y + row.height) {
+        if (slot && row.editOwner === undefined && slot.portId !== '__add__' && wy >= bnode.y + row.y && wy <= bnode.y + row.y + row.height) {
           const direction = bnode.side === 'inputs' ? 'out' : 'in'
           return {
             kind: 'boundary-pin',

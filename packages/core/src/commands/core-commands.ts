@@ -2026,7 +2026,7 @@ const viewSetSectionCollapsed: CommandDefinition = {
   run(doc, params, tx) {
     if (
       !isObj(params) ||
-      typeof params.nodeId !== 'string' ||
+      (typeof params.nodeId !== 'string' && params.inputsPanel !== true) ||
       typeof params.sectionId !== 'string' ||
       params.sectionId.length === 0 ||
       (typeof params.collapsed !== 'boolean' && params.collapsed !== null)
@@ -2040,6 +2040,9 @@ const viewSetSectionCollapsed: CommandDefinition = {
     }
     const def = graphOf(doc, params.graphId)
     if (!def) return [err('graph.missing', `view.setSectionCollapsed: unknown graph '${String(params.graphId)}'`)]
+    if (params.inputsPanel === true) return setEditorViewEntry(doc, tx, 'view.setSectionCollapsed',
+      { ...params, valueKey: params.sectionId }, 'sections', params.collapsed === null ? null : { collapsed: params.collapsed })
+    if (typeof params.nodeId !== 'string') return [err('params.invalid', 'view.setSectionCollapsed: nodeId must be a string')]
     if (!def.nodes[params.nodeId])
       return [err('node.missing', `view.setSectionCollapsed: unknown node '${params.nodeId}'`)]
     const graphId = params.graphId as string
@@ -2077,14 +2080,14 @@ function setEditorViewEntry(
   tx: Parameters<CommandDefinition['run']>[2],
   id: string,
   params: JsonObject,
-  record: 'editors' | 'pictureHeights' | 'histogramVisibility',
+  record: 'editors' | 'pictureHeights' | 'histogramVisibility' | 'sections',
   entry: Json | null,
 ): readonly Diagnostic[] {
   const def = graphOf(doc, params.graphId)
   if (!def) return [err('graph.missing', `${id}: unknown graph '${String(params.graphId)}'`)]
   const graphId = params.graphId as string
   const valueKey = params.valueKey as string
-  let owner: Readonly<Partial<Record<'editors' | 'pictureHeights' | 'histogramVisibility', Readonly<Record<string, Json>>>>> | undefined
+  let owner: Readonly<Partial<Record<typeof record, Readonly<Record<string, Json>>>>> | undefined
   let ownerPath: string[]
   if (params.inputsPanel === true) {
     if (!def.boundary) return [err('graph.notSubgraph', `${id}: graph '${graphId}' has no Inputs panel`)]

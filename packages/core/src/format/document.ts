@@ -435,8 +435,7 @@ export interface BoundaryItem {
   /**
    * Presentation only: the input still drives its bound fields exactly as a
    * wired one does, but no wire is drawn from the Inputs panel and the panel
-   * row has no pin. Valid only on an input the instance shows as a field (a
-   * promoted 'port' binding). Never semantic:
+   * row has no pin. Valid on a promoted field or a whole construct. Never semantic:
    * compile and the cache key ignore it.
    */
   readonly wireHidden?: true
@@ -844,6 +843,7 @@ export interface GraphViewState {
    * subgraph node outside. Absent = folded, at the editor's own height.
    */
   readonly inputsPanel?: {
+    readonly sections?: Readonly<Record<string, { readonly collapsed: boolean }>>
     readonly editors?: Readonly<Record<string, { readonly unfolded: boolean }>>
     readonly pictureHeights?: Readonly<Record<string, number>>
   }

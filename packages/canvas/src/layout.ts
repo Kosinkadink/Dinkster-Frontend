@@ -179,9 +179,12 @@ export interface MemberGrip {
   readonly gripX: number
   /** The group's only member: the grip is dimmed and does nothing. */
   readonly alone?: true
+  readonly owner?: DynamicEditOwner
+  readonly ownerMember?: string
+  readonly ownerOffset?: number
 }
 
-export type LayoutRow =
+export type LayoutRow = (
   | {
       readonly kind: 'ports'
       readonly y: number
@@ -216,6 +219,8 @@ export type LayoutRow =
       /** The row is a whole member that can be moved: its grip. */
       readonly reorder?: MemberGrip
       readonly inputId: string
+      /** Effective value is shown here, but edited on the Inputs panel. */
+      readonly readOnly?: true
       /**
        * The node.values key this widget's value lives under (valueKeyOf):
        * raw port id for top-level statics, elaborated id for dynamics.
@@ -394,6 +399,7 @@ export type LayoutRow =
       readonly sectionId: string
       readonly box: 'section' | 'group'
       readonly label: string
+      readonly subgraphMark?: { readonly item: string; readonly label: string }
       /** Effective state: view override if present, else collapsedByDefault. */
       readonly collapsed: boolean
       /** An open box that shows no name: the row is the tab strip above its rows. */
@@ -435,6 +441,20 @@ export type LayoutRow =
       /** The member can be moved: its grip in the header. */
       readonly reorder?: MemberGrip
     }
+  ) & { readonly editOwner?: DynamicEditOwner }
+
+/** The group mark occupies the space before its count, without shifting the name or count. */
+export function sectionSubgraphMarkRect(row: Extract<LayoutRow, { kind: 'section' }>, width: number, tokens: DesignTokens, measure: (text: string) => number): {
+  readonly x: number; readonly y: number; readonly size: number
+} {
+  const box = canvasPaintTokens.node.box
+  const mark = canvasPaintTokens.widget.subgraphMark
+  const count = row.maxCount === undefined ? String(row.count) : translate('canvas.box.countOfMax', { count: row.count, max: row.maxCount })
+  const countWidth = row.collapsed || row.box === 'group' ? measure(count) + box.dotGap : 0
+  const changedWidth = row.collapsed && row.hiddenModified !== undefined ? box.dotRadius * 2 + box.dotGap : 0
+  return { x: width - row.inset - box.textInset - countWidth - changedWidth - mark.size,
+    y: row.top + (tokens.rowHeight - tokens.rowGeometry.fieldInsetY * 2 - mark.size) / 2, size: mark.size }
+}
 
 /** The input a curve's widget names as its histogram, drawn as a pin and no row of its own. */
 export interface CurveHistogramPin extends DynamicAnnotations {
@@ -2266,6 +2286,8 @@ export interface BoundarySlotInfo {
   readonly fields?: readonly Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>[]
   /** Inputs panel only: the space of each unfolded editor among the fields, by its row's value key. */
   readonly editorSpaces?: Readonly<Record<string, Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>>>
+  /** The ordinary node layout of a whole exposed construct, without its node header. */
+  readonly tree?: NodeLayout
   /** Fields drawn without their wire: no pin. */
   readonly pinless?: true
   /** Inputs panel only: the input takes one value or a whole list. */
@@ -2303,9 +2325,21 @@ export function layoutBoundaryNode(
   const title = side === 'inputs' ? 'Inputs' : 'Outputs'
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []
+  const boxes: LayoutBox[] = []
   let y = tokens.headerHeight
   for (const slot of slots) {
     const type: TypeExpr = slot.type ?? { kind: 'wildcard' }
+    if (slot.tree !== undefined && direction === 'out') {
+      const tree = slot.tree
+      const first = rows.length
+      if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, label: slot.label, direction, y: y + tokens.rowHeight / 2, type })
+      rows.push(...tree.rows.map((row): LayoutRow => ({ ...row, y: row.y + y,
+        ...('top' in row ? { top: row.top + y } : {}),
+      })))
+      boxes.push(...(tree.boxes ?? []).map((box) => ({ ...box, y: box.y + y, first: box.first + first, last: box.last + first })))
+      y += tree.height
+      continue
+    }
     if (slot.fields !== undefined && slot.fields.length > 0 && direction === 'out') {
       if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, label: slot.label, direction, y: y + tokens.rowHeight / 2, type, ...(slot.acceptsList ? { acceptsList: true } : {}) })
       for (const [index, field] of slot.fields.entries()) {
@@ -2365,6 +2399,7 @@ export function layoutBoundaryNode(
   const titleWidth = measure(title, 'title') +
     (subtitle === undefined ? 0 : canvasPaintTokens.boundary.subtitleGap + measure(subtitle, 'label'))
   let width = Math.max(tokens.nodeMinWidth, titleWidth + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding)
+  for (const slot of slots) if (slot.tree !== undefined) width = Math.max(width, slot.tree.width)
   for (const row of rows) {
     if (row.kind === 'widget') {
       const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
@@ -2394,5 +2429,8 @@ export function layoutBoundaryNode(
     ...(subtitle !== undefined ? { subtitle } : {}),
     rows,
     pins,
+    ...(boxes.length > 0 ? { boxes: boxes.map((box) => ({ ...box, y: box.y + stackInsets.top,
+      width: width - box.x * 2,
+    })) } : {}),
   }
 }

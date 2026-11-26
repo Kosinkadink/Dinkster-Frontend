@@ -1700,6 +1700,7 @@
   "boundaryPanel.limits.noLowest": "no lowest",
   "boundaryPanel.limits.noHighest": "no highest",
   "boundaryPanel.show": "Show",
+  "boundaryPanel.wireDrawn": "Wire drawn",
   "boundaryPanel.show.always": "Always",
   "boundaryPanel.show.linked": "When {name} is plugged in",
   "boundaryPanel.show.equals": "When {name} is {value}",

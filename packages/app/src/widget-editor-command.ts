@@ -35,10 +35,10 @@ export function dynamicSelectorCommitCommand(
   // A choice shown whole on a subgraph node is picked on that node.
   const owner = ed.target.familyOwner
   if (owner?.valueKey !== undefined) {
-    return {
+    return withMaterializeFrames(owner.graphId, owner.nodeId, ed.target.materialize, {
       command: 'dynamic.selectOption',
       params: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.valueKey, option: String(value) },
-    }
+    })
   }
   return withMaterializeFrames(ed.graphId, ed.target.nodeId, ed.target.materialize, {
     command: 'dynamic.selectOption',

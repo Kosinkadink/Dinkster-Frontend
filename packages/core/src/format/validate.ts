@@ -665,7 +665,16 @@ function checkGraphView(c: ShapeChecker, v: unknown, path: string): void {
       c.optExt(b['ext'], `${p}.ext`)
     }
   }
-  if (v['inputsPanel'] !== undefined && c.obj(v['inputsPanel'], `${path}.inputsPanel`)) checkEditorViews(c, v['inputsPanel'], `${path}.inputsPanel`)
+  if (v['inputsPanel'] !== undefined && c.obj(v['inputsPanel'], `${path}.inputsPanel`)) {
+    const panel = v['inputsPanel']
+    checkEditorViews(c, panel, `${path}.inputsPanel`)
+    if (panel['sections'] !== undefined && c.obj(panel['sections'], `${path}.inputsPanel.sections`)) {
+      for (const [key, section] of Object.entries(panel['sections'])) {
+        const p = `${path}.inputsPanel.sections.${key}`
+        if (c.obj(section, p)) c.bool(section['collapsed'], `${p}.collapsed`)
+      }
+    }
+  }
   c.optExt(v['ext'], `${path}.ext`)
 }
 

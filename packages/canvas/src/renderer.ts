@@ -25,7 +25,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, noteLookupRows } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, sectionSubgraphMarkRect, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, noteLookupRows } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -3924,6 +3924,11 @@ export class CanvasRenderer {
             textRight -= boxPaint.dotRadius * 2 + boxPaint.dotGap
           }
           const textX = arrowX + boxPaint.arrow.halfWidth + boxPaint.labelGap
+          if (row.subgraphMark !== undefined) {
+            const rect = sectionSubgraphMarkRect(row, l.width, t, (text) => ctx.measureText(text).width)
+            paintToolboxIcon(ctx, 'subgraph', node.x + rect.x, node.y + rect.y, rect.size, t.colors.subgraphMark)
+            textRight = Math.min(textRight, node.x + rect.x - canvasPaintTokens.widget.subgraphMark.gap)
+          }
           ctx.fillStyle = textColor
           ctx.textAlign = 'left'
           ctx.fillText(fitText(ctx, row.label, Math.max(0, textRight - textX)), textX, cy)
@@ -4490,7 +4495,7 @@ export class CanvasRenderer {
     // Selector rows ignore boundary bindings for inertness: the bound row
     // remains the occurrence-local editor.
     const linkSet = row.selector !== undefined ? this.valueDrivenInputPins : this.connectedInputPins
-    const connected = driven !== undefined || companion !== undefined || linkSet.has(`${sceneNode.id}\u0000${row.inputId}`)
+    const connected = row.readOnly === true || driven !== undefined || companion !== undefined || linkSet.has(`${sceneNode.id}\u0000${row.inputId}`)
     const rowAlpha = ctx.globalAlpha
     if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
     if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity

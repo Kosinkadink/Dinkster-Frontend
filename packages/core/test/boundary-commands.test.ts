@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
+import { loadDocument } from '../src/format/migrate.js'
 import type { Boundary, BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId, asPortId, asRerouteId } from '../src/ids.js'
 import { documentResolver } from '../src/compile/compile.js'
@@ -454,7 +455,7 @@ describe('showing a field on the subgraph node', () => {
     expect(store.doc).toBe(before)
   })
 
-  it('shows a group or a choice whole, with its wire drawn and no setting to hide it yet', () => {
+  it('shows a group or a choice whole and hides its wire without releasing its children', () => {
     const store = schemaStore(fieldDoc())
     expect(show(store, { node: 'weigh', port: 'weights' }).ok).toBe(true)
     expect(show(store, { node: 'modal', port: 'mode' }).ok).toBe(true)
@@ -462,13 +463,17 @@ describe('showing a field on the subgraph node', () => {
       { kind: 'input', id: 'weights', binds: { kind: 'construct', node: 'weigh', port: 'weights' } },
       { kind: 'input', id: 'mode', binds: { kind: 'construct', node: 'modal', port: 'mode' } },
     ])
-    const shown = store.doc
     const hide = store.dispatch({ command: 'boundary.setWireHidden', params: { graphId: 'sub', itemId: 'mode', hidden: true } })
-    expect(!hide.ok && hide.diagnostics[0]!.code).toBe('boundary.notField')
+    expect(hide.ok).toBe(true)
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[1]?.wireHidden).toBe(true)
+    expect(loadDocument(JSON.parse(JSON.stringify(store.doc))).diagnostics).toEqual([])
+    const shown = store.doc
     // A field inside a construct shown whole is the construct's.
     const member = show(store, { node: 'weigh', port: 'weights.w0' })
     expect(!member.ok && member.diagnostics[0]!.code).toBe('boundary.constructOwned')
     expect(store.doc).toBe(shown)
+    expect(store.undo()).toBe(true)
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[1]?.wireHidden).toBeUndefined()
   })
 
   it('makes a field, not a pin, from an Inputs panel wire, and draws the wire of a field shown without one', () => {

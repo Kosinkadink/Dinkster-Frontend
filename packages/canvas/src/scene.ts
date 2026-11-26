@@ -36,6 +36,7 @@ import {
   netSinkKey,
   netViewPositions,
   occurrenceDynamicView,
+  outerConstructAddress,
   portAddressKey,
   portRefKey,
   regionBoundaryLabels,
@@ -64,6 +65,7 @@ import {
   type GraphDefId,
   type Json,
   type LinkEndpoint,
+  type MaterializeFrame,
   type NodeData,
   type NodeProgress,
   type NodeSchema,
@@ -85,6 +87,7 @@ import {
   REGION_INDEX_SLOT,
   TITLE_START,
   layoutNode,
+  memberSpans,
   type BoundarySlotInfo,
   type LayoutRow,
   type NodeLayout,
@@ -1773,6 +1776,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     const outsideRows = new Map<string, Extract<LayoutRow, { kind: 'widget' }>[]>()
     const outsideSpaces = new Map<string, NonNullable<BoundarySlotInfo['editorSpaces']>>()
+    const outsideTrees = new Map<string, NodeLayout>()
     const panelView = graphView?.inputsPanel
     if (derived !== undefined && fieldOwners.size > 0) {
       // The entered node's chosen views, so a field drawn as a slider there
@@ -1808,6 +1812,136 @@ export function buildScene(input: BuildSceneInput): Scene {
         outsideRows.set(row.inputId, [{ ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }])
       }
     }
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
+      const binding = item.binds
+      if (binding.kind !== 'construct') continue
+      const inner = nodes.find((candidate) => candidate.id === binding.node)
+      if (inner === undefined) continue
+      const under = (key: string): boolean => key === binding.port || key.startsWith(`${binding.port}.`)
+      const panelKey = (key: string): string => `${item.id}${key.slice(binding.port.length)}`
+      const rekey = (key: string, from: string, to: string): string => {
+        const prefix = key.match(/^(group|member|option):/)?.[0] ?? ''
+        const address = key.slice(prefix.length)
+        return address === from || address.startsWith(`${from}.`)
+          ? `${prefix}${to}${address.slice(from.length)}` : key
+      }
+      const schema = resolveNode(def.id, inner.node, sourcePath)
+      if (schema === undefined) continue
+      const innerView = viewNodes[inner.id]
+      const source = layoutNode(schema, inner.node, input.tokens, measure, input.widgetMeasure, {
+        ...(innerView?.views !== undefined ? { widgetRepresentations: innerView.views } : {}),
+        ...(innerView?.textLines !== undefined ? { textBoxLines: innerView.textLines } : {}),
+        sectionOverrides: Object.fromEntries(Object.entries(panelView?.sections ?? {}).map(([key, state]) => [
+          rekey(key, item.id, binding.port), state.collapsed,
+        ])),
+        editorsStartFolded: true,
+        editorUnfolded: Object.fromEntries(Object.entries(panelView?.editors ?? {}).map(([key, state]) => [
+          rekey(key, item.id, binding.port), state.unfolded,
+        ])),
+      })
+      const belongs = (row: LayoutRow): boolean => {
+        switch (row.kind) {
+          case 'widget': case 'editorSpace': return under(row.inputId)
+          case 'section': return under(row.sectionId.replace(/^(group|member|option):/, ''))
+          case 'growth': case 'member': return under(row.construct)
+          case 'ports': return under(row.input?.portId ?? '') || under(row.output?.portId ?? '')
+          case 'note': return under(row.noteId)
+          case 'button': return under(row.buttonId)
+          case 'fallback': return false
+        }
+      }
+      const first = source.rows.findIndex(belongs)
+      const last = source.rows.reduce((found, row, index) => belongs(row) ? index : found, -1)
+      if (first < 0) continue
+      const owners = input.occurrenceView?.valueOwners?.get(inner.id)
+      const ownerOf = (key: string) => {
+        const exact = owners?.get(key)
+        if (exact !== undefined) return exact
+        const path = input.occurrence === undefined ? [] : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
+        let graph = input.document.graphs[input.document.root]!
+        const ancestors = path.flatMap((id) => {
+          const node = graph.nodes[id]
+          const child = node?.type.startsWith('#') ? input.document.graphs[node.type.slice(1)] : undefined
+          if (node === undefined || child === undefined) return []
+          const step = { graph, node, child }
+          graph = child
+          return [step]
+        })
+        let owner = { graphId: def.id, nodeId: inner.id, valueKey: key }
+        // Offered members do not yet have a projected value owner. Resolve
+        // their stable keys through the same crossing map as stored members.
+        for (const step of ancestors.reverse()) {
+          const exposure = boundaryItems(step.child.boundary, 'inputs').find((candidate) =>
+            candidate.binds.kind === 'construct' && candidate.binds.node === owner.nodeId &&
+            (owner.valueKey === candidate.binds.port || owner.valueKey.startsWith(`${candidate.binds.port}.`)))
+          if (exposure?.binds.kind !== 'construct') break
+          const mapped = outerConstructAddress(step.child, exposure.binds, exposure.id, owner.valueKey,
+            (node) => resolveNode(step.child.id, node))
+          if (mapped === undefined) break
+          owner = { graphId: step.graph.id, nodeId: step.node.id, valueKey: mapped }
+        }
+        return owner
+      }
+      const ownedFrames = (frames: readonly MaterializeFrame[]): readonly MaterializeFrame[] => frames.map((frame) => {
+        const target = ownerOf(frame.construct)
+        return { ...frame, construct: target.valueKey, members: frame.members.map((member) => {
+          const key = ownerOf(`${frame.construct}.${member}`).valueKey
+          return key.slice(target.valueKey.length + 1)
+        }) }
+      })
+      const boxes = (source.boxes ?? []).filter((box) => box.first >= first && box.last <= last)
+      const top = Math.min(source.rows[first]!.y, ...boxes.map((box) => box.y))
+      const bottom = Math.max(...source.rows.slice(first, last + 1).map((row) => row.y + row.height), ...boxes.map((box) => box.y + box.height))
+      const rows = source.rows.slice(first, last + 1).map((row): LayoutRow => {
+        const grip = 'reorder' in row ? row.reorder : undefined
+        const gripOwner = grip === undefined ? undefined : ownerOf(grip.construct)
+        const memberOwner = grip === undefined ? undefined : ownerOf(`${grip.construct}.${grip.member}`)
+        const reorder = grip === undefined ? {} : memberOwner?.nodeId === gripOwner?.nodeId && memberOwner?.graphId === gripOwner?.graphId
+          ? { reorder: { ...grip, owner: { graphId: gripOwner!.graphId, nodeId: gripOwner!.nodeId, construct: gripOwner!.valueKey },
+            ownerMember: memberOwner!.valueKey.slice(gripOwner!.valueKey.length + 1),
+            ownerOffset: memberSpans(source, grip.construct).filter((span) => {
+              const owner = ownerOf(`${grip.construct}.${span.member}`)
+              return owner.nodeId !== gripOwner!.nodeId || owner.graphId !== gripOwner!.graphId
+            }).length,
+          } } : { reorder: { ...grip, alone: true as const } }
+        const moved = { ...row, ...reorder, y: row.y - top, ...('top' in row ? { top: row.top - top } : {}) }
+        if (row.kind === 'widget') {
+          const owner = ownerOf(row.valueKey)
+          const key = panelKey(row.valueKey)
+          if (Object.hasOwn(inner.node.values, row.valueKey)) fieldValues[key] = inner.node.values[row.valueKey]!
+          if (inner.node.controllers?.[row.valueKey] !== undefined) fieldControllers[key] = inner.node.controllers[row.valueKey]!
+          return { ...row, ...reorder, y: row.y - top, inputId: panelKey(row.inputId), valueKey: key,
+            familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey },
+            ...(row.materialize === undefined ? {} : { materialize: ownedFrames(row.materialize) }),
+            ...(row.optionsTarget === undefined ? {} : { optionsTarget: {
+              ...row.optionsTarget, construct: ownerOf(row.optionsTarget.construct).valueKey,
+              owner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: ownerOf(row.optionsTarget.construct).valueKey },
+              ...(row.optionsTarget.materialize === undefined ? {} : { materialize: ownedFrames(row.optionsTarget.materialize) }),
+            } }),
+          }
+        }
+        if (row.kind === 'growth') {
+          const owner = ownerOf(row.construct)
+          return { ...row, y: row.y - top, editOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.valueKey },
+            frames: ownedFrames(row.frames),
+          }
+        }
+        if (row.kind === 'section') return { ...row, y: row.y - top, top: row.top - top,
+          sectionId: rekey(row.sectionId, binding.port, item.id),
+        }
+        if (row.kind === 'editorSpace') return { ...row, y: row.y - top, inputId: panelKey(row.inputId), valueKey: panelKey(row.valueKey) }
+        if (row.kind === 'ports') return { ...row, ...reorder, y: row.y - top,
+          editOwner: { graphId: def.id, nodeId: inner.id, construct: binding.port },
+          ...(row.input !== undefined ? { input: { ...row.input, portId: panelKey(row.input.portId) } } : {}),
+          ...(row.output !== undefined ? { output: { ...row.output, portId: panelKey(row.output.portId) } } : {}),
+        }
+        return moved
+      })
+      outsideTrees.set(item.id, { ...source, headerHeight: 0, height: bottom - top,
+        rows, pins: [], boxes: boxes.map((box) => ({ ...box, y: box.y - top, first: box.first - first, last: box.last - first })),
+      })
+      outsideRows.set(item.id, rows.filter((row): row is Extract<LayoutRow, { kind: 'widget' }> => row.kind === 'widget'))
+    }
     // A value the owner receives by a wire outside the subgraph is not
     // edited here; a document literal on that wire is shown instead.
     const wiredFields: Record<string, { value?: Json }> = {}
@@ -1815,7 +1949,13 @@ export function buildScene(input: BuildSceneInput): Scene {
     for (const row of [...outsideRows.values()].flat()) {
       const owner = row.familyOwner
       const graph = owner === undefined ? undefined : input.document.graphs[owner.graphId]
-      if (owner === undefined || owner.graphId === def.id || graph === undefined || owner.valueKey === undefined) continue
+      if (owner === undefined || graph === undefined || owner.valueKey === undefined) continue
+      if (owner.graphId === def.id) {
+        const value = fieldValues[row.valueKey]
+        if (ownerNode !== undefined && [...outsideTrees.values()].some((tree) => tree.rows.includes(row)))
+          wiredFields[row.valueKey] = value !== undefined ? { value } : {}
+        continue
+      }
       if (!drivenByGraph.has(graph.id)) drivenByGraph.set(graph.id, companionSourcesOf(graph, undefined, undefined, input.resolve))
       const driven = drivenByGraph.get(graph.id)!.get(owner.nodeId)?.get(owner.valueKey)
       if (driven !== undefined) wiredFields[row.valueKey] = driven.kind === 'literal' ? { value: driven.value } : {}
@@ -1847,8 +1987,12 @@ export function buildScene(input: BuildSceneInput): Scene {
           side === 'inputs'
             ? derivedInputs.find((s) => s.id === item.id)
             : derivedOutputs.find((s) => s.id === item.id)
-        const label = boundaryLabel(item, spec?.displayName, defaults, roles)
         const fields = side === 'inputs' ? outsideRows.get(item.id) : undefined
+        const tree = side === 'inputs' ? outsideTrees.get(item.id) : undefined
+        const constructHead = tree?.rows.find((row) =>
+          (row.kind === 'section' && row.sectionId === `group:${item.id}`) || (row.kind === 'widget' && row.inputId === item.id))
+        const inheritedLabel = constructHead !== undefined && 'label' in constructHead ? constructHead.label : undefined
+        const label = boundaryLabel(item, spec?.displayName ?? inheritedLabel, defaults, roles)
         const editorSpaces = fields === undefined ? undefined : outsideSpaces.get(item.id)
         const pinless = side === 'inputs' && item.wireHidden === true
         if (pinless) markLabels.set(item.id, label)
@@ -1858,6 +2002,9 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(spec !== undefined ? { type: spec.type } : {}),
           ...(spec?.kind === 'input' && spec.acceptsList ? { acceptsList: true as const } : {}),
           ...(fields !== undefined ? { fields: pinless ? fields.map((field, index) => index === 0 ? { ...field, subgraphMark: { item: item.id, label } } : field) : fields } : {}),
+          ...(tree !== undefined ? { tree: { ...tree, rows: tree.rows.map((row) =>
+            (row.kind === 'section' && row.sectionId === `group:${item.id}`) || (row.kind === 'widget' && row.inputId === item.id)
+              ? { ...row, label, ...(pinless ? { subgraphMark: { item: item.id, label } } : {}) } : row) } } : {}),
           ...(editorSpaces !== undefined ? { editorSpaces } : {}),
           ...(pinless ? { pinless: true as const } : {}),
         }
@@ -1899,7 +2046,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const inputsNode: SceneBoundaryNode = {
       side: 'inputs', x: inputsPos.x, y: inputsPos.y, layout: inputsLayout,
       ...(outsideRows.size > 0 ? { fields: { node: fieldNode, wired: wiredFields,
-        heads: Object.fromEntries([...outsideRows].map(([itemId, rows]) => [itemId, rows[0]!.valueKey])) } } : {}),
+        heads: Object.fromEntries([...outsideRows].flatMap(([itemId, rows]) => rows[0] === undefined ? [] : [[itemId, rows[0].valueKey]])) } } : {}),
     }
     const outputsNode: SceneBoundaryNode = { side: 'outputs', x: outputsPos.x, y: outputsPos.y, layout: outputsLayout }
     boundaryNodes.push(inputsNode, outputsNode)
@@ -1956,7 +2103,12 @@ export function buildScene(input: BuildSceneInput): Scene {
       // Real port only: excludes the same-id widget tap pin (see the
       // endpoint resolver above).
       const pin = node.layout.pins.find((p) => p.direction === direction && p.portId === key && p.widgetTap !== true)
-      if (!pin) return undefined
+      if (!pin) {
+        if (binds.kind !== 'construct') return undefined
+        const row = node.layout.rows.find((row) => row.kind === 'section' ? row.sectionId === `group:${key}`
+          : row.kind === 'widget' && row.inputId === key)
+        return row === undefined ? undefined : { x: edgeX, y: node.y + row.y + row.height / 2, end }
+      }
       return { x: edgeX, y: node.y + pin.y, end }
     }
 
@@ -2002,7 +2154,9 @@ export function buildScene(input: BuildSceneInput): Scene {
     const pinlessRowAnchor = (itemId: string): { x: number; y: number } | undefined => {
       const head = inputsNode.fields?.heads[itemId]
       const row = inputsNode.layout.rows.find((candidate) =>
-        candidate.kind === 'widget' ? head !== undefined && candidate.valueKey === head : candidate.kind === 'ports' && candidate.output?.portId === itemId)
+        candidate.kind === 'widget' ? head !== undefined && candidate.valueKey === head
+          : candidate.kind === 'section' ? candidate.sectionId === `group:${itemId}`
+            : candidate.kind === 'ports' && (candidate.output?.portId === itemId || candidate.input?.portId === itemId))
       return row === undefined ? undefined : { x: inputsNode.x + inputsNode.layout.width, y: inputsNode.y + row.y + input.tokens.rowHeight / 2 }
     }
     for (const item of boundaryItems(def.boundary, 'inputs')) {
@@ -2038,14 +2192,20 @@ export function buildScene(input: BuildSceneInput): Scene {
     // The inner fields of an input drawn without its wire carry the mark.
     for (const item of boundaryItems(def.boundary, 'inputs')) {
       const label = markLabels.get(item.id)
-      if (label === undefined) continue
+      if (label === undefined && item.binds.kind !== 'construct') continue
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
-        if (b.kind !== 'port') continue
+        if (b.kind !== 'port' && b.kind !== 'construct') continue
         const index = nodes.findIndex((candidate) => candidate.id === b.node)
         const target = nodes[index]
         if (target === undefined) continue
-        const rows = target.layout.rows.map((row) => row.kind === 'widget' && row.address.port === b.port
-          ? { ...row, subgraphMark: { item: item.id, label } } : row)
+        const rows = target.layout.rows.map((row): LayoutRow => {
+          if (row.kind === 'section' && b.kind === 'construct' && row.sectionId === `group:${b.port}`)
+            return { ...row, ...(label !== undefined ? { subgraphMark: { item: item.id, label } } : {}) }
+          if (row.kind !== 'widget' || !(row.address.port === b.port || (b.kind === 'construct' && row.address.port.startsWith(`${b.port}.`)))) return row
+          return { ...row, ...(b.kind === 'construct' ? { readOnly: true as const } : {}),
+            ...(label !== undefined && (b.kind === 'port' || row.inputId === b.port) ? { subgraphMark: { item: item.id, label } } : {}),
+          }
+        })
         nodes[index] = { ...target, layout: { ...target.layout, rows } }
       }
     }
