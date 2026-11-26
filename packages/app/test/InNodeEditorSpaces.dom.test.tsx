@@ -114,6 +114,7 @@ it.each([false, true])('distinguishes an empty model from an unknown wired model
 it.each(['recorder', 'webcam', 'load3d'] as const)('opens the full %s failure from its short editor note', async (editor) => {
   vi.stubGlobal('navigator', { mediaDevices: {
     getUserMedia: async () => { throw new DOMException('Permission was refused by the browser.', 'NotAllowedError') },
+    enumerateDevices: async () => [],
   } })
   vi.stubGlobal('MediaRecorder', class {})
   let recorder: AudioRecordController | undefined
@@ -146,6 +147,13 @@ it.each(['recorder', 'webcam', 'load3d'] as const)('opens the full %s failure fr
     dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(document.activeElement).toBe(details)
+    if (recorder !== undefined) {
+      await recorder.findMicrophones()
+      expect(document.querySelector('.dinkster-canvas-editor-note-summary')?.textContent).toBe('No microphone found.')
+      details.click()
+      expect(document.querySelector('[role="dialog"] strong')?.textContent).toBe('No microphone was found on this computer.')
+      expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Permission was refused by the browser.')
+    }
   } finally {
     recorder?.dispose()
   }

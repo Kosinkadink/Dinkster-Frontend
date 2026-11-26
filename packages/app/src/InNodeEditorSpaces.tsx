@@ -613,14 +613,17 @@ export class AudioRecordController {
     this.setDevices(found.map((device) => ({ deviceId: device.deviceId, label: device.label })))
     // A device that went away is no longer the chosen one.
     if (!found.some((device) => device.deviceId === this.device())) this.setDevice('')
-    if (found.length === 0) this.setStatus('noMicrophone')
-    else if (this.status() === 'noMicrophone') this.setStatus('idle')
+    if (found.length === 0) {
+      this.setError(undefined)
+      this.setStatus('noMicrophone')
+    } else if (this.status() === 'noMicrophone') this.setStatus('idle')
   }
 
   async record(): Promise<void> {
     const status = this.status()
     if (status === 'waiting' || status === 'recording' || status === 'saving' || !this.canUpload) return
     if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      this.setError(undefined)
       this.setStatus('noMicrophone')
       return
     }
