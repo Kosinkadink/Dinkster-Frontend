@@ -415,12 +415,14 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         const fanoutSource = structuredClone(lifecycleBaseline)
         const sample = fanoutSource.graphs.detail!.nodes.sample!
         Object.assign(fanoutSource.graphs.detail!.nodes, {
-          extra: { ...structuredClone(sample), id: 'extra', values: { ...sample.values, 'mode.mix': 0.17 } },
+          extra: { ...structuredClone(sample), id: 'extra', values: {
+            ...sample.values, 'mode.mix': 0.17, 'layers.layer0.strength': 0.6, 'layers.layer1.strength': 0.9,
+          } },
         })
         const fanout = new DocumentStore(fanoutSource, coreCommandRegistry(), 200, undefined, () => ({
           kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, registry.resolve),
         }))
-        for (const itemId of ['mode', 'layers']) {
+        for (const itemId of ['strength', 'mode', 'layers']) {
           const result = fanout.dispatch({ command: 'boundary.addBinding', params: {
             graphId: 'detail', itemId, node: 'extra', port: itemId,
           } })
@@ -432,12 +434,30 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         const extraPath = level === 1 ? 'first.extra' : 'first.detail.extra'
         const secondExtraPath = level === 1 ? 'second.extra' : 'second.detail.extra'
         const shared = await run(fanout.doc)
+        const extra = await shared.receipt(extraPath)
+        const secondExtra = await shared.receipt(secondExtraPath)
+        expect(shared.first.strength).toBe(0.2)
+        expect(extra.strength).toBe(0.2)
+        expect(shared.second.strength).toBe(0.8)
+        expect(secondExtra.strength).toBe(0.8)
         expect(shared.first.mode).toMatchObject({ key: 'text', mix: 0.84, text: 'outer dormant text' })
-        expect((await shared.receipt(extraPath)).mode).toMatchObject({ key: 'text', mix: 0.84, text: 'outer dormant text' })
-        expect(shared.first.layers.map((member: { strength: number }) => member.strength)).toEqual([0.1, 0.4, 0.8, 0.2])
-        expect((await shared.receipt(extraPath)).layers.map((member: { strength: number }) => member.strength)).toEqual([0.1, 0.4, 0.8, 0.2])
-        expect((await shared.receipt(secondExtraPath)).mode.mix).toBe(0.17)
-        expect(shared.second.mode.mix).toBe(0.3)
+        expect(extra.mode).toMatchObject({ key: 'text', mix: 0.84, text: 'outer dormant text' })
+        expect(shared.first.layers).toEqual([
+          { key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null },
+          { key: 'layer3', strength: 0.8, image: null }, { key: 'layer2', strength: 0.2, image: [0.125, 0.25, 0.5] },
+        ])
+        expect(extra.layers).toEqual([
+          { key: 'layer0', strength: 0.6, image: null }, { key: 'layer1', strength: 0.9, image: null },
+          { key: 'layer3', strength: 0.8, image: null }, { key: 'layer2', strength: 0.2, image: [0.125, 0.25, 0.5] },
+        ])
+        expect(shared.second.layers).toEqual([
+          { key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null },
+        ])
+        expect(secondExtra.layers).toEqual([
+          { key: 'layer0', strength: 0.6, image: null }, { key: 'layer1', strength: 0.9, image: null },
+        ])
+        expect(secondExtra.mode).toMatchObject({ key: 'text', text: 'second text', mix: 0.17 })
+        expect(shared.second.mode).toMatchObject({ key: 'text', text: 'second text', mix: 0.3 })
         const stable = fanout.doc
         const mismatch = fanout.dispatch({ command: 'boundary.addBinding', params: {
           graphId: 'detail', itemId: 'mode', node: 'extra', port: 'nested',
@@ -448,17 +468,21 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
           graphId: 'detail', side: 'inputs', itemId: 'mode', kind: 'construct', node: 'sample', port: 'mode',
         } }).ok).toBe(true)
         const unbound = await run(fanout.doc)
-        expect(unbound.first.mode).toMatchObject({ key: 'image', mix: 0.3 })
-        expect((await unbound.receipt(extraPath)).mode.mix).toBe(0.84)
-        expect((await unbound.receipt(secondExtraPath)).mode.mix).toBe(0.17)
+        expect(unbound.first.mode).toMatchObject({ key: 'image', mix: 0.3, text: null })
+        expect((await unbound.receipt(extraPath)).mode).toEqual(extra.mode)
+        expect((await unbound.receipt(secondExtraPath)).mode).toEqual(secondExtra.mode)
         expect(fanout.undo()).toBe(true)
-        expect((await run(fanout.doc)).first.mode.mix).toBe(0.84)
+        const undoFanout = await run(fanout.doc)
+        expect(undoFanout.first.mode).toEqual(shared.first.mode)
+        expect((await undoFanout.receipt(extraPath)).mode).toEqual(extra.mode)
         expect(fanout.redo()).toBe(true)
         const fanoutReload = loadDocument(JSON.parse(JSON.stringify(fanout.doc)))
         expect(fanoutReload.document).toBeDefined()
         const restoredFanout = await run(fanoutReload.document!)
-        expect(restoredFanout.first.mode.mix).toBe(0.3)
-        expect((await restoredFanout.receipt(extraPath)).mode.mix).toBe(0.84)
+        expect(restoredFanout.first.mode).toMatchObject({ key: 'image', mix: 0.3, text: null })
+        expect((await restoredFanout.receipt(extraPath)).mode).toEqual(extra.mode)
+        expect(restoredFanout.second.mode).toEqual(unbound.second.mode)
+        expect((await restoredFanout.receipt(secondExtraPath)).mode).toEqual(secondExtra.mode)
         const session = () => new DocumentStore(lifecycleBaseline, coreCommandRegistry(), 200, undefined, () => ({
           kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, registry.resolve),
         }))
