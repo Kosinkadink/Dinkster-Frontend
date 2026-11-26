@@ -149,18 +149,18 @@ const representationExample = (
 const representationExamples: readonly RowExample[] = [
   representationExample(
     'representation-closed',
-    'Switchable field, control closed. The Representation control is the last line of the open field\'s side part and shows the current look by its declared name.',
+    'Switchable field, control closed. The Display control is the last line of the open field\'s side part and shows the current look by its declared name.',
     'mix',
   ),
   representationExample(
     'representation-open',
-    'Representation list open. Choosing changes the row\'s look, never 0.65; Escape closes the list without a change. A draft is stored or refused by the field\'s own rules before the look switches.',
+    'Display list open. Choosing changes the row\'s look, never 0.65; Escape closes the list without a change. A draft is stored or refused by the field\'s own rules before the look switches.',
     'mix',
     { expanded: true, listRoom: 120 },
   ),
   representationExample(
     'representation-open-above',
-    'At the bottom edge, the same list opens above the Representation line because there is no room below.',
+    'At the bottom edge, the same list opens above the Display line because there is no room below.',
     'mix',
     { expanded: true },
   ),
@@ -177,7 +177,7 @@ const representationExamples: readonly RowExample[] = [
   ),
   representationExample(
     'representation-locked',
-    'Locked, or only one look. No Representation control and no dead button: a declared set with userSwitchable false wins.',
+    'Locked, or only one look. No Display control and no dead button: a declared set with userSwitchable false wins.',
     'locked',
   ),
   {
@@ -218,7 +218,7 @@ export function RowStatesGallery(props: { theme: Theme }) {
     <>
       <ProductSection title="Gives nothing, and a skipped node">{cards(examples().nothing)}</ProductSection>
       <ProductSection title="Promoted fields inside and outside">{cards(examples().promoted)}</ProductSection>
-      <ProductSection title="Representation control at the end of the side part">
+      <ProductSection title="Display control at the end of the side part">
         <div class="dinkster-canvas-examples">
           <For each={representationExamples}>
             {(example) => (

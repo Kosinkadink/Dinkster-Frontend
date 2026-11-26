@@ -197,7 +197,7 @@ describe('widgetRepresentationMenuGroup', () => {
     })!
     expect(group.group).toBe('45-widget-representation')
     const submenu = group.items[0]!
-    expect(submenu.label).toBe('Representation')
+    expect(submenu.label).toBe('Display')
     expect(submenu.children?.map((entry) => ({ id: entry.id, checked: entry.checked }))).toEqual([
       { id: 'core.widget.representation.single-line', checked: false },
       { id: 'core.widget.representation.multiline', checked: true },
