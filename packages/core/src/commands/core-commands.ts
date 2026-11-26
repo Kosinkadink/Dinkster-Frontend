@@ -732,9 +732,8 @@ export function wiresFromNode(def: GraphDef, nodeId: string): readonly WireFromN
 }
 
 /**
- * A count that shrank takes its later members off the node, and the wires,
- * named nets and subgraph output forwards on their outputs and fields'
- * outputs go in the same step.
+ * Remove wires on members that no longer elaborate. Count-grown members
+ * with wired outputs remain as inactive rows and keep their connections.
  */
 function removeWiresOfGoneMembers(
   doc: WorkflowDocument,

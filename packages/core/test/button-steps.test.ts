@@ -119,13 +119,15 @@ describe('one press is one undo step, or nothing', () => {
     const document = documentOf({
       n1: { type: 'dinkster.utilities.unpack', values: { count: 3 } },
       sibling: { type: 'dinkster.utilities.unpack', values: { count: 1 } },
-    })
+    }, { later: { id: asLinkId('later'), from: { node: asNodeId('n1'), port: asPortId('items.2') },
+      to: { node: asNodeId('sibling'), port: asPortId('value') } } })
     const session = sessionOf(document)
     const set = (new_count: number) => runPress(session, at('set_count'), hostOf({ ask: async () => ({ new_count }) }))
     for (const count of [0, 2, 512]) {
       expect(await set(count)).toMatchObject({ kind: 'done' })
       expect(valuesOf(session)).toEqual({ count })
       expect(valuesOf(session, 'sibling')).toEqual({ count: 1 })
+      expect(session.doc.graphs.g0!.links).toEqual(document.graphs.g0!.links)
       expect(session.undo()).toBe(true)
       expect(session.doc.graphs).toEqual(document.graphs)
       expect(session.canUndo).toBe(false)

@@ -1067,6 +1067,43 @@ describe('small flow nodes', () => {
     }
   })
 
+  it('delivers absence from a retained Unpack output, restores it on growth, and rejects malformed outputs', () => {
+    for (const port of ['items.2', 'items.02', 'items.512', 'items.2.unknown']) {
+      const document = dynDoc({
+        nodes: { unpack: { type: 'dinkster.utilities.unpack', values: { count: 2 } },
+          sink: { type: 'dinkster.utilities.has_value' } },
+        links: [[['unpack', port], ['sink', 'value']]],
+      })
+      const result = compile({ ...compileInput(document), resolve,
+        graphFeatures: ['regions', 'typedLiteral', DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+      if (port !== 'items.2') {
+        expect(result.ok).toBe(false)
+        if (!result.ok) expect(result.diagnostics.some((d) => d.code === 'compile.port.unknownOutput')).toBe(true)
+        continue
+      }
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) continue
+      expect(result.artifact.dinksterGraph?.nodes.sink).toMatchObject({ inputs: { value: { $absent: expect.anything() } } })
+      expect(result.artifact.dinksterGraph?.nodes.unpack).toMatchObject({ outputMembers: { items: ['0', '1'] } })
+      const grown = { ...document, graphs: { ...document.graphs, g0: { ...document.graphs.g0!,
+        nodes: { ...document.graphs.g0!.nodes, unpack: { ...document.graphs.g0!.nodes.unpack!, values: { count: 3 } } } } } }
+      const restored = compile({ ...compileInput(grown), resolve, graphFeatures: ['regions', 'typedLiteral', DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+      expect(restored.ok, JSON.stringify(!restored.ok && restored.diagnostics)).toBe(true)
+      if (restored.ok) expect(restored.artifact.dinksterGraph?.nodes.sink).toMatchObject({ inputs: { value: { $link: { node: 'unpack', output: 'items.2' } } } })
+    }
+    const forwarded = dynDoc({
+      nodes: { box: { type: '#inner' }, sink: { type: 'dinkster.utilities.has_value' } },
+      links: [[['box', 'third'], ['sink', 'value']]],
+      subgraphs: { inner: { nodes: { unpack: { type: 'dinkster.utilities.unpack', values: { count: 2 } } },
+        boundary: { outputs: [{ id: 'third', binds: { kind: 'port', node: 'unpack', port: 'items.2' } }] } } },
+    })
+    const throughBoundary = compile({ ...compileInput(forwarded), resolve,
+      graphFeatures: ['regions', 'typedLiteral', DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+    expect(throughBoundary.ok, JSON.stringify(!throughBoundary.ok && throughBoundary.diagnostics)).toBe(true)
+    if (throughBoundary.ok) expect(throughBoundary.artifact.dinksterGraph?.nodes.sink)
+      .toMatchObject({ inputs: { value: { $absent: expect.anything() } } })
+  })
+
   it.each([
     ['dinkster.utilities.or_else', 'values.1', { values: { members: ['1', '2'] } }],
     ['dinkster.utilities.has_value', 'value', {}],

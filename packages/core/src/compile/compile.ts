@@ -1107,7 +1107,7 @@ function compileImpl(
     delivery?: ParentDeliveryIdentity,
     boundaryRoute: readonly BoundaryRouteLeg[] = [],
     openRegion?: string,
-  ): ResolvedOutput | ResolvedStructuralSource | ResolvedKnownValue | 'muted' | { readonly bypass: BypassAt } | undefined {
+  ): ResolvedOutput | ResolvedStructuralSource | ResolvedKnownValue | 'muted' | 'absent' | { readonly bypass: BypassAt } | undefined {
     const def = graphOf(defId)
     if (ref.node === DINKSTER_REGION_PSEUDO_NODE) {
       sink.push(diag('error', 'compile', 'compile.region.invalidIndex', `'$region.${ref.port}' is available only as the immediate region index source`))
@@ -1206,6 +1206,7 @@ function compileImpl(
       sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `'${node.type}' has no output '${ref.port}'`, { anchor: anchorOf(path, node.id) }))
       return undefined
     }
+    if (output.kept !== undefined) return 'absent'
     if (hasSyntheticAncestor(output.ancestry)) {
       sink.push(diag('error', 'compile', 'compile.port.unmaterialized', `${node.type}.${output.spec.id}: dynamic output member is not materialized`, { anchor: anchorOf(path, node.id) }))
       return undefined
@@ -1466,6 +1467,7 @@ function compileImpl(
           }
           const resolved = resolveOutputPort(at.path, at.defId, endpoint, sink, delivery)
           if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
+          if (resolved === 'absent') return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `output '${endpoint.node}.${endpoint.port}' is no longer part of its node`, absent: true } }] }
           if (!resolved) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `producer endpoint ${JSON.stringify(endpoint)} cannot deliver` } }] }
           return 'bypass' in resolved
             ? { steps: [{ kind: 'recurse', at: { kind: 'bypass', bypass: resolved.bypass } }] }
@@ -2191,10 +2193,10 @@ function compileImpl(
         const routeDiagnostics: Diagnostic[] = []
         let src: ResolvedOutput | undefined
         let baked: { readonly value: Json; readonly typeId?: string; readonly passedAutomatic?: PassedAutomatic } | undefined
-        if (structuralSrc && !('bypass' in structuralSrc) && !('structuralSource' in structuralSrc) && !('knownValue' in structuralSrc)) {
+        if (structuralSrc && structuralSrc !== 'absent' && !('bypass' in structuralSrc) && !('structuralSource' in structuralSrc) && !('knownValue' in structuralSrc)) {
           src = structuralSrc
         } else {
-          const routeStart: RouteAt = structuralSrc
+          const routeStart: RouteAt = structuralSrc && structuralSrc !== 'absent'
             ? 'bypass' in structuralSrc
               ? { kind: 'bypass', bypass: structuralSrc.bypass }
               : 'knownValue' in structuralSrc
@@ -2908,6 +2910,7 @@ function compileImpl(
     }
     if (!source) return fail('cannot be resolved')
     if (source === 'muted') return fail('is driven by a muted occurrence')
+    if (source === 'absent') return fail('is no longer part of its node')
     const resolved = 'bypass' in source
       ? projectRoute({ kind: 'bypass', bypass: source.bypass }, 'exact', diags)
       : 'structuralSource' in source

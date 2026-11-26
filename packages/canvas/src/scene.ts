@@ -1532,6 +1532,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         port: end.port,
       },
       type: pin.type,
+      ...(pin.kept !== undefined ? { kept: true as const } : {}),
     }
   }
 

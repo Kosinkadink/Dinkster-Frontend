@@ -115,7 +115,7 @@ export const canvasGalleryPages = [
   ['zoom-overview', 'Overview zoom'],
   ['minimap', 'Minimap'],
   ['switch-primitive', 'Switch and Primitive'],
-  ['small-flow-nodes', 'Or else, Has value and Only if'],
+  ['small-flow-nodes', 'Small flow nodes'],
   ['type-conflict', 'Type conflicts'],
 ] as const
 export type CanvasGalleryPage = (typeof canvasGalleryPages)[number][0]
