@@ -27,7 +27,7 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
-test('Representation filters declared looks and dismisses without changing the field', async ({ page }) => {
+test('Display filters declared looks and dismisses without changing the field', async ({ page }) => {
   await openPage(page, 'row-states')
   const labels = page.locator('.dinkster-canvas-side-representation-line .dinkster-canvas-field-label')
   await expect(labels.first()).toBeVisible()
@@ -58,7 +58,7 @@ test('Representation filters declared looks and dismisses without changing the f
   await expect(trigger).toBeVisible()
   await expect(draft).toHaveValue('0.73')
   await trigger.press('Enter')
-  await page.getByRole('heading', { name: 'Declaration row states: representation, nothing and skipped', exact: true }).click()
+  await page.getByRole('heading', { name: 'Declaration row states: Display, nothing and skipped', exact: true }).click()
   await expect(popup).toHaveCount(0)
 })
 
