@@ -28,11 +28,12 @@ import { DocumentStore } from '../commands/store.js'
 import { planOccurrenceLinkCommand } from '../commands/occurrence-link-commands.js'
 import { planOccurrenceLinkMutation } from '../commands/occurrence-planner.js'
 import { documentNodeResolver } from '../compile/compile.js'
-import { outerConstructAddress } from '../compile/crossing.js'
+import { buildBypassCandidates, matchBypassInput } from '../compile/bypass.js'
+import { innerConstructAddress, matchBoundaryItem, outerConstructAddress } from '../compile/crossing.js'
 import { effectiveOccurrenceTopology, occurrenceMemberReferenced, type EffectiveLink } from '../compile/effective-topology.js'
 import { occurrenceDynamicView, type ValueOwner } from '../compile/occurrence-view.js'
 import type { ControllerMode, GraphDef, Json, NodeData, WorkflowDocument } from '../format/document.js'
-import { asNodeId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, sameEndpoint, type LinkEndpoint } from '../ids.js'
+import { asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, sameEndpoint, type LinkEndpoint } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, traceEndpoint } from '../reroute.js'
 import { boundaryItems, resolveDynamicAddress } from '../format/document.js'
@@ -364,9 +365,10 @@ interface View {
   readonly contexts: ReadonlyMap<string, FormulaContext>
   readonly connectivity: Connectivity
   readonly valueOwners: ReadonlyMap<string, ValueOwner>
+  readonly incomingValue: (path: string, onRead?: (place: StepPlace, path: string) => void) => Json | undefined
 }
 
-function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost): View | undefined {
+function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, reading = new Set<string>()): View | undefined {
   const graph = doc.graphs[target.graphId]
   const stored = graph?.nodes[target.nodeId]
   const path = target.instancePath ?? []
@@ -406,9 +408,88 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost): Vie
     isOutputConnected: (port) => outputs.has(port),
     inputPorts: () => [...inputs], outputPorts: () => [...outputs],
   }
+  const incomingValue: View['incomingValue'] = (port, onRead) => {
+    const key = JSON.stringify([target.graphId, path, target.nodeId, port])
+    if (reading.has(key)) return undefined
+    reading.add(key)
+    try {
+      const link = topology && [...topology.links, ...topology.projectedParentLinks].find((link) =>
+        link.to.graphId === graph.id && JSON.stringify(link.to.instancePath) === JSON.stringify(path) &&
+        isPortEndpoint(link.to.endpoint) && link.to.endpoint.node === node.id &&
+        portAddressKey(link.to.endpoint.port) === portAddressKey(port))
+      if (link !== undefined) return endpointValue(link.from.graphId, link.from.instancePath, link.from.endpoint, onRead)
+      if (topology !== undefined) return undefined
+      const driver = definitionDriverOf(graph, node.id, port)
+      return driver && endpointValue(graph.id, path, driver.from, onRead)
+    } finally {
+      reading.delete(key)
+    }
+  }
+  const endpointValue = (graphId: string, instancePath: readonly string[], endpoint: LinkEndpoint, onRead?: (place: StepPlace, path: string) => void): Json | undefined => {
+    const sourceGraph = doc.graphs[graphId]
+    if (sourceGraph === undefined) return undefined
+    if (!isPortEndpoint(endpoint) && !isExactWidgetTapRef(endpoint)) {
+      if (instancePath.length > 0) {
+        const key = JSON.stringify([graphId, instancePath, endpoint])
+        if (reading.has(key)) return undefined
+        reading.add(key)
+        try {
+          const topology = effectiveOccurrenceTopology(doc, resolve, {
+            instancePath: instancePath.slice(0, -1).map(asNodeId), node: asNodeId(instancePath.at(-1)!),
+          })
+          const driver = [...topology.links, ...topology.projectedParentLinks].find((link) =>
+            link.to.graphId === graphId && JSON.stringify(link.to.instancePath) === JSON.stringify(instancePath) && sameEndpoint(link.to.endpoint, endpoint))
+          return driver && endpointValue(driver.from.graphId, driver.from.instancePath, driver.from.endpoint, onRead)
+        } finally {
+          reading.delete(key)
+        }
+      }
+      const trace = traceEndpoint(sourceGraph, endpoint, buildRerouteIndex(sourceGraph))
+      if (trace.kind === 'output') return endpointValue(graphId, instancePath, trace.ref, onRead)
+      if (trace.kind === 'tapValue') return endpointValue(graphId, instancePath, { node: trace.node, tap: trace.input }, onRead)
+      return undefined
+    }
+    const sourceNode = sourceGraph.nodes[endpoint.node]
+    if (sourceNode === undefined || sourceNode.mode === 'muted') return undefined
+    const source = viewOf(doc, { graphId, nodeId: sourceNode.id, instancePath }, host, reading)
+    if (source === undefined) return undefined
+    let input: string | undefined
+    if (isExactWidgetTapRef(endpoint)) input = endpoint.tap
+    else {
+      const child = subgraphDefIdOf(sourceNode.type)
+      if (child !== undefined && sourceNode.mode !== 'bypassed') {
+        const def = doc.graphs[child]
+        const match = matchBoundaryItem(boundaryItems(def?.boundary, 'outputs'), endpoint)
+        if (!def || !match.ok || match.item.binds.kind === 'unbound') return undefined
+        const binding = match.item.binds
+        const port = binding.kind === 'construct'
+          ? innerConstructAddress(def, binding, match.item.id, endpoint.port, (node) => host.schemaOf(doc, child, node)) : undefined
+        return endpointValue(child, [...instancePath, sourceNode.id], binding.kind === 'widgetTap'
+          ? { node: binding.node, tap: binding.tap }
+          : { node: binding.node, port: asPortId(port ?? binding.port) }, onRead)
+      }
+      const outputs = elabOutputsOf(source.elaborated).filter((output) => output.wireable !== false)
+      const index = outputs.findIndex((output) => portAddressKey(output.address.port) === portAddressKey(endpoint.port))
+      const output = outputs[index]
+      if (output === undefined) return undefined
+      if (sourceNode.mode === 'bypassed') {
+        input = matchBypassInput({ index, type: output.spec.type }, buildBypassCandidates(elabInputsOf(source.elaborated), (field) =>
+          source.connectivity.isInputConnected(valueKeyOf(field)) ? valueKeyOf(field) : undefined))?.driver
+      } else input = output.spec.knownValue?.input
+    }
+    if (input === undefined) return undefined
+    const field = inputAt(source, input)
+    if (field === undefined) return undefined
+    const valueKey = valueKeyOf(field)
+    onRead?.({ graphId, nodeId: sourceNode.id, instancePath }, valueKey)
+    if (source.connectivity.isInputConnected(valueKey)) return source.incomingValue(valueKey, onRead)
+    if (field.derivedValue !== undefined) return field.derivedValue
+    if (Object.hasOwn(source.node.values, valueKey)) return source.node.values[valueKey]
+    return field.automatic?.value ?? (readWhenUnset(field.spec) as Json | undefined)
+  }
   const contexts = new Map<string, FormulaContext>()
-  const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts })
-  return { doc, graph, node, schema, elaborated, contexts, connectivity, valueOwners: occurrence?.valueOwners.get(node.id) ?? new Map() }
+  const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue })
+  return { doc, graph, node, schema, elaborated, contexts, connectivity, incomingValue, valueOwners: occurrence?.valueOwners.get(node.id) ?? new Map() }
 }
 
 /** The declaration and scope prefix of the pressed button. */
@@ -523,6 +604,7 @@ function occurrenceDriverOf(doc: WorkflowDocument, target: StepPlace, port: stri
 type Action =
   | {
       readonly kind: 'read'
+      readonly target?: StepPlace
       readonly path: string
       readonly field: boolean
       readonly group: boolean
@@ -771,14 +853,18 @@ class Press {
     return this.formula(name, context, undefined, locals)
   }
 
-  retainRead(path: string, group = false): void {
-    const address = resolveDynamicAddress({ port: path }, this.view.node.dynamic)
+  retainRead(path: string, group = false, target = this.target, incoming = true): void {
+    const view = target === this.target ? this.view : viewOf(this.store.doc, target, this.host) ?? refuse('The node is gone.')
+    const address = resolveDynamicAddress({ port: path }, view.node.dynamic)
     const members = address.kind === 'resolved' ? [...address.references] : []
-    if (group) for (const member of this.view.node.dynamic?.[path]?.members ?? []) members.push({ construct: path, member })
-    const choices = [...constructsOf(this.view.schema, this.view.node.dynamic)].flatMap(([construct, spec]) =>
+    if (group) for (const member of view.node.dynamic?.[path]?.members ?? []) members.push({ construct: path, member })
+    const choices = [...constructsOf(view.schema, view.node.dynamic)].flatMap(([construct, spec]) =>
       (spec.kind === 'choice' || spec.kind === 'typeChoice') && (path === construct || path.startsWith(`${construct}.`))
-        ? [{ construct, selected: this.view.elaborated.choices?.[construct] }] : [])
-    this.actions.push({ kind: 'read', path, field: inputAt(this.view, path) !== undefined, group, members, choices })
+        ? [{ construct, selected: view.elaborated.choices?.[construct] }] : [])
+    this.actions.push({ kind: 'read', ...(target === this.target ? {} : { target }), path, field: inputAt(view, path) !== undefined, group, members, choices })
+    if (incoming && view.connectivity.isInputConnected(path)) {
+      view.incomingValue(path, (place, path) => this.retainRead(path, false, place, false))
+    }
   }
 
   formulaRead(name: string, context: FormulaContext, availability: boolean): Value | typeof UNKNOWN | undefined {
@@ -863,7 +949,11 @@ class Press {
       }
       const path = this.pathOf(argument, context)
       this.retainRead(path)
-      if (this.wired(path)) return refuse(`Needs ${argument}, which is not known until a run.`)
+      if (this.wired(path)) {
+        const incoming = this.view.incomingValue(path)
+        if (incoming === undefined) return refuse(`Needs ${argument}, which is not known until a run.`)
+        return incoming as CallArg
+      }
       return (this.view.node.values[path] ?? null) as CallArg
     }
     return await this.read(argument, context, locals) as CallArg
@@ -1287,7 +1377,7 @@ class Press {
     const invocations: CommandInvocation[] = []
     const written = new Set<string>()
     for (const action of this.actions) {
-      const view = viewOf(live.doc, this.target, this.host) ?? refuse('The node was removed while the button waited.')
+      const view = viewOf(live.doc, action.kind === 'read' ? action.target ?? this.target : this.target, this.host) ?? refuse('The node was removed while the button waited.')
       if (action.kind === 'read') {
         for (const { construct, member } of action.members) {
           if (view.node.dynamic?.[construct]?.members?.includes(member) !== true) return refuse('A member this button needs was removed while it waited.')
@@ -1738,7 +1828,13 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
       }
     }
     for (const scope of scopes) {
-      const needed = [...names.filter((name) => !locals.kinds.has(name) && wiredName(name, scope)), ...texts.flatMap((text) => unknownWired(scope, locals, text, (name) => wiredName(name, scope)))]
+      const needed = [...names.filter((name) => {
+        if (locals.kinds.has(name) || !wiredName(name, scope)) return false
+        const value = scope.values.values?.get(name)
+        if (value !== undefined) return value === UNKNOWN
+        const path = scope.paths.get(name)
+        return path === undefined || view.incomingValue(path) === undefined
+      }), ...texts.flatMap((text) => unknownWired(scope, locals, text, (name) => wiredName(name, scope)))]
       if (needed.length > 0) return { enabled: false, reason: `Needs ${needed[0]}, which is not known until a run.` }
     }
   }

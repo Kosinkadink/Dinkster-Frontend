@@ -712,6 +712,8 @@ export interface ElaborateOptions {
    * it to work out a step's formulas where the button sits.
    */
   readonly formulaContexts?: Map<string, FormulaContext>
+  /** Document-static value delivered to a linked input; undefined remains unknown. */
+  readonly incomingValue?: (path: string) => Json | undefined
 }
 
 /** What a formula sees in one scope of a node, and where each name it reads is stored. */
@@ -1067,7 +1069,10 @@ function elaboratePass(
       const key = unsettledKey(path)
       if (key !== undefined) return key
     }
-    if (linked(path)) return UNKNOWN
+    if (linked(path)) {
+      const value = options.incomingValue?.(path)
+      return value === undefined ? UNKNOWN : formulaValueOf(value, kind)
+    }
     if (!Object.hasOwn(node.values, path)) {
       const automatic = automaticInUse(path)
       if (automatic !== undefined) return automatic === UNKNOWN ? UNKNOWN : formulaValueOf(automatic, kind)

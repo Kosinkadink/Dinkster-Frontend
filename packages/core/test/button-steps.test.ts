@@ -770,6 +770,45 @@ describe('what a press may write', () => {
     expect(buttonAvailability(mask, at('mask'), host)).toEqual({ enabled: false, reason: 'This editor is not available yet.' })
   })
 
+  it('reads known incoming values rather than dormant fields, with one undo and deterministic redo', async () => {
+    addSchema('test.known_incoming', [
+      { kind: 'input', id: 'upstream', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+      { kind: 'output', id: 'known', type: { kind: 'concrete', types: ['INT'] }, knownValue: { input: 'upstream' } },
+      { kind: 'output', id: 'unknown', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'button', id: 'read', label: 'Read incoming', steps: [
+        { step: 'set', field: 'marker', value: { formula: 'upstream + 1' } },
+        { step: 'call', function: 'probe.read', args: ['upstream'], writes: ['marker'] },
+      ] },
+    ])
+    const args: unknown[] = []
+    const host = hostOf({ call: async (request) => { args.push(request.args); return { kind: 'answer', fields: {}, notes: [] } } })
+    for (const kind of ['tap', 'known', 'unknown'] as const) {
+      const doc = documentOf({ n1: { type: 'test.known_incoming', values: { upstream: 97, marker: 41 } }, src: { type: 'test.known_incoming', values: { upstream: 13 } } }, {
+        l1: { id: asLinkId('l1'), from: kind === 'tap' ? { node: asNodeId('src'), tap: asPortId('upstream') } : { node: asNodeId('src'), port: asPortId(kind) }, to: { node: asNodeId('n1'), port: asPortId('upstream') } },
+      })
+      const session = sessionOf(doc)
+      expect(buttonAvailability(doc, at('read'), host), kind).toEqual(kind === 'unknown'
+        ? { enabled: false, reason: 'Needs upstream, which is not known until a run.' } : { enabled: true })
+      expect((await runPress(session, at('read'), host)).kind).toBe(kind === 'unknown' ? 'failed' : 'done')
+      if (kind === 'unknown') {
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+      } else {
+        expect(valuesOf(session)).toEqual({ upstream: 97, marker: 14 })
+        expect(args.at(-1)).toEqual([13n])
+        const calls = args.length
+        expect(session.undo()).toBe(true)
+        expect(valuesOf(session)).toEqual({ upstream: 97, marker: 41 })
+        expect(session.canUndo).toBe(false)
+        expect(session.redo()).toBe(true)
+        expect(valuesOf(session).marker).toBe(14)
+        expect(args).toHaveLength(calls)
+      }
+    }
+    expect(args).toHaveLength(2)
+  })
+
   it('checks nested Lookup arguments before making a Call or changing topology', async () => {
     addSchema('test.nested_lookup', [
       { kind: 'input', id: 'upstream', type: { kind: 'concrete', types: ['INT'] }, default: 13 },
