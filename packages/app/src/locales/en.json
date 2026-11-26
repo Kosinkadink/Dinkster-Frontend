@@ -1993,5 +1993,6 @@
   "shell.opening.starting": "Starting {installation}",
   "shell.opening.editorFailed": "The editor did not open",
   "shell.opening.didNotStart": "{installation} did not start",
+  "shell.opening.notAnswering": "Dinkster is not answering",
   "shell.opening.unavailable": "This installation has no editor this Dinkster can open. Update it to open its projects."
 }

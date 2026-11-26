@@ -63,6 +63,7 @@ import '@dinkster/ui/styles.css'
 import './projects-page.css'
 import { byProjectTime, formatBytes, formatWhen, projectTime } from './project-facts.js'
 import { WorkflowPicture } from './workflow-picture.js'
+import { EngineLogDialog } from '../EngineRunControl.js'
 
 /** An installation a project can run on. */
 export interface PageInstallation {
@@ -110,7 +111,7 @@ export interface ProjectsPageShell {
     | { readonly kind: 'projects'; readonly newProject: boolean }
     | { readonly kind: 'editor'; readonly projectId: string }
   readonly opening: () =>
-    | { readonly projectId: string; readonly line: string; readonly reason?: string; readonly failed?: string }
+    | { readonly projectId: string; readonly line: string; readonly reason?: string; readonly failed?: string; readonly showLog?: boolean }
     | undefined
   readonly selectedProjectId: () => string | undefined
   openProject(projectId: string, installation?: PageInstallation): void
@@ -499,6 +500,7 @@ export function ProjectsView(props: {
   const [dialogError, setDialogError] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)
   const [newName, setNewName] = createSignal('')
+  const [logProject, setLogProject] = createSignal<string>()
   const closeDialog = () => {
     setDialog(undefined)
     setDialogError(undefined)
@@ -683,7 +685,13 @@ export function ProjectsView(props: {
         <Show when={here()?.failed !== undefined && bannerShown()}>
           <ProductErrorBanner onDismiss={() => setBannerShown(false)}>
             {message('projects.failed.banner', { failed: here()!.failed!, project: project().name })}
+            <Show when={here()?.showLog}>
+              {' '}<ProductTextButton label={message('shell.engine.showLog')} onClick={() => setLogProject(project().id)} />
+            </Show>
           </ProductErrorBanner>
+        </Show>
+        <Show when={logProject() === project().id}>
+          <EngineLogDialog baseUrl="" onDismiss={() => setLogProject(undefined)} />
         </Show>
         <Show when={restoreFailed()}>
           {(name) => (

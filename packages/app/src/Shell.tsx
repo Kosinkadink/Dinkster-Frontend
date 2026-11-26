@@ -49,6 +49,7 @@ export interface ProjectOpening {
   readonly reason?: string
   /** The failed row's text, such as "Nightly did not start". */
   readonly failed?: string
+  readonly showLog?: boolean
 }
 
 export interface ShellNavigation {
@@ -234,7 +235,11 @@ export function Shell(props: {
 
   const failedOpening = (opening: ProjectOpening, installation: ShellInstallation, error: unknown): ProjectOpening => {
     const detail = detailOf(error)
-    return { ...opening, ...(detail ? { reason: detail } : {}), failed: message('shell.opening.didNotStart', { installation: nameOf(installation) }) }
+    const unanswered = error instanceof TypeError
+    return {
+      ...opening, ...(detail ? { reason: detail } : {}), showLog: !unanswered,
+      failed: unanswered ? message('shell.opening.notAnswering') : message('shell.opening.didNotStart', { installation: nameOf(installation) }),
+    }
   }
 
   const openInstallationEngine = async (installation: ProjectInstallation): Promise<void> => {
@@ -260,6 +265,7 @@ export function Shell(props: {
       let status: HomeStatus | undefined
       while (run === attempt) {
         status = await readHomeStatus()
+        if (status === undefined) throw new TypeError('Dinkster did not answer')
         if (status?.state === 'failed') throw new Error(status.detail ?? '')
         if (status?.state === 'ready' && status.installationFrontend !== undefined) {
           // Any answer will do; a page of another origin is opaque here.
