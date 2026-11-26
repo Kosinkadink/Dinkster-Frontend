@@ -521,7 +521,7 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
     }
     await openDock(page, 'backends-sidebar-toggle')
     const card = page.locator('[data-testid="backend-row"]').filter({ hasText: 'Offline visual' })
-    if (!await card.getByTestId('backend-schema-retry').isVisible()) await card.locator('summary').first().click()
+    if (!await card.getByTestId('backend-schema-retry').isVisible()) await card.locator('button[aria-controls]').click()
     await expect(card.getByTestId('backend-schema-retry')).toBeEnabled()
     await expect(card.getByTestId('output-mount-settings')).toHaveCount(0)
     await card.getByTestId('backend-schema-retry').scrollIntoViewIfNeeded()
@@ -1523,15 +1523,15 @@ test('Saved connection rows retain actions, credential editing and connection fa
   })
   const fixture = page.getByRole('region', { name: 'Saved connections fixture' })
   const row = fixture.getByTestId('backend-row').filter({ hasText: 'Studio render server' })
-  await row.locator('summary').click()
-  await expect(row.getByTestId('profile-credential-badge')).toBeVisible()
+  await row.locator('button[aria-controls]').click()
+  await expect(row.getByTestId('profile-connect')).toBeVisible()
   const capture = async (state: string): Promise<void> => {
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
       const lastAction = state === 'token-editor' ? row.getByTestId('profile-token-save') : row.getByRole('button', { name: 'Actions for Studio render server', exact: false })
       await lastAction.scrollIntoViewIfNeeded()
       await expect(lastAction).toBeInViewport()
-      const identity = await row.locator('summary').boundingBox()
+      const identity = await row.locator('button[aria-controls]').boundingBox()
       expect(identity!.width).toBeGreaterThan(200)
       const area = await fixture.boundingBox()
       for (const action of await row.getByRole('button').all()) {
@@ -1544,7 +1544,8 @@ test('Saved connection rows retain actions, credential editing and connection fa
     }
   }
   await capture('ready')
-  await row.getByTestId('profile-token-edit').click()
+  await row.getByRole('button', { name: 'Actions for Studio render server', exact: false }).click()
+  await row.getByRole('menuitem', { name: 'Change access token', exact: true }).click()
   await expect(row.getByTestId('profile-token-editor-input')).toHaveAttribute('type', 'password')
   await expect(row.getByTestId('profile-token-save')).toBeDisabled()
   await capture('token-editor')
@@ -1577,7 +1578,9 @@ test('Saved connection rows retain actions, credential editing and connection fa
   await fixture.getByTestId('backend-add').click()
   await expect(fixture.locator('#backend-add-error')).toHaveCount(0)
   await expect(fixture.getByTestId('backend-row')).toHaveCount(3)
-  await expect(fixture.getByTestId('backend-row').filter({ hasText: 'Recovered source' })).toContainText('https://recovered.example.test')
+  const recovered = fixture.getByTestId('backend-row').filter({ hasText: 'Recovered source' })
+  await recovered.locator('button[aria-controls]').click()
+  await expect(recovered).toContainText('https://recovered.example.test')
   await page.evaluate(() => (window as unknown as { connectionVisual: { dispose(): void } }).connectionVisual.dispose())
 })
 
