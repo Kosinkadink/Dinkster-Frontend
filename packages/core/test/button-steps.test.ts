@@ -394,6 +394,47 @@ describe('each step', () => {
     expect((await press('dev.buttons.field_steps', 'swap', { width: 512, height: 1024 })).values).toMatchObject({ width: 1024, height: 512 })
   })
 
+  it('Swap reads a known wired operand and writes only the unwired operand atomically', async () => {
+    const input = (id: string) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 0 })
+    addSchema('test.swap_incoming', [
+      input('a'), input('b'), input('marker'),
+      { kind: 'output', id: 'unknown', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'button', id: 'only', label: 'Swap only', steps: [{ step: 'swap', a: 'a', b: 'b' }] },
+      { kind: 'button', id: 'swap', label: 'Swap', steps: [
+        { step: 'swap', a: 'a', b: 'b' },
+        { step: 'set', field: 'marker', value: { formula: 'a + b' } },
+      ] },
+    ])
+    for (const wired of ['a', 'b'] as const) {
+      const other = wired === 'a' ? 'b' : 'a'
+      for (const known of [true, false]) {
+        const doc = documentOf({ n1: { type: 'test.swap_incoming', values: { a: 7, b: 41, marker: 19 } }, src: { type: 'test.swap_incoming', values: { a: 23 } } }, {
+          l1: { id: asLinkId('l1'), from: known ? { node: asNodeId('src'), tap: asPortId('a') } : { node: asNodeId('src'), port: asPortId('unknown') }, to: { node: asNodeId('n1'), port: asPortId(wired) } },
+        })
+        const session = sessionOf(doc)
+        const host = hostOf()
+        expect(buttonAvailability(doc, at('swap'), host)).toEqual(known ? { enabled: true } : { enabled: false, reason: `Needs ${wired}, which is not known until a run.` })
+        expect(buttonAvailability(doc, at('only'), host)).toEqual(known ? { enabled: true } : { enabled: false, reason: `Needs ${wired}, which is not known until a run.` })
+        const outcome = await runPress(session, at('swap'), host)
+        if (!known) {
+          expect(outcome.kind).toBe('failed')
+          expect(session.doc).toEqual(doc)
+          expect(session.canUndo).toBe(false)
+          continue
+        }
+        expect(outcome).toMatchObject({ kind: 'done', skipped: [{ id: wired, why: 'wired' }] })
+        expect(valuesOf(session)).toEqual({ ...doc.graphs['g0']!.nodes['n1']!.values, [other]: 23, marker: 46 })
+        expect(session.doc.graphs['g0']!.links).toEqual(doc.graphs['g0']!.links)
+        const after = session.doc
+        expect(session.undo()).toBe(true)
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+        expect(session.redo()).toBe(true)
+        expect(session.doc).toEqual(after)
+      }
+    }
+  })
+
   it('Randomize keeps to its bounds and the field step, and Toggle, Reset and SetMode write what they name', async () => {
     const draws = [0, 0.999999, 0.5]
     const picked: Json[] = []

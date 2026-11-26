@@ -1047,8 +1047,7 @@ class Press {
       case 'swap': {
         const a = this.fieldOf(step.a)
         const b = this.fieldOf(step.b)
-        if (this.wired(a.path) || this.wired(b.path)) {
-          // A wired field's value is not known, so neither side can take the other's.
+        if (this.wired(a.path) && this.wired(b.path)) {
           this.skip(a.path)
           this.skip(b.path)
           return
@@ -1872,6 +1871,7 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
         else texts.push(arg.formula)
       }
     }
+    if (step.step === 'swap' && !(wiredName(step.a, context) && wiredName(step.b, context))) names.push(step.a, step.b)
     for (const scope of scopes) {
       const needed: string[] = []
       const requiredRead = (name: string, availability = false): Value | typeof UNKNOWN | undefined => {
@@ -1917,7 +1917,7 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
           break
         }
         case 'swap':
-          if (!wiredName(step.a, context) && !wiredName(step.b, context)) {
+          if (!(wiredName(step.a, context) && wiredName(step.b, context))) {
             const a = read(context, step.a), b = read(context, step.b)
             write(step.a, b === undefined ? UNKNOWN : b); write(step.b, a === undefined ? UNKNOWN : a)
           }
