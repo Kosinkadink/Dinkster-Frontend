@@ -46,6 +46,10 @@ if (argumentProject) {
   rmSync(nativeOutput, { recursive: true, force: true })
   rmSync(nativeImports, { recursive: true, force: true })
   rmSync(resolve(nativeLibrary, 'vault'), { recursive: true, force: true })
+  // Published workflow records must not outlive their vault bytes.
+  for (const suffix of ['', '-journal', '-wal', '-shm']) {
+    rmSync(resolve(nativeLibrary, `records.sqlite${suffix}`), { force: true })
+  }
   rmSync(resolve(nativeLibrary, 'project-folders.json'), { force: true })
   rmSync(resolve(nativeLibrary, 'value-store'), {
     recursive: true,
