@@ -361,6 +361,52 @@ describe('Dinkster app menu', () => {
     dispose()
   })
 
+  it('hides menu-button help while open and restores hover and focus help after closing', async () => {
+    const { root, dispose } = menuFixture()
+    const button = root.querySelector('[data-testid="dinkster-menu-button"]') as HTMLButtonElement
+    const controller = new TooltipController(() => 0)
+    controller.register({ id: 'dom', resolve: (target) => ({ lines: [(target as { label: string }).label] }) })
+    const detach = attachDomTooltips(root, controller)
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+    for (const opening of ['pointer', 'keyboard']) {
+      button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+      button.focus()
+      await settle()
+      expect(controller.visible?.lines).toEqual(['Dinkster'])
+      if (opening === 'pointer') {
+        button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+        click(button)
+      } else button.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      await settle()
+      expect(root.querySelector('[data-testid="context-menu"]')).not.toBeNull()
+      expect(controller.visible).toBeUndefined()
+
+      button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }))
+      await settle()
+      expect(controller.visible).toBeUndefined()
+      root.querySelector('[data-testid="context-menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await settle()
+      expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
+      expect(document.activeElement).toBe(button)
+      button.blur()
+      button.focus()
+      await settle()
+      expect(controller.visible?.lines).toEqual(['Dinkster'])
+
+      button.blur()
+      button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      expect(controller.visible).toBeUndefined()
+      button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }))
+      await settle()
+      expect(controller.visible?.lines).toEqual(['Dinkster'])
+    }
+    detach()
+    dispose()
+  })
+
   it('closes on a second trigger click and on an outside pointer press', async () => {
     const { root, dispose } = menuFixture()
     const button = root.querySelector('[data-testid="dinkster-menu-button"]')!
@@ -1647,6 +1693,11 @@ describe('DockZoneHost', () => {
       />
     ), root)
     const tablist = root.querySelector('[role="tablist"]')!
+    ;(tablist as HTMLElement).style.padding = '4px'
+    const tabs = root.querySelectorAll<HTMLElement>('[role="tab"]')
+    tabs.forEach((tab, index) => {
+      vi.spyOn(tab, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 72 + index * 12, 32))
+    })
     let clientWidth = 100
     Object.defineProperty(tablist, 'clientWidth', { configurable: true, get: () => clientWidth })
     const remeasure = async (clipped: boolean): Promise<void> => {

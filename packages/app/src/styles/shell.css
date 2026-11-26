@@ -424,10 +424,8 @@
 
 /* Tabbed dock zone host (#105): one tab row with host-owned actions, one
    visible body. Hidden bodies stay mounted, so the panels keep state.
-   Tab overflow strategy (#121): tabs shrink to an ellipsis floor (full
-   title via product tooltip) and the actions keep their size; the strip
-   never scrolls, so no native scrollbar can render inside the row. Tabs
-   beyond the last complete floor are hidden and remain in the all-tabs menu. */
+   Complete titles and badges fit together or move to the all-tabs menu;
+   the active tab stays visible. The strip never scrolls. */
 .dock-zone { display: flex; flex: 1; min-height: 0; flex-direction: column; border-radius: inherit; background: var(--dinkster-surface-frame); }
 .dock-zone[data-zone='bottom'] { flex-direction: row; }
 .dock-zone-section { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; border-radius: 8px; background: var(--dinkster-surface-panel); }
@@ -454,17 +452,17 @@
 .dock-zone-tabs .product-tabs-header .product-tablist {
   flex: 1;
   min-width: 0;
+  padding: var(--dinkster-space-4);
   overflow: hidden;
   border-bottom: 0;
 }
-.dock-zone-tabs .product-tab { position: relative; min-width: 64px; border-radius: var(--dinkster-radius-control); background: transparent; border-color: transparent; }
+.dock-zone-tabs .product-tab { position: relative; flex: none; min-width: 64px; border-radius: var(--dinkster-radius-control); background: transparent; border-color: transparent; }
 .dock-zone-tabs .product-tab[aria-selected='true'] { color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); }
 .dock-zone-tabs .product-tab[aria-selected='true']::after { content: ''; position: absolute; right: 10px; bottom: -2px; left: 10px; height: 3px; border-radius: 3px; background: var(--dinkster-accent-foreground); pointer-events: none; }
 .dock-zone-tabs .product-tab:disabled { display: none; }
-/* Centre a label narrower than its tab, together with its badge; truncate the
-   title text, never the attention badge beside it. */
+/* Keep the whole title and its attention badge in the measured tab width. */
 .dock-zone-tabs .tab-title { display: flex; align-items: center; justify-content: center; }
-.dock-zone-tabs .tab-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-zone-tabs .tab-title-text { white-space: nowrap; }
 .dock-zone-tabs .tab-title .panel-indicator { flex: none; }
 .dock-zone-title-only > .product-tabs-header > .product-tablist { display: none; }
 .dock-zone-title-only > .product-tabs-header > .dock-zone-actions {
