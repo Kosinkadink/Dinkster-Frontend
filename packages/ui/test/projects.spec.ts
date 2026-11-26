@@ -28,7 +28,6 @@ test("each fact's action ends at the right edge of the box that holds the fact",
   for (const [fact, action] of [
     ['Outputs', 'Show in folder'],
     ['Runs on', 'Change'],
-    ['Packs', 'Manage'],
   ] as const) {
     const term = page.getByRole('term').filter({ hasText: fact })
     const box = facts.locator('dl').filter({ has: term })

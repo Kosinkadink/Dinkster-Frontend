@@ -54,6 +54,7 @@ function source(projects: readonly LibraryProject[]): ProjectsSource {
     deleteProject: async (entry) => ({ ...entry, deleted: true, revision: entry.revision + 1, modified: new Date(NOW).toISOString() }),
     restoreProject: async (entry) => ({ ...entry, deleted: false, revision: entry.revision + 1 }),
     listWorkflows: async () => [],
+    needs: async () => ({ packs: [], extra: [], unknown: [] }),
     listOutputs: async (id) =>
       id === 'p-valley'
         ? [{
@@ -91,6 +92,31 @@ const projects = [
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 const rows = () => [...document.querySelectorAll('[role="option"]')].map((row) => row.textContent)
 const loading = (label: string) => [...document.querySelectorAll('[role="status"]')].find((node) => node.textContent === label)
+
+it.each([
+  { required: ['a', 'b', 'a'], extra: ['a', 'c', 'c'], unknown: 0, text: '2 needed by its workflows, 1 added', names: 'a\nb\nc' },
+  { required: ['a', 'b'], extra: [], unknown: 0, text: '2 needed by its workflows', names: 'a\nb' },
+  { required: ['a', 'b'], extra: [], unknown: 2, text: 'At least 2 needed. 2 workflows not checked yet', names: 'a\nb' },
+  { required: [], extra: [], unknown: 0, text: 'None needed', names: null },
+  { required: [], extra: [], unknown: 2, text: 'Not known yet. 2 workflows not checked', names: null },
+  { required: [], extra: ['c'], unknown: 0, text: 'None needed, 1 added', names: 'c' },
+  { required: [], extra: [], unknown: -1, text: 'Not known yet', names: null },
+])('shows project pack facts, not installation state: $text', async ({ required, extra, unknown, text, names }) => {
+  render(() => <ProjectsView shell={shell()} source={{
+    ...source(projects),
+    needs: async () => {
+      if (unknown < 0) throw new Error('unavailable')
+      return { packs: required.map((pack) => ({ pack, version: null })), extra,
+        unknown: Array.from({ length: unknown }, (_, i) => ({ scope: 'local', id: `w${i}` })),
+        installed: [{ pack: 'unrelated', version: null }] }
+    },
+  }} />, document.body)
+  await settle()
+  const row = [...document.querySelectorAll('.dinkster-project-fact')].find((row) => row.querySelector('dt')?.textContent === 'Packs')!
+  expect(row.querySelector('dd')?.textContent).toBe(text)
+  expect(row.querySelector('span[data-tooltip-label]')?.getAttribute('data-tooltip-label') ?? null).toBe(names)
+  if (unknown > 0) expect(row.querySelector('.dinkster-project-fact-detail')?.textContent).toBe(text.slice(text.indexOf('.')))
+})
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -171,6 +197,7 @@ it('keeps the first painted elements unchanged as detail arrives, and keeps old 
   render(() => <ProjectsView shell={shell()} source={{
     ...source(projects), listProjects: async () => projects.map((project) => ({ ...project })),
     listWorkflows: (id) => id === 'p-film' ? film.promise : valley.promise,
+    usage: async () => ({ outputs: 12, bytes: 4096 }),
   }} />, document.body)
   await settle()
   expect(document.querySelector('.dinkster-skeleton')).toBeNull()

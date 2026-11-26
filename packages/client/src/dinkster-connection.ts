@@ -1316,7 +1316,8 @@ function libraryStorage(value: unknown): LibraryStorage {
 
 export interface ProjectNeeds {
   readonly packs: readonly { readonly pack: string; readonly version: string | null }[]
-  readonly installed: readonly { readonly pack: string; readonly version: string | null }[]
+  /** Installation facts are supplied only by a running engine. */
+  readonly installed?: readonly { readonly pack: string; readonly version: string | null }[]
   readonly extra: readonly string[]
   readonly unknown: readonly { readonly scope: string; readonly id: string }[]
 }
@@ -4202,8 +4203,8 @@ export class DinksterConnection {
       })
     }
     const packs = readPacks(body['packs'])
-    const installed = readPacks(body['installed'])
-    if (new Set(installed.map(({ pack }) => pack)).size !== installed.length) throw invalid()
+    const installed = body['installed'] === undefined ? undefined : readPacks(body['installed'])
+    if (installed !== undefined && new Set(installed.map(({ pack }) => pack)).size !== installed.length) throw invalid()
     const unknown = body['unknown'].map((raw: unknown) => {
       if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
       const record = raw as Record<string, unknown>
@@ -4211,7 +4212,7 @@ export class DinksterConnection {
         typeof record['id'] !== 'string' || record['id'].length === 0) throw invalid()
       return { scope: record['scope'], id: record['id'] }
     })
-    return { packs, installed, extra: body['extra'] as string[], unknown }
+    return { packs, ...(installed === undefined ? {} : { installed }), extra: body['extra'] as string[], unknown }
   }
 
   async accountStatus(signal?: AbortSignal): Promise<AccountStatus> {

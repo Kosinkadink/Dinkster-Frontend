@@ -16,6 +16,7 @@ import {
   type LibraryProject,
   type LibraryRecord,
   type LocalAssetCatalogEntry,
+  type ProjectNeeds,
 } from '@dinkster/client'
 import {
   ProductBrandMark,
@@ -73,6 +74,7 @@ export interface ProjectsSource {
   deleteProject(project: LibraryProject): Promise<LibraryProject>
   restoreProject(project: LibraryProject): Promise<LibraryProject>
   listWorkflows(project: string): Promise<readonly LibraryRecord[]>
+  needs(project: string): Promise<ProjectNeeds>
   /** A saved workflow's document; undefined when its bytes cannot be read or loaded. */
   workflowDocument(digest: string): Promise<WorkflowDocument | undefined>
   /** The node definitions the project last ran with; undefined when the process has none. */
@@ -166,6 +168,7 @@ export function processSource(connection: DinksterConnection = processConnection
     renameProject: (project, name) => connection.renameProject(project.id, name, project.revision),
     deleteProject: (project) => connection.deleteProject(project.id, project.revision),
     restoreProject: (project) => connection.restoreProject(project.id, project.revision),
+    needs: (project) => connection.projectNeeds(project),
     async listWorkflows(project) {
       const page = await connection.listLibrary({ scope: 'local', label: 'workflow', project, limit: 200 })
       return page.records
@@ -419,16 +422,17 @@ export function ProjectsView(props: {
     chosen() ?? props.shell.selectedProjectId() ?? live()?.[0]?.id
   const selected = createMemo(() => live()?.find((project) => project.id === selectedId()))
   const readDetail = async (project: LibraryProject) => {
-    const [workflows, outputs, usage, definitions] = await Promise.all([
+    const [workflows, outputs, usage, definitions, needs] = await Promise.all([
       props.source.listWorkflows(project.id).catch(() => null),
       props.source.listOutputs(project.id, OUTPUT_LIMIT).catch(() => null),
       props.source.usage(project.id).catch(() => undefined),
       props.source.definitions(project.id).catch(() => undefined),
+      props.source.needs(project.id).catch(() => null),
     ])
     const documents = new Map(await Promise.all((workflows ?? []).map(async (workflow) =>
       [workflow.digest, await props.source.workflowDocument(workflow.digest).catch(() => undefined)] as const,
     )))
-    return { project, workflows, outputs, usage, definitions, documents }
+    return { project, workflows, outputs, usage, definitions, documents, needs }
   }
   const projectDetail = createPageLoad<Awaited<ReturnType<typeof readDetail>>>()
   createEffect(() => {
@@ -542,6 +546,29 @@ export function ProjectsView(props: {
     const outputs = () => data()?.outputs
     const usage = () => data()?.usage
     const definitions = () => data()?.definitions
+    const packs = createMemo(() => {
+      const needs = data()?.needs
+      if (!needs) return undefined
+      const required = new Set(needs.packs.map(({ pack }) => pack))
+      const added = new Set(needs.extra.filter((pack) => !required.has(pack)))
+      const unchecked = needs.unknown.length
+      const count = required.size
+      const value = unchecked > 0
+        ? count > 0 ? message('projects.packs.atLeast', { count }) : message('projects.packs.unknown')
+        : count > 0 ? message('projects.packs.needed', { count }) : message('projects.packs.none')
+      return {
+        value: value + (added.size > 0 ? message('projects.packs.added', { count: added.size }) : ''),
+        unchecked: unchecked > 0 ? message(count > 0 ? 'projects.packs.uncheckedYet' : 'projects.packs.unchecked', { count: unchecked }) : '',
+        names: [...required, ...added].sort().join('\n'),
+      }
+    })
+    const packFact = {
+      get label() { return message('projects.facts.packs') },
+      value: <ProductPageAnswer page={projectDetail}><span data-tooltip-label={packs()?.names || undefined}>
+        {data() ? packs()?.value ?? message('projects.packs.unknown') : ''}
+        <Show when={packs()?.unchecked}><span class="dinkster-project-fact-detail">{'. '}{packs()!.unchecked}</span></Show>
+      </span></ProductPageAnswer>,
+    }
     const time = () => projectTime(project())
     const here = () => opening()?.projectId === project().id ? opening() : undefined
     const installation = () => runsOn(project().id)
@@ -660,15 +687,18 @@ export function ProjectsView(props: {
           label={message('projects.facts.label')}
           columns={[
             locationFacts(),
-            usage()
-              ? [
-                  {
-                    label: message('projects.facts.size'),
-                    value: <ProductPageAnswer page={projectDetail}>{formatBytes(usage()!.bytes, locale().tag)}</ProductPageAnswer>,
-                    detail: message('projects.facts.outputs', { count: usage()!.outputs }),
-                  },
-                ]
-              : [],
+            [
+              packFact,
+              ...(usage() ? [
+                {
+                  label: message('projects.facts.size'),
+                  value: <ProductPageAnswer page={projectDetail}>
+                    {formatBytes(usage()!.bytes, locale().tag)}
+                    <span class="dinkster-project-fact-detail">{' - '}{message('projects.facts.outputs', { count: usage()!.outputs })}</span>
+                  </ProductPageAnswer>,
+                },
+              ] : []),
+            ],
           ]}
         />
         <ProductProjectSection

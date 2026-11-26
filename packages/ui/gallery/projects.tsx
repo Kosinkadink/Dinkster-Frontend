@@ -91,6 +91,7 @@ interface MockProject {
   path: string
   runsOn: string
   packs: string
+  uncheckedPacks?: string
   size: string
   outputCount: string
   workflows: readonly MockWorkflow[]
@@ -125,7 +126,7 @@ const projects: readonly MockProject[] = [
     opened: '2 hours ago',
     path: '/home/kosin/Dinkster/projects/film-grain-tests',
     runsOn: 'Stable 0.0.18',
-    packs: '4 enabled',
+    packs: '4 needed by its workflows',
     size: '3.1 GB',
     outputCount: '212 outputs',
     workflows: workflows([
@@ -147,7 +148,7 @@ const projects: readonly MockProject[] = [
     opened: 'Yesterday',
     path: '/home/kosin/Dinkster/projects/teapot-product-shots',
     runsOn: 'Stable 0.0.18',
-    packs: '2 enabled',
+    packs: '2 needed by its workflows, 1 added',
     size: '640 MB',
     outputCount: '38 outputs',
     workflows: workflows([
@@ -163,7 +164,7 @@ const projects: readonly MockProject[] = [
     opened: '3 days ago',
     path: '/home/kosin/Dinkster/projects/valley-matte-paintings',
     runsOn: 'Stable 0.0.18',
-    packs: '3 enabled',
+    packs: '3 needed by its workflows',
     size: '1.4 GB',
     outputCount: '96 outputs',
     workflows: workflows([
@@ -180,7 +181,8 @@ const projects: readonly MockProject[] = [
     opened: 'Nov 12',
     path: '/home/kosin/Dinkster/projects/bookshop-diorama',
     runsOn: 'Nightly',
-    packs: '5 enabled',
+    packs: 'At least 5 needed',
+    uncheckedPacks: '2 workflows not checked yet',
     size: '820 MB',
     outputCount: '41 outputs',
     workflows: workflows([
@@ -195,7 +197,7 @@ const projects: readonly MockProject[] = [
     opened: 'Nov 3',
     path: '/home/kosin/Dinkster/projects/audio-experiments',
     runsOn: 'Stable 0.0.16',
-    packs: '1 enabled',
+    packs: '1 needed by its workflows',
     size: '12 MB',
     outputCount: '3 outputs',
     workflows: workflows([['Stem split', 'Nov 3']]),
@@ -211,7 +213,7 @@ const projects: readonly MockProject[] = [
     opened: 'Never opened',
     path: '/home/kosin/Dinkster/projects/default',
     runsOn: 'Stable 0.0.18',
-    packs: 'None',
+    packs: 'None needed',
     size: '0 B',
     outputCount: 'no outputs',
     workflows: [],
@@ -638,13 +640,7 @@ export function ProjectsGallery() {
           [
             {
               label: 'Packs',
-              value: project().packs,
-              action: (
-                <ProductTextButton
-                  label="Manage"
-                  onClick={() => setActivity('Packs opened')}
-                />
-              ),
+              value: <>{project().packs}<Show when={project().uncheckedPacks}><span class="dinkster-project-fact-detail">{'. '}{project().uncheckedPacks}</span></Show></>,
             },
             {
               label: 'Size',

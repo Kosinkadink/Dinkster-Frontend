@@ -260,11 +260,11 @@ export function ProductProjectFacts(props: {
 }) {
   return (
     <div class="dinkster-project-facts" role="group" aria-label={props.label}>
-      <For each={props.columns}>
+      <Index each={props.columns}>
         {(column) => (
-          <Show when={column.length > 0}>
+          <Show when={column().length > 0}>
             <dl class="dinkster-project-facts-box">
-              <For each={column}>
+              <For each={column()}>
                 {(item) => (
                   <div class="dinkster-project-fact">
                     <dt>{item.label}</dt>
@@ -286,7 +286,7 @@ export function ProductProjectFacts(props: {
             </dl>
           </Show>
         )}
-      </For>
+      </Index>
     </div>
   )
 }

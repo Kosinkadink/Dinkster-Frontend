@@ -3560,9 +3560,9 @@ describe('workflow library wire', () => {
     await expect(conn.getProject('p-film')).rejects.toThrow('Malformed library project account link')
   })
 
-  it('reads project needs without dropping unknown workflows and enables only the revision-reviewed project', async () => {
+  it.each([true, false])('reads project needs without dropping unknown workflows and enables only the revision-reviewed project (engine %s)', async (engine) => {
     const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
-    const needs = { packs: [{ pack: 'tools-a', version: '1.2.3' }, { pack: 'tools-b', version: null }], installed: [{ pack: 'tools-a', version: '1.0.0' }, { pack: 'tools-c', version: null }], extra: ['extra-c'], unknown: [{ scope: 'local', id: 'unreadable' }] }
+    const needs = { packs: [{ pack: 'tools-a', version: '1.2.3' }, { pack: 'tools-b', version: null }], ...(engine ? { installed: [{ pack: 'tools-a', version: '1.0.0' }, { pack: 'tools-c', version: null }] } : {}), extra: ['extra-c'], unknown: [{ scope: 'local', id: 'unreadable' }] }
     const { conn, requests } = submitHarness((url, init) => {
       if (url.endsWith('/needs')) return jsonResponse(200, needs)
       return jsonResponse(200, { project: { ...project, revision: init?.method === 'PATCH' ? 8 : 7 } })
@@ -3586,7 +3586,7 @@ describe('workflow library wire', () => {
     { packs: [], installed: [], extra: [null], unknown: [] },
     { packs: [], installed: [], extra: [], unknown: [{ scope: 'local' }] },
     { packs: [], installed: [], extra: [] },
-    { packs: [], extra: [], unknown: [] },
+    { packs: [], installed: null, extra: [], unknown: [] },
     { packs: [], installed: [{ pack: 'tools-a', version: 2 }], extra: [], unknown: [] },
     { packs: [], installed: [{ pack: 'tools-a', version: null }, { pack: 'tools-a', version: '1.0' }], extra: [], unknown: [] },
   ])('rejects malformed needs rather than assuming the project needs nothing', async (needs) => {
