@@ -35,6 +35,16 @@ export const defaultProductStrings = {
   copy: 'Copy',
   copyFailed: 'Could not copy. Select and copy the value instead.',
   statusSeparator: ', ',
+  modelNotDownloaded: 'Not downloaded',
+  modelDownloading: 'Downloading',
+  modelChecking: 'Checking',
+  modelDownloadFailed: 'Download failed',
+  modelUnavailable: 'Unavailable',
+  modelDownload: 'Download',
+  modelShowFolder: 'Show folder',
+  modelCopyName: 'Copy name',
+  modelHide: 'Hide in this project',
+  modelVersions: '{count} versions',
 }
 
 export type ProductStrings = Readonly<

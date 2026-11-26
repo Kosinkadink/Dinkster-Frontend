@@ -489,28 +489,55 @@ export function ProductSection(props: {
   )
 }
 
-export function ProductList(props: { label: string; children: JSX.Element }) {
+export function ProductList(props: {
+  label: string
+  appearance?: 'bordered' | 'plain' | 'grouped'
+  children: JSX.Element
+}) {
   return (
-    <ul class="dinkster-list" aria-label={props.label}>
+    <ul class="dinkster-list" data-appearance={props.appearance} aria-label={props.label}>
       {props.children}
     </ul>
   )
 }
 
 export function ProductListRow(props: {
-  title: string
-  description?: string
+  title: JSX.Element
+  description?: JSX.Element
+  leading?: JSX.Element
+  trailing?: JSX.Element
   action?: JSX.Element
+  status?: JSX.Element
+  expanded?: boolean
+  onToggle?: () => void
+  children?: JSX.Element
 }) {
+  const detailsId = createUniqueId()
+  const copy = () => <span class="dinkster-row-copy">
+    <span>{props.title}</span>
+    <Show when={props.description}>
+      <span class="dinkster-metadata">{props.description}</span>
+    </Show>
+  </span>
   return (
-    <li class="dinkster-row">
-      <div class="dinkster-row-copy">
-        <span>{props.title}</span>
-        <Show when={props.description}>
-          <span class="dinkster-metadata">{props.description}</span>
+    <li class="dinkster-row" data-expandable={props.onToggle !== undefined ? '' : undefined} data-expanded={props.expanded ? '' : undefined}>
+      <Show when={props.onToggle} fallback={<>{props.leading}{copy()}{props.trailing}{props.action}</>}>
+        <div class="dinkster-row-heading">
+          <button type="button" class="dinkster-row-trigger" aria-expanded={props.expanded ?? false}
+            aria-controls={props.expanded ? detailsId : undefined} onClick={() => props.onToggle?.()}>
+            {props.leading}
+            {copy()}
+            {props.trailing}
+          </button>
+          {props.action}
+        </div>
+        <Show when={props.status}>
+          <div class="dinkster-row-status">{props.status}</div>
         </Show>
-      </div>
-      {props.action}
+        <Show when={props.expanded}>
+          <div id={detailsId} class="dinkster-row-details">{props.children}</div>
+        </Show>
+      </Show>
     </li>
   )
 }
