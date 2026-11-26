@@ -38,6 +38,7 @@ import {
   ProductProjectRows,
   ProductProjectSection,
   ProductProjectsView,
+  ProductSegmented,
   ProductSelect,
   ProductTextButton,
   ProductTextInput,
@@ -49,6 +50,8 @@ import {
 } from '@dinkster/ui'
 import { useAppMessage } from '../locale.js'
 import { SetupForm, type SetupStatus } from '../SetupForm.js'
+import { desktopFileBridge } from '../desktop-bridge.js'
+import { ProductFileInput } from '../ProductControls.js'
 import { setupInProgress } from '../setup-job.js'
 import { AccountControl, createAccountSession } from '../AccountControl.js'
 import { ActivityBarButton, IconBar, ShellTooltip } from '../ShellChrome.js'
@@ -90,6 +93,7 @@ export interface ProjectsSource {
     readonly open?: PageInstallation
     readonly engine?: EngineState
     readonly openFolder?: boolean
+    readonly projectsFolder?: string
     readonly settingUp?: boolean
   }>
   /** Opens the project's folder in this computer's file manager. */
@@ -206,7 +210,7 @@ export function processSource(connection: DinksterConnection = processConnection
           return response.json()
         }),
       ]) as [
-        { state?: EngineState; open?: { root: string; engine: string }; openFolder?: boolean },
+        { state?: EngineState; open?: { root: string; engine: string }; openFolder?: boolean; projectsFolder?: string },
         { installations?: readonly { root: string }[] },
       ]
       const named = (root: string, engine = 'main'): PageInstallation => ({ root, engine, name: folderName(root) })
@@ -218,6 +222,7 @@ export function processSource(connection: DinksterConnection = processConnection
         ...(open ? { open } : {}),
         ...(status.state ? { engine: status.state } : {}),
         openFolder: status.openFolder === true,
+        ...(typeof status.projectsFolder === 'string' && status.projectsFolder !== '' ? { projectsFolder: status.projectsFolder } : {}),
         settingUp: !open && all.length > 0 && await setupInProgress(),
       }
     },
@@ -576,9 +581,9 @@ export function ProjectsView(props: {
     const installation = () => runsOn(project().id)
     const unavailable = () => message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.open.noInstallation')
     const locationFacts = createMemo(() => [
-      ...(project().folder ? [{
-        label: message('projects.facts.outputsFolder'),
-        value: <ProductPageAnswer page={page}>{project().folder}</ProductPageAnswer>,
+      ...(project().filesFolder || project().folder ? [{
+        label: message('projects.facts.filesFolder'),
+        value: <ProductPageAnswer page={page}>{project().filesFolder ?? project().folder}</ProductPageAnswer>,
         action: <Show when={installations()?.openFolder}>
           <ProductTextButton label={message('projects.facts.showInFolder')} onClick={() => {
             setFolderFailed(undefined)
@@ -866,23 +871,83 @@ export function ProjectsView(props: {
     ?? installations()?.open ?? installations()?.all[0]
   const [createError, setCreateError] = createSignal<string>()
   const [creating, setCreating] = createSignal(false)
-  let creatingId: string | undefined
+  const [creationAttempt, setCreationAttempt] = createSignal<{ readonly id: string; readonly creation: ProjectCreation }>()
+  const [filesChoice, setFilesChoice] = createSignal<string>()
+  const [folderDraft, setFolderDraft] = createSignal<string>()
+  const [choosingFolder, setChoosingFolder] = createSignal(false)
+  const [startChoice, setStartChoice] = createSignal('empty')
+  const [copySource, setCopySource] = createSignal<string>()
+  const [workflowFile, setWorkflowFile] = createSignal<{ readonly name: string; readonly content: string }>()
+  const [readingWorkflow, setReadingWorkflow] = createSignal(false)
+  const [workflowError, setWorkflowError] = createSignal<string>()
+  let workflowInput!: HTMLInputElement
+  const creationLocked = () => creating() || readingWorkflow() || choosingFolder() || creationAttempt() !== undefined
+  const filesFolder = () => {
+    const held = creationAttempt()?.creation.filesFolder ?? filesChoice()
+    if (held !== undefined) return held
+    const parent = installations()?.projectsFolder
+    if (!parent) return ''
+    const leaf = name().trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/gu, '') || 'project'
+    return `${parent.replace(/[\\/]+$/u, '')}${parent.includes('\\') ? '\\' : '/'}${leaf}`
+  }
+  const startingProject = () => copySource() ?? selected()?.id
+  const startingContents = (): ProjectCreation['startWith'] => creationAttempt()?.creation.startWith ?? (startChoice() === 'workflow'
+    ? workflowFile() && { kind: 'workflow', ...workflowFile()! }
+    : startChoice() === 'project'
+      ? live()?.some((row) => row.id === startingProject()) ? { kind: 'project', project: startingProject()! } : undefined
+      : { kind: 'empty' })
+  const chooseFilesFolder = async () => {
+    setChoosingFolder(true)
+    try {
+      const bridge = desktopFileBridge()
+      const url = new URL('/', location.href).href
+      if (bridge && (await bridge.fileCapabilities(url)).nativeFolderChoice) {
+        const chosen = await bridge.chooseDirectory(url)
+        if (chosen) setFilesChoice(chosen)
+      } else setFolderDraft(filesFolder())
+    } catch {
+      setCreateError(message('projects.new.folderFailed'))
+    } finally {
+      setChoosingFolder(false)
+    }
+  }
+  const readWorkflow = async (file: File) => {
+    setReadingWorkflow(true)
+    setWorkflowFile(undefined)
+    setWorkflowError(undefined)
+    try {
+      const content = await file.text()
+      if (!loadDocument(JSON.parse(content) as unknown).document) throw new Error('unreadable workflow')
+      setWorkflowFile({ name: file.name.replace(/\.json$/iu, ''), content })
+    } catch {
+      setWorkflowError(message('projects.new.workflowFailed'))
+    } finally {
+      setReadingWorkflow(false)
+    }
+  }
   const create = async () => {
     const trimmed = name().trim()
-    if (trimmed === '' || creating()) return
+    const startWith = startingContents()
+    if (trimmed === '' || creating() || readingWorkflow() || choosingFolder() || !filesFolder().trim() || !startWith) return
     const installationRoot = newInstallation() ?? chosenInstallation()?.root
     setNewInstallation(installationRoot)
     setCreating(true)
     try {
-      creatingId ??= `p-${crypto.randomUUID()}`
-      const registered = await props.source.registerProject(creatingId, trimmed)
+      const attempt = creationAttempt() ?? { id: `p-${crypto.randomUUID()}`, creation: { filesFolder: filesFolder(), startWith } }
+      setCreationAttempt(attempt)
+      const registered = await props.source.registerProject(attempt.id, trimmed, attempt.creation)
       const project = registered.name === trimmed ? registered : await props.source.renameProject(registered, trimmed)
       if (installationRoot) writeChoice(pageKey(project.id, 'runsOn'), installationRoot)
       await setProjects((list) => byProjectTime([...(list ?? []).filter((entry) => entry.id !== project.id), project]))
       setChosen(project.id)
       setName('')
       setCreateError(undefined)
-      creatingId = undefined
+      setCreationAttempt(undefined)
+      setFilesChoice(undefined)
+      setStartChoice('empty')
+      setCopySource(undefined)
+      setWorkflowFile(undefined)
+      setWorkflowError(undefined)
       props.shell.showProjects()
     } catch {
       setCreateError(message('projects.new.failed'))
@@ -909,6 +974,11 @@ export function ProjectsView(props: {
           disabled={creating()}
           onInput={(event) => setName(event.currentTarget.value)}
         />
+        <span>{message('projects.facts.filesFolder')}</span>
+        <span class="dinkster-project-form-path">
+          <span data-testid="new-project-files" data-tooltip-label={filesFolder() || undefined}>{filesFolder() || message('projects.new.folderUnknown')}</span>
+          <ProductTextButton label={message('projects.facts.change')} disabled={creationLocked()} onClick={() => { void chooseFilesFolder() }} />
+        </span>
         <label for="new-project-runs-on">{message('projects.facts.runsOn')}</label>
         <ProductSelect id="new-project-runs-on" value={chosenInstallation()?.root ?? ''}
           disabled={creating() || (installations()?.all.length ?? 0) === 0}
@@ -917,13 +987,49 @@ export function ProjectsView(props: {
             <For each={installations()?.all}>{(row) => <option value={row.root}>{row.name} - {message('projects.facts.thisComputer')}</option>}</For>
           </Show>
         </ProductSelect>
+        <span>{message('projects.new.startWith')}</span>
+        <div class="dinkster-stack">
+          <ProductSegmented label={message('projects.new.startWith')} value={startChoice()} onChange={setStartChoice}
+            options={[
+              { value: 'empty', label: message('projects.new.empty') },
+              { value: 'workflow', label: message('projects.new.workflowFile') },
+              { value: 'project', label: message('projects.new.copyProject') },
+            ].map((option) => ({ ...option, ...(creationLocked() ? { disabled: message('projects.new.choicesLocked') } : {}) }))} />
+          <Show when={startChoice() === 'workflow'}>
+            <ProductField label={message('projects.new.workflowFile')} error={workflowError() ?? ''}>{(attributes) => <div class="dinkster-project-form-path">
+              <span>{workflowFile()?.name ?? message('projects.new.noWorkflow')}</span>
+              <ProductButton {...attributes} disabled={creationLocked()} onClick={() => workflowInput.click()}>{message('projects.new.chooseWorkflow')}</ProductButton>
+              <ProductFileInput ref={workflowInput} accept=".json,application/json" disabled={creationLocked()} onChange={(event) => {
+                const file = event.currentTarget.files?.[0]
+                event.currentTarget.value = ''
+                if (file) void readWorkflow(file)
+              }} />
+            </div>}</ProductField>
+          </Show>
+          <Show when={startChoice() === 'project'}>
+            <ProductField label={message('projects.new.copyProject')}>{(attributes) => <ProductSelect {...attributes} value={startingProject() ?? ''} disabled={creationLocked() || !live()?.length} onChange={(event) => setCopySource(event.currentTarget.value)}>
+              <For each={live()}>{(row) => <option value={row.id}>{row.name}</option>}</For>
+            </ProductSelect>}</ProductField>
+          </Show>
+        </div>
         <div class="dinkster-actions">
-          <ProductButton disabled={creating()} onClick={() => { creatingId = undefined; setCreateError(undefined); props.shell.showProjects() }}>{message('projects.action.cancel')}</ProductButton>
-          <ProductButton type="submit" intent="add" fill="solid" disabled={name().trim() === '' || creating()}>
+          <ProductButton disabled={creating()} onClick={() => { setCreationAttempt(undefined); setCreateError(undefined); props.shell.showProjects() }}>{message('projects.action.cancel')}</ProductButton>
+          <ProductButton type="submit" intent="add" fill="solid" disabled={name().trim() === '' || !filesFolder().trim() || !startingContents() || creating() || readingWorkflow() || choosingFolder()}>
             {message('projects.new.create')}
           </ProductButton>
         </div>
       </form>
+      <Show when={folderDraft() !== undefined}>
+        <ProductDialog title={message('projects.new.changeFolder')} onDismiss={() => setFolderDraft(undefined)}>
+          <form class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); if (folderDraft()!.trim()) { setFilesChoice(folderDraft()!.trim()); setFolderDraft(undefined) } }}>
+            <ProductField label={message('projects.facts.filesFolder')}>{(attributes) => <ProductTextInput {...attributes} value={folderDraft()} onInput={(event) => setFolderDraft(event.currentTarget.value)} required />}</ProductField>
+            <div class="dinkster-actions">
+              <ProductButton onClick={() => setFolderDraft(undefined)}>{message('projects.action.cancel')}</ProductButton>
+              <ProductButton type="submit" disabled={!folderDraft()!.trim()}>{message('projects.new.useFolder')}</ProductButton>
+            </div>
+          </form>
+        </ProductDialog>
+      </Show>
     </>
   )
 

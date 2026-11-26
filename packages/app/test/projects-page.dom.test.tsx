@@ -4,7 +4,7 @@ import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { setLocale } from '@dinkster/core'
-import type { LibraryProject } from '@dinkster/client'
+import type { LibraryProject, ProjectCreation } from '@dinkster/client'
 import '../src/locale.js'
 import {
   ProjectsView,
@@ -64,7 +64,7 @@ function source(projects: readonly LibraryProject[]): ProjectsSource {
           }]
         : [],
     usage: async () => undefined,
-    installations: async () => ({ all: [stable, nightly], open: stable, openFolder: true }),
+    installations: async () => ({ all: [stable, nightly], open: stable, openFolder: true, projectsFolder: '/configured/projects' }),
     openFolder: async () => {},
     workflowDocument: async () => undefined,
     definitions: async () => undefined,
@@ -307,19 +307,24 @@ const button = (label: string) => [...document.querySelectorAll('button')].find(
 const menuItem = (label: string) =>
   [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === label) as HTMLElement | undefined
 
-it('keeps the chosen installation and one project identity across a lost creation response', async () => {
+it('keeps the chosen installation, starting contents and one project identity across a lost creation response', async () => {
   const [view, setView] = createSignal<ReturnType<ProjectsPageShell['view']>>({ kind: 'projects', newProject: true })
   const data = source(projects)
   const opened = vi.fn()
   let saved: LibraryProject | undefined
   const stored = new Map<string, LibraryProject>()
+  const creations: ProjectCreation[] = []
   let installationsUnavailable = false
   const readInstallations = data.installations
   data.installations = () => installationsUnavailable
     ? Promise.reject(new Error('installation list unavailable'))
     : readInstallations()
-  data.listProjects = async () => [...projects, ...stored.values()]
-  data.registerProject = async (id, name) => {
+  data.listProjects = async () => {
+    if (installationsUnavailable) throw new Error('project list unavailable')
+    return [...projects, ...stored.values()]
+  }
+  data.registerProject = async (id, name, creation = {}) => {
+    creations.push(creation)
     const existing = stored.get(id)
     if (existing) return existing
     const created = project(id, name, new Date(NOW).toISOString())
@@ -340,6 +345,15 @@ it('keeps the chosen installation and one project identity across a lost creatio
   const name = document.querySelector<HTMLInputElement>('#new-project-name')!
   name.value = 'My film'
   name.dispatchEvent(new Event('input', { bubbles: true }))
+  expect(document.querySelector('[data-testid="new-project-files"]')?.textContent).toBe('/configured/projects/my-film')
+  button('Change')!.click()
+  await settle()
+  const folder = document.querySelector<HTMLInputElement>('dialog input')!
+  folder.value = '/custom/My film files'
+  folder.dispatchEvent(new Event('input', { bubbles: true }))
+  button('Use folder')!.click()
+  document.querySelector<HTMLInputElement>('input[type="radio"][value="project"]')!.click()
+  await settle()
   const installation = document.querySelector<HTMLSelectElement>('#new-project-runs-on')!
   installation.value = nightly.root
   installation.dispatchEvent(new Event('change', { bubbles: true }))
@@ -348,6 +362,7 @@ it('keeps the chosen installation and one project identity across a lost creatio
   expect(document.body.textContent).toContain('Could not finish creating the project. Your choices are kept. Try again.')
   expect(name.value).toBe('My film')
   expect(installation.value).toBe(nightly.root)
+  expect(document.querySelector<HTMLInputElement>('input[type="radio"][value="empty"]')!.disabled).toBe(true)
   installationsUnavailable = true
   globalThis.dispatchEvent(new Event('focus'))
   await settle()
@@ -356,6 +371,10 @@ it('keeps the chosen installation and one project identity across a lost creatio
   button('Create')!.click()
   await settle()
   expect(stored.size).toBe(1)
+  expect(creations).toEqual([
+    { filesFolder: '/custom/My film files', startWith: { kind: 'project', project: 'p-film' } },
+    { filesFolder: '/custom/My film files', startWith: { kind: 'project', project: 'p-film' } },
+  ])
   expect([...stored.values()][0]?.name).toBe('My revised film')
   expect(rows().filter((row) => row?.startsWith('My revised film'))).toHaveLength(1)
   expect(localStorage.getItem(`dinkster.p.${saved!.id}.projectsPage.runsOn`)).toBe(nightly.root)
@@ -364,6 +383,39 @@ it('keeps the chosen installation and one project identity across a lost creatio
   await settle()
   document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')!.click()
   expect(opened).toHaveBeenCalledWith(saved!.id, nightly)
+})
+
+it('refuses an invalid workflow file and preserves a valid file as the starting document', async () => {
+  const data = source(projects)
+  let created: ProjectCreation | undefined
+  data.registerProject = async (id, name, creation) => {
+    created = creation
+    return project(id, name, new Date(NOW).toISOString())
+  }
+  render(() => <ProjectsView shell={{ ...shell(), view: () => ({ kind: 'projects', newProject: true }) }} source={data} />, document.body)
+  await settle()
+  const name = document.querySelector<HTMLInputElement>('#new-project-name')!
+  name.value = 'Workflow project'
+  name.dispatchEvent(new Event('input', { bubbles: true }))
+  document.querySelector<HTMLInputElement>('input[type="radio"][value="workflow"]')!.click()
+  const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
+  const choose = async (content: string) => {
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File([content], 'Scene.json', { type: 'application/json' })] })
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+  }
+  await choose('{')
+  expect(document.body.textContent).toContain('Choose a valid Dinkster workflow JSON file.')
+  expect(button('Create')!.disabled).toBe(true)
+  const content = JSON.stringify({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'source', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'Root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
+    view: { graphs: { g0: { nodes: {} } } } }, null, 2) + '\n'
+  await choose(content)
+  expect(document.body.textContent).not.toContain('Choose a valid Dinkster workflow JSON file.')
+  expect(button('Create')!.disabled).toBe(false)
+  button('Create')!.click()
+  await settle()
+  expect(created).toEqual({ filesFolder: '/configured/projects/workflow-project', startWith: { kind: 'workflow', name: 'Scene', content } })
 })
 
 it('renames the selected project at the revision it read', async () => {
@@ -537,15 +589,17 @@ it('keeps selection working when the process cannot list workflows or outputs', 
   expect(document.querySelector('[role="option"][aria-selected="true"]')?.textContent).toContain('Bookshop diorama')
 })
 
-it('shows the output folder as the Outputs fact, offers Show in folder only when the process can open it, and draws no fact without a folder', async () => {
+it('shows the Files parent with an output fallback and offers local folder reveal only when available', async () => {
   const folder = '/home/u/Dinkster/library/output'
-  const withFolder = [{ ...projects[1]!, folder }, { ...projects[0]!, folder: null }]
+  const parent = '/home/u/Dinkster/library'
+  const withFolder = [{ ...projects[1]!, folder, filesFolder: parent }, { ...projects[0]!, folder: null }]
   const data = source(withFolder)
   const opened = vi.spyOn(data, 'openFolder').mockRejectedValueOnce(new Error('POST failed: 404'))
   const facts = () => document.querySelector('[aria-label="About this project"]')?.textContent ?? ''
   const first = render(() => <ProjectsView shell={shell()} source={data} />, document.body)
   await settle()
-  expect(facts()).toContain('Outputs' + folder)
+  expect(facts()).toContain('Files' + parent)
+  expect(facts()).not.toContain(folder)
   button('Show in folder')!.click()
   await settle()
   expect(opened).toHaveBeenCalledWith('p-film')
@@ -553,10 +607,10 @@ it('shows the output folder as the Outputs fact, offers Show in folder only when
   ;[...document.querySelectorAll('[role="option"]')].find((row) => row.textContent?.startsWith('Bookshop'))!
     .dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await settle()
-  expect(facts()).not.toContain('Outputs')
+  expect(facts()).not.toContain('Files')
   first()
   document.body.replaceChildren()
-  render(() => <ProjectsView shell={shell()} source={{ ...data, installations: async () => ({ all: [stable], openFolder: false }) }} />, document.body)
+  render(() => <ProjectsView shell={shell()} source={{ ...source([{ ...projects[1]!, folder }]), installations: async () => ({ all: [stable], openFolder: false }) }} />, document.body)
   await settle()
   expect(facts()).toContain(folder)
   expect(button('Show in folder')).toBeUndefined()
