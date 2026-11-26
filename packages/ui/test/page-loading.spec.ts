@@ -345,6 +345,9 @@ test('known project detail stays fixed while loading is centered without coverin
       reducedMotion: width === 390 ? 'reduce' : 'no-preference',
     })
     await page.goto('/#page-loading')
+    await expect(
+      page.getByRole('region', { name: 'Page loading', exact: true }),
+    ).toBeVisible()
     await page.goto('/#project-loading')
     const section = page.getByRole('region', {
       name: 'Project detail loading',

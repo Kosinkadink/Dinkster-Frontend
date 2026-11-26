@@ -7,7 +7,7 @@
   "buttonFills": {
     "solid": "Commits the action immediately; at most one main action per screen.",
     "outline": "Opens a step or confirmation, or changes nothing saved.",
-    "quiet": "Icon and toolbar controls only."
+    "quiet": "Icon, toolbar and transient resource-release controls. Resource release is neutral at rest and coral on hover or keyboard focus, without confirmation."
   },
   "messages": {
     "fieldError": {
