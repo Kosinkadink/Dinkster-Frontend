@@ -921,7 +921,8 @@
 .dinkster-canvas-color-handle { pointer-events: none; }
 .dinkster-canvas-color-checker-light { fill: var(--dinkster-checker-light); }
 .dinkster-canvas-color-checker-dark { fill: var(--dinkster-checker-dark); }
-.dinkster-canvas-color-code { display: inline-flex; align-items: center; gap: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); white-space: nowrap; vertical-align: top; }
+.dinkster-canvas-color-code { display: inline-flex; align-items: center; gap: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); white-space: nowrap; vertical-align: top; font-family: var(--dinkster-font-mono); }
+.dinkster-canvas-field-row:has(.dinkster-canvas-color-square) .dinkster-canvas-field-input { font-family: var(--dinkster-font-mono); }
 .dinkster-canvas-color-line { margin: 0; }
 .dinkster-canvas-color-line .dinkster-spinner { margin-right: var(--dinkster-space-4); }
 .dinkster-canvas-steps { display: flex; justify-content: space-between; gap: var(--dinkster-space-16); padding-top: var(--dinkster-space-16); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
