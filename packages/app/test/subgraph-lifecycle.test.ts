@@ -574,6 +574,34 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     expect(await runPress(detachedReload, target, host)).toMatchObject({ kind: 'done' })
     expect(detachedReload.doc.graphs.root!.nodes.first!.values.gain).toBe(24)
     expect(detachedReload.doc.graphs.root!.nodes.second!.values.gain).toBe(80)
+    for (const mode of ['muted', 'bypassed'] as const) {
+      const changed = createLocalSession(beforePress, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+      expect(changed.dispatch({ command: 'node.setMode', params: { graphId: 'detail', nodeIds: [shell.id], mode } }).ok).toBe(true)
+      const beforeModeFlatten = changed.doc
+      const result = await flatten(changed.doc, 'detail', ['first'], shell.id, resolve)
+      if (mode === 'bypassed') {
+        expect(result.ok).toBe(false)
+        expect(result.session.doc).toEqual(beforeModeFlatten)
+        expect(result.session.canUndo).toBe(false)
+        continue
+      }
+      expect(result.ok, JSON.stringify(result.reports)).toBe(true)
+      expect(Object.values(result.session.doc.graphs.detail!.nodes).find((entry) => entry.type === 'Counter')!.mode).toBe('muted')
+      expect(runOf(result.session.doc, resolve)).toEqual(runOf(beforeModeFlatten, resolve))
+      const mutedReload = createLocalSession(JSON.parse(JSON.stringify(result.session.doc)), host.commands, { schemaResolverFor: host.schemaResolverFor! })
+      const beforeMutedPress = mutedReload.doc
+      expect(await runPress(mutedReload, target, host)).toMatchObject({ kind: 'done' })
+      expect(mutedReload.doc.graphs.root!.nodes.first!.values.gain).toBe(17)
+      expect(mutedReload.doc.graphs.root!.nodes.second!.values.gain).toBe(80)
+      expect(mutedReload.doc.graphs.detail).toEqual(beforeMutedPress.graphs.detail)
+      expect(mutedReload.undo()).toBe(true)
+      expect(mutedReload.doc).toEqual(beforeMutedPress)
+      expect(result.session.undo()).toBe(true)
+      expect(result.session.doc.graphs.detail!.nextOrdinal).toBe(beforeModeFlatten.graphs.detail!.nextOrdinal + 1)
+      expect(result.session.doc).toEqual({ ...beforeModeFlatten, graphs: { ...beforeModeFlatten.graphs,
+        detail: { ...beforeModeFlatten.graphs.detail!, nextOrdinal: result.session.doc.graphs.detail!.nextOrdinal },
+      } })
+    }
   })
 
   it('flattening the outer subgraph node keeps every run input, member order and pick', async () => {
