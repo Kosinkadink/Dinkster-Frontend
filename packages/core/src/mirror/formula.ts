@@ -87,8 +87,8 @@ export interface FormulaValues {
   readonly values?: ReadonlyMap<string, FormulaValue | Unknown>
   /** A lazy read; availability checks must not start work to obtain a value. */
   readonly read?: (name: string, availability: boolean) => FormulaValue | Unknown | undefined
-  /** Observe an evaluated row or fact dependency without requesting its scalar value. */
-  readonly onRead?: (name: string) => void
+  /** Observe a row or fact dependency; availability is true inside `known()`. */
+  readonly onRead?: (name: string, fact?: string, availability?: boolean) => void
   readonly linked?: ReadonlyMap<string, boolean>
   readonly linkedTypes?: ReadonlyMap<string, string | null>
   readonly groupSizes?: ReadonlyMap<string, number>
@@ -1575,7 +1575,7 @@ class Evaluator {
     const name = (node.func as Extract<Node, { type: 'name' }>).name
     if (NAME_FACTS.has(name)) {
       const target = dotted(node.args[0]!)!
-      this.values.onRead?.(target)
+      this.values.onRead?.(target, name, this.checkingAvailability)
       if (name === 'linked') return this.values.linked?.get(target) ?? false
       if (name === 'linked_type') return this.values.linkedTypes?.get(target) ?? null
       const fact = this.values.facts?.get(`${name}(${target})`)

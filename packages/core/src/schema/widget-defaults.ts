@@ -28,7 +28,7 @@
  * `packages/core/test/widget-defaults.test.ts` pins the agreement with the
  * widgets package for the kinds that must match.
  */
-import type { Json } from '../format/document.js'
+import type { AssetRef, Json } from '../format/document.js'
 import { EMPTY_COMPOSITOR_RECIPE, isCompositorRecipe } from '../compositor.js'
 import { isComboValue, normalizeComboOption } from './combo-options.js'
 import { isIntegerWidgetValue } from './numeric-step.js'
@@ -69,7 +69,7 @@ function curveValue(v: unknown): boolean {
 }
 
 /** Mirrors widgets kinds.ts isAssetRef: a complete, executable asset reference. */
-export function isAssetRefValue(v: unknown): boolean {
+export function isAssetRefValue(v: unknown): v is AssetRef {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return false
   const asset = v as Record<string, unknown>
   return typeof asset['digest'] === 'string' && /^blake3:[0-9a-f]{64}$/.test(asset['digest']) &&

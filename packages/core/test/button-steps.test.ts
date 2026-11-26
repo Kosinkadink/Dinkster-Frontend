@@ -826,6 +826,63 @@ describe('each step', () => {
 })
 
 describe('what a press may write', () => {
+  it('reads effective asset filenames in scope and after staged picker changes as one undo step', async () => {
+    const asset = (name: string) => ({ digest: `blake3:${'a'.repeat(64)}`, name, size: 123, mediaType: 'image/png', virtualPath: `input/${name}` })
+    const rows = [
+      { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: ['image/*'] } },
+      { kind: 'input', id: 'result', type: { kind: 'concrete', types: ['STRING'] }, default: 'old' },
+      { kind: 'input', id: 'after', type: { kind: 'concrete', types: ['STRING'] }, default: 'before' },
+      { kind: 'button', id: 'fact', label: 'Read filename', steps: [
+        { step: 'set', field: 'result', value: { formula: 'filename(image)' } },
+        { step: 'disconnect', input: 'image' },
+        { step: 'openPicker', field: 'image' },
+        { step: 'set', field: 'after', value: { formula: 'filename(image)' } },
+      ] },
+    ]
+    addSchema('test.asset_fact', rows)
+    addSchema('test.asset_fact_member', [{ kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+      keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: rows }])
+    addSchema('test.asset_fact_output', [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['ASSET'] } }])
+    for (const prefix of ['', 'items.m0.']) for (const driver of ['saved', 'tap', 'output']) {
+      const wired = driver !== 'saved'
+      const doc = documentOf({
+        n1: { type: prefix === '' ? 'test.asset_fact' : 'test.asset_fact_member',
+          values: { [prefix + 'image']: asset('saved.png'), [prefix + 'result']: 'old', [prefix + 'after']: 'before' },
+          ...(prefix === '' ? {} : { dynamic: { items: { members: ['m0'], seq: 1 } } }) },
+        src: { type: driver === 'output' ? 'test.asset_fact_output' : 'test.asset_fact', values: { image: asset('incoming.png') } },
+      }, wired ? { feed: { id: asLinkId('feed'), from: driver === 'output' ? { node: asNodeId('src'), port: asPortId('out') }
+        : { node: asNodeId('src'), tap: asPortId('image') },
+        to: { node: asNodeId('n1'), port: asPortId(prefix + 'image') } } } : {})
+      const session = sessionOf(doc)
+      const host = hostOf({ openPicker: async () => asset('picked.png') })
+      const target = at(prefix + 'fact')
+      if (driver === 'output') {
+        expect(buttonAvailability(doc, target, host)).toEqual({ enabled: false, reason: 'Needs image, which is not known until a run.' })
+        expect((await runPress(session, target, host)).kind).toBe('failed')
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+        const part = (formula: string) => [{ graphId: 'g0', nodeId: 'n1', prefix, steps: decodeSteps([
+          { step: 'set', field: 'result', value: { formula } },
+        ]) }]
+        expect((await runSteps(session, part('filename(image) if known(filename(image)) else "unknown"'), host)).kind).toBe('done')
+        expect(valuesOf(session)[prefix + 'result']).toBe('unknown')
+        expect((await runSteps(session, part('"lazy" if True else filename(image)'), host)).kind).toBe('done')
+        expect(valuesOf(session)[prefix + 'result']).toBe('lazy')
+        continue
+      }
+      expect(buttonAvailability(doc, target, host)).toEqual({ enabled: true })
+      expect((await runPress(session, target, host)).kind).toBe('done')
+      expect(valuesOf(session)).toEqual({ [prefix + 'image']: asset('picked.png'),
+        [prefix + 'result']: wired ? 'incoming.png' : 'saved.png', [prefix + 'after']: 'picked.png' })
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(session.doc).toEqual(doc)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+    }
+  })
+
   it('reads connected types without execution values and refreshes facts after Disconnect', async () => {
     const int = (id: string) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 7 })
     const rows = [

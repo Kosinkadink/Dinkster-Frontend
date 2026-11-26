@@ -68,7 +68,7 @@ import type {
   WidgetSpec,
 } from './model.js'
 import { isAssetWidgetInput, isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
-import { readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
+import { isAssetRefValue, readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
 import { normalizeComboOption } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
@@ -891,12 +891,15 @@ export function automaticValueOf(row: InputSpec, value: FormulaValue | Json): Js
 
 /** Formula values worked out only when the formula reads them. */
 class LazyValues<T = FormulaValue | Unknown> extends Map<string, T> {
-  private readonly thunks = new Map<string, () => T>()
-  setLazy(name: string, thunk: () => T): void {
+  private readonly thunks = new Map<string, () => T | undefined>()
+  setLazy(name: string, thunk: () => T | undefined): void {
     this.thunks.set(name, thunk)
   }
   override get(name: string): T | undefined {
-    if (!super.has(name) && this.thunks.has(name)) super.set(name, this.thunks.get(name)!())
+    if (!super.has(name) && this.thunks.has(name)) {
+      const value = this.thunks.get(name)!()
+      if (value !== undefined) super.set(name, value)
+    }
     return super.get(name)
   }
 }
@@ -1342,7 +1345,17 @@ function elaboratePass(
     const values = new LazyValues()
     const wired = new Map<string, boolean>()
     const linkedTypes = new LazyValues<string | null>()
+    const facts = new LazyValues<FormulaValue>()
     const sizes = new Map<string, number>()
+    for (const name of names.assets) facts.setLazy(`filename(${name})`, () => {
+      if (unknown.has(name)) return undefined
+      const constant = fixed.get(name)
+      const path = where.get(name)
+      const value = constant !== undefined ? (constant.linked === true ? undefined : constant.value)
+        : path === undefined ? undefined : linked(path) ? options.incomingValue?.(path)
+          : Object.hasOwn(node.values, path) ? node.values[path] : defaults.get(path)
+      return isAssetRefValue(value) ? value.name : undefined
+    })
     for (const [name, kind] of names.names) {
       const path = where.get(name)!
       const constant = fixed.get(name)
@@ -1387,6 +1400,7 @@ function elaboratePass(
         values,
         linked: wired,
         linkedTypes,
+        facts,
         groupSizes: sizes,
         memberIndex: member?.index ?? null,
         memberKey: member?.key ?? null,

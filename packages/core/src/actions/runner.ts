@@ -38,7 +38,7 @@ import { asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, portAddressKey
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, traceEndpoint } from '../reroute.js'
 import { boundaryItems, resolveDynamicAddress } from '../format/document.js'
-import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaOutcome, type FormulaValue } from '../mirror/formula.js'
+import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaOutcome, type FormulaValue, type FormulaValues } from '../mirror/formula.js'
 import { constructsOf, keyPosition, rowKind } from '../schema/body.js'
 import { isComboValue, normalizeComboOption, normalizedComboOptions, type NormalizedComboOption } from '../schema/combo-options.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
@@ -764,7 +764,7 @@ interface Locals {
   readonly values: Map<string, Value>
 }
 
-function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?: (name: string, availability: boolean) => Value | typeof UNKNOWN | undefined, onRead?: (name: string) => void, inspectReads = false): FormulaOutcome {
+function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?: (name: string, availability: boolean) => Value | typeof UNKNOWN | undefined, onRead?: FormulaValues['onRead'], inspectReads = false): FormulaOutcome {
   const scope = { ...context.scope, names: new Map([...context.scope.names, ...locals.kinds]) }
   const values = { ...context.values, read: (name: string, availability: boolean) =>
     locals.values.has(name) ? locals.values.get(name) : read === undefined ? context.values.values?.get(name) : read(name, availability), ...(onRead === undefined ? {} : { onRead }) }
@@ -784,7 +784,11 @@ function unknownWired(context: FormulaContext, locals: Locals, text: string, wir
     const value = read(name)
     if (!availability && (value === undefined || value === UNKNOWN) && wired(name)) needed.push(name)
     return value
-  }, onRead)
+  }, (name, fact, availability) => {
+    onRead?.(name)
+    if (!availability && fact !== undefined && fact !== 'linked' && fact !== 'linked_type' &&
+      context.values.facts?.get(`${fact}(${name})`) === undefined && wired(name)) needed.push(name)
+  })
   return outcome.kind === 'unknown' ? needed : []
 }
 
@@ -1916,7 +1920,11 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
       }
       for (const text of texts) {
         try {
-          evaluateIn(scope, locals, text, requiredRead, (name) => checkRead(scope, name), true)
+          evaluateIn(scope, locals, text, requiredRead, (name, fact, availability) => {
+            checkRead(scope, name)
+            if (!availability && fact !== undefined && fact !== 'linked' && fact !== 'linked_type' &&
+              scope.values.facts?.get(`${fact}(${name})`) === undefined && wiredName(name, scope)) needed.push(name)
+          }, true)
         } catch (error) {
           if (error !== pending) throw error
         }
