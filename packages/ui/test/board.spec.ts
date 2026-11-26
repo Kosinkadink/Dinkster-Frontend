@@ -40,8 +40,12 @@ test('pictures move and resize without changing their shape, and edits undo and 
   await page.keyboard.press('ArrowLeft')
   const expanded = (await picture.boundingBox())!
   expect(expanded.width).toBeCloseTo(anchored.width + 10)
-  expect(expanded.x + expanded.width).toBeCloseTo(anchored.x + anchored.width)
-  expect(expanded.y + expanded.height).toBeCloseTo(anchored.y + anchored.height)
+  expect(expanded.x + expanded.width).toBeCloseTo(
+    anchored.x + anchored.width,
+  )
+  expect(expanded.y + expanded.height).toBeCloseTo(
+    anchored.y + anchored.height,
+  )
 })
 
 test('moving a section moves its contents, notes edit, and a new note is undoable', async ({
@@ -88,19 +92,24 @@ test('moving a section moves its contents, notes edit, and a new note is undoabl
   )
   await expect(section).toHaveAttribute('data-selected', 'false')
   await expect(section.locator('.dinkster-board-caption')).toHaveCount(0)
+  const noteItem = page.locator('[data-board-item="note-1"]')
+  await noteItem.click()
+  await expect(noteItem.getByRole('textbox')).toHaveCount(0)
+  await page.keyboard.press('Enter')
   const note = page.getByRole('textbox', { name: 'Note text' })
   await note.fill('Keep the reflections, not the camera angle.')
   await note.press('Tab')
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
-  await expect(note).toHaveValue(/Reference for the light/)
-  await note.click()
+  await expect(noteItem).toContainText('Reference for the light')
+  await noteItem.click()
   await expect(page.locator('[data-board-item="note-1"]')).toHaveAttribute(
     'data-selected',
     'true',
   )
-  await note.press('Escape')
+  await page.keyboard.press('Escape')
   await expect(page.locator('[data-selected="true"]')).toHaveCount(0)
-  await note.click()
+  await noteItem.dblclick()
+  await expect(note).toBeFocused()
   const empty = (await page.locator('.dinkster-board').boundingBox())!
   await page.mouse.click(empty.x + empty.width - 30, empty.y + 300)
   await expect(page.locator('[data-selected="true"]')).toHaveCount(0)
@@ -110,9 +119,9 @@ test('moving a section moves its contents, notes edit, and a new note is undoabl
   await page.getByRole('button', { name: 'Add note', exact: true }).click()
   const board = (await page.locator('.dinkster-board').boundingBox())!
   await page.mouse.click(board.x + board.width - 60, board.y + 640)
-  await expect(page.getByRole('textbox', { name: 'Note text' })).toHaveCount(2)
+  await expect(page.locator('[data-kind="note"]')).toHaveCount(2)
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: 'Note text' })).toHaveCount(1)
+  await expect(page.locator('[data-kind="note"]')).toHaveCount(1)
 })
 
 test('sound and video play in place, and media can move, resize and undo removal', async ({
@@ -122,8 +131,9 @@ test('sound and video play in place, and media can move, resize and undo removal
   const sound = page.locator('[data-board-item="sound-1"]')
   await expect(
     sound
-      .getByRole('img', { name: 'Waveform of Reference chimes' })
-      .locator('path'),
+      .getByRole('slider', { name: 'Waveform of Reference chimes' })
+      .locator('path')
+      .first(),
   ).not.toHaveAttribute('d', '')
   await expect(sound).toContainText('0:04')
   for (const [id, name] of [
@@ -152,24 +162,52 @@ test('sound and video play in place, and media can move, resize and undo removal
     const duration = await item
       .locator('audio, video')
       .evaluate((element) => (element as HTMLMediaElement).duration)
-    const progress = item.getByRole('progressbar', {
-      name: `Playback of ${name}`,
+    const progress = item.getByRole('slider', {
+      name: id === 'sound-1' ? `Waveform of ${name}` : `Seek ${name}`,
     })
     await expect(progress).toHaveAttribute('aria-valuenow', String(elapsed))
-    const width = (await progress.locator('span').boundingBox())!.width
-    expect(width / (await progress.boundingBox())!.width).toBeCloseTo(
-      elapsed / duration,
-      2,
-    )
-    await expect(item.locator('.dinkster-board-media-control')).toContainText(
+    await expect(
+      item.locator('.dinkster-board-media-control'),
+    ).toContainText(
       `0:${Math.floor(elapsed).toString().padStart(2, '0')} / 0:04`,
     )
     await page.waitForTimeout(300)
     await expect(progress).toHaveAttribute('aria-valuenow', String(elapsed))
-    expect((await item.boundingBox())!.x).toBeCloseTo(before.x)
-    await page.mouse.move(before.x + 20, before.y + 20)
+    const track = (await progress.boundingBox())!
+    await page.mouse.click(
+      track.x + track.width * 0.25,
+      track.y + track.height / 2,
+    )
+    await expect
+      .poll(() =>
+        item
+          .locator('audio, video')
+          .evaluate((element) => (element as HTMLMediaElement).currentTime),
+      )
+      .toBeCloseTo(duration * 0.25, 1)
+    await page.mouse.move(
+      track.x + track.width * 0.25,
+      track.y + track.height / 2,
+    )
     await page.mouse.down()
-    await page.mouse.move(before.x + 60, before.y + 40)
+    await page.mouse.move(
+      track.x + track.width * 0.75,
+      track.y + track.height / 2,
+    )
+    await page.mouse.up()
+    await expect
+      .poll(() =>
+        item
+          .locator('audio, video')
+          .evaluate((element) => (element as HTMLMediaElement).currentTime),
+      )
+      .toBeCloseTo(duration * 0.75, 1)
+    expect((await item.boundingBox())!.x).toBeCloseTo(before.x)
+    const dragY =
+      id === 'sound-1' ? before.y + before.height - 8 : before.y + 20
+    await page.mouse.move(before.x + 20, dragY)
+    await page.mouse.down()
+    await page.mouse.move(before.x + 60, dragY + 20)
     await page.mouse.up()
     expect((await item.boundingBox())!.x).toBeCloseTo(before.x + 40)
     await item.getByRole('separator', { name: 'Resize item' }).focus()
@@ -216,7 +254,9 @@ test('two fingers pan and zoom the board without moving its items', async ({
   expect(after.x).toBeCloseTo((before.x - (x + 40)) * 2 + x + 100)
   await page.getByTestId('canvas-fit-view').click()
   await expect(picture).toBeVisible()
-  expect((await picture.boundingBox())!.width).toBeLessThanOrEqual(before.width)
+  expect((await picture.boundingBox())!.width).toBeLessThanOrEqual(
+    before.width,
+  )
   await expect(page.getByTestId('minimap-toggle')).toHaveCount(0)
   await page.getByTestId('canvas-zoom-level').click()
   await page.getByTestId('canvas-zoom-reset').click()

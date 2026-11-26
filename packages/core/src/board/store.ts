@@ -13,6 +13,7 @@ import { applyOwnedOps, invertOps, type PatchOp } from '../commands/patch.js'
 import { ownJson } from '../format/json.js'
 import {
   BOARD_MAX_ITEMS,
+  boardDropSection,
   loadBoard,
   readBoardItem,
   sectionMembers,
@@ -63,7 +64,7 @@ function nextId(kind: string, taken: ReadonlySet<string>): string {
 
 /**
  * Plan one command into forward patch ops against `board`. Moving a section
- * moves what it holds: the items wholly inside it before the move.
+ * moves its stored members, without adopting items at its destination.
  */
 export function planBoardCommand(
   board: BoardDocument,
@@ -88,6 +89,13 @@ export function planBoardCommand(
         created.push(id)
       }
       ops.push({ op: 'replace', path: ['order'], value: owned([...board.order, ...created]), oldValue: board.order as unknown as Json })
+      const next = applyOwnedOps(board as unknown as Json, ops) as unknown as BoardDocument
+      const newSections = created.filter((id) => next.items[id]!.kind === 'section')
+      for (const id of next.order) {
+        const item = next.items[id]!
+        const parent = boardDropSection(next, item, item.rect, created.includes(id) ? next.order : newSections)
+        if (parent !== undefined) ops.push(...membershipOps(item, parent))
+      }
       return { ok: true, forward: ops, created }
     }
     case 'board.item.move': {
@@ -114,6 +122,11 @@ export function planBoardCommand(
         ops.push({ op: 'replace', path: ['items', id, 'rect'], value: owned({ ...rect, x: to.x, y: to.y }), oldValue: rect as unknown as Json })
       }
       if (ops.length === 0) return refuse('move.none', 'nothing moved')
+      const next = applyOwnedOps(board as unknown as Json, ops) as unknown as BoardDocument
+      for (const move of moves) {
+        const item = next.items[move.id]!
+        ops.push(...membershipOps(item, boardDropSection(next, item, item.rect)))
+      }
       return { ok: true, forward: ops, created: [] }
     }
     case 'board.item.resize': {
@@ -130,6 +143,10 @@ export function planBoardCommand(
         const item = board.items[id]
         if (item === undefined) return missing(id)
         ops.push({ op: 'remove', path: ['items', id], oldValue: item as unknown as Json })
+      }
+      for (const id of board.order) {
+        const item = board.items[id]!
+        if (!ids.has(id) && item.sectionId !== undefined && ids.has(item.sectionId)) ops.push(...membershipOps(item, undefined))
       }
       ops.push({ op: 'replace', path: ['order'], value: owned(board.order.filter((id) => !ids.has(id))), oldValue: board.order as unknown as Json })
       return { ok: true, forward: ops, created: [] }
@@ -151,6 +168,15 @@ export function planBoardCommand(
     default:
       return refuse('command.unknown', `unknown board command '${String((invocation as { readonly command?: unknown }).command)}'`)
   }
+}
+
+function membershipOps(item: BoardItem, sectionId: string | undefined): PatchOp[] {
+  if (item.sectionId === sectionId) return []
+  const path = ['items', item.id, 'sectionId']
+  if (sectionId === undefined) return [{ op: 'remove', path, oldValue: item.sectionId! }]
+  return item.sectionId === undefined
+    ? [{ op: 'add', path, value: sectionId }]
+    : [{ op: 'replace', path, value: sectionId, oldValue: item.sectionId }]
 }
 
 interface HistoryEntry {

@@ -19,6 +19,7 @@ import {
 } from 'lucide-solid'
 import {
   BOARD_MIN_SIDE,
+  boardDropSection,
   boardPaintOrder,
   sectionMembers,
   type BoardAsset,
@@ -108,7 +109,49 @@ function BoardMedia(props: {
   const [waveform, setWaveform] = createSignal('')
   const [waveformFailed, setWaveformFailed] = createSignal(false)
   const [playFailed, setPlayFailed] = createSignal(false)
+  const waveformClip = createUniqueId()
   let media!: HTMLMediaElement
+  const fraction = () =>
+    duration() ? Math.min(1, elapsed() / duration()!) : 0
+  const seek = (seconds: number) => {
+    if (!Number.isFinite(duration()) || !duration()) return
+    media.currentTime = Math.max(0, Math.min(duration()!, seconds))
+    setElapsed(media.currentTime)
+  }
+  const scrub = (event: PointerEvent) => {
+    const target = event.currentTarget as Element
+    const bounds = target.getBoundingClientRect()
+    seek(((event.clientX - bounds.left) / bounds.width) * (duration() ?? 0))
+  }
+  const scrubStart = (event: PointerEvent) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const target = event.currentTarget as HTMLElement
+    target.focus()
+    target.setPointerCapture(event.pointerId)
+    scrub(event)
+  }
+  const scrubMove = (event: PointerEvent) => {
+    if ((event.currentTarget as Element).hasPointerCapture(event.pointerId))
+      scrub(event)
+  }
+  const scrubKey = (event: KeyboardEvent) => {
+    const time =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? duration()
+          : event.key === 'ArrowRight'
+            ? elapsed() + 1
+            : event.key === 'ArrowLeft'
+              ? elapsed() - 1
+              : undefined
+    if (time === undefined) return
+    event.preventDefault()
+    event.stopPropagation()
+    seek(time)
+  }
   createEffect(() => {
     if (props.item.kind !== 'sound') return
     const src = props.src
@@ -215,10 +258,34 @@ function BoardMedia(props: {
                 class="dinkster-board-waveform"
                 viewBox="0 0 288 72"
                 preserveAspectRatio="none"
-                role="img"
+                role="slider"
+                tabindex={0}
                 aria-label={`Waveform of ${props.item.asset.name}`}
+                aria-valuemin={0}
+                aria-valuemax={duration() ?? 0}
+                aria-valuenow={elapsed()}
+                onPointerDown={scrubStart}
+                onPointerMove={scrubMove}
+                onKeyDown={scrubKey}
               >
+                <defs>
+                  <clipPath id={waveformClip}>
+                    <rect width={fraction() * 288} height={72} />
+                  </clipPath>
+                </defs>
                 <path d={waveform()} />
+                <path
+                  class="dinkster-board-waveform-played"
+                  d={waveform()}
+                  clip-path={`url(#${waveformClip})`}
+                />
+                <line
+                  class="dinkster-board-playhead"
+                  x1={fraction() * 288}
+                  x2={fraction() * 288}
+                  y1={0}
+                  y2={72}
+                />
               </svg>
             </Show>
           </>
@@ -264,32 +331,36 @@ function BoardMedia(props: {
               void toggle()
             }}
           />
+          <Show when={props.item.kind === 'video'}>
+            <div
+              class="dinkster-board-video-track"
+              role="slider"
+              tabindex={0}
+              aria-label={`Seek ${props.item.asset.name}`}
+              aria-valuemin={0}
+              aria-valuemax={duration() ?? 0}
+              aria-valuenow={elapsed()}
+              onPointerDown={scrubStart}
+              onPointerMove={scrubMove}
+              onKeyDown={scrubKey}
+            >
+              <span
+                ref={(element) =>
+                  createEffect(() => {
+                    element.style.width = `${fraction() * 100}%`
+                  })
+                }
+              />
+            </div>
+          </Show>
           <Show when={mediaLength(duration())}>
             {(length) => (
-              <span>
+              <span class="dinkster-board-media-time">
                 {mediaLength(Math.floor(elapsed()))} / {length()}
               </span>
             )}
           </Show>
         </div>
-        <Show when={Number.isFinite(duration()) && duration()! > 0}>
-          <div
-            class="dinkster-board-media-progress"
-            role="progressbar"
-            aria-label={`Playback of ${props.item.asset.name}`}
-            aria-valuemin={0}
-            aria-valuemax={duration()}
-            aria-valuenow={elapsed()}
-          >
-            <span
-              ref={(element) => {
-                createEffect(() => {
-                  element.style.width = `${Math.min(1, elapsed() / duration()!) * 100}%`
-                })
-              }}
-            />
-          </div>
-        </Show>
       </Show>
     </div>
   )
@@ -300,7 +371,10 @@ export function ProductBoard(props: ProductBoardProps) {
   const [document, setDocument] = createSignal(props.store.doc)
   const [selected, setSelected] = createSignal<string>()
   const [editingSection, setEditingSection] = createSignal<string>()
-  const [tool, setTool] = createSignal<'select' | 'note' | 'section'>('select')
+  const [editingNote, setEditingNote] = createSignal<string>()
+  const [tool, setTool] = createSignal<'select' | 'note' | 'section'>(
+    'select',
+  )
   const [camera, setCamera] = createSignal({ x: 16, y: 80, scale: 1 })
   let surface!: HTMLDivElement
   const gridId = createUniqueId()
@@ -414,7 +488,8 @@ export function ProductBoard(props: ProductBoardProps) {
         const dx = at.x - start.x
         const dy = at.y - start.y
         if (resize) rect = resizedRect(item, resize, dx, dy)
-        else rect = { ...item.rect, x: item.rect.x + dx, y: item.rect.y + dy }
+        else
+          rect = { ...item.rect, x: item.rect.x + dx, y: item.rect.y + dy }
         setPreview({ id: item.id, rect, moving: !resize })
       },
       (commit) => {
@@ -445,6 +520,7 @@ export function ProductBoard(props: ProductBoardProps) {
       return
     surface.focus({ preventScroll: true })
     setSelected(undefined)
+    setEditingNote(undefined)
     if (tool() !== 'select' && event.button === 0) {
       const at = point(event.clientX, event.clientY)
       const result = props.store.dispatch({
@@ -576,14 +652,29 @@ export function ProductBoard(props: ProductBoardProps) {
         if (event.key === 'Escape') {
           event.preventDefault()
           cancelGesture?.()
+          if (editingNote()) {
+            ;(event.target as HTMLElement).blur()
+            setEditingNote(undefined)
+            surface.focus({ preventScroll: true })
+            return
+          }
           setEditingSection(undefined)
           setSelected(undefined)
           setTool('select')
           surface.focus({ preventScroll: true })
           return
         }
-        if ((event.target as Element).closest('input, textarea, audio, video'))
+        if (
+          (event.target as Element).closest('input, textarea, audio, video')
+        )
           return
+        if (
+          event.key === 'Enter' &&
+          document().items[selected() ?? '']?.kind === 'note'
+        ) {
+          event.preventDefault()
+          setEditingNote(selected())
+        }
         if (
           event.key === 'Enter' &&
           document().items[selected() ?? '']?.kind === 'section'
@@ -648,7 +739,9 @@ export function ProductBoard(props: ProductBoardProps) {
                   item.kind !== 'sound' && value.width && value.height
                     ? `${value.width} x ${value.height}`
                     : '',
-                  item.kind !== 'picture' ? mediaLength(value.duration) : '',
+                  item.kind !== 'picture'
+                    ? mediaLength(value.duration)
+                    : '',
                 ]
                   .filter(Boolean)
                   .join(' / ')
@@ -672,7 +765,18 @@ export function ProductBoard(props: ProductBoardProps) {
                     data-board-item={item.id}
                     data-kind={item.kind}
                     data-selected={selected() === item.id}
+                    data-drop-target={
+                      preview()?.moving &&
+                      boardDropSection(
+                        document(),
+                        document().items[preview()!.id]!,
+                        preview()!.rect,
+                      ) === item.id
+                    }
                     onPointerDown={(event) => beginItem(event, item)}
+                    onDblClick={() => {
+                      if (item.kind === 'note') setEditingNote(item.id)
+                    }}
                   >
                     <Show when={item.kind === 'picture' && item}>
                       {(picture) => (
@@ -693,7 +797,8 @@ export function ProductBoard(props: ProductBoardProps) {
                     </Show>
                     <Show
                       when={
-                        (item.kind === 'video' || item.kind === 'sound') && item
+                        (item.kind === 'video' || item.kind === 'sound') &&
+                        item
                       }
                     >
                       {(media) => (
@@ -706,20 +811,33 @@ export function ProductBoard(props: ProductBoardProps) {
                     </Show>
                     <Show when={item.kind === 'note' && item}>
                       {(note) => (
-                        <ProductTextArea
-                          aria-label="Note text"
-                          value={note().text}
-                          onFocus={() => setSelected(item.id)}
-                          onChange={(event) =>
-                            props.store.dispatch({
-                              command: 'board.note.edit',
-                              params: {
-                                id: item.id,
-                                text: event.currentTarget.value,
-                              },
-                            })
+                        <Show
+                          when={editingNote() === item.id}
+                          fallback={
+                            <div class="dinkster-board-note-text">
+                              {note().text}
+                            </div>
                           }
-                        />
+                        >
+                          <ProductTextArea
+                            aria-label="Note text"
+                            value={note().text}
+                            ref={(input) =>
+                              queueMicrotask(() => input.focus())
+                            }
+                            onFocus={() => setSelected(item.id)}
+                            onBlur={() => setEditingNote(undefined)}
+                            onChange={(event) =>
+                              props.store.dispatch({
+                                command: 'board.note.edit',
+                                params: {
+                                  id: item.id,
+                                  text: event.currentTarget.value,
+                                },
+                              })
+                            }
+                          />
+                        </Show>
                       )}
                     </Show>
                     <Show when={item.kind === 'section' && item}>

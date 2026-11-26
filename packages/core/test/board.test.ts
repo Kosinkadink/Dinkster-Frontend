@@ -66,6 +66,43 @@ describe('board document', () => {
     expect(store.doc.items['picture-1']!.rect.width).toBe(600)
   })
 
+  it('keeps section membership through overlap, resize, save and undo, changing it only on item drops', () => {
+    const store = new BoardStore(emptyBoard())
+    store.dispatch({ command: 'board.item.add', params: { items: everyKind } })
+    expect(store.doc.items['picture-1']!.sectionId).toBe('section-1')
+    store.dispatch({ command: 'board.item.move', params: { moves: [{ id: 'section-1', x: 950, y: 0 }] } })
+    expect(store.doc.items['sound-1']!.sectionId).toBeUndefined()
+    const reopened = new BoardStore(JSON.parse(JSON.stringify(store.doc)))
+    reopened.dispatch({ command: 'board.item.move', params: { moves: [{ id: 'section-1', x: 1900, y: 0 }] } })
+    expect(reopened.doc.items['sound-1']!.rect.x).toBe(1000)
+    expect(reopened.doc.items['picture-1']!.rect.x).toBe(1940)
+    reopened.dispatch({ command: 'board.item.resize', params: { id: 'section-1', rect: { x: 900, y: 0, width: 2000, height: 500 } } })
+    expect(reopened.doc.items['sound-1']!.sectionId).toBeUndefined()
+    reopened.dispatch({ command: 'board.item.move', params: { moves: [{ id: 'sound-1', x: 1100, y: 70 }] } })
+    expect(reopened.doc.items['sound-1']!.sectionId).toBe('section-1')
+    reopened.dispatch({ command: 'board.item.move', params: { moves: [{ id: 'sound-1', x: 40, y: 70 }] } })
+    expect(reopened.doc.items['sound-1']!.sectionId).toBeUndefined()
+    reopened.undo()
+    expect(reopened.doc.items['sound-1']!.sectionId).toBe('section-1')
+    reopened.dispatch({ command: 'board.item.remove', params: { ids: ['section-1'] } })
+    expect(reopened.doc.items['sound-1']!.sectionId).toBeUndefined()
+    reopened.undo()
+    expect(reopened.doc.items['sound-1']!.sectionId).toBe('section-1')
+  })
+
+  it('captures existing items when a section is created, and rejects missing or cyclic parents', () => {
+    const store = new BoardStore(emptyBoard())
+    store.dispatch({ command: 'board.item.add', params: { items: everyKind.slice(1) } })
+    store.dispatch({ command: 'board.item.add', params: { items: [everyKind[0]!] } })
+    expect(store.doc.items['picture-1']!.sectionId).toBe('section-1')
+    expect(store.doc.items['sound-1']!.sectionId).toBeUndefined()
+    const saved = JSON.parse(JSON.stringify(store.doc))
+    saved.items['section-1'].sectionId = 'section-1'
+    expect(loadBoard(saved).document).toBeUndefined()
+    saved.items['section-1'].sectionId = 'missing'
+    expect(loadBoard(saved).document).toBeUndefined()
+  })
+
   it('paints sections under everything, and knows which media it can show', () => {
     const store = new BoardStore(emptyBoard())
     store.dispatch({ command: 'board.item.add', params: { items: [everyKind[4]!, everyKind[0]!] } })

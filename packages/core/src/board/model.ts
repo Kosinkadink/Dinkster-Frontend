@@ -3,7 +3,7 @@
  * named sections are laid out. It is a document kind of its own, saved
  * beside workflows, and holds media only as asset-digest references.
  *
- * Coordinates are world units with no grid. Items are keyed by id; `order`
+ * Coordinates are unsnapped world units. Items are keyed by id; `order`
  * is paint order, last on top. Sections are painted under every other item
  * whatever their place in `order`, so a section never hides what it holds.
  */
@@ -70,7 +70,9 @@ export interface BoardSectionItem {
   readonly name: string
 }
 
-export type BoardItem = BoardMediaItem | BoardNoteItem | BoardSectionItem
+export type BoardItem = (BoardMediaItem | BoardNoteItem | BoardSectionItem) & {
+  readonly sectionId?: string
+}
 
 export interface BoardDocument {
   readonly format: typeof BOARD_FORMAT
@@ -105,11 +107,33 @@ export const rectContains = (outer: BoardRect, inner: BoardRect): boolean =>
   inner.x >= outer.x && inner.y >= outer.y &&
   inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height
 
-/** The items a section holds: every other item wholly inside it, sections included. */
+/** Stored descendants of a section, independent of overlapping geometry. */
 export function sectionMembers(board: BoardDocument, sectionId: string): readonly string[] {
   const section = board.items[sectionId]
   if (section === undefined || section.kind !== 'section') return []
-  return board.order.filter((id) => id !== sectionId && rectContains(section.rect, board.items[id]!.rect))
+  const members = new Set<string>([sectionId])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const id of board.order) {
+      const parent = board.items[id]!.sectionId
+      if (!members.has(id) && parent !== undefined && members.has(parent)) {
+        members.add(id)
+        changed = true
+      }
+    }
+  }
+  return board.order.filter((id) => id !== sectionId && members.has(id))
+}
+
+/** Topmost section that would accept an explicitly dropped item. */
+export function boardDropSection(board: BoardDocument, item: BoardItem, rect: BoardRect, candidates: readonly string[] = board.order): string | undefined {
+  const descendants = new Set(sectionMembers(board, item.id))
+  return [...candidates].reverse().find((id) => {
+    const section = board.items[id]
+    return id !== item.id && !descendants.has(id) && section?.kind === 'section' && rectContains(section.rect, rect) &&
+      (item.kind !== 'section' || !rectContains(rect, section.rect) || board.order.indexOf(id) < board.order.indexOf(item.id))
+  })
 }
 
 const ITEM_ID = /^[a-z][a-z0-9-]{0,63}$/
@@ -163,23 +187,26 @@ export function readBoardItem(id: string, value: Json | undefined): BoardItem | 
   if (!ITEM_ID.test(id)) return fail('item.id', `${where}: ids are lowercase letters, digits and '-', starting with a letter`)
   if (!isObject(value)) return fail('item.invalid', `${where} must be an object`)
   if (value['id'] !== id) return fail('item.id', `${where}: its id field must equal its key`)
+  const sectionId = value['sectionId']
+  if (sectionId !== undefined && (typeof sectionId !== 'string' || !ITEM_ID.test(sectionId))) return fail('item.section', `${where}: sectionId must be an item id`)
+  const membership = sectionId === undefined ? {} : { sectionId: sectionId as string }
   const kind = value['kind']
   const rect = readRect(value['rect'], where)
   if ('severity' in rect) return rect
   if (typeof kind === 'string' && isBoardMediaKind(kind)) {
     const asset = readAsset(value['asset'], where)
     if ('severity' in asset) return asset
-    return { id, kind, rect, asset }
+    return { id, kind, rect, asset, ...membership }
   }
   if (kind === 'note') {
     const note = value['text']
     if (!text(note, BOARD_MAX_TEXT)) return fail('item.invalid', `${where}: note text must be a string of at most ${BOARD_MAX_TEXT} characters`)
-    return { id, kind, rect, text: note }
+    return { id, kind, rect, text: note, ...membership }
   }
   if (kind === 'section') {
     const name = value['name']
     if (!text(name, BOARD_MAX_NAME)) return fail('item.invalid', `${where}: section name must be a string of at most ${BOARD_MAX_NAME} characters`)
-    return { id, kind, rect, name }
+    return { id, kind, rect, name, ...membership }
   }
   return fail('item.kind', `${where}: unknown kind ${JSON.stringify(kind)}`)
 }
@@ -220,6 +247,15 @@ export function loadBoard(input: unknown): BoardLoadResult {
     const item = readBoardItem(id, items[id])
     if ('severity' in item) return { diagnostics: [item] }
     parsed[id] = item
+  }
+  for (const id of ids) {
+    const seen = new Set<string>([id])
+    let parent = parsed[id]!.sectionId
+    while (parent !== undefined) {
+      if (seen.has(parent) || parsed[parent]?.kind !== 'section') return { diagnostics: [fail('item.section', `item '${id}': section membership must reference sections without cycles`)] }
+      seen.add(parent)
+      parent = parsed[parent]!.sectionId
+    }
   }
   const document: BoardDocument = { format: BOARD_FORMAT, formatVersion: BOARD_FORMAT_VERSION, items: parsed, order: order as string[] }
   const frozen = ownJson(document)
