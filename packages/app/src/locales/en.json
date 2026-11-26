@@ -193,6 +193,7 @@
   "modelConsent.plan.folder-disabled": "Enable the model folder in settings, then review again.",
   "modelConsent.plan.picker-required": "Choose a suggested source or enter the model file URL, then review it. No download starts until you consent.",
   "modelConsent.plan.destination-required": "Choose a writable model destination in settings, then review again.",
+  "modelConsent.plan.duplicate": "More than one model file matches this name; give the files distinct names, then review again.",
   "modelConsent.phase.starting": "Starting the consented transfer",
   "modelConsent.phase.checking-existing": "Checking for an exact existing file",
   "modelConsent.phase.downloading": "Downloading",
