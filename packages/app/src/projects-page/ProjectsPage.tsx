@@ -380,7 +380,7 @@ export function ProjectsView(props: {
   })
   // The list holds deleted projects too; they show only under "Deleted projects".
   const live = () => projects()?.filter((project) => !project.deleted)
-  const setupOnly = () => firstRun() && projects()?.length === 0
+  const setupOnly = () => firstRun() && !projects()?.length
   const gone = () =>
     projects()
       ?.filter((project) => project.deleted)

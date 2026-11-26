@@ -336,11 +336,22 @@ it('does not open a project when the process cannot say which installation it ru
   expect(navigation.openProject).not.toHaveBeenCalled()
 })
 
-it.each([false, true])('keeps setup visible until an installation is complete (registered early: %s)', async (registered) => {
+it.each([
+  { registered: false, libraryUnavailable: false },
+  { registered: true, libraryUnavailable: false },
+  { registered: true, libraryUnavailable: true },
+])('keeps setup visible until an installation is complete (%j)', async ({ registered, libraryUnavailable }) => {
   let found: readonly PageInstallation[] = registered ? [stable] : []
   let settingUp = registered
   const counted = vi.fn()
-  const data = { ...source([]), installations: async () => ({ all: found, settingUp }) }
+  const data = {
+    ...source([]),
+    listProjects: async () => {
+      if (settingUp && libraryUnavailable) throw new Error('Library helper paused during setup')
+      return []
+    },
+    installations: async () => ({ all: found, settingUp }),
+  }
   render(() => <ProjectsView shell={shell()} source={data} onCount={counted} />, document.body)
   await settle()
   expect(document.querySelector('[data-testid="setup-form"]')?.textContent).toContain('NVIDIA graphics card build')
