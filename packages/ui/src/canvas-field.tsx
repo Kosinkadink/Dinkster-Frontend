@@ -67,6 +67,8 @@ export interface CanvasSideSize {
  * `nodeBelow` and `nodeAbove` are the distances, at normal size, from the
  * field's top down to where the side part starts under the node and up to
  * where it ends over the node.
+ * `edges` marks the ends of the horizontal line: a cell may join a side part only
+ * at an exposed edge, never through another cell on its line.
  */
 export function canvasSideLayout(
   row: CanvasBox,
@@ -75,6 +77,7 @@ export function canvasSideLayout(
   scale: number,
   nodeBelow: number,
   nodeAbove: number,
+  edges?: { readonly left: boolean; readonly right: boolean },
 ): CanvasSideLayout {
   // Zoomed in, the field and its side part scale with the canvas.
   const zoom = Math.max(1, scale)
@@ -85,9 +88,9 @@ export function canvasSideLayout(
   const beside: CanvasSidePlace | undefined =
     scale < 1 || side.height > bottom - top
       ? undefined
-      : row.x + row.width + sideWidth <= bounds.x + bounds.width
+      : edges?.right !== false && row.x + row.width + sideWidth <= bounds.x + bounds.width
         ? 'right'
-        : row.x - sideWidth >= bounds.x
+        : edges?.left !== false && row.x - sideWidth >= bounds.x
           ? 'left'
           : undefined
   if (beside !== undefined) {
@@ -250,6 +253,8 @@ export type CanvasPanelPlace = 'below' | 'above'
 interface CanvasRowFrameProps {
   /** Width of the row at normal size. */
   rowWidth: number
+  /** Height of a painted row whose focus frame has no content of its own. */
+  rowHeight?: number
   place: CanvasSidePlace
   /**
    * The side part's top at normal size, from the row's top, or from the
@@ -308,6 +313,7 @@ function CanvasRowFrame(
   let reported: CanvasSideSize | undefined
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
+    row.style.height = props.rowHeight === undefined ? '' : `${props.rowHeight}px`
     setRowHeight(row.offsetHeight)
     if (panel) {
       panel.style.maxHeight =
@@ -354,6 +360,7 @@ function CanvasRowFrame(
   createEffect(() => {
     void [
       props.rowWidth,
+      props.rowHeight,
       props.place,
       props.sideTop,
       props.sideMaxHeight,
@@ -760,12 +767,16 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
       const font = getComputedStyle(value)
       context.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
       const widest = Math.max(...labels.map((text) => context.measureText(text).width))
+      const labelFont = getComputedStyle(label)
+      context.font = `${labelFont.fontWeight} ${labelFont.fontSize} ${labelFont.fontFamily}`
+      const labelWidth = context.measureText(label.textContent ?? '').width +
+        parseFloat(labelFont.paddingLeft) + parseFloat(labelFont.paddingRight)
       const row = getComputedStyle(label.parentElement!)
       const inset = parseFloat(row.borderLeftWidth) + parseFloat(row.borderRightWidth) +
         parseFloat(row.paddingLeft) + parseFloat(row.paddingRight)
       // The shared row reserves at most half its width for the label.
-      line.style.minWidth = `${Math.ceil(inset + Math.max(label.scrollWidth * 2,
-        label.scrollWidth + widest + parseFloat(font.paddingLeft) + parseFloat(font.paddingRight) + chevron.offsetWidth))}px`
+      line.style.minWidth = `${Math.ceil(inset + Math.max(labelWidth * 2,
+        labelWidth + widest + parseFloat(font.paddingLeft) + parseFloat(font.paddingRight) + chevron.offsetWidth))}px`
     }
     queueMicrotask(size)
     void document.fonts.ready.then(size)
@@ -892,14 +903,20 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
 /** The side part's link, such as the default that puts the default back. */
 export function CanvasSideLink(props: {
   children: JSX.Element
-  onClick: () => void
+  onClick: (event: MouseEvent) => void
+  ref?: (element: HTMLButtonElement) => void
+  expanded?: boolean
+  controls?: string | undefined
 }) {
   return (
     <button
+      ref={props.ref}
       type="button"
       class="dinkster-canvas-side-link"
+      aria-expanded={props.expanded}
+      aria-controls={props.controls}
       onPointerDown={(event) => event.preventDefault()}
-      onClick={() => props.onClick()}
+      onClick={(event) => props.onClick(event)}
     >
       <span>{props.children}</span>
     </button>

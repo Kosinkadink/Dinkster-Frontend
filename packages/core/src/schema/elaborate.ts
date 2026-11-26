@@ -234,6 +234,10 @@ export interface ElaboratedInput {
   readonly automaticContext?: FormulaContext
   /** A field that declares `automatic` and holds a fixed value: what it would work out to if emptied. */
   readonly automaticIfEmptied?: AutomaticState
+  /** Direct user value edits are blocked; wires and action writes are unchanged. */
+  readonly readOnly?: true
+  readonly disabled?: true
+  readonly disabledReason?: string
   /** Keys of the boxes the node draws around this row, outermost first. */
   readonly boxes?: readonly string[]
   /** The rows its widget's `writes` and `reads` name, when it names any. */
@@ -1699,6 +1703,9 @@ function elaboratePass(
     // A field that is not sent is drawn and edited but never reaches the run.
     const sent = !(scope.ghost || scope.dormant || row.sent === false)
     const hiddenByScope = scope.hidden && row.hidden !== true
+    const readOnly = answer(row.readOnly, scope, 'boolean') === true
+    const disabled = answer(row.disabled, scope, 'boolean') === true
+    const disabledReason = disabled ? answer(row.disabledReason, scope, 'string') : undefined
     // A census also visits rows not chosen; they never replace a chosen row's entry.
     if (!scope.dormant || !unsetReads.has(path)) unsetReads.set(path, readWhenUnset(sent ? sentSpecOf(spec, hiddenByScope) : { ...spec, sent: false }))
     push({
@@ -1707,6 +1714,9 @@ function elaboratePass(
       ...(sent ? { apiName: path } : {}),
       spec,
       ...common(scope),
+      ...(readOnly ? { readOnly: true as const } : {}),
+      ...(disabled ? { disabled: true as const } : {}),
+      ...(disabledReason ? { disabledReason } : {}),
       ...(parts !== undefined ? { parts } : {}),
       ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),

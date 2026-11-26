@@ -99,21 +99,10 @@ const toggles = (kind: WidgetKind | undefined, spec: WidgetSpec): boolean =>
   kind !== undefined && kind.valueSchema.validate(true, spec) && kind.valueSchema.validate(false, spec) &&
   !kind.valueSchema.validate('', spec) && !kind.valueSchema.validate(0, spec)
 
-/**
- * An Ask step's form: the side part of the button's row, one outline around
- * both, holding the step's rows as a node draws them, then Cancel and
- * Apply. A row opens as a row on a node opens, checks its value the same
- * way and hands the value back to the form; a number's minus and plus step
- * it and a toggle flips. A menu button has no row, so its form hangs under
- * the node where the menu's work shows.
- */
-export function ButtonAskForm(props: {
+/** The Ask form's ordinary rows and actions, shared with its gallery example. */
+export function ButtonAskContent(props: {
   readonly request: AskRequest
-  /** The button's field, or for a menu button the place under its node. */
-  readonly box: RowBox
-  readonly menu: boolean
-  readonly viewport: () => { readonly x: number; readonly y: number; readonly scale: number }
-  readonly boundary: HTMLElement
+  readonly ref?: (element: HTMLDivElement) => void
   readonly widgetKind: (type: string) => WidgetKind | undefined
   /** Opens a row's editor over `row`, the side part being `form`. */
   readonly editRow: (row: InputSpec, at: { readonly row: DOMRect; readonly form: DOMRect }, value: Json | undefined, set: (value: Json) => void) => void
@@ -150,9 +139,9 @@ export function ButtonAskForm(props: {
   }
 
   let form!: HTMLDivElement
-  const content = (
+  return (
     <div
-      ref={form}
+      ref={(element) => { form = element; props.ref?.(element) }}
       class="button-ask-form"
       role="group"
       data-testid="button-ask-form"
@@ -191,7 +180,24 @@ export function ButtonAskForm(props: {
       ]} />
     </div>
   )
+}
 
+/** Keeps the Ask form in its Button's outlined side part and moves keyboard focus into it. */
+export function ButtonAskForm(props: {
+  readonly request: AskRequest
+  /** The button's field, or for a menu button the place under its node. */
+  readonly box: RowBox
+  readonly menu: boolean
+  readonly viewport: () => { readonly x: number; readonly y: number; readonly scale: number }
+  readonly boundary: HTMLElement
+  readonly widgetKind: (type: string) => WidgetKind | undefined
+  /** Opens a row's editor over `row`, the side part being `form`. */
+  readonly editRow: (row: InputSpec, at: { readonly row: DOMRect; readonly form: DOMRect }, value: Json | undefined, set: (value: Json) => void) => void
+  readonly onAnswer: (values: Readonly<Record<string, Json>> | undefined) => void
+}) {
+  let form!: HTMLDivElement
+  onMount(() => form.querySelector<HTMLButtonElement>('button:not(:disabled):not([tabindex="-1"])')?.focus())
+  const content = <ButtonAskContent ref={(element) => { form = element }} request={props.request} widgetKind={props.widgetKind} editRow={props.editRow} onAnswer={props.onAnswer} />
   const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
   const bounds = visibleCanvas(props.boundary)
   const placement = createMemo(() => rowPlacement(props.box, props.viewport(), bounds(), sideSize()))

@@ -514,6 +514,7 @@ export type CanvasHoverTarget =
   | { readonly kind: 'widgetTap'; readonly hit: Extract<Hit, { kind: 'widgetTap' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'button'; readonly hit: Extract<Hit, { kind: 'button' }>; readonly x: number; readonly y: number }
+  | { readonly kind: 'note'; readonly row: Extract<LayoutRow, { kind: 'note' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'memberRemove'; readonly hit: Extract<Hit, { kind: 'memberRemove' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'controller'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'subgraphMark'; readonly mark: { readonly item: string; readonly label: string }; readonly x: number; readonly y: number }
@@ -1865,9 +1866,14 @@ export class InteractionController {
         return
       case 'boundary-header':
       case 'boundary-body': {
-        const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
+        const wiredPanelMark = this.wiredPanelFieldAt(hit, w.x, w.y)
         if (wiredPanelMark !== undefined) {
           this.host.onSubgraphMarkActivate?.(wiredPanelMark.row.subgraphMark!.item)
+          return
+        }
+        const wiredPanelField = this.wiredPanelFieldAt(hit, w.x, w.y, false)
+        if (wiredPanelField !== undefined) {
+          this.gesture = { kind: 'widget', hit: wiredPanelField, moved: false }
           return
         }
         const id = boundarySceneId(hit.bnode.side)
@@ -2906,7 +2912,8 @@ export class InteractionController {
     if (this.renderer.getDesignTokens().widgetEditing !== 'in-row' || pointerType === 'touch') return undefined
     const row = hit.row
     if (row.viewId !== 'core.number' && row.viewId !== 'core.slider') return undefined
-    if (row.derivedValue !== undefined || row.ghost) return undefined
+    if (row.derivedValue !== undefined || row.ghost || row.readOnly || row.disabled) return undefined
+    if (Object.hasOwn(hit.bnode?.fields?.wired ?? {}, row.valueKey)) return undefined
     const scene = this.renderer.getScene()
     if (scene.links.some((link) => link.to.kind === 'port' && link.to.node === hit.node.id && link.to.port === row.inputId)) return undefined
     const start = this.numberRowValue(hit)
@@ -2949,16 +2956,18 @@ export class InteractionController {
   private subgraphMarkContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     if (hit.row.subgraphMark === undefined) return false
     const tokens = this.renderer.getDesignTokens()
-    const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, this.renderer.showsArrivingValue(hit.node.id, hit.row), isNumberRow(hit.row))
+    const display = this.renderer.widgetPaintState(hit.node, hit.row, hit.bnode?.fields?.wired[hit.row.valueKey])
+    const arriving = display.companion !== undefined && !drawsPassedValueAsEditor(hit.row, display.companion, tokens)
+    const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, arriving, isNumberRow(hit.row))
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.size && hit.localY >= rect.y && hit.localY <= rect.y + rect.size
   }
 
   /**
    * An Inputs panel field wired outside the subgraph hits as panel body, but
-   * its subgraph mark still names and selects its input: the mark's row as a
-   * widget hit when the point is on the mark.
+   * its subgraph mark still names and selects its input. The rest of its row
+   * opens inspection without allowing a value edit.
    */
-  private wiredPanelMarkAt(hit: Hit | undefined, wx: number, wy: number): Extract<Hit, { kind: 'widget' }> | undefined {
+  private wiredPanelFieldAt(hit: Hit | undefined, wx: number, wy: number, markOnly = true): Extract<Hit, { kind: 'widget' }> | undefined {
     if (hit?.kind !== 'boundary-body' || hit.bnode.fields === undefined) return undefined
     const { bnode } = hit
     const face = boundaryFieldNode(bnode)
@@ -2966,11 +2975,16 @@ export class InteractionController {
     const tokens = this.renderer.getDesignTokens()
     for (const row of bnode.layout.rows) {
       const driven = row.kind === 'widget' && Object.hasOwn(bnode.fields!.wired, row.valueKey) ? bnode.fields!.wired[row.valueKey] : undefined
-      if (row.kind !== 'widget' || row.subgraphMark === undefined || driven === undefined) continue
+      if (row.kind !== 'widget' || (markOnly && row.subgraphMark === undefined) || driven === undefined) continue
       const width = row.width ?? bnode.layout.width - row.inset * 2
       const localX = wx - bnode.x - row.inset
       const localY = wy - bnode.y - row.y
-      const arriving = driven.value === undefined || !drawsPassedValueAsEditor(row, { value: driven.value }, tokens)
+      if (!markOnly) {
+        if (localX >= 0 && localX <= width && localY >= 0 && localY <= row.height)
+          return { kind: 'widget', node: face, row, bnode, x: bnode.x + row.inset, y: bnode.y + row.y, width, height: row.height, localX, localY }
+        continue
+      }
+      const arriving = driven.value !== undefined && !drawsPassedValueAsEditor(row, { value: driven.value }, tokens)
       const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, arriving, isNumberRow(row))
       if (localX >= rect.x && localX <= rect.x + rect.size && localY >= rect.y && localY <= rect.y + rect.size)
         return { kind: 'widget', node: face, row, bnode, x: bnode.x + row.inset, y: bnode.y + row.y, width, height: row.height, localX, localY }
@@ -3089,9 +3103,13 @@ export class InteractionController {
       : hit?.kind === 'grip' && hit.grip.alone !== true ? 'grab' : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
-    const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
+    const wiredPanelMark = this.wiredPanelFieldAt(hit, w.x, w.y)
     const subgraphMark = hit?.kind === 'widget' && this.subgraphMarkContains(hit) ? hit.row.subgraphMark
       : wiredPanelMark?.row.subgraphMark
+    const note = !overview && hit?.kind === 'body' ? hit.node.layout.rows.find((row): row is Extract<LayoutRow, { kind: 'note' }> =>
+      row.kind === 'note' && row.text !== '' &&
+      w.y >= hit.node.y + row.y && w.y < hit.node.y + row.y + row.height &&
+      w.x >= hit.node.x + row.inset && w.x < hit.node.x + row.inset + (row.width ?? hit.node.layout.width - row.inset * 2)) : undefined
     this.host.onHoverTarget?.(toolboxButton
       ? { kind: 'toolbox', button: toolboxButton, x: clientX, y: clientY }
       : badge
@@ -3100,6 +3118,8 @@ export class InteractionController {
         ? { kind: 'controller', hit, x: clientX, y: clientY }
       : subgraphMark
         ? { kind: 'subgraphMark', mark: subgraphMark, x: clientX, y: clientY }
+      : note
+        ? { kind: 'note', row: note, x: clientX, y: clientY }
       : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'button' || hit.kind === 'memberRemove' || hit.kind === 'header' || hit.kind === 'reroute' ||
         hit.kind === 'link' && hit.link.mismatch === true)
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
@@ -3480,7 +3500,7 @@ export class InteractionController {
             return
           }
           const bindingOk = (link: SceneLink) => g.hit.row.selector === undefined || link.boundary !== true
-          const connected = scene.links.some(
+          const connected = Object.hasOwn(g.hit.bnode?.fields?.wired ?? {}, g.hit.row.valueKey) || scene.links.some(
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,
           )
           // Folding changes the view, not the value the wire supplies.
@@ -3490,6 +3510,10 @@ export class InteractionController {
             return
           }
           const row = g.hit.row
+          if (row.readOnly || row.disabled) {
+            this.host.onWidgetActivate?.(g.hit, clientX, clientY)
+            return
+          }
           // Paint and interaction share the same row-local chip rectangle;
           // the rightmost numeric stepper remains outside it.
           if (row.controllerMode !== undefined && this.controllerChipContains(g.hit)) {
@@ -4455,7 +4479,22 @@ export class InteractionController {
     const scene = this.renderer.getScene()
     const toolbox = this.renderer.getToolboxLayout()
     if (toolbox && insideToolbox(toolbox, w.x, w.y)) return
-    const hit = hitTest(scene, w.x, w.y, this.hitOptions({ pinRevealed: this.pinRevealed(scene) }))
+    const menuHitAt = (scene: Scene, x: number, y: number): Hit => {
+      const hit = hitTest(scene, x, y, this.hitOptions({ pinRevealed: this.pinRevealed(scene) }))
+      const bnode = hit.kind === 'boundary-body' ? hit.bnode : undefined
+      const node = hit.kind === 'body' ? hit.node : bnode === undefined ? undefined : boundaryFieldNode(bnode)
+      if (node === undefined) return hit
+      const space = node.layout.rows.find((row) => row.kind === 'editorSpace' &&
+        y >= node.y + row.y && y <= node.y + row.y + row.height &&
+        x >= node.x + row.inset && x <= node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2))
+      if (space?.kind !== 'editorSpace') return hit
+      const row = node.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === space.valueKey)
+      if (row?.kind !== 'widget') return hit
+      return { kind: 'widget', node, row, ...(bnode === undefined ? {} : { bnode }),
+        x: node.x + row.inset, y: node.y + row.y, width: row.width ?? node.layout.width - row.inset * 2,
+        height: row.height, localX: x - node.x - row.inset, localY: y - node.y - row.y }
+    }
+    const hit = menuHitAt(scene, w.x, w.y)
     switch (hit.kind) {
       case 'header':
       case 'body':
@@ -4552,7 +4591,7 @@ export class InteractionController {
         // nor the clicked node's body can be trusted - no menu opens.
         menuHit = { kind: 'empty' }
       } else {
-        const re = hitTest(current, w2.x, w2.y, this.hitOptions({ pinRevealed: this.pinRevealed(current) }))
+        const re = menuHitAt(current, w2.x, w2.y)
         if (hit.kind === re.kind && this.menuTargetIdentity(hit) === this.menuTargetIdentity(re)) {
           menuHit = re
         } else {

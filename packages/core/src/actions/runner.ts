@@ -803,7 +803,7 @@ class Press {
   readonly actions: Action[] = []
   readonly notes: string[] = []
   readonly skipped: Skip[] = []
-  readonly changedSharedGraphs = new Set<string>()
+  readonly sharedWrites: { readonly graphId: string; readonly nodeId: string; readonly valueKey: string; readonly store: 'values' | 'controllers' }[] = []
   nodeAdded = false
   view: View
   context: FormulaContext
@@ -1496,14 +1496,12 @@ class Press {
         continue
       }
       if (built.length === 0) continue
-      const before = live.doc
       dispatchOn(live, built, this.session.allocationActor)
       if ((action.kind === 'value' || action.kind === 'mode') && (this.target.instancePath?.length ?? 0) > 0) {
         const owner = view.valueOwners.get(action.path) ?? this.target
-        const previous = before.graphs[owner.graphId]!.nodes[owner.nodeId]!
-        const current = live.doc.graphs[owner.graphId]!.nodes[owner.nodeId]!
-        if (owner.graphId !== before.root && JSON.stringify([previous.values, previous.controllers]) !== JSON.stringify([current.values, current.controllers])) {
-          this.changedSharedGraphs.add(owner.graphId)
+        if (owner.graphId !== live.doc.root) {
+          this.sharedWrites.push({ graphId: owner.graphId, nodeId: owner.nodeId,
+            valueKey: 'valueKey' in owner ? owner.valueKey : action.path, store: action.kind === 'value' ? 'values' : 'controllers' })
         }
       }
       invocations.push(...built)
@@ -1621,6 +1619,7 @@ const failedOutcome = (message: string, notes: readonly string[] = [], own = fal
   ({ kind: 'failed', message: own ? message : `Nothing was changed. ${message}`, warning: true, skipped: [], notes })
 
 async function run(session: DocumentSession, parts: readonly StepPart[], host: ActionHost, options: PressOptions): Promise<PressOutcome> {
+  const original = session.doc
   const stale = options.staleMessage ?? STALE_MESSAGE
   if (options.insideOnly === true || options.noWait === true) {
     const steps = parts.flatMap((part) => part.steps)
@@ -1726,10 +1725,17 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
   // The outside steps read the committed document.
   const outsideFailures: string[] = []
   const unsaved: string[] = []
+  const reportedShared = new Set<string>()
   for (const [index, press] of presses.entries()) {
+    const changedSharedGraphs = new Set(press.sharedWrites.filter(({ graphId, nodeId, valueKey, store }) =>
+      JSON.stringify(original.graphs[graphId]?.nodes[nodeId]?.[store]?.[valueKey]) !==
+      JSON.stringify(session.doc.graphs[graphId]?.nodes[nodeId]?.[store]?.[valueKey])).map(({ graphId }) => graphId))
     const shared = [...(press.nodeAdded && (press.target.instancePath?.length ?? 0) > 0 ? [{ graphId: press.target.graphId, verb: 'added' }] : []),
-      ...[...press.changedSharedGraphs].map((graphId) => ({ graphId, verb: 'changed' }))]
+      ...[...changedSharedGraphs].map((graphId) => ({ graphId, verb: 'changed' }))]
     for (const { graphId, verb } of shared) {
+      const key = `${graphId}:${verb}`
+      if (reportedShared.has(key)) continue
+      reportedShared.add(key)
       const count = (id: string, ancestors: ReadonlySet<string>): number => {
         if (ancestors.has(id)) return 0
         return (id === graphId ? 1 : 0) + Object.values(session.doc.graphs[id]!.nodes).reduce((total, node) => {

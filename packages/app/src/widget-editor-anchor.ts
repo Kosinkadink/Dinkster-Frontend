@@ -46,6 +46,7 @@ export function widgetEditorAnchorAlive(
   if (node === undefined) return false
   const row = node.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === target.valueKey)
   if (row === undefined || row.kind !== 'widget') return false
+  if (row.readOnly || row.disabled) return false
   const sameContract = JSON.stringify(row.spec) === JSON.stringify(ed.anchorSpec ?? ed.spec) &&
     JSON.stringify(row.type) === JSON.stringify(ed.declaredType) &&
     JSON.stringify(row.familyOwner ?? null) === JSON.stringify(target.familyOwner ?? null) &&

@@ -54,6 +54,29 @@ function compileDoc(document: any): CompileArtifact {
 }
 
 describe('controllerAdvancement', () => {
+  it.each(['readOnly', 'disabled'] as const)('advances an unwired %s field after a run and undoes it normally', async (access) => {
+    const blocked: NodeSchema = {
+      ...schema,
+      body: schema.body.map((row) => row.kind === 'input' ? { ...row, [access]: true } : row),
+    }
+    const app = createWorkflowApp([blocked])
+    expect(await app.openDocument(fixture(true), 'Blocked controllers')).toEqual([])
+    const tab = app.activeTab()!
+    const result = compile({ document: tab.store.doc, revision: 0,
+      resolve: (type) => type === blocked.type ? blocked : undefined,
+      scope: { kind: 'full' }, connection: asConnectionId('local'), schemaHash: 'blocked' })
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    const ref = { connection: asConnectionId('local'), prompt: asPromptId(`blocked-${access}`) }
+    app.registerRun(tab, ref, result.artifact, 1)
+    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values.down).toBe(10)
+    expect(tab.store.doc.graphs.g0!.nodes.seed!.values.up).toBe(11)
+    expect(tab.store.doc.graphs.g0!.links.l1).toMatchObject({ to: { node: 'seed', port: 'up' } })
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual({ up: 11, down: 11, random: 11, fixed: 11, plain: 11 })
+    expect(tab.store.canUndo).toBe(false)
+  })
+
   it('advances increment/decrement/randomize, leaving fixed and controller-less values untouched', () => {
     const document = fixture() as any
     const invocation = controllerAdvancement(document, compileDoc(document), () => 0.5)

@@ -22,6 +22,9 @@ non-empty legacy `interface` list.
   and worded buttons share the width equally; a declared-icon button beside
   a field is a field-high square. Member grips and remove crosses keep
   their space outside those equal shares.
+- **Note**: one quiet text row with no field fill, pin or opener, kept even
+  when empty. Line breaks read as spaces and long text ends in an ellipsis;
+  pointing at the note gives the original text in its readout.
 - **Button**: a full-width raised row (the face an editor's opener row has,
   a lit top edge and a dark line under it), its label centered and an
   optional icon from the engine's list, on its own line or as a cell of a
@@ -56,6 +59,7 @@ fails:
 | `visible` on a row or a box | The row shows |
 | A label on an input, output, section, choice or type choice; a choice's tooltip | The id |
 | A note's `text` | Its `unknown` text, dimmed |
+| An input's `readOnly`, `disabled` and `disabledReason` | Neither flag is set, with no reason |
 | A button's `enabled`, `disabledReason` and `tooltip` | Enabled, with no reason |
 | A rule's `check` in the node's `validate` | The rule passes |
 | The node's `titleSuffix` | No suffix |
@@ -371,7 +375,7 @@ undo step.
   subgraph and change in every use. With two uses, the result says
   `Also changed in the other use of "<subgraph name>".` With more, it says
   `Also changed in the other N uses of "<subgraph name>".`, counting only the
-  other uses; with one use, it says nothing.
+  other uses; with one use or no shared value left changed, it says nothing.
   AddNode adds its node and wires to the shared definition, so every use
   gets the same insertion. It skips a field whose effective driver in the
   pressing use is not a definition wire. It never makes an instance unique.

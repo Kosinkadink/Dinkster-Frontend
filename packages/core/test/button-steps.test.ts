@@ -826,6 +826,34 @@ describe('each step', () => {
 })
 
 describe('what a press may write', () => {
+  it.each(['readOnly', 'disabled'] as const)('allows action writes to a %s field but still skips its wired sibling', async (access) => {
+    addSchema('test.blocked-action', [
+      ...['first', 'second'].map((id) => ({
+        kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, required: true,
+        default: 12, [access]: true, widget: { type: 'NUMBER', min: 0, max: 100 },
+      })),
+      { kind: 'button', id: 'set', label: 'Set', steps: [
+        { step: 'set', field: 'first', value: { value: 24 } },
+        { step: 'set', field: 'second', value: { value: 36 } },
+      ] },
+    ])
+    addSchema('test.blocked-source', [{ kind: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } }])
+    const session = sessionOf(documentOf({
+      n1: { type: 'test.blocked-action', values: { first: 12, second: 12 } },
+      src: { type: 'test.blocked-source' },
+    }, link('l1', ['src', 'value'], ['n1', 'second'])))
+    expect(buttonAvailability(session.doc, at('set'), hostOf())).toEqual({ enabled: true })
+    const outcome = await runPress(session, at('set'), hostOf())
+    expect(outcome).toMatchObject({ kind: 'done', skipped: [{ id: 'second', why: 'wired' }] })
+    expect(valuesOf(session)).toEqual({ first: 24, second: 12 })
+    expect(session.doc.graphs.g0!.links.l1).toMatchObject({ to: { node: 'n1', port: 'second' } })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ first: 12, second: 12 })
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ first: 24, second: 12 })
+  })
+
   it('reads effective asset filenames and kinds in scope and after staged picker changes as one undo step', async () => {
     const asset = (name: string, mediaType = 'image/png') => ({ digest: `blake3:${'a'.repeat(64)}`, name, size: 123, mediaType, virtualPath: `input/${name}` })
     const rows = [
@@ -1568,6 +1596,42 @@ describe('steps outside the workflow', () => {
 })
 
 describe('steps inside a subgraph occurrence', () => {
+  it('reports only shared values left changed at commit, after restored writes and skipped targets', async () => {
+    addSchema('test.shared_source', [{ kind: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } }])
+    addSchema('test.shared_restored', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
+      { kind: 'input', id: 'other', type: { kind: 'concrete', types: ['INT'] }, default: 11 },
+      { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['dev.image'] } },
+    ])
+    const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
+    for (const changed of [false, true]) for (const add of [false, true]) for (const wired of [false, true]) {
+      const root = documentOf({ left: { type: '#g1' }, right: { type: '#g1' } })
+      const inner = documentOf({ inner: { type: 'test.shared_restored', values: { value: 3, other: 11 } }, source: { type: 'test.shared_source' } },
+        wired ? link('feed', ['source', 'value'], ['inner', 'other']) : {}).graphs['g0']!
+      const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), name: 'shared' } } }
+      const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+      const outcome = await runSteps(session, [{ graphId: 'g1', nodeId: 'inner', instancePath: ['left'], prefix: '', steps: decodeSteps([
+        { step: 'set', field: 'value', value: { value: 4 } },
+        { step: 'set', field: 'value', value: { value: 3 } },
+        ...(changed ? [{ step: 'set', field: 'other', value: { value: 17 } }] : []),
+        ...(add ? [{ step: 'addNode', nodeType: 'dev.image.gradient', to: 'image', values: {} }] : []),
+      ]) }], host)
+      expect(outcome, outcome.message).toMatchObject({ kind: 'done', notes: [
+        ...(add ? ['Also added in the other use of "shared".'] : []),
+        ...(changed && !wired ? ['Also changed in the other use of "shared".'] : []),
+      ] })
+      expect(session.doc.graphs.g1!.nodes.inner!.values).toEqual({ value: 3, other: changed && !wired ? 17 : 11 })
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(session.doc.graphs.g1!.nodes).toEqual(inner.nodes)
+      expect(session.doc.graphs.g1!.links).toEqual(inner.links)
+      expect(session.doc.graphs.g0).toEqual(root.graphs.g0)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+    }
+  })
+
   it('reports shared field changes while keeping promoted writes instance-local in one undo step', async () => {
     addSchema('test.shared_value', [
       { kind: 'input', id: 'owned', type: { kind: 'concrete', types: ['INT'] }, default: 7 },

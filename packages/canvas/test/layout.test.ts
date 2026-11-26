@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
-import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { layoutNode, rowSideEdges, TITLE_START, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
@@ -42,6 +42,18 @@ const doLayout = (items: NodeSchema['body'], displayName?: string) =>
   layoutNode(schemaOf(items, displayName), nodeData, defaultTokens, measure, widgetMeasure)
 
 describe('pairing', () => {
+  it('carries resolved field access without changing row geometry or pins', () => {
+    const plain = [widget('radius'), widget('mix')]
+    const blocked = [widget('radius', { readOnly: true }), widget('mix', { disabled: true, disabledReason: 'Preset controls mix' })]
+    const before = doLayout(plain)
+    const after = doLayout(blocked)
+    expect(after.rows[0]).toMatchObject({ kind: 'widget', inputId: 'radius', readOnly: true })
+    expect(after.rows[1]).toMatchObject({ kind: 'widget', inputId: 'mix', disabled: true, disabledReason: 'Preset controls mix' })
+    expect(after.pins).toEqual(before.pins)
+    expect(after.rows.map((row) => [row.y, row.height])).toEqual(before.rows.map((row) => [row.y, row.height]))
+    expect(after.height).toBe(before.height)
+  })
+
   it('keeps a three-field line as tall as its tallest field with wired pins clustered at its ends', () => {
     for (const middle of [widget('middle'), widget('middle', { widget: { widgetType: 'STRING', options: { multiline: true } } })]) {
       const layout = layoutNode(schemaOf([
@@ -191,6 +203,13 @@ describe('pairing', () => {
         : row.kind === 'widget' ? `widget:${row.inputId}` : row.kind)
     expect(kinds).toEqual(['note:intro:Plain text', 'widget:w', 'note:size:pending:unknown', 'button:swap:Swap', 'widget:after', 'widget:mode', 'note:mode.shown:under a'])
     const [intro, w, size, swap, after] = layout.rows
+    expect(rowSideEdges(layout.rows, w!)).toEqual({ left: true, right: false })
+    expect(rowSideEdges(layout.rows, size!)).toEqual({ left: false, right: false })
+    expect(rowSideEdges(layout.rows, swap!)).toEqual({ left: false, right: true })
+    expect(rowSideEdges(layout.rows, after!)).toEqual({ left: true, right: true })
+    if (w?.kind !== 'widget') throw new Error('Expected the first shared cell to be a widget')
+    const indented = { ...w, inset: 80 }
+    expect(rowSideEdges([indented], indented)).toEqual({ left: true, right: true })
     expect(w!.y).toBe(intro!.y + intro!.height)
     expect(size!.y).toBe(w!.y)
     expect(swap!.y).toBe(w!.y)
@@ -203,6 +222,13 @@ describe('pairing', () => {
     expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId).sort()).toEqual(['after', 'w'])
     // The only wired field's socket sits at the middle of the shared line.
     expect(layout.pins.find((pin) => pin.portId === 'w')!.y).toBe(w!.y + w!.height / 2)
+    for (const value of [note('intro', { formula: 'missing' }, 'Waiting'), note('intro', ''), note('intro', 'Plain text')]) {
+      const changed = doLayout([value, widget('after')])
+      const known = doLayout([note('intro', 'Plain text'), widget('after')])
+      expect(changed.rows.map((row) => [row.y, row.height])).toEqual(known.rows.map((row) => [row.y, row.height]))
+      expect(changed.pins).toEqual(known.pins)
+      expect(changed.height).toBe(known.height)
+    }
   })
 
   it('splits a Row of only buttons evenly and keeps an icon button square beside a field', () => {

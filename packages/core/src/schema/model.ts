@@ -381,8 +381,12 @@ export function widgetRepresentationsOf(spec: WidgetSpec, registered?: WidgetRep
   if (registered !== undefined) return registered
   if (spec.widgetType === 'FLOAT') {
     const { min, max } = spec.options
-    if (typeof min !== 'number' || typeof max !== 'number' || !Number.isFinite(min)
-      || !Number.isFinite(max) || max <= min || !Number.isFinite(max - min)) return undefined
+    const finiteMin = typeof min === 'number' && Number.isFinite(min)
+    const finiteMax = typeof max === 'number' && Number.isFinite(max)
+    // Worked-out limits can disappear without removing the declared choice.
+    const workedRange = (spec.looked?.min !== undefined || spec.looked?.max !== undefined) &&
+      (finiteMin || spec.looked?.min !== undefined) && (finiteMax || spec.looked?.max !== undefined)
+    if (!workedRange && (!finiteMin || !finiteMax || max <= min || !Number.isFinite(max - min))) return undefined
     return {
       default: spec.options['display'] === 'slider' ? 'slider' : 'number',
       userSwitchable: true,
@@ -610,6 +614,17 @@ export interface InputSpec extends PortSpecBase {
   readonly hidden?: true
   /** Steps the host applies together with the user's own change of this field; kept as declared. */
   readonly onEdit?: readonly StepSpec[]
+  /**
+   * Shown at full contrast, but the user cannot type into it. With
+   * `disabled` (dimmed, cannot be typed into) and `disabledReason`, it limits
+   * the user's own edits only: the value is still sent, a wire still works,
+   * and a step or an after-run write may still change it. A formula is
+   * worked out by the editor; while it is unknown or fails the field is
+   * neither read-only nor disabled. Layout only, never identity.
+   */
+  readonly readOnly?: Formulated<boolean>
+  readonly disabled?: Formulated<boolean>
+  readonly disabledReason?: Formulated<string>
   /**
    * The value used while nothing is stored for this field: a formula the
    * editor works out, or a lookup. A field that declares it always has a

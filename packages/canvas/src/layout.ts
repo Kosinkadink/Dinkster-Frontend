@@ -249,6 +249,10 @@ export type LayoutRow =
       readonly socketless?: true
       /** Declared `sent=False`: stored and edited, never sent, so no outgoing value tap. */
       readonly unsent?: true
+      /** Limits direct user value edits, not wires or action writes. */
+      readonly readOnly?: true
+      readonly disabled?: true
+      readonly disabledReason?: string
       /** Wire-22 execution binding retained from the elaborated input. */
       readonly sourceFilename?: SourceFilenameSpec
       /** Effective named representation selected for this row (wire 17). */
@@ -647,6 +651,15 @@ export function memberRemovalAt(layout: NodeLayout, y: number): MemberRemoval | 
     if (y >= top && y < top + height && (best === undefined || height < best.height)) best = { remove: row.remove, height }
   }
   return best?.remove
+}
+
+/** Ends of a field's horizontal line that have no neighboring cell to cross. */
+export function rowSideEdges(rows: readonly LayoutRow[], row: LayoutRow): { readonly left: boolean; readonly right: boolean } {
+  const peers = rows.filter((other) => other.y === row.y && 'inset' in other)
+  return {
+    left: !peers.some((other) => 'inset' in other && 'inset' in row && other.inset < row.inset),
+    right: !peers.some((other) => 'inset' in other && 'inset' in row && other.inset > row.inset),
+  }
 }
 
 /** Shared visible bounds for registry widget chrome and its overlay states. */
@@ -1095,6 +1108,8 @@ export interface LayoutOptions {
   readonly pictureHeights?: Readonly<Record<string, number>>
   /** Measured result-box heights in world space, by elaborated button id; never stored. */
   readonly buttonNoticeHeights?: Readonly<Record<string, number>>
+  /** Measured controls height, excluding the shared editor's padding, by value key. */
+  readonly editorControls?: Readonly<Record<string, number>>
   /**
    * Ports with a link/net attached, keyed by connectedPortKey over ELAB
    * KEYS. A CONNECTED port inside a collapsed section keeps a pin (anchored
@@ -1409,6 +1424,17 @@ export function layoutNode(
     connected: isConnected('in', item.spec.id), ...(item.spec.optional ? { optional: true as const } : {}),
   })
 
+  const saveTargetInputs = new Map<string, ElaboratedInput[]>()
+  const saveTargetParts = new Set<string>()
+  for (const item of items) {
+    if (item.kind !== 'editor' || widgetMeasure(item.widget)?.viewId !== 'core.saveTarget') continue
+    const inputs = ['mount', 'name'].map((part) => items.find((input): input is ElaboratedInput =>
+      input.kind === 'input' && input.spec.id === item.parts.writes[part]))
+    if (!inputs.every((input) => input !== undefined)) continue
+    saveTargetInputs.set(item.id, inputs)
+    for (const input of inputs) saveTargetParts.add(input.spec.id)
+  }
+
   let outputIndex = 0
   /** Top-level boxes that hold a row other than an output. */
   const holdsMoreThanOutputs = new Set<string>()
@@ -1443,7 +1469,11 @@ export function layoutNode(
       const measured = widgetMeasure(item.widget) ?? { viewId: 'core.unknown', rows: 1 }
       // The compact view shows the one row the editor writes, when it writes exactly one.
       const written = Object.values(item.parts.writes)
-      const shown = written.length === 1 ? node.values[written[0]!] : undefined
+      const mapped = saveTargetInputs.get(item.id)
+      const shown = mapped === undefined ? written.length === 1 ? node.values[written[0]!] : undefined
+        : { ...(node.values[mapped[0]!.spec.id] == null ? {} : { mount: node.values[mapped[0]!.spec.id]! }), prefix: node.values[mapped[1]!.spec.id] ?? '' }
+      if (measured.editorControls !== undefined && Number.isFinite(measured.editorControls))
+        editorControlHeights.set(item.id, Math.max(0, measured.editorControls))
       const ghost = (item.origin.kind === 'member' && item.origin.ghost === true) || item.ancestry?.some((a) => a.ghost) === true
       pending.push({
         kind: 'widget',
@@ -1569,8 +1599,8 @@ export function layoutNode(
       }
       continue
     }
-    // Its curve draws its pin; it has no row of its own.
-    if (curveHistograms.has(spec.id)) continue
+    // Its editor draws the input's pin beside the corresponding control.
+    if (curveHistograms.has(spec.id) || saveTargetParts.has(spec.id)) continue
     if (asSocket) {
       pending.push({
         kind: 'ports',
@@ -1636,6 +1666,9 @@ export function layoutNode(
         ...(item.derivedValue !== undefined ? { derivedValue: item.derivedValue } : {}),
         ...(item.automatic !== undefined ? { automatic: item.automatic } : {}),
         ...(item.automaticIfEmptied !== undefined ? { automaticIfEmptied: item.automaticIfEmptied } : {}),
+        ...(item.readOnly ? { readOnly: true as const } : {}),
+        ...(item.disabled ? { disabled: true as const } : {}),
+        ...(item.disabledReason !== undefined ? { disabledReason: item.disabledReason } : {}),
         // A menu's state lives under its flattened id, members included.
         ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
         ...(selector !== undefined ? { selector, lead: true as const } : {}),
@@ -1759,7 +1792,7 @@ export function layoutNode(
         (w.histogram?.connected === true || (options.histogramVisibility?.[w.valueKey] ?? w.spec.options['histogramVisible']) !== false)
         ? w.histogram : undefined
       const fixedCurve = w.viewId === 'core.curve' && Array.isArray(w.spec.options['interpolations']) && w.spec.options['interpolations'].length === 1
-      const controls = editorControlHeights.get(w.valueKey) ??
+      const controls = options.editorControls?.[w.valueKey] ?? editorControlHeights.get(w.valueKey) ??
         (editor.controlRows - (fixedCurve ? 1 : 0) + (histogram !== undefined ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
       const spaceRow: PendingRow = {
         kind: 'editorSpace',
@@ -1964,6 +1997,13 @@ export function layoutNode(
           const controlsTop = space.pad + (editorSpace.picture === undefined ? 0 : editorSpace.picture.height + space.gap)
           pins.push(histogramPinAt(histogram.pin, y + controlsTop + (histogram.line + 0.5) * tokens.rowHeight))
         }
+        for (const [line, input] of (saveTargetInputs.get(editorSpace.inputId) ?? []).entries()) {
+          const center = y + space.pad + (line + 0.5) * tokens.rowHeight
+          pins.push(histogramPinAt(curveHistogramPin(input), center))
+          if (input.spec.widget !== undefined && input.spec.sent !== false) pins.push({
+            ...histogramPinAt(curveHistogramPin(input), center), direction: 'out', widgetTap: true,
+          })
+        }
         y += editorSpace.height
       } else if (row.kind === 'growth') {
         const g = row.growth!
@@ -2044,6 +2084,19 @@ export function layoutNode(
           widgetBacked: true as const,
         })
         if (pressed) pins.push({ ...histogramPinAt(w.histogram!, y + tokens.rowHeight / 2 + pitch), collapsedSection: w.valueKey })
+        if (w.unfolded !== true && saveTargetInputs.has(w.inputId)) {
+          for (const direction of ['in', 'out'] as const) {
+            const connected = saveTargetInputs.get(w.inputId)!.filter((input) =>
+              isConnected(direction, input.spec.id) && (direction === 'in' || input.spec.widget !== undefined && input.spec.sent !== false))
+            for (const [index, input] of connected.entries()) {
+              pins.push({
+                ...histogramPinAt(curveHistogramPin(input), y + tokens.rowHeight / 2 + (index - (connected.length - 1) / 2) * box.clusterPitch.two),
+                direction, collapsedSection: w.inputId,
+                ...(direction === 'out' ? { widgetTap: true as const } : {}),
+              })
+            }
+          }
+        }
         // A widget can also produce its effective value. The duplicate
         // right-edge anchor deliberately shares the input's flattened id.
         if (w.editor !== true && w.unsent !== true) pins.push({
@@ -2198,14 +2251,14 @@ export function layoutNode(
     const crossRoom = (last.kind === 'widget' || last.kind === 'button') && last.crossInset !== undefined
       ? last.crossInset + box.cross.size + box.cross.fieldGap - inset : 0
     const icons = new Set(line.some((row) => row.kind === 'widget') ? line.filter((row) => row.button?.icon !== undefined) : [])
-    const iconWidth = tokens.rowHeight - tokens.rowGeometry.fieldInsetY * 2
-    const sharedWidth = (width - inset * 2 - gripRoom - crossRoom - (line.length - 1) * gap - icons.size * iconWidth) /
+    const iconWidth = (row: PendingRow): number => rowBaseHeight(row) - tokens.rowGeometry.fieldInsetY * 2
+    const sharedWidth = (width - inset * 2 - gripRoom - crossRoom - (line.length - 1) * gap - [...icons].reduce((sum, row) => sum + iconWidth(row), 0)) /
       (line.length - icons.size)
     let left = inset
     for (const [column, pendingRow] of line.entries()) {
       const index = rowIndex.get(pendingRow)!
       const row = rows[index] as Extract<LayoutRow, { kind: 'widget' | 'note' | 'button' }>
-      const cellWidth = (icons.has(pendingRow) ? iconWidth : sharedWidth) +
+      const cellWidth = (icons.has(pendingRow) ? iconWidth(pendingRow) : sharedWidth) +
         (column === 0 ? gripRoom : 0) + (column === line.length - 1 ? crossRoom : 0)
       rows[index] = { ...row, inset: left, width: cellWidth }
       left += cellWidth + gap

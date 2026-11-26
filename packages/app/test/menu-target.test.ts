@@ -43,9 +43,9 @@ describe('direct member removal', () => {
         shared: { id: 'shared', source: { node: 'n2', port: 'items.m1.out' }, sinks: [{ node: 'n1', port: 'items.m1.net' }, { node: 'n1', port: 'items.m10.net' }] },
       },
       boundary: {
-        body: [{ kind: 'input', id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m1.value' }, alsoBinds: [
+        body: [{ kind: 'section', id: 'exposed', rows: [{ kind: 'input', id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m1.value' }, alsoBinds: [
           { kind: 'port', node: 'n1', port: 'items.m1.extra' }, { kind: 'port', node: 'n1', port: 'items.m10.value' },
-        ] }, { kind: 'output', id: 'output', binds: { kind: 'widgetTap', node: 'n1', tap: 'items.m1.value' } }],
+        ] }, { kind: 'output', id: 'output', binds: { kind: 'widgetTap', node: 'n1', tap: 'items.m1.value' } }] }],
       },
     } },
   } as unknown as WorkflowDocument)
@@ -63,7 +63,7 @@ describe('direct member removal', () => {
     expect(Object.keys(graph.links)).toEqual(['kept'])
     expect(Object.keys(graph.nets)).toEqual(['shared'])
     expect(graph.nets.shared!.sinks).toEqual([{ node: 'n1', port: 'items.m10.net' }])
-    expect(graph.boundary).toEqual({ body: [{ kind: 'input', id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }] })
+    expect(graph.boundary).toEqual({ body: [{ kind: 'section', id: 'exposed', rows: [{ kind: 'input', id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }] }] })
     session.undo()
     expect(session.doc).toEqual(before)
     expect(session.canUndo).toBe(false)

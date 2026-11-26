@@ -1500,10 +1500,24 @@ export class CanvasRenderer {
     return this.lensCapabilities
   }
 
-  /** Whether a field row paints a value arriving by wire in place of its own (WidgetPaintArgs.companion). */
-  showsArrivingValue(nodeId: string, row: Extract<LayoutRow, { kind: 'widget' }>): boolean {
-    const arriving = this.rowCompanion(nodeId, row)
-    return arriving !== undefined && !drawsPassedValueAsEditor(row, arriving, this.tokens)
+  /** The value and wire state shared by field painting and label-mark hit testing. */
+  widgetPaintState(node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>, driven?: { readonly value?: Json }): Pick<WidgetPaintArgs, 'value' | 'companion' | 'connected'> {
+    const arriving = this.rowCompanion(node.id, row, driven)
+    const companion = arriving?.state === 'unknown' ? undefined : arriving
+    const written = row.editor === true && row.viewId === 'core.saveTarget' ? Object.values(row.parts?.writes ?? {}) : []
+    const connected = arriving !== undefined || written.length > 0 && written.every((inputId) =>
+      this.rowCompanion(node.id, { ...row, inputId, valueKey: inputId }) !== undefined)
+    const drag = this.rowDrags[node.id]?.valueKey === row.valueKey ? this.rowDrags[node.id] : undefined
+    const automatic = drag === undefined && row.spec.automatic === true && node.node.values[row.valueKey] === undefined
+    return {
+      value: drag !== undefined ? drag.value
+        : companion === undefined && this.editorSummaries[node.id]?.[row.valueKey]?.value !== undefined
+          ? this.editorSummaries[node.id]![row.valueKey]!.value
+          : row.derivedValue !== undefined ? row.derivedValue
+          : automatic ? effectiveWidgetDefault(row.spec) : node.node.values[row.valueKey],
+      ...(companion !== undefined ? { companion } : {}),
+      connected,
+    }
   }
 
   getDesignTokens(): DesignTokens {
@@ -2574,9 +2588,6 @@ export class CanvasRenderer {
           minScreenWidth: canvasPaintTokens.link.selectedMinScreenStroke,
         })
       }
-      // Maybe-absent (optional producer) links dash long-and-slow: a calm
-      // "this value might legitimately not exist" cue, deliberately distinct
-      // from the short [6,4] ghost-drag dash and from any error styling.
       // A wire a finished run proved empty keeps its route and color and
       // takes the skipped node's dots, distinct from the maybe-absent dash
       // that only says a value might not exist.
@@ -4027,18 +4038,13 @@ export class CanvasRenderer {
         } else if (row.kind === 'editorSpace') {
           this.paintEditorSpace(ctx, node.x, rowY, row, l.width)
         } else if (row.kind === 'note') {
-          // A formula note's text is unknown until formulas are evaluated, so
-          // it draws dimmed like any other offer that is not settled yet.
-          const rowAlpha = ctx.globalAlpha
-          if (row.unknown) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
           const width = row.width ?? l.width - row.inset * 2
           const textX = node.x + row.inset + canvasPaintTokens.widget.labelInset
           const room = width - canvasPaintTokens.widget.labelInset * 2
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
           const unit = row.lookup === undefined ? row.height : row.height / noteLookupRows(row.lookup)
-          ctx.fillText(row.text, textX, rowY + unit / 2, room)
-          ctx.globalAlpha = rowAlpha
+          ctx.fillText(fitText(ctx, row.text.replace(/[\r\n]+/g, ' '), Math.max(0, room)), textX, rowY + unit / 2)
           if (row.lookup !== undefined) this.paintNoteLookup(ctx, row.lookup, textX, rowY + unit, unit, room,
             this.overlay.hoveredButton?.nodeId === node.id && this.overlay.hoveredButton.key === `lookup:${row.noteId}`)
         } else if (row.kind === 'button') {
@@ -4595,39 +4601,37 @@ export class CanvasRenderer {
     const l = node.layout
     const rowY = node.y + row.y
     if (this.openRows[sceneNode.id] === row.valueKey) return
+    const display = this.widgetPaintState(node, row, driven)
+    const { companion, connected } = display
     const widgetWidth = row.width ?? l.width - row.inset * 2
-    const arriving = this.rowCompanion(sceneNode.id, row, driven)
-    const connected = arriving !== undefined
-    const companion = arriving?.state === 'unknown' ? undefined : arriving
     const rowAlpha = ctx.globalAlpha
-    if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
-    if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+    if (row.disabled) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
+    else {
+      if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
+      if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+    }
     const companionAlpha = ctx.globalAlpha
-    if (connected) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
-    const hovered = row.viewId !== 'core.compositor' &&
+    if (connected && !row.disabled) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
+    const hovered = !row.readOnly && !row.disabled && row.viewId !== 'core.compositor' &&
       this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
       this.overlay.hoveredWidget.valueKey === row.valueKey
     const drag = this.rowDrags[sceneNode.id]?.valueKey === row.valueKey ? this.rowDrags[sceneNode.id] : undefined
     // An empty field with a worked-out value shows it dimmed until edited.
     const automatic = drag === undefined && row.spec.automatic === true && node.node.values[row.valueKey] === undefined
-    if (automatic) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
+    if (automatic && !row.disabled) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
     this.paintWidget({
       ctx,
       row,
       facts: this.widgetFacts,
       // Selector rows (DynamicCombo) carry their value on the row itself;
       // everything else persists under the row's value key.
-      value: drag !== undefined ? drag.value
-        : companion === undefined && this.editorSummaries[sceneNode.id]?.[row.valueKey]?.value !== undefined
-          ? this.editorSummaries[sceneNode.id]![row.valueKey]!.value
-          : row.derivedValue !== undefined ? row.derivedValue
-          : automatic ? effectiveWidgetDefault(row.spec) : node.node.values[row.valueKey],
+      value: display.value,
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),
       ...(this.editorSummaries[sceneNode.id]?.[row.valueKey] !== undefined
         ? { editorSummary: this.editorSummaries[sceneNode.id]![row.valueKey]! } : {}),
-      ...(row.subgraphMark !== undefined ? { markAlpha: companionAlpha } : {}),
+      ...(row.subgraphMark !== undefined ? { markAlpha: row.disabled ? rowAlpha : companionAlpha } : {}),
       x: node.x + row.inset,
       y: rowY,
       width: widgetWidth,
@@ -4688,7 +4692,7 @@ export class CanvasRenderer {
     // outlines the field, so the row shows where the user acts without
     // changing the node's height.
     const problemAlpha = ctx.globalAlpha
-    ctx.globalAlpha = this.problemMarkAlpha ?? problemAlpha
+    ctx.globalAlpha = this.problemMarkAlpha ?? (row.disabled ? rowAlpha : problemAlpha)
     this.paintRowProblem(ctx, sceneNode.id,
       this.rowMarks[sceneNode.id]?.[row.valueKey] !== undefined ? row.valueKey : row.inputId,
       widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY))
@@ -4711,7 +4715,7 @@ export class CanvasRenderer {
     }
     const numberView = row.viewId === 'core.number' || row.viewId === 'core.slider'
     // In-row editing draws a number's mode as an icon before its value instead of the chip.
-    if (row.controllerMode !== undefined && !(numberView && t.widgetEditing === 'in-row')) {
+    if (!row.readOnly && !row.disabled && row.controllerMode !== undefined && !(numberView && t.widgetEditing === 'in-row')) {
       const chip = controllerChipRect(widgetWidth, t.rowHeight, t.rowGeometry)
       const x = node.x + row.inset + chip.x
       const y = rowY + chip.y
@@ -4726,7 +4730,7 @@ export class CanvasRenderer {
       ctx.globalAlpha = chipAlpha
     }
     const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-    if (numeric && row.derivedValue === undefined && !row.ghost) {
+    if (numeric && row.derivedValue === undefined && !row.ghost && !row.readOnly && !row.disabled) {
       // Edge glyphs reserve only the small bump zones; the broad center
       // remains the familiar editor activation target.
       const cy = rowY + t.rowHeight / 2 + (t.crispEdges ? canvasPaintTokens.widget.pixelCenter : 0)
@@ -5278,15 +5282,22 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
   ctx.beginPath()
   ctx.roundRect(x, y + tokens.rowGeometry.fieldInsetY, width, row.height - tokens.rowGeometry.fieldInsetY * 2, paint.radius)
   ctx.fill()
+  const lockReserve = row.readOnly ? paint.readOnlyMark.size + paint.readOnlyMark.gap : 0
+  const lock = (left: number): void => {
+    if (row.readOnly) paintToolboxIcon(ctx, 'lock', left, y + (rowHeight - paint.readOnlyMark.size) / 2,
+      paint.readOnlyMark.size, tokens.colors.label)
+  }
   if (args.companion !== undefined) {
     const words = companionWords(args.companion)
     const formatted = words ?? formatWidgetValue(args.companion.value, row.spec).split('\n')[0] ?? ''
     const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
     const field = widgetFieldBounds(width, rowHeight, numeric, words === undefined && row.controllerMode !== undefined, tokens.rowGeometry)
-    const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
+    const companionZone = shareRowWidth(field.right - field.left, lockReserve + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
-    ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - paint.labelClipPadding)), x + field.left + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
+    const labelLeft = x + field.left + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset)
+    ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - lockReserve - paint.labelClipPadding)), labelLeft + lockReserve, y + rowHeight / 2)
+    lock(labelLeft)
     paintCompanionValue(args)
     return
   }
@@ -5298,14 +5309,15 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
   const usable = Math.max(0, valueRight - paint.labelInset)
   const labelZone = shareRowWidth(
     usable,
-    measureWidth(ctx, row.label) + paint.labelWidthPadding,
+    lockReserve + measureWidth(ctx, row.label) + paint.labelWidthPadding,
     measureWidth(ctx, text) + paint.fallbackValueWidthPadding,
     true,
   )
   const valueWidth = Math.max(0, usable - labelZone)
   ctx.fillStyle = tokens.colors.label
   ctx.textAlign = 'left'
-  ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - paint.labelClipPadding)), x + paint.labelInset, y + rowHeight / 2)
+  ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - lockReserve - paint.labelClipPadding)), x + paint.labelInset + lockReserve, y + rowHeight / 2)
+  lock(x + paint.labelInset)
   ctx.fillStyle = tokens.colors.value
   ctx.textAlign = 'right'
   const displayText = fitText(ctx, text, valueWidth)
@@ -5571,7 +5583,8 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
   const field = bounds ?? widgetFieldBounds(width, rowHeight, numeric, words === undefined && row.controllerMode !== undefined, tokens.rowGeometry)
   // The subgraph mark before the name widens the name's share, as the painter lays it out.
-  const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
+  const mark = (row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap)
+    + (row.readOnly ? canvasPaintTokens.widget.readOnlyMark.size + canvasPaintTokens.widget.readOnlyMark.gap : 0)
   const labelWidth = measureWidth(ctx, row.label)
   const valueFont = words === undefined && summary !== undefined && (row.viewId === 'core.color' || swatch !== undefined)
     ? `${tokens.fontSize}px ${tokens.fontMono}` : prevFont

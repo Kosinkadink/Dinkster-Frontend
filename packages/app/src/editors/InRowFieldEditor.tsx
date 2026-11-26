@@ -243,7 +243,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   }
 
   const placement = createMemo(() => rowPlacement(
-    { rect: ed.rect, look: inRow.look, nodeTop: inRow.nodeTop, nodeBottom: inRow.nodeBottom },
+    { ...inRow, rect: ed.rect },
     host.viewport(),
     bounds(),
     sideSize(),

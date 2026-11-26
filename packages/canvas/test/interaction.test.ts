@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   asNodeId, coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
-  type CommandInvocation, type NodeSchema, type WorkflowDocument,
+  type CommandInvocation, type Json, type NodeSchema, type WorkflowDocument,
   boundaryOf,
   boundaryItems,
 } from '@dinkster/core'
@@ -68,7 +68,11 @@ function interactionHarness(
     getNodeBadgeLayout: (node: SceneNode) => layoutNodeBadges(node, badges[node.id] ?? [], { tokens: defaultTokens }),
     getLensCapabilities: () => lensCapabilities,
     getDesignTokens: () => defaultTokens,
-    showsArrivingValue: () => false,
+    widgetPaintState: (node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>, driven?: { readonly value?: Json }) => ({
+      value: row.derivedValue ?? node.node.values[row.valueKey],
+      ...(driven?.value === undefined ? {} : { companion: { value: driven.value } }),
+      connected: driven !== undefined,
+    }),
     getOverlay: () => overlay,
     setOverlay: (next: Record<string, unknown>) => {
       overlay = next
@@ -336,6 +340,37 @@ function interactionScene(): Scene {
     netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
   } as unknown as Scene
 }
+
+describe('folded curve promotion mark', () => {
+  it.each([false, true])('selects the boundary at its name rather than over the sketch (unknown %s)', (unknown) => {
+    const scene = interactionScene()
+    const base = scene.nodes[0]!
+    const value = unknown ? null : { points: [] }
+    const row: Extract<LayoutRow, { kind: 'widget' }> = {
+      kind: 'widget', y: 20, height: 52, inset: 10, inputId: 'curve', valueKey: 'curve',
+      address: { port: 'curve' }, label: 'Curve', type: { kind: 'concrete', name: 'CURVE' },
+      viewId: 'core.curve', rows: 1, spec: { widgetType: 'CURVE', options: {}, default: value },
+      readOnly: true, subgraphMark: { item: 'curve', label: 'Curve' },
+    }
+    const node = { ...base, node: { ...base.node, values: { curve: value } },
+      layout: { ...base.layout, width: 300, height: 72, rows: [row] } }
+    const activated: string[] = []
+    const harness = interactionHarness({ ...scene, nodes: [node] }, {
+      onSubgraphMarkActivate: (item) => activated.push(item),
+    })
+    Object.assign(harness.renderer, { widgetPaintState: () => ({ value, connected: true }) })
+    // The opener takes 20 px, the lock 18 px, then 6 px label padding.
+    // The sketch is at the right, so the mark stays at the row's center.
+    const x = node.x + row.inset + 51
+    const y = node.y + row.y + 12
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(activated).toEqual(['curve'])
+    harness.fire('pointerdown', node.x + row.inset + 92, y)
+    harness.fire('pointerup', node.x + row.inset + 92, y)
+    expect(activated).toEqual(['curve'])
+  })
+})
 
 describe('persistent host overlays', () => {
   it('preserves an armed placement ghost across selection overlay updates', () => {
@@ -687,6 +722,23 @@ describe('canvas hover targets', () => {
     expect(harness.overlays.at(-1)).toHaveProperty('hoveredPin')
     harness.replaceScene(sceneWithPins())
     expect(harness.overlays.at(-1)).not.toHaveProperty('hoveredPin')
+  })
+
+  it('exposes a note original text only within its own shared-line cell', () => {
+    const base = interactionScene()
+    const node = base.nodes[0]!
+    const note = { kind: 'note' as const, noteId: 'result', y: 20, height: 24, inset: 10, width: 40, text: 'First\nsecond line' }
+    const scene = { ...base, nodes: [{ ...node, layout: { ...node.layout, rows: [note] } }] }
+    const targets: (CanvasHoverTarget | undefined)[] = []
+    const harness = interactionHarness(scene, { onHoverTarget: (target) => targets.push(target) })
+    harness.fire('pointermove', 40, 40)
+    expect(targets.at(-1)).toMatchObject({ kind: 'note', row: { text: 'First\nsecond line' } })
+    harness.fire('pointermove', 61, 40)
+    expect(targets.at(-1)).toBeUndefined()
+    harness.fire('pointermove', 40, 40)
+    harness.replaceScene({ ...scene, nodes: [{ ...node, layout: { ...node.layout, rows: [{ ...note, text: '' }] } }] })
+    harness.controller.refreshHover()
+    expect(targets.at(-1)).toBeUndefined()
   })
 
   it('uses the full multiline row rectangle for widget hover', () => {
@@ -3058,6 +3110,20 @@ describe('dragging a number row', () => {
     return scene as Scene
   }
 
+  it.each(['readOnly', 'disabled'] as const)('drops an unfinished drag when the rebuilt row becomes %s', (flag) => {
+    const harness = inRowHarness(stepsScene())
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 100, 35)
+    expect(harness.rowDrags.at(-1)).toEqual({ nodeId: 'n1', valueKey: 'amount', value: 30 })
+    const next = stepsScene() as any
+    next.nodes[0].layout.rows[0][flag] = true
+    harness.replaceScene(next)
+    harness.fire('pointerup', 100, 35)
+    expect(harness.dispatched).toEqual([])
+    expect(next.nodes[0].node.values.amount).toBe(20)
+    expect(harness.rowDrags.at(-1)).toBeUndefined()
+  })
+
   it('moves one step per 4 pixels, stores once on release, and opens nothing', () => {
     const activate = vi.fn()
     const harness = inRowHarness(stepsScene(), { onWidgetActivate: activate })
@@ -3117,6 +3183,22 @@ describe('dragging a number row', () => {
 })
 
 describe('numeric widget steppers', () => {
+  it.each(['readOnly', 'disabled'] as const)('inspects a %s number without stepping or dragging its stored value', (flag) => {
+    const scene = interactionScene() as any
+    scene.nodes[0].layout.rows[0][flag] = true
+    scene.nodes[0].layout.rows[0].viewId = 'core.number'
+    const harness = interactionHarness(scene)
+    Object.assign(harness.renderer, { setRowDrag: () => undefined })
+    for (const x of [20, 60, 100]) {
+      harness.fire('pointerdown', x, 35)
+      harness.fire('pointerup', x, 35)
+    }
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 90, 35)
+    harness.fire('pointerup', 90, 35)
+    expect(harness.dispatched).toEqual([])
+  })
+
   it('routes a forwarded suffix member value to its occurrence owner', () => {
     const scene = interactionScene() as any
     scene.nodes[0].layout.rows[0].valueKey = 'weights.w.rebased'
@@ -4381,15 +4463,51 @@ describe('Inputs panel fields', () => {
     const y = panel.y + row.y + mark.y + mark.size / 2
     const hovers: CanvasHoverTarget[] = []
     const activated: string[] = []
+    const inspected: string[] = []
     const harness = interactionHarness(scene, {
       onHoverTarget: (target) => { if (target !== undefined) hovers.push(target) },
       onSubgraphMarkActivate: (item) => activated.push(item),
+      onWiredWidgetActivate: (hit) => inspected.push(hit.row.valueKey),
     })
     harness.fire('pointermove', x, y)
     expect(hovers.at(-1)?.kind).toBe('subgraphMark')
     harness.fire('pointerdown', x, y)
     harness.fire('pointerup', x, y)
     expect(activated).toEqual(['radius'])
+    expect(inspected).toEqual([])
+    const valueX = panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2
+    harness.fire('pointerdown', valueX, y)
+    harness.fire('pointerup', valueX, y)
+    expect(inspected).toEqual(['radius'])
+    expect(harness.dispatched).toEqual([])
+  })
+
+  it('inspects a wired multiline panel field beside its painted promotion mark', () => {
+    const doc = structuredClone(workflow()) as any
+    doc.graphs.g1.boundary.body[1].wireHidden = true
+    const original = panelScene(doc as WorkflowDocument, 'soft')
+    const panel = original.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+    const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'radius') as Extract<LayoutRow, { kind: 'widget' }>
+    const textRow = { ...row, viewId: 'core.text', spec: { widgetType: 'STRING', options: { multiline: true } } }
+    const scene: Scene = { ...original, boundaryNodes: original.boundaryNodes.map((node) => node !== panel ? node : {
+      ...panel,
+      layout: { ...panel.layout, rows: panel.layout.rows.map((candidate) => candidate === row ? textRow : candidate) },
+      fields: { ...panel.fields!, wired: { radius: { value: 'arriving text' } } },
+    }) }
+    const activated: string[] = []
+    const inspected: string[] = []
+    const harness = interactionHarness(scene, {
+      onSubgraphMarkActivate: (item) => activated.push(item),
+      onWiredWidgetActivate: (hit) => inspected.push(hit.row.valueKey),
+    })
+    // This point is beside the arriving-value mark, inside the unwired text mark.
+    const x = panel.x + row.inset + 8
+    const y = panel.y + row.y + 8
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(inspected).toEqual(['radius'])
+    expect(activated).toEqual([])
+    expect(harness.dispatched).toEqual([])
   })
 
   it('shows a promoted input reached through a reroute as a field of the entered node', () => {
