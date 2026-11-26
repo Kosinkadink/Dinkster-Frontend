@@ -787,6 +787,7 @@
     .dinkster-project-fact dd { display: contents; }
     .dinkster-project-fact dd > :not(.dinkster-project-fact-value) { grid-column: 2; grid-row: 1; justify-self: end; }
     .dinkster-project-fact-value { grid-column: 1 / -1; grid-row: 2; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .dinkster-project-fact-value > .dinkster-page-load-answer { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   }
 }
 @container project-detail (max-width: 420px) {
