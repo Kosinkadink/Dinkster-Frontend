@@ -177,7 +177,6 @@ describe('a primitive works out its value widget', () => {
     for (const depth of [1, 2]) {
       const field = depth === 1 ? 'amount' : 'quantity'
       const low = depth === 1 ? 'low' : 'floor'
-      const high = depth === 1 ? 'high' : 'ceiling'
       const boundary = (node: string, names: readonly string[], ports: readonly string[]) => ({ body: [
         ...names.map((id, index) => ({ kind: 'input', id, promoted: true,
           binds: { kind: 'port', node, port: ports[index] } })),
@@ -185,7 +184,7 @@ describe('a primitive works out its value widget', () => {
       ] })
       const source = docOf({
         first: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: 6, [low]: 5 } },
-        second: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: 2, [low]: 1, [high]: 12 } },
+        second: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: 2, [low]: 1 } },
         a: { type: 'Steps' }, b: { type: 'Count' },
       }, [['first', 'number', 'a', 'steps'], ['second', 'number', 'b', 'count']])
       const graph = (id: string, node: string, type: string, exposed: ReturnType<typeof boundary>) => ({
@@ -204,7 +203,12 @@ describe('a primitive works out its value widget', () => {
       expect(effective(store.doc, 'first')?.derived.has('max')).toBe(true)
       expect(effective(store.doc, 'first')?.derived.has('min')).toBe(false)
       expect(effective(store.doc, 'second')?.spec?.options).toMatchObject({ min: 1, max: 12 })
-      expect(effective(store.doc, 'second')?.derived.has('max')).toBe(false)
+      expect(effective(store.doc, 'second')?.derived.has('max')).toBe(true)
+      for (const [nodeId, min, max] of [['first', 5, 8], ['second', 1, 12]] as const) {
+        const drawn = documentNodeResolver(store.doc, resolve, documentPrimitiveResolver(store.doc, resolve))(
+          'g0', store.doc.graphs.g0!.nodes[nodeId]!, [])!
+        expect(inputsOf(drawn).find((row) => row.id === field)!.widget?.options).toMatchObject({ min, max })
+      }
       const outcome = store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: low, value: 3 } })
       expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
       expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 3, max: 8 })
@@ -214,12 +218,37 @@ describe('a primitive works out its value widget', () => {
       expect(store.redo()).toBe(true)
       const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
       expect(effective(reopened, 'first')?.spec?.options).toMatchObject({ min: 3, max: 8 })
+      expect(effective(reopened, 'second')?.spec?.options).toMatchObject({ min: 1, max: 12 })
       const run = compile({ document: reopened, revision: 1, resolve, scope: { kind: 'full' },
         connection: 'boundary-limits' as never, schemaHash: 'primitive' })
       expect(run.ok).toBe(true)
       if (!run.ok) throw new Error(JSON.stringify(run.diagnostics))
       expect(run.artifact.prompt.a!.inputs.steps).toBe(6)
       expect(run.artifact.prompt.b!.inputs.count).toBe(2)
+    }
+  })
+
+  it('draws a renamed general Primitive as the consumer widget through both boundary depths', () => {
+    for (const depth of [1, 2]) {
+      const graph = (id: string, node: string, type: string, input: string, target: string, output: string) => ({
+        id, name: id, nodes: { [node]: { id: node, type, values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
+        boundary: { body: [
+          { kind: 'input', id: input, promoted: true, binds: { kind: 'port', node, port: target } },
+          { kind: 'output', id: 'number', binds: { kind: 'port', node, port: output } },
+        ] },
+      })
+      const field = depth === 1 ? 'amount' : 'quantity'
+      const source = docOf({ first: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: '#00ff00' } },
+        t: { type: 'Tint' } }, [['first', 'number', 't', 'tint']])
+      const doc = { ...source, graphs: { ...source.graphs,
+        detail: graph('detail', 'prim', 'Primitive', 'amount', 'value', 'value'),
+        ...(depth === 2 ? { portrait: graph('portrait', 'detail', '#detail', 'quantity', 'amount', 'number') } : {}),
+      } } as unknown as WorkflowDocument
+      const effective = effectiveOf(doc, 'first')!
+      expect(effective.spec).toMatchObject({ widgetType: 'COLOR', default: '#ff0000' })
+      expect(effective.label).toBe('tint')
+      const drawn = documentNodeResolver(doc, resolve, documentPrimitiveResolver(doc, resolve))('g0', doc.graphs.g0!.nodes.first!, [])!
+      expect(inputsOf(drawn).find((row) => row.id === field)!.widget).toMatchObject({ widgetType: 'COLOR', default: '#ff0000' })
     }
   })
 })

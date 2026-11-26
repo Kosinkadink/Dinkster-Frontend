@@ -255,8 +255,11 @@ export function documentNodeResolver(
       node.region,
       (inner) => resolveNode(def.id, inner, childPath),
     )
-    cache.set(key, derived.schema)
-    return derived.schema
+    const shape = resolvePrimitive && derived.schema && primitiveOf(derived.schema)
+    const effective = shape && resolvePrimitive(graphId, node, instancePath)
+    const schema = shape && effective ? withPrimitiveValue(derived.schema!, shape, effective) : derived.schema
+    cache.set(key, schema)
+    return schema
   }
   return resolveNode
 }
@@ -2098,7 +2101,10 @@ function compileImpl(
           if (source !== undefined && knownInput !== undefined) {
             const consumer = flat.get(destination.runtimeId)!
             sourceConsumers.push({
-              sources: [{ graph: source.graphId, occurrence: source.occ, valueKey: valueKeyOf(knownInput) }],
+              sources: [
+                ...(sourcePromotions.get(JSON.stringify([terminal.src.runtimeId, knownInput.spec.id])) ?? []),
+                { graph: source.graphId, occurrence: source.occ, valueKey: valueKeyOf(knownInput) },
+              ],
               terminal: { graph: consumer.graphId, occurrence: consumer.occ, valueKey: valueKeyOf(destination.input) },
               ref: { node: consumer.occ.node, ...destination.input.address, port: destination.input.address.port as PortRef['port'] },
               input: destination.input.spec,
