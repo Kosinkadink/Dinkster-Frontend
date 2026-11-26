@@ -141,7 +141,7 @@ it('offers measured-card limits without inventing a reported budget and unloads 
   slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
   await flush()
   expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 11945377792 })
-  const all = [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Unload all')!
+  const all = [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Unload unused')!
   all.click(); await flush()
   expect(unloadMemory).not.toHaveBeenCalled()
   const confirm = [...root.querySelectorAll<HTMLButtonElement>('button')].filter((button) => button.textContent === 'Unload').at(-1)!
@@ -174,6 +174,35 @@ it('targets a backend repeatedly without collapsing other backends', async () =>
   expect(button('studio').getAttribute('aria-expanded')).toBe('true')
   expect(row('studio').textContent).toContain('Queued3')
   expect(row('studio').textContent).not.toContain('Limits')
+  unmount()
+})
+
+it('replaces unload only for reported live use and restores it when use ends', async () => {
+  let live = false
+  let push: ((next: MemoryStatus) => void) | undefined
+  const snapshot = (): MemoryStatus => ({ ...payload, consumerDetails: { models: [
+    { ...payload.consumerDetails!.models![0]!, inUse: live },
+    { itemId: 'unknown', displayName: 'Unsupported model', bytesByResidency: { 'vram:cuda:0': 1e9 } },
+  ] } })
+  const connection = {
+    status: coreSignal<ConnectionStatus>('connected'),
+    fetchMemoryStatus: async () => snapshot(),
+    onMemoryStatus: (listener: (next: MemoryStatus) => void) => { push = listener; return () => {} },
+    fetchRuntimeSettings: async () => ({ categories: { granted: [], available: [] }, settings: {} }),
+  } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  const unmount = render(() => <ResourcesPanel backends={[{ id: 'local', label: 'Local', connection }]} activeBackendId="local" />, root)
+  await flush()
+  expect(root.querySelector('[aria-label="Unload Flux model"]')).not.toBeNull()
+  expect(root.querySelector('[aria-label="Unload Unsupported model"]')).not.toBeNull()
+  live = true; push!(snapshot()); await flush()
+  expect(root.querySelector('[aria-label="Unload Flux model"]')).toBeNull()
+  expect(root.querySelector('.dinkster-resource-model')!.textContent).toContain('In use')
+  expect(root.querySelector('[aria-label="Unload Unsupported model"]')).not.toBeNull()
+  expect(root.textContent).toContain('Unload unused')
+  live = false; push!(snapshot()); await flush()
+  expect(root.querySelector('[aria-label="Unload Flux model"]')).not.toBeNull()
+  expect(root.querySelector('.dinkster-resource-model')!.textContent).not.toContain('In use')
   unmount()
 })
 

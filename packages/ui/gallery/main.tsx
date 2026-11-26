@@ -339,6 +339,19 @@ function Gallery() {
                   )}
                 </For>
               </Section>
+              <Section title="Loaded model actions" components="ProductButton">
+                <For each={[false, true]}>{(inUse) => (
+                  <div class="dinkster-resource-model">
+                    <span>Flux model</span><span>3.0 GB</span>
+                    <span class="dinkster-resource-model-action">
+                      <span aria-hidden="true">Unload</span>
+                      <Show when={inUse} fallback={<ProductButton intent="remove">Unload</ProductButton>}>
+                        <span>In use</span>
+                      </Show>
+                    </span>
+                  </div>
+                )}</For>
+              </Section>
               <Section
                 title="Partial telemetry"
                 components="ProductResourceUsage"

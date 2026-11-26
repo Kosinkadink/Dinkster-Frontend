@@ -65,6 +65,37 @@ test('list rows expand independently of their sibling menu and navigation does n
   await expect(version).not.toHaveAttribute('aria-controls')
 })
 
+test('multiline fields grow, scroll at their height cap, and shrink after deletion', async ({ page }) => {
+  await page.goto('/#controls')
+  const notes = page.getByRole('textbox', { name: 'Notes', exact: true })
+  const height = async () => (await notes.boundingBox())!.height
+  for (const density of ['app', 'site']) {
+    await page.evaluate((density) => { document.documentElement.dataset.density = density }, density)
+    for (const value of ['', 'One line']) {
+      await notes.fill(value)
+      const size = await notes.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { content: element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom), line: parseFloat(style.lineHeight) }
+      })
+      expect(size.content).toBeGreaterThanOrEqual(size.line * 2)
+    }
+  }
+  await notes.fill('One line')
+  const short = await height()
+  await notes.fill('First\nSecond\nThird\nFourth\nFifth')
+  expect(await height()).toBeGreaterThan(short)
+  await notes.fill(Array.from({ length: 30 }, (_, index) => `Line ${index}`).join('\n'))
+  const capped = await height()
+  await notes.fill(Array.from({ length: 60 }, (_, index) => `Line ${index}`).join('\n'))
+  expect(await height()).toBe(capped)
+  expect(await notes.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+  await notes.press('Control+End')
+  expect(await notes.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  expect(await notes.evaluate((element) => getComputedStyle(element).resize)).toBe('none')
+  await notes.fill('One line again')
+  expect(await height()).toBe(short)
+})
+
 test('run activity distinguishes concurrent running jobs from queued jobs and respects reduced motion', async ({ page }) => {
   await page.goto('/#controls')
   const one = page.getByRole('img', { name: '1 running', exact: true })
