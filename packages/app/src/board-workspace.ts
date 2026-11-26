@@ -7,6 +7,13 @@ import type { CollabTransport } from './collab.js'
 
 type BoardMediaConnection = Pick<DinksterConnection, 'uploadMediaAsset' | 'checkAssetAvailability'>
 
+export interface BoardMediaFile {
+  readonly file: File
+  readonly width?: number
+  readonly height?: number
+  readonly duration?: number
+}
+
 export interface BoardEntry {
   readonly id: string
   readonly title: string
@@ -68,7 +75,7 @@ export class BoardWorkspace {
       const availability = await connection.checkAssetAvailability([...new Set(assets.map((asset) => asset.digest))], {
         scope: 'local', signal: abort.signal,
       })
-      this.assertMediaCurrent(entry, abort, connection)
+      this.assertMediaCurrent(entry, abort.signal, connection)
       if (assets.some((asset) => !availability.some((row) => row.digest === asset.digest && row.status === 'available')))
         throw new Error('Some media is unavailable; nothing was placed')
       return this.commitMedia(entry, items)
@@ -76,16 +83,20 @@ export class BoardWorkspace {
   }
 
   /** Upload the whole batch before placing it as one undoable Board edit. */
-  async importMedia(id: string, files: readonly File[], point: { readonly x: number; readonly y: number },
-    destination: AssetUploadDestination = {},
+  async importMedia(id: string, files: readonly BoardMediaFile[], point: { readonly x: number; readonly y: number },
+    destination: AssetUploadDestination = {}, signal?: AbortSignal,
   ): Promise<readonly string[]> {
+    signal?.throwIfAborted()
     const entry = this.mediaEntry(id)
-    const batch = files.map((file) => {
+    const batch = files.map(({ file, width, height, duration }) => {
       const kind = boardMediaKindOf(file.type)
       if (!kind) throw new Error(`Unsupported Board media: ${file.name}`)
       if (file.size > (kind === 'picture' ? 256 : 1024) * 1024 * 1024)
         throw new Error(`File exceeds the Board media upload limit: ${file.name}`)
-      return { file, kind }
+      return { file, kind, metadata: {
+        ...(width !== undefined ? { width } : {}), ...(height !== undefined ? { height } : {}),
+        ...(duration !== undefined ? { duration } : {}),
+      } }
     })
     if (batch.length === 0) throw new Error('No media to import')
     const connection = this.options.mediaConnection(entry.baseUrl)
@@ -93,18 +104,19 @@ export class BoardWorkspace {
     const target = { ...destination }
     const location = { ...point }
     const abort = new AbortController()
+    const currentSignal = signal ? AbortSignal.any([signal, abort.signal]) : abort.signal
     this.importing.set(abort, id)
     const assets: BoardAsset[] = []
     try {
-      for (const { file, kind } of batch) {
-        this.assertMediaCurrent(entry, abort, connection)
+      for (const { file, kind, metadata } of batch) {
+        this.assertMediaCurrent(entry, currentSignal, connection)
         const asset = await connection.uploadMediaAsset(file, {
-          ...target, scope: 'local', name: file.name, signal: abort.signal,
+          ...target, scope: 'local', name: file.name, signal: currentSignal,
           kind: kind === 'picture' ? 'media/image' : kind === 'video' ? 'media/video' : 'media/audio',
         })
-        this.assertMediaCurrent(entry, abort, connection)
+        this.assertMediaCurrent(entry, currentSignal, connection)
         if (boardMediaKindOf(asset.mediaType) !== kind) throw new Error('Uploaded media has an unexpected kind')
-        assets.push({ digest: asset.digest, mediaType: asset.mediaType, name: asset.name.slice(0, BOARD_MAX_NAME) })
+        assets.push({ ...metadata, digest: asset.digest, mediaType: asset.mediaType, name: asset.name.slice(0, BOARD_MAX_NAME) })
       }
       return this.commitMedia(entry, this.mediaItems(entry, assets, location))
     } finally { this.importing.delete(abort) }
@@ -116,8 +128,8 @@ export class BoardWorkspace {
     return entry
   }
 
-  private assertMediaCurrent(entry: BoardEntry, abort: AbortController, connection: BoardMediaConnection): void {
-    abort.signal.throwIfAborted()
+  private assertMediaCurrent(entry: BoardEntry, signal: AbortSignal, connection: BoardMediaConnection): void {
+    signal.throwIfAborted()
     if (this.disposed || !this.entries.get().includes(entry) ||
         this.options.mediaConnection(entry.baseUrl) !== connection)
       throw new Error('Board changed while importing; nothing was placed')

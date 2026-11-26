@@ -52,7 +52,7 @@ export interface ProductBoardProps {
     readonly onZoomBy: (factor: number) => void
     readonly onZoomTo: (scale: number) => void
   }) => JSX.Element
-  readonly onAddMedia?: () => void
+  readonly onAddMedia?: (point: { x: number; y: number }) => void
   readonly onDropMedia?: (
     event: DragEvent,
     point: { x: number; y: number },
@@ -976,7 +976,10 @@ export function ProductBoard(props: ProductBoardProps) {
             label="Add media"
             labelContent="Add media"
             icon={Plus}
-            onClick={() => props.onAddMedia?.()}
+            onClick={() => {
+              const bounds = surface.getBoundingClientRect()
+              props.onAddMedia?.(point(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2))
+            }}
           />
         </Show>
         <ProductIconButton

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createPageTabHost, PageTabPanel, type PageTab } from '../src/page-tabs.js'
 import { App } from '../src/App.js'
 import { ASSET_DRAG_TYPE } from '../src/asset-browser/drag.js'
+import * as boardMedia from '../src/board-media.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import {
   layoutGroups,
@@ -140,6 +141,66 @@ describe('page tab host', () => {
 })
 
 describe('app page tabs', () => {
+  it('requires file confirmation, cancels late uploads without edits, and imports a confirmed batch with undo', async () => {
+    const app = createWorkflowApp()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (this: HTMLDialogElement) { this.setAttribute('open', '') })
+    vi.spyOn(HTMLDialogElement.prototype, 'close').mockImplementation(function (this: HTMLDialogElement) { this.removeAttribute('open') })
+    vi.spyOn(boardMedia, 'inspectBoardMedia').mockImplementation(async (file) => ({ file, width: 300, height: 600 }))
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let uploadSignal: AbortSignal | undefined
+    const upload = vi.spyOn(app.connection, 'uploadMediaAsset').mockImplementation(async (file, options) => {
+      uploadSignal = options.signal
+      await gate
+      return { digest: `blake3:${'a'.repeat(64)}`, name: file.name, mediaType: file.type, size: file.size, virtualPath: '' }
+    })
+    try {
+      app.settings.set('features.board.enabled', true)
+      app.commands.get('board.new')!.run()
+      const entry = app.boards.entries.get()[0]!
+      const tab = app.pages.tabs().find((tab) => tab.id === `page:board:${entry.id}`) as PageTab
+      dispose = render(() => <PageTabPanel host={app.pages} tab={tab} />, root)
+      const input = root.querySelector<HTMLInputElement>('[data-testid="board-media-files"]')!
+      const choose = () => {
+        Object.defineProperty(input, 'files', { configurable: true, value: [new File(['image'], 'Portrait.png', { type: 'image/png' })] })
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      const cancel = () => [...root.querySelectorAll<HTMLButtonElement>('[data-testid="board-import-dialog"] button')]
+        .find((button) => button.textContent === 'Cancel import')!.click()
+      choose()
+      expect(root.querySelector('[data-testid="board-import-dialog"]')?.textContent).toContain('Portrait.png')
+      expect(upload).not.toHaveBeenCalled()
+      cancel()
+      expect(entry.session.doc.order).toEqual([])
+      choose()
+      root.querySelector<HTMLButtonElement>('[data-testid="board-import-confirm"]')!.click()
+      await vi.waitFor(() => expect(uploadSignal).toBeDefined())
+      cancel()
+      expect(uploadSignal!.aborted).toBe(true)
+      release()
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="board-import-dialog"]')).toBeNull())
+      expect(entry.session.doc.order).toEqual([])
+      choose()
+      root.querySelector<HTMLButtonElement>('[data-testid="board-import-confirm"]')!.click()
+      await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(1))
+      expect(entry.session.doc.items[entry.session.doc.order[0]!]!).toMatchObject({
+        kind: 'picture', asset: { name: 'Portrait.png', width: 300, height: 600 }, rect: { width: 280, height: 560 },
+      })
+      expect(entry.session.undo()).toBe(true)
+      expect(entry.session.doc.order).toEqual([])
+    } finally {
+      release()
+      dispose()
+      app.dispose()
+      root.remove()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('places an Assets drop as an undoable Board edit and retains dismissible refusals until a successful drop', async () => {
     const app = createWorkflowApp()
     const root = document.createElement('div')
@@ -156,7 +217,7 @@ describe('app page tabs', () => {
       const surface = root.querySelector('.dinkster-board')!
       const drop = (value: unknown) => {
         const event = new Event('drop', { bubbles: true, cancelable: true })
-        Object.defineProperty(event, 'dataTransfer', { value: { getData: (type: string) => type === ASSET_DRAG_TYPE ? JSON.stringify(value) : '' } })
+        Object.defineProperty(event, 'dataTransfer', { value: { files: [], getData: (type: string) => type === ASSET_DRAG_TYPE ? JSON.stringify(value) : '' } })
         Object.defineProperties(event, { clientX: { value: 70 }, clientY: { value: 90 } })
         surface.dispatchEvent(event)
       }

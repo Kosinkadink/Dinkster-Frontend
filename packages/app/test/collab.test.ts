@@ -247,12 +247,16 @@ describe('Board workspace collaboration', () => {
       digest: `blake3:${String(files.indexOf(file) + 1).repeat(64)}`, name: `recorded-${file.name}`,
       size: file.size, mediaType: file.type, virtualPath: `mounts/imports/${file.name}`,
     }))
-    const ids = await a.boards.importMedia(shared.id, files, { x: 37, y: 91 })
+    const ids = await a.boards.importMedia(shared.id, files.map((file, index) => ({ file,
+      ...(index === 0 ? { width: 300, height: 600 } : index === 1 ? { width: 1920, height: 1080, duration: 4 } : { duration: 3 }),
+    })), { x: 37, y: 91 })
     await shared.shared!.session.settle()
     await until(() => joined.session.doc.order.length === 3)
     expect(ids.map((id) => shared.session.doc.items[id]!.kind)).toEqual(['picture', 'video', 'sound'])
     expect(ids.map((id) => shared.session.doc.items[id]!.rect.x)).toEqual([37, 61, 85])
     expect(ids.map((id) => shared.session.doc.items[id]!.rect.y)).toEqual([91, 115, 139])
+    expect(shared.session.doc.items[ids[0]!]!.rect).toMatchObject({ width: 280, height: 560 })
+    expect(shared.session.doc.items[ids[1]!]!.rect).toMatchObject({ width: 280, height: 157.5 })
     expect(ids.map((id) => shared.session.doc.items[id])).toMatchObject(files.map((file, index) => ({
       asset: { digest: `blake3:${String(index + 1).repeat(64)}`, name: `recorded-${file.name}`, mediaType: file.type },
     })))
@@ -299,7 +303,7 @@ describe('Board workspace collaboration', () => {
     expect(entry.session.doc.order).toEqual([])
   })
 
-  it.each(['failure', 'close', 'reopen', 'dispose', 'replace'] as const)('never places a partial or retired import on %s', async (action) => {
+  it.each(['failure', 'close', 'reopen', 'dispose', 'replace', 'cancel'] as const)('never places a partial or retired import on %s', async (action) => {
     const app = makeApp(new FakeCollabServer())
     const entry = app.boards.open(emptyBoard(), 'References', 'http://collab')
     const connection = app.backends.get().find((backend) => backend.baseUrl === 'http://collab')!.connection
@@ -318,7 +322,8 @@ describe('Board workspace collaboration', () => {
       return { digest: `blake3:${'1'.repeat(64)}`, name: file.name, size: file.size,
         mediaType: file.type, virtualPath: `mounts/imports/${file.name}` }
     })
-    const importing = app.boards.importMedia(entry.id, ['first.png', 'second.png'].map((name) => new File(['image'], name, { type: 'image/png' })), { x: 17, y: 29 })
+    const abort = new AbortController()
+    const importing = app.boards.importMedia(entry.id, ['first.png', 'second.png'].map((name) => ({ file: new File(['image'], name, { type: 'image/png' }) })), { x: 17, y: 29 }, {}, abort.signal)
     const rejected = expect(importing).rejects.toThrow()
     await waiting
     let replacement = entry
@@ -330,6 +335,7 @@ describe('Board workspace collaboration', () => {
       app.dispose()
       expect(signal?.aborted).toBe(true)
     } else if (action === 'replace') replacement = await app.boards.share(entry.id)
+    else if (action === 'cancel') { abort.abort(); expect(signal?.aborted).toBe(true) }
     release()
     await rejected
     expect(entry.session.doc.order).toEqual([])

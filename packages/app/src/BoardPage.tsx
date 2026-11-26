@@ -1,18 +1,88 @@
-import { BOARD_MAX_NAME, emptyBoard, t } from '@dinkster/core'
+import { BOARD_MAX_NAME, boardMediaKindOf, emptyBoard, t } from '@dinkster/core'
 import { ProductBoard, ProductErrorBanner } from '@dinkster/ui'
 import { Images } from 'lucide-solid'
-import { createSignal, onCleanup, Show } from 'solid-js'
-import type { AppState } from './app-state.js'
+import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import type { AppState, Backend } from './app-state.js'
 import type { BoardEntry } from './board-workspace.js'
 import { CanvasCornerControls, type CanvasCornerMenu } from './CanvasChrome.js'
 import { useSignal } from './solid-adapter.js'
 import { ASSET_DRAG_TYPE, readAssetDrag } from './asset-browser/drag.js'
+import { inspectBoardMedia } from './board-media.js'
+import { ModalSurface } from './ModalSurface.js'
+import { ProductButton, ProductFileInput } from './ProductControls.js'
+import { ProductActionFooter } from './ProductForm.js'
+import { UploadDestination } from './UploadDestination.js'
+import { activeProjectId } from './projects.js'
+import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 
 function BoardPage(props: { app: AppState; entry: BoardEntry }) {
   const [menu, setMenu] = createSignal<CanvasCornerMenu>()
   const [error, setError] = createSignal<string>()
+  const backends = useSignal(props.app.backends)
   let live = true
   let drop = 0
+  let input!: HTMLInputElement
+  let pickerPoint = { x: 0, y: 0 }
+  let importAbort: AbortController | undefined
+  const [busy, setBusy] = createSignal(false)
+  const [destination, setDestination] = createSignal<UploadDestinationChoice>({ remember: false })
+  const [importing, setImporting] = createSignal<{
+    files: readonly File[]; point: { x: number; y: number }; entry: BoardEntry; backend: Backend; project: string
+  }>()
+  const cancelImport = () => {
+    importAbort?.abort()
+    importAbort = undefined
+    setImporting(undefined)
+    setBusy(false)
+  }
+  createEffect(() => {
+    const entry = props.entry
+    const request = importing()
+    if (request && (request.entry !== entry || !backends().some((backend) =>
+      backend.id === request.backend.id && backend.connection === request.backend.connection))) cancelImport()
+  })
+  const stageImport = (files: readonly File[], point: { x: number; y: number }) => {
+    if (!files.length) return
+    ++drop
+    cancelImport()
+    const backend = props.app.backends.get().find((candidate) => candidate.baseUrl === props.entry.baseUrl)
+    if (!backend) { setError('This Board\'s backend is unavailable'); return }
+    const unsupported = files.find((file) => !boardMediaKindOf(file.type))
+    if (unsupported) { setError(`Unsupported Board media: ${unsupported.name}`); return }
+    const project = activeProjectId()
+    setDestination(readUploadDestination(String(backend.id), project))
+    setImporting({ files: [...files], point: { ...point }, entry: props.entry, backend, project })
+  }
+  const confirmImport = async () => {
+    const request = importing()
+    if (!request || busy()) return
+    const abort = new AbortController()
+    importAbort = abort
+    const choice = { ...destination() }
+    const current = () => live && !abort.signal.aborted && props.entry === request.entry &&
+      activeProjectId() === request.project && props.app.backends.get().some((backend) =>
+        backend.id === request.backend.id && backend.connection === request.backend.connection)
+    setBusy(true)
+    try {
+      const files = []
+      for (const file of request.files) {
+        abort.signal.throwIfAborted()
+        files.push(await inspectBoardMedia(file, abort.signal))
+        if (!current()) return
+      }
+      await props.app.boards.importMedia(request.entry.id, files, request.point, {
+        ...(choice.mount ? { mount: choice.mount } : {}), ...(choice.folder ? { folder: choice.folder } : {}),
+      }, abort.signal)
+      if (!current()) return
+      try { saveUploadDestination(String(request.backend.id), request.project, choice) } catch { /* Storage failure does not undo an import. */ }
+      setError(undefined)
+      setImporting(undefined)
+    } catch (reason) {
+      if (current()) { setError(reason instanceof Error ? reason.message : String(reason)); setImporting(undefined) }
+    } finally {
+      if (importAbort === abort) { importAbort = undefined; setBusy(false) }
+    }
+  }
   let corner: HTMLDivElement | undefined
   const dismiss = (event: PointerEvent | KeyboardEvent) => {
     if (event instanceof KeyboardEvent ? event.key === 'Escape' : !corner?.contains(event.target as Node))
@@ -22,15 +92,23 @@ function BoardPage(props: { app: AppState; entry: BoardEntry }) {
   window.addEventListener('keydown', dismiss)
   onCleanup(() => {
     live = false
+    cancelImport()
     window.removeEventListener('pointerdown', dismiss)
     window.removeEventListener('keydown', dismiss)
   })
   return <div class="board-page">
+    <ProductFileInput ref={input} multiple accept="image/*,video/*,audio/*" data-testid="board-media-files"
+      onChange={(event) => {
+        stageImport([...event.currentTarget.files ?? []], pickerPoint)
+        event.currentTarget.value = ''
+      }} />
     <Show when={error()}>{(message) => <ProductErrorBanner onDismiss={() => setError(undefined)}>{message()}</ProductErrorBanner>}</Show>
     <div class="board-page-canvas"><ProductBoard
     fill
     store={props.entry.session}
+    onAddMedia={(point) => { pickerPoint = point; input.click() }}
     onDropMedia={(event, point) => {
+      if (event.dataTransfer?.files.length) { stageImport([...event.dataTransfer.files], point); return }
       const text = event.dataTransfer?.getData(ASSET_DRAG_TYPE)
       if (!text) return
       const entry = props.entry
@@ -57,7 +135,22 @@ function BoardPage(props: { app: AppState; entry: BoardEntry }) {
       onOpenMenu={setMenu} onCloseMenu={() => setMenu(undefined)}
       onFit={view.onFit} onZoomBy={view.onZoomBy} onZoomTo={view.onZoomTo}
     />}
-  /></div></div>
+  /></div>
+    <Show when={importing()} keyed>{(request) => <ModalSurface
+      title={t('board.import.title')} modalId="canvas-import" testId="board-import-dialog"
+      onRequestClose={cancelImport} closeLabel={t('canvasImport.cancel')}>
+      <div class="canvas-import-choice">
+        <p>{t('canvasImport.description', { name: request.files.map((file) => file.name).join(', ') })}</p>
+        <UploadDestination connection={request.backend.connection} machine={request.backend.label}
+          value={destination()} disabled={busy()} onChange={setDestination} />
+        <ProductActionFooter>
+          <ProductButton type="button" variant="primary" data-testid="board-import-confirm" loading={busy()}
+            onClick={() => void confirmImport()}>{t(busy() ? 'board.import.busy' : 'board.import.confirm')}</ProductButton>
+          <ProductButton type="button" onClick={cancelImport}>{t('canvasImport.cancel')}</ProductButton>
+        </ProductActionFooter>
+      </div>
+    </ModalSurface>}</Show>
+  </div>
 }
 
 /** Register each Board identity once, over the same page host as other documents. */
