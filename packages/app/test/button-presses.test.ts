@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { coreCommandRegistry, createLocalSession, documentResolver, parseDinksterSchema, type CallAnswer, type DinksterWireSchema, type WorkflowDocument } from '@dinkster/core'
 import { createLookupClient, valueFromWire, type LookupClient } from '@dinkster/client'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
@@ -42,6 +42,33 @@ function setup(call: () => Promise<CallAnswer>, nodeSchema = schema, lookups?: L
 }
 
 describe('button press authority and typed answers', () => {
+  it('reports a refused link opening without rolling back the committed undo step', async () => {
+    const schema = parseDinksterSchema('test.link', {
+      schemaVersion: 2, nodeType: 'test.link', displayName: 'Link', category: 'test', body: [
+        { kind: 'input', id: 'first', type: { kind: 'concrete', types: ['STRING'] }, default: 'old' },
+        { kind: 'button', id: 'call', label: 'Open', steps: [
+          { step: 'set', field: 'first', value: { value: 'committed' } },
+          { step: 'openLink', url: { value: 'https://example.com/' } },
+        ] },
+      ],
+    }).schema!
+    const { store, place, presses } = setup(async () => { throw new Error('not a Call step') }, schema)
+    const before = store.doc
+    vi.stubGlobal('window', { open: () => null })
+    try {
+      await presses.press(place)
+      expect(store.doc.graphs['g0']!.nodes['n1']!.values['first']).toBe('committed')
+      expect([...presses.states().values()][0]?.box).toEqual({
+        tone: 'warn', message: 'The changes were made. Opening the link failed: The browser blocked the new tab.',
+      })
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(before)
+      expect(store.canUndo).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('opens the host editor on preceding staged writes and commits their result in one undo', async () => {
     const schema = parseDinksterSchema('test.staged_editor', {
       schemaVersion: 2, nodeType: 'test.staged_editor', displayName: 'Editor', category: 'test', body: [

@@ -266,8 +266,24 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         }
         if (address.protocol !== 'https:' && address.protocol !== 'http:') throw new Error('Only web addresses open in a new tab.')
         if (confirm && !await surfaces.confirmLink(place, address.href, signal)) throw new Error('The link was not opened.')
-        // With noopener the browser answers null whether or not the tab opened, so a block cannot be told.
-        window.open(address.href, '_blank', 'noopener,noreferrer')
+        // A blank same-origin tab gives an observable refusal. Sever its opener
+        // before navigating, and suppress the referrer on that navigation.
+        const opened = window.open('about:blank', '_blank')
+        if (opened === null) throw new Error('The browser blocked the new tab.')
+        try {
+          opened.opener = null
+          const link = opened.document.createElement('a')
+          link.href = address.href
+          link.rel = 'noreferrer noopener'
+          link.referrerPolicy = 'no-referrer'
+          link.target = '_self'
+          opened.document.body.append(link)
+          link.click()
+          link.remove()
+        } catch (error) {
+          opened.close()
+          throw error
+        }
       },
       random: Math.random,
     }
