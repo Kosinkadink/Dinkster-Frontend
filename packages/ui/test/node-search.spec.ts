@@ -152,6 +152,29 @@ test('list filters keep plain names, directional pin shapes and whole-list input
   await expect(wire.getByRole('option')).toHaveText(['Image List to Batchinto images', 'Image Statsinto image'])
 })
 
+test('several checked types require all of them and can be individually cleared', async ({ page }) => {
+  await page.goto('/#node-search')
+  const search = page.getByTestId('node-search-typed')
+  await search.scrollIntoViewIfNeeded()
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  const choose = async (direction: string, type: string) => {
+    await search.getByRole('button', { name: `${direction} type`, exact: true }).click()
+    await search.getByRole('menuitemcheckbox', { name: `${direction} ${type}`, exact: true }).click()
+  }
+  await choose('Takes', 'image')
+  await choose('Takes', 'image list')
+  await expect(search.getByRole('option')).toHaveText(['Image List to Batchdev / image', 'Image Statsdev / image'])
+  await search.getByRole('button', { name: 'Takes type', exact: true }).click()
+  await expect(search.getByRole('menuitemcheckbox', { name: 'Takes image', exact: true })).toBeChecked()
+  await expect(search.getByRole('menuitemcheckbox', { name: 'Takes image list', exact: true })).toBeChecked()
+  await search.getByRole('menuitemcheckbox', { name: 'Takes Any type', exact: true }).click()
+  await choose('Gives', 'image')
+  await choose('Gives', 'string')
+  await expect(search.getByRole('option')).toHaveCount(0)
+  await choose('Gives', 'image')
+  await expect(search.getByRole('option')).toHaveText(['Image Statsdev / image'])
+})
+
 test('custom menu content keeps string names, separate descriptions and selection behavior', async ({ page }) => {
   for (const width of [240, 360, 600]) {
     await page.setViewportSize({ width, height: 900 })

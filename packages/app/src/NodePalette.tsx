@@ -6,8 +6,8 @@ import {
 } from '@dinkster/canvas'
 import {
   allRowsOf, autoConnectTarget, hasKnownLinkDropAnchorType, hintsMatchLinkDrop,
-  hintsMatchAnyPortFilters, hintsMatchPortFilters, isDeprecated, parseSearchFilters,
-  rankSearch, schemaInputTypes, schemaMatchesLinkDrop, schemaMatchesAnyPortFilters,
+  hintsMatchPortFilters, isDeprecated, parseSearchFilters,
+  rankSearch, schemaInputTypes, schemaMatchesLinkDrop,
   schemaMatchesPortFilters, schemaOutputTypes, semanticDesignTokens, typeExprFromTypeId,
   type NodeSchema, type PackBlueprintDescriptor, type SearchAction, type TypeExpr, type WidgetRegistry,
 } from '@dinkster/core'
@@ -177,14 +177,14 @@ export function NodePalette(props: {
       const picked = takes().size > 0 || gives().size > 0
       if (!typed && !picked) return true
       if (entry.schema !== undefined) return (!typed || schemaMatchesPortFilters(entry.schema, filters)) &&
-        (!picked || schemaMatchesAnyPortFilters(entry.schema, selected))
+        (!picked || schemaMatchesPortFilters(entry.schema, selected))
       const descriptor = entry.blueprint?.descriptor
       if (descriptor !== undefined) {
         const hints = {
           ...(descriptor.boundaryInputs !== undefined ? { inputs: descriptor.boundaryInputs } : {}),
           ...(descriptor.boundaryOutputs !== undefined ? { outputs: descriptor.boundaryOutputs } : {}),
         }
-        return (!typed || hintsMatchPortFilters(hints, filters)) && (!picked || hintsMatchAnyPortFilters(hints, selected))
+        return (!typed || hintsMatchPortFilters(hints, filters)) && (!picked || hintsMatchPortFilters(hints, selected))
       }
       return !typed && entry.kind === 'utility'
     })

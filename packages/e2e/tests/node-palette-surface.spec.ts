@@ -435,6 +435,41 @@ test('a dropped wire keeps compatible results and atomic insertion while its chi
   expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links))).toEqual([])
 })
 
+test('type-menu selections require every input and output type and agree with typed filters', async ({ page }) => {
+  await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
+    type: 'PaletteBothDirections', displayName: 'Palette both directions', category: 'Types', source: 'v3', isOutputNode: false,
+    body: [
+      { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+      { kind: 'input', id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: false },
+      { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
+      { kind: 'output', id: 'latent', type: { kind: 'concrete', name: 'LATENT' } },
+    ],
+  }]))
+  await openPalette(page)
+  const palette = page.getByTestId('node-palette')
+  const field = page.getByTestId('palette-search')
+  await field.fill('Palette')
+  const choose = async (direction: string, type: string) => {
+    await palette.getByRole('button', { name: new RegExp(`^${direction}:`) }).click()
+    await palette.getByRole('menuitemcheckbox', { name: `${direction} ${type}`, exact: true }).click()
+  }
+  await choose('Takes', 'IMAGE')
+  await choose('Takes', 'MODEL')
+  await expect(palette.getByRole('option')).toHaveCount(2)
+  await expect(palette.locator('[data-key="entry:PaletteRichPreview"]')).toBeVisible()
+  await expect(palette.locator('[data-key="entry:PaletteBothDirections"]')).toBeVisible()
+  await choose('Gives', 'IMAGE')
+  await choose('Gives', 'LATENT')
+  await expect(palette.getByRole('option')).toHaveCount(1)
+  await expect(palette.getByRole('option')).toHaveAttribute('data-key', 'entry:PaletteBothDirections')
+  await capture(page, 'app-all-type-filters')
+  await choose('Takes', 'Any type')
+  await choose('Gives', 'Any type')
+  await field.fill('Palette in:IMAGE in:MODEL out:IMAGE out:LATENT')
+  await expect(palette.getByRole('option')).toHaveCount(1)
+  await expect(palette.getByRole('option')).toHaveAttribute('data-key', 'entry:PaletteBothDirections')
+})
+
 test('a dropped list wire offers either-value inputs, excludes scalar-only inputs and connects in one undo step', async ({ page }) => {
   const sourceId = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app

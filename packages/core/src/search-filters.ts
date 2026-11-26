@@ -189,16 +189,6 @@ export function hintsMatchPortFilters(
   return true
 }
 
-/** Multi-select OR variant of hintsMatchPortFilters. */
-export function hintsMatchAnyPortFilters(
-  hints: { readonly inputs?: readonly string[]; readonly outputs?: readonly string[] },
-  filters: Pick<SearchFilters, 'inputs' | 'outputs'>,
-): boolean {
-  if (filters.inputs?.length && !filters.inputs.some((token) => (hints.inputs ?? []).some((hint) => nameMatchesToken(hint, token)))) return false
-  if (filters.outputs?.length && !filters.outputs.some((token) => (hints.outputs ?? []).some((hint) => nameMatchesToken(hint, token)))) return false
-  return true
-}
-
 // ---------------------------------------------------------------------------
 // Link-drop compatibility
 // ---------------------------------------------------------------------------
@@ -369,24 +359,5 @@ export function schemaMatchesPortFilters(
     }
     if (!hit) return false
   }
-  return true
-}
-
-/**
- * Multi-select palette semantics: selections are ORed within each direction,
- * while an active input group and output group are both required.
- */
-export function schemaMatchesAnyPortFilters(
-  schema: NodeSchema,
-  filters: Pick<SearchFilters, 'inputs' | 'outputs'>,
-): boolean {
-  const inputs = filters.inputs
-  if (inputs !== undefined && inputs.length > 0 && !inputs.some((token) =>
-    [...schemaInputTypes(schema)].some((type) => typeMatchesToken(type, token)),
-  )) return false
-  const outputs = filters.outputs
-  if (outputs !== undefined && outputs.length > 0 && !outputs.some((token) =>
-    [...schemaOutputTypes(schema)].some((type) => typeMatchesToken(type, token)),
-  )) return false
   return true
 }

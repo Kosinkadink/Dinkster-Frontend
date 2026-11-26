@@ -11,7 +11,6 @@ import {
   hintsMatchPortFilters,
   parseSearchFilters,
   schemaMatchesLinkDrop,
-  schemaMatchesAnyPortFilters,
   schemaMatchesPortFilters,
   typeMatchesToken,
   type InputSpec,
@@ -109,7 +108,6 @@ describe('schemaMatchesPortFilters', () => {
       input('provider', concrete('COMBO'), { hidden: true }),
     ])
     expect(schemaMatchesPortFilters(hiddenOnly, { inputs: ['combo'] })).toBe(false)
-    expect(schemaMatchesAnyPortFilters(hiddenOnly, { inputs: ['combo'] })).toBe(false)
     expect(schemaMatchesLinkDrop(hiddenOnly, concrete('COMBO'), 'in')).toBe(false)
     expect(autoConnectTarget(hiddenOnly, concrete('COMBO'), 'in')).toBeUndefined()
   })
@@ -171,20 +169,6 @@ describe('schemaMatchesPortFilters', () => {
   })
 })
 
-describe('schemaMatchesAnyPortFilters', () => {
-  const convert = schema([
-    input('image', concrete('IMAGE')),
-    { kind: 'output', id: 'mask', type: concrete('MASK') },
-  ])
-
-  it('ORs selections within a direction and ANDs the input/output groups', () => {
-    expect(schemaMatchesAnyPortFilters(convert, { inputs: ['audio', 'image'] })).toBe(true)
-    expect(schemaMatchesAnyPortFilters(convert, { inputs: ['IMAGE'] })).toBe(true)
-    expect(schemaMatchesAnyPortFilters(convert, { outputs: ['latent', 'mask'] })).toBe(true)
-    expect(schemaMatchesAnyPortFilters(convert, { inputs: ['audio', 'image'], outputs: ['latent'] })).toBe(false)
-  })
-})
-
 describe('hintsMatchPortFilters (blueprint boundary hints)', () => {
   const hints = { inputs: ['core.text'], outputs: ['IMAGE'] }
 
@@ -194,6 +178,8 @@ describe('hintsMatchPortFilters (blueprint boundary hints)', () => {
     expect(hintsMatchPortFilters(hints, { outputs: ['image'] })).toBe(true)
     expect(hintsMatchPortFilters(hints, { inputs: ['image'] })).toBe(false)
     expect(hintsMatchPortFilters(hints, { outputs: ['text'] })).toBe(false)
+    expect(hintsMatchPortFilters(hints, { inputs: ['text', 'image'] })).toBe(false)
+    expect(hintsMatchPortFilters(hints, { outputs: ['image', 'mask'] })).toBe(false)
   })
 
   it('undeclared hints exclude the entry when a port filter is active', () => {
@@ -241,7 +227,6 @@ describe('schemaMatchesLinkDrop (noodle-drop compatibility)', () => {
     const either = schema([input('images', concrete('IMAGE'), { acceptsList: true })])
     expect(autoConnectTarget(either, listAnchor, 'in')).toEqual({ port: 'images' })
     expect(schemaMatchesPortFilters(either, { inputs: ['list<image>'] })).toBe(true)
-    expect(schemaMatchesAnyPortFilters(either, { inputs: ['list<image>'] })).toBe(true)
     expect(schemaMatchesLinkDrop(either, concrete('IMAGE'), 'in')).toBe(true)
     expect(schemaMatchesLinkDrop(either, { kind: 'list', element: concrete('MASK') }, 'in')).toBe(false)
     expect(schemaMatchesPortFilters(either, { inputs: ['list<mask>'] })).toBe(false)

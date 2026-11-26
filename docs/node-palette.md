@@ -20,8 +20,8 @@ replace keyboard selection.
 Before typing, Recent lists the last placements and Categories opens a list
 with a way back. Named kind tabs, `kind:`, `in:`, and `out:` query tokens,
 and Takes and Gives menus narrow the same canonical entry set. Multi-select type
-filters match canonical and legacy type names case-insensitively, use OR
-within one direction, and use AND between input and output directions. A
+filters match canonical and legacy type names case-insensitively and require
+every selected input and output type, just like repeated typed filters. A
 no-match state is announced outside the empty listbox. If the live catalog
 changes while a no-match query is open, the first new match becomes active.
 Catalog refreshes update entries and category counts without closing search.
@@ -38,6 +38,11 @@ the connection target. Removing the chip keeps the query and clears only the
 pending connection. Uninstalled nodes come from the shared registry catalog
 and open the same validated install prompt as Ctrl+K. They are never offered
 for wire-drop or link-splice placement.
+
+List and file forms appear directly beneath their type with plain names.
+Pins use the node's circle, list diamond and either-input shape. A list
+filter or dropped list wire also finds matching inputs that accept a whole
+list; scalar-only inputs remain incompatible with list wires.
 
 Browsing and highlighting never mutate the workflow. Ordinary node,
 subgraph, and blueprint choices arm the existing pointer-following placement
