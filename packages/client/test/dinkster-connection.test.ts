@@ -3805,6 +3805,17 @@ describe('persistent history wire', () => {
     expect(records[0]?.error?.['phase']).toBe('running')
   })
 
+  it('keeps a record\'s workflow name and rejects a record whose name is malformed', async () => {
+    const named = { ...run, runId: 'run-named', workflowName: 'Portrait pass' }
+    const { conn } = submitHarness(() => jsonResponse(200, { records: [
+      named, run,
+      { ...run, runId: 'run-empty-name', workflowName: '' },
+      { ...run, runId: 'run-number-name', workflowName: 42 },
+      { ...run, runId: 'run-null-name', workflowName: null },
+    ] }))
+    expect((await conn.listHistory({ scope: 'local' })).records).toEqual([named, run])
+  })
+
   it('keeps valid image/video thumbnails and omits malformed optional media without losing history', async () => {
     const image = { digest: DIGEST, name: '', size: 0, mediaType: 'image/png', virtualPath: '' }
     const video = { ...image, digest: 'blake3:' + 'c'.repeat(64), mediaType: 'video/webm' }

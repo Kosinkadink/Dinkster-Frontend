@@ -92,7 +92,7 @@ async function openConditionalWorkflow(page: Page): Promise<void> {
         sub: {
           id: 'sub', name: 'Conditional Wrapper',
           nodes: {},
-          links: {}, nets: {}, reroutes: {}, boundary: { inputs: [], outputs: [] }, nextOrdinal: 100,
+          links: {}, nets: {}, reroutes: {}, boundary: { body: [] }, nextOrdinal: 100,
         },
       },
       view: { graphs: {
@@ -176,11 +176,11 @@ test('region occurrences author independent promoted widget state', async ({ pag
     document.graphs['sub']!.nodes['amount'] = { id: 'amount', type: 'RegionAmountTest', values: {} }
     document.graphs['sub']!.nodes['indexSink'] = { id: 'indexSink', type: 'RegionIndexSinkTest', values: {} }
     document.graphs['sub']!.boundary = {
-      inputs: [
-        { id: 'item', binds: { kind: 'port', node: 'pass', port: 'item' } },
-        { id: 'amount', promoted: true, binds: { kind: 'port', node: 'amount', port: 'amount' } },
+      body: [
+        { kind: 'input', id: 'item', binds: { kind: 'port', node: 'pass', port: 'item' } },
+        { kind: 'input', id: 'amount', promoted: true, binds: { kind: 'port', node: 'amount', port: 'amount' } },
+        { kind: 'output', id: 'result', binds: { kind: 'port', node: 'pass', port: 'result' } },
       ],
-      outputs: [{ id: 'result', binds: { kind: 'port', node: 'pass', port: 'result' } }],
     }
     document.view!.graphs['g0']!.nodes = {
       i0: { position: { x: 100, y: 100 } },
@@ -199,7 +199,7 @@ test('region occurrences author independent promoted widget state', async ({ pag
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     const i0 = Object.values(document.occurrenceTopologies?.i0?.links ?? {})[0]
     return {
-      boundaryInputs: document.graphs['sub']!.boundary!.inputs.map((item) => item.id),
+      boundaryInputs: document.graphs['sub']!.boundary!.body.flatMap((entry) => entry.kind === 'input' ? [entry.id] : []),
       i0: i0 === undefined ? undefined : { from: i0.from, to: i0.to },
       i1: document.occurrenceTopologies?.i1,
     }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { buildScene, defaultTokens, type Hit } from '@dinkster/canvas'
-import { asNodeId, coreCommandRegistry, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { asNodeId, boundaryItems, coreCommandRegistry, coreMenuContributions, createLocalSession, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, resolveWidgetRepresentation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { intKind } from '@dinkster/widgets'
 import { toolboxMenuRequest } from '../src/CanvasHost.js'
-import { canvasMenuContext, curveHistogramMenuGroup, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
+import { canvasMenuContext, curveHistogramMenuGroup, memberRemovalInvocation, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
 
 const item = (id: string): MenuItem => ({
   id,
@@ -13,6 +14,191 @@ const item = (id: string): MenuItem => ({
 const group = (name: string, ...ids: string[]): ResolvedMenuGroup => ({
   group: name,
   items: ids.map(item),
+})
+
+describe('field-line menus', () => {
+  it('saves independent member folds through row menus without changing wires or values', () => {
+    const field = (id: string): Extract<NodeSchema['body'][number], { kind: 'input' }> => ({ kind: 'input', id,
+      type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } })
+    const schema: NodeSchema = {
+      type: 'Stack', displayName: 'Stack', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: 'm', start: 0, pad: 0 },
+        grows: 'button', minMembers: 1, member: [{ kind: 'row', rows: [field('first'), field('last')] }] }],
+    }
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'lines', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Lines', nextOrdinal: 2, nodes: {
+        n1: { id: 'n1', type: 'Stack', values: { 'items.m1.first': 7, 'items.m10.last': 19 },
+          dynamic: { items: { members: ['m1', 'm10'], seq: 11 } } },
+      }, links: { same: { id: 'same', from: { node: 'n1', tap: 'items.m1.first' }, to: { node: 'n1', port: 'items.m1.last' } } }, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 20, y: 30 } } } } } },
+    })
+    expect(loaded.diagnostics).toEqual([])
+    let store = new DocumentStore(loaded.document!, coreCommandRegistry())
+    const scene = () => buildScene({ document: store.doc, graphId: 'g0', resolve: () => schema,
+      tokens: defaultTokens, measure: (s) => s.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }) })
+    const menu = createMenuRegistry()
+    for (const contribution of coreMenuContributions()) menu.register(contribution)
+    const toggle = (inputId: string, label: string) => {
+      const node = scene().nodes[0]!
+      const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === inputId)!
+      if (row.kind !== 'widget') throw new Error('No field row')
+      const target = menuTargetOf({ kind: 'widget', node, row, x: 0, y: 0, width: 1, height: 1, localX: 0, localY: 0 })
+      const item = menu.resolve({ doc: store.doc, graphId: 'g0', target, selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0 })
+        .flatMap((group) => group.items).find((item) => item.id === 'core.line.toggle')!
+      expect(item.label).toBe(label)
+      if (item.action?.kind !== 'command') throw new Error('No fold command')
+      expect(store.dispatch(item.action.invocation).ok).toBe(true)
+    }
+    const graph = store.doc.graphs.g0
+    toggle('items.m1.last', 'Unfold line')
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([false, true])
+    const unfolded = store.doc
+    expect(store.undo()).toBe(true)
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([true, true])
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(unfolded)
+    store = new DocumentStore(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, coreCommandRegistry())
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([false, true])
+    toggle('items.m10.first', 'Unfold line')
+    toggle('items.m1.first', 'Fold line')
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([true, false])
+    expect(store.doc.graphs.g0).toEqual(graph)
+    expect(store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'same' } }).ok).toBe(true)
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([true, false])
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.g0).toEqual(graph)
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([true, false])
+  })
+})
+
+describe('direct member removal', () => {
+  const schema: NodeSchema = {
+    type: 'Stack', displayName: 'Stack', category: 'test', source: 'v3', isOutputNode: false,
+    body: [{ kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: 'm', start: 0, pad: 0 },
+      grows: 'button', minMembers: 1, member: [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } },
+      ] }],
+  }
+  const document = (): WorkflowDocument => ({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'lin1', root: 'g0', view: { graphs: {} },
+    graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 }, sub: {
+      id: 'sub', name: 'sub', nextOrdinal: 100, reroutes: {},
+      nodes: {
+        n1: { id: 'n1', type: 'Stack', values: { 'items.m0.value': 7, 'items.m1.value': 19, 'items.m10.value': 31 },
+          dynamic: { items: { members: ['m0', 'm1', 'm10'], seq: 11 } } },
+        n2: { id: 'n2', type: 'Stack', values: {}, dynamic: { items: { members: ['m0', 'm1', 'm10'], seq: 11 } } },
+      },
+      links: {
+        incoming: { id: 'incoming', from: { node: 'n2', tap: 'items.m0.value' }, to: { node: 'n1', port: 'items.m1.value' } },
+        outgoing: { id: 'outgoing', from: { node: 'n1', tap: 'items.m1.value' }, to: { node: 'n2', port: 'items.m0.value' } },
+        kept: { id: 'kept', from: { node: 'n1', tap: 'items.m10.value' }, to: { node: 'n2', port: 'items.m10.value' } },
+      },
+      nets: {
+        sourced: { id: 'sourced', source: { node: 'n1', port: 'items.m1.out' }, sinks: [{ node: 'n2', port: 'items.m1.net' }] },
+        shared: { id: 'shared', source: { node: 'n2', port: 'items.m1.out' }, sinks: [{ node: 'n1', port: 'items.m1.net' }, { node: 'n1', port: 'items.m10.net' }] },
+      },
+      boundary: {
+        body: [{ kind: 'section', id: 'exposed', rows: [{ kind: 'input', id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m1.value' }, alsoBinds: [
+          { kind: 'port', node: 'n1', port: 'items.m1.extra' }, { kind: 'port', node: 'n1', port: 'items.m10.value' },
+        ] }, { kind: 'output', id: 'output', binds: { kind: 'widgetTap', node: 'n1', tap: 'items.m1.value' } }] }],
+      },
+    } },
+  } as unknown as WorkflowDocument)
+
+  it.each(['button', 'filled', 'link'] as const)('removes a %s-grown member and its wires in one undo step, preserving a similarly named sibling', (grows) => {
+    const before = document()
+    const session = createLocalSession(before, coreCommandRegistry())
+    const grown = { ...schema, body: schema.body.map((row) => row.kind === 'group' ? { ...row, grows } : row) }
+    const invocation = memberRemovalInvocation(session.doc, grown, 'sub', 'n1', 'items', 'm1')!
+    expect(session.dispatch(invocation).ok).toBe(true)
+    const after = session.doc
+    const graph = after.graphs.sub!
+    expect(graph.nodes.n1!.dynamic!.items).toEqual({ members: ['m0', 'm10'], seq: 11 })
+    expect(graph.nodes.n1!.values).toEqual({ 'items.m0.value': 7, 'items.m10.value': 31 })
+    expect(Object.keys(graph.links)).toEqual(['kept'])
+    expect(Object.keys(graph.nets)).toEqual(['shared'])
+    expect(graph.nets.shared!.sinks).toEqual([{ node: 'n1', port: 'items.m10.net' }])
+    expect(graph.boundary).toEqual({ body: [{ kind: 'section', id: 'exposed', rows: [{ kind: 'input', id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }] }] })
+    session.undo()
+    expect(session.doc).toEqual(before)
+    expect(session.canUndo).toBe(false)
+    session.redo()
+    expect(session.doc).toEqual(after)
+  })
+
+  it('offers no removal for the least count or a member the document does not store', () => {
+    const before = document()
+    expect(memberRemovalInvocation(before, schema, 'sub', 'n1', 'items', 'm2')).toBeUndefined()
+    const node = before.graphs.sub!.nodes.n1!
+    const least = { ...before, graphs: { ...before.graphs, sub: { ...before.graphs.sub!, nodes: {
+      ...before.graphs.sub!.nodes, n1: { ...node, dynamic: { items: { members: ['m1'], seq: 11 } } },
+    } } } }
+    expect(memberRemovalInvocation(least, schema, 'sub', 'n1', 'items', 'm1')).toBeUndefined()
+  })
+
+  it.each(['body input', 'body tap', 'boundary port', 'boundary tap', 'boundary construct', 'instance address'])(
+    'refuses removal used by an occurrence-local %s without changing any member or wire', (kind) => {
+      const initial = document()
+      const target = kind === 'body input'
+        ? { kind: 'body', endpoint: { node: 'n1', port: 'items.m1.value' } }
+        : kind === 'body tap'
+          ? { kind: 'body', endpoint: { node: 'n1', tap: 'items.m1.value' } }
+          : { kind: 'boundary', occurrence: { instancePath: [], node: 'a' },
+            address: { port: kind === 'instance address' ? 'items.m1.value' : kind === 'boundary tap' ? 'output' : 'input' },
+            route: [{ graph: 'sub', boundaryId: kind === 'boundary tap' ? 'output' : 'input', binding: kind === 'boundary tap'
+              ? { kind: 'widgetTap', node: 'n1', tap: 'items.m1.value' }
+              : { kind: kind === 'boundary construct' ? 'construct' : 'port', node: 'n1', port: 'items.m1.value' } }] }
+      const before = { ...initial, graphs: { ...initial.graphs, g0: { ...initial.graphs.g0!, nodes: {
+        a: { id: 'a', type: '#sub', values: {}, dynamic: { items: { members: ['m0', 'm1', 'm10'], seq: 11 } } },
+      } } }, occurrenceTopologies: { a: { owner: { instancePath: [], node: 'a' }, bodyGraph: 'sub', nextOrdinal: 1,
+        links: { local: { id: 'local', ...(kind.endsWith('tap')
+          ? { from: target, to: { kind: 'body', endpoint: { node: 'n2', port: 'items.m0.value' } } }
+          : { from: { kind: 'body', endpoint: { node: 'n2', tap: 'items.m0.value' } }, to: target }) } },
+      } } } as unknown as WorkflowDocument
+      const session = createLocalSession(before, coreCommandRegistry())
+      const graphId = kind === 'instance address' ? 'g0' : 'sub'
+      const nodeId = kind === 'instance address' ? 'a' : 'n1'
+      const invocation = memberRemovalInvocation(before, schema, graphId, nodeId, 'items', 'm1')!
+      expect(invocation).toBeDefined()
+      const result = session.dispatch(invocation)
+      expect(result.ok).toBe(false)
+      expect(result.diagnostics[0]).toMatchObject({ code: 'occurrence.topology.definitionReferenced',
+        message: 'A wire in one use of this subgraph still uses this member.' })
+      expect(session.doc).toEqual(before)
+      expect(session.canUndo).toBe(false)
+    })
+
+  it.each(['body sibling', 'boundary sibling', 'other body graph', 'other route graph', 'other instance graph'])(
+    'allows removal with an unrelated occurrence-local reference: %s', (kind) => {
+      const initial = document()
+      const graph = kind === 'other body graph' || kind === 'other route graph' ? 'other' : 'sub'
+      const target = kind === 'body sibling' || kind === 'other body graph'
+        ? { kind: 'body', endpoint: { node: 'n1', port: kind === 'body sibling' ? 'items.m10.value' : 'items.m1.value' } }
+        : { kind: 'boundary', occurrence: { instancePath: [], node: kind === 'other instance graph' ? 'n1' : 'a' },
+          address: { port: kind === 'other instance graph' ? 'items.m1.value' : 'input' },
+          route: [{ graph, boundaryId: kind === 'other instance graph' ? 'items.m1.value' : 'input', binding: { kind: 'port', node: 'n1',
+            port: kind === 'other route graph' ? 'items.m1.value' : 'items.m10.value' } }] }
+      const before = { ...initial, graphs: { ...initial.graphs, g0: { ...initial.graphs.g0!, nextOrdinal: 100, nodes: {
+        a: { id: 'a', type: `#${graph}`, values: {} }, n1: { id: 'n1', type: '#sub', values: {} },
+      } }, sub: { ...initial.graphs.sub!, boundary: { ...initial.graphs.sub!.boundary,
+        body: [...initial.graphs.sub!.boundary!.body, { kind: 'input', id: 'items.m1.value', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }],
+      } }, other: { ...initial.graphs.sub!, id: 'other', links: {}, nets: {} } },
+      occurrenceTopologies: { [kind === 'other instance graph' ? 'n1' : 'a']: {
+        owner: { instancePath: [], node: kind === 'other instance graph' ? 'n1' : 'a' }, bodyGraph: graph, nextOrdinal: 1,
+        links: { local: { id: 'local', from: { kind: 'body', endpoint: { node: 'n2', tap: 'items.m0.value' } },
+          to: target } },
+      } } } as unknown as WorkflowDocument
+      const session = createLocalSession(before, coreCommandRegistry())
+      const invocation = memberRemovalInvocation(before, schema, 'sub', 'n1', 'items', 'm1')!
+      const result = session.dispatch(invocation)
+      expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+      expect(session.doc.graphs.sub!.nodes.n1!.dynamic!.items!.members).toEqual(['m0', 'm10'])
+      expect(session.doc.occurrenceTopologies).toEqual(before.occurrenceTopologies)
+      session.undo()
+      expect(session.doc).toEqual(before)
+      expect(session.canUndo).toBe(false)
+    })
 })
 
 describe('curve histogram menu', () => {
@@ -37,7 +223,7 @@ describe('curve histogram menu', () => {
       links: delivery === 'link' ? { wire: { id: 'wire', from: { node: 'source', port: 'out' }, to: port(1) } } : {},
       nets: delivery === 'net' ? { net: { id: 'net', name: 'Histogram', source: { node: 'source', port: 'out' }, sinks: [port(1), port(2)] } } : {},
       reroutes: {},
-      ...(delivery === 'boundary' ? { boundary: { inputs: [{ id: 'feed', binds: { kind: 'port', ...port(1) }, alsoBinds: [{ kind: 'port', ...port(2) }] }], outputs: [] } } : {}),
+      ...(delivery === 'boundary' ? { boundary: { body: [{ kind: 'input', id: 'feed', binds: { kind: 'port', ...port(1) }, alsoBinds: [{ kind: 'port', ...port(2) }] }] } } : {}),
     } }, view: { graphs: {} },
   }).document!
   const menu = (document: WorkflowDocument, member = 1, disabled = false, occurrence?: Parameters<typeof buildScene>[0]['occurrence']) => {
@@ -63,7 +249,7 @@ describe('curve histogram menu', () => {
       expect(menu(store.doc, 2).label).toBe('Hide histogram input')
       if (delivery === 'link') expect(store.doc.graphs.g0!.links).toEqual({})
       if (delivery === 'net') expect(store.doc.graphs.g0!.nets.net!.sinks).toEqual([port(2)])
-      if (delivery === 'boundary') expect(store.doc.graphs.g0!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', ...port(2) })
+      if (delivery === 'boundary') expect(boundaryItems(store.doc.graphs.g0!.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'port', ...port(2) })
       const saved = loadDocument(JSON.parse(JSON.stringify(store.doc)))
       expect(menu(saved.document!).label).toBe('Show histogram input')
       expect(store.undo()).toBe(true)
@@ -98,7 +284,7 @@ describe('curve histogram menu', () => {
       const body = fixture(delivery === 'net' ? 'net' : 'boundary')
       const document = loadDocument({ ...body, root: 'outer', graphs: { ...body.graphs,
         g0: { ...body.graphs.g0!, ...(delivery === 'parent-boundary' ? {
-          boundary: { inputs: [{ id: 'feed', binds: { kind: 'port', ...port(1) } }], outputs: [] },
+          boundary: { body: [{ kind: 'input', id: 'feed', binds: { kind: 'port', ...port(1) } }] },
         } : {}) },
         outer: {
           id: 'outer', name: 'Outer', nextOrdinal: 1, nets: {}, reroutes: {},
@@ -196,7 +382,7 @@ describe('widgetRepresentationMenuGroup', () => {
     })!
     expect(group.group).toBe('45-widget-representation')
     const submenu = group.items[0]!
-    expect(submenu.label).toBe('Representation')
+    expect(submenu.label).toBe('Display')
     expect(submenu.children?.map((entry) => ({ id: entry.id, checked: entry.checked }))).toEqual([
       { id: 'core.widget.representation.single-line', checked: false },
       { id: 'core.widget.representation.multiline', checked: true },
@@ -234,6 +420,19 @@ describe('widgetRepresentationMenuGroup', () => {
     })).toBeUndefined()
   })
 
+  it('offers Color and Number for a whole number shown as a color', () => {
+    const tint: WidgetSpec = { widgetType: 'INT', options: { min: 0, max: 0xffffff, display: 'color' } }
+    const color = widgetRepresentationMenuGroup({
+      graphId: 'g0', nodeId: 'n1', inputId: 'tint', selected: 'color',
+      spec: resolveWidgetRepresentation(tint, undefined, intKind.representations?.(tint)).spec,
+    })!
+    expect(color.items[0]?.children?.map((entry) => [entry.label, entry.checked])).toEqual([['Color', true], ['Number', false]])
+    expect(widgetRepresentationMenuGroup({
+      graphId: 'g0', nodeId: 'n1', inputId: 'count',
+      spec: { widgetType: 'INT', options: { min: 0, max: 10 } },
+    })).toBeUndefined()
+  })
+
   it('disables every action for non-editable widget rows', () => {
     const group = widgetRepresentationMenuGroup({
       graphId: 'g0', nodeId: 'n1', inputId: 'text', spec, selected: 'multiline', disabled: true,
@@ -263,9 +462,6 @@ describe('widgetRepresentationMenuGroup', () => {
   })
 })
 
-// menuTargetOf only reads the discriminant plus the identity fields asserted
-// below, so fixtures carry exactly those (cast through unknown - full scene
-// objects would drag in layout state irrelevant to the mapping).
 const hit = (h: unknown): Hit => h as Hit
 
 describe('menuTargetOf', () => {
@@ -274,7 +470,7 @@ describe('menuTargetOf', () => {
     expect(
       menuTargetOf(hit({
         kind: 'widget',
-        node: { id: 'inst' },
+        node: { id: 'inst', layout: { rows: [] } },
         row: {
           inputId: 'lora.m1.strength',
           address: { port: 'lora.m1.strength' },
@@ -292,12 +488,12 @@ describe('menuTargetOf', () => {
 
   it('flags unpersisted widget rows and taps synthetic (ghost, materialize)', () => {
     const flagged = (row: object) =>
-      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row: { address: { port: 'x' }, ...row } })) as { synthetic?: true }).synthetic
+      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1', layout: { rows: [] } }, row: { address: { port: 'x' }, ...row } })) as { synthetic?: true }).synthetic
     expect(flagged({ inputId: 'x', ghost: true })).toBe(true)
     expect(flagged({ inputId: 'x', materialize: [{ construct: 'c', member: 'm' }] })).toBe(true)
     expect(flagged({ inputId: 'x' })).toBeUndefined()
     const construct = (row: object) =>
-      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row: { address: { port: 'x' }, inputId: 'x', ...row } })) as { construct?: true }).construct
+      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1', layout: { rows: [] } }, row: { address: { port: 'x' }, inputId: 'x', ...row } })) as { construct?: true }).construct
     expect(construct({ selector: { construct: 'mode' } })).toBe(true)
     expect(construct({ dynamicSlot: { construct: 'value', variants: [] } })).toBe(true)
     expect(construct({})).toBeUndefined()

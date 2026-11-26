@@ -180,7 +180,7 @@
   outline-offset: 2px;
 }
 .app-layout-grid-placement:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: 3px;
 }
 .app-layout-grid-placement.pending { outline-color: var(--dinkster-accent-border); }
@@ -243,7 +243,7 @@
 .app-layout-mobile-placement.dragging { opacity: 0.55; }
 .app-layout-mobile-placement.pending > .app-layout-mobile-toolbar { border-color: var(--dinkster-accent-border); }
 .app-layout-mobile-placement:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: var(--dinkster-space-4);
   border-radius: var(--dinkster-radius-card);
 }
@@ -313,7 +313,7 @@
 }
 .app-preview-download:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .app-preview-download:hover { background: var(--dinkster-interaction-hover); }
-.app-preview-download:focus-visible { outline: 2px solid var(--dinkster-border-focus); outline-offset: 1px; }
+.app-preview-download:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
 .app-preview-text {
   box-sizing: border-box;
   width: 100%;

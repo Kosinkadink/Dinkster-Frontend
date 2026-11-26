@@ -18,6 +18,10 @@ async function expectWholeTabs(tablist: Locator, tabs: Locator): Promise<void> {
     expect(await tab.isVisible()).toBe(true)
     expect(box.x).toBeGreaterThanOrEqual(strip.x - 1)
     expect(box.x + box.width).toBeLessThanOrEqual(strip.x + strip.width + 1)
+    const title = await tab.locator('.tab-title-text').evaluate((element) => ({
+      shown: element.clientWidth, full: element.scrollWidth,
+    }))
+    expect(title.shown).toBeGreaterThanOrEqual(title.full)
   }
 }
 
@@ -714,11 +718,11 @@ test('layout menu switches persist and Reset layout restores the bars and region
   await expect(page.getByRole('menu', { name: 'Customize layout' })).toBeHidden()
 })
 
-test('right-zone tab strip shrinks tabs with ellipsis instead of a native scrollbar', async ({ page }) => {
+test('right-zone tab strip keeps complete titles in the strip or its menu without a native scrollbar', async ({ page }) => {
   await page.evaluate(() => {
     for (let index = 0; index < 3; index += 1) {
       window.__dinksterTest!.app.panels.register({
-        id: `overflow-proof-${index}`, title: `Overflow proof ${index}`,
+        id: `overflow-proof-${index}`, title: `Panel ${index}`,
         placement: 'rail', allowedPlacements: ['rail'], order: 100 + index,
         when: () => true,
         component: () => document.createElement('div'),
@@ -738,8 +742,7 @@ test('right-zone tab strip shrinks tabs with ellipsis instead of a native scroll
   const tablist = zone.getByRole('tablist', { name: 'Inspector panels' })
   expect(['auto', 'scroll']).not.toContain(await tablist.evaluate((element) => getComputedStyle(element).overflowX))
 
-  // Tabs shrink only to their ellipsis floor, never to zero-width slivers,
-  // and each label carries its full title for the product tooltip.
+  // Visible titles stay whole, with their badges and product tooltips.
   const tabs = zone.locator('[role="tab"]')
   expect(await tabs.count()).toBeGreaterThanOrEqual(3)
   for (const tab of await tabs.all()) {
@@ -754,7 +757,7 @@ test('right-zone tab strip shrinks tabs with ellipsis instead of a native scroll
   expect(hiddenTitles.length).toBeGreaterThan(0)
   await expect(zone.getByTestId('dock-zone-close')).toBeVisible()
 
-  // At the minimum width the floors cannot all fit. No partial tab remains,
+  // At the minimum width the titles cannot all fit. No partial tab remains,
   // and the all-tabs menu keeps every hidden tab reachable by pointer.
   await zone.getByTestId('dock-zone-overflow-button').click()
   const menu = zone.getByTestId('dock-zone-overflow-menu')
@@ -820,4 +823,14 @@ test('right-zone tab strip shrinks tabs with ellipsis instead of a native scroll
   await page.keyboard.press('Home')
   await expect(overflowButton).toBeVisible()
   await expect(menu).not.toBeVisible()
+  // The recreated overflow must retain live action refs, not just look closed.
+  const hiddenAgain = await tabs.evaluateAll((elements) => elements
+    .find((element) => element.getClientRects().length === 0)
+    ?.querySelector('.tab-title-text')?.textContent)
+  expect(hiddenAgain).toBeTruthy()
+  await overflowButton.click()
+  await menu.getByRole('menuitemradio').filter({ has: page.getByText(hiddenAgain!, { exact: true }) }).click()
+  await expect(activeTab.locator('.tab-title-text')).toHaveText(hiddenAgain!)
+  await expect(menu).not.toBeVisible()
+  await expectWholeTabs(tablist, tabs)
 })

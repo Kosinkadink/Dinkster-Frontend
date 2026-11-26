@@ -14,7 +14,7 @@ const button = (root: Element, text: string) => [...root.querySelectorAll<HTMLBu
 function mount(app = new AppState()) {
   const root = document.createElement('div')
   document.body.append(root)
-  const unmount = render(() => <BackendsPanel app={app} />, root)
+  const unmount = render(() => <BackendsPanel app={app} onOpenStorage={() => {}} onOpenResources={() => {}} onOpenSettings={() => {}} />, root)
   disposers.push(() => { unmount(); app.dispose() })
   return { app, root }
 }
@@ -28,7 +28,51 @@ afterEach(() => {
 })
 
 describe('BackendsPanel', () => {
-  it('keeps each server in one disclosure without folders and confirms removal of a non-default server', async () => {
+  it('shows a compact server list, opens facts on demand and retries a failed node type read', async () => {
+    const app = new AppState()
+    const backend = app.addBackend('http://studio.test:8188', 'Studio', false, 'dinkster')!
+    ;(backend.connection.status as Signal<ConnectionStatus>).set('connected')
+    backend.schemaState.set({ status: 'error', message: '502 Bad Gateway' })
+    vi.spyOn(app, 'refreshBackendSchemas').mockImplementation(async () => {
+      backend.schemaState.set({ status: 'ready' })
+    })
+    const { root } = mount(app)
+    expect(root.querySelector('[data-testid="backends-panel"]')?.getAttribute('aria-label')).toBe('Backends')
+    expect(root.querySelector('h2')).toBeNull()
+    expect(root.textContent).not.toContain('Backend connections')
+    const row = root.querySelector(`[data-connection="${backend.id}"]`)!
+    const toggle = row.querySelector<HTMLButtonElement>('button[aria-controls]')!
+    expect(toggle.textContent).toContain('Studio')
+    expect(toggle.textContent).toContain('node types not read')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    toggle.click()
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(row.textContent).toContain('http://studio.test:8188')
+    expect(row.querySelectorAll('[role="note"]')).toHaveLength(1)
+    expect(row.textContent).toContain('502 Bad Gateway')
+    expect(button(row, 'Connect')).toBeUndefined()
+    button(row, 'Try again').click()
+    await flush()
+    expect(row.textContent).not.toContain('502 Bad Gateway')
+    expect(toggle.textContent).not.toContain('node types not read')
+    expect(root.querySelector('[data-connection="local"]')?.textContent).toContain('This computer')
+  })
+
+  it('uses the address host as the optional name hint and cancels without connecting', () => {
+    const { app, root } = mount()
+    const connect = vi.spyOn(app, 'addBackendByUrl')
+    button(root, 'Add backend').click()
+    const input = root.querySelector<HTMLInputElement>('[data-testid="backend-url-input"]')!
+    input.value = 'https://render.test:9443/api'
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    expect(root.querySelector<HTMLInputElement>('[data-testid="profile-name-input"]')?.placeholder).toBe('render.test:9443')
+    button(root, 'Cancel').click()
+    expect(root.querySelector('[data-testid="backend-url-input"]')).toBeNull()
+    expect(connect).not.toHaveBeenCalled()
+    expect(root.querySelectorAll('[data-testid="backend-row"]')).toHaveLength(1)
+  })
+
+  it('keeps each server in one expandable row without folders and confirms removal of a non-default server', async () => {
     const { app, root } = mount()
     const label = 'A backend with a deliberately long descriptive name'
     const extra = app.addBackend('http://example.test/a/long/backend/path', label, false, 'dinkster')!
@@ -41,8 +85,11 @@ describe('BackendsPanel', () => {
     expect(local.querySelector('[aria-haspopup="menu"]')).toBeNull()
     expect(local.querySelector('[data-testid="connection-profiles"]')).toBeNull()
     const card = root.querySelector(`[data-connection="${extra.id}"]`)!
-    expect(card.querySelector('summary')?.textContent).toContain(`Reconnecting - ${label} - Dinkster`)
-    expect(card.querySelector('details')?.open).toBe(false)
+    const toggle = card.querySelector<HTMLButtonElement>('button[aria-controls]')!
+    expect(toggle.textContent).toContain(label)
+    expect(toggle.textContent).toContain('Reconnecting')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    toggle.click()
     expect(card.querySelector('code.backend-address')?.textContent).toBe(extra.baseUrl)
     expect(root.querySelector('[data-testid="model-settings"]')).toBeNull()
     expect(root.querySelector('[data-testid="output-mount-settings"]')).toBeNull()
@@ -60,6 +107,43 @@ describe('BackendsPanel', () => {
     button(card, 'Remove backend').click()
     button(card, 'Remove backend').click()
     await vi.waitFor(() => expect(app.backendFor(extra.id)).toBeUndefined())
+  })
+
+  it('keeps a pending removal visible without locking unrelated row disclosures', async () => {
+    const { app, root } = mount()
+    const backend = app.addBackend('https://studio.test', 'Studio', false, 'dinkster')!
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const locks = Object.getOwnPropertyDescriptor(navigator, 'locks')
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: {
+      request: async (_name: string, task: () => Promise<unknown>) => { await gate; return task() },
+    } })
+    try {
+      const row = root.querySelector(`[data-connection="${backend.id}"]`)!
+      row.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
+      button(row, 'Remove backend').click()
+      button(row, 'Remove backend').click()
+      await flush()
+      const toggle = row.querySelector<HTMLButtonElement>('button[aria-controls]')!
+      toggle.click()
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      expect(row.querySelector('.dinkster-confirmation')?.textContent).toContain('Remove "Studio"?')
+      expect(button(row, 'Remove backend').getAttribute('aria-busy')).toBe('true')
+      expect(app.backendFor(backend.id)).toBe(backend)
+      const otherToggle = root.querySelector<HTMLButtonElement>('[data-connection="local"] button[aria-controls]')!
+      expect(otherToggle.getAttribute('aria-expanded')).toBe('true')
+      otherToggle.click()
+      expect(otherToggle.getAttribute('aria-expanded')).toBe('false')
+      otherToggle.click()
+      expect(otherToggle.getAttribute('aria-expanded')).toBe('true')
+    } finally {
+      release()
+      try { await vi.waitFor(() => expect(app.backendFor(backend.id)).toBeUndefined()) }
+      finally {
+        if (locks) Object.defineProperty(navigator, 'locks', locks)
+        else Reflect.deleteProperty(navigator, 'locks')
+      }
+    }
   })
 
   it('relabels mounted chrome without translating server facts or resetting a pending restart', async () => {
@@ -84,8 +168,9 @@ describe('BackendsPanel', () => {
     const input = root.querySelector<HTMLInputElement>('[data-testid="backend-url-input"]')!
     input.value = 'http://entered.example.test:7000/raw'
     input.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    input.focus()
     const card = root.querySelector(`[data-connection="${backend.id}"]`)!
+    card.querySelector<HTMLButtonElement>('button[aria-controls]')!.click()
+    input.focus()
     const restart = card.querySelector<HTMLButtonElement>('[data-testid="backend-engine-restart"]')!
     restart.click()
     expect(restart.disabled).toBe(true)
@@ -111,6 +196,7 @@ describe('BackendsPanel', () => {
     const backend = app.addBackend('https://studio.test', 'Studio', false, 'dinkster')!
     ;(backend.connection.status as Signal<ConnectionStatus>).set('connected')
     const row = root.querySelector('[data-connection="https://studio.test"]')!
+    row.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
     button(row, 'Disconnect').click()
     expect(row.getAttribute('data-status')).toBe('disconnected')
     expect(app.backendFor(backend.id)).toBe(backend)
@@ -119,6 +205,7 @@ describe('BackendsPanel', () => {
     expect(restored.backends.get().some((saved) => saved.baseUrl === backend.baseUrl)).toBe(true)
     restored.dispose()
     vi.spyOn(app, 'startBackend').mockImplementation(async () => { (backend.connection.status as Signal<ConnectionStatus>).set('connected') })
+    row.querySelector<HTMLButtonElement>('button[aria-controls]')!.click()
     button(row, 'Connect').click()
     await flush()
     expect(row.getAttribute('data-status')).toBe('connected')

@@ -115,6 +115,8 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
     renderer.setViewport({ x: 0, y: 0, scale: 1 })
     if (example.mode === 'expected' || example.mode === 'estimate' || example.mode === 'stale')
       renderer.setCompanions({ files: { files: { value: example.value, state: example.mode } } })
+    else if (example.mode === 'unknown')
+      renderer.setCompanions({ files: { files: { value: null, state: 'unknown' } } })
     const loader = createPreviewLoader({
       assetUrlForExecution: (_ref, digest) => digest,
       assetUrlForInput: (digest) => digest === `blake3:${'b'.repeat(64)}` ? videoUrl : pictureUrl,
@@ -123,9 +125,8 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
     const draw = () => {
       const thumbnails = example.mode === 'pending' ? [null, null] : example.mode === 'unknown' ? undefined
         : assetRowThumbnails(example.value, loader, registry, width)
-      renderer.setEditorSummaries({ files: { files: example.mode === 'unknown'
-        ? { text: 'Not known', placeholder: true, value: null }
-        : { ...(thumbnails === undefined ? {} : { thumbnails }), ...(wired ? { value: example.value } : {}) } } })
+      renderer.setEditorSummaries(example.mode === 'unknown' ? {} : { files: { files:
+        { ...(thumbnails === undefined ? {} : { thumbnails }), ...(wired ? { value: example.value } : {}) } } })
       renderer.renderNow()
       if (example.mode === 'pending' || !thumbnails?.includes(null)) canvas.dataset.ready = `file-preview-${theme}`
     }

@@ -118,7 +118,7 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
   // Loaded tabs start dirty by design, so closing one requires the product
   // discard decision before the tab can be removed.
   await tab(page, 'Subgraph').click({ button: 'middle' })
-  const confirm = page.getByRole('dialog', { name: 'Close "Subgraph" and discard unsaved changes?' })
+  const confirm = page.getByRole('dialog', { name: 'Close "Subgraph"?' })
   await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
   await confirm.getByRole('button', { name: 'Close and discard' }).click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(1)
@@ -135,7 +135,7 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
   const untitled = tab(page, 'Untitled')
   await untitled.hover()
   await untitled.getByTestId('tab-close').click()
-  await page.getByRole('dialog', { name: 'Close "Untitled" and discard unsaved changes?' })
+  await page.getByRole('dialog', { name: 'Close "Untitled"?' })
     .getByRole('button', { name: 'Close and discard' }).click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(1)
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
@@ -248,6 +248,25 @@ test('shell separators expose values and resize from the keyboard', async ({ pag
   await expect(separator).toHaveAttribute('aria-valuenow', await separator.getAttribute('aria-valuemin') ?? '')
   await separator.press('End')
   await expect(separator).toHaveAttribute('aria-valuenow', await separator.getAttribute('aria-valuemax') ?? '')
+  await separator.press('Home')
+  await page.locator('body').click({ position: { x: 1, y: 1 } })
+  const start = await center(separator)
+  await page.mouse.move(start.x, start.y)
+  const mark = () => separator.evaluate((element) => {
+    const line = getComputedStyle(element, '::after')
+    const grip = getComputedStyle(element, '::before')
+    return { line: line.backgroundColor, width: line.width, grip: grip.backgroundColor, gripWidth: grip.width, gripHeight: grip.height }
+  })
+  const neutralMark = { line: 'rgb(79, 98, 101)', width: '1px', grip: 'rgb(164, 181, 183)', gripWidth: '3px', gripHeight: '40px' }
+  expect(await mark()).toEqual(neutralMark)
+  const beforeDrag = Number(await separator.getAttribute('aria-valuenow'))
+  await page.mouse.down()
+  await page.mouse.move(start.x + 40, start.y + 30)
+  expect(await mark()).toEqual(neutralMark)
+  await page.mouse.up()
+  await expect(separator).toHaveAttribute('aria-valuenow', String(beforeDrag + 40))
+  await page.mouse.move(1, 1)
+  await expect.poll(mark).toMatchObject({ line: 'rgba(0, 0, 0, 0)', grip: 'rgba(0, 0, 0, 0)' })
 })
 
 test('tab strip suppresses vertical scrolling and retains horizontal overflow', async ({ page }) => {
@@ -469,12 +488,12 @@ actionsTest.describe('workflow tab actions', () => {
         .toEqual(['Basic', 'Basic copy 2', 'Basic copy'])
       await tabAction(page, 'Basic', 'closeOthers')
       const dialog = page.getByRole('dialog', {
-        name: 'Close others',
+        name: 'Close 2 other tabs?',
         exact: true,
       })
       await expect(dialog).toHaveCount(1)
       await expect
-        .poll(async () => (await dialog.locator('li').allTextContents()).sort())
+        .poll(async () => (await dialog.locator('li > span:first-child').allTextContents()).sort())
         .toEqual(['Basic copy', 'Basic copy 2'])
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
       await expect

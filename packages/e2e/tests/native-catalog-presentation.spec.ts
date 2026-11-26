@@ -46,9 +46,9 @@ test('native palette exposes canonical accessible identity', async ({ page }) =>
   await openPalette(page)
   await page.getByTestId('palette-search').fill('Preview as Text')
 
-  const native = page.locator('[data-node-type="dinkster.utilities.preview_any"]').getByRole('option')
+  const native = page.locator('[data-key="entry:dinkster.utilities.preview_any"]')
   await expect(native).toBeVisible()
-  await expect(native.locator('.search-result-row-detail')).toHaveText(
+  await expect(native.locator('.dinkster-search-row-detail')).toHaveText(
     'dinkster-utilities - utilities - dinkster.utilities.preview_any',
   )
   await expect(native).toHaveRole('option')

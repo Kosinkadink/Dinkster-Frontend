@@ -257,15 +257,19 @@ test('subgraph copy across tabs carries nested definitions and undoes atomically
         outer: {
           id: 'outer', name: 'Outer', nodes: { nested: { id: 'nested', type: '#inner', values: {} } }, links: {}, nets: {}, reroutes: {},
           boundary: {
-            inputs: [{ id: 'source', binds: { kind: 'port', node: 'nested', port: 'source' } }],
-            outputs: [{ id: 'result', binds: { kind: 'port', node: 'nested', port: 'result' } }],
+            body: [
+              { kind: 'input', id: 'source', binds: { kind: 'port', node: 'nested', port: 'source' } },
+              { kind: 'output', id: 'result', binds: { kind: 'port', node: 'nested', port: 'result' } },
+            ],
           }, nextOrdinal: 1,
         },
         inner: {
           id: 'inner', name: 'Inner', nodes: { pass: { id: 'pass', type: 'NestedPass', values: {} } }, links: {}, nets: {}, reroutes: {},
           boundary: {
-            inputs: [{ id: 'source', binds: { kind: 'port', node: 'pass', port: 'image' } }],
-            outputs: [{ id: 'result', binds: { kind: 'port', node: 'pass', port: 'result' } }],
+            body: [
+              { kind: 'input', id: 'source', binds: { kind: 'port', node: 'pass', port: 'image' } },
+              { kind: 'output', id: 'result', binds: { kind: 'port', node: 'pass', port: 'result' } },
+            ],
           }, nextOrdinal: 1,
         },
       },
