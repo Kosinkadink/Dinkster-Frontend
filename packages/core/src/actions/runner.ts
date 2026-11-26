@@ -54,6 +54,7 @@ import {
   type Connectivity,
   type ElaboratedInput,
   type ElaboratedInterface,
+  type ElaborateOptions,
   type FormulaContext,
   type MaterializeFrame,
 } from '../schema/elaborate.js'
@@ -132,6 +133,7 @@ export interface AskRequest {
 export interface ActionHost {
   readonly commands: ReadonlyMap<string, CommandDefinition>
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
+  readonly fileFacts?: ElaborateOptions['fileFacts']
   /** The schema of a node of `graphId` as the canvas resolves it; also asked for a node AddNode creates. */
   schemaOf(doc: WorkflowDocument, graphId: string, node: NodeData): NodeSchema | undefined
   /** A renderer host places additions using its measured node and wire geometry. */
@@ -516,7 +518,10 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
     return field.automatic?.value ?? (readWhenUnset(field.spec) as Json | undefined)
   }
   const contexts = new Map<string, FormulaContext>()
-  const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue, incomingType })
+  const elaborated = elaborateInterface(schema, node, connectivity, {
+    nodeId: node.id, formulaContexts: contexts, incomingValue, incomingType,
+    ...(host.fileFacts === undefined ? {} : { fileFacts: host.fileFacts }),
+  })
   return { doc, graph, node, schema, elaborated, contexts, connectivity, incomingValue, incomingType, valueOwners: occurrence?.valueOwners.get(node.id) ?? new Map() }
 }
 
@@ -1822,7 +1827,7 @@ const formulasOf = (value: StepValue | undefined): readonly string[] =>
  * yet, it needs a wired value not known until a run, or every field it sets
  * has a wire.
  */
-export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, host: Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor'>): ButtonAvailability {
+export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, host: Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor' | 'fileFacts'>): ButtonAvailability {
   const initial = viewOf(doc, target, host as ActionHost)
   const button = initial && buttonOf(initial, target)
   const initialContext = button && initial!.contexts.get(button.prefix)
