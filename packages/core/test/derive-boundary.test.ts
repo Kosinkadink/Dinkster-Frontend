@@ -17,6 +17,11 @@ import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { inputsOf, outputsOf, type GroupSpec, type NodeSchema } from '../src/schema/model.js'
 import { boundaryOf } from '../src/format/document.js'
 import { MAX_GROUP_MEMBERS, memberLimitOf } from '../src/schema/body.js'
+import { boundarySample, resolveBoundarySample } from './fixtures/boundary-sample.js'
+import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import { DocumentStore } from '../src/commands/store.js'
+import { documentResolver } from '../src/compile/compile.js'
+import { loadDocument } from '../src/format/migrate.js'
 
 /** Build a GraphDef from a plain literal (branded ids make literals noisy). */
 const asDef = (d: unknown): GraphDef => d as GraphDef
@@ -892,5 +897,268 @@ describe('derivation failures produce diagnostics, never partial schemas', () =>
     const { schema } = deriveBoundarySchema(nested, resolveNested)
     // Output-node status propagates through nested instances.
     expect(schema!.isOutputNode).toBe(true)
+  })
+})
+
+describe('Boundary sample acceptance compilation', () => {
+  const prompt = (doc: WorkflowDocument) => {
+    const result = compile({ document: doc, revision: 1, resolve: resolveBoundarySample,
+      scope: { kind: 'full' }, connection: asConnectionId('boundary-grid'), schemaHash: 'boundary-sample' })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    return result.artifact.prompt
+  }
+  const storeFor = (doc: WorkflowDocument) => new DocumentStore(doc, coreCommandRegistry(), 200, undefined,
+    () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveBoundarySample) }))
+  const edit = (store: DocumentStore, command: string, params: Record<string, Json>) => {
+    const before = store.doc
+    const result = store.dispatch({ command, params })
+    expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+    const after = store.doc
+    expect(store.undo()).toBe(true)
+    // Allocation cursors are monotonic across undo; endpoints and values are not.
+    const undone = structuredClone(store.doc)
+    for (const [id, graph] of Object.entries(undone.graphs)) {
+      expect(graph.nextOrdinal).toBe(after.graphs[id]!.nextOrdinal)
+      Object.assign(graph, { nextOrdinal: before.graphs[id]!.nextOrdinal })
+    }
+    expect(undone).toEqual(before)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(after)
+    const loaded = loadDocument(JSON.parse(JSON.stringify(after)))
+    expect(loaded.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(prompt(loaded.document!)).toEqual(prompt(after))
+  }
+
+  for (const [context, level, path] of [
+    ['one-level', 1, 'first.sample'], ['two-levels', 2, 'first.detail.sample'],
+  ] as const) {
+    it(`boundary/plain-field/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      expect(prompt(boundarySample(0)).first!.inputs.strength).toBe(0.2)
+      expect(prompt(store.doc)[path]!.inputs.strength).toBe(0.2)
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'strength', value: 0.9 })
+      expect(prompt(store.doc)[path]!.inputs.strength).toBe(0.9)
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      expect(prompt(store.doc)[second]!.inputs.strength).toBe(0.8)
+    })
+
+    it(`boundary/plain-pin/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'image' } })
+      expect(prompt(store.doc)[path]!.inputs.image).toEqual(['imageA', 0])
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'maskB', port: 'mask' }, to: { node: 'first', port: 'mask' } })
+      expect(prompt(store.doc)[path]!.inputs.mask).toEqual(['maskB', 0])
+      expect(prompt(store.doc)[path]!.inputs.image).toEqual(['imageA', 0])
+    })
+
+    it(`boundary/output/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'first', port: 'output91' }, to: { node: 'sink', port: 'number' } })
+      // Two definition member outputs, three counted outputs, result, then 91.
+      expect(prompt(store.doc).sink!.inputs.number).toEqual([path, 6])
+    })
+
+    it(`boundary/whole-choice/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'mode.text', value: 'outer dormant text' })
+      edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
+      expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('outer dormant text')
+      edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'image' })
+      expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('mode.text')
+      edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
+      expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('outer dormant text')
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      expect(prompt(store.doc)[second]!.inputs['mode.text']).toBe('second text')
+    })
+
+    it(`boundary/counted-outputs/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'first', port: 'outputs.o2' }, to: { node: 'sink', port: 'number' } })
+      expect(prompt(store.doc).sink!.inputs.number).toEqual([path, 4])
+      const wired = store.doc
+      const result = store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: 'count', value: 1 } })
+      expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+      expect(Object.values(store.doc.graphs.root!.links)).toEqual([])
+      expect(prompt(store.doc).sink!.inputs).not.toHaveProperty('number')
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(wired)
+      expect(prompt(store.doc).sink!.inputs.number).toEqual([path, 4])
+      expect(store.redo()).toBe(true)
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'count', value: 3 })
+      expect(Object.values(store.doc.graphs.root!.links)).toEqual([])
+      expect(prompt(store.doc).sink!.inputs).not.toHaveProperty('number')
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      expect(prompt(store.doc)[second]!.inputs.count).toBe(2)
+    })
+
+    it(`boundary/whole-group/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      edit(store, 'dynamic.materialize', { graphId: 'root', nodeId: 'first', frames: [{ construct: 'layers', members: ['layer0', 'layer1'] }] })
+      edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: { 'layers.layer0.strength': 0.2, 'layers.layer1.strength': 0.8 } })
+      expect(prompt(store.doc)[path]!.inputs).toMatchObject({
+        'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4,
+        'layers.layer2.strength': 0.2, 'layers.layer3.strength': 0.8,
+      })
+      expect(prompt(store.doc)[path]!.outputMembers?.layers).toEqual(['layer0', 'layer1', 'layer2', 'layer3'])
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      expect(prompt(store.doc)[second]!.outputMembers?.layers).toEqual(['layer0', 'layer1'])
+    })
+
+    it(`boundary/multi-row-member/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      edit(store, 'dynamic.materialize', { graphId: 'root', nodeId: 'first', frames: [{ construct: 'layers', members: ['layer0'] }] })
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'layers.layer0.strength', value: 0.8 })
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'layers.layer0.image' } })
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'first', port: 'layers.layer0.result' }, to: { node: 'sink', port: 'number' } })
+      const compiled = prompt(store.doc)
+      expect(compiled[path]!.inputs['layers.layer2.image']).toEqual(['imageA', 0])
+      expect(compiled[path]!.inputs['layers.layer2.strength']).toBe(0.8)
+      expect(compiled.sink!.inputs.number).toEqual([path, 2])
+    })
+
+    it(`boundary/nested-group/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      edit(store, 'node.setValues', { graphId: 'detail', nodeId: 'sample', values: {
+        'nested.n0.weights.w0': 0.2, 'nested.n1.weights.w0': 0.8, 'nested.n1.weights.w1': 0.9,
+      } })
+      expect(prompt(store.doc)[path]!.inputs).toMatchObject({
+        'nested.n0.weights.w0': 0.2, 'nested.n1.weights.w0': 0.8, 'nested.n1.weights.w1': 0.9,
+      })
+      expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('nested.n0.weights.w1')
+    })
+
+    it(`boundary/type-choice/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      edit(store, 'dynamic.specializeSlot', { graphId: 'root', nodeId: 'first', construct: 'source', variant: 'mask' })
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'source.gain', value: 0.8 })
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'maskB', port: 'mask' }, to: { node: 'first', port: 'source' } })
+      expect(prompt(store.doc)[path]!.slotVariants).toEqual({ mode: 'image', source: 'mask' })
+      expect(prompt(store.doc)[path]!.inputs).toMatchObject({ source: ['maskB', 0], 'source.gain': 0.8 })
+    })
+
+    it(`boundary/described-inputs/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      const description = '{"entries":[{"id":"text","label":"Caption A","kind":"text"}]}'
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'description', value: description })
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'description.text', value: 'outer caption' })
+      expect(prompt(store.doc)[path]!.inputs).toMatchObject({ description, 'description.text': 'outer caption' })
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      expect(prompt(store.doc)[second]!.inputs).not.toHaveProperty('description.text')
+    })
+
+    it(`boundary/active-option-row/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'mode.mix', value: 0.8 })
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'mode.picture' } })
+      expect(prompt(store.doc)[path]!.inputs).toMatchObject({ 'mode.mix': 0.8, 'mode.picture': ['imageA', 0] })
+    })
+
+    it(`boundary/inactive-option-row/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'mode.text', value: 'retained text' })
+      expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('mode.text')
+      edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
+      expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('retained text')
+    })
+
+    it(`boundary/described-outputs/${context}`, () => {
+      const store = storeFor(boundarySample(level))
+      const description = '{"entries":[{"id":"number","label":"Result B","kind":"number"}]}'
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'description', value: description })
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'first', port: 'description.number' }, to: { node: 'sink', port: 'number' } })
+      expect(prompt(store.doc).sink!.inputs.number).toEqual([path, 2])
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'description', value: '{"entries":[{"id":"number","label":"Renamed B","kind":"number"}]}' })
+      expect(prompt(store.doc).sink!.inputs.number).toEqual([path, 2])
+    })
+
+    it(`boundary/one-member/${context}`, () => {
+      const doc = boundarySample(level)
+      // Expose a definition member, rather than giving its group a second owner.
+      const detail = doc.graphs.detail!
+      const body = detail.boundary!.body.filter((row) => !('id' in row && row.id === 'layers'))
+      const member = { kind: 'input', id: 'memberStrength', promoted: true,
+        binds: { kind: 'port', node: 'sample', port: 'layers.layer1.strength' } }
+      Object.assign(detail, { boundary: { body: [...body, member] } })
+      if (level === 2) {
+        const portrait = doc.graphs.portrait!
+        Object.assign(portrait, { boundary: { body: [
+          ...portrait.boundary!.body.filter((row) => !('id' in row && row.id === 'layers')),
+          { ...member, binds: { kind: 'port', node: 'detail', port: 'memberStrength' } },
+        ] } })
+      }
+      const store = storeFor(doc)
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'memberStrength', value: 0.8 })
+      expect(prompt(store.doc)[path]!.inputs['layers.layer1.strength']).toBe(0.8)
+      edit(store, 'dynamic.moveMember', { graphId: 'detail', nodeId: 'sample', construct: 'layers', member: 'layer1', index: 0 })
+      expect(prompt(store.doc)[path]!.inputs['layers.layer1.strength']).toBe(0.8)
+      expect(prompt(store.doc)[path]!.outputMembers?.layers).toEqual(['layer1', 'layer0'])
+    })
+
+    for (const feature of ['sections', 'shared-lines'] as const) {
+      it(`boundary/${feature}/${context}`, () => {
+        const store = storeFor(boundarySample(level))
+        const before = prompt(store.doc)
+        const graphId = level === 1 ? 'detail' : 'portrait'
+        const fields = ['strength', 'radius', 'feather', 'balance']
+        const rest = store.doc.graphs[graphId]!.boundary!.body
+          .filter((row) => !('id' in row && fields.includes(row.id)))
+          .map((row) => ({ kind: row.kind, id: (row as { id: string }).id }))
+        const rows = fields.map((id) => ({ kind: 'input', id }))
+        const layout: Json = feature === 'sections'
+          ? { kind: 'section', id: 'look', collapsedByDefault: true, rows: [
+            { kind: 'section', id: 'detailLook', rows },
+          ] }
+          : { kind: 'line', rows }
+        edit(store, 'boundary.arrange', { graphId, body: [...rest, layout] })
+        expect(prompt(store.doc)).toEqual(before)
+      })
+    }
+  }
+
+  it('boundary/plain-field/two-instances', () => {
+    const store = storeFor(boundarySample(2))
+    expect(prompt(store.doc)['first.detail.sample']!.inputs.strength).toBe(0.2)
+    expect(prompt(store.doc)['second.detail.sample']!.inputs.strength).toBe(0.8)
+    edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'strength', value: 0.9 })
+    expect(prompt(store.doc)['first.detail.sample']!.inputs.strength).toBe(0.9)
+    expect(prompt(store.doc)['second.detail.sample']!.inputs.strength).toBe(0.8)
+    expect(store.doc.graphs.portrait!.nodes.detail!.values.strength).toBe(0.6)
+    expect(store.doc.graphs.detail!.nodes.sample!.values.strength).toBe(0.3)
+  })
+
+  it('boundary/plain-field/linked-outside', () => {
+    for (const [type, port, expected] of [
+      ['dinkster.utilities.primitive_float', 'value', 0.9], ['FloatSource', 'number', ['outside', 0]],
+    ] as const) {
+      const doc = boundarySample(2)
+      Object.assign(doc.graphs.root!.nodes, { outside: { id: 'outside', type, values: { value: 0.9 } } })
+      const store = storeFor(doc)
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'outside', port }, to: { node: 'first', port: 'strength' } })
+      expect(prompt(store.doc)['first.detail.sample']!.inputs.strength).toEqual(expected)
+      expect(prompt(store.doc)['second.detail.sample']!.inputs.strength).toBe(0.8)
+    }
+  })
+
+  it('boundary/plain-field/fan-out', () => {
+    const doc = boundarySample(1)
+    Object.assign(doc.graphs.detail!.nodes, { other: { ...structuredClone(doc.graphs.detail!.nodes.sample!), id: 'other' } })
+    const store = storeFor(doc)
+    edit(store, 'boundary.addBinding', { graphId: 'detail', itemId: 'strength', node: 'other', port: 'strength' })
+    edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'strength', value: 0.9 })
+    expect(prompt(store.doc)['first.sample']!.inputs.strength).toBe(0.9)
+    expect(prompt(store.doc)['first.other']!.inputs.strength).toBe(0.9)
+    expect(prompt(store.doc)['second.sample']!.inputs.strength).toBe(0.8)
+    expect(prompt(store.doc)['second.other']!.inputs.strength).toBe(0.8)
+  })
+
+  it('boundary/counted-outputs/linked-outside', () => {
+    const doc = boundarySample(2)
+    Object.assign(doc.graphs.root!.nodes, { outside: { id: 'outside', type: 'FloatSource', values: {} } })
+    const store = storeFor(doc)
+    const before = structuredClone(store.doc)
+    const result = store.dispatch({ command: 'link.connect', params: { graphId: 'root', from: { node: 'outside', port: 'number' }, to: { node: 'first', port: 'count' } } })
+    expect(result.ok).toBe(false)
+    expect(store.doc).toEqual(before)
   })
 })
