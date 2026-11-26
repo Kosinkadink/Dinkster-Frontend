@@ -168,7 +168,7 @@ test('backend and runtime management remains truthful and usable across wide, na
   await expect(panel.getByRole('textbox', { name: 'Name (optional)', exact: true })).toHaveCSS('outline-width', '0px')
   await page.keyboard.press('Tab')
   await expect(add).toBeFocused()
-  await expect(add).toHaveCSS('outline-width', '2px')
+  await expect(add).toHaveCSS('outline-width', '1px')
   await page.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent.png') })
   await surface.evaluate((element) => { element.scrollTop = 0 })
   await page.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent-top.png') })
