@@ -20,7 +20,9 @@ interface LibraryBackendContext {
 
 export interface LibraryPanelProps {
   readonly sources: readonly CollectionSource[]
-  readonly models?: () => JSX.Element
+  readonly models?: (() => JSX.Element) | undefined
+  readonly modelsFocus?: object | undefined
+  readonly onSourceChange?: (id: string) => void
   readonly backend: () => LibraryBackendContext
   readonly refreshTick?: () => number
   readonly onActivate?: (sourceId: string, entry: CollectionEntry) => void
@@ -294,6 +296,11 @@ export function LibraryPanel(props: LibraryPanelProps) {
       setTransitionSourceId(undefined)
     }
   })
+  createEffect(() => {
+    if (props.modelsFocus === undefined || !props.models) return
+    setSourceId('models')
+    setTransitionSourceId(undefined)
+  })
   const sourceLabel = () => sourceId() === 'models' ? message('library.models.title') : props.sources.find((source) => source.id === sourceId())?.label ?? 'library'
   const directSource = () => DIRECT_LIBRARY_SOURCES.has(sourceId())
   const activitySource = () => ACTIVITY_SOURCES.has(sourceId())
@@ -360,6 +367,7 @@ export function LibraryPanel(props: LibraryPanelProps) {
             selectedId={sourceId}
             segmented
             select={(id) => {
+              props.onSourceChange?.(id)
               if (id === 'models') {
                 setTransitionSourceId(undefined)
                 setSourceId(id)

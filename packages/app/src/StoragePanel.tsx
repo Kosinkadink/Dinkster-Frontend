@@ -15,9 +15,10 @@ type NativeBackend = Extract<Backend, { protocol: 'dinkster' }>
 
 export function StoragePanel(props: {
   readonly app: AppState
-  readonly focusBackend: { readonly id: string; readonly hiddenModels?: boolean } | undefined
+  readonly focusBackend: { readonly id: string; readonly hiddenModels?: boolean; readonly modelLocationId?: string; readonly addModelFolder?: boolean } | undefined
   readonly activeBackend: () => Backend
   readonly onOpenAssets: (backend: Backend) => void
+  readonly onOpenModels?: (backend: Backend, modelLocationId: string) => void
 }) {
   const message = useAppMessage()
   const backends = useSignal(props.app.backends)

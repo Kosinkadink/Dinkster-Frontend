@@ -52,14 +52,34 @@ describe('LibraryPanel', () => {
       throw new Error(`Unexpected route ${url.pathname}`)
     } })
     const folders: (string | undefined)[] = []
+    const [focus, setFocus] = createSignal<{ readonly modelLocationId: string }>({ modelLocationId: 'studio' })
     const root = document.createElement('div')
     document.body.append(root)
-    const dispose = render(() => <LibraryModels connection={connection} onOpenStorage={(id) => folders.push(id)} onAddModelFolder={() => {}} />, root)
+    const dispose = render(() => <LibraryModels connection={connection} focus={focus()} onOpenStorage={(id) => folders.push(id)} onAddModelFolder={() => {}} />, root)
     try {
+      await vi.waitFor(() => expect(root.textContent).toContain('2 models in 1 folder'))
+      root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()
+      ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'All model folders')!.click()
       await vi.waitFor(() => expect(root.textContent).toContain('2 models in 2 folders'))
       root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()
       const archive = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'archive')!
       archive.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('1 model in 1 folder'))
+      setFocus({ modelLocationId: 'studio' })
+      await vi.waitFor(() => expect(root.textContent).toContain('2 models in 1 folder'))
+      const search = root.querySelector<HTMLInputElement>('input[type="search"]')!
+      search.value = 'unique'
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+      await vi.waitFor(() => expect(root.textContent).toContain('1 model in 1 folder'))
+      setFocus({ modelLocationId: 'archive' })
+      await vi.waitFor(() => {
+        expect(search.value).toBe('')
+        expect(root.textContent).toContain('1 model in 1 folder')
+      })
+      root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()
+      ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'All model folders')!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('2 models in 2 folders'))
+      setFocus({ modelLocationId: 'archive' })
       await vi.waitFor(() => expect(root.textContent).toContain('1 model in 1 folder'))
       expect(root.textContent).not.toContain('unique.safetensors')
       expect(root.textContent).toContain('Reading archive')
@@ -75,12 +95,14 @@ describe('LibraryPanel', () => {
   })
 
   it('opens Models without leaving collection results reachable and returns to the chosen collection', async () => {
+    const [modelsFocus, setModelsFocus] = createSignal<object>()
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <LibraryPanel
       backend={() => backend}
       sources={[source('packs', 'Packs', [{ id: 'installed', title: 'Installed pack' }])]}
       models={() => <p>Models in this project</p>}
+      modelsFocus={modelsFocus()}
     />, root)
     try {
       await vi.waitFor(() => expect(root.textContent).toContain('Installed pack'))
@@ -96,6 +118,12 @@ describe('LibraryPanel', () => {
         expect(root.querySelector('.library-collection-body')?.hasAttribute('hidden')).toBe(false)
         expect(root.textContent).toContain('Installed pack')
       })
+      setModelsFocus({})
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="library-overlay"]')?.getAttribute('data-source')).toBe('models'))
+      root.querySelector<HTMLButtonElement>('[data-source="packs"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="library-overlay"]')?.getAttribute('data-source')).toBe('packs'))
+      setModelsFocus({})
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="library-overlay"]')?.getAttribute('data-source')).toBe('models'))
     } finally { dispose() }
   })
 

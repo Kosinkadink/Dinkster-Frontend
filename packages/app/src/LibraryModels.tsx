@@ -15,6 +15,7 @@ import type { AssetBrowserItem } from './asset-browser/types.js'
 
 export function LibraryModels(props: {
   readonly connection: DinksterConnection
+  readonly focus?: { readonly modelLocationId: string } | undefined
   readonly onOpenStorage: (locationId?: string) => void
   readonly onAddModelFolder: () => void
 }) {
@@ -32,6 +33,7 @@ export function LibraryModels(props: {
   let generation = 0
   let request = 0
   let controller: AbortController | undefined
+  let appliedFocus: typeof props.focus
 
   const load = async (connection: DinksterConnection): Promise<void> => {
     const owner = generation
@@ -81,6 +83,7 @@ export function LibraryModels(props: {
   createEffect(() => {
     const connection = props.connection
     generation++
+    appliedFocus = undefined
     setSettings(undefined)
     setMounts([])
     setModels([])
@@ -98,6 +101,14 @@ export function LibraryModels(props: {
   const locations = () => settings()?.locations.filter((location) => location.enabled) ?? []
   const providersFor = (variant: LogicalModelVariant) => locations().filter((location) =>
     (folder() === '' || location.id === folder()) && variant.providers.some((provider) => location.mounts.some((mount) => provider.sourceId === `mount:${mount}`)))
+  createEffect(() => {
+    const focus = props.focus
+    if (!settings() || focus === undefined || focus === appliedFocus) return
+    appliedFocus = focus
+    setQuery('')
+    setKind('')
+    setFolder(locations().some((location) => location.id === focus.modelLocationId) ? focus.modelLocationId : '')
+  })
   createEffect(() => {
     if (settings() && folder() !== '' && !locations().some((location) => location.id === folder())) setFolder('')
   })
