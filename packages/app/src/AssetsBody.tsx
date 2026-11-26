@@ -113,7 +113,6 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
           ? mount.scanProgress.filesDone / mount.scanProgress.filesTotal : undefined} />
       </div>
     }}</For>
-    <Show when={!loading()} fallback={<ProductEmptyState tone="loading" title={message('assets.state.loading.title')} />}>
       <CollectionPanel sources={sources()} pageSize={60} pagination="scroll" recursive={recursive()} sort={sort()}
         refreshTick={refreshTick} modeKey={VIEW_PREFERENCE_KEY} searchPriority="primary"
         searchLabel={message('assets.search')} searchPlaceholder={message('assets.search')}
@@ -153,10 +152,9 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
             path: `${selectedId() === 'all-mounts' ? message('assets.mounts.all') : selectedId().slice('mount:'.length)}${folder() ? `/${folder()}` : ''}`,
           })}</p>
         </>}}
-        renderState={(state) => assetState(state, message, widenSearch(), widerLabel())} entryContent={(entry) => <AssetEntryContent entry={entry()} />}
+        renderState={(state) => assetState(loading() ? { ...state, kind: 'loading' } : state, message, widenSearch(), widerLabel())} entryContent={(entry) => <AssetEntryContent entry={entry()} />}
         detailPlacement="inline" detailRail={(entry) => <Show when={entry}>{(selected) => <AssetEntrySelection entry={selected()} adapters={adapters()}
           backendId={props.backendId} connection={props.connection} backendUrl={props.baseUrl ?? ''} backendLabel={props.backendLabel} />}</Show>}
       />
-    </Show>
   </div>
 }

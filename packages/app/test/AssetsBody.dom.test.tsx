@@ -82,7 +82,7 @@ describe('Assets dock body', () => {
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
     const click = (text: string) => [...root.querySelectorAll<HTMLElement>('button, label')].find((element) => element.textContent === text)!.click()
     try {
-      await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-source-select"]')).not.toBeNull())
+      await vi.waitFor(() => expect(root.textContent).not.toContain('Loading assets'))
       root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!.click()
       document.querySelector<HTMLElement>('[data-option-id="mount:output"]')!.click()
       click('This folder')
@@ -276,8 +276,12 @@ describe('Assets dock body', () => {
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <AssetsBody connection={current()} backendId="native" />, root)
     try {
+      await vi.waitFor(() => expect(root.textContent).toContain('Loading assets'))
+      expect(root.querySelector('[data-testid="collection-search"]')).not.toBeNull()
+      expect(root.querySelector('[data-testid="asset-sort-select"]')).not.toBeNull()
+      expect(root.querySelector('[data-testid="asset-source-select"]')).not.toBeNull()
       setCurrent(second)
-      await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-source-select"]')).not.toBeNull())
+      await vi.waitFor(() => expect(root.textContent).not.toContain('Loading assets'))
       root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!.click()
       expect(document.querySelector('[data-option-id="mount:second"]')).not.toBeNull()
       release([{ id: 'first', mode: 'read', state: 'ready' }])
@@ -294,7 +298,7 @@ describe('Assets dock body', () => {
     try {
       await vi.waitFor(() => expect(root.textContent).toContain('mount catalog offline'))
       root.querySelector<HTMLButtonElement>('[data-testid="assets-retry"]')!.click()
-      await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-source-select"]')).not.toBeNull())
+      await vi.waitFor(() => expect(root.textContent).not.toContain('Loading assets'))
       expect(root.textContent).not.toContain('mount catalog offline')
       root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!.click()
       expect(document.querySelector('[data-option-id="mount:input"]')).not.toBeNull()
