@@ -488,6 +488,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const summary = viewStyle['role'] === 'widgetValue' ? args.editorSummary : undefined
           const run = summary?.text ?? viewRun
           const style = summary === undefined ? viewStyle : { ...viewStyle,
+            ...(summary.text === undefined ? {} : { parts: undefined, shorter: undefined, items: undefined }),
             placeholder: summary.placeholder ?? (summary.text === undefined && viewStyle['placeholder'] === true),
           }
           ctx.fillStyle = tokens.colors.value

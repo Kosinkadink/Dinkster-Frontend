@@ -62,6 +62,7 @@ it('selects the save name on opening and queues the atomically stored target onl
   const root = document.createElement('div'); document.body.append(root)
   let saved: Json = { mount: 'output', prefix: 'before' }
   const queued: Json[] = []
+  const preview = vi.fn()
   let finish!: (ok: boolean) => void
   const [wired, setWired] = createSolidSignal(false)
   const dispose = render(() => <SaveTargetSpace value={saved} wired={wired()}
@@ -72,7 +73,7 @@ it('selects the save name on opening and queues the atomically stored target onl
       const ok = await new Promise<boolean>((resolve) => { finish = resolve })
       if (ok) saved = value
       return ok
-    }} queue={() => queued.push(saved)} />, root)
+    }} queue={() => queued.push(saved)} preview={preview} />, root)
   try {
     const name = root.querySelector('input')!
     const mount = root.querySelector('button')!
@@ -86,6 +87,13 @@ it('selects the save name on opening and queues the atomically stored target onl
     name.focus()
     name.value = 'after'; name.dispatchEvent(new Event('input', { bubbles: true }))
     expect(saved).toEqual({ mount: 'output', prefix: 'before' })
+    expect(preview).toHaveBeenLastCalledWith('archive/after')
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(preview).toHaveBeenLastCalledWith(undefined)
+    mount.focus()
+    mount.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent === 'archive')!.click()
+    name.value = 'after'; name.dispatchEvent(new Event('input', { bubbles: true }))
     name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
     expect(queued).toEqual([])
     finish(true)
@@ -96,11 +104,13 @@ it('selects the save name on opening and queues the atomically stored target onl
     await Promise.resolve(); await Promise.resolve()
     expect(queued).toEqual([{ mount: 'archive', prefix: 'after' }])
     setWired(true)
+    expect(preview).toHaveBeenLastCalledWith(undefined)
     name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
     await Promise.resolve()
     expect(saved).toEqual({ mount: 'archive', prefix: 'after' })
     expect(queued).toHaveLength(1)
   } finally { dispose() }
+  expect(preview).toHaveBeenLastCalledWith(undefined)
 })
 
 it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {

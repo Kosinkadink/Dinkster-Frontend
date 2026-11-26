@@ -234,6 +234,7 @@ export function SaveTargetSpace(props: {
   readonly declared?: Json
   readonly help?: string
   readonly measured?: (height: number) => void
+  readonly preview?: (text: string | undefined) => void
   readonly fetchMounts: (() => Promise<MountSettings>) | undefined
   readonly commit: (value: Json) => Promise<boolean>
   readonly queue: () => void
@@ -274,6 +275,14 @@ export function SaveTargetSpace(props: {
   ]
   const draft = () => saveTargetDraft({ stored: props.value ?? null, mount: mount(), prefix: prefix(),
     ready: settings() === undefined || ready().length === 0 ? undefined : ready(), projectMount: projectMount() })
+  createEffect(() => {
+    const value = props.value
+    const unchanged = mount() === (isSaveTarget(value) ? value.mount : null) &&
+      prefix() === (isSaveTarget(value) || isProjectDefaultTarget(value) ? value.prefix : '')
+    const text = props.wired || unchanged ? undefined : draft().rowText
+    untrack(() => props.preview?.(text))
+  })
+  onCleanup(() => props.preview?.(undefined))
   const mountProblem = () => failed() ? message('mountWidget.error')
     : settings() === undefined ? undefined
       : noDefault() && draft().mountGone ? message('saveTargetWidget.notHereNoDefault', { id: mount() ?? '' })

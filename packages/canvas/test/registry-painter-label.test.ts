@@ -558,7 +558,10 @@ describe('registry painter label/value split', () => {
     }
     const editorView: WidgetView = {
       ...stubView, id: 'core.load3d', kind: 'LOAD_3D',
-      drawCompact: (scene) => scene.text(1, 0, '3D viewport', { role: 'widgetValue', align: 'right', width: 1 }),
+      drawCompact: (scene) => scene.text(1, 0, '3D viewport', {
+        role: 'widgetValue', align: 'right', width: 1,
+        parts: [{ text: '3D viewport' }], shorter: ['3D'],
+      }),
     }
     const editorRegistry: WidgetRegistry = {
       ...registry,

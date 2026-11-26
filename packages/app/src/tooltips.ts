@@ -358,9 +358,10 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       : effectiveWidgetDefault(row.spec)
     const schema = context.resolveSchema?.(t.hit.node.node.type)
     const input = portSpecOf(schema, t.hit.node.node, 'input', row.inputId)
+    const saveTarget = row.viewId === 'core.saveTarget'
     const detail = [
       ...['min', 'max', 'step'].filter((key) => options[key] !== undefined).map((key) => `${key}: ${options[key]}`),
-      ...(input?.tooltip ? [input.tooltip] : []),
+      ...(!saveTarget && input?.tooltip ? [input.tooltip] : []),
     ]
     const measure = context.measureLine ?? (() => 1)
     const room = (context.tooltipLines ?? Infinity) - measure(row.name ?? row.label) -
@@ -396,7 +397,10 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ? widgetValueLines(storedReadout, context, room - incoming.reduce((sum, line) => sum + measure(line), 0), storedPrefix) : []
     return {
       title: row.name ?? row.label,
-      lines: [...incoming, ...stored],
+      lines: [...incoming, ...stored, ...(!t.connected && saveTarget ? [
+        ...(input?.tooltip ? [input.tooltip] : []),
+        translate('saveTargetWidget.naming', { suffix: typeof options['suffix'] === 'string' ? options['suffix'] : '' }),
+      ] : [])],
       ...(opts.detailed && detail.length ? { detail } : {}),
       ...(context.measureLine === undefined && (incomingReadout.length > 1 || storedReadout.length > 1) ? { fit: (lines: number, measureLine: (text: string) => number) =>
         resolveCanvasTooltip(target, opts, { ...context, tooltipLines: lines, measureLine })! } : {}),

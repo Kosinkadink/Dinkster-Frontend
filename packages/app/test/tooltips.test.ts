@@ -289,6 +289,15 @@ describe('canvas tooltip provider', () => {
     expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row: { ...row, kept: 'Kept for its wire.' } } }, { detailed: false })?.title).toBe('lora 1 name')
   })
 
+  it('shows Save target naming help on its header but hides it under a wire', () => {
+    const row = { inputId: 'target', valueKey: 'target', label: 'Target', viewId: 'core.saveTarget',
+      spec: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' } } }
+    const target = { kind: 'widget', hit: { node: { node: { type: 'Save', values: { target: { prefix: 'ComfyUI' } } } }, row } }
+    const help = 'Subfolders and filename stem only. The writer adds numbering and .png.'
+    expect(resolveCanvasTooltip(target, { detailed: false })?.lines).toContain(help)
+    expect(resolveCanvasTooltip({ ...target, connected: true }, { detailed: true })?.lines).not.toContain(help)
+  })
+
   it('exposes the full stored value and the intrinsic default for clipped numeric rows', () => {
     const row = {
       inputId: 'seed', valueKey: 'seed', label: 'seed',

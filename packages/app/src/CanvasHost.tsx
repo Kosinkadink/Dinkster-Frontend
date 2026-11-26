@@ -42,6 +42,7 @@ import {
   type LinkDropContext,
   type CompanionDisplay,
   type CompanionMap,
+  type EditorSummaryMap,
   type PresenceActor,
   type StoredValueRow,
   type LayoutRow,
@@ -1520,6 +1521,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }[]>([])
   const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal<ReadonlySet<string>>(new Set())
   const [editorSpaces, setEditorSpaces] = createSolidSignal<readonly EditorSpaceItem[]>([])
+  const [editorSummaries, setEditorSummaries] = createSolidSignal<EditorSummaryMap>({})
+  const [editorDrafts, setEditorDrafts] = createSolidSignal<ReadonlyMap<string, {
+    readonly nodeId: string; readonly valueKey: string; readonly text: string
+  }>>(new Map())
   const [editorMeasurements, setEditorMeasurements] = createSolidSignal<{
     readonly scope: string
     readonly controls: Readonly<Record<string, Readonly<Record<string, number>>>>
@@ -2681,6 +2686,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     updateTheme()
     createEffect(() => renderer.setRenamingNode(nodePrompt()?.nodeId))
+    createEffect(() => {
+      const summaries = { ...editorSummaries() }
+      for (const [key, draft] of editorDrafts()) {
+        const item = editorSpaceByKey().get(key)
+        if (item === undefined || item.wired) continue
+        summaries[draft.nodeId] = { ...summaries[draft.nodeId], [draft.valueKey]: { text: draft.text } }
+      }
+      renderer.setEditorSummaries(summaries)
+    })
     const themeObserver = new MutationObserver(updateTheme)
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     onCleanup(() => themeObserver.disconnect())
@@ -4957,7 +4971,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setOutputPages((current) => current.size === 0 ? current : new Map())
         setOutputViewerKey(undefined)
         renderer.setCompanions({})
-        renderer.setEditorSummaries({})
+        setEditorSummaries({})
         renderer.setBadges({})
         renderer.setNodeDecorations({})
         minimap.setStates({})
@@ -5257,7 +5271,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       setEditorSpaces(editorSpaceItems([...renderer.getScene().nodes, ...(panelFace === undefined ? [] : [panelFace])], editorWires))
       setNodeBoxes(renderer.getScene().nodes.map((node) => ({ id: node.id, box: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height } })))
-      renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown'),
+      setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown'),
         (value, width) => assetRowThumbnails(value, previewLoader, widgetRegistry(), width)))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
         if (node.layout.minimized) return []
@@ -7303,6 +7317,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             : elabInputsOf(elaborateInterface(schema, node)).find((input) => input.spec.id === at.target.inputId)?.spec.tooltip
           const suffix = at.current.field.spec.options['suffix']
           return { commit: at.commit, fetchMounts: fetchSaveTargetMounts(),
+            owner: JSON.stringify([at.tab.id, at.target.graphId, viewInstancePath(at.tab)]),
             help: [help, message('saveTargetWidget.naming', { suffix: typeof suffix === 'string' ? suffix : '' })].filter(Boolean).join('\n\n') }
         })
         const webcam = () => {
@@ -7417,15 +7432,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   options={item()?.field.spec.options ?? {}} />}
               </Show>
               <Show when={saveTarget()}>
-                {(at) => <SaveTargetSpace value={item()?.value ?? (item()?.wired ? undefined : effectiveWidgetDefault(item()!.field.spec))}
+                {(at) => <Show when={at().owner} keyed>{(_owner) => <SaveTargetSpace value={item()?.value ?? (item()?.wired ? undefined : effectiveWidgetDefault(item()!.field.spec))}
                   wired={item()?.wired === true} fetchMounts={at().fetchMounts} commit={at().commit}
                   {...(effectiveWidgetDefault(item()!.field.spec) === undefined ? {} : { declared: effectiveWidgetDefault(item()!.field.spec)! })}
                   help={at().help}
                   measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}
+                  preview={(text) => {
+                    const current = item()
+                    setEditorDrafts((previous) => {
+                      if (text === undefined ? !previous.has(key) : previous.get(key)?.text === text) return previous
+                      const next = new Map(previous)
+                      if (text === undefined) next.delete(key)
+                      else if (current !== undefined) next.set(key, { nodeId: current.nodeId, valueKey: current.row.valueKey, text })
+                      return next
+                    })
+                  }}
                   queue={() => {
                     const command = props.app.commands.get('workflow.queue')
                     if (command?.enabled?.() !== false) command?.run()
-                  }} />}
+                  }} />}</Show>}
               </Show>
               <Show when={load3d()}>
                 {(at) => <Load3dSpace value={item()?.value} wired={item()?.wired === true}

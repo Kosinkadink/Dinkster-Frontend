@@ -91,6 +91,29 @@ async function pickMount(page: Page, id: string): Promise<void> {
   await expect(page.getByRole('listbox', { name: 'Writable mount' })).toHaveCount(0)
 }
 
+test('an unfolded Save target draft stays in its document when an equal target opens in another tab', async ({ page }) => {
+  await openTargets(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const document = app.activeTab()!.store.doc
+    await app.openDocument({ ...document, view: { ...document.view, graphs: { ...document.view?.graphs,
+      g0: { ...document.view?.graphs['g0'], nodes: { ...document.view?.graphs['g0']?.nodes,
+        save: { position: { x: 80, y: 80 }, editors: { target: { unfolded: true } } },
+      } },
+    } } }, 'Unfolded Save targets')
+  })
+  const name = page.locator('.node-editor-space-overlay[data-node-id="save"] input')
+  await expect(name).toHaveValue('renders/portrait')
+  await name.fill('../do-not-share')
+  await expect(name).toHaveAttribute('aria-invalid', 'true')
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    await app.openDocument({ ...app.activeTab()!.store.doc, lineage: 'another-save-target-document' }, 'Other Save targets')
+  })
+  await expect(name).toHaveValue('renders/portrait')
+  expect(await target(page)).toEqual({ mount: 'output', prefix: 'renders/portrait' })
+})
+
 test('a picked mount and typed name are stored together on leaving, as one undo step; Escape stores nothing', async ({ page }, testInfo) => {
   await openTargets(page)
   const stored = { mount: 'output', prefix: 'renders/portrait' }
