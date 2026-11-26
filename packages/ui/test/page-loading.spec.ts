@@ -261,3 +261,59 @@ test('the rise arrival moves only the new answer six pixels over 240ms', async (
   expect(frames.end).toEqual({ opacity: '1', transform: 'none' })
   expect(await heading.boundingBox()).toEqual(bounds)
 })
+
+test('project headings and actions stay mounted while rows and facts arrive and refresh', async ({
+  page,
+}) => {
+  await page.goto('/#project-loading')
+  const section = page.getByRole('region', { name: 'Project loading' })
+  const heading = section.getByRole('heading', {
+    name: 'Projects',
+    exact: true,
+  })
+  const headingBounds = await heading.boundingBox()
+  const owner = section.getByRole('term').filter({ hasText: 'Owner' })
+  const ownerBounds = await owner.boundingBox()
+  const list = section.getByRole('listbox', { name: 'Projects' })
+  const create = section.getByRole('button', { name: 'New', exact: true })
+  const read = section.getByRole('button', { name: 'Read projects' })
+  await expect(list).toHaveCount(0)
+  await read.click()
+  await page.clock.runFor(200)
+  await expect(section.getByRole('status')).toHaveText('Loading projects')
+  await create.click()
+  await expect(
+    section.getByText('New project opened', { exact: true }),
+  ).toBeVisible()
+  await page.clock.runFor(800)
+  await expect(list).toBeVisible()
+  await expect(create).toBeFocused()
+  expect(await heading.boundingBox()).toEqual(headingBounds)
+  expect(await owner.boundingBox()).toEqual(ownerBounds)
+  await expect(
+    section.getByRole('definition').filter({ hasText: 'Alex Morgan' }),
+  ).toBeVisible()
+  await list.getByRole('option', { name: /Alex Morgan/ }).click()
+  await page.keyboard.press('End')
+  await expect(
+    list.getByRole('option', { name: /Settings audit/ }),
+  ).toBeFocused()
+  await read.click()
+  await page.clock.runFor(500)
+  await expect(
+    list.getByRole('option', { name: /Settings audit/ }),
+  ).toHaveAttribute('aria-selected', 'true')
+  await expect(section.getByRole('status')).toHaveCount(0)
+  await create.click()
+  await page.clock.runFor(500)
+  await expect(create).toBeFocused()
+  await expect(
+    list.getByRole('option', { name: /Settings audit/ }),
+  ).toHaveAttribute('aria-selected', 'true')
+  expect(await heading.boundingBox()).toEqual(headingBounds)
+  expect(await owner.boundingBox()).toEqual(ownerBounds)
+  await page.setViewportSize({ width: 390, height: 900 })
+  await expect(
+    section.getByRole('group', { name: 'Loaded project facts' }),
+  ).toHaveScreenshot('project-answer-facts-narrow.png')
+})

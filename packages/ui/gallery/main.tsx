@@ -88,7 +88,7 @@ import {
   selectCanvasPage,
 } from './canvas.js'
 import { ContextMenuGallery } from './context-menus.js'
-import { PageLoadingGallery } from './page-loading.js'
+import { PageLoadingGallery, ProjectLoadingGallery } from './page-loading.js'
 import { CanvasChromeGallery } from './canvas-chrome.js'
 import { RunControlsGallery } from './run-controls.js'
 import { SiteGallery } from './site.js'
@@ -189,7 +189,7 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
+              (route() === '#project-loading' ? 'Project loading' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
@@ -207,6 +207,9 @@ function Gallery() {
           >
             <Match when={route() === '#page-loading'}>
               <PageLoadingGallery activity={activity()} />
+            </Match>
+            <Match when={route() === '#project-loading'}>
+              <ProjectLoadingGallery />
             </Match>
             <Match when={route() === '#setup-components'}>
               <Section title="Progress" components="ProductProgress">
@@ -1115,7 +1118,7 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <Show when={route() !== '#canvas' && route() !== '#page-loading'}>
+        <Show when={route() !== '#canvas' && route() !== '#page-loading' && route() !== '#project-loading'}>
           <p class="dinkster-metadata" role="status">
             {activity()}
           </p>
