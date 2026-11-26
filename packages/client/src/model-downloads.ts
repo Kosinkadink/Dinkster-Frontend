@@ -1,8 +1,12 @@
-import type { Json } from '@dinkster/core'
+import type { AssetRef, Json } from '@dinkster/core'
 
 export interface ModelRequirement {
   readonly name: string
   readonly kind: string
+}
+
+export interface ModelDownloadRequirement extends ModelRequirement {
+  readonly asset?: AssetRef
 }
 
 export class ModelDownloadBusyError extends Error {
@@ -16,6 +20,7 @@ export type ModelPresence = ModelRequirement & (
 )
 
 export interface ModelDownloadSelection extends ModelRequirement {
+  readonly digest?: string
   readonly project: string
   readonly provider: 'huggingface' | 'civitai'
   readonly source: string
@@ -106,8 +111,11 @@ function selection(row: Record<string, unknown>): ModelDownloadSelection {
   const provider = row['provider']
   if ((provider !== 'huggingface' && provider !== 'civitai') || !/^[a-f0-9]{64}$/.test(text(row, 'sha256')) ||
     !(provider === 'civitai' ? /^[1-9][0-9]*$/ : /^[a-f0-9]{40}$/).test(text(row, 'revision'))) throw new Error('Malformed immutable model selection')
+  if (row['digest'] !== undefined && !/^blake3:[a-f0-9]{64}$/.test(text(row, 'digest')))
+    throw new Error('Malformed exact model identity')
   return {
     name: text(row, 'name'), kind: text(row, 'kind'), project: text(row, 'project'),
+    ...(row['digest'] === undefined ? {} : { digest: text(row, 'digest') }),
     provider, source: text(row, 'source'), repo: text(row, 'repo'),
     revision: text(row, 'revision'), file: text(row, 'file'), sha256: text(row, 'sha256'),
     size: count(row, 'size'), license: text(row, 'license'),
@@ -175,6 +183,7 @@ export function decodeModelDownloadJob(raw: unknown): ModelDownloadJob {
   if (status === 'completed') {
     const asset = record(row['asset'])
     if (!/^blake3:[a-f0-9]{64}$/.test(text(asset, 'digest')) ||
+      (selected.digest !== undefined && asset['digest'] !== selected.digest) ||
       count(asset, 'size') !== selected.size || typeof row['reused'] !== 'boolean' ||
       typeof row['renamed'] !== 'boolean') throw new Error('Malformed verified model result')
     return { ...job, path: text(row, 'path'), reused: row['reused'], renamed: row['renamed'],

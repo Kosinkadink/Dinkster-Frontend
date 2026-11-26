@@ -1,8 +1,8 @@
 import { createSignal, type ReadonlySignal } from '@dinkster/core'
-import { ModelDownloadBusyError, type DinksterConnection, type ModelDownloadJob, type ModelDownloadPlan, type ModelRequirement } from '@dinkster/client'
+import { ModelDownloadBusyError, type DinksterConnection, type ModelDownloadJob, type ModelDownloadPlan, type ModelDownloadRequirement, type ModelDownloadSelection } from '@dinkster/client'
 
 export interface ModelDownloadState {
-  readonly requirement: ModelRequirement
+  readonly requirement: ModelDownloadRequirement
   readonly source?: string
   readonly pending: boolean
   readonly queued?: boolean
@@ -13,7 +13,7 @@ export interface ModelDownloadState {
 }
 
 type Connection = Pick<DinksterConnection, 'planModelDownload' | 'startModelDownload' | 'fetchModelDownloads' | 'fetchModelDownload' | 'cancelModelDownload'>
-const keyOf = (requirement: ModelRequirement): string => JSON.stringify([requirement.name, requirement.kind])
+const keyOf = (requirement: ModelDownloadRequirement): string => JSON.stringify([requirement.name, requirement.kind, requirement.asset?.digest])
 const active = (job: ModelDownloadJob): boolean => !['completed', 'cancelled', 'failed'].includes(job.status)
 
 /** Transfers belong to a connection/project, not to an open dialog or workflow. */
@@ -29,7 +29,7 @@ export class ModelDownloadsController {
 
   constructor(private readonly connection: Connection, private readonly project: string) {}
 
-  ensure(requirements: readonly ModelRequirement[], missing = false): void {
+  ensure(requirements: readonly ModelDownloadRequirement[], missing = false): void {
     if (this.disposed) return
     if (missing) for (const requirement of requirements) {
       const row = this.row(requirement)
@@ -45,7 +45,7 @@ export class ModelDownloadsController {
     if (added.length) this.state.update((rows) => [...rows, ...added.map((requirement) => ({ requirement, pending: false }))])
   }
 
-  private row(requirement: ModelRequirement): ModelDownloadState | undefined {
+  private row(requirement: ModelDownloadRequirement): ModelDownloadState | undefined {
     const key = keyOf(requirement)
     return this.state.get().find((row) => keyOf(row.requirement) === key)
   }
@@ -56,11 +56,12 @@ export class ModelDownloadsController {
     return true
   }
 
-  private matches(job: ModelRequirement & { readonly project: string }, requirement: ModelRequirement): boolean {
-    return job.project === this.project && keyOf(job) === keyOf(requirement)
+  private matches(job: ModelDownloadSelection, requirement: ModelDownloadRequirement): boolean {
+    return job.project === this.project && job.name === requirement.name && job.kind === requirement.kind &&
+      job.digest === requirement.asset?.digest
   }
 
-  setSource(requirement: ModelRequirement, source: string): void {
+  setSource(requirement: ModelDownloadRequirement, source: string): void {
     const row = this.row(requirement)
     if (!row || row.pending || row.queued || (row.job && active(row.job))) return
     this.update(row, { requirement: row.requirement, source, pending: false,
@@ -68,7 +69,7 @@ export class ModelDownloadsController {
     })
   }
 
-  invalidate(requirement: ModelRequirement): void {
+  invalidate(requirement: ModelDownloadRequirement): void {
     const row = this.row(requirement)
     if (!row) return
     const start = this.starting.get(row)
@@ -79,7 +80,7 @@ export class ModelDownloadsController {
     })
   }
 
-  async enableLocation(requirement: ModelRequirement, location: string, enable: (location: string) => Promise<void>): Promise<void> {
+  async enableLocation(requirement: ModelDownloadRequirement, location: string, enable: (location: string) => Promise<void>): Promise<void> {
     const row = this.row(requirement)
     if (!row || row.pending || row.queued || this.disposed || row.plan?.status !== 'folder-disabled' ||
       !row.plan.disabledLocations.includes(location) || (row.job && active(row.job))) return
@@ -98,7 +99,7 @@ export class ModelDownloadsController {
   }
 
   /** Plans serialize because the engine admits only one provider lookup at a time. */
-  review(requirement: ModelRequirement): Promise<void> {
+  review(requirement: ModelDownloadRequirement): Promise<void> {
     const row = this.row(requirement)
     if (!row || row.pending || row.queued || this.disposed) return Promise.resolve()
     const pending = { ...row, pending: true }
@@ -142,7 +143,7 @@ export class ModelDownloadsController {
     return next
   }
 
-  download(requirements: readonly ModelRequirement[]): Promise<void> {
+  download(requirements: readonly ModelDownloadRequirement[]): Promise<void> {
     for (const requirement of requirements) {
       const row = this.row(requirement)
       if (!row || row.pending || row.queued || row.plan?.status !== 'consent-required' || (row.job && active(row.job))) continue
@@ -198,7 +199,7 @@ export class ModelDownloadsController {
     }
   }
 
-  async cancel(requirement: ModelRequirement): Promise<void> {
+  async cancel(requirement: ModelDownloadRequirement): Promise<void> {
     const row = this.row(requirement)
     if (!row || row.pending || this.disposed) return
     if (row.queued) { this.update(row, { ...row, queued: false }); return }

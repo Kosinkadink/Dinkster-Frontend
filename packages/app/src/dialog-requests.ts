@@ -23,7 +23,7 @@ import type {
   DinksterSubmitResult,
   MissingAsset,
   DinksterConnection,
-  ModelRequirement,
+  ModelDownloadRequirement,
 } from '@dinkster/client'
 import type { ImportAssetPromptReason } from './import-asset-autoresolve.js'
 import type { ModelProviderConnection } from './ModelProvider.js'
@@ -136,7 +136,7 @@ export function installAssetConsent(p: {
   readonly onTransportError: (message: string) => void
   readonly onSuperseded: (assets: readonly MissingAsset[]) => void
 } | {
-  readonly models: readonly ModelRequirement[]
+  readonly models: readonly ModelDownloadRequirement[]
   readonly result?: never
 })): void {
   /** The request object this chain most recently installed - its owner token. */
@@ -165,7 +165,7 @@ export function installAssetConsent(p: {
     settle()
   }
   p.signal?.addEventListener('abort', cancel, { once: true })
-  const install = (assets: readonly MissingAsset[], models: readonly ModelRequirement[] | undefined, result?: AssetsMissingResult): void => {
+  const install = (assets: readonly MissingAsset[], models: readonly ModelDownloadRequirement[] | undefined, result?: AssetsMissingResult): void => {
     // This STAGE's own request (advanced to its busy copy). `chain` alone
     // is not enough: a retained retry closure from an earlier stage of the
     // same chain would otherwise see the reopened request as "current" and
@@ -175,7 +175,8 @@ export function installAssetConsent(p: {
     unsubscribeModels?.()
     transfers?.ensure(models ?? [], result !== undefined)
     const currentModels = (): readonly ModelConsentState[] => (models ?? []).flatMap((requirement) => {
-      const row = transfers?.rows.get().find((row) => row.requirement.name === requirement.name && row.requirement.kind === requirement.kind)
+      const row = transfers?.rows.get().find((row) => row.requirement.name === requirement.name && row.requirement.kind === requirement.kind &&
+        row.requirement.asset?.digest === requirement.asset?.digest)
       return row ? [row] : [{ requirement, pending: false }]
     })
     const update = (): void => {

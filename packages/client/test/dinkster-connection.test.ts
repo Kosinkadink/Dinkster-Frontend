@@ -558,11 +558,16 @@ describe('model download planning and owned jobs', () => {
   it('retains verified actual paths and reuse independently of collision renaming', async () => {
     const asset = { digest: `blake3:${'d'.repeat(64)}`, name: 'existing.safetensors', size: selected.size,
       mediaType: 'application/octet-stream', virtualPath: 'model-files/studio-vae/unconventional/existing.safetensors' }
-    const payload = { ...active, received: selected.size, status: 'completed', asset,
+    let payload = { ...active, received: selected.size, status: 'completed', asset,
       path: '/models/unconventional/existing.safetensors', reused: true, renamed: false, indexingPending: true }
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
       webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
     expect(await connection.fetchModelDownload('job')).toEqual(payload)
+    const exact = { ...payload, digest: asset.digest }
+    payload = exact
+    expect(await connection.fetchModelDownload('job')).toEqual(exact)
+    payload = { ...exact, asset: { ...asset, digest: `blake3:${'e'.repeat(64)}` } }
+    await expect(connection.fetchModelDownload('job')).rejects.toThrow('Malformed verified model result')
   })
 
   it.each([

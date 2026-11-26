@@ -61,6 +61,57 @@ const consentCallbacks = () => ({
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
 describe('installAssetConsent ownership', () => {
+  it('keeps exact hashes and name-only requests separate for same-named model downloads', async () => {
+    const named = { name: 'weights.safetensors', kind: 'model/vae' }
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name: named.name, size: 8192,
+      mediaType: 'application/octet-stream', virtualPath: 'models/weights.safetensors' }
+    const first = { ...named, asset }
+    const second = { ...named, asset: { ...asset, digest: `blake3:${'b'.repeat(64)}` } }
+    const selection = { ...named, project: 'studio', provider: 'huggingface',
+      source: 'https://huggingface.co/example/model/resolve/main/weights.safetensors',
+      repo: 'example/model', revision: 'c'.repeat(40), file: named.name,
+      sha256: 'd'.repeat(64), size: asset.size, license: 'apache-2.0',
+      destination: '/models/weights.safetensors', mount: 'models' }
+    const jobs = [{ ...selection, digest: second.asset.digest, jobId: 'second', status: 'downloading', received: 317 }]
+    const plans: unknown[] = []
+    const requests: string[] = []
+    const connection = new DinksterConnection({ id: asConnectionId('exact-downloads'), baseUrl: '/engine', clientId: 'test', project: 'studio',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        requests.push(String(url))
+        let payload: unknown = { instance: 'engine', jobs }
+        if (String(url).includes('/plan?')) {
+          const body = JSON.parse(String(init?.body)) as { asset?: typeof asset }
+          plans.push(body)
+          payload = { ...selection, status: 'consent-required', planId: body.asset ? 'first-plan' : 'named-plan',
+            ...(body.asset ? { digest: body.asset.digest } : {}) }
+        }
+        return new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
+      } })
+    const controller = new ModelDownloadsController(connection, 'studio')
+    const slot = slotOf<AssetConsentRequest>()
+    const install = () => installAssetConsent({ models: [first, second, named], slot,
+      modelDownloads: { connection, controller, project: 'studio' } })
+    try {
+      install()
+      for (let index = 0; index < 3; index++) await slot.value!.reviewModel!(index)
+      expect(plans).toEqual([
+        { ...named, asset, project: 'studio', scope: 'local' },
+        { ...named, project: 'studio', scope: 'local' },
+      ])
+      expect(slot.value!.models?.map((row) => row.job?.jobId ?? (row.plan?.status === 'consent-required' ? row.plan.planId : undefined)))
+        .toEqual(['first-plan', 'second', 'named-plan'])
+      slot.set(undefined)
+      install()
+      expect(slot.value!.models?.map((row) => row.requirement.asset?.digest)).toEqual([asset.digest, second.asset.digest, undefined])
+      expect(slot.value!.models?.[1]?.job?.received).toBe(317)
+      expect(requests.every((url) => url.startsWith('/engine/api/models/downloads'))).toBe(true)
+      expect(slot.value!.retry).toBeUndefined()
+    } finally {
+      slot.set(undefined)
+      controller.dispose()
+    }
+  })
+
   it('keeps a batch live across dismissal, queues busy folders and stops only the chosen model', async () => {
     const requirements = [
       { name: 'weights.safetensors', kind: 'model/vae' },

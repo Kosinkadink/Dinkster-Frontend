@@ -28,7 +28,7 @@ import { requestWithDeadline } from './request-deadline.js'
 import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
   type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
 import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs, decodeModelPresence, ModelDownloadBusyError,
-  type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob, type ModelPresence } from './model-downloads.js'
+  type ModelRequirement, type ModelDownloadRequirement, type ModelDownloadPlan, type ModelDownloadJob, type ModelPresence } from './model-downloads.js'
 import {
   asPromptId,
   createSignal,
@@ -3513,9 +3513,10 @@ export class DinksterConnection {
     return rows
   }
 
-  async planModelDownload(requirement: ModelRequirement, signal?: AbortSignal, source?: string): Promise<ModelDownloadPlan> {
+  async planModelDownload(requirement: ModelDownloadRequirement, signal?: AbortSignal, source?: string): Promise<ModelDownloadPlan> {
     return decodeModelDownloadPlan(await this.modelDownloadRequest('plan', 'POST', {
       name: requirement.name, kind: requirement.kind, project: this.project ?? 'default', scope: 'local',
+      ...(requirement.asset === undefined ? {} : { asset: requirement.asset }),
       ...(source === undefined ? {} : { source }),
     }, signal))
   }
