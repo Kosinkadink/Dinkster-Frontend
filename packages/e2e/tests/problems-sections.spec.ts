@@ -36,7 +36,7 @@ test('removed pack parts open with a notice for the replaced option, anchored ro
   await expect(notice.locator('.dinkster-fixes-title')).toHaveText('1 thing was adjusted')
   await notice.getByRole('button', { name: 'Review', exact: true }).click()
   await expect(notice).toContainText('Mode: removed was removed; current is used')
-  await expect(notice.locator('.dinkster-fixes-settings')).toHaveCount(0)
+  await expect(notice.getByRole('button', { name: 'Open the Review upgrades setting', exact: true })).toHaveCount(0)
   await notice.locator('.dinkster-fixes-review-row').filter({ hasText: 'Removed option' }).click()
   await expect(page.getByTestId('row-focus')).toBeVisible()
   await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
