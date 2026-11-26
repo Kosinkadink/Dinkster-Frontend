@@ -154,6 +154,45 @@ const okPrompt = (doc: WorkflowDocument) => {
 // Focused lowering behavior
 // ---------------------------------------------------------------------------
 
+describe('unavailable boundary routes', () => {
+  const choice = schemaOf('Choice', [{ kind: 'choice', id: 'mode', required: true, default: 'on', shared: [], options: [
+    { key: 'on', rows: [input('in', { optional: true }), output('out')] },
+    { key: 'off', rows: [] },
+  ] }])
+  const choiceResolve = (type: string) => type === 'Choice' ? choice : resolve(type)
+
+  it('refuses a used broken fan-out even when an inactive target follows it', () => {
+    const missing = { kind: 'port', node: 'gone', port: 'in' }
+    const inactive = { kind: 'port', node: 'choice', port: 'mode.in' }
+    for (const alsoBinds of [[missing, inactive], [inactive, missing]]) {
+      const doc = docOf({
+        g0: { nodes: { source: { type: 'Src' }, sub: { type: '#sub' } }, links: [[['source', 'out'], ['sub', 'in']]] },
+        sub: { nodes: { valid: { type: 'OptSink' }, choice: { type: 'Choice', dynamic: { mode: { selected: 'off' } } } },
+          boundary: { inputs: [{ id: 'in', binds: { kind: 'port', node: 'valid', port: 'in' }, alsoBinds }] } },
+      })
+      const derived = documentResolver(doc, choiceResolve)('#sub')!
+      const rows = elabInputsOf(elaborateInterface(derived, { values: {} }))
+      expect(rows[0]!.spec.unavailable?.code).toBe('boundary.danglingNode')
+      const result = compile({ ...inputOf(doc), resolve: choiceResolve, graphFeatures: ['absentInput'] })
+      expect(result.ok).toBe(false)
+      expect(!result.ok && result.diagnostics.some((d) => d.severity === 'error' && d.code === 'boundary.danglingNode')).toBe(true)
+    }
+  })
+
+  it('preserves an inactive output explanation through a bypassed relay', () => {
+    const doc = docOf({
+      g0: { nodes: { sub: { type: '#sub' }, relay: { type: 'FallbackRelay', mode: 'bypassed' }, sink: { type: 'OptSink' } },
+        links: [[['sub', 'out'], ['relay', 'fallback']], [['relay', 'out'], ['sink', 'in']]] },
+      sub: { nodes: { choice: { type: 'Choice', dynamic: { mode: { selected: 'off' } } } },
+        boundary: { outputs: [{ id: 'out', binds: { kind: 'port', node: 'choice', port: 'mode.out' } }] } },
+    })
+    const result = compile({ ...inputOf(doc), resolve: choiceResolve, graphFeatures: ['absentInput'] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt.sink!.inputs.in).toEqual({ $absent: { reason: expect.stringContaining('not a row of the chosen option') } })
+  })
+})
+
 describe('widget output boundary lowering', () => {
   const leaf = (value: number): GraphSpec => ({
     nodes: { n: { type: 'IntValue', values: { value } } },

@@ -867,7 +867,7 @@ export function BoundaryPanel(props: { app: AppState }) {
   }
 
   /** A row's problem in the panel's words; other derivation messages lose their graph-id prefix. */
-  const problemText = (d: Diagnostic): string => {
+  function problemText(d: Diagnostic): string {
     if (d.code === 'boundary.visibleBroken') return message('boundaryPanel.problem.visibleBroken')
     if (d.code === 'boundary.limitsOutside') return message('boundaryPanel.problem.limitsOutside')
     if (d.code === 'boundary.limitsNotNumber') return message('boundaryPanel.problem.limitsNotNumber')

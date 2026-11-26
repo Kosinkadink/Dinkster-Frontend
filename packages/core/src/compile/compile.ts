@@ -2230,8 +2230,7 @@ function compileImpl(
           attachUnknownSchemaDependents(routeDiagnostics, [dst.runtimeId])
           if (trace.kind === 'muted') {
             diags.push(...routeDiagnostics)
-            if (trace.node !== undefined) givesNothingFromMuted(dst, trace.node, c.what, defId)
-            else diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is muted`))
+            givesNothingFromMuted(dst, trace.reason, c.what, defId)
             continue
           }
           if (trace.kind === 'dropped') {

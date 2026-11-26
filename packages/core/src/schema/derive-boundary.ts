@@ -651,7 +651,9 @@ export function deriveBoundarySchema(
   const fail = (code: string, msg: string): void => {
     const inactive = code === 'boundary.branchInactive' || code === 'boundary.slotDisconnected'
     const message = `[${graph.id}] ${msg}`
-    if (currentItem !== undefined) unavailable.set(currentItem.id, { code, message, ...(inactive ? { inactive: true } : {}) })
+    if (currentItem !== undefined && (unavailable.get(currentItem.id) === undefined || unavailable.get(currentItem.id)?.inactive === true)) {
+      unavailable.set(currentItem.id, { code, message, ...(inactive ? { inactive: true } : {}) })
+    }
     diags.push(diag(inactive ? 'info' : 'error', 'schema', code, message,
       currentItem === undefined ? undefined : { refs: [{ graphId: graph.id, portId: currentItem.id }] }))
   }

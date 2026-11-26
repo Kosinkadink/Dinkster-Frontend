@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { boundaryItems, registerCatalog, setLocale, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { asNodeId, asPortId, boundaryItems, registerCatalog, setLocale, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppState, pushGraph, truncateGraphStack } from '../src/app-state.js'
@@ -122,6 +122,23 @@ const delayDispatch = (app: AppState) => {
 }
 
 describe('BoundaryPanel rows and settings', () => {
+  it('opens an existing broken row with its explanation and keeps valid rows editable', async () => {
+    const source = blendDocument()
+    const sub = source.graphs.sub!
+    const workflow: WorkflowDocument = { ...source, graphs: { ...source.graphs, sub: { ...sub, boundary: {
+      body: sub.boundary!.body.map((row) => row.kind === 'input' && row.id === 'mask'
+        ? { ...row, binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('removed') } }
+        : row),
+    } } } }
+    const { root, unmount } = await mountPanel({ document: workflow })
+    select(root, 'mask')
+    expect(root.querySelector('[data-testid="boundary-diag"]')?.textContent).toContain('removed')
+    select(root, 'strength')
+    expect(root.querySelector('[data-testid="boundary-settings"]')?.textContent).toContain('Strength')
+    expect(root.querySelector<HTMLInputElement>('[data-testid="boundary-help-input"]')!.disabled).toBe(false)
+    unmount()
+  })
+
   it('edits help and Show for a whole choice and removes its complete exposure in one undo step', async () => {
     const schema: NodeSchema = { ...blend, body: blend.body.map((row) => row.kind === 'input' && row.id === 'mode'
       ? { kind: 'choice', id: 'mode', options: [{ key: 'a', rows: [] }, { key: 'b', rows: [] }], shared: [], required: true }
