@@ -30,7 +30,7 @@ test('a quick page waits for both reads without a loading sign and retains its a
   ).toBeVisible()
   await expect(section.locator('.dinkster-page-load-answer')).toHaveCSS(
     'animation-duration',
-    '0.2s',
+    '0.24s',
   )
   await expect(summary.locator('.dinkster-page-load-answer')).toHaveCSS(
     'animation-duration',
