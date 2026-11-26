@@ -1704,6 +1704,7 @@
   "boundaryPanel.usedIn": "used in {count, plural, one {# place} other {# places}}",
   "boundaryPanel.promotion.title": "Show \"{row}\" on {name}",
   "boundaryPanel.promotion.action": "Show on {name}",
+  "boundaryPanel.promotion.failed": "\"{row}\" was not shown on {name}. {reason}",
   "boundaryPanel.promotion.description": "The row is added to each subgraph on the way up. A subgraph used in several places gets it in every place.",
   "boundaryPanel.promotion.consequence": "Only this path is wired. Undo takes all of it back in one step.",
   "boundaryPanel.promotion.added": "Gets the row",

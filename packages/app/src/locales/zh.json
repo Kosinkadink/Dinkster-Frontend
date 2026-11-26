@@ -1704,6 +1704,7 @@
   "boundaryPanel.usedIn": "用于 {count} 处",
   "boundaryPanel.promotion.title": "在 {name} 上显示\"{row}\"",
   "boundaryPanel.promotion.action": "显示在 {name} 上",
+  "boundaryPanel.promotion.failed": "\"{row}\"未显示在 {name} 上。{reason}",
   "boundaryPanel.promotion.description": "该行会添加到向上路径中的每个子图。被用于多处的子图会在每处获得该行。",
   "boundaryPanel.promotion.consequence": "只连接这条路径。撤销会一步恢复所有更改。",
   "boundaryPanel.promotion.added": "将添加该行",

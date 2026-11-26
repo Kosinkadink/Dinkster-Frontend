@@ -75,7 +75,7 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { BoundaryPromotionPreview, CanvasColorArriving, CanvasRowAbsence, CanvasSidePart, ProductDialog } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart, ProductConfirmationDialog } from '@dinkster/ui'
 import {
   coreCommandRegistry,
   createTransactionBuilder,
@@ -2076,10 +2076,32 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly consequence?: string
     readonly row: string
     readonly destination: string
-    readonly confirm: () => void
+    readonly confirm: () => CommandOutcome | Promise<CommandOutcome>
     readonly cancel: () => void
     readonly valid: () => boolean
   }>()
+  const [promotionPending, setPromotionPending] = createSolidSignal(false)
+  const [promotionError, setPromotionError] = createSolidSignal<string>()
+  const confirmAncestorPromotion = async () => {
+    const promotion = ancestorPromotion()
+    if (promotion === undefined || promotionPending()) return
+    if (!promotion.valid()) { promotion.cancel(); return }
+    setPromotionPending(true)
+    setPromotionError(undefined)
+    const failed = (reason: string) => message('boundaryPanel.promotion.failed', {
+      row: promotion.row, name: promotion.destination, reason,
+    })
+    try {
+      const outcome = await promotion.confirm()
+      if (ancestorPromotion() !== promotion) return
+      if (outcome.ok) promotion.cancel()
+      else setPromotionError(failed(outcome.diagnostics.map((diagnostic) => diagnostic.message).join(' ')))
+    } catch (error) {
+      if (ancestorPromotion() === promotion) setPromotionError(failed(error instanceof Error ? error.message : String(error)))
+    } finally {
+      if (ancestorPromotion() === promotion) setPromotionPending(false)
+    }
+  }
   onCleanup(() => ancestorPromotion()?.cancel())
   /** Set in onMount; canvas chrome delegates to the mounted renderer. */
   let repaintMinimap: (() => void) | undefined
@@ -2096,7 +2118,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const importChoice = canvasImportChoice()
     if (importChoice !== undefined && !importChoice.valid()) importChoice.cancel()
     const promotion = ancestorPromotion()
-    if (promotion !== undefined && !promotion.valid()) promotion.cancel()
+    if (promotion !== undefined && !promotionPending() && !promotion.valid()) promotion.cancel()
   })
 
   createEffect(() => {
@@ -4111,12 +4133,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const target = captureLifecycleTarget(m.tab, m.graphId)
         const valid = () => target.isCurrent() && m.tab.execution === undefined && m.tab.store.doc === before && props.app.registryForTab(m.tab) === reg
         const cancel = () => { setAncestorPromotion(undefined); target.dispose() }
+        setPromotionPending(false)
+        setPromotionError(undefined)
         setAncestorPromotion({ row: p.button as string, destination: definition.name,
           definitions: [{ name: definition.name, uses: Object.values(before.graphs).reduce((count, graph) => count + Object.values(graph.nodes).filter((node) => node.type === `#${graphId}`).length, 0), changed: true }],
           description: added.length === 0 ? message('boundaryPanel.button.existingFields')
             : message('boundaryPanel.button.addFields', { fields: added.map((item) => item.displayName ?? item.id).join(', ') }),
           consequence: message('boundaryPanel.button.consequence'),
-          valid, cancel, confirm: () => { const current = valid(); cancel(); if (current) void dispatchGesture(m.tab, { command: 'boundary.showButton', params }) },
+          valid, cancel, confirm: () => props.app.dispatchTo(m.tab, { command: 'boundary.showButton', params }),
         })
       },
       showOnAncestor: (params, m) => {
@@ -4149,12 +4173,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const node = before.graphs[p.graphId as string]!.nodes[p.node as string]!
         const schema = documentResolver(before, reg.resolve)(node.type)
         const field = schema === undefined ? undefined : elabInputsOf(elaborateInterface(schema, node)).find((input) => input.address.port === p.port)
+        setPromotionPending(false)
+        setPromotionError(undefined)
         setAncestorPromotion({ definitions, row: field?.spec.displayName ?? p.port as string,
-          destination: definitions.at(-1)!.name, valid, cancel, confirm: () => {
-          const current = valid()
-          cancel()
-          if (current) void dispatchGesture(m.tab, { command: 'boundary.showOnAncestor', params })
-        } })
+          destination: definitions.at(-1)!.name, valid, cancel,
+          confirm: () => props.app.dispatchTo(m.tab, { command: 'boundary.showOnAncestor', params }) })
       },
       openSubgraph: (params) => {
         const tab = activeTab()
@@ -7816,18 +7839,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         </div>
       </Show>
       <CanvasPreviewA11y targets={previewA11yTargets()} />
-      <Show when={ancestorPromotion()} keyed>{(promotion) => <ProductDialog
+      <Show when={ancestorPromotion()} keyed>{(promotion) => <ProductConfirmationDialog
         title={message('boundaryPanel.promotion.title', { row: promotion.row, name: promotion.destination })}
-        onDismiss={promotion.cancel}>
-        <BoundaryPromotionPreview definitions={promotion.definitions}
-          description={promotion.description ?? message('boundaryPanel.promotion.description')}
-          consequence={promotion.consequence ?? message('boundaryPanel.promotion.consequence')}
-          actionLabel={message('boundaryPanel.promotion.action', { name: promotion.destination })}
-          usageLabel={(count) => message('boundaryPanel.usedIn', { count })}
-          addedLabel={message('boundaryPanel.promotion.added')}
-          existingLabel={message('boundaryPanel.promotion.existing')}
-          onConfirm={promotion.confirm} onCancel={promotion.cancel} />
-      </ProductDialog>}</Show>
+        testId="boundary-ancestor-dialog" intent="add"
+        consequence={`${promotion.description ?? message('boundaryPanel.promotion.description')} ${promotion.consequence ?? message('boundaryPanel.promotion.consequence')}`}
+        items={promotion.definitions.map((definition) => ({
+          name: definition.name, detail: message('boundaryPanel.usedIn', { count: definition.uses }),
+          outcome: message(definition.changed ? 'boundaryPanel.promotion.added' : 'boundaryPanel.promotion.existing'),
+        }))}
+        actionLabel={message('boundaryPanel.promotion.action', { name: promotion.destination })}
+        pending={promotionPending()} error={promotionError()}
+        onConfirm={() => void confirmAncestorPromotion()} onCancel={promotion.cancel} />}</Show>
       <Show when={canvasImportChoice()} keyed>{(choice) => <ModalSurface
         title={message('canvasImport.title')} modalId="canvas-import" testId="canvas-import-dialog"
         onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); choice.cancel() } }}

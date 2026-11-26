@@ -8,35 +8,6 @@ import {
   TriangleAlert,
 } from 'lucide-solid'
 import { ProductIcon } from './controls.js'
-import { ProductConfirmation } from './messages.js'
-
-/** Definition-wide effects of one explicitly selected ancestor promotion. */
-export function BoundaryPromotionPreview(props: {
-  readonly definitions: readonly { readonly name: string; readonly uses: number; readonly changed: boolean }[]
-  readonly description: string
-  readonly consequence: string
-  readonly actionLabel: string
-  readonly usageLabel: (count: number) => string
-  readonly addedLabel: string
-  readonly existingLabel: string
-  readonly disabled?: boolean
-  readonly pending?: boolean
-  readonly onConfirm: () => void
-  readonly onCancel: () => void
-}) {
-  return <div class="dinkster-stack">
-    <p class="dinkster-description">{props.description}</p>
-    <div class="dinkster-list boundary-promotion-list">
-      <For each={props.definitions}>{(definition) => <div class="dinkster-row">
-        <span class="dinkster-row-copy"><strong>{definition.name}</strong><span class="dinkster-description">{props.usageLabel(definition.uses)}</span></span>
-        <span>{definition.changed ? props.addedLabel : props.existingLabel}</span>
-      </div>}</For>
-    </div>
-    <ProductConfirmation consequence={props.consequence}
-      actionLabel={props.actionLabel} intent="add" disabled={props.disabled === true} pending={props.pending === true}
-      onConfirm={props.onConfirm} onCancel={props.onCancel} />
-  </div>
-}
 
 /** One field, output or button of a subgraph node. */
 export interface BoundaryTreeRow {

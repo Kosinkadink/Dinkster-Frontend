@@ -4,10 +4,9 @@ import { defaultTokens, typeColor } from '@dinkster/canvas'
 import { ProductSelect } from '../../app/src/ProductSelect.js'
 import {
   BoundaryTree,
-  BoundaryPromotionPreview,
   ProductButton,
   ProductCheckbox,
-  ProductDialog,
+  ProductConfirmationDialog,
   ProductField,
   ProductIcon,
   ProductLink,
@@ -343,16 +342,12 @@ export function BoundaryTreeGallery() {
         <figcaption><strong>Show on Portrait fix</strong><span>Review each subgraph on the way up before adding the row.</span></figcaption>
           <ProductButton intent="add" onClick={() => setPromotionOpen(true)}>Review showing strength</ProductButton>
           <Show when={promotionOpen()}>
-            <ProductDialog title={'Show "strength" on Portrait fix'} onDismiss={() => setPromotionOpen(false)}>
-            <BoundaryPromotionPreview
-              description="The row is added to each subgraph on the way up. A subgraph used in several places gets it in every place."
-              consequence="Only this path is wired. Undo takes all of it back in one step."
-              actionLabel="Show on Portrait fix" usageLabel={(count) => `used in ${count} ${count === 1 ? 'place' : 'places'}`}
-              addedLabel="Gets the row" existingLabel="Already has it" definitions={[
-              { name: 'Detail pass', uses: 2, changed: false },
-              { name: 'Portrait fix', uses: 3, changed: true },
-            ]} onConfirm={() => setPromotionOpen(false)} onCancel={() => setPromotionOpen(false)} />
-            </ProductDialog>
+            <ProductConfirmationDialog title={'Show "strength" on Portrait fix'} intent="add"
+              consequence="The row is added to each subgraph on the way up. A subgraph used in several places gets it in every place. Only this path is wired. Undo takes all of it back in one step."
+              actionLabel="Show on Portrait fix" items={[
+                { name: 'Detail pass', detail: 'used in 2 places', outcome: 'Already has it' },
+                { name: 'Portrait fix', detail: 'used in 3 places', outcome: 'Gets the row' },
+              ]} onConfirm={() => setPromotionOpen(false)} onCancel={() => setPromotionOpen(false)} />
           </Show>
       </figure>
       <Example

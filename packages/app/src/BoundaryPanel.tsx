@@ -1595,20 +1595,18 @@ export function BoundaryPanel(props: { app: AppState }) {
                   <Show when={confirmingRemove() === button().id} fallback={
                     <div class="dinkster-actions boundary-tree-actions">
                       <UiButton type="button" density="panel" intent="remove" disabled={editingDisabled()}
-                        onClick={() => setConfirmingRemove(button().id)}>
+                        onClick={() => { if (usedIn() > 1) setConfirmingRemove(button().id); else void dispatch('boundary.hideButton', { itemId: button().id }, `button:${button().id}`) }}>
                         <ProductIcon icon={Trash2} />{message('boundaryPanel.remove')}
                       </UiButton>
                     </div>
                   }>
                     <div class="boundary-remove-confirm" role="group">
-                      <span>{message('boundaryPanel.remove.question', { name: buttonName(button().id), count: usedIn() })}</span>
-                      <div class="dinkster-actions boundary-tree-actions">
-                        <UiButton type="button" density="panel" onClick={() => setConfirmingRemove(undefined)}>{message('boundaryPanel.remove.cancel')}</UiButton>
-                        <UiButton type="button" density="panel" intent="remove" fill="solid" disabled={editingDisabled()}
-                          onClick={() => void dispatch('boundary.hideButton', { itemId: button().id }, `button:${button().id}`)}>
-                          {message('boundaryPanel.remove.yes')}
-                        </UiButton>
-                      </div>
+                      <ProductConfirmation title={message('boundaryPanel.remove.question', { name: buttonName(button().id), subgraph: context()!.def.name })}
+                        consequence={message('boundaryPanel.remove.consequence', { count: usedIn() })}
+                        actionLabel={message('boundaryPanel.remove')} intent="remove" disabled={frozen()} pending={pending() !== undefined}
+                        error={notice()?.key === `button:${button().id}` ? message('boundaryPanel.remove.failed', { name: buttonName(button().id), reason: notice()!.text }) : undefined}
+                        onCancel={() => { setNotice(undefined); setConfirmingRemove(undefined) }}
+                        onConfirm={() => void dispatch('boundary.hideButton', { itemId: button().id }, `button:${button().id}`)} />
                     </div>
                   </Show>
                 </div>}

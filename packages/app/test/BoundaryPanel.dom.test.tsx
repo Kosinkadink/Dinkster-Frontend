@@ -175,11 +175,49 @@ describe('BoundaryPanel rows and settings', () => {
     expect(itemOf(app, 'mode')?.visible).toEqual({ formula: 'linked(image)' })
     const beforeRemove = tab.store.doc
     root.querySelector<HTMLButtonElement>('[data-testid="boundary-remove"]')!.click()
-    root.querySelector<HTMLButtonElement>('[data-testid="boundary-remove-yes"]')!.click()
+    const remove = [...root.querySelectorAll<HTMLButtonElement>('[data-testid="boundary-remove-confirm"] button')]
+      .find((button) => button.textContent === 'Remove row')!
+    remove.click()
     await idle(root)
     expect(itemOf(app, 'mode')).toBeUndefined()
     expect(tab.store.undo()).toBe(true)
     expect(tab.store.doc).toEqual(beforeRemove)
+    unmount()
+  })
+
+  it('keeps a named shared button removal question pending and after refusal, then removes only its exposure on retry', async () => {
+    const schema: NodeSchema = { ...blend, body: [...blend.body,
+      { kind: 'button', id: 'reset', label: 'Reset strength', steps: [{ step: 'set', field: 'strength', value: { formula: '0.5' } }] },
+    ] }
+    const source = blendDocument()
+    const sub = source.graphs.sub!
+    const workflow: WorkflowDocument = { ...source, graphs: { ...source.graphs, sub: { ...sub, boundary: {
+      body: [...sub.boundary!.body, { kind: 'button', id: 'reset', node: asNodeId('n1'), button: 'reset' }],
+    } } } }
+    const { app, tab, root, unmount } = await mountPanel({ schema, document: workflow })
+    select(root, 'reset')
+    const button = (name: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent?.trim() === name)!
+    button('Remove row').click()
+    expect(root.querySelector('.dinkster-confirmation h2')?.textContent).toBe('Remove "Reset strength" from Soften?')
+    const before = tab.store.doc
+    const releases = delayDispatch(app)
+    button('Remove row').click()
+    expect(root.querySelector('[aria-busy="true"]')).not.toBeNull()
+    expect(button('Cancel').disabled).toBe(true)
+    root.querySelector('.dinkster-confirmation')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(tab.store.doc).toBe(before)
+    releases.shift()!(false)
+    await idle(root)
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('"Reset strength" was not removed. Boundary edit refused for test')
+    expect(tab.store.doc).toBe(before)
+    button('Remove row').click()
+    releases.shift()!(true)
+    await idle(root)
+    expect(tab.store.doc.graphs.sub!.boundary!.body).not.toContainEqual({ kind: 'button', id: 'reset', node: 'n1', button: 'reset' })
+    expect(boundaryItems(tab.store.doc.graphs.sub!.boundary, 'inputs')).toEqual(boundaryItems(before.graphs.sub!.boundary, 'inputs'))
+    expect(tab.store.doc.graphs.sub!.nodes).toEqual(before.graphs.sub!.nodes)
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc).toEqual(before)
     unmount()
   })
 
