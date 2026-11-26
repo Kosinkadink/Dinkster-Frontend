@@ -419,7 +419,7 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
 
   const params = (node: string, port = 'in') => ({ graphId: 'sub', itemId: 'in', node, port })
 
-  it.each(['variable', 'inactive', 'nested', 'nested-shared-selector', 'nested-variant-selector', 'competing', 'competing-reordered', 'competing-shared', 'competing-shared-reordered'])('uses boundary-facing types even when inner ports are solved or inactive: %s', (scenario) => {
+  it.each(['variable', 'inactive', 'nested', 'nested-led', 'nested-shared-selector', 'nested-variant-selector', 'competing', 'competing-reordered', 'competing-shared', 'competing-shared-reordered'])('uses boundary-facing types even when inner ports are solved or inactive: %s', (scenario) => {
     const competing = scenario.startsWith('competing')
     const inactive = !competing && scenario !== 'variable'
     const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
@@ -428,7 +428,8 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
       Consumer: schemaOf('Consumer', [input('value', { type: FLOAT })]),
       Target: inactive ? {
         ...schemaOf('Target', []),
-        body: [{ kind: 'choice', id: 'mode', required: true, shared: [], options: [
+        body: [...(scenario === 'nested-led' ? [input('flag', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {}, default: false } })] : []),
+          { kind: 'choice', id: 'mode', required: true, shared: [], ...(scenario === 'nested-led' ? { leader: '"b" if flag else "a"' } : {}), options: [
           { key: 'a', rows: scenario === 'nested-shared-selector' ? [{ kind: 'typeChoice', id: 'source', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'float', type: IMAGE, rows: [] }] }] : [] },
           { key: 'b', rows: [
             { kind: 'typeChoice', id: 'source', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'float', type: FLOAT, rows: [] }] },

@@ -740,6 +740,8 @@ export interface ElaborateOptions {
   readonly incomingValue?: (path: string) => Json | undefined
   /** Connected producer's resolved type, independent of its execution value. */
   readonly incomingType?: (path: string) => string | undefined
+  /** Read-only branch selection for structural boundary type checks, not stored state. */
+  readonly hypotheticalChoices?: Readonly<Record<string, string>>
 }
 
 /** What a formula sees in one scope of a node, and where each name it reads is stored. */
@@ -2344,7 +2346,10 @@ function elaboratePass(
     // Set when an option that is not chosen reads a stored key it does not
     // offer: that place reads as its start key and stores nothing.
     let startOfPlace = false
-    if (row.leader !== undefined) {
+    const hypothetical = options.hypotheticalChoices?.[path]
+    if (hypothetical !== undefined && keys.includes(hypothetical)) {
+      key = hypothetical
+    } else if (row.leader !== undefined) {
       const outcome = evaluate(row.leader, scope)
       if (outcome.kind === 'value' && typeof outcome.value === 'string' && keys.includes(outcome.value)) key = outcome.value
       else if (outcome.kind === 'value' && outcome.value === null && !row.required) key = undefined

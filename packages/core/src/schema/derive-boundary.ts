@@ -740,7 +740,7 @@ export function deriveBoundarySchema(
       ...node,
       dynamic: { ...node.dynamic, ...Object.fromEntries(Object.entries(choices).map(([port, selected]) =>
         [port, { ...node.dynamic?.[port], selected }])) },
-    }, (connectivityOf ??= buildGraphConnectivity(graph))(node.id))
+    }, (connectivityOf ??= buildGraphConnectivity(graph))(node.id), { hypotheticalChoices: choices })
     for (const item of hypothetical === undefined ? [] : elabInputsOf(hypothetical)) {
       const origin = item.origin
       if (origin.kind !== 'slot' || origin.typeTemplateId === undefined) continue
