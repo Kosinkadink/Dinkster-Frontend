@@ -411,7 +411,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
 
       for (const [feature, output, expected] of [
         ['output', 'result', '0.2'], ['output', 'output91', '91.0'],
-        ['counted-outputs', 'outputs.o2', '30.0'], ['member-outputs', 'layers.layer0.result', '0.2'],
+        ['counted-outputs', 'outputs.o2', '30.0'], ['member-outputs', 'layers.layer0.result', '0.35'],
         ['described-outputs', 'description.number', '47.0'],
       ] as const) {
         const document = structuredClone(store.doc)
@@ -421,12 +421,16 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         const outputs = new DocumentStore(document, coreCommandRegistry(), 200, undefined, () => ({
           kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, registry.resolve),
         }))
+        if (feature === 'member-outputs') expect(outputs.dispatch({ command: 'node.setValue', params: {
+          graphId: 'root', nodeId: 'first', inputId: 'layers.layer0.strength', value: 0.35,
+        } }).ok).toBe(true)
         for (const target of ['sink', 'otherSink']) expect(outputs.dispatch({ command: 'link.connect', params: {
           graphId: 'root', from: { node: 'first', port: output }, to: { node: target, port: 'number' },
         } }).ok).toBe(true)
         const sharedOutput = await run(outputs.doc)
         expect(sharedOutput.value('sink', 'received'), `boundary/${feature}/fan-out`).toBe(expected)
         expect(sharedOutput.value('otherSink', 'received'), `boundary/${feature}/fan-out`).toBe(expected)
+        expect(sharedOutput.value(path, 'result')).toBe(0.2)
         expect(sharedOutput.second.strength).toBe(0.8)
         expect(outputs.undo()).toBe(true)
         const undoneOutput = await run(outputs.doc)
