@@ -6,6 +6,8 @@ import { createPageTabHost, PageTabPanel, type PageTab } from '../src/page-tabs.
 import { App } from '../src/App.js'
 import { ASSET_DRAG_TYPE } from '../src/asset-browser/drag.js'
 import * as boardMedia from '../src/board-media.js'
+import { setPanelOpen } from '../src/panel-location.js'
+import { BOARD_MEDIA_TYPE, emptyBoard } from '@dinkster/core'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import {
   layoutGroups,
@@ -141,6 +143,61 @@ describe('page tab host', () => {
 })
 
 describe('app page tabs', () => {
+  it('reopens saved Boards from their Library backend without loading them as workflows', async () => {
+    const app = createWorkflowApp()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    const backend = app.addBackend('http://board-library:8000', 'Board library', false, 'dinkster')!
+    backend.registry.set(app.registry.get())
+    vi.spyOn(backend.connection, 'fetchMountSettings').mockResolvedValue({ mounts: [], mountChangesAllowed: false })
+    const board = { ...emptyBoard(), order: ['note'], items: { note: {
+      id: 'note', kind: 'note' as const, text: 'Library reference text', rect: { x: 35, y: 70, width: 180, height: 90 },
+    } } }
+    const record = {
+      id: 'reference-board', scope: 'local', name: 'Reference Board', digest: `blake3:${'b'.repeat(64)}`,
+      mediaType: BOARD_MEDIA_TYPE, labels: ['board'], created: 1, modified: 2, revision: 3,
+    }
+    vi.spyOn(backend.connection, 'listLibrary').mockResolvedValue({ records: [record] })
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record)
+    vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(board))
+    const workflow = app.tabs.get()[0]!
+    app.setTabTarget(workflow.id, backend.id)
+    app.disconnectBackend(backend)
+    const workflows = app.tabs.get()
+    try {
+      dispose = render(() => <App app={app} />, root)
+      setPanelOpen(app.panels, app.dock, 'library', 'left', true)
+      expect(root.querySelector('[data-source="boards"]')).toBeNull()
+      app.settings.set('features.board.enabled', true)
+      root.querySelector<HTMLButtonElement>('[data-source="boards"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('[data-entry="reference-board"]'), root.textContent ?? '').not.toBeNull())
+      root.querySelector<HTMLElement>('[data-entry="reference-board"]')!.click()
+      await vi.waitFor(() => expect(app.pages.activeId()).toBe(`page:board:${board.lineage}`))
+      expect(app.boards.entries.get()[0]?.session.doc).toEqual(board)
+      expect(app.boards.isDirty(board.lineage)).toBe(false)
+      expect(app.libraryBackend()).toBe(backend)
+      setPanelOpen(app.panels, app.dock, 'library', 'left', true)
+      expect(root.querySelector('.library-backend-context strong')?.textContent).toBe('Board library')
+      expect(app.tabs.get()).toEqual(workflows)
+      app.pages.close(`page:board:${board.lineage}`)
+      expect(app.boards.entries.get()).toEqual([])
+      setPanelOpen(app.panels, app.dock, 'library', 'left', true)
+      root.querySelector<HTMLButtonElement>('[data-source="boards"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('[data-entry="reference-board"]')).not.toBeNull())
+      root.querySelector<HTMLElement>('[data-entry="reference-board"]')!.click()
+      await vi.waitFor(() => expect(app.pages.activeId()).toBe(`page:board:${board.lineage}`))
+      expect(app.boards.entries.get()[0]?.session.doc).toEqual(board)
+      expect(app.tabs.get()).toEqual(workflows)
+    } finally {
+      dispose()
+      app.dispose()
+      root.remove()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('saves the active Board, tracks dirty undo, reports refused saves, and never saves through a page without a save handler', async () => {
     const app = createWorkflowApp()
     const root = document.createElement('div')
@@ -164,7 +221,9 @@ describe('app page tabs', () => {
       const dirty = () => root.querySelector(`[data-tab-id="page:board:${entry.id}"]`)!.querySelector('.tab-dirty')
       const save = app.commands.get('workflow.save')!
       expect(save.enabled?.()).toBe(true)
-      save.run()
+      const shortcut = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true })
+      window.dispatchEvent(shortcut)
+      expect(shortcut.defaultPrevented).toBe(true)
       await vi.waitFor(() => expect(app.boards.isDirty(entry.id)).toBe(false))
       expect(JSON.parse(uploaded).items.note.text).toBe('Saved Board text')
       expect(save.enabled?.()).toBe(false)

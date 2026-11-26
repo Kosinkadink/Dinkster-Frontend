@@ -31,7 +31,7 @@ import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, coreOccurrencePlanner } from './CanvasHost.js'
 import { CanvasViewControls } from './CanvasChrome.js'
 import { ContextMenu } from './ContextMenu.js'
-import { formatCollectionDate, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
+import { boardsSource, formatCollectionDate, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard, ExecutionOpenButton, executionStatusLabel } from './ExecutionActivityCard.js'
 import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
@@ -613,7 +613,7 @@ export function App(props: {
   })
   // Built-in browsable collections; sources are live (corpus re-read per
   // page), so one instance each for the app's lifetime is correct.
-  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app)]
+  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app), boardsSource(app)]
   const storedRuns = runsSource(app)
   const browserHistory = historySource(app)
   const libraryTemplatesEnabled = createMemo(() => {
@@ -622,7 +622,12 @@ export function App(props: {
     backendsTick()
     return app.libraryBackend()?.templatesEnabled.get() === true
   })
-  const librarySources = createMemo(() => builtinLibrarySources.filter((source) => source.id !== 'templates' || libraryTemplatesEnabled()))
+  const librarySources = createMemo(() => {
+    settingsTick()
+    return builtinLibrarySources.filter((source) =>
+      (source.id !== 'templates' || libraryTemplatesEnabled()) &&
+      (source.id !== 'boards' || app.settings.get<boolean>('features.board.enabled')))
+  })
   // The backend the library browses (the active tab's target). A memo so
   // the panel re-pages exactly when the resolved backend IDENTITY changes
   // (tab switch onto another backend, retarget, backend removal) - not on
@@ -638,13 +643,32 @@ export function App(props: {
   // (dis)connect/reload packs, executions arrive or change status, or the
   // library backend itself changes (remote sources now serve a different
   // backend's records - a stale mixed list must not linger).
+  const boardsLibraryChanged = useSignal(app.boards.libraryChanged)
   const libraryTick = (): number => {
     backendsTick()
     executions()
     libraryOwner()
+    boardsLibraryChanged()
     return 0
   }
   const activateLibraryEntry = (sourceId: string, entry: CollectionEntry): void => {
+    if (sourceId === 'boards') {
+      if (!app.settings.get<boolean>('features.board.enabled') || entry.owner === undefined) return
+      const backend = app.backends.get().find((candidate) => candidate.id === entry.owner && candidate.protocol === 'dinkster')
+      if (!backend) {
+        app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'library.ownerGone', 'the backend this entry came from is no longer connected')])
+        return
+      }
+      void app.boards.openSaved(entry.id, backend.baseUrl).then((board) => {
+        if (!app.backends.get().includes(backend) || !app.boards.entries.get().includes(board)) return
+        if (app.pages.open(`board:${board.id}`)) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
+      }).catch((reason: unknown) => {
+        if (app.backends.get().includes(backend)) app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
+          diag('error', 'validation', 'board.openFailed', `failed to open Board: ${reason instanceof Error ? reason.message : String(reason)}`),
+        ])
+      })
+      return
+    }
     if (sourceId === 'workflows') {
       if (entry.owner === undefined) return
       void app.openFromLibrary(entry.id, entry.owner).then((ok) => {
@@ -1268,7 +1292,9 @@ export function App(props: {
     backendsTick()
     tabTargets()
     const tab = activeTab()
-    return tab ? app.backendForTab(tab) : backends()[0]!
+    const board = app.boards.entries.get().find((entry) => `page:board:${entry.id}` === activeTabId())
+    return board ? backends().find((backend) => backend.baseUrl === board.baseUrl) ?? backends()[0]!
+      : tab ? app.backendForTab(tab) : backends()[0]!
   }
 
   const servicesKind = (): 'qa' | 'custom' | undefined => {
@@ -2047,7 +2073,7 @@ export function App(props: {
    * editor consumed from double-firing as a command.
    */
   const onCommandKeyDown = (e: KeyboardEvent): void => {
-    dispatchAppCommandKey(app, e, activeTab() !== undefined)
+    dispatchAppCommandKey(app, e, shellTabs().some((tab) => tab.id === activeTabId()))
   }
   window.addEventListener('keydown', onCommandKeyDown)
   onCleanup(() => window.removeEventListener('keydown', onCommandKeyDown))

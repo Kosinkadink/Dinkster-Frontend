@@ -30,6 +30,7 @@ export interface BoardEntry {
 export class BoardWorkspace {
   readonly entries = createSignal<readonly BoardEntry[]>([])
   readonly changed = createSignal(0)
+  readonly libraryChanged = createSignal(0)
   readonly scope: string
   private readonly pending = new Set<string>()
   private readonly adopting = new Map<() => void, string>()
@@ -98,6 +99,7 @@ export class BoardWorkspace {
     if (!current()) throw new Error('Board was saved, but its original document is no longer active')
     this.saved.set(entry.id, { connection, record, snapshot })
     this.changed.update((value) => value + 1)
+    this.libraryChanged.update((value) => value + 1)
   }
 
   /** Resolve saved bytes on their owning project connection before opening a Board. */

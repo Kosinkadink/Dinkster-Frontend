@@ -7451,7 +7451,9 @@ export class AppState {
    */
   libraryBackend(): Extract<Backend, { protocol: 'dinkster' }> | undefined {
     const tab = this.activeTab()
-    const backend = tab ? this.backendForTab(tab) : this.backends.get()[0]
+    const board = this.boards.entries.get().find((entry) => `page:board:${entry.id}` === this.activeTabId.get())
+    const backend = board ? this.backends.get().find((candidate) => candidate.baseUrl === board.baseUrl)
+      : tab ? this.backendForTab(tab) : this.backends.get()[0]
     return backend !== undefined && backend.protocol === 'dinkster' ? backend : undefined
   }
 
