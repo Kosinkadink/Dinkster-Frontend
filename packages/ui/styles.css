@@ -818,7 +818,8 @@
 .dinkster-canvas-field-side[data-place='above-field'] { left: 0; width: 100%; min-width: 0; max-width: none; border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-divider); border-radius: var(--dinkster-radius-small) var(--dinkster-radius-small) 0 0; }
 .dinkster-canvas-field-side[data-place='below-node'], .dinkster-canvas-field-side[data-place='above-node'] { left: 0; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); }
 .dinkster-canvas-field-outline { position: absolute; top: 0; left: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
-.dinkster-canvas-field-outline path { fill: none; stroke: var(--dinkster-border-focus); stroke-width: var(--dinkster-focus-ring-width); }
+.dinkster-canvas-field-outline path { fill: none; stroke: var(--dinkster-accent-rest-border); stroke-width: var(--dinkster-focus-ring-width); }
+.dinkster-canvas-field[data-focus='true'] .dinkster-canvas-field-outline path { stroke: var(--dinkster-border-focus); }
 .dinkster-canvas-field[data-neutral='true'] .dinkster-canvas-field-outline path { stroke: var(--dinkster-border-subtle); stroke-width: var(--dinkster-border-width); }
 .dinkster-canvas-side-result, .dinkster-canvas-side-problem, .dinkster-canvas-side-help { margin: 0; }
 .dinkster-canvas-side-problem { color: var(--dinkster-warning-foreground); }
