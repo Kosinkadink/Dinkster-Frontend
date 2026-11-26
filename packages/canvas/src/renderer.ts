@@ -4495,12 +4495,12 @@ export class CanvasRenderer {
     // Selector rows ignore boundary bindings for inertness: the bound row
     // remains the occurrence-local editor.
     const linkSet = row.selector !== undefined ? this.valueDrivenInputPins : this.connectedInputPins
-    const connected = row.readOnly === true || driven !== undefined || companion !== undefined || linkSet.has(`${sceneNode.id}\u0000${row.inputId}`)
+    const connected = driven !== undefined || companion !== undefined || linkSet.has(`${sceneNode.id}\u0000${row.inputId}`)
     const rowAlpha = ctx.globalAlpha
     if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
     if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
     const companionAlpha = ctx.globalAlpha
-    if (connected) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
+    if (connected || row.readOnly) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
     const hovered = row.viewId !== 'core.compositor' &&
       this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
       this.overlay.hoveredWidget.valueKey === row.valueKey
