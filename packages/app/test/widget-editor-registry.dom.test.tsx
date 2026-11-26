@@ -27,6 +27,7 @@ it('keeps mount recovery and declared-default reset inside the Save target edito
   const button = (label: string) => [...root.querySelectorAll('button')].find((entry) => entry.textContent === label)
   try {
     await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toContain('usb1 is not on this machine. Saving to output.'))
+    expect(root.querySelector('.dinkster-canvas-target-value-text')?.textContent).toBe('usb1')
     setRequestState(1)
     expect(root.querySelector('[role="status"]')?.textContent).toContain('Use project default')
     expect(root.querySelector('.dinkster-canvas-target-name')?.getAttribute('title')).toBe('Relative name only')

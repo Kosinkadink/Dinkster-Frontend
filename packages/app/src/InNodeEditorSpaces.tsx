@@ -271,7 +271,7 @@ export function SaveTargetSpace(props: {
   const options = () => [
     { id: '', label: message('saveTargetWidget.projectDefaultIs', { mount: projectMount() }), closedLabel: message('saveTargetWidget.projectDefault') },
     ...ready().map((id) => ({ id, label: id })),
-    ...(mount() !== null && !ready().includes(mount()!) ? [{ id: mount()!, label: message('saveTargetWidget.notHere', { id: mount()! }), unavailable: true }] : []),
+    ...(mount() !== null && !ready().includes(mount()!) ? [{ id: mount()!, label: message('saveTargetWidget.notHere', { id: mount()! }), closedLabel: mount()!, unavailable: true }] : []),
   ]
   const draft = () => saveTargetDraft({ stored: props.value ?? null, mount: mount(), prefix: prefix(),
     ready: settings() === undefined || ready().length === 0 ? undefined : ready(), projectMount: projectMount() })

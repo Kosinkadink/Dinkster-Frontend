@@ -1148,7 +1148,7 @@ export const saveTargetView: WidgetView<SaveTarget | ProjectDefaultTarget | null
     compactRow(ctx, label, named !== undefined ? `${named.mount}/${named.prefix}` : `${projectMount}/${shown.prefix}`, state, 'widget.edit', false, {
       parts: [
         ...(named !== undefined ? [{ text: named.mount, look: 'gone' }] : []),
-        ...(named !== undefined && facts?.projectMount === undefined ? [] : [{ text: projectMount, look: 'resolved' }]),
+        { text: projectMount, look: 'resolved' },
         { text: `/${shown.prefix}` },
       ],
     })
