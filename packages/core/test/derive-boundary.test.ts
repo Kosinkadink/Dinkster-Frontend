@@ -965,6 +965,17 @@ describe('Boundary sample acceptance compilation', () => {
       isInputConnected: (id) => id === 'picture', isOutputConnected: () => false,
     })).find((row) => row.spec.id === 'treatment.mix')!
     expect(mix.spec.hidden).not.toBe(true)
+    for (const formula of ['mode == "text"', 'mode.mix > 0.5', 'len(nested) > 0']) {
+      edit(store, 'boundary.setVisible', { graphId: 'detail', itemId: 'layers', formula })
+      const sibling = documentResolver(store.doc, resolveBoundarySample)('#portrait')!
+      for (const selected of ['image', 'text', 'image']) {
+        const layer = elabInputsOf(elaborateInterface(sibling, {
+          values: { 'treatment.mix': selected === 'text' ? 0.8 : 0.2 },
+          dynamic: { treatment: { selected }, layers: { members: ['layer0'] }, nested: { members: selected === 'text' ? ['n0'] : [] } },
+        })).find((row) => row.spec.id === 'layers.layer0.strength')!
+        expect(layer.spec.hidden === true).toBe(selected !== 'text')
+      }
+    }
   })
 
   it('boundary/whole-choice/fan-out forwards one owner and unbinds only the selected target', () => {

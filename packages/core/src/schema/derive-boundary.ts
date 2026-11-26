@@ -823,7 +823,7 @@ export function deriveBoundarySchema(
   const everyItem = [...boundaryItems(def.boundary, 'inputs'), ...boundaryItems(def.boundary, 'outputs')]
   for (const item of everyItem) {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-      if (binding.kind === 'port' && !shownRows.has(JSON.stringify([binding.node, binding.port]))) shownRows.set(JSON.stringify([binding.node, binding.port]), item.id)
+      if ((binding.kind === 'port' || binding.kind === 'construct') && !shownRows.has(JSON.stringify([binding.node, binding.port]))) shownRows.set(JSON.stringify([binding.node, binding.port]), item.id)
       if (binding.kind !== 'construct') continue
       const owner = constructOwners.find((other) => other.node === binding.node && other.path === binding.port)
       if (owner !== undefined) fail('boundary.constructConflict', `boundary items '${owner.item}' and '${item.id}' both show '${binding.port}' whole`)
@@ -931,6 +931,8 @@ export function deriveBoundarySchema(
     const meaningOf = (flat: string, row: () => unknown): OuterName | undefined => {
       const shown = flat === path ? shownAs : shownRows.get(JSON.stringify([binds.node, flat]))
       if (shown !== undefined) return { row: shown }
+      const owner = constructOwners.find((candidate) => candidate.node === binds.node && flat.startsWith(`${candidate.path}.`))
+      if (owner !== undefined) return { row: owner.item + flat.slice(owner.path.length) }
       const value = Object.hasOwn(node.values, flat) ? node.values[flat] : row()
       return value === undefined ? undefined : { value, ...(isInternallyConnected(binds, flat) ? { linked: true as const } : {}) }
     }
