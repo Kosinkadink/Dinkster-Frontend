@@ -1232,12 +1232,14 @@ export function App(props: {
     backendsTick()
     return b.supervisor.get()
   }
+  const [setupEditors, setSetupEditors] = createSolidSignal<ReadonlyMap<object, string>>(new Map())
   /**
    * Supervisor state that gates the active backend (anything but ready):
    * rendered as "Dinkster is starting", never a connection failure (Ask 1).
    */
   const engineGate = () => {
     const sup = supervisorOf(activeBackend())
+    if ([...setupEditors().values()].includes(activeBackend().baseUrl)) return undefined
     return sup && sup.state !== 'ready' && sup.installations !== 0 ? sup : undefined
   }
 
@@ -1854,6 +1856,7 @@ export function App(props: {
   // The center region resolves every editor through EditorRegistry rather
   // than shell JSX branches.
   const GraphEditor = (editorProps: { readonly host?: EditorHostContext }) => {
+    const setupOwner = {}
     const tabs = useSignal(app.tabs)
     const globalActiveTabId = useSignal(app.activeTabId)
     const galleryRequested = useSignal(app.templateGalleryOpen)
@@ -1917,7 +1920,14 @@ export function App(props: {
         </Show>
       </div>
       <Show when={empty() && !galleryRequested()}>
-        <EditorFirstRunSetup backendUrl={activeBackend().baseUrl} />
+        <EditorFirstRunSetup backendUrl={activeBackend().baseUrl} onVisibilityChange={(visible) => {
+          setSetupEditors((current) => {
+            const next = new Map(current)
+            if (visible) next.set(setupOwner, activeBackend().baseUrl)
+            else next.delete(setupOwner)
+            return next
+          })
+        }} />
       </Show>
       <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
         <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
