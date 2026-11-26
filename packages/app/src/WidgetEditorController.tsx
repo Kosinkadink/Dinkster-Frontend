@@ -36,6 +36,7 @@ import { ModalSurface } from './ModalSurface.js'
 import { ProductNotice } from './ProductForm.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { HostUiProviderHost } from './host-ui.js'
+import type { RowRepresentation } from './editors/RowFocusOverlay.js'
 import { useAppMessage } from './locale.js'
 import {
   dynamicSelectorCommitCommand,
@@ -153,6 +154,8 @@ export interface WidgetEditorState {
     readonly storedAtOpen: Json
     /** A seed's after-run mode. */
     readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
+    /** The field's switchable looks and where its choice is kept, when it has two or more. */
+    readonly representation?: RowRepresentation
     /**
      * A field that declares `automatic`: the value it has in use, or for a
      * fixed value, what it would work out to if emptied, read from the scene

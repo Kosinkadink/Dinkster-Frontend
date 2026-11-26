@@ -54,6 +54,7 @@ import {
   type PortAddress,
   type SourceFilenameSpec,
   type TypeExpr,
+  type WidgetKind,
   type WidgetParts,
   type WidgetSpec,
 } from '@dinkster/core'
@@ -103,14 +104,17 @@ export const noteLookupRows = (line: NoteLookupLine): number =>
 /** Injected text measurement (canvas measureText in the app; approximate in tests). */
 export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'label' | 'value') => number
 
-/** Resolves the widget view for a spec: view id + compact row count. */
 /**
  * How the host draws a widget: its view and rows. `editorControls`, for an
  * editor shown in the node, is the height its own controls take when the
  * host knows they differ from the editor's fixed rows, such as a recorder on
  * a backend that cannot take uploads, which shows one sentence instead.
  */
-export type WidgetMeasure = (spec: WidgetSpec) => { viewId: string; rows: number; editorControls?: number } | undefined
+export interface WidgetMeasure {
+  (spec: WidgetSpec): { viewId: string; rows: number; editorControls?: number } | undefined
+  /** Kind-owned alternatives, resolved through the same registry as measurement. */
+  representations?: WidgetKind['representations']
+}
 
 export interface DynamicEditOwner {
   readonly graphId: string
@@ -1526,6 +1530,7 @@ export function layoutNode(
     const representation = resolveWidgetRepresentation(
       widget,
       options.widgetRepresentations?.[valueKey],
+      widgetMeasure.representations?.(widget),
     )
     const { editorControls, ...measured } = widgetMeasure(representation.spec) ?? { viewId: 'core.unknown', rows: 1 }
     if (editorControls !== undefined && Number.isFinite(editorControls)) editorControlHeights.set(valueKey, Math.max(0, editorControls))

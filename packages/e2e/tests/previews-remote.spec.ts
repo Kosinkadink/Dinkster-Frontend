@@ -358,6 +358,7 @@ test('a slow response for a closed remote editor never hijacks the next combo (s
   await page.keyboard.press('Escape')
   await page.mouse.click(...xy(await widgetPoint(page, 's0', 'mode')))
   const staticList = page.locator('[data-editor-surface="in-row-list"]')
+  await expect(staticList).toHaveAttribute('data-lookup', 'static')
   await expect(staticList.getByRole('combobox', { name: 'mode', exact: true })).toBeFocused()
   await expect(staticList.getByRole('option')).toHaveText(['alpha', 'beta'])
 
