@@ -66,6 +66,7 @@
   "runs.clear.confirmation": "Removes every finished run on this backend, for all workflows. Saved files stay.",
   "runs.scope.workflow": "This workflow",
   "runs.scope.all": "All workflows",
+  "runs.scope.workflowUnavailable": "A page is in front, not a workflow.",
   "runs.details": "Details",
   "runs.outputs.all": "Show all {count} outputs",
   "runs.pending": "Queued and running runs",
