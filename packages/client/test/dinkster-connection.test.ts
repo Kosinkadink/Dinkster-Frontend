@@ -3487,6 +3487,7 @@ describe('workflow library wire', () => {
   ])('reads paginated engine projects and preserves library authority during registration and rename (%j)', async (environment) => {
     const project = { id: 'p-film', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false,
       lastOpenedAt: environment === null ? null : '2026-11-20T15:00:00Z',
+      ...(environment === null ? {} : { filesFolder: '/home/u/Dinkster/projects/film' }),
       folder: environment === null ? null : '/home/u/Dinkster/library/output', ...(environment === undefined ? {} : { environment }) }
     const { conn, requests } = submitHarness((url, init) => {
       if (init?.method === 'POST') return jsonResponse(200, { project })
@@ -3504,6 +3505,20 @@ describe('workflow library wire', () => {
     expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 7, patch: { name: 'Renamed' } })
     const { conn: stale } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
     await expect(stale.renameProject('p-film', 'Other', 6)).rejects.toThrow('changed elsewhere')
+  })
+
+  it.each([
+    { kind: 'empty' },
+    { kind: 'workflow', name: 'Film', content: '{ "nodes": [], "title": "Original bytes" }\n' },
+    { kind: 'project', project: 'p-source' },
+  ] as const)('registers a project with its Files destination and starting contents (%j)', async (startWith) => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
+      filesFolder: '/work/film', folder: '/work/film/output' }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { project }))
+    const controller = new AbortController()
+    expect(await conn.registerProject('p-film', 'Film', { filesFolder: '/work/film', startWith }, controller.signal)).toEqual(project)
+    expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ id: 'p-film', name: 'Film', filesFolder: '/work/film', startWith })
+    expect(requests[0]?.init?.signal).toBe(controller.signal)
   })
 
   it('reads sanitized account choices and links or unlinks only the revision-selected local project', async () => {

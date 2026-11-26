@@ -1332,6 +1332,14 @@ export interface AccountProjectChoices {
   readonly projects: readonly { readonly id: string; readonly displayName: string | null }[]
 }
 
+export interface ProjectCreation {
+  readonly filesFolder?: string
+  readonly startWith?:
+    | { readonly kind: 'empty' }
+    | { readonly kind: 'workflow'; readonly name: string; readonly content: string }
+    | { readonly kind: 'project'; readonly project: string }
+}
+
 export interface LibraryProject {
   readonly accountProject?: AccountProjectLink | null
   readonly id: string
@@ -1346,6 +1354,8 @@ export interface LibraryProject {
   readonly modified?: string
   /** The project's selected output folder, an absolute path; null when the process has none to name. */
   readonly folder?: string | null
+  /** The parent of the input and output folders chosen when the project was made. */
+  readonly filesFolder?: string
   readonly environment?: { readonly id: string } & (
     { readonly lastSnapshot: string; readonly lastRunAt: string } |
     { readonly lastSnapshot: null; readonly lastRunAt: null }
@@ -1420,6 +1430,10 @@ function decodeLibraryProject(value: unknown): LibraryProject {
   if (folder !== undefined && folder !== null && (typeof folder !== 'string' || folder.length === 0)) {
     throw new Error('Malformed library project folder')
   }
+  const filesFolder = row['filesFolder']
+  if (filesFolder !== undefined && (typeof filesFolder !== 'string' || filesFolder.length === 0)) {
+    throw new Error('Malformed library project files folder')
+  }
   const modified = row['modified']
   if (modified !== undefined && (typeof modified !== 'string' || !Number.isFinite(Date.parse(modified)))) {
     throw new Error('Malformed library project modification time')
@@ -1435,6 +1449,7 @@ function decodeLibraryProject(value: unknown): LibraryProject {
     ...(uid === undefined ? {} : { uid: uid as string }),
     ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),
     ...(folder === undefined ? {} : { folder: folder as string | null }),
+    ...(filesFolder === undefined ? {} : { filesFolder: filesFolder as string }),
     ...(modified === undefined ? {} : { modified: modified as string }),
     ...(lastOpenedAt === undefined ? {} : { lastOpenedAt: lastOpenedAt as string | null }),
   }
@@ -4157,10 +4172,10 @@ export class DinksterConnection {
   }
 
   /** Registration is idempotent: the library's existing record wins. */
-  async registerProject(id: string, name: string, signal?: AbortSignal): Promise<LibraryProject> {
+  async registerProject(id: string, name: string, creation: ProjectCreation = {}, signal?: AbortSignal): Promise<LibraryProject> {
     const res = await this.fetchFn(`${this.baseUrl}/api/projects`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, name }), ...(signal === undefined ? {} : { signal }),
+      body: JSON.stringify({ id, name, ...creation }), ...(signal === undefined ? {} : { signal }),
     })
     if (res.status === 503) {
       const gate = parseEngineNotReady(await res.json().catch(() => undefined))

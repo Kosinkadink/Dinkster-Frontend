@@ -16,6 +16,7 @@ import {
   type LibraryProject,
   type LibraryRecord,
   type LocalAssetCatalogEntry,
+  type ProjectCreation,
   type ProjectNeeds,
 } from '@dinkster/client'
 import {
@@ -70,7 +71,7 @@ export interface PageInstallation {
 export interface ProjectsSource {
   /** Every project, deleted ones included. */
   listProjects(): Promise<readonly LibraryProject[]>
-  registerProject(id: string, name: string): Promise<LibraryProject>
+  registerProject(id: string, name: string, creation?: ProjectCreation): Promise<LibraryProject>
   renameProject(project: LibraryProject, name: string): Promise<LibraryProject>
   deleteProject(project: LibraryProject): Promise<LibraryProject>
   restoreProject(project: LibraryProject): Promise<LibraryProject>
@@ -165,7 +166,7 @@ export function processSource(connection: DinksterConnection = processConnection
       } while (cursor !== undefined)
       return projects
     },
-    registerProject: (id, name) => connection.registerProject(id, name),
+    registerProject: (id, name, creation) => connection.registerProject(id, name, creation),
     renameProject: (project, name) => connection.renameProject(project.id, name, project.revision),
     deleteProject: (project) => connection.deleteProject(project.id, project.revision),
     restoreProject: (project) => connection.restoreProject(project.id, project.revision),
