@@ -812,7 +812,7 @@
   "command.workflow.open": "Open workflow library",
   "command.workflow.openTemplateGallery": "Open template gallery",
   "command.workflow.queue": "Run workflow",
-  "command.workflow.save": "Save workflow",
+  "command.workflow.save": "Save",
   "collection.action.confirmDelete": "Confirm delete",
   "collection.action.hideRuns": "Hide runs",
   "collection.action.loadMore": "Load more",

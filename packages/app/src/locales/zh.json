@@ -821,7 +821,7 @@
   "command.workflow.open": "打开工作流库",
   "command.workflow.openTemplateGallery": "打开模板库",
   "command.workflow.queue": "运行工作流",
-  "command.workflow.save": "保存工作流",
+  "command.workflow.save": "保存",
   "collection.action.confirmDelete": "确认删除",
   "collection.action.hideRuns": "隐藏执行",
   "collection.action.loadMore": "加载更多",
