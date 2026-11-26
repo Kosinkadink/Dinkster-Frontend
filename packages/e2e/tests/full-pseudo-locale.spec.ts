@@ -10,6 +10,8 @@ const english = JSON.parse(readFileSync(
 )) as Record<string, string>
 const pseudo = pseudoCatalog(english)
 
+test.use({ locale: 'en-XA' })
+
 test('runs mounted host surfaces through the complete pseudo catalog', async ({ page, request }) => {
   let schemaRequests = 0
   let diagnosticRequests = 0
@@ -69,8 +71,10 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
   const i18nModule = localeSource.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
   expect(i18nModule).toBeDefined()
   const unresolved = await page.evaluate(async ({ catalog, i18nUrl, localeUrl }) => {
-    const { registerCatalog, t } = await import(i18nUrl)
+    const { registerCatalog, setLocale, t } = await import(i18nUrl)
     const { bindLocale } = await import(localeUrl)
+    // Start the mounted transition before the automatic locale selects this catalog.
+    setLocale('en')
     registerCatalog('en-XA', catalog)
     bindLocale({
       get: () => 'en-XA',
@@ -132,7 +136,8 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
   const palette = page.getByTestId('node-palette')
   await expect(palette).toBeVisible()
   await expect(page.getByTestId('palette-search')).toHaveAttribute('placeholder', pseudo['palette.search.addNodePlaceholder']!)
-  await expect(palette).toContainText(pseudo['palette.results.available']!)
+  await expect(palette.getByRole('tab', { name: pseudo['palette.kind.nodes']!, exact: true })).toBeVisible()
+  await expect(palette.getByRole('group', { name: pseudo['palette.category.navigation']!, exact: true })).toBeVisible()
 
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByTestId('palette-search')).toBeFocused()
