@@ -27,6 +27,31 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
+test('choosing a fixes Review entry selects its named example on the canvas', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await openPage(page, 'fixes-notice')
+  const card = page.getByTestId('fixes-notice-per-node')
+  await expect(card.locator('canvas')).toHaveAttribute('data-ready', /-dark$/)
+  const before = await card.locator('canvas').screenshot()
+  await card
+    .locator('.dinkster-fixes-review-row')
+    .filter({ hasText: 'Resize image' })
+    .click()
+  await expect(card.getByRole('img')).toHaveAccessibleName(
+    'Canvas with Resize image selected in dark theme',
+  )
+  await expect(card.locator('canvas')).toHaveAttribute('data-ready', /-dark$/)
+  await expect(card.locator('figcaption')).toHaveText(
+    'Moves the canvas to Resize image.',
+  )
+  expect(await card.locator('canvas').screenshot()).not.toEqual(before)
+  await card.screenshot({
+    path: testInfo.outputPath('review-chosen-canvas-dark.png'),
+  })
+})
+
 /** Every example card on the page has painted its canvas. */
 async function cardsReady(page: Page, id: string, theme: string) {
   const cards = page.locator('figure.dinkster-canvas-example canvas')
