@@ -1,8 +1,11 @@
 import {
-  connectSharedBoardSession, createLocalBoardSession, createSignal,
-  type BoardDocument, type BoardSession, type CollabSessionDescriptor, type SharedBoardSession,
+  BOARD_MAX_NAME, boardMediaKindOf, connectSharedBoardSession, createLocalBoardSession, createSignal, planBoardCommand,
+  type BoardAsset, type BoardDocument, type BoardItemInput, type BoardSession, type CollabSessionDescriptor, type SharedBoardSession,
 } from '@dinkster/core'
+import type { AssetUploadDestination, DinksterConnection } from '@dinkster/client'
 import type { CollabTransport } from './collab.js'
+
+type BoardMediaConnection = Pick<DinksterConnection, 'uploadMediaAsset' | 'checkAssetAvailability'>
 
 export interface BoardEntry {
   readonly id: string
@@ -22,6 +25,7 @@ export class BoardWorkspace {
   private readonly pending = new Set<string>()
   private readonly adopting = new Map<() => void, string>()
   private readonly cancellations = new Map<string, number>()
+  private readonly importing = new Map<AbortController, string>()
   private epoch = 0
   private disposed = false
 
@@ -30,6 +34,7 @@ export class BoardWorkspace {
     readonly project: string
     readonly actorId: string
     readonly backend: () => string | undefined
+    readonly mediaConnection: (baseUrl: string) => BoardMediaConnection | undefined
     readonly onConflict: (id: string, message: string) => void
   }) {
     this.scope = `shared:board:${options.project}`
@@ -42,6 +47,104 @@ export class BoardWorkspace {
     const entry = { id: document.lineage, title, baseUrl, session: createLocalBoardSession(document) }
     this.entries.update((entries) => [...entries, entry])
     return entry
+  }
+
+  /** Refuse mismatched source context and missing bytes before placing recorded Assets. */
+  async placeMedia(id: string, source: {
+    readonly project: string
+    readonly baseUrl: string
+    readonly assets: readonly BoardAsset[]
+  }, point: { readonly x: number; readonly y: number }): Promise<readonly string[]> {
+    const entry = this.mediaEntry(id)
+    if (source.project !== this.options.project || source.baseUrl !== entry.baseUrl)
+      throw new Error('Media must come from this Board\'s project and backend')
+    const assets = structuredClone(source.assets)
+    const items = this.mediaItems(entry, assets, point)
+    const connection = this.options.mediaConnection(entry.baseUrl)
+    if (!connection) throw new Error('This Board\'s backend is unavailable')
+    const abort = new AbortController()
+    this.importing.set(abort, id)
+    try {
+      const availability = await connection.checkAssetAvailability([...new Set(assets.map((asset) => asset.digest))], {
+        scope: 'local', signal: abort.signal,
+      })
+      this.assertMediaCurrent(entry, abort, connection)
+      if (assets.some((asset) => !availability.some((row) => row.digest === asset.digest && row.status === 'available')))
+        throw new Error('Some media is unavailable; nothing was placed')
+      return this.commitMedia(entry, items)
+    } finally { this.importing.delete(abort) }
+  }
+
+  /** Upload the whole batch before placing it as one undoable Board edit. */
+  async importMedia(id: string, files: readonly File[], point: { readonly x: number; readonly y: number },
+    destination: AssetUploadDestination = {},
+  ): Promise<readonly string[]> {
+    const entry = this.mediaEntry(id)
+    const batch = files.map((file) => {
+      const kind = boardMediaKindOf(file.type)
+      if (!kind) throw new Error(`Unsupported Board media: ${file.name}`)
+      if (file.size > (kind === 'picture' ? 256 : 1024) * 1024 * 1024)
+        throw new Error(`File exceeds the Board media upload limit: ${file.name}`)
+      return { file, kind }
+    })
+    if (batch.length === 0) throw new Error('No media to import')
+    const connection = this.options.mediaConnection(entry.baseUrl)
+    if (!connection) throw new Error('This Board\'s backend is unavailable')
+    const target = { ...destination }
+    const location = { ...point }
+    const abort = new AbortController()
+    this.importing.set(abort, id)
+    const assets: BoardAsset[] = []
+    try {
+      for (const { file, kind } of batch) {
+        this.assertMediaCurrent(entry, abort, connection)
+        const asset = await connection.uploadMediaAsset(file, {
+          ...target, scope: 'local', name: file.name, signal: abort.signal,
+          kind: kind === 'picture' ? 'media/image' : kind === 'video' ? 'media/video' : 'media/audio',
+        })
+        this.assertMediaCurrent(entry, abort, connection)
+        if (boardMediaKindOf(asset.mediaType) !== kind) throw new Error('Uploaded media has an unexpected kind')
+        assets.push({ digest: asset.digest, mediaType: asset.mediaType, name: asset.name.slice(0, BOARD_MAX_NAME) })
+      }
+      return this.commitMedia(entry, this.mediaItems(entry, assets, location))
+    } finally { this.importing.delete(abort) }
+  }
+
+  private mediaEntry(id: string): BoardEntry {
+    const entry = this.entries.get().find((candidate) => candidate.id === id)
+    if (this.disposed || !entry) throw new Error('Board is not open')
+    return entry
+  }
+
+  private assertMediaCurrent(entry: BoardEntry, abort: AbortController, connection: BoardMediaConnection): void {
+    abort.signal.throwIfAborted()
+    if (this.disposed || !this.entries.get().includes(entry) ||
+        this.options.mediaConnection(entry.baseUrl) !== connection)
+      throw new Error('Board changed while importing; nothing was placed')
+  }
+
+  private cancelImports(id: string): void {
+    for (const [abort, owner] of this.importing) if (owner === id) abort.abort()
+  }
+
+  private mediaItems(entry: BoardEntry, assets: readonly BoardAsset[], point: { readonly x: number; readonly y: number }): readonly BoardItemInput[] {
+    const items = assets.map((asset, index): BoardItemInput => {
+      const kind = boardMediaKindOf(asset.mediaType)
+      if (!kind) throw new Error(`Unsupported Board media: ${asset.name}`)
+      const ratio = asset.width && asset.height ? asset.width / asset.height : 280 / 175
+      const height = kind === 'sound' ? 80 : Math.max(16, 280 / ratio)
+      const width = kind === 'sound' ? 320 : height * ratio
+      return { kind, asset, rect: { x: point.x + index * 24, y: point.y + index * 24, width, height } }
+    })
+    const plan = planBoardCommand(entry.session.doc, { command: 'board.item.add', params: { items } })
+    if (!plan.ok) throw new Error(plan.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+    return items
+  }
+
+  private commitMedia(entry: BoardEntry, items: readonly BoardItemInput[]): readonly string[] {
+    const result = entry.session.dispatch({ command: 'board.item.add', params: { items } })
+    if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+    return result.created
   }
 
   async discover(): Promise<readonly CollabSessionDescriptor[]> {
@@ -122,6 +225,7 @@ export class BoardWorkspace {
       if (session.status.get() === 'closed' || session.status.get() === 'error')
         throw new Error('The shared Board could not be opened')
       const entry: BoardEntry = { id: descriptor.documentId, title, baseUrl, session, shared: { descriptor, session } }
+      this.cancelImports(entry.id)
       this.entries.update((entries) => entries.some((candidate) => candidate.id === entry.id)
         ? entries.map((candidate) => candidate.id === entry.id ? entry : candidate) : [...entries, entry])
       return entry
@@ -135,6 +239,7 @@ export class BoardWorkspace {
     const entry = this.entries.get().find((entry) => entry.id === id)
     if (!entry?.shared) return
     const local: BoardEntry = { id, title: entry.title, baseUrl: entry.baseUrl, session: createLocalBoardSession(entry.session.doc) }
+    this.cancelImports(id)
     entry.shared.session.close()
     this.entries.update((entries) => entries.map((candidate) => candidate === entry ? local : candidate))
   }
@@ -149,6 +254,7 @@ export class BoardWorkspace {
   close(id: string): void {
     this.cancellations.set(id, ++this.epoch)
     for (const [cancel, owner] of this.adopting) if (owner === id) cancel()
+    this.cancelImports(id)
     const entry = this.entries.get().find((entry) => entry.id === id)
     entry?.shared?.session.close()
     this.entries.update((entries) => entries.filter((entry) => entry.id !== id))
@@ -156,6 +262,7 @@ export class BoardWorkspace {
 
   dispose(): void {
     this.disposed = true
+    for (const abort of this.importing.keys()) abort.abort()
     for (const cancel of this.adopting.keys()) cancel()
     for (const entry of this.entries.get()) entry.shared?.session.close()
     this.entries.set([])

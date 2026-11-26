@@ -3055,11 +3055,14 @@ export class AppState {
     this.deniedExtensionPrivileges = Object.freeze([...(options?.deniedExtensionPrivileges ?? [])])
     this.collabTransport = options?.collabTransport ?? httpCollabTransport()
     this.collabActorId = stableActorId()
+    const boardProject = activeProjectId()
     this.boards = new BoardWorkspace({
       transport: this.collabTransport,
       actorId: this.collabActorId,
-      project: activeProjectId(),
+      project: boardProject,
       backend: () => this.collabBackend()?.baseUrl,
+      mediaConnection: (baseUrl) => activeProjectId() === boardProject
+        ? this.backends.get().find((backend) => backend.baseUrl === baseUrl)?.connection : undefined,
       onConflict: (id, message) => this.reportProblems(id, [diag('warning', 'collab', 'board.session.conflict', message)]),
     })
     this.workspaceEvents = options?.workspaceEvents ?? (

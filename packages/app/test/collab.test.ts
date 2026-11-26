@@ -43,6 +43,7 @@ import { APP_EDITOR_KIND } from '../src/editors.js'
 import { flattenInvocation } from '../src/subgraph-lifecycle.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { BoardWorkspace } from '../src/board-workspace.js'
+import { activeProjectId } from '../src/projects.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -232,6 +233,109 @@ class FakeCollabServer {
 }
 
 describe('Board workspace collaboration', () => {
+  it('imports every media kind as one shared undoable edit without removing a foreign note', async () => {
+    const server = new FakeCollabServer()
+    const a = makeApp(server)
+    const b = makeApp(server)
+    const local = a.boards.open(emptyBoard(), 'References', 'http://collab')
+    const shared = await a.boards.share(local.id)
+    const joined = await b.boards.join(shared.shared!.descriptor.sessionId)
+    const connection = a.backends.get().find((backend) => backend.baseUrl === 'http://collab')!.connection
+    const files = [new File(['picture'], 'frame.png', { type: 'image/png' }),
+      new File(['video'], 'shot.webm', { type: 'video/webm' }), new File(['sound'], 'voice.wav', { type: 'audio/wav' })]
+    vi.spyOn(connection, 'uploadMediaAsset').mockImplementation(async (file) => ({
+      digest: `blake3:${String(files.indexOf(file) + 1).repeat(64)}`, name: `recorded-${file.name}`,
+      size: file.size, mediaType: file.type, virtualPath: `mounts/imports/${file.name}`,
+    }))
+    const ids = await a.boards.importMedia(shared.id, files, { x: 37, y: 91 })
+    await shared.shared!.session.settle()
+    await until(() => joined.session.doc.order.length === 3)
+    expect(ids.map((id) => shared.session.doc.items[id]!.kind)).toEqual(['picture', 'video', 'sound'])
+    expect(ids.map((id) => shared.session.doc.items[id]!.rect.x)).toEqual([37, 61, 85])
+    expect(ids.map((id) => shared.session.doc.items[id]!.rect.y)).toEqual([91, 115, 139])
+    expect(ids.map((id) => shared.session.doc.items[id])).toMatchObject(files.map((file, index) => ({
+      asset: { digest: `blake3:${String(index + 1).repeat(64)}`, name: `recorded-${file.name}`, mediaType: file.type },
+    })))
+    expect(joined.session.doc).toEqual(shared.session.doc)
+    joined.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'foreign-note', kind: 'note', text: 'Keep this', rect: { x: 500, y: 20, width: 150, height: 80 },
+    }] } })
+    await joined.shared!.session.settle()
+    await until(() => shared.session.doc.items['foreign-note'] !== undefined)
+    expect(shared.session.undo()).toBe(true)
+    await shared.shared!.session.settle()
+    await until(() => joined.session.doc.order.length === 1)
+    expect(shared.session.doc.order).toEqual(['foreign-note'])
+    expect(joined.session.doc).toEqual(shared.session.doc)
+  })
+
+  it('owns placed Assets, preserves their recorded origin and proportions, and refuses a mixed missing batch', async () => {
+    const app = makeApp(new FakeCollabServer())
+    const entry = app.boards.open(emptyBoard(), 'References', 'http://collab')
+    const connection = app.backends.get().find((backend) => backend.baseUrl === 'http://collab')!.connection
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let missing = false
+    vi.spyOn(connection, 'checkAssetAvailability').mockImplementation(async (digests) => {
+      await gate
+      return digests.map((digest, index) => ({ digest, status: missing && index === 1 ? 'missing' : 'available' }))
+    })
+    const assets = [{ digest: `blake3:${'1'.repeat(64)}`, name: 'Portrait', mediaType: 'image/png',
+      width: 300, height: 600, origin: { kind: 'produced' } },
+    { digest: `blake3:${'2'.repeat(64)}`, name: 'Sound', mediaType: 'audio/wav' }]
+    const source = { project: activeProjectId(), baseUrl: entry.baseUrl, assets }
+    await expect(app.boards.placeMedia(entry.id, { ...source, project: 'other-project' }, { x: 17, y: 29 })).rejects.toThrow('project and backend')
+    await expect(app.boards.placeMedia(entry.id, { ...source, baseUrl: 'http://elsewhere' }, { x: 17, y: 29 })).rejects.toThrow('project and backend')
+    const placing = app.boards.placeMedia(entry.id, source, { x: 17, y: 29 })
+    assets[0]!.origin!.kind = 'changed by caller'
+    release()
+    const ids = await placing
+    expect(entry.session.doc.items[ids[0]!]).toMatchObject({ asset: { origin: { kind: 'produced' } }, rect: { x: 17, y: 29, width: 280, height: 560 } })
+    expect(entry.session.undo()).toBe(true)
+    const before = entry.session.doc
+    missing = true
+    await expect(app.boards.placeMedia(entry.id, source, { x: 17, y: 29 })).rejects.toThrow('nothing was placed')
+    expect(entry.session.doc).toBe(before)
+    expect(entry.session.doc.order).toEqual([])
+  })
+
+  it.each(['failure', 'close', 'reopen', 'dispose', 'replace'] as const)('never places a partial or retired import on %s', async (action) => {
+    const app = makeApp(new FakeCollabServer())
+    const entry = app.boards.open(emptyBoard(), 'References', 'http://collab')
+    const connection = app.backends.get().find((backend) => backend.baseUrl === 'http://collab')!.connection
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let started!: () => void
+    const waiting = new Promise<void>((resolve) => { started = resolve })
+    let signal: AbortSignal | undefined
+    vi.spyOn(connection, 'uploadMediaAsset').mockImplementation(async (file, options) => {
+      if (file.name === 'second.png') {
+        signal = options.signal
+        started()
+        await gate
+        if (action === 'failure') throw new Error('upload refused')
+      }
+      return { digest: `blake3:${'1'.repeat(64)}`, name: file.name, size: file.size,
+        mediaType: file.type, virtualPath: `mounts/imports/${file.name}` }
+    })
+    const importing = app.boards.importMedia(entry.id, ['first.png', 'second.png'].map((name) => new File(['image'], name, { type: 'image/png' })), { x: 17, y: 29 })
+    const rejected = expect(importing).rejects.toThrow()
+    await waiting
+    let replacement = entry
+    if (action === 'close' || action === 'reopen') {
+      app.boards.close(entry.id)
+      expect(signal?.aborted).toBe(true)
+      if (action === 'reopen') replacement = app.boards.open(entry.session.doc, 'Reopened', entry.baseUrl)
+    } else if (action === 'dispose') {
+      app.dispose()
+      expect(signal?.aborted).toBe(true)
+    } else if (action === 'replace') replacement = await app.boards.share(entry.id)
+    release()
+    await rejected
+    expect(entry.session.doc.order).toEqual([])
+    expect(replacement.session.doc.order).toEqual([])
+  })
+
   it('shares and joins a Board, isolates project discovery, and leaves with the latest document', async () => {
     const server = new FakeCollabServer()
     const a = makeApp(server)
@@ -248,7 +352,7 @@ describe('Board workspace collaboration', () => {
     expect((await b.boards.discover()).map((session) => session.sessionId)).toEqual([sessionId])
     const otherProject = new BoardWorkspace({
       transport: server.transport, project: 'another-project', actorId: 'other',
-      backend: () => 'http://collab', onConflict: () => undefined,
+      backend: () => 'http://collab', mediaConnection: () => undefined, onConflict: () => undefined,
     })
     try {
       expect(await otherProject.discover()).toEqual([])
