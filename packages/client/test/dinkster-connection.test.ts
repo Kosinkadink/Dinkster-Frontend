@@ -512,6 +512,23 @@ describe('model download planning and owned jobs', () => {
     await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source)
     expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
       project: selected.project, scope: 'local', source: selected.source })
+    for (const destinationSpace of [
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 0 },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 310 },
+      { status: 'available', filesystem: 'other-volume', freeBytes: 1000 },
+      { status: 'unavailable' },
+    ]) {
+      payload = { ...selected, status: 'consent-required', planId: 'opaque-plan', destinationSpace }
+      expect(await connection.planModelDownload(selected)).toEqual(payload)
+    }
+    for (const destinationSpace of [null, { status: 'unknown' },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: -1 },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 0.5 },
+      { status: 'available', freeBytes: 10 },
+    ]) {
+      payload = { ...selected, status: 'consent-required', planId: 'opaque-plan', destinationSpace }
+      await expect(connection.planModelDownload(selected)).rejects.toThrow()
+    }
     const civitai = { ...selected, provider: 'civitai', repo: '19', revision: '72',
       source: 'https://civitai.com/api/download/models/72?fileId=84', status: 'consent-required', planId: 'civitai-plan' }
     payload = civitai

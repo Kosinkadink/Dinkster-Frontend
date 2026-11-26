@@ -29,8 +29,13 @@ export interface ModelDownloadSelection extends ModelRequirement {
   readonly mount: string
 }
 
+export type ModelDownloadSpace =
+  | { readonly status: 'available'; readonly filesystem: string; readonly freeBytes: number }
+  | { readonly status: 'unavailable' }
+
 export type ModelDownloadPlan =
-  | (ModelDownloadSelection & { readonly status: 'consent-required'; readonly planId: string })
+  | (ModelDownloadSelection & { readonly status: 'consent-required'; readonly planId: string
+      readonly destinationSpace?: ModelDownloadSpace })
   | (ModelRequirement & { readonly status: 'local' })
   | { readonly status: 'folder-disabled'; readonly disabledLocations: readonly string[]; readonly detail: string }
   | { readonly status: 'picker-required'; readonly sources: readonly string[] }
@@ -113,7 +118,21 @@ function selection(row: Record<string, unknown>): ModelDownloadSelection {
 export function decodeModelDownloadPlan(raw: unknown): ModelDownloadPlan {
   const row = record(raw)
   switch (row['status']) {
-    case 'consent-required': return { ...selection(row), status: 'consent-required', planId: text(row, 'planId') }
+    case 'consent-required': {
+      let destinationSpace: ModelDownloadSpace | undefined
+      if (row['destinationSpace'] !== undefined) {
+        const space = record(row['destinationSpace'])
+        switch (space['status']) {
+          case 'available': destinationSpace = { status: 'available',
+            filesystem: text(space, 'filesystem'), freeBytes: count(space, 'freeBytes') }; break
+          case 'unavailable': destinationSpace = { status: 'unavailable' }; break
+          default: throw new Error('Malformed model download destination space')
+        }
+      }
+      return { ...selection(row), status: 'consent-required', planId: text(row, 'planId'),
+        ...(destinationSpace === undefined ? {} : { destinationSpace }),
+      }
+    }
     case 'local': return { status: 'local', name: text(row, 'name'), kind: text(row, 'kind') }
     case 'folder-disabled': return { status: 'folder-disabled', disabledLocations: strings(row, 'disabledLocations'), detail: text(row, 'detail') }
     case 'picker-required': return { status: 'picker-required', sources: strings(row, 'sources') }
