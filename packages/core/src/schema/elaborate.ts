@@ -68,7 +68,7 @@ import type {
   WidgetSpec,
 } from './model.js'
 import { isAssetWidgetInput, isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
-import { readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
+import { isAssetRefValue, readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
 import { normalizeComboOption } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
@@ -696,6 +696,12 @@ export interface ElaborateOptions {
    */
   readonly lookupAnswers?: (lookup: string, args: readonly Json[]) => LookupAnswerState | undefined
   /**
+   * Already-authorized decoded answers held for the node's target engine,
+   * keyed by digest. Reading here must not start requests; an absent answer
+   * leaves its facts unknown. The host owns loading and failure diagnostics.
+   */
+  readonly fileFacts?: (digest: string) => Readonly<Record<string, FormulaValue>> | undefined
+  /**
    * Flattened ids of rows that have a problem (an error or a warning) found
    * outside elaboration. Such a row, and every box that holds it, shows even
    * when its `visible` is false.
@@ -861,13 +867,16 @@ function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: 
 }
 
 /** Formula values worked out only when the formula reads them. */
-class LazyValues extends Map<string, FormulaValue | Unknown> {
-  private readonly thunks = new Map<string, () => FormulaValue | Unknown>()
-  setLazy(name: string, thunk: () => FormulaValue | Unknown): void {
+class LazyValues<Value = FormulaValue | Unknown> extends Map<string, Value> {
+  private readonly thunks = new Map<string, () => Value | undefined>()
+  setLazy(name: string, thunk: () => Value | undefined): void {
     this.thunks.set(name, thunk)
   }
-  override get(name: string): FormulaValue | Unknown | undefined {
-    if (!super.has(name) && this.thunks.has(name)) super.set(name, this.thunks.get(name)!())
+  override get(name: string): Value | undefined {
+    if (!super.has(name) && this.thunks.has(name)) {
+      const value = this.thunks.get(name)!()
+      if (value !== undefined) super.set(name, value)
+    }
     return super.get(name)
   }
 }
@@ -1307,8 +1316,21 @@ function elaboratePass(
     }
     const member = [...scope.formulaFrames].reverse().find((frame) => frame.index !== undefined)
     const values = new LazyValues()
+    const facts = new LazyValues<FormulaValue>()
     const wired = new Map<string, boolean>()
     const sizes = new Map<string, number>()
+    for (const name of names.assets) for (const fact of ['width', 'height', 'frames', 'fps', 'duration']) {
+      facts.setLazy(`${fact}(${name})`, () => {
+        if (unknown.has(name)) return undefined
+        const constant = fixed.get(name)
+        const path = where.get(name)
+        const value = constant !== undefined ? (constant.linked === true ? undefined : constant.value)
+          : path === undefined || linked(path) ? undefined
+            : Object.hasOwn(node.values, path) ? node.values[path] : defaults.get(path)
+        if (!isAssetRefValue(value)) return undefined
+        return options.fileFacts?.((value as { readonly digest: string }).digest)?.[fact]
+      })
+    }
     for (const [name, kind] of names.names) {
       const path = where.get(name)!
       const constant = fixed.get(name)
@@ -1350,6 +1372,7 @@ function elaboratePass(
       })
       return formula.evaluate({
         values,
+        facts,
         linked: wired,
         groupSizes: sizes,
         memberIndex: member?.index ?? null,
