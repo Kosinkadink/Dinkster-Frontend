@@ -484,6 +484,39 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
     }
   })
 
+  it.each(['float', 'image'])('uses only the selected variant to type inactive common rows: %s', (selected) => {
+    const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
+    const local: Record<string, NodeSchema> = {
+      Primary: schemaOf('Primary', [input('value')]),
+      Target: { ...schemaOf('Target', []), body: [{ kind: 'choice', id: 'gate', required: true, shared: [], options: [
+        { key: 'a', rows: [] },
+        { key: 'b', rows: [{ kind: 'typeChoice', id: 'mode', required: false, rows: [input('amount', { type: variable })], variants: [
+          { key: 'float', type: FLOAT, rows: [{ kind: 'typeChoice', id: 'source', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'pick', type: FLOAT, rows: [] }] }] },
+          { key: 'image', type: IMAGE, rows: [{ kind: 'typeChoice', id: 'source', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'pick', type: IMAGE, rows: [] }] }] },
+        ] }] },
+      ] }] },
+    }
+    const resolve = (type: string) => local[type]
+    const doc = docOf({ g0: { nodes: {} }, sub: {
+      nodes: { primary: { type: 'Primary' }, target: { type: 'Target', values: { 'gate.mode': 0.5, 'gate.mode.source': 0.5 },
+        dynamic: { gate: { selected: 'a' }, 'gate.mode': { selected }, 'gate.mode.source': { selected: 'pick' } } } },
+      boundary: { inputs: [{ id: 'in', binds: bind('primary', 'value') }] },
+    } })
+    const store = new DocumentStore(doc, coreCommandRegistry([], resolve), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const before = store.doc
+    const outcome = store.dispatch({ command: 'boundary.addBinding', params: params('target', 'gate.mode.amount') })
+    expect(outcome.ok, JSON.stringify(outcome)).toBe(selected === 'image')
+    if (selected === 'float') {
+      expect(outcome.diagnostics.map((item) => item.code)).toContain('boundary.fanoutTypeMismatch')
+      expect(store.doc).toBe(before)
+      expect(store.canUndo).toBe(false)
+    } else {
+      expect(itemOf(store).alsoBinds).toEqual([bind('target', 'gate.mode.amount')])
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(before)
+    }
+  })
+
   it.each([
     [{ kind: 'asset', element: IMAGE }, IMAGE, true],
     [IMAGE, { kind: 'asset', element: IMAGE }, false],

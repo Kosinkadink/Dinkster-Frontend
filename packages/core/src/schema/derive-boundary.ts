@@ -727,6 +727,10 @@ export function deriveBoundarySchema(
     const bindings = new Map(active.bindings)
     const choices = Object.fromEntries(route.hops.flatMap((hop) => {
       if (hop.kind === 'slotVariant') return [[hop.constructPath, hop.key]]
+      if (hop.kind === 'slot') {
+        const selected = active.choices[hop.constructPath] ?? node.dynamic?.[hop.constructPath]?.selected ?? hop.spec.default
+        return selected === undefined ? [] : [[hop.constructPath, selected]]
+      }
       if (hop.kind !== 'combo') return []
       const selected = active.choices[hop.constructPath] ?? node.dynamic?.[hop.constructPath]?.selected ?? hop.spec.default
       const option = selected !== undefined && hop.options.includes(selected) ? selected : hop.options[0]
@@ -745,7 +749,8 @@ export function deriveBoundarySchema(
             return option !== undefined && hop.options.includes(option)
           }
           case 'slot': return (target.kind === 'slot' || target.kind === 'slotVariant') && hop.constructPath === target.constructPath
-          case 'slotVariant': return target.kind === 'slotVariant' && hop.constructPath === target.constructPath && hop.key === target.key
+          case 'slotVariant': return (target.kind === 'slot' || target.kind === 'slotVariant') &&
+            hop.constructPath === target.constructPath && hop.key === choices[target.constructPath]
         }
       }))
       if (!sameScope) continue
