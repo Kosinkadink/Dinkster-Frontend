@@ -139,6 +139,27 @@ function localConnect(doc: WorkflowDocument, target: OccurrenceRef, from = direc
 }
 
 describe('occurrence-local link commands', () => {
+  it('requires explicit instance-only intent for a body-to-body connection', () => {
+    const doc = document()
+    const intent = { kind: 'connect' as const, owner: owner('a'), bodyGraph: 'body',
+      from: body({ node: 'producerTwo', port: 'out' }), to: body({ node: 'sink', port: 'in' }) }
+    expect(planOccurrenceLinkMutation(doc, resolve, intent).ok).toBe(false)
+    const local = planOccurrenceLinkMutation(doc, resolve, { ...intent, instanceOnly: true })
+    expect(local.ok).toBe(true)
+    if (!local.ok) return
+    const store = new DocumentStore(doc, coreCommandRegistry())
+    const { instanceOnly: _instanceOnly, ...withoutOptIn } = local.invocation.params as Record<string, Json>
+    expect(store.dispatch({ ...local.invocation, params: withoutOptIn }).ok).toBe(false)
+    expect(store.doc).toEqual(doc)
+    expect(store.dispatch(local.invocation).ok).toBe(true)
+    expect(store.doc.graphs).toEqual(doc.graphs)
+    const effective = effectiveOccurrenceTopology(store.doc, resolve, owner('a'))
+    expect(effective.links.map((link) => [link.from.endpoint, link.to.endpoint])).toContainEqual([
+      { node: 'producerTwo', port: 'out' }, { node: 'sink', port: 'in' },
+    ])
+    expect(effectiveOccurrenceTopology(store.doc, resolve, owner('b'))).toEqual(effectiveOccurrenceTopology(doc, resolve, owner('b')))
+  })
+
 
   it.each([
     ['root direct', document(), owner('a'), directBoundary(owner('a'))],

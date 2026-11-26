@@ -11,6 +11,7 @@ export type OccurrenceLinkIntention =
       readonly kind: 'connect'
       readonly owner: OccurrenceRef
       readonly bodyGraph: string
+      readonly instanceOnly?: true
       readonly from: OccurrenceLinkEndpoint
       readonly to: OccurrenceLinkEndpoint
     }
@@ -50,6 +51,7 @@ export function planOccurrenceLinkMutation(
       command: `occurrence.link.${intention.kind}`,
       owner: intention.owner,
       bodyGraph: intention.bodyGraph,
+      ...('instanceOnly' in intention && intention.instanceOnly === true ? { instanceOnly: true } : {}),
       ...('from' in intention ? { from: intention.from } : {}),
       ...('to' in intention ? { to: intention.to } : {}),
       ...('link' in intention ? { link: intention.link } : {}),

@@ -26,13 +26,15 @@ import { predictAllocatedId } from '../commands/alloc.js'
 import type { DocumentSession } from '../commands/session.js'
 import { DocumentStore } from '../commands/store.js'
 import { planOccurrenceLinkCommand } from '../commands/occurrence-link-commands.js'
+import { planOccurrenceLinkMutation } from '../commands/occurrence-planner.js'
 import { documentNodeResolver } from '../compile/compile.js'
 import { outerConstructAddress } from '../compile/crossing.js'
-import { effectiveOccurrenceTopology, occurrenceMemberReferenced } from '../compile/effective-topology.js'
+import { effectiveOccurrenceTopology, occurrenceMemberReferenced, type EffectiveLink } from '../compile/effective-topology.js'
 import { occurrenceDynamicView, type ValueOwner } from '../compile/occurrence-view.js'
 import type { ControllerMode, GraphDef, Json, NodeData, WorkflowDocument } from '../format/document.js'
-import { asNodeId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, type LinkEndpoint, type PortRef } from '../ids.js'
+import { asNodeId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, sameEndpoint, type LinkEndpoint } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
+import { buildRerouteIndex, traceEndpoint } from '../reroute.js'
 import { resolveDynamicAddress } from '../format/document.js'
 import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaOutcome, type FormulaValue } from '../mirror/formula.js'
 import { constructsOf, keyPosition, rowKind } from '../schema/body.js'
@@ -212,7 +214,7 @@ export interface PressOutcome {
 /** A field or member a press left as it was: it has a wire, or it changed while the press waited. */
 export interface Skip {
   readonly id: string
-  readonly why: 'wired' | 'edited'
+  readonly why: 'wired' | 'edited' | 'outside'
 }
 
 export type ButtonAvailability = { readonly enabled: true } | { readonly enabled: false; readonly reason: string }
@@ -481,6 +483,32 @@ function memberWired(view: View, group: string, member: string): boolean {
     occurrenceMemberReferenced(view.doc, graph.id, view.node.id, group, member)
 }
 
+function occurrenceDriverOf(doc: WorkflowDocument, target: StepPlace, port: string, host: ActionHost): { readonly chain: readonly EffectiveLink[]; readonly outside: boolean } {
+  const path = target.instancePath ?? []
+  if (path.length === 0) return { chain: [], outside: false }
+  const topology = effectiveOccurrenceTopology(doc, host.schemaResolverFor!(doc), {
+    instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!),
+  })
+  const links = [...topology.links, ...topology.projectedParentLinks]
+  let upstream = links.find((link) =>
+    link.to.graphId === target.graphId && JSON.stringify(link.to.instancePath) === JSON.stringify(path) &&
+    isPortEndpoint(link.to.endpoint) && link.to.endpoint.node === target.nodeId &&
+    portAddressKey(link.to.endpoint.port) === portAddressKey(port))
+  const chain: EffectiveLink[] = []
+  while (upstream !== undefined && !chain.includes(upstream)) {
+    chain.push(upstream)
+    if (upstream.identity.kind === 'parent' || upstream.identity.kind === 'parentNetSink' ||
+      upstream.identity.kind === 'parentLeg' || upstream.from.graphId !== target.graphId ||
+      JSON.stringify(upstream.from.instancePath) !== JSON.stringify(path)) return { chain, outside: true }
+    const endpoint = upstream.from.endpoint
+    if (isPortEndpoint(endpoint)) break
+    const input = isExactWidgetTapRef(endpoint) ? { node: endpoint.node, port: endpoint.tap } : endpoint
+    upstream = links.find((link) => link.to.graphId === target.graphId &&
+      JSON.stringify(link.to.instancePath) === JSON.stringify(path) && sameEndpoint(link.to.endpoint, input))
+  }
+  return { chain, outside: false }
+}
+
 // ---------------------------------------------------------------------------
 // What a press stages
 
@@ -506,6 +534,7 @@ type Action =
       readonly between?: { readonly from: LinkEndpoint; readonly input: string }
       /** What fed `to` when the step ran; a different source at the commit skips the step. */
       readonly source?: LinkEndpoint
+      readonly delivery?: string
     }
 
 function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace, actor: string | undefined, host: ActionHost): CommandInvocation[] {
@@ -568,8 +597,29 @@ function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace,
     }
     case 'addNode': {
       const id = predictAllocatedId(doc.graphs[graphId]!, actor, 'n')
+      const add: CommandInvocation = { command: 'node.add', params: { graphId, type: action.type, position: action.position, values: action.values } }
+      const path = target.instancePath ?? []
+      if (path.length > 0) {
+        const staged = scratchOf(doc, host)
+        dispatchOn(staged, [add], actor)
+        const owner = { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }
+        const connections = [
+          ...(action.between === undefined ? [] : [{ from: action.between.from, to: { node: id, port: action.between.input } }]),
+          { from: { node: id, port: action.output }, to: { node: nodeId, port: action.to } },
+        ]
+        return [add, ...connections.map(({ from, to }) => {
+          const planned = planOccurrenceLinkMutation(staged.doc, host.schemaResolverFor!(staged.doc), {
+            kind: 'connect', owner, bodyGraph: graphId, instanceOnly: true,
+            from: { kind: 'body', endpoint: from as LinkEndpoint },
+            to: { kind: 'body', endpoint: to as LinkEndpoint },
+          })
+          if (!planned.ok) return refuse(planned.diagnostics[0]?.message ?? 'The wire could not be made.')
+          dispatchOn(staged, [planned.invocation], actor)
+          return planned.invocation
+        })]
+      }
       return [
-        { command: 'node.add', params: { graphId, type: action.type, position: action.position, values: action.values } },
+        add,
         ...(action.between === undefined ? [] : [{
           command: 'link.connect',
           params: { graphId, from: action.between.from as unknown as Json, to: { node: id, port: action.between.input } },
@@ -639,6 +689,7 @@ class Press {
   readonly actions: Action[] = []
   readonly notes: string[] = []
   readonly skipped: Skip[] = []
+  sharedNodeAdded = false
   view: View
   context: FormulaContext
   readonly signal: AbortSignal
@@ -1084,6 +1135,16 @@ class Press {
   async addNode(type: string, to: string, values: Readonly<Record<string, StepValue>>): Promise<void> {
     const { path, field } = this.fieldOf(to)
     const graph = this.view.doc.graphs[this.target.graphId]!
+    const occurrence = (this.target.instancePath?.length ?? 0) > 0
+    const delivery = occurrenceDriverOf(this.view.doc, this.target, path, this.host)
+    if (delivery.outside) {
+      this.skip(path, 'outside')
+      return
+    }
+    const hops = this.target.instancePath ?? []
+    const topology = occurrence ? effectiveOccurrenceTopology(this.view.doc, this.host.schemaResolverFor!(this.view.doc), {
+      instancePath: hops.slice(0, -1).map(asNodeId), node: asNodeId(hops.at(-1)!),
+    }) : undefined
     const probe: NodeData = { id: '' as NodeData['id'], type, values: {} }
     const schema = this.host.schemaOf(this.view.doc, this.target.graphId, probe) ?? refuse(`The node type ${type} is not installed.`)
     const evaluated: Record<string, unknown> = {}
@@ -1096,16 +1157,25 @@ class Press {
     }
     const output = elabOutputsOf(added).find((candidate) => candidate.wireable !== false && typesCompatible(candidate.spec.type, field.spec.type))
     if (output === undefined) return refuse(`${type} has no output that fits ${to}.`)
-    const driver = Object.values(graph.links).find((link) => 'port' in link.to && link.to.node === this.target.nodeId && link.to.port === path)
+    const driver = occurrence ? delivery.chain[0] === undefined ? undefined : { from: delivery.chain[0].from.endpoint }
+      : Object.values(graph.links).find((link) => 'port' in link.to && link.to.node === this.target.nodeId && link.to.port === path)
     let between: { from: LinkEndpoint; input: string } | undefined
-    if (driver !== undefined && 'port' in driver.from) {
-      const from = driver.from as PortRef
-      const source = graph.nodes[from.node]
-      const sourceSchema = source && this.host.schemaOf(this.view.doc, this.target.graphId, source)
-      const sourceType = source && sourceSchema && elabOutputsOf(elaborateInterface(sourceSchema, source, buildGraphConnectivity(graph)(source.id), { promoteGhosts: false }))
-        .find((candidate) => candidate.address.port === from.port)?.spec.type
-      const input = sourceType && elabInputsOf(added).find((candidate) => typesCompatible(sourceType, candidate.spec.type))
-      if (input) between = { from, input: valueKeyOf(input) }
+    if (driver !== undefined) {
+      let effective = graph
+      if (topology !== undefined) {
+        effective = { ...graph, nets: {}, links: Object.fromEntries(topology.links.map((link, index) =>
+          [`l${index}`, { id: `l${index}`, from: link.from.endpoint, to: link.to.endpoint }])) as GraphDef['links'] }
+      }
+      const trace = traceEndpoint(effective, driver.from, buildRerouteIndex(effective))
+      if (trace.kind !== 'output' && trace.kind !== 'tapValue') return refuse(`The wire feeding ${to} could not be resolved.`)
+      const sourceView = viewOf(this.view.doc, { ...this.target, nodeId: trace.kind === 'output' ? trace.ref.node : trace.node }, this.host)
+      const sourceType = trace.kind === 'output'
+        ? sourceView && elabOutputsOf(sourceView.elaborated).find((candidate) => candidate.address.port === trace.ref.port)?.spec.type
+        : sourceView && inputAt(sourceView, trace.input)?.spec.type
+      if (sourceType === undefined) return refuse(`The wire feeding ${to} could not be resolved.`)
+      const input = elabInputsOf(added).find((candidate) => candidate.wireable !== false && typesCompatible(sourceType, candidate.spec.type))
+      if (input === undefined) return refuse(`${type} has no input that fits the wire feeding ${to}.`)
+      between = { from: driver.from, input: valueKeyOf(input) }
     }
     const at = this.view.doc.view.graphs[this.target.graphId]?.nodes[this.target.nodeId]?.position ?? { x: 0, y: 0 }
     this.stage([{
@@ -1117,6 +1187,7 @@ class Press {
       to: path,
       ...(between !== undefined ? { between } : {}),
       ...(driver !== undefined ? { source: driver.from } : {}),
+      ...(occurrence ? { delivery: JSON.stringify(delivery.chain) } : {}),
     }])
   }
 
@@ -1221,7 +1292,15 @@ class Press {
         const graph = live.doc.graphs[this.target.graphId]!
         const driver = Object.values(graph.links).find((link) => 'port' in link.to && link.to.node === this.target.nodeId && link.to.port === action.to)
         const connected = view.connectivity.isInputConnected(action.to)
-        if (JSON.stringify(driver?.from) !== JSON.stringify(action.source) || (connected && driver === undefined)) {
+        const delivery = occurrenceDriverOf(live.doc, this.target, action.to, this.host)
+        if (delivery.outside) {
+          this.skip(action.to, 'outside')
+          continue
+        }
+        const changed = action.delivery !== undefined
+          ? JSON.stringify(delivery.chain) !== action.delivery
+          : JSON.stringify(driver?.from) !== JSON.stringify(action.source) || (connected && driver === undefined)
+        if (changed) {
           this.skip(action.to)
           continue
         }
@@ -1242,6 +1321,9 @@ class Press {
       if (built.length === 0) continue
       dispatchOn(live, built, this.session.allocationActor)
       invocations.push(...built)
+      if (action.kind === 'addNode' && (this.target.instancePath?.length ?? 0) > 0) {
+        this.sharedNodeAdded = true
+      }
     }
     return { invocations, written: written.size }
   }
@@ -1306,7 +1388,8 @@ function summary(changed: number, skipped: readonly Skip[], notes: readonly stri
     if (changed > 0) parts.push(`Set ${changed} ${changed === 1 ? 'field' : 'fields'}.`)
     parts.push(...skipped.map(({ id, why }) => why === 'edited'
       ? `${id} was changed while the button waited and keeps that value.`
-      : `${id} has a wire and was left as it is.`))
+      : why === 'outside' ? `${id} is wired from outside this subgraph.`
+        : `${id} has a wire and was left as it is.`))
   }
   parts.push(...notes)
   return parts.join(' ')
@@ -1459,6 +1542,17 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
   const outsideFailures: string[] = []
   const unsaved: string[] = []
   for (const [index, press] of presses.entries()) {
+    if (press.sharedNodeAdded) {
+      const count = (id: string, ancestors: ReadonlySet<string>): number => {
+        if (ancestors.has(id)) return 0
+        return (id === press.target.graphId ? 1 : 0) + Object.values(session.doc.graphs[id]!.nodes).reduce((total, node) => {
+          const child = subgraphDefIdOf(node.type)
+          return total + (child === undefined ? 0 : count(child, new Set([...ancestors, id])))
+        }, 0)
+      }
+      const uses = count(session.doc.root, new Set())
+      if (uses > 1) press.notes.push(`Added to all ${uses} uses of ${session.doc.graphs[press.target.graphId]!.name}. Wired only here.`)
+    }
     const part = parts[index]!
     const committed = viewOf(session.doc, part, host)
     if (committed !== undefined) {

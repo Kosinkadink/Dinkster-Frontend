@@ -10,11 +10,14 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
 import { decodeSteps } from '../src/actions/steps.js'
+import type { CommandDefinition } from '../src/commands/contract.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { createLocalSession, type DocumentSession } from '../src/commands/session.js'
-import { documentResolver } from '../src/compile/compile.js'
+import { compile, documentResolver } from '../src/compile/compile.js'
+import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
+import { diag } from '../src/diagnostics.js'
 import type { GraphDef, Json, NodeData, WorkflowDocument } from '../src/format/document.js'
-import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
+import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
@@ -510,6 +513,113 @@ describe('each step', () => {
     expect((await press('test.sum_each', 'sum', start.values, hostOf(), start.extra)).values).toMatchObject({
       'loras.lora_1.strength': 0.75, 'loras.lora_2.strength': 0.75, 'loras.lora_3.strength': 0.75,
     })
+  })
+
+  it.each([1, 2])('AddNode shares the node but wires only the pressing occurrence at depth %s', async (depth) => {
+    addSchema('test.add_target', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
+      { kind: 'button', id: 'add', label: 'Add', steps: [{ step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} }] },
+    ])
+    addSchema('test.add_processor', [
+      { kind: 'input', id: 'input', type: { kind: 'concrete', types: ['INT'] }, default: 9 },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+    ])
+    for (const driver of ['none', 'inside', 'tap', 'reroute', 'outside', 'outsideReroute'] as const) {
+      const target = { node: asNodeId('inner'), port: asPortId('value') }
+      const from = driver === 'tap' ? { node: asNodeId('source'), tap: asPortId('input') }
+        : driver === 'reroute' || driver === 'outsideReroute' ? { reroute: 'junction' as never } : { node: asNodeId('source'), port: asPortId('out') }
+      const links = driver === 'none' || driver === 'outside' ? {} : {
+        shared: { id: asLinkId('shared'), from, to: target },
+        ...(driver === 'reroute' ? { upstream: { id: asLinkId('upstream'), from: { node: asNodeId('source'), port: asPortId('out') }, to: from } } : {}),
+      }
+      const initialBody = documentOf({ inner: { type: 'test.add_target' }, source: { type: 'test.add_processor' } }, links).graphs['g0']!
+      const body = { ...initialBody, ...(driver === 'reroute' || driver === 'outsideReroute' ? { reroutes: { junction: { id: 'junction' as never } } } : {}) }
+      const root = documentOf({ left: { type: depth === 1 ? '#g1' : '#g2' }, right: { type: depth === 1 ? '#g1' : '#g2' }, source: { type: 'test.add_processor' } },
+        driver === 'outside' || driver === 'outsideReroute' ? link('parent', ['source', 'out'], ['left', 'shown']) : {})
+      const middle = documentOf({ deep: { type: '#g1' } }).graphs['g0']!
+      const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs,
+        g1: { ...body, id: asGraphDefId('g1'), name: 'Shared body', boundary: {
+          inputs: [{ id: asPortId('shown'), promoted: true, binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('value'), ...(driver === 'outsideReroute' ? { viaReroute: 'junction' as never } : {}) } }], outputs: [],
+        } },
+        ...(depth === 1 ? {} : { g2: { ...middle, id: asGraphDefId('g2'), boundary: {
+          inputs: [{ id: asPortId('shown'), promoted: true, binds: { kind: 'port', node: asNodeId('deep'), port: asPortId('shown') } }], outputs: [],
+        } } }),
+      } }
+      const path = (side: string) => (depth === 1 ? [side] : [side, 'deep']).map(asNodeId)
+      const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
+      const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+      const topology = (current: WorkflowDocument, side: string) => {
+        const hops = path(side)
+        const found = effectiveOccurrenceTopology(current, resolve, { instancePath: hops.slice(0, -1), node: hops.at(-1)! })
+        return [...found.links, ...found.projectedParentLinks]
+      }
+      const siblingPrompt = (current: WorkflowDocument) => {
+        const result = compile({ document: current, revision: 1, resolve, scope: { kind: 'partial', targets: [{ instancePath: path('right'), node: asNodeId('inner') }] }, connection: asConnectionId('test'), schemaHash: 'test' })
+        expect(result.ok, JSON.stringify(result)).toBe(true)
+        return result.ok ? result.artifact.prompt : undefined
+      }
+      const siblingBefore = topology(doc, 'right')
+      const promptBefore = siblingPrompt(doc)
+      const outcome = await runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: path('left'), button: 'add' }, host)
+      expect(outcome.kind, JSON.stringify(outcome)).toBe('done')
+      if (driver === 'outside' || driver === 'outsideReroute') {
+        expect(outcome.message).toBe('value is wired from outside this subgraph.')
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+        continue
+      }
+      expect(outcome.message).toBe('Added to all 2 uses of Shared body. Wired only here.')
+      const fresh = Object.values(session.doc.graphs['g1']!.nodes).find((node) => !Object.hasOwn(body.nodes, node.id))!
+      expect(fresh.type).toBe('test.add_processor')
+      expect(Object.keys(session.doc.graphs['g1']!.nodes)).toHaveLength(3)
+      expect(session.doc.graphs['g1']!.links).toEqual(body.links)
+      const endpoints = topology(session.doc, 'left').map((item) => [item.from.endpoint, item.to.endpoint])
+      expect(endpoints).toContainEqual([{ node: fresh.id, port: 'out' }, { node: 'inner', port: 'value' }])
+      if (driver !== 'none') expect(endpoints).toContainEqual([from, { node: fresh.id, port: 'input' }])
+      expect(topology(session.doc, 'right')).toEqual(siblingBefore)
+      expect(siblingPrompt(session.doc)).toEqual(promptBefore)
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(session.doc.graphs['g1']).toEqual({ ...doc.graphs['g1'], nextOrdinal: after.graphs['g1']!.nextOrdinal })
+      expect(topology(session.doc, 'left')).toEqual(topology(doc, 'left'))
+      expect(topology(session.doc, 'right')).toEqual(siblingBefore)
+      expect(siblingPrompt(session.doc)).toEqual(promptBefore)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+      if (driver === 'none') {
+        const commands = coreCommandRegistry([], resolve) as Map<string, CommandDefinition>
+        const connect = commands.get('occurrence.link.connect')!
+        commands.set(connect.id, { ...connect, validateDispatch: () => [diag('error', 'command', 'test.refusal', 'The wire was refused.')] })
+        const refusedHost = { ...host, commands }
+        const refused = createLocalSession(doc, commands, { schemaResolverFor: host.schemaResolverFor! })
+        expect(await runPress(refused, { graphId: 'g1', nodeId: 'inner', instancePath: path('left'), button: 'add' }, refusedHost))
+          .toMatchObject({ kind: 'failed', message: 'Nothing was changed. The wire was refused.', notes: [] })
+        expect(refused.doc).toEqual(doc)
+        expect(refused.canUndo).toBe(false)
+      }
+      if (driver === 'reroute') {
+        const waiting = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+        const changedHost = { ...host, pick: async () => {
+          expect(waiting.dispatch({ command: 'batch', params: { invocations: [
+            { command: 'link.disconnect', params: { graphId: 'g1', linkId: 'upstream' } },
+            { command: 'boundary.setBinding', params: { graphId: 'g1', side: 'inputs', itemId: 'shown', node: 'inner', port: 'value', viaReroute: 'junction' } },
+            { command: 'link.connect', params: { graphId: 'g0', from: { node: 'source', port: 'out' }, to: { node: 'left', port: 'shown' } } },
+          ] } }).ok).toBe(true)
+          return 'go'
+        } }
+        const outcome = await runSteps(waiting, [{ graphId: 'g1', nodeId: 'inner', instancePath: path('left'), prefix: '', steps: decodeSteps([
+          { step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} },
+          { step: 'pick', name: 'chosen', options: { value: ['go'] } },
+        ]) }], changedHost)
+        expect(outcome).toMatchObject({ kind: 'done', message: 'value is wired from outside this subgraph.', notes: [] })
+        expect(Object.keys(waiting.doc.graphs['g1']!.nodes)).toHaveLength(2)
+        expect(waiting.doc.occurrenceTopologies).toBeUndefined()
+        expect(waiting.undo()).toBe(true)
+        expect(waiting.doc.graphs['g1']!.links).toEqual(body.links)
+        expect(waiting.canUndo).toBe(false)
+      }
+    }
   })
 
   it('Disconnect removes the wire and AddNode connects a new node beside this one', async () => {
