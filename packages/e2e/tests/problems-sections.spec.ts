@@ -36,6 +36,27 @@ test('removed pack parts open with a notice for the replaced option, anchored ro
   await expect(notice.locator('.dinkster-fixes-title')).toHaveText('1 thing was adjusted')
   await notice.getByRole('button', { name: 'Review', exact: true }).click()
   await expect(notice).toContainText('Mode: removed was removed; current is used')
+  await notice.locator('.dinkster-fixes-review-row').filter({ hasText: 'Removed option' }).click()
+  await expect(page.getByTestId('row-focus')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
+  await expect(notice.locator('.dinkster-fixes-review-row[aria-current="true"]')).toContainText('Removed option')
+  await expect.poll(() => page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((item) => item.id === 'option')!
+    const viewport = renderer.getViewport()
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!
+    return Math.abs(viewport.x + (node.x + node.layout.width / 2) * viewport.scale - canvas.clientWidth / 2)
+  })).toBeLessThan(1)
+  await expect.poll(() => page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((item) => item.id === 'option')!
+    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.address?.port === 'mode')!
+    const viewport = renderer.getViewport()
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    const focus = document.querySelector('.widget-row-focus .dinkster-canvas-field-row')!.getBoundingClientRect()
+    return Math.abs(focus.top + focus.height / 2 - (canvas.top + viewport.y + (node.y + row.y + row.height / 2) * viewport.scale))
+  })).toBeLessThan(2)
+  await page.screenshot({ path: evidencePath('removed-pack-parts', 'review-field.png'), animations: 'disabled' })
   await openRailPanel(page, 'Problems')
   const panel = page.getByTestId('problems-panel')
   await expect(panel.locator('.problems-group-title')).not.toContainText(['Upgraded on open'])

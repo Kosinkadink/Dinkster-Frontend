@@ -4449,6 +4449,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const link = scene.links.find((candidate) => candidate.id === focusPlan.linkId)
         if (node) {
           controller.setSelection([node.id])
+          setRowFocus(undefined)
+          if (focusRequest?.focusRow !== undefined) {
+            focusEditorRow({ nodeId: node.id, valueKey: focusRequest.focusRow })
+          }
           const input = focusRequest?.openAssetInput
           const row = input === undefined ? undefined : node.layout.rows.find((candidate) =>
             candidate.kind === 'widget' && candidate.valueKey === input)
@@ -7118,7 +7122,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         onZoomTo={(scale) => zoomCanvasTo?.(scale)}
       />
 
-      <Show when={activeTab()} keyed>{(tab) => <FixesNotice app={props.app} tab={tab} />}</Show>
+      <Show when={activeTab()?.id} keyed>{(_id) => <FixesNotice app={props.app} tab={activeTab()!} />}</Show>
 
       <Show when={frozenInfo()}>
         {(f) => (

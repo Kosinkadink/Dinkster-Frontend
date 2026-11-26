@@ -1226,6 +1226,8 @@ export interface WidgetFocus {
 export interface DiagnosticFocusRequest {
   readonly tab: Tab
   readonly anchor: DiagnosticAnchor
+  /** Mark this field without opening its editor. */
+  readonly focusRow?: string
   readonly openAssetInput?: string
   readonly missingAssetDigest?: string
   /** The problem Show on canvas picked; the node's box opens on its line. */
@@ -1382,6 +1384,8 @@ export interface Adjustment {
   readonly nodeId: string
   /** Where choosing the change in Review takes the canvas. */
   readonly anchor?: DiagnosticAnchor
+  /** The single changed field, when the entry identifies one. */
+  readonly rowValueKey?: string
   /** The node's name when the change was made. */
   readonly node: string
   /** What changed, worded by whoever made the change. */
@@ -5509,6 +5513,8 @@ export class AppState {
       }
       if (fixed.length > 0) adjustments.push({
         kind: 'removedChoice', graphId: graph.id, nodeId: node.id, node: name, count: fixed.length,
+        ...(fixed.length === 1 && typeof fixed[0]!.data?.['construct'] === 'string'
+          ? { rowValueKey: fixed[0]!.data['construct'] } : {}),
         details: [...new Set(fixed.map((entry) => {
           const { row, removed, selected } = entry.data as { row: string; removed: string; selected: string | null }
           return selected === null

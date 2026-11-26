@@ -37,10 +37,10 @@ export function FixesNotice(props: { app: AppState; tab: Tab }) {
   const message = useAppMessage()
   const strings = useFixesNoticeStrings()
   const notices = useSignal(props.app.adjustmentNotices)
-  const document = useSignal(props.tab.store.document)
+  const document = createMemo(() => useSignal(props.tab.store.document))
   const notice = () => notices().get(props.tab.id)
   const state = createMemo(() => {
-    document()
+    document()()
     notices()
     return props.app.adjustmentNoticeState(props.tab.id)
   })
@@ -58,10 +58,14 @@ export function FixesNotice(props: { app: AppState; tab: Tab }) {
     })),
   )
   const choose = (target: string) => {
-    const adjustment = notice()?.adjustments.find((candidate) => targetOf(candidate) === target)
+    const adjustments = notice()?.adjustments.filter((candidate) => targetOf(candidate) === target) ?? []
+    const adjustment = adjustments[0]
     if (adjustment?.anchor === undefined) return
+    const row = adjustments.every((candidate) => candidate.rowValueKey === adjustment.rowValueKey)
+      ? adjustment.rowValueKey : undefined
     props.app.activeTabId.set(props.tab.id)
-    props.app.diagnosticFocus.set({ tab: props.tab, anchor: adjustment.anchor })
+    props.app.diagnosticFocus.set({ tab: props.tab, anchor: adjustment.anchor,
+      ...(row === undefined ? {} : { focusRow: row }) })
   }
   return (
     <Show when={notice() !== undefined && !notice()!.dismissed && state()}>
