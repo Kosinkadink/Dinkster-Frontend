@@ -996,6 +996,14 @@ test('widget popover is anchored, non-draggable, Escape-restoring, and fits a su
   const dialog = page.getByRole('dialog', { name: 'Edit notes MARKDOWN' })
   const editor = page.getByTestId('markdown-editor')
   await page.setViewportSize({ width: 1200, height: 900 })
+  // Viewport emulation can return before the window resize clamp runs.
+  await expect.poll(async () => {
+    const bounds = await dialog.boundingBox()
+    const canvas = await page.getByTestId('graph-canvas').boundingBox()
+    return bounds && canvas
+      ? bounds.x + bounds.width - canvas.x - canvas.width
+      : Number.POSITIVE_INFINITY
+  }).toBeLessThanOrEqual(0)
   const moderate = await dialog.boundingBox()
   const canvas = await page.getByTestId('graph-canvas').boundingBox()
   expect(moderate!.x + moderate!.width).toBeLessThanOrEqual(canvas!.x + canvas!.width)
