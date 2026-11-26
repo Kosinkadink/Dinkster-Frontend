@@ -1110,8 +1110,9 @@
 .dinkster-canvas-editor-choice-list { position: fixed; z-index: 30; transform-origin: top left; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
 /* Keep the native filter focusable for typing without painting over the choice row. */
 .dinkster-canvas-editor-choice-list .dinkster-canvas-field-row { opacity: 0; pointer-events: none; }
+.dinkster-canvas-editor-choice-list input { appearance: none; }
 .dinkster-canvas-editor-choice-list .dinkster-canvas-field-outline { display: none; }
-.dinkster-canvas-editor-choice-list .dinkster-canvas-field-panel { outline: var(--dinkster-border-width) solid var(--dinkster-border-subtle); outline-offset: calc(0px - var(--dinkster-border-width)); }
+.dinkster-canvas-editor-choice-list .dinkster-canvas-field-panel { border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); box-shadow: var(--dinkster-elevation-high); }
 .dinkster-canvas-closed-row-value[data-filtering='true']::after, .dinkster-canvas-target-value-text[data-filtering='true']::after { content: ''; border-right: var(--dinkster-border-width) solid currentColor; }
 .dinkster-canvas-choice-example .dinkster-canvas-editor { overflow: hidden; }
 .dinkster-canvas-closed-row { width: 100%; box-sizing: border-box; padding: 0; border: 0; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-field); color: inherit; font: inherit; text-align: left; cursor: pointer; }

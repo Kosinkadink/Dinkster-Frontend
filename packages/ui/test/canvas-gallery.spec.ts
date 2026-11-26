@@ -53,6 +53,10 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
   await curve.click()
   await expect(list.getByRole('option')).toHaveCount(3)
   await checkBounds()
+  await expect(popup.getByRole('combobox')).toHaveCSS('appearance', 'none')
+  const panel = popup.locator('.dinkster-canvas-field-panel')
+  await expect(panel).toHaveCSS('border-top-width', '1px')
+  await expect(panel).not.toHaveCSS('box-shadow', 'none')
   expect(await curve.screenshot()).toEqual(closedCurve)
   // Browser focus decoration on the native typing surface must never paint over the row.
   await popup.getByRole('combobox').evaluate((element) => { element.style.outline = '1px solid white' })

@@ -317,14 +317,16 @@ export function CanvasEditorChoiceList(props: Omit<ComponentProps<typeof CanvasR
     const bottom = Math.min(box?.bottom ?? window.innerHeight, (view?.offsetTop ?? 0) + (view?.height ?? window.innerHeight))
     const width = Math.min(row.width, right - left)
     const filterHeight = (popup?.querySelector<HTMLElement>('.dinkster-canvas-field-row')?.offsetHeight ?? anchor.offsetHeight) * scale
+    const panel = popup?.querySelector<HTMLElement>('.dinkster-canvas-field-panel')
+    const borderHeight = panel ? panel.offsetHeight - panel.clientHeight : 0
     const y = Math.max(top, Math.min(row.y, bottom - filterHeight))
     const layout = canvasListLayout({ x: row.x, y, width, height: filterHeight },
-      { x: left, y: top, width: right - left, height: bottom - top }, height() * scale, { width: 0, height: 0 }, 1, 0, 0)
+      { x: left, y: top, width: right - left, height: bottom - top }, (height() + borderHeight) * scale, { width: 0, height: 0 }, 1, 0, 0)
     if (height() > 0) openingSide ??= layout.listPlace
     const side = openingSide ?? layout.listPlace
     const room = side === 'above' ? y - top : bottom - y - filterHeight
     const next = { x: Math.max(left, Math.min(row.x, right - width)), y, width: width / scale, scale,
-      listPlace: side, listMaxHeight: Math.max(0, room / scale) }
+      listPlace: side, listMaxHeight: Math.max(0, room / scale - borderHeight) }
     setPosition((previous) => Object.keys(next).every((key) => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next)
   }
   createEffect(() => { height(); queueMicrotask(place) })
