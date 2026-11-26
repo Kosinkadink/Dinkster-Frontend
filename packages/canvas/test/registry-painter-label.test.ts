@@ -57,6 +57,8 @@ function fakeCtx(charWidth = 6) {
     fillRect(x: number, y: number, width: number, height: number) {
       fills.push({ x, y, width, height, fillStyle: String(this.fillStyle) })
     },
+    strokeRect: () => {},
+    setLineDash: () => {},
     measureText: (t: string) => ({ width: t.length * charWidth }),
     drawImage: (image: unknown, x: number, y: number, width: number, height: number) => { images.push({ image, x, y, width, height }) },
     fillText(text: string, x: number, y: number) {
@@ -380,11 +382,11 @@ describe('registry painter label/value split', () => {
       const icons = painted.transforms.filter((call) => call.method === 'translate')
       const lock = icons[1]!
       const name = painted.textCalls.find((call) => call.text === 'Curve')!
-      expect(lock.x).toBeGreaterThan(55)
+      expect(lock.x).toBe(36)
       expect(lock.y + 7).toBe(name.y)
       expect(name.x - lock.x).toBe(promoted ? 36 : 18)
       if (promoted) {
-        const mark = subgraphMarkRect(row, 300, 24, tokens, false, false, { value, connected: true })
+        const mark = subgraphMarkRect(row, 300, 24, tokens, false, false)
         expect(icons[2]).toMatchObject({ x: 10 + mark.x, y: 20 + mark.y })
       }
     }
@@ -572,6 +574,45 @@ describe('registry painter label/value split', () => {
     const { size, gap } = canvasPaintTokens.widget.valueThumbnail
     expect(withPicture.images).toEqual([{ image: thumbnail, x: Math.round(call.x - call.text.length * 6 - gap - size), y: Math.round(call.y - size / 2), width: size, height: size }])
     expect(paintSummary({ text: 'No model', placeholder: true }).images).toEqual([])
+  })
+
+  it.each([200, 360])('keeps a Curve header fixed when folded and puts its picture before the count at width %s', (width) => {
+    const curveKind: WidgetKind = { ...stubKind, type: 'CURVE', defaultValue: () => ({ points: [] }), defaultView: () => 'core.curve' }
+    const curveView: WidgetView = {
+      ...stubView, id: 'core.curve', kind: 'CURVE',
+      drawCompact: (scene) => {
+        scene.rect(0, 0, 1, 2, { role: 'curveSketch', samples: [], points: [], held: [] })
+        scene.text(1, 0, '3 points', { role: 'widgetValue', align: 'right', width: 1 })
+        scene.text(0, 1, 'Monotone cubic', { role: 'curveJoin' })
+      },
+    }
+    const painter = createRegistryPainter({ ...registry,
+      kind: (type) => type === 'CURVE' ? curveKind : undefined,
+      viewsFor: (type) => type === 'CURVE' ? [curveView] : [],
+    })
+    const draw = (unfolded: boolean) => {
+      const painted = fakeCtx()
+      painter({ ctx: painted.ctx, row: { ...rowWith(null), label: 'Curve', viewId: 'core.curve',
+        height: unfolded ? 24 : 48, rows: unfolded ? 1 : 2, ...(unfolded ? { unfolded: true as const } : {}),
+        spec: { widgetType: 'CURVE', options: {} } },
+      value: { points: [] }, x: 37, y: 61, width, rowHeight: 24, connected: false,
+      tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' } })
+      return painted
+    }
+    const folded = draw(false)
+    const open = draw(true)
+    const name = folded.textCalls.find((call) => call.text === 'Curve')!
+    const header = open.textCalls.find((call) => call.text === 'Curve')!
+    expect([name.x, name.y]).toEqual([header.x, header.y])
+    expect(folded.transforms[0]).toEqual(open.transforms[0])
+    const picture = folded.fills.find((fill) => fill.width === fill.height && fill.width > 16)!
+    const count = folded.textCalls.find((call) => call.text === '3 points')!
+    expect(picture.x).toBeGreaterThan(name.x + name.text.length * 6)
+    expect(picture.x + picture.width).toBeLessThan(count.x - count.text.length * 6)
+    const interpolation = folded.textCalls.find((call) => call.align === 'left' && call.y > name.y)!
+    expect(interpolation.x).toBe(name.x)
+    expect(interpolation.y).toBeGreaterThan(name.y)
+    expect(interpolation.x + interpolation.text.length * 6).toBeLessThan(picture.x)
   })
 
   it('measures a custom BOOLEAN label from the text the view paints', () => {

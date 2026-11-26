@@ -357,15 +357,15 @@ describe('folded curve promotion mark', () => {
       onSubgraphMarkActivate: (item) => activated.push(item),
     })
     Object.assign(harness.renderer, { widgetPaintState: () => ({ value, connected: true }) })
-    // The 40 px sketch ends at local x45. The opener takes 20 px,
-    // followed by the lock and 4 px gap; the boundary mark starts at x91.
-    const x = node.x + row.inset + 92
-    const y = node.y + row.y + (unknown ? 32 : 12)
+    // The opener takes 20 px, the lock 18 px, then 6 px label padding.
+    // The sketch is at the right, so the mark stays at the row's center.
+    const x = node.x + row.inset + 51
+    const y = node.y + row.y + 12
     harness.fire('pointerdown', x, y)
     harness.fire('pointerup', x, y)
     expect(activated).toEqual(['curve'])
-    harness.fire('pointerdown', node.x + row.inset + 30, y)
-    harness.fire('pointerup', node.x + row.inset + 30, y)
+    harness.fire('pointerdown', node.x + row.inset + 92, y)
+    harness.fire('pointerup', node.x + row.inset + 92, y)
     expect(activated).toEqual(['curve'])
   })
 })
@@ -3346,6 +3346,20 @@ describe('numeric widget steppers', () => {
     expect(harness.dispatched).toEqual([])
     expect(activate).not.toHaveBeenCalled()
   })
+
+  it.each(['core.audioRecord', 'core.webcam', 'core.load3d', 'core.imageCompare', 'core.cameraAngle', 'core.curve'])(
+    'keeps the fold action reachable on a wired %s row without writing a value', (viewId) => {
+      const scene = interactionScene() as any
+      scene.nodes[0].layout.rows[0].viewId = viewId
+      scene.links = [{ id: 'l1', from: { kind: 'port', node: 'n2', port: 'out' }, to: { kind: 'port', node: 'n1', port: 'amount' }, x1: 0, y1: 0, x2: 0, y2: 0 }]
+      const opened: string[] = []
+      const harness = interactionHarness(scene, { onWidgetActivate: (hit) => opened.push(hit.row.valueKey) })
+      harness.fire('pointerdown', 55, 35)
+      harness.fire('pointerup', 55, 35)
+      expect(opened).toEqual(['amount'])
+      expect(harness.dispatched).toEqual([])
+    },
+  )
 
   it('allows a selector row stepper when its only incoming link is a boundary binding', () => {
     const scene = interactionScene() as any

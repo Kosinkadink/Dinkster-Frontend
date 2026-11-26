@@ -70,7 +70,7 @@ import { controllerChipContains } from './controller-chip.js'
 import { subgraphMarkRect } from './registry-painter.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
 import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, previewEdgeShown, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
-import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { canvasPaintTokens, IN_NODE_EDITORS, type DesignTokens } from './tokens.js'
 import { BOUNDARY_ADD_SLOT, clampTextBoxLines, memberSpans, multilineWidgetHeight, projectPictureHeight, projectTextBoxLines, type LayoutRow, type MemberGrip, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
@@ -2953,7 +2953,7 @@ export class InteractionController {
     const tokens = this.renderer.getDesignTokens()
     const display = this.renderer.widgetPaintState(hit.node, hit.row, hit.bnode?.fields?.wired[hit.row.valueKey])
     const arriving = display.companion !== undefined && !drawsPassedValueAsEditor(hit.row, display.companion, tokens)
-    const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, arriving, isNumberRow(hit.row), display)
+    const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, arriving, isNumberRow(hit.row))
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.size && hit.localY >= rect.y && hit.localY <= rect.y + rect.size
   }
 
@@ -2980,7 +2980,7 @@ export class InteractionController {
         continue
       }
       const arriving = driven.value !== undefined && !drawsPassedValueAsEditor(row, { value: driven.value }, tokens)
-      const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, arriving, isNumberRow(row), this.renderer.widgetPaintState(face, row, driven))
+      const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, arriving, isNumberRow(row))
       if (localX >= rect.x && localX <= rect.x + rect.size && localY >= rect.y && localY <= rect.y + rect.size)
         return { kind: 'widget', node: face, row, bnode, x: bnode.x + row.inset, y: bnode.y + row.y, width, height: row.height, localX, localY }
     }
@@ -3498,9 +3498,10 @@ export class InteractionController {
           const connected = Object.hasOwn(g.hit.bnode?.fields?.wired ?? {}, g.hit.row.valueKey) || scene.links.some(
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,
           )
-          // The connected value wins; editing the dormant value invites confusion.
+          // Folding changes the view, not the value the wire supplies.
           if (connected) {
-            this.host.onWiredWidgetActivate?.(g.hit)
+            if (IN_NODE_EDITORS[g.hit.row.viewId] !== undefined) this.host.onWidgetActivate?.(g.hit, clientX, clientY)
+            else this.host.onWiredWidgetActivate?.(g.hit)
             return
           }
           const row = g.hit.row

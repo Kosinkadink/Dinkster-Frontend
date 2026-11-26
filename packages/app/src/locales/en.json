@@ -598,7 +598,6 @@
   "inNodeWebcam.nothingStored": "Nothing stored",
   "inNodeWebcam.stored": "Stored: {name}",
   "inNodeWebcam.notKnown": "Not known yet",
-  "inNodeWebcam.byWire": "Comes by wire",
   "inNodeWebcam.lastRun": "The image from the last run",
   "inNodeWebcam.native": "Capturing frames requires a native Dinkster backend.",
   "inNodeLoad3d.loading": "Loading model",

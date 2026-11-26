@@ -221,10 +221,11 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
                 { label: 'Stop', icon: canvasEditorIcons.stop, intent: 'remove' },
               ]
             : [{ label: 'Start camera', icon: canvasEditorIcons.capture, disabled: camera() === 'wired' }]} />
-          <CanvasEditorNote tone={stored() || (camera() === 'wired' && state()['known'] !== false) ? undefined : 'muted'}>
-            {camera() === 'wired' ? state()['known'] === false ? 'Comes by wire' : 'The image from the last run'
-              : stored() ? `Stored: ${stored()!.name}` : 'Nothing stored'}
-          </CanvasEditorNote>
+          <Show when={camera() !== 'wired' || state()['known'] !== false}>
+            <CanvasEditorNote tone={stored() || camera() === 'wired' ? undefined : 'muted'}>
+              {camera() === 'wired' ? 'The image from the last run' : stored() ? `Stored: ${stored()!.name}` : 'Nothing stored'}
+            </CanvasEditorNote>
+          </Show>
         </>
       )
     }
@@ -301,7 +302,7 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
             <CanvasAnglePicture
               horizontal={{ degrees: wired() === 'horizontal_angle' && !known() ? undefined : wired() === 'horizontal_angle' ? 120 : 45,
                 fixed: wired() === 'horizontal_angle' }}
-              vertical={{ degrees: 20, fixed: false }}
+              vertical={{ degrees: wired() !== undefined && !known() ? undefined : 20, fixed: false }}
             />,
           )}
           <CanvasEditorNote tone={wired() !== undefined && !known() ? 'muted' : undefined}>
@@ -312,7 +313,8 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       )
     }
     case 'core.curve': {
-      const value = props.example.values?.[props.row.valueKey] as
+      const wired = props.example.wired?.[props.row.inputId] !== undefined
+      const value = (wired ? props.example.carried?.[props.row.valueKey] ?? props.example.summaries?.[props.row.valueKey]?.value : props.example.values?.[props.row.valueKey]) as
         { interpolation?: 'linear' | 'monotone_cubic'; points?: { position: number; value: number }[] } | undefined
       const interpolation = value?.interpolation ?? 'monotone_cubic'
       const points = value?.points ?? []
@@ -332,21 +334,22 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
         <>
           {picture(
             <CanvasCurvePlot points={points} sample={curveInterpolator({ interpolation, points })} selected={selected}
+              disabled={wired}
               histogram={bars()}
               inputStrip={inputStrip} outputStrip={outputStrip} {...(hover ? { hover } : {})} />,
           )}
-          <CanvasEditorLine>
+          <CanvasEditorLine dimmed={wired}>
             <GalleryChoice label="Interpolation" value={interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic']} />
           </CanvasEditorLine>
-          <CanvasEditorLine dimmed={selected === undefined}>
+          <CanvasEditorLine dimmed={wired || selected === undefined}>
             <GalleryNumber label="Position" value={selected === undefined ? undefined : points[selected]!.position} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>
-          <CanvasEditorLine dimmed={selected === undefined}>
+          <CanvasEditorLine dimmed={wired || selected === undefined}>
             <GalleryNumber label="Value" value={selected === undefined ? undefined : points[selected]!.value} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>
           {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
           <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, intent: 'remove',
-            disabled: selected === undefined || points.length < 2 }]} />
+            disabled: wired || selected === undefined || points.length < 2 }]} />
           {/* A curve that declares a histogram has this line, wired or not: its input's pin stands on it. */}
           <Show when={histogram !== undefined}>
             <CanvasEditorNote>Histogram</CanvasEditorNote>

@@ -537,9 +537,9 @@ export const canvasPaintTokens = {
     subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     readOnlyMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     /**
-     * A folded curve in the raised look: a square of its plot at the row's
-     * start, `inset` inside the row and as tall as the row allows, `gap`
-     * before the name; the plot sits `plotInset` inside its frame.
+     * A folded curve in the raised look: a square before its count, `inset`
+     * inside the row and as tall as the row allows, `gap` before the count;
+     * the plot sits `plotInset` inside its frame.
      */
     curve: { inset: 5, gap: 8, plotInset: 3, lineWidth: 1.5, pointRadius: 1.75, dash: [2, 2], lineStep: 16, edge: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
