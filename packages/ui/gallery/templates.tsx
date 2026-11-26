@@ -324,7 +324,7 @@ export function TemplatesGallery(props: {
   }
 
   return (
-    <main class="dinkster-page dinkster-stack" data-testid="templates-gallery">
+    <section class={props.onChoose ? 'dinkster-template-picker' : 'dinkster-page dinkster-stack'} data-testid="templates-gallery">
       <div class="dinkster-templates-frame dinkster-root" data-theme="dark">
         <ProductTemplatesPage
           title="Templates"
@@ -521,6 +521,6 @@ export function TemplatesGallery(props: {
         <p role="status">{activity()}</p>
       </ProductPage>
       </Show>
-    </main>
+    </section>
   )
 }

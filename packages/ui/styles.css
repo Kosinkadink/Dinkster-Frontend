@@ -1302,6 +1302,10 @@
 /* The Templates page: groups on the left, tiles in the middle, the selected template on the right. */
 .dinkster-templates { display: grid; grid-template-columns: 172px minmax(0, 1fr) 372px; height: 100%; min-height: 0; overflow: hidden; border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); }
 .dinkster-templates-frame { height: 708px; padding: 6px; border-radius: 10px; background: var(--dinkster-surface-frame); }
+.dinkster-template-picker { height: 100%; min-height: 0; }
+.dinkster-template-picker > .dinkster-templates-frame { height: 100%; padding: 0; }
+.dinkster-template-picker .dinkster-templates-bar { flex-wrap: wrap; justify-content: flex-end; }
+.dinkster-template-picker .dinkster-templates-search { flex-basis: 200px; }
 .dinkster-templates-groups { min-height: 0; overflow: auto; padding: 18px var(--dinkster-space-8) var(--dinkster-space-16); }
 .dinkster-templates-groups > .dinkster-title { margin: 0 0 var(--dinkster-space-8) 10px; }
 .dinkster-templates-group-label { display: block; margin: 14px 0 var(--dinkster-space-4) 10px; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
