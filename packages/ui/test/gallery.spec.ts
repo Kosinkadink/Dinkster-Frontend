@@ -18,6 +18,27 @@ const expectNoAxeViolations = async (page: Page) => {
     ),
   ).toEqual([])
 }
+test('list rows expand independently of their sibling menu and navigation does not imply expansion', async ({ page }) => {
+  await page.goto('/#lists')
+  const servers = page.getByRole('list', { name: 'Backend servers' })
+  const toggle = servers.getByRole('button', { name: 'This computer Dinkster, 70 node types', exact: true })
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await toggle.focus()
+  await page.keyboard.press('Enter')
+  await expect(servers.getByRole('button', { name: 'Restart engine', exact: true })).toBeVisible()
+  await servers.getByRole('button', { name: 'Server actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Change access token', exact: true }).click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await toggle.focus()
+  await page.keyboard.press('Space')
+  await expect(servers.getByRole('button', { name: 'Restart engine', exact: true })).toHaveCount(0)
+  const navigate = page.getByRole('list', { name: 'Asset folders' }).getByRole('button')
+  await expect(navigate).not.toHaveAttribute('aria-expanded')
+  await expect(navigate).not.toHaveAttribute('aria-controls')
+  await navigate.click()
+  await expect(page.getByRole('status').filter({ hasText: 'Renders opened' })).toBeVisible()
+})
+
 test('run activity distinguishes concurrent running jobs from queued jobs and respects reduced motion', async ({ page }) => {
   await page.goto('/#controls')
   const one = page.getByRole('img', { name: '1 running', exact: true })

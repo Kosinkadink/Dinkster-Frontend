@@ -489,28 +489,63 @@ export function ProductSection(props: {
   )
 }
 
-export function ProductList(props: { label: string; children: JSX.Element }) {
+export function ProductList(props: {
+  label: string
+  variant?: 'plain' | 'grouped'
+  children: JSX.Element
+}) {
   return (
-    <ul class="dinkster-list" aria-label={props.label}>
+    <ul class="dinkster-list" data-variant={props.variant} aria-label={props.label}>
       {props.children}
     </ul>
   )
 }
 
 export function ProductListRow(props: {
-  title: string
-  description?: string
+  title: JSX.Element
+  description?: JSX.Element
+  leading?: JSX.Element
+  trailing?: JSX.Element
   action?: JSX.Element
+  expanded?: boolean
+  onToggle?: (expanded: boolean) => void
+  onActivate?: () => void
+  children?: JSX.Element
 }) {
+  const detailsId = createUniqueId()
+  const expandable = () => props.expanded !== undefined
+  const copy = () => <>
+    <Show when={expandable()}><ProductIcon icon={ChevronRight} /></Show>
+    {props.leading}
+    <span class="dinkster-row-copy">
+      <span>{props.title}</span>
+      <Show when={props.description}>
+        <span class="dinkster-metadata">{props.description}</span>
+      </Show>
+    </span>
+    <Show when={props.trailing}><span class="dinkster-row-trailing">{props.trailing}</span></Show>
+  </>
   return (
-    <li class="dinkster-row">
-      <div class="dinkster-row-copy">
-        <span>{props.title}</span>
-        <Show when={props.description}>
-          <span class="dinkster-metadata">{props.description}</span>
+    <li class="dinkster-row" data-expanded={props.expanded}>
+      <div class="dinkster-row-heading">
+        <Show when={props.onToggle || props.onActivate} fallback={<div class="dinkster-row-main">{copy()}</div>}>
+          <button
+            type="button"
+            class="dinkster-row-main"
+            aria-expanded={props.expanded}
+            aria-controls={expandable() ? detailsId : undefined}
+            onClick={() => props.onToggle ? props.onToggle(!props.expanded) : props.onActivate?.()}
+          >
+            {copy()}
+          </button>
         </Show>
+        <Show when={props.action}><div class="dinkster-row-action">{props.action}</div></Show>
       </div>
-      {props.action}
+      <Show when={expandable()}>
+        <div id={detailsId} class="dinkster-row-details" hidden={!props.expanded}>
+          <Show when={props.expanded}>{props.children}</Show>
+        </div>
+      </Show>
     </li>
   )
 }
