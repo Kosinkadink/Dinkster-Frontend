@@ -111,6 +111,14 @@ test('Save target shared fold-out distinguishes rest, typing and a reopened wire
     await expect(wiredName).toHaveValue('from/upstream')
     await expect(wiredName).toHaveAttribute('readonly', '')
     await expect(stage('invalid').getByText('Mount', { exact: true })).toBeVisible()
+    const labels = await stage('rest').locator('.dinkster-canvas-target-label, .dinkster-canvas-target-caption').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().left))
+    expect(labels[0]).toBe(labels[1])
+    const restPadding = await stage('rest').locator('.dinkster-canvas-editor').evaluate((element) =>
+      element.clientHeight - element.querySelector<HTMLElement>('.dinkster-canvas-target-box')!.offsetHeight,
+    )
+    await expect.poll(() => stage('invalid').locator('.dinkster-canvas-editor').evaluate((element) =>
+      element.clientHeight - element.querySelector<HTMLElement>('.dinkster-canvas-target-box')!.offsetHeight,
+    )).toBe(restPadding)
     const restInput = stage('rest').locator('.dinkster-canvas-target-input')
     const ordinary = await restInput.evaluate((element) => getComputedStyle(element).borderColor)
     await typing.focus()

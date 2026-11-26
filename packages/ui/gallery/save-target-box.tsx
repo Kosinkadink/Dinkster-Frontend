@@ -71,6 +71,7 @@ function SaveTargetExampleCard(props: {
   createEffect(() => {
     const theme = props.theme
     const current = example()
+    const controlsHeight = boxHeight()
     let disposed = false
     let renderer: CanvasRenderer | undefined
     void document.fonts
@@ -97,7 +98,7 @@ function SaveTargetExampleCard(props: {
             .viewsFor(spec.widgetType)
             .find((view) => view.id === kind?.defaultView(spec))
           return view ? { viewId: view.id, rows: view.measure(spec).rows,
-            ...(current.id === 'foldout-invalid' ? { editorControls: tokens.rowHeight * 4 } : {}) } : undefined
+            ...(current.foldout && current.open && controlsHeight > 0 ? { editorControls: controlsHeight } : {}) } : undefined
         }
         const shown = current.foldout && current.open && !draft().prefixInvalid
           ? { prefix: current.open.prefix, ...(current.open.mount === null ? {} : { mount: current.open.mount }) }
@@ -247,7 +248,7 @@ function SaveTargetExampleCard(props: {
   const box = (
     <div
       ref={(element) => {
-        const observer = new ResizeObserver(() => setBoxHeight(element.offsetHeight))
+        const observer = new ResizeObserver(() => setBoxHeight(element.scrollHeight))
         observer.observe(element)
         onCleanup(() => observer.disconnect())
       }}
@@ -291,10 +292,12 @@ function SaveTargetExampleCard(props: {
             const space = () => found().node.layout.rows.find((row): row is Extract<LayoutRow, { kind: 'editorSpace' }> => row.kind === 'editorSpace' && row.valueKey === 'target')
             return <Show when={space()}>{(row) =>
               <CanvasEditorSpace {...(example().arriving === undefined ? {} : { state: 'dimmed' })} ref={(element) => {
-                element.style.left = `${found().node.x + row().inset}px`
-                element.style.top = `${found().node.y + row().y}px`
-                element.style.width = `${row().width ?? found().node.layout.width - row().inset * 2}px`
-                element.style.height = `${row().height - fieldInsetY()}px`
+                createEffect(() => {
+                  element.style.left = `${found().node.x + row().inset}px`
+                  element.style.top = `${found().node.y + row().y}px`
+                  element.style.width = `${row().width ?? found().node.layout.width - row().inset * 2}px`
+                  element.style.height = `${row().height - fieldInsetY()}px`
+                })
               }}>{box}</CanvasEditorSpace>
             }</Show>
           }}
