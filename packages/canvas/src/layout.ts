@@ -2174,7 +2174,7 @@ export function layoutNode(
     const crossRoom = (last.kind === 'widget' || last.kind === 'button') && last.crossInset !== undefined
       ? last.crossInset + box.cross.size + box.cross.fieldGap - inset : 0
     const icons = new Set(line.some((row) => row.kind === 'widget') ? line.filter((row) => row.button?.icon !== undefined) : [])
-    const iconWidth = lineBaseHeight(line) - tokens.rowGeometry.fieldInsetY * 2
+    const iconWidth = tokens.rowHeight - tokens.rowGeometry.fieldInsetY * 2
     const sharedWidth = (width - inset * 2 - gripRoom - crossRoom - (line.length - 1) * gap - icons.size * iconWidth) /
       (line.length - icons.size)
     let left = inset
