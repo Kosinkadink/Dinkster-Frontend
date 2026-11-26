@@ -1,5 +1,6 @@
 import {
   For,
+  Index,
   Show,
   createEffect,
   createSignal,
@@ -10,7 +11,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { Dynamic, Portal } from 'solid-js/web'
-import { ArrowDown, ArrowUp, Dice5, Lock, Minus, Plus } from 'lucide-solid'
+import { ArrowDown, ArrowUp, ChevronDown, Dice5, Lock, Minus, Plus } from 'lucide-solid'
 import { CanvasRowList, canvasListLayout } from './canvas-list.js'
 
 /** A box in screen pixels. */
@@ -66,6 +67,8 @@ export interface CanvasSideSize {
  * `nodeBelow` and `nodeAbove` are the distances, at normal size, from the
  * field's top down to where the side part starts under the node and up to
  * where it ends over the node.
+ * `edges` marks the ends of the horizontal line: a cell may join a side part only
+ * at an exposed edge, never through another cell on its line.
  */
 export function canvasSideLayout(
   row: CanvasBox,
@@ -74,6 +77,7 @@ export function canvasSideLayout(
   scale: number,
   nodeBelow: number,
   nodeAbove: number,
+  edges?: { readonly left: boolean; readonly right: boolean },
 ): CanvasSideLayout {
   // Zoomed in, the field and its side part scale with the canvas.
   const zoom = Math.max(1, scale)
@@ -84,9 +88,9 @@ export function canvasSideLayout(
   const beside: CanvasSidePlace | undefined =
     scale < 1 || side.height > bottom - top
       ? undefined
-      : row.x + row.width + sideWidth <= bounds.x + bounds.width
+      : edges?.right !== false && row.x + row.width + sideWidth <= bounds.x + bounds.width
         ? 'right'
-        : row.x - sideWidth >= bounds.x
+        : edges?.left !== false && row.x - sideWidth >= bounds.x
           ? 'left'
           : undefined
   if (beside !== undefined) {
@@ -249,6 +253,8 @@ export type CanvasPanelPlace = 'below' | 'above'
 interface CanvasRowFrameProps {
   /** Width of the row at normal size. */
   rowWidth: number
+  /** Height of a painted row whose focus frame has no content of its own. */
+  rowHeight?: number
   place: CanvasSidePlace
   /**
    * The side part's top at normal size, from the row's top, or from the
@@ -307,6 +313,7 @@ function CanvasRowFrame(
   let reported: CanvasSideSize | undefined
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
+    row.style.height = props.rowHeight === undefined ? '' : `${props.rowHeight}px`
     setRowHeight(row.offsetHeight)
     if (panel) {
       panel.style.maxHeight =
@@ -353,6 +360,7 @@ function CanvasRowFrame(
   createEffect(() => {
     void [
       props.rowWidth,
+      props.rowHeight,
       props.place,
       props.sideTop,
       props.sideMaxHeight,
@@ -759,12 +767,16 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
       const font = getComputedStyle(value)
       context.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
       const widest = Math.max(...labels.map((text) => context.measureText(text).width))
+      const labelFont = getComputedStyle(label)
+      context.font = `${labelFont.fontWeight} ${labelFont.fontSize} ${labelFont.fontFamily}`
+      const labelWidth = context.measureText(label.textContent ?? '').width +
+        parseFloat(labelFont.paddingLeft) + parseFloat(labelFont.paddingRight)
       const row = getComputedStyle(label.parentElement!)
       const inset = parseFloat(row.borderLeftWidth) + parseFloat(row.borderRightWidth) +
         parseFloat(row.paddingLeft) + parseFloat(row.paddingRight)
       // The shared row reserves at most half its width for the label.
-      line.style.minWidth = `${Math.ceil(inset + Math.max(label.scrollWidth * 2,
-        label.scrollWidth + widest + parseFloat(font.paddingLeft) + parseFloat(font.paddingRight) + chevron.offsetWidth))}px`
+      line.style.minWidth = `${Math.ceil(inset + Math.max(labelWidth * 2,
+        labelWidth + widest + parseFloat(font.paddingLeft) + parseFloat(font.paddingRight) + chevron.offsetWidth))}px`
     }
     queueMicrotask(size)
     void document.fonts.ready.then(size)
@@ -891,17 +903,125 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
 /** The side part's link, such as the default that puts the default back. */
 export function CanvasSideLink(props: {
   children: JSX.Element
-  onClick: () => void
+  onClick: (event: MouseEvent) => void
+  ref?: (element: HTMLButtonElement) => void
+  expanded?: boolean
+  controls?: string | undefined
 }) {
   return (
     <button
+      ref={props.ref}
       type="button"
       class="dinkster-canvas-side-link"
+      aria-expanded={props.expanded}
+      aria-controls={props.controls}
       onPointerDown={(event) => event.preventDefault()}
-      onClick={() => props.onClick()}
+      onClick={(event) => props.onClick(event)}
     >
       <span>{props.children}</span>
     </button>
+  )
+}
+
+/**
+ * A field row inside a side part, drawn as the canvas draws one on a node:
+ * the name on the left and the value on the right, with the minus and plus
+ * on a number, a chevron on a choice and a switch on a toggle. Pressing the
+ * row opens it as a row on a node opens; the minus and plus step it.
+ */
+export function CanvasSideRow(props: {
+  label: string
+  value: string
+  kind: 'number' | 'choice' | 'toggle' | 'text'
+  /** A toggle's state. */
+  on?: boolean
+  onOpen: (row: HTMLElement) => void
+  onStep?: (direction: -1 | 1, fast: boolean) => void
+  testId?: string
+}) {
+  let row!: HTMLDivElement
+  const step = (direction: -1 | 1) => (
+    <Show when={props.onStep}>
+      {(onStep) => (
+        <button
+          type="button"
+          class="dinkster-canvas-side-row-step"
+          tabindex="-1"
+          aria-label={`${direction < 0 ? 'Decrease' : 'Increase'} ${props.label}`}
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={(event) => onStep()(direction, event.shiftKey)}
+        >
+          <StepGlyph path={direction < 0 ? MINUS_PATH : PLUS_PATH} />
+        </button>
+      )}
+    </Show>
+  )
+  return (
+    <div
+      ref={(element) => (row = element)}
+      class="dinkster-canvas-side-row"
+      data-kind={props.kind}
+      data-steppers={props.onStep !== undefined}
+    >
+      {step(-1)}
+      <button
+        type="button"
+        class="dinkster-canvas-side-row-open"
+        data-testid={props.testId}
+        {...(props.kind === 'toggle' ? { 'aria-pressed': props.on === true } : {})}
+        onClick={() => props.onOpen(row)}
+      >
+        <span class="dinkster-canvas-side-row-label">{props.label}</span>
+        <Show
+          when={props.kind === 'toggle'}
+          fallback={<span class="dinkster-canvas-side-row-value">{props.value}</span>}
+        >
+          <span
+            class="dinkster-canvas-side-row-switch"
+            data-on={props.on === true}
+            aria-hidden="true"
+          />
+        </Show>
+        <Show when={props.kind === 'choice'}>
+          <ChevronDown class="dinkster-canvas-side-row-chevron" aria-hidden="true" />
+        </Show>
+      </button>
+      {step(1)}
+    </div>
+  )
+}
+
+/**
+ * The buttons that end a side part, such as Cancel and Apply, drawn as a
+ * node's buttons sharing one line; the primary one is marked.
+ */
+export function CanvasSideActions(props: {
+  actions: readonly {
+    readonly label: string
+    readonly onClick: () => void
+    readonly primary?: boolean
+    readonly disabled?: boolean
+    readonly testId?: string
+  }[]
+}) {
+  return (
+    <div class="dinkster-canvas-side-actions">
+      {/* By place, so a button stays the same element while its state changes under a press. */}
+      <Index each={props.actions}>
+        {(action) => (
+          <button
+            type="button"
+            class="dinkster-canvas-side-action"
+            data-primary={action().primary === true}
+            data-testid={action().testId}
+            disabled={action().disabled === true}
+            onClick={() => action().onClick()}
+          >
+            {action().label}
+          </button>
+        )}
+      </Index>
+    </div>
   )
 }
 

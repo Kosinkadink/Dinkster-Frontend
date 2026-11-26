@@ -392,6 +392,72 @@ describe('registry painter label/value split', () => {
     expect(painted.transforms[at + 1]).toEqual({ method: 'scale', x: 14 / 24, y: 14 / 24 })
   })
 
+  it('keeps the lock and promoted mark separate before a read-only field name', () => {
+    const painted = fakeCtx()
+    const row = { ...rowWith(5), label: 'Radius', readOnly: true as const, subgraphMark: { item: 'radius', label: 'Radius' } }
+    createRegistryPainter(registry)({
+      ctx: painted.ctx, row, value: 5, x: 10, y: 20, width: 200, rowHeight: 24, connected: false, tokens: defaultTokens,
+    })
+    const icons = painted.transforms.filter((call) => call.method === 'translate')
+    const name = painted.textCalls.find((call) => call.text === 'Radius')!
+    expect(icons).toHaveLength(2)
+    expect(icons[1]!.x - icons[0]!.x).toBe(18)
+    expect(name.x - icons[1]!.x).toBe(18)
+    expect(painted.texts).toContain('5')
+  })
+
+  it('keeps a wired file icon, lock and promoted mark separate before its name', () => {
+    const assetRegistry: WidgetRegistry = {
+      ...registry,
+      kind: () => ({ ...stubKind, type: 'ASSET' }),
+      viewsFor: () => [{ ...stubView, id: 'core.asset', kind: 'ASSET',
+        drawCompact: (scene) => scene.text(0, 0, 'frame.png', { role: 'widgetValue' }) }],
+    }
+    const painted = fakeCtx()
+    const row = { ...rowWith(null), viewId: 'core.asset', label: 'Image', readOnly: true as const,
+      subgraphMark: { item: 'image', label: 'Image' }, spec: { widgetType: 'ASSET', options: {} } }
+    createRegistryPainter(assetRegistry)({ ctx: painted.ctx, row, value: null,
+      companion: { value: { name: 'frame.png' }, state: 'expected' },
+      x: 10, y: 20, width: 480, rowHeight: 24, connected: true,
+      tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' },
+    })
+    const icons = painted.transforms.filter((call) => call.method === 'translate')
+    expect(icons[2]!.x).toBe(36)
+    expect(icons[3]!.x - icons[2]!.x).toBe(18)
+    expect(painted.textCalls.find((call) => call.text === 'Image')!.x - icons[3]!.x).toBe(18)
+    expect(painted.texts).toContain('frame.png')
+  })
+
+  it.each([false, true])('keeps folded curve marks beside the name, clear of the sketch (promoted %s)', (promoted) => {
+    const tokens = { ...defaultTokens, widgetRowLook: 'raised-editors' as const }
+    const curveRegistry: WidgetRegistry = {
+      ...registry,
+      kind: () => ({ ...stubKind, type: 'CURVE', defaultValue: () => ({ points: [] }) }),
+      viewsFor: () => [{ ...stubView, id: 'core.curve', kind: 'CURVE', drawCompact: () => {} }],
+    }
+    for (const value of [{ points: [] }, null]) {
+      const painted = fakeCtx()
+      const row = {
+        ...rowWith(value), label: 'Curve', viewId: 'core.curve', height: 52, readOnly: true as const,
+        spec: { widgetType: 'CURVE', options: {}, default: value },
+        ...(promoted ? { subgraphMark: { item: 'curve', label: 'Curve' } } : {}),
+      }
+      createRegistryPainter(curveRegistry)({
+        ctx: painted.ctx, row, value, x: 10, y: 20, width: 300, rowHeight: 24, connected: true, tokens,
+      })
+      const icons = painted.transforms.filter((call) => call.method === 'translate')
+      const lock = icons[1]!
+      const name = painted.textCalls.find((call) => call.text === 'Curve')!
+      expect(lock.x).toBe(36)
+      expect(lock.y + 7).toBe(20 + 24 / 2)
+      expect(name.x - lock.x).toBe(promoted ? 36 : 18)
+      if (promoted) {
+        const mark = subgraphMarkRect(row, 300, 24, tokens, false, false)
+        expect(icons[2]).toMatchObject({ x: 10 + mark.x, y: 20 + mark.y })
+      }
+    }
+  })
+
   it('paints an empty multiline placeholder in muted italic type', () => {
     const painted = paintMultilineDetails(76, 160, '')
     const placeholder = painted.textCalls.find((call) => call.text === 'text' && call.y > 24)!
@@ -577,7 +643,10 @@ describe('registry painter label/value split', () => {
     }
     const editorView: WidgetView = {
       ...stubView, id: 'core.load3d', kind: 'LOAD_3D',
-      drawCompact: (scene) => scene.text(1, 0, '3D viewport', { role: 'widgetValue', align: 'right', width: 1 }),
+      drawCompact: (scene) => scene.text(1, 0, '3D viewport', {
+        role: 'widgetValue', align: 'right', width: 1,
+        parts: [{ text: '3D viewport' }], shorter: ['3D'],
+      }),
     }
     const editorRegistry: WidgetRegistry = {
       ...registry,

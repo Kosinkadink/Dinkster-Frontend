@@ -1,4 +1,4 @@
-import { For, createEffect, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
@@ -25,9 +25,12 @@ import {
   representationSchema,
   tintSchema,
   rowStateExamples,
+  createSameLineScene,
+  sameLineSchema,
   type RowStateExample,
 } from '../../canvas/gallery/row-states.js'
-import { ProductSection } from '../src/index.js'
+import { CanvasRowFocus, CanvasRowList, CanvasSidePart, ProductSection } from '../src/index.js'
+import { ButtonAskContent, ButtonBoxView } from '../../app/src/ButtonOverlays.js'
 import {
   MARGIN,
   NODE_WIDTH,
@@ -76,6 +79,7 @@ function SceneCard(props: {
   registry: WidgetRegistry
 }) {
   let canvas!: HTMLCanvasElement
+  const [focusBox, setFocusBox] = createSignal<{ x: number; y: number; width: number; height: number }>()
   createEffect(() => {
     const { example, tokens } = props
     const renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(props.registry))
@@ -87,6 +91,8 @@ function SceneCard(props: {
     renderer.setBadges(presentation.badges)
     renderer.setOverlay(example.overlay ?? {})
     renderer.setRowMarks(example.rowMarks ?? {})
+    renderer.setCompanions(example.companions ?? {})
+    renderer.setButtonPaint(example.buttons ?? {})
     const box = sceneVisualBounds({ ...renderer.getScene(), links: [] }, {}, (node) => renderer.getNodeBadgeBounds(node))!
     for (const link of example.scene.links) {
       const dx = linkControlOffset(link.x1, link.x2)
@@ -97,24 +103,92 @@ function SceneCard(props: {
         box.maxY = Math.max(box.maxY, y)
       }
     }
-    canvas.style.width = `${Math.ceil(box.maxX - box.minX + PAD * 2)}px`
-    canvas.style.height = `${Math.ceil(box.maxY - box.minY + PAD * 2)}px`
+    canvas.style.width = `${Math.ceil(box.maxX - box.minX + PAD * 2) + (example.ask || example.focus?.help !== undefined ? SIDE_ROOM : 0)}px`
+    canvas.style.height = `${Math.ceil(box.maxY - box.minY + PAD * 2) + (example.ask ? 160 : example.pick ? 180 : example.result ? 80 : 0)}px`
     renderer.setViewport({ x: PAD - box.minX, y: PAD - box.minY, scale: 1 })
     renderer.renderNow()
+    const node = example.scene.nodes[0]
+    const button = example.focus?.button ?? example.result?.button ?? example.pick?.button ?? example.ask?.button
+    const row = node?.layout.rows.find((item) => item.kind === 'button' && item.buttonId === button)
+    setFocusBox(node === undefined || row?.kind !== 'button' ? undefined : {
+      x: node.x + row.inset + PAD - box.minX,
+      y: node.y + row.y + tokens.rowGeometry.fieldInsetY + PAD - box.minY,
+      width: row.width ?? node.layout.width - row.inset * 2,
+      height: row.height - tokens.rowGeometry.fieldInsetY * 2,
+    })
     canvas.dataset.ready = `${example.id}-${props.theme}`
     onCleanup(() => {
       renderer.dispose()
       delete canvas.dataset.ready
     })
   })
+  const picture = <canvas
+    ref={canvas}
+    role="img"
+    aria-label={`${props.example.id} in ${props.theme} theme`}
+    data-testid={`row-states-${props.example.id}`}
+  />
   return (
     <figure class="dinkster-canvas-example">
-      <canvas
-        ref={canvas}
-        role="img"
-        aria-label={`${props.example.id} in ${props.theme} theme`}
-        data-testid={`row-states-${props.example.id}`}
-      />
+      <Show when={props.example.focus !== undefined || props.example.result !== undefined || props.example.pick !== undefined || props.example.ask !== undefined} fallback={picture}>
+      <div class="dinkster-canvas-example-stage" data-fixed-surfaces={props.example.result !== undefined}>
+        {picture}
+        <Show when={props.example.focus !== undefined && focusBox()}>{(box) => (
+          <CanvasRowFocus
+            ref={(element) => createEffect(() => {
+              element.style.left = `${box().x}px`
+              element.style.top = `${box().y}px`
+            })}
+            rowWidth={box().width}
+            look={props.tokens.nodeLook}
+            place="right"
+            sideTop={0}
+            {...(props.example.focus?.help === undefined ? {} : { side: <CanvasSidePart help={props.example.focus.help} /> })}
+          />
+        )}</Show>
+        <Show when={props.example.result && focusBox()}>{(box) => (
+          <ButtonBoxView box={props.example.result!} under={box()} testId={props.example.id} />
+        )}</Show>
+        <Show when={props.example.ask && focusBox()}>{(box) => (
+          <CanvasRowFocus
+            ref={(element) => createEffect(() => {
+              element.style.left = `${box().x}px`
+              element.style.top = `${box().y}px`
+            })}
+            rowWidth={box().width}
+            look={props.tokens.nodeLook}
+            place="right"
+            sideTop={0}
+            side={<ButtonAskContent request={props.example.ask!.request} widgetKind={(type) => props.registry.kind(type)} editRow={() => undefined} onAnswer={() => undefined} />}
+          />
+        )}</Show>
+        <Show when={props.example.pick && focusBox()}>{(box) => (
+          <CanvasRowList
+            ref={(element) => createEffect(() => {
+              element.style.left = `${box().x}px`
+              element.style.top = `${box().y}px`
+            })}
+            rowWidth={box().width}
+            look={props.tokens.nodeLook}
+            label="Prepare"
+            inputLabel="Filter presets"
+            query=""
+            onQuery={() => undefined}
+            place="right"
+            options={props.example.pick!.state === 'ready' ? [
+              { key: 'portrait', label: 'Portrait' },
+              { key: 'landscape', label: 'Landscape' },
+              { key: 'line-art', label: 'Line art' },
+            ] : []}
+            onPick={() => undefined}
+            {...(props.example.pick!.state === 'ready' ? { highlight: 0 } : {})}
+            listMaxHeight={156}
+            {...(props.example.pick!.state === 'empty' ? { empty: 'No options available' } : {})}
+            {...(props.example.pick!.state === 'failed' ? { status: { tone: 'error' as const, text: 'Could not load options', action: { id: 'retry', label: 'Try again', onClick: () => undefined } } } : {})}
+          />
+        )}</Show>
+      </div>
+      </Show>
       <figcaption class="dinkster-metadata">{props.example.caption}</figcaption>
     </figure>
   )
@@ -145,6 +219,18 @@ const representationExample = (
     schema: representationSchema,
   },
 })
+
+const sameLineExamples: readonly RowExample[] = [
+  { id: 'middle-field', field: 'y', caption: 'Middle field open. Only y is outlined; its side part is a separate bordered box below the node, never a bridge across z.' },
+  { id: 'last-field', field: 'z', caption: 'Last field open. Its side part joins the exposed right edge when there is room; x and y stay untouched.' },
+  { id: 'first-field', field: 'x', caption: 'First field open. Its side part joins the exposed left edge when there is room; y and z stay untouched.' },
+].map((example) => ({
+  id: example.id, caption: example.caption, scale: 1,
+  width: MARGIN + 600 + SIDE_ROOM, nodeWidth: 600,
+  node: { x: example.field === 'x' ? SIDE_ROOM : MARGIN, y: MARGIN },
+  open: example.field,
+  build: { scene: createSameLineScene, schema: sameLineSchema },
+}))
 
 const representationExamples: readonly RowExample[] = [
   representationExample(
@@ -179,6 +265,12 @@ const representationExamples: readonly RowExample[] = [
     'representation-locked',
     'Locked, or only one look. No Display control and no dead button: a declared set with userSwitchable false wins.',
     'locked',
+  ),
+  representationExample(
+    'representation-readonly',
+    'A read-only field keeps its ordinary contrast and lock. The keyboard outline offers Display because changing the look writes no value.',
+    'readonlyMix',
+    { focus: true },
   ),
   {
     id: 'representation-color',
@@ -218,6 +310,13 @@ export function RowStatesGallery(props: { theme: Theme }) {
     <>
       <ProductSection title="Gives nothing, and a skipped node">{cards(examples().nothing)}</ProductSection>
       <ProductSection title="Promoted fields inside and outside">{cards(examples().promoted)}</ProductSection>
+      <ProductSection title="Opening a field on a shared line">
+        <div class="dinkster-canvas-examples">
+          <For each={sameLineExamples}>{(example) => <RowEditingExample example={example} theme={props.theme} registry={registry} look={tokens()} testIdPrefix="row-states" />}</For>
+        </div>
+      </ProductSection>
+      <ProductSection title="Button keyboard focus">{cards(examples().buttons.filter((example) => example.focus !== undefined))}</ProductSection>
+      <ProductSection title="Button results, Pick lists and Ask forms">{cards(examples().buttons.filter((example) => example.focus === undefined))}</ProductSection>
       <ProductSection title="Display control at the end of the side part">
         <div class="dinkster-canvas-examples">
           <For each={representationExamples}>

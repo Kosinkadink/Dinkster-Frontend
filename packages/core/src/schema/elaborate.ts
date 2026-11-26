@@ -27,7 +27,7 @@
 import { diag, type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
 import type { DynamicPortState, GraphDef, Json, NodeData } from '../format/document.js'
 import { asPortId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, type DynamicMemberId, type NodeId } from '../ids.js'
-import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaValue, type Unknown } from '../mirror/formula.js'
+import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaScope, type FormulaValue, type FormulaValues, type Unknown } from '../mirror/formula.js'
 import {
   applyUse,
   choiceScopeRows,
@@ -232,6 +232,10 @@ export interface ElaboratedInput {
   readonly automatic?: AutomaticState
   /** A field that declares `automatic` and holds a fixed value: what it would work out to if emptied. */
   readonly automaticIfEmptied?: AutomaticState
+  /** Direct user value edits are blocked; wires and action writes are unchanged. */
+  readonly readOnly?: true
+  readonly disabled?: true
+  readonly disabledReason?: string
   /** Keys of the boxes the node draws around this row, outermost first. */
   readonly boxes?: readonly string[]
   /** The rows its widget's `writes` and `reads` name, when it names any. */
@@ -531,7 +535,7 @@ const jsonOf = (value: FormulaValue): Json => {
 const limitOf = (value: unknown): bigint | number | undefined =>
   typeof value === 'number' ? value : isCanonicalUnsafeInteger(value) ? BigInt(value) : undefined
 
-/** An action drawn as a row. The editor does not run its steps. */
+/** An action drawn as a row; the button runner (actions/runner.ts) runs its steps. */
 export interface ElaboratedButton {
   readonly kind: 'button'
   /** Flattened id. */
@@ -541,6 +545,8 @@ export interface ElaboratedButton {
   readonly enabled?: false
   readonly disabledReason?: string
   readonly tooltip?: string
+  /** The declaration: its steps, icon, tooltip and the formulas that enable it. */
+  readonly spec: ButtonSpec
   readonly section?: string
   readonly boxes?: readonly string[]
   /** Line key of the cell drawn before this one in a `Row`. */
@@ -701,6 +707,23 @@ export interface ElaborateOptions {
    * when its `visible` is false.
    */
   readonly problemRows?: ReadonlySet<string>
+  /**
+   * When given, receives the formula context of every scope the walk enters,
+   * keyed by the scope's flattened prefix ('' for the body, 'loras.lora_1.'
+   * for a member, 'format.' for a choice's option). The button runner reads
+   * it to work out a step's formulas where the button sits.
+   */
+  readonly formulaContexts?: Map<string, FormulaContext>
+}
+
+/** What a formula sees in one scope of a node, and where each name it reads is stored. */
+export interface FormulaContext {
+  readonly scope: FormulaScope
+  readonly values: FormulaValues
+  /** Each name's flattened id. */
+  readonly paths: ReadonlyMap<string, string>
+  /** The scope is a member the node shows but does not store. */
+  readonly ghost?: true
 }
 
 // ---------------------------------------------------------------------------
@@ -1292,7 +1315,8 @@ function elaboratePass(
     return { writes: resolve(widget.writes), reads: resolve(widget.reads) }
   }
 
-  const evaluate = (text: string, scope: Scope): ReturnType<Formula['evaluate']> => {
+  /** The names a formula sees in `scope`, their values in the stored state, and where each is stored. */
+  const contextOf = (scope: Scope): FormulaContext => {
     const names = framesNamesOf(scope.formulaFrames.map((frame) => frame.rows))
     const { where, unknown, fixed } = namesAt(scope)
     const defaults = new Map<string, unknown>()
@@ -1339,22 +1363,31 @@ function elaboratePass(
         if (names.inputs.has(name)) wired.set(name, linked(path))
       }
     }
-    try {
-      const formula = Formula.parse(text, {
+    return {
+      scope: {
         names: names.names,
         inputs: names.inputs,
         assets: names.assets,
         tables,
         derived,
         inMember: member !== undefined,
-      })
-      return formula.evaluate({
+      },
+      values: {
         values,
         linked: wired,
         groupSizes: sizes,
         memberIndex: member?.index ?? null,
         memberKey: member?.key ?? null,
-      })
+      },
+      paths: where,
+      ...(scope.ghost ? { ghost: true as const } : {}),
+    }
+  }
+
+  const evaluate = (text: string, scope: Scope): ReturnType<Formula['evaluate']> => {
+    const context = contextOf(scope)
+    try {
+      return Formula.parse(text, context.scope).evaluate(context.values)
     } catch (error) {
       if (error instanceof FormulaRefused) return { kind: 'failed', reason: error.message }
       throw error
@@ -1635,6 +1668,9 @@ function elaboratePass(
     // A field that is not sent is drawn and edited but never reaches the run.
     const sent = !(scope.ghost || scope.dormant || row.sent === false)
     const hiddenByScope = scope.hidden && row.hidden !== true
+    const readOnly = answer(row.readOnly, scope, 'boolean') === true
+    const disabled = answer(row.disabled, scope, 'boolean') === true
+    const disabledReason = disabled ? answer(row.disabledReason, scope, 'string') : undefined
     // A census also visits rows not chosen; they never replace a chosen row's entry.
     if (!scope.dormant || !unsetReads.has(path)) unsetReads.set(path, readWhenUnset(sent ? sentSpecOf(spec, hiddenByScope) : { ...spec, sent: false }))
     push({
@@ -1643,6 +1679,9 @@ function elaboratePass(
       ...(sent ? { apiName: path } : {}),
       spec,
       ...common(scope),
+      ...(readOnly ? { readOnly: true as const } : {}),
+      ...(disabled ? { disabled: true as const } : {}),
+      ...(disabledReason ? { disabledReason } : {}),
       ...(parts !== undefined ? { parts } : {}),
       ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),
@@ -1697,6 +1736,9 @@ function elaboratePass(
   }
 
   const rows = (list: readonly OptionRow[], scope: Scope): void => {
+    if (options.formulaContexts !== undefined && !options.formulaContexts.has(scope.prefix)) {
+      options.formulaContexts.set(scope.prefix, contextOf(scope))
+    }
     for (const raw of list) {
       if (halted) return
       let row: BodyRow
@@ -1814,7 +1856,7 @@ function elaboratePass(
       const reason = enabled === false ? answer(row.disabledReason, scope, 'string') : undefined
       const tooltip = answer(row.tooltip, scope, 'string')
       item = {
-        kind: 'button', id, label: row.label, ...placed,
+        kind: 'button', id, label: row.label, spec: row, ...placed,
         ...(enabled === false ? { enabled: false as const } : {}),
         ...(reason ? { disabledReason: reason } : {}),
         ...(tooltip ? { tooltip } : {}),

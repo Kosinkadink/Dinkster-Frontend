@@ -1,5 +1,6 @@
-import { For, Show, createEffect, createUniqueId, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, createUniqueId, type JSX } from 'solid-js'
 import { Check, ChevronDown } from 'lucide-solid'
+import { CanvasEditorButtons, CanvasEditorChoiceList } from './canvas-editor.js'
 import {
   CanvasSideLink,
   CanvasSidePart,
@@ -23,6 +24,7 @@ export function canvasTargetLayout(
   box: number,
   side: CanvasSideSize,
   scale: number,
+  edges?: { readonly left: boolean; readonly right: boolean },
 ): CanvasSideLayout & { readonly panelPlace: CanvasPanelPlace } {
   const height = box * Math.max(1, scale)
   const below = bounds.y + bounds.height - (row.y + row.height)
@@ -37,7 +39,7 @@ export function canvasTargetLayout(
   }
   return {
     panelPlace,
-    ...canvasSideLayout(column, bounds, side, scale, Infinity, Infinity),
+    ...canvasSideLayout(column, bounds, side, scale, Infinity, Infinity, edges),
   }
 }
 
@@ -78,6 +80,15 @@ export type CanvasTargetStop = 'mount' | 'prefix'
  * here stores; the caller does when the box is left.
  */
 export function CanvasTargetBox(props: {
+  /** Uses the shared editor space's padding and row heights. */
+  inNode?: boolean
+  mountWired?: boolean
+  prefixWired?: boolean
+  mountReadOnly?: boolean
+  prefixReadOnly?: boolean
+  mountDisabled?: boolean
+  prefixDisabled?: boolean
+  mountText?: string | undefined
   words: CanvasTargetWords
   mounts: CanvasTargetMounts
   options: readonly CanvasTargetMount[]
@@ -93,8 +104,12 @@ export function CanvasTargetBox(props: {
   onPick?: (index: number) => void
   prefix: string
   onPrefix?: (text: string) => void
+  /** Naming help shown on the Name row. */
+  help?: string | undefined
   /** Why the prefix cannot be used, under the field. */
   prefixProblem?: string
+  mountProblem?: JSX.Element
+  reset?: { readonly label: string; readonly onClick: () => void }
   /** The part the keyboard is on, drawn focused even without the browser's focus. */
   focused?: CanvasTargetStop
   onFocusStop?: (stop: CanvasTargetStop) => void
@@ -103,21 +118,29 @@ export function CanvasTargetBox(props: {
   /** A store is in flight: nothing can be changed. */
   frozen?: boolean
 }) {
-  const listboxId = createUniqueId()
   const prefixId = createUniqueId()
   const problemId = createUniqueId()
-  const optionId = (index: number) => `${listboxId}-${index}`
+  const legacyListboxId = createUniqueId()
+  const optionId = (index: number) => `${legacyListboxId}-${index}`
+  const [listboxId, setListboxId] = createSignal(legacyListboxId)
+  const [query, setQuery] = createSignal('')
+  const shown = () => props.options.map((option, index) => ({ option, index }))
+    .filter(({ option }) => option.label.toLowerCase().includes(query().toLowerCase()))
   const picked = () => props.options.find((option) => option.id === props.mount)
   const ready = () => props.mounts === 'ready'
+  const mountBlocked = () => props.frozen === true || props.mountWired === true || props.mountReadOnly === true || props.mountDisabled === true
+  const prefixBlocked = () => props.frozen === true || props.prefixWired === true || props.prefixReadOnly === true || props.prefixDisabled === true
   let mountButton: HTMLButtonElement | undefined
+  createEffect(() => { if (props.listOpen) setQuery('') })
   createEffect(() => {
-    if (!mountButton) return
+    if (!mountButton || props.inNode) return
     const index = props.highlight
     if (props.listOpen && index !== undefined && props.options[index] !== undefined)
       mountButton.setAttribute('aria-activedescendant', optionId(index))
     else mountButton.removeAttribute('aria-activedescendant')
   })
   const value = (): JSX.Element => {
+    if (props.mountText !== undefined) return <span class="dinkster-canvas-target-value-text">{props.mountText}</span>
     switch (props.mounts) {
       case 'loading':
         return (
@@ -140,8 +163,8 @@ export function CanvasTargetBox(props: {
     }
   }
   return (
-    <div class="dinkster-canvas-target-box" data-frozen={props.frozen === true}>
-      <div class="dinkster-canvas-target-mount">
+    <div class="dinkster-canvas-target-box" data-in-node={props.inNode === true} data-frozen={props.frozen === true}>
+      <div class="dinkster-canvas-target-mount" data-wired={props.mountWired === true} data-disabled={props.mountDisabled === true} inert={props.mountWired === true || props.mountDisabled === true}>
         <button
           ref={(element) => {
             mountButton = element
@@ -154,76 +177,98 @@ export function CanvasTargetBox(props: {
           data-focused={props.focused === 'mount'}
           aria-haspopup="listbox"
           aria-expanded={props.listOpen}
-          aria-controls={props.listOpen ? listboxId : undefined}
-          aria-disabled={!ready() || props.frozen === true}
-          tabindex="-1"
+          aria-controls={props.listOpen ? listboxId() : undefined}
+          aria-disabled={!ready() || mountBlocked()}
+          tabindex={props.inNode && !mountBlocked() ? 0 : -1}
           onFocus={() => props.onFocusStop?.('mount')}
           onClick={() => {
-            if (ready() && props.frozen !== true) props.onToggleList?.()
+            if (ready() && !mountBlocked()) { setQuery(''); props.onToggleList?.() }
           }}
         >
           <span class="dinkster-canvas-target-label">{props.words.mount}</span>
           <span class="dinkster-canvas-target-value">{value()}</span>
         </button>
-        <Show when={props.listOpen && ready()}>
-          <div
-            id={listboxId}
-            class="dinkster-canvas-target-list"
-            role="listbox"
-            aria-label={props.words.mount}
-          >
-            <For each={props.options}>
-              {(option, index) => (
-                <div
-                  id={optionId(index())}
-                  class="dinkster-canvas-target-option"
-                  role="option"
-                  aria-selected={option.id === props.mount}
-                  aria-disabled={option.unavailable === true}
-                  data-active={props.highlight === index()}
-                  data-unavailable={option.unavailable === true}
+        <Show when={props.listOpen && ready() && !mountBlocked()}>
+          <Show when={props.inNode} fallback={
+            <div id={legacyListboxId} class="dinkster-canvas-target-list" role="listbox" aria-label={props.words.mount}>
+              <For each={props.options}>{(option, index) =>
+                <div id={optionId(index())} class="dinkster-canvas-target-option" role="option"
+                  aria-selected={option.id === props.mount} aria-disabled={option.unavailable === true}
+                  data-active={props.highlight === index()} data-unavailable={option.unavailable === true}
                   onPointerDown={(event) => event.preventDefault()}
-                  onPointerMove={() => {
-                    if (props.highlight !== index()) props.onHighlight?.(index())
-                  }}
-                  onClick={() => {
-                    if (option.unavailable !== true && props.frozen !== true) props.onPick?.(index())
-                  }}
-                >
+                  onPointerMove={() => { if (props.highlight !== index()) props.onHighlight?.(index()) }}
+                  onClick={() => { if (option.unavailable !== true && props.frozen !== true) props.onPick?.(index()) }}>
                   <span class="dinkster-canvas-target-option-label">{option.label}</span>
-                  <Show when={option.id === props.mount}>
-                    <Check class="dinkster-canvas-target-check" aria-hidden="true" />
-                  </Show>
+                  <Show when={option.id === props.mount}><Check class="dinkster-canvas-target-check" aria-hidden="true" /></Show>
                 </div>
-              )}
-            </For>
-          </div>
+              }</For>
+            </div>
+          }>
+          <CanvasEditorChoiceList anchor={mountButton!} onClose={() => { if (props.listOpen) props.onToggleList?.() }}
+            look="flat-title" label={props.words.mount} inputLabel={props.words.mount}
+            query={query()} onQuery={(text) => { setQuery(text); const first = shown()[0]; if (first) props.onHighlight?.(first.index) }}
+            placeholder={picked()?.label ?? props.mount}
+            inputRef={(element) => queueMicrotask(() => element.focus())}
+            ref={(element) => { const id = element.querySelector('[role="listbox"]')?.id; if (id) setListboxId(id) }}
+            options={shown().map(({ option }) => ({ key: option.id, label: option.label, saved: option.id === props.mount, disabled: option.unavailable === true }))}
+            highlight={shown().findIndex(({ index }) => index === props.highlight)}
+            onHighlight={(index) => { const entry = shown()[index]; if (entry) props.onHighlight?.(entry.index) }}
+            onPick={(index) => {
+              const entry = shown()[index]
+              if (entry && !entry.option.unavailable && !props.frozen) props.onPick?.(entry.index)
+            }}
+            frozen={props.frozen === true}
+            onKeyDown={(event) => {
+              if (event.isComposing) return
+              if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
+                event.preventDefault(); event.stopPropagation()
+                const entry = shown().find(({ index }) => index === props.highlight)
+                if (entry && !entry.option.unavailable && !props.frozen) { mountButton?.focus(); props.onPick?.(entry.index) }
+              } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault(); event.stopPropagation()
+                const entries = shown()
+                const current = entries.findIndex(({ index }) => index === props.highlight)
+                const entry = entries[(current + (event.key === 'ArrowDown' ? 1 : entries.length - 1)) % entries.length]
+                if (entry) props.onHighlight?.(entry.index)
+              }
+            }} />
+          </Show>
         </Show>
       </div>
-      <label class="dinkster-canvas-target-caption" for={prefixId}>
-        {props.words.prefix}
-      </label>
-      <input
-        ref={props.prefixRef}
-        id={prefixId}
-        class="dinkster-canvas-target-input"
-        type="text"
-        value={props.prefix}
-        data-focused={props.focused === 'prefix'}
-        aria-invalid={props.prefixProblem !== undefined}
-        aria-errormessage={props.prefixProblem === undefined ? undefined : problemId}
-        readOnly={props.frozen === true}
-        autocomplete="off"
-        spellcheck={false}
-        tabindex="-1"
-        onFocus={() => props.onFocusStop?.('prefix')}
-        onInput={(event) => props.onPrefix?.(event.currentTarget.value)}
-      />
+      <Show when={props.mountProblem}>
+        {props.mountProblem}
+      </Show>
+      <div class="dinkster-canvas-target-name" data-wired={props.prefixWired === true} data-disabled={props.prefixDisabled === true} inert={props.prefixWired === true || props.prefixDisabled === true} title={props.help}>
+        <label class="dinkster-canvas-target-caption" for={prefixId}>
+          {props.words.prefix}
+        </label>
+        <input
+          ref={props.prefixRef}
+          id={prefixId}
+          class="dinkster-canvas-target-input"
+          type="text"
+          value={props.prefix}
+          data-focused={props.focused === 'prefix'}
+          aria-invalid={props.prefixProblem !== undefined}
+          aria-errormessage={props.prefixProblem === undefined ? undefined : problemId}
+          readOnly={prefixBlocked()}
+          autocomplete="off"
+          spellcheck={false}
+          tabindex={props.inNode && !prefixBlocked() ? 0 : -1}
+          onFocus={() => props.onFocusStop?.('prefix')}
+          onInput={(event) => { if (!prefixBlocked()) props.onPrefix?.(event.currentTarget.value) }}
+        />
+      </div>
       <Show when={props.prefixProblem}>
         <p id={problemId} class="dinkster-canvas-target-note">
           {props.prefixProblem}
         </p>
       </Show>
+      <Show when={props.reset}>{(reset) =>
+        <div class="dinkster-canvas-target-reset">
+          <CanvasEditorButtons buttons={[{ label: reset().label, disabled: props.frozen === true, onClick: () => reset().onClick() }]} />
+        </div>
+      }</Show>
     </div>
   )
 }
