@@ -1563,6 +1563,17 @@ test('Saved connection rows retain actions, credential editing and connection fa
         expect(bounds!.x).toBeGreaterThanOrEqual(area!.x)
         expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(area!.x + area!.width)
       }
+      const selectedAddress = await row.locator('code.backend-address').evaluate((address) => {
+        const selection = window.getSelection()!
+        const range = document.createRange()
+        range.selectNodeContents(address)
+        selection.removeAllRanges()
+        selection.addRange(range)
+        const text = selection.toString()
+        selection.removeAllRanges()
+        return text
+      })
+      expect(selectedAddress).toBe('https://render-studio.example.test:8443/team/production')
       await page.mouse.move(0, 0)
       await screenshot(page, `connection-profile-${state}-${width}`)
     }
