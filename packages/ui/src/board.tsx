@@ -26,7 +26,7 @@ import {
   type BoardAsset,
   type BoardItem,
   type BoardMediaItem,
-  type BoardStore,
+  type BoardSession,
 } from '@dinkster/core'
 import {
   canvasPaintTokens,
@@ -43,7 +43,7 @@ import { ProductAudioWaveform } from './audio-waveform.js'
 import { useFieldFocus } from './field-focus.js'
 
 export interface ProductBoardProps {
-  readonly store: BoardStore
+  readonly store: BoardSession
   readonly assetUrl: (asset: BoardAsset) => string
   readonly viewControls: (view: {
     readonly zoom: number

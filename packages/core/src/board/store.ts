@@ -45,6 +45,18 @@ export interface BoardTransaction {
   readonly inverse: readonly PatchOp[]
 }
 
+/** Document editing shared by local stores and collaborative Board sessions. */
+export interface BoardSession {
+  readonly doc: BoardDocument
+  readonly document: ReadonlySignal<BoardDocument>
+  readonly revision: number
+  readonly canUndo: boolean
+  readonly canRedo: boolean
+  dispatch(invocation: BoardCommandInvocation): BoardDispatchOutcome
+  undo(): boolean
+  redo(): boolean
+}
+
 type Refusal = Extract<BoardDispatchOutcome, { readonly ok: false }>
 
 const refuse = (code: string, message: string): Refusal =>
@@ -186,7 +198,7 @@ interface HistoryEntry {
   readonly inverse: readonly PatchOp[]
 }
 
-export class BoardStore {
+export class BoardStore implements BoardSession {
   private current: BoardDocument
   private currentRevision = 0
   private readonly undoStack: HistoryEntry[] = []
