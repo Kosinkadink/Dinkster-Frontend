@@ -3,6 +3,7 @@ import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   ProductModelList,
+  ProductTextButton,
   type ProductModel,
   type ProductModelListHandle,
 } from '@dinkster/ui'
@@ -100,6 +101,7 @@ describe('ProductModelList', () => {
           onShowFolder={() => {
             throw new Error('Inline field action must not run')
           }}
+          renderActions={() => <span>Replacement actions</span>}
         />
       ),
       root,
@@ -127,6 +129,7 @@ describe('ProductModelList', () => {
       button(root, 'FP8 A').click()
       expect(root.textContent).not.toContain('flux-dev-fp8.safetensors')
       expect(root.textContent).not.toContain('Show folder')
+      expect(root.textContent).not.toContain('Replacement actions')
       key('ArrowDown')
       expect(document.activeElement).toBe(button(root, 'FP8 B'))
       key('ArrowDown')
@@ -174,6 +177,7 @@ describe('ProductModelList', () => {
     const chosen: string[][] = []
     const downloaded: string[][] = []
     const shown: string[][] = []
+    const [confirming, setConfirming] = createSignal<string>()
     const dispose = render(
       () => (
         <ProductModelList
@@ -185,6 +189,17 @@ describe('ProductModelList', () => {
           }
           onShowFolder={(modelId, versionId) =>
             shown.push([modelId, versionId])
+          }
+          onHide={(modelId, versionId) =>
+            setConfirming(JSON.stringify([modelId, versionId]))
+          }
+          renderActions={(modelId, versionId) =>
+            confirming() === JSON.stringify([modelId, versionId]) ? (
+              <ProductTextButton
+                label="Cancel hiding"
+                onClick={() => setConfirming(undefined)}
+              />
+            ) : undefined
           }
         />
       ),
@@ -205,8 +220,23 @@ describe('ProductModelList', () => {
       button(root, 'Show folder').click()
       expect(shown).toEqual([['flux', 'fp8']])
       expect(chosen).toEqual([['flux', 'fp8']])
+      button(root, 'Hide').click()
+      expect(root.textContent).toContain('flux-dev-fp8.safetensors')
+      expect(root.textContent).toContain('Studio models')
+      expect(root.textContent).not.toContain('Show folder')
+      button(root, 'SDXL base').click()
+      expect(root.textContent).toContain('Show folder')
+      expect(root.textContent).toContain('sdxl-base.safetensors')
+      button(root, 'Cancel hiding').click()
+      expect(root.textContent).not.toContain('Cancel hiding')
+      expect(
+        [...root.querySelectorAll('button')].filter(
+          (element) => element.textContent === 'Show folder',
+        ),
+      ).toHaveLength(2)
+      button(root, 'SDXL base').click()
       button(root, 'Q4').click()
-      expect(chosen).toEqual([['flux', 'fp8']])
+      expect(chosen.at(-1)).toEqual(['sdxl', 'fp8'])
       expect(root.textContent).toContain('Not downloaded')
       expect(button(root, 'Download').textContent).toBe('6.8 GB')
       button(root, 'Download').click()
@@ -215,6 +245,8 @@ describe('ProductModelList', () => {
       expect(root.textContent).toContain('sdxl-base.safetensors')
       expect(chosen).toEqual([
         ['flux', 'fp8'],
+        ['sdxl', 'fp8'],
+        ['sdxl', 'fp8'],
         ['sdxl', 'fp8'],
       ])
     } finally {

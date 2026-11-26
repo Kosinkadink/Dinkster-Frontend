@@ -1,4 +1,5 @@
 import {
+  type JSX,
   For,
   Show,
   createMemo,
@@ -59,6 +60,8 @@ export interface ProductModelListProps {
   readonly onShowFolder?: (modelId: string, versionId: string) => void
   readonly onCopyName?: (modelId: string, versionId: string) => void
   readonly onHide?: (modelId: string, versionId: string) => void
+  /** Replaces only an opened installed version's actions; undefined keeps defaults. */
+  readonly renderActions?: (modelId: string, versionId: string) => JSX.Element
 }
 
 export interface ProductModelListHandle {
@@ -165,7 +168,17 @@ export function ProductModelList(props: ProductModelListProps) {
       props.inlineDetails !== false &&
       (Boolean(version().facts?.length) ||
         (version().state === 'installed' &&
-          Boolean(props.onShowFolder || props.onCopyName || props.onHide)))
+          Boolean(
+            props.onShowFolder ||
+              props.onCopyName ||
+              props.onHide ||
+              props.renderActions,
+          )))
+    const actions = createMemo(() =>
+      props.inlineDetails !== false && open() && version().state === 'installed'
+        ? props.renderActions?.(model().id, version().id)
+        : undefined,
+    )
     const title = () => (propsRow.grouped ? version().name : model().name)
     const selected = () =>
       props.selected?.some(
@@ -281,28 +294,35 @@ export function ProductModelList(props: ProductModelListProps) {
           />
         </Show>
         <Show when={version().state === 'installed'}>
-          <div class="dinkster-model-actions">
-            <Show when={props.onShowFolder}>
-              <ProductTextButton
-                label={strings.modelShowFolder}
-                onClick={() => act(props.onShowFolder)}
-              />
-            </Show>
-            <Show when={props.onCopyName}>
-              <ProductTextButton
-                label={strings.modelCopyName}
-                onClick={() => act(props.onCopyName)}
-              />
-            </Show>
-            <Show when={props.onHide}>
-              <div class="dinkster-model-hide">
-                <ProductTextButton
-                  label={strings.modelHide}
-                  onClick={() => act(props.onHide)}
-                />
+          <Show
+            when={actions() !== undefined}
+            fallback={
+              <div class="dinkster-model-actions">
+                <Show when={props.onShowFolder}>
+                  <ProductTextButton
+                    label={strings.modelShowFolder}
+                    onClick={() => act(props.onShowFolder)}
+                  />
+                </Show>
+                <Show when={props.onCopyName}>
+                  <ProductTextButton
+                    label={strings.modelCopyName}
+                    onClick={() => act(props.onCopyName)}
+                  />
+                </Show>
+                <Show when={props.onHide}>
+                  <div class="dinkster-model-hide">
+                    <ProductTextButton
+                      label={strings.modelHide}
+                      onClick={() => act(props.onHide)}
+                    />
+                  </div>
+                </Show>
               </div>
-            </Show>
-          </div>
+            }
+          >
+            {actions()}
+          </Show>
         </Show>
       </ProductListRow>
     )
