@@ -241,6 +241,7 @@ for (const width of [1280, 390]) {
       await page.goto(`/#${section}`)
       await page.evaluate(() => document.fonts.ready)
       await expect(page.getByRole('main')).toBeVisible()
+      if (section === 'confirmations') expect(await page.evaluate(() => window.scrollY)).toBe(0)
       if (section === 'lists') {
         const heading = page.locator('.storage-folder-heading').first()
         const name = await heading.locator('strong').boundingBox()
@@ -1078,13 +1079,17 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await page.goto('/#confirmations')
   const opener = page.getByRole('button', { name: 'Review removal' })
   await opener.click()
-  const dialog = page.getByRole('dialog', { name: 'Remove item?' })
+  const dialog = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
   await expect(dialog).toBeVisible()
   await expect(
-    dialog.getByRole('button', { name: 'Remove item', exact: true }),
+    dialog.getByRole('button', { name: 'Remove backend', exact: true }),
   ).toBeVisible()
   await expect(page).toHaveScreenshot('dialog-open.png', { fullPage: true })
-  await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused()
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+  await opener.click()
   await page.keyboard.press('Shift+Tab')
   expect(
     await dialog.evaluate((element) =>
@@ -1099,7 +1104,7 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(dialog).toHaveCount(0)
   await opener.click()
   const remove = dialog.getByRole('button', {
-    name: 'Remove item',
+    name: 'Remove backend',
     exact: true,
   })
   await remove.focus()
@@ -1130,10 +1135,10 @@ test('wide dialogs use their own width and preserve narrow margins and dismissal
   for (const width of [1280, 800, 390]) {
     await page.setViewportSize({ width, height: 900 })
     await page.getByRole('button', { name: 'Review removal' }).click()
-    const regular = page.getByRole('dialog', { name: 'Remove item?' })
-    await expect(regular).toHaveAttribute('data-size', 'default')
+    const regular = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
+    await expect(regular).toHaveAttribute('data-size', 'confirmation')
     const regularBounds = (await regular.boundingBox())!
-    if (width >= 800) expect(regularBounds.width).toBe(480)
+    if (width >= 800) expect(regularBounds.width).toBe(460)
     else {
       expect(regularBounds.x).toBeGreaterThanOrEqual(16)
       expect(regularBounds.width).toBeGreaterThanOrEqual(width - 36)

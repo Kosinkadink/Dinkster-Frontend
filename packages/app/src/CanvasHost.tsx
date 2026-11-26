@@ -1513,6 +1513,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let semanticTargetSelected: (target: CanvasSemanticTarget) => boolean = () => false
   let activateSemanticTarget: (target: CanvasSemanticTarget) => void = () => {}
   let focusSemanticPin: (item: CanvasSemanticItem | undefined) => void = () => {}
+  let semanticPinPoint: (item: CanvasSemanticItem) => { x: number; y: number } | undefined = () => undefined
   let focusCanvas = (): void => {}
   const [editorViewport, setEditorViewport] = createSolidSignal({ x: 0, y: 0, scale: 1 })
   const [canvasClientRect, setCanvasClientRect] = createSolidSignal({ left: 0, top: 0, width: 0, height: 0 })
@@ -3847,9 +3848,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         : undefined,
     )
+    semanticPinPoint = (item) => {
+      const target = item.target
+      if (target.kind !== 'port') return undefined
+      const scene = renderer.getScene()
+      const node = scene.nodes.find((entry) => entry.id === target.nodeId) ??
+        scene.boundaryNodes.find((entry) => boundarySceneId(entry.side) === target.nodeId)
+      const pin = node?.layout.pins.find((entry) => entry.portId === target.id &&
+        entry.direction === target.direction && (entry.widgetTap === true) === (target.widgetTap === true))
+      if (node === undefined || pin === undefined) return undefined
+      const viewport = renderer.getViewport()
+      const canvas = canvasEl.getBoundingClientRect()
+      return {
+        x: canvas.left + viewport.x + (node.x + (pin.direction === 'in' ? 0 : node.layout.width)) * viewport.scale,
+        y: canvas.top + viewport.y + (node.y + pin.y) * viewport.scale,
+      }
+    }
     semanticTargetSelected = (target): boolean => {
       if (target.kind === 'node' || target.kind === 'boundary') return controller.getSelection().has(target.id)
-      if (target.kind === 'port' || target.kind === 'widget') return controller.getSelection().has(target.nodeId)
+      if (target.kind === 'port' || target.kind === 'widget') return false
       if (target.kind === 'minimize') return false
       if (target.kind === 'link') return controller.getLinkSelection().has(target.id)
       if (target.kind === 'reroute') return controller.getRerouteSelection().has(target.id)
@@ -7033,6 +7050,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       semanticTargetSelected = () => false
       activateSemanticTarget = () => {}
       focusSemanticPin = () => {}
+      semanticPinPoint = () => undefined
       focusCanvas = () => {}
     })
   })
@@ -7168,6 +7186,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           onExit={() => focusCanvas()}
           onFocusChange={(focused) => setSemanticFocused(focused)}
           onActiveChange={(item) => focusSemanticPin(item)}
+          activePoint={(item) => { void editorViewport(); return semanticPinPoint(item) }}
         />
       </Show>
       <Show when={fileDropSurface()} keyed>
