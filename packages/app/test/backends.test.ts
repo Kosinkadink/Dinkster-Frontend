@@ -203,13 +203,27 @@ describe('addBackend / removeBackend', () => {
       expect(app.modelDownloadStateFor(app.backends.get()[0]!, requirement).get()).toBeUndefined()
       jobs = []
       await app.modelDownloadsFor(backend).refresh()
-      app.openModelDownloads(backend, [{ ...requirement, source }], 'Example')
+      const page = new AbortController()
+      let pageCurrent = true
+      const open = () => app.openModelDownloads(backend, [{ ...requirement, source }], {
+        workflowTitle: 'Example', signal: page.signal, stillCurrent: () => pageCurrent,
+      })
+      open()
       await app.assetConsent.get()!.reviewModel!(0)
       expect(requests.find((request) => request.url.includes('/plan?'))?.body).toEqual({
         name, kind: requirement.kind, asset, source, project: 'default', scope: 'local',
       })
       expect(app.assetConsent.get()?.retry).toBeUndefined()
       expect(state.get()?.plan?.status).toBe('consent-required')
+      pageCurrent = false
+      await app.assetConsent.get()!.downloadModels!([0])
+      expect(app.assetConsent.get()).toBeUndefined()
+      pageCurrent = true
+      open()
+      page.abort()
+      expect(app.assetConsent.get()).toBeUndefined()
+      open()
+      expect(app.assetConsent.get()).toBeUndefined()
       app.assetConsent.set(undefined)
       jobs = [{ ...selection, jobId: 'external-new', status: 'downloading', received: 4093 }]
       await app.modelDownloadsFor(backend).refresh()

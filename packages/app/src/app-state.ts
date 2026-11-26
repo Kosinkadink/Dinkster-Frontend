@@ -4343,16 +4343,23 @@ export class AppState {
       return true
     })
     if (models.length === 0) return
-    this.openModelDownloads(backend, models, tab.title, tab)
+    this.openModelDownloads(backend, models, { workflowTitle: tab.title, tab })
   }
 
   /** Review without submitting a run; supplied sources must come from authoritative model metadata. */
-  openModelDownloads(backend: Backend, models: readonly (ModelDownloadRequirement & { readonly source?: string })[], workflowTitle?: string, tab?: Tab): void {
+  openModelDownloads(backend: Backend, models: readonly (ModelDownloadRequirement & { readonly source?: string })[], options: {
+    readonly workflowTitle?: string
+    readonly tab?: Tab
+    readonly signal?: AbortSignal
+    readonly stillCurrent?: () => boolean
+  } = {}): void {
     if (this.disposed || backend.protocol !== 'dinkster' || !this.backends.get().includes(backend) || models.length === 0) return
+    const { tab, workflowTitle } = options
     const document = tab?.store.doc
     const registry = tab && this.registryForTab(tab)
     const project = activeProjectId()
     const current = (): boolean => !this.disposed && activeProjectId() === project && this.backends.get().includes(backend) &&
+      !options.signal?.aborted && (options.stillCurrent?.() ?? true) &&
       (!tab || (this.tabs.get().includes(tab) && this.backendForTab(tab) === backend &&
         tab.store.doc === document && this.registryForTab(tab) === registry))
     if (!current()) return
@@ -4370,7 +4377,8 @@ export class AppState {
     const unsubscribe = [this.backendsTick.subscribe(invalidate),
       ...(tab ? [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate)] : [])]
     installAssetConsent({
-      models, ...(workflowTitle === undefined ? {} : { workflowTitle }), slot: this.assetConsent, signal: controller.signal,
+      models, ...(workflowTitle === undefined ? {} : { workflowTitle }), slot: this.assetConsent,
+      signal: options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal,
       beforeRetry: current,
       modelDownloads: { connection: backend.connection, controller: transfers, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
