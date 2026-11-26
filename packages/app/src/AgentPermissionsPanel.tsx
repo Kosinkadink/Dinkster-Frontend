@@ -1,6 +1,7 @@
 import { createSignal, For, onMount, Show } from 'solid-js'
 import type { Delegation, DinksterConnection, PrincipalSummary } from '@dinkster/client'
 import { ProductCheckbox } from './ProductControls.js'
+import { ProductSelect } from '@dinkster/ui'
 import { ProductField, ProductNotice } from './ProductForm.js'
 import { useAppMessage } from './locale.js'
 
@@ -101,9 +102,8 @@ export function AgentPermissionsPanel(props: { readonly connection: PermissionsC
               <input id="delegate-name" value={name()} maxLength={64} onInput={(event) => setName(event.currentTarget.value)} />
             </ProductField>
             <ProductField controlId="delegate-scope" label={message('agentPermissions.scope')}>
-              <select id="delegate-scope" value={scope()} onChange={(event) => setScope(event.currentTarget.value)}>
-                <For each={self()?.scopes}>{(value) => <option value={value}>{value}</option>}</For>
-              </select>
+              <ProductSelect id="delegate-scope" value={scope()} onChange={setScope}
+                options={(self()?.scopes ?? []).map((value) => ({ value, label: value }))} />
             </ProductField>
             <ProductField controlId="delegate-session" label={message('agentPermissions.session')}>
               <input id="delegate-session" value={sessionId()} onInput={(event) => setSessionId(event.currentTarget.value)} />

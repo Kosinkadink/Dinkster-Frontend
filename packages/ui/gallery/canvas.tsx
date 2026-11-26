@@ -761,12 +761,9 @@ export function CanvasGallery() {
               <ProductSelect
                 {...attributes}
                 value={widgetId()}
-                onChange={(event) => setWidgetId(event.currentTarget.value)}
-              >
-                <For each={galleryWidgetInputs}>
-                  {(input) => <option value={input.id}>{input.id}</option>}
-                </For>
-              </ProductSelect>
+                onChange={setWidgetId}
+                options={galleryWidgetInputs.map((input) => ({ value: input.id, label: input.id }))}
+              />
             )}
           </ProductField>
         </div>

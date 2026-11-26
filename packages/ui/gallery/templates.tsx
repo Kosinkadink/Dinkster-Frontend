@@ -472,14 +472,11 @@ export function TemplatesGallery() {
             <ProductSelect
               {...attributes}
               value={state()}
-              onChange={(event) =>
-                setState(event.currentTarget.value as keyof typeof states)
+              onChange={(value) =>
+                setState(value as keyof typeof states)
               }
-            >
-              <For each={Object.entries(states)}>
-                {([value, label]) => <option value={value}>{label}</option>}
-              </For>
-            </ProductSelect>
+              options={Object.entries(states).map(([value, label]) => ({ value, label }))}
+            />
           )}
         </ProductField>
         <p role="status">{activity()}</p>

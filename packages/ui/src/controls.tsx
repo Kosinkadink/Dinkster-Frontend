@@ -7,7 +7,7 @@ import {
   splitProps,
   type JSX,
 } from 'solid-js'
-import { ChevronDown, CircleAlert, Clock, LoaderCircle, X, type LucideIcon } from 'lucide-solid'
+import { CircleAlert, Clock, LoaderCircle, X, type LucideIcon } from 'lucide-solid'
 import { Dynamic } from 'solid-js/web'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
@@ -427,18 +427,6 @@ export function ProductTextArea(
 ) {
   useFieldFocus()
   return <textarea {...props} class="dinkster-input dinkster-textarea" />
-}
-
-export function ProductSelect(
-  props: Omit<JSX.SelectHTMLAttributes<HTMLSelectElement>, 'class' | 'style'>,
-) {
-  useFieldFocus()
-  return (
-    <div class="dinkster-select">
-      <select {...props} class="dinkster-input" />
-      <ProductIcon icon={ChevronDown} />
-    </div>
-  )
 }
 
 export function ProductCheckbox(

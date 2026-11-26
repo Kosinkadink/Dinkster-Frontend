@@ -737,10 +737,7 @@ export function ProjectsGallery() {
           />
         </span>
         <label for="new-project-runs-on">Runs on</label>
-        <ProductSelect id="new-project-runs-on">
-          <option>Stable 0.0.18 - this computer</option>
-          <option>Nightly - this computer</option>
-        </ProductSelect>
+        <ProductSelect id="new-project-runs-on" options={['Stable 0.0.18 - this computer', 'Nightly - this computer'].map((label) => ({ value: label, label }))} />
         <span>Start with</span>
         <span>
           <ProductSegmented
@@ -1006,15 +1003,12 @@ export function ProjectsGallery() {
             <ProductSelect
               {...attributes}
               value={state()}
-              onChange={(event) => {
+              onChange={(value) => {
                 setPlace('projects')
-                setState(event.currentTarget.value as State)
+                setState(value as State)
               }}
-            >
-              <For each={Object.entries(states)}>
-                {([value, label]) => <option value={value}>{label}</option>}
-              </For>
-            </ProductSelect>
+              options={Object.entries(states).map(([value, label]) => ({ value, label }))}
+            />
           )}
         </ProductField>
         <ProductField label="Platform">
@@ -1022,14 +1016,11 @@ export function ProjectsGallery() {
             <ProductSelect
               {...attributes}
               value={platform()}
-              onChange={(event) =>
-                setPlatform(event.currentTarget.value as keyof typeof platforms)
+              onChange={(value) =>
+                setPlatform(value as keyof typeof platforms)
               }
-            >
-              <For each={Object.entries(platforms)}>
-                {([value, label]) => <option value={value}>{label}</option>}
-              </For>
-            </ProductSelect>
+              options={Object.entries(platforms).map(([value, label]) => ({ value, label }))}
+            />
           )}
         </ProductField>
         <ProductCheckbox
