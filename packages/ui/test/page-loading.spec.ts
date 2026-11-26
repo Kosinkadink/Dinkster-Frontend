@@ -293,7 +293,7 @@ test('project headings and actions stay mounted while rows and facts arrive and 
   await expect(
     section.getByRole('definition').filter({ hasText: 'Alex Morgan' }),
   ).toBeVisible()
-  await list.getByRole('option', { name: /Alex Morgan/ }).click()
+  await list.getByRole('option', { name: /Film grain tests/ }).click()
   await page.keyboard.press('End')
   await expect(
     list.getByRole('option', { name: /Settings audit/ }),
@@ -313,6 +313,12 @@ test('project headings and actions stay mounted while rows and facts arrive and 
   expect(await heading.boundingBox()).toEqual(headingBounds)
   expect(await owner.boundingBox()).toEqual(ownerBounds)
   await page.setViewportSize({ width: 390, height: 900 })
+  const values = section.locator('.dinkster-project-fact-value')
+  expect(
+    await values.evaluateAll((elements) =>
+      elements.every((element) => element.scrollWidth <= element.clientWidth),
+    ),
+  ).toBe(true)
   await expect(
     section.getByRole('group', { name: 'Loaded project facts' }),
   ).toHaveScreenshot('project-answer-facts-narrow.png')

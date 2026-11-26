@@ -769,6 +769,7 @@
   .dinkster-mobile-nav { display: inline-flex; }
   .dinkster-page { padding: var(--dinkster-space-16); }
   .dinkster-row { align-items: start; flex-wrap: wrap; }
+  .dinkster-project-load-example .dinkster-project-facts { grid-template-columns: minmax(0, 1fr); }
 }
 .dinkster-canvas-field { position: absolute; z-index: 1; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
 .dinkster-canvas-field-row { position: relative; display: flex; align-items: center; height: var(--dinkster-input-canvas-height); background: var(--dinkster-surface-inset); overflow: hidden; }

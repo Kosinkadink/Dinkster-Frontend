@@ -107,7 +107,7 @@ export function PageLoadingGallery(props: { activity: string }) {
 export function ProjectLoadingGallery() {
   const page = createPageLoad<[string, string]>()
   const projectHeading = createUniqueId()
-  const [selected, setSelected] = createSignal('account')
+  const [selected, setSelected] = createSignal('film-grain-tests')
   const [created, setCreated] = createSignal(false)
   const read = () =>
     new Promise<[string, string]>((resolve) => {
@@ -127,42 +127,48 @@ export function ProjectLoadingGallery() {
       <p class="dinkster-metadata">
         {created() ? 'New project opened' : 'New is available before the read'}
       </p>
-      <ProductProjectFacts
-        label="Loaded project facts"
-        columns={[
-          [
-            {
-              label: 'Owner',
-              value: (
-                <ProductPageAnswer page={page}>
-                  {(account) => account[0]}
-                </ProductPageAnswer>
-              ),
-            },
-          ],
-          [
-            {
-              label: 'Email',
-              value: (
-                <ProductPageAnswer page={page}>
-                  {(account) => account[1]}
-                </ProductPageAnswer>
-              ),
-            },
-          ],
-        ]}
-      />
+      <div class="dinkster-project-load-example">
+        <ProductProjectFacts
+          label="Loaded project facts"
+          columns={[
+            [
+              {
+                label: 'Owner',
+                value: (
+                  <ProductPageAnswer page={page}>
+                    {(account) => account[0]}
+                  </ProductPageAnswer>
+                ),
+              },
+            ],
+            [
+              {
+                label: 'Email',
+                value: (
+                  <ProductPageAnswer page={page}>
+                    {(account) => account[1]}
+                  </ProductPageAnswer>
+                ),
+              },
+            ],
+          ]}
+        />
+      </div>
       <ProductPageLoad
         page={page}
         read={read}
         loadingLabel="Loading projects"
         arrival="rise"
       >
-        {(account) => (
+        {() => (
           <ProductProjectRows
             labelledBy={projectHeading}
             projects={[
-              { id: 'account', name: account[0], detail: account[1] },
+              {
+                id: 'film-grain-tests',
+                name: 'Film grain tests',
+                detail: 'Opened today',
+              },
               {
                 id: 'settings',
                 name: 'Settings audit',
