@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
 import { X } from 'lucide-solid'
-import { ProductButton, ProductIconButton } from './controls.js'
+import { ProductButton, ProductIconButton, ProductTextButton } from './controls.js'
 
 /** One change the editor made by itself and reports in the notice. */
 export interface FixesNoticeChange {
@@ -221,13 +221,10 @@ export function ProductFixesNotice(props: {
             when={props.changes.some((change) => change.kind === 'replaced')}
           >
             <div class="dinkster-fixes-review-foot">
-              <button
-                type="button"
-                class="dinkster-fixes-settings"
+              <ProductTextButton
+                label={props.strings.settings}
                 onClick={() => props.onSettings()}
-              >
-                {props.strings.settings}
-              </button>
+              />
             </div>
           </Show>
         </div>
