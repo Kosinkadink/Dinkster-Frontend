@@ -52,6 +52,7 @@
 .dinkster-content { max-width: var(--dinkster-content-max-width); margin-inline: auto; }
 .dinkster-content[data-width='table'] { max-width: var(--dinkster-table-max-width); }
 .dinkster-stack { display: grid; gap: var(--dinkster-space-16); }
+.dinkster-content:has(> .dinkster-page-load) { min-height: calc(100dvh - var(--dinkster-top-bar-height) - 2 * var(--dinkster-page-padding)); grid-template-rows: auto minmax(0, 1fr); }
 .dinkster-page-load { position: relative; height: 100%; min-height: 0; overflow: auto; }
 .dinkster-page-load-loading { display: grid; place-items: center; height: 100%; }
 .dinkster-page-load-loading > .dinkster-actions { justify-content: center; }

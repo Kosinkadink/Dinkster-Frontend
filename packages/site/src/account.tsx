@@ -1,4 +1,14 @@
-import { For, Show, batch, createMemo, createSignal, type JSX } from 'solid-js'
+import {
+  For,
+  Show,
+  batch,
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  untrack,
+  type JSX,
+} from 'solid-js'
 import { render } from 'solid-js/web'
 import { createStore, reconcile } from 'solid-js/store'
 import { CreditCard, KeyRound, Package, Shield, User } from 'lucide-solid'
@@ -14,9 +24,9 @@ import {
   ProductLink,
   ProductList,
   ProductListRow,
-  ProductLoading,
   ProductNotice,
   ProductPage,
+  ProductPageLoad,
   ProductPanel,
   ProductProviderButton,
   ProductSection,
@@ -26,6 +36,7 @@ import {
   ProductShell,
   ProductTextInput,
   ProductToast,
+  createPageLoad,
   reportProductEvent,
   type ProductRole,
 } from '@dinkster/ui'
@@ -118,8 +129,6 @@ export interface AccountModel {
   }
   state: {
     flags: Record<string, boolean>
-    loading?: boolean
-    loadFailed?: boolean
     flash: Message | null
     dismissedBanner?: string | null
   }
@@ -166,6 +175,11 @@ export function accountView(options: AccountViewOptions) {
   const [edits, setEdits] = createSignal<Record<string, string>>({})
   const baselines: Record<string, string> = {}
   let sourceState: AccountModel['state'] | undefined
+  const [page, setPage] =
+    createSignal<ReturnType<typeof createPageLoad<AccountModel | undefined>>>()
+  let pageId: string | undefined
+  let readPage: () => Promise<AccountModel | undefined>
+  let disposePage = () => {}
   const disabled = (control: AccountControl) =>
     control.changed_fields?.every((id) => id in baselines)
       ? !control.changed_fields.some(
@@ -190,7 +204,7 @@ export function accountView(options: AccountViewOptions) {
       ? ('registry' as const)
       : ('account' as const)
   const activate = async (control: AccountControl) => {
-    if (pending() || disabled(control)) return
+    if (pending() || page()?.pending() || disabled(control)) return
     setPending(control)
     const start = performance.now()
     try {
@@ -503,7 +517,7 @@ export function accountView(options: AccountViewOptions) {
         : [],
     )
     const content = () => (
-      <>
+      <div class="dinkster-stack">
         <Show when={model()!.screen.back}>
           {(back) => action(back(), true)}
         </Show>
@@ -515,33 +529,39 @@ export function accountView(options: AccountViewOptions) {
           {(flash) => message(flash() as Message)}
         </Show>
         <Show
-          when={!model()!.state.loading}
-          fallback={<ProductLoading label="Loading..." />}
+          when={
+            model()!.state.dismissedBanner !== model()!.screen.id &&
+            model()!.screen.banner
+          }
         >
-          <Show when={!model()!.state.loadFailed}>
-            <Show
-              when={
-                model()!.state.dismissedBanner !== model()!.screen.id &&
-                model()!.screen.banner
-              }
-            >
-              {(banner) => message(banner() as Message)}
-            </Show>
-            {renderBlocks(() => model()!.screen.blocks)}
-          </Show>
+          {(banner) => message(banner() as Message)}
         </Show>
-      </>
+        {renderBlocks(() => model()!.screen.blocks)}
+      </div>
+    )
+    const pageContent = () => (
+      <Show when={page()} fallback={content()}>
+        {(current) => (
+          <ProductPageLoad
+            page={current()}
+            read={() => readPage()}
+            loadingLabel="Loading account..."
+          >
+            {() => content()}
+          </ProductPageLoad>
+        )}
+      </Show>
     )
     return (
       <div class="dinkster-root" data-density="site" data-theme="dark">
         <Show when={model()}>
           <form
             data-screen={model()!.screen.id}
-            aria-busy={!!model()!.state.loading}
+            aria-busy={page()?.pending() ?? false}
             noValidate
             onSubmit={(event) => {
               event.preventDefault()
-              if (model()!.state.loading || model()!.state.loadFailed) return
+              if (page()?.pending()) return
               const control = flattenBlocks(blocks, visible).find(
                 (item) => item.t === 'button' && item.press === 'commits',
               )
@@ -576,7 +596,7 @@ export function accountView(options: AccountViewOptions) {
                     />
                   }
                 >
-                  <ProductPage title={title()}>{content()}</ProductPage>
+                  <ProductPage title={title()}>{pageContent()}</ProductPage>
                 </ProductShell>
               }
             >
@@ -593,7 +613,7 @@ export function accountView(options: AccountViewOptions) {
                   </Show>
                 }
               >
-                {content()}
+                {pageContent()}
               </ProductAuthCard>
             </Show>
           </form>
@@ -608,43 +628,68 @@ export function accountView(options: AccountViewOptions) {
       </div>
     )
   }, options.root)
-  return {
-    render(next: AccountModel) {
-      const previous = model()?.screen.id
-      sourceState = next.state
-      const nextControls = flattenBlocks(next.screen.blocks)
-      for (const control of nextControls) {
-        if (control.changed_fields && control.disabled === true) {
-          for (const id of control.changed_fields) {
-            baselines[id] =
-              nextControls.find((field) => field.id === id)?.value ?? ''
-          }
+  function draw(next: AccountModel) {
+    const previous = model()?.screen.id
+    sourceState = next.state
+    const nextControls = flattenBlocks(next.screen.blocks)
+    for (const control of nextControls) {
+      if (control.changed_fields && control.disabled === true) {
+        for (const id of control.changed_fields) {
+          baselines[id] =
+            nextControls.find((field) => field.id === id)?.value ?? ''
         }
       }
-      batch(() => {
-        setEdits({})
-        const nextBlocks = structuredClone(next.screen.blocks)
-        if (previous !== next.screen.id) setBlocks(nextBlocks)
-        else setBlocks(reconcile(nextBlocks, { key: null, merge: true }))
-        setModel({
-          ...next,
-          screen: { ...next.screen, blocks },
-          state: { ...next.state },
-        })
+    }
+    batch(() => {
+      setEdits({})
+      const nextBlocks = structuredClone(next.screen.blocks)
+      if (previous !== next.screen.id) setBlocks(nextBlocks)
+      else setBlocks(reconcile(nextBlocks, { key: null, merge: true }))
+      setModel({
+        ...next,
+        screen: { ...next.screen, blocks },
+        state: { ...next.state, flags: { ...next.state.flags } },
       })
-      document.title = `${nextControls.find((item) => item.t === 'h1')?.text ?? 'Account'} | Dinkster`
-      if (next.state.flash !== lastFlash) {
-        lastFlash = next.state.flash
-        setNotification(
-          next.state.flash?.tone === 'success'
-            ? { message: next.state.flash.text }
-            : undefined,
-        )
+    })
+    document.title = `${nextControls.find((item) => item.t === 'h1')?.text ?? 'Account'} | Dinkster`
+    if (next.state.flash !== lastFlash) {
+      lastFlash = next.state.flash
+      setNotification(
+        next.state.flash?.tone === 'success'
+          ? { message: next.state.flash.text }
+          : undefined,
+      )
+    }
+    if (previous !== next.screen.id)
+      reportProductEvent({ type: 'page-viewed', route: route() })
+  }
+  return {
+    render: draw,
+    load(next: AccountModel, read: () => Promise<AccountModel | undefined>) {
+      if (pageId !== next.screen.id) {
+        disposePage()
+        pageId = next.screen.id
+        const current = createRoot((dispose) => {
+          disposePage = dispose
+          const current = createPageLoad<AccountModel | undefined>()
+          createEffect(() => {
+            const answer = current.value()
+            if (answer) untrack(() => draw(answer))
+          })
+          return current
+        })
+        batch(() => {
+          setPage(current)
+          draw(next)
+        })
       }
-      if (previous !== next.screen.id)
-        reportProductEvent({ type: 'page-viewed', route: route() })
+      readPage = read
+      return page()!.load(read)
     },
     clear() {
+      disposePage()
+      pageId = undefined
+      setPage(undefined)
       sourceState = undefined
       lastFlash = null
       for (const id of Object.keys(baselines)) delete baselines[id]
@@ -656,6 +701,9 @@ export function accountView(options: AccountViewOptions) {
         setEdits({})
       })
     },
-    dispose,
+    dispose() {
+      disposePage()
+      dispose()
+    },
   }
 }

@@ -60,7 +60,7 @@ async function open(
     window.actions = [];
     window.view = accountView({root:document.getElementById('root'), config:{providers:['github','google']},
       onAction: async control => { window.actions.push(control.text); await new Promise(resolve => { window.finish = resolve }); },
-      onNavigate: id => { window.navigated = id; window.model.state.loading = true; window.model.screen.id = id; window.model.screen.nav = 'api-keys'; window.view.render(window.model); },
+      onNavigate: id => { window.navigated = id; window.model.screen.id = id; window.model.screen.nav = 'api-keys'; window.view.load(window.model, () => new Promise(resolve => { window.finishRead = () => resolve(window.model); })); },
       onChange: (id, value) => { window.changed = {id, value}; }
     }); window.view.render(window.model);
   </script></body></html>`,
@@ -689,7 +689,7 @@ test('navigation marks current immediately during loading', async ({
     'page',
   )
   await expect(
-    page.getByRole('status').filter({ hasText: 'Loading...' }),
+    page.getByRole('status').filter({ hasText: 'Loading account...' }),
   ).toBeVisible()
   await expect(page.getByLabel('Display name')).toHaveCount(0)
 })
