@@ -308,6 +308,7 @@ const menuItem = (label: string) =>
   [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === label) as HTMLElement | undefined
 
 it('keeps the chosen installation, starting contents and one project identity across a lost creation response', async () => {
+  vi.stubGlobal('crypto', { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
   const [view, setView] = createSignal<ReturnType<ProjectsPageShell['view']>>({ kind: 'projects', newProject: true })
   const data = source(projects)
   const opened = vi.fn()

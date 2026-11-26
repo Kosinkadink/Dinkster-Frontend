@@ -13,6 +13,7 @@ import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } fr
 import {
   buildDinksterRegistry,
   DinksterConnection,
+  uuidv4,
   type LibraryProject,
   type LibraryRecord,
   type LocalAssetCatalogEntry,
@@ -933,7 +934,7 @@ export function ProjectsView(props: {
     setNewInstallation(installationRoot)
     setCreating(true)
     try {
-      const attempt = creationAttempt() ?? { id: `p-${crypto.randomUUID()}`, creation: { filesFolder: filesFolder(), startWith } }
+      const attempt = creationAttempt() ?? { id: `p-${uuidv4()}`, creation: { filesFolder: filesFolder(), startWith } }
       setCreationAttempt(attempt)
       const registered = await props.source.registerProject(attempt.id, trimmed, attempt.creation)
       const project = registered.name === trimmed ? registered : await props.source.renameProject(registered, trimmed)
