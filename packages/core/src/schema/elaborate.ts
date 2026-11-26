@@ -563,7 +563,8 @@ export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSect
 
 /** A value read by another occurrence, with the lookup calls needed to know it. */
 export interface ElaboratedFormulaValue {
-  readonly value: unknown
+  readonly value?: unknown
+  readonly unknown?: true
   readonly linked?: true
   readonly pending?: true
   readonly lookups?: readonly LookupSite[]
@@ -573,7 +574,7 @@ export interface ElaboratedInterface {
   /** Ordered as the body declares; members appear in their stored order at their group's place. */
   readonly items: readonly ElaboratedItem[]
   /** Active formula references, including pending lookup provenance and non-rendered state. */
-  readonly formulaValues: ReadonlyMap<string, ElaboratedFormulaValue>
+  readonly formulaValues: Readonly<Record<string, ElaboratedFormulaValue>>
   /** Calls needed by formulas whose source fields are not shown on this node. */
   readonly lookupDependencies?: readonly LookupSite[]
   readonly chunkSafe?: Pick<NonNullable<NodeSchema['chunkSafe']>, 'inputs' | 'outputs'>
@@ -1368,7 +1369,7 @@ function elaboratePass(
       }).formulaValues
       sourceValues.set(meaning.source, values)
     }
-    const value = values.get(meaning.path)
+    const value = Object.hasOwn(values, meaning.path) ? values[meaning.path] : undefined
     return value === undefined ? undefined : { ...value, lookups: (value.lookups ?? []).map((site) => ({ ...site, call: {
       ...site.call, nodeType: site.call.nodeType ?? meaning.source.node.type,
     } })) }
@@ -1426,7 +1427,7 @@ function elaboratePass(
       if (reference !== undefined) {
         if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.setLazy(name, () => {
           const constant = readFixedValue(reference)
-          return constant === undefined || constant.linked === true || constant.pending === true ? UNKNOWN : formulaValueOf(constant.value, kind)
+          return constant === undefined || constant.unknown === true || constant.linked === true || constant.pending === true ? UNKNOWN : formulaValueOf(constant.value, kind)
         })
         if (names.inputs.has(name)) wired.set(name, fixedValue(reference)?.linked === true)
       } else if (unknown.has(name)) {
@@ -1482,7 +1483,7 @@ function elaboratePass(
     const reference = fixed.get(name)
     if (reference !== undefined) {
       const constant = readFixedValue(reference)
-      return { value: constant === undefined || constant.linked === true || constant.pending === true ? UNKNOWN : (constant.value ?? null) as Json }
+      return { value: constant === undefined || constant.unknown === true || constant.linked === true || constant.pending === true ? UNKNOWN : (constant.value ?? null) as Json }
     }
     const path = where.get(name)
     if (path === undefined || unknown.has(name) || linked(path)) return { value: UNKNOWN, ...(path === undefined ? {} : { path }) }
@@ -2726,18 +2727,18 @@ function elaboratePass(
         }))
     }
   }
-  const formulaValues = new Map<string, ElaboratedFormulaValue>()
+  const formulaValues: Record<string, ElaboratedFormulaValue> = Object.create(null)
   for (const [path, fallback] of formulaDefaults) {
     const wired = linked(path)
     const stored = Object.hasOwn(node.values, path)
     const automatic = stored ? undefined : automaticInUse(path)
     const value = chosen.has(path) ? chosen.get(path) : stored ? node.values[path] : automatic ?? fallback
     const lookups = formulaLookups.get(path)
-    formulaValues.set(path, { value,
+    formulaValues[path] = { ...(value === UNKNOWN ? { unknown: true as const } : { value }),
       ...(wired ? { linked: true as const } : {}),
       ...(!wired && automatic === UNKNOWN ? { pending: true as const } : {}),
       ...(lookups?.size ? { lookups: [...lookups] } : {}),
-    })
+    }
   }
   const elaborated: ElaboratedInterface = {
     items,

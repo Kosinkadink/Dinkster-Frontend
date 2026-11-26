@@ -910,9 +910,13 @@ export function updateSceneNodeValues(
           typeof node.values[key] !== 'number' || !Number.isFinite(node.values[key]) ||
           (old.values[key] !== undefined && (typeof old.values[key] !== 'number' || !Number.isFinite(old.values[key])))) return undefined
     }
-    if (!structuralEqual(existing.elaborated, elaborateInterface(schema, node, EMPTY_CONNECTIVITY, lookupAnswers === undefined ? {} : { lookupAnswers }))) return undefined
+    const elaborated = elaborateInterface(schema, node, EMPTY_CONNECTIVITY, lookupAnswers === undefined ? {} : { lookupAnswers })
+    if (existing.elaborated === undefined) return undefined
+    const { formulaValues: _beforeValues, ...beforeInterface } = existing.elaborated
+    const { formulaValues: _afterValues, ...afterInterface } = elaborated
+    if (!structuralEqual(beforeInterface, afterInterface)) return undefined
     changed = true
-    nodes.push({ ...existing, node })
+    nodes.push({ ...existing, node, elaborated })
   }
   return changed ? { ...scene, nodes } : scene
 }
