@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { documentNodeResolver, documentPrimitiveResolver } from '../src/compile/compile.js'
+import { compile, documentNodeResolver, documentPrimitiveResolver } from '../src/compile/compile.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { MenuActionItem, MenuContext, MenuItem } from '../src/menus/contract.js'
@@ -7,6 +7,7 @@ import { resetMenuContributions } from '../src/menus/reset-items.js'
 import { primitiveForField } from '../src/primitive.js'
 import type { NodeData, WorkflowDocument } from '../src/format/document.js'
 import { inputsOf, type InputSpec, type NodeSchema, type TypeExpr, type WidgetSpec } from '../src/schema/model.js'
+import { loadDocument } from '../src/format/migrate.js'
 
 const INT: TypeExpr = { kind: 'concrete', name: 'INT' }
 const COMBO: TypeExpr = { kind: 'concrete', name: 'COMBO' }
@@ -170,6 +171,53 @@ describe('a primitive works out its value widget', () => {
   it('lets a Choice that feeds nothing be typed in as text', () => {
     const doc = docOf({ choice: { type: 'Choice' } }, [])
     expect(effectiveOf(doc, 'choice')?.spec?.widgetType).toBe('STRING')
+  })
+
+  it('keeps renamed known-value limits and literal delivery independent through one and two boundaries', () => {
+    for (const depth of [1, 2]) {
+      const field = depth === 1 ? 'amount' : 'quantity'
+      const low = depth === 1 ? 'low' : 'floor'
+      const high = depth === 1 ? 'high' : 'ceiling'
+      const boundary = (node: string, names: readonly string[], ports: readonly string[]) => ({ body: [
+        ...names.map((id, index) => ({ kind: 'input', id, promoted: true,
+          binds: { kind: 'port', node, port: ports[index] } })),
+        { kind: 'output', id: 'number', binds: { kind: 'port', node, port: node === 'prim' ? 'INT' : 'number' } },
+      ] })
+      const source = docOf({
+        first: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: 6, [low]: 5, [high]: 9 } },
+        second: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: 2, [low]: 1, [high]: 12 } },
+        a: { type: 'Steps' }, b: { type: 'Steps' },
+      }, [['first', 'number', 'a', 'steps'], ['second', 'number', 'b', 'steps']])
+      const graph = (id: string, node: string, type: string, exposed: ReturnType<typeof boundary>) => ({
+        id, name: id, nodes: { [node]: { id: node, type, values: {} } },
+        links: {}, nets: {}, reroutes: {}, nextOrdinal: 10, boundary: exposed,
+      })
+      const document = { ...source, graphs: { ...source.graphs,
+        detail: graph('detail', 'prim', 'Int', boundary('prim', ['amount', 'low', 'high'], ['value', 'minimum', 'maximum'])),
+        ...(depth === 2 ? { portrait: graph('portrait', 'detail', '#detail',
+          boundary('detail', ['quantity', 'floor', 'ceiling'], ['amount', 'low', 'high'])) } : {}),
+      } } as unknown as WorkflowDocument
+      const store = new DocumentStore(document, coreCommandRegistry())
+      const effective = (current: WorkflowDocument, nodeId: string) =>
+        documentPrimitiveResolver(current, resolve)('g0', current.graphs.g0!.nodes[nodeId]!, [])
+      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 5, max: 9 })
+      expect(effective(store.doc, 'second')?.spec?.options).toMatchObject({ min: 1, max: 12 })
+      const outcome = store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: low, value: 3 } })
+      expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
+      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 3, max: 9 })
+      expect(effective(store.doc, 'second')?.spec?.options).toMatchObject({ min: 1, max: 12 })
+      expect(store.undo()).toBe(true)
+      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 5, max: 9 })
+      expect(store.redo()).toBe(true)
+      const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(effective(reopened, 'first')?.spec?.options).toMatchObject({ min: 3, max: 9 })
+      const run = compile({ document: reopened, revision: 1, resolve, scope: { kind: 'full' },
+        connection: 'boundary-limits' as never, schemaHash: 'primitive' })
+      expect(run.ok).toBe(true)
+      if (!run.ok) throw new Error(JSON.stringify(run.diagnostics))
+      expect(run.artifact.prompt.a!.inputs.steps).toBe(6)
+      expect(run.artifact.prompt.b!.inputs.steps).toBe(2)
+    }
   })
 })
 
