@@ -315,6 +315,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       : resolved === null || typeof resolved === 'object'
         ? undefined
         : formatWidgetValue(resolved, row.spec)
+    const rowFont = ctx.font
+    const colorValue = row.viewId === 'core.color' || row.viewId === 'core.integerColor'
+    if (colorValue) ctx.font = `${tokens.fontSize}px ${tokens.fontMono}`
     const naturalValueWidth = row.viewId === 'core.integerColor'
       ? measureWidth(ctx, '#ffffff') + paint.colorValueReserve
       : valuePreview === undefined
@@ -325,6 +328,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         + (args.editorSummary?.thumbnail !== undefined && !row.unfolded ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
         + (!row.unfolded ? summaryThumbnailReserve(ctx, args.editorSummary?.thumbnails) : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
+    ctx.font = rowFont
     const controller = row.controllerMode !== undefined && modeIcon === undefined
       ? controllerChipRect(width, rowHeight, geometry)
       : undefined
@@ -491,6 +495,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
             const role = style['role']
+            const valueFont = ctx.font
+            const colorCode = row.viewId === 'core.color' || typeof style['swatch'] === 'string'
+            if (colorCode && (role === undefined || role === 'widgetValue') && style['placeholder'] !== true) ctx.font = `${tokens.fontSize}px ${tokens.fontMono}`
             const marked = valueWord !== undefined && (role === undefined || role === 'widgetValue')
             const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
             const items = stringList(style['items'])
@@ -563,6 +570,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
                 const wordRight = alignRight ? textX - (parts === undefined ? measureWidth(ctx, text) : summaryPartsWidth(ctx, parts)) - markReserve - paint.valueWordGap : textX - paint.valueWordGap
                 ctx.textAlign = 'right'
                 ctx.fillStyle = tokens.colors.label
+                const codeFont = ctx.font
+                ctx.font = valueFont
                 ctx.fillText(valueWord!, wordRight, textY)
                 if (automaticDot > 0) {
                   const radius = paint.automaticDot.radius
@@ -571,6 +580,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
                   ctx.arc(wordRight - measureWidth(ctx, valueWord!) - paint.automaticDot.gap - radius, textY, radius, 0, Math.PI * 2)
                   ctx.fill()
                 }
+                ctx.font = codeFont
               }
               // A host's editor summary is what the editor shows, an arriving value included, so it is never struck.
               if (args.connected && summary === undefined && (role === undefined || role === 'widgetValue')) {
@@ -578,6 +588,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               }
               ctx.restore()
             }
+            ctx.font = valueFont
             ctx.textAlign = 'left'
             return
           }
@@ -685,16 +696,32 @@ function paintCurveSketch(
   ctx.setLineDash([])
   if (samples.length > 1) {
     const line = new Path2D()
-    samples.forEach((sample, index) => {
-      const point = at(index / (samples.length - 1), sample)
-      if (index === 0) line.moveTo(point.x, point.y)
-      else line.lineTo(point.x, point.y)
-    })
+    if (style['interpolation'] === 'step' && points.length > 0) {
+      let previous = samples[0]!
+      const firstPoint = at(0, previous)
+      line.moveTo(firstPoint.x, firstPoint.y)
+      for (const [position, value] of points) {
+        if (position! <= 0 || position! > 1) continue
+        const next = Math.max(0, Math.min(1, value!))
+        const before = at(position!, previous)
+        const after = at(position!, next)
+        line.lineTo(before.x, before.y)
+        line.lineTo(after.x, after.y)
+        previous = next
+      }
+      line.lineTo(left + span, at(0, previous).y)
+    } else {
+      samples.forEach((sample, index) => {
+        const point = at(index / (samples.length - 1), sample)
+        if (index === 0) line.moveTo(point.x, point.y)
+        else line.lineTo(point.x, point.y)
+      })
+    }
     ctx.lineWidth = paint.lineWidth
     ctx.lineJoin = 'round'
     // Before the first point and after the last the curve holds that point's value, drawn muted.
-    const first = held.length === 2 ? at(held[0]!, 0).x : left
-    const last = held.length === 2 ? at(held[1]!, 0).x : left + span
+    const first = held.length === 2 ? at(Math.max(0, Math.min(1, held[0]!)), 0).x : left
+    const last = held.length === 2 ? at(Math.max(0, Math.min(1, held[1]!)), 0).x : left + span
     for (const [from, to, color] of [
       [square.x, first, tokens.colors.valueMark],
       [first, last, tokens.colors.widgetAffordanceActive],
@@ -713,6 +740,7 @@ function paintCurveSketch(
   // Small solid dots on the line, so close points still read apart and hide little of it.
   ctx.fillStyle = tokens.colors.widgetAffordanceActive
   for (const [position, value] of points) {
+    if (position! < 0 || position! > 1 || value! < 0 || value! > 1) continue
     const point = at(position!, value!)
     ctx.beginPath()
     ctx.arc(point.x, point.y, paint.pointRadius, 0, Math.PI * 2)

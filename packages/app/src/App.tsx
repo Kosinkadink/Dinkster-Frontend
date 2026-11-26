@@ -1657,10 +1657,16 @@ export function App(props: {
     executions()
     return executionActivity(app.executionList())
   }
+  /**
+   * A page in front is not a workflow, so the panel shows every workflow's
+   * runs then, and keeps the person's own choice for when a workflow is back.
+   */
+  const pageInFront = () => windowTabs().some((tab) => isPageTab(tab) && tab.id === activeTabId())
+  const shownRunScope = () => pageInFront() ? 'all' : runScope()
   /** The runs the panel's scope covers: this workflow's, or every workflow's. */
   const scopedRuns = (): readonly ExecutionState[] => {
     executions()
-    return runScope() === 'all' ? app.executionList() : workflowExecutions()
+    return shownRunScope() === 'all' ? app.executionList() : workflowExecutions()
   }
   const runningRuns = () => scopedRuns().filter((execution) => execution.status === 'running')
   const queuedRuns = () => {
@@ -1670,9 +1676,13 @@ export function App(props: {
   }
   const RunsPanel = () => (
     <div class="rail-panel-body runs-panel" data-testid="runs-panel">
-      <div class="runs-scope" data-testid="runs-scope" data-selected-id={runScope()}>
-        <ProductSegmented label={message('runs.scope')} value={runScope()}
-          options={(['workflow', 'all'] as const).map((scope) => ({ value: scope, label: message(`runs.scope.${scope}`) }))}
+      <div class="runs-scope" data-testid="runs-scope" data-selected-id={shownRunScope()}>
+        <ProductSegmented label={message('runs.scope')} value={shownRunScope()}
+          options={(['workflow', 'all'] as const).map((scope) => ({
+            value: scope,
+            label: message(`runs.scope.${scope}`),
+            disabled: scope === 'workflow' && pageInFront() ? message('runs.scope.workflowUnavailable') : undefined,
+          }))}
           onChange={(scope) => setRunScope(scope)} />
       </div>
       <Show when={runningRuns().length > 0}>
@@ -1685,7 +1695,7 @@ export function App(props: {
           <RunList runs={queuedRuns()} all={app.executionList()} />
         </RunSection>
       </Show>
-      <Show when={runScope() === 'workflow'} fallback={<>
+      <Show when={shownRunScope() === 'workflow'} fallback={<>
         <Show when={clearArmed() && clearArmOwner === activeBackend().id}>
           <ProductNotice tone="info" testId="runs-clear-confirmation">{message('runs.clear.confirmation')}</ProductNotice>
         </Show>

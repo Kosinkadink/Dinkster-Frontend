@@ -128,6 +128,50 @@ const paint = (value: unknown, width: number): string[] => {
   return texts
 }
 
+it('keeps a folded Step line inside the plot for out-of-range points and values', () => {
+  class RecordedPath {
+    readonly points: number[][] = []
+    moveTo(x: number, y: number) { this.points.push([x, y]) }
+    lineTo(x: number, y: number) { this.points.push([x, y]) }
+  }
+  const original = globalThis.Path2D
+  vi.stubGlobal('Path2D', RecordedPath)
+  try {
+    const recorded = fakeCtx()
+    let line: RecordedPath | undefined
+    Object.assign(recorded.ctx, {
+      strokeRect: () => {}, setLineDash: () => {},
+      stroke: (path?: RecordedPath) => { if (path?.points.length) line = path },
+    })
+    const view: WidgetView = {
+      ...stubView, id: 'core.curve', kind: 'CURVE',
+      drawCompact: (scene) => {
+        scene.rect(0, 0, 1, 2, {
+          role: 'curveSketch', interpolation: 'step', samples: [0.2, 1], held: [-1, 1.5],
+          points: [[-1, 0.2], [0.25, 2], [0.75, -0.5], [1, 2], [1.5, 0.4]],
+        })
+        scene.text(1, 0, '5 points', { role: 'widgetValue', align: 'right', width: 1 })
+      },
+    }
+    const curveRegistry = { ...registry, kind: () => stubKind, viewsFor: () => [view] }
+    createRegistryPainter(curveRegistry)({
+      ctx: recorded.ctx, row: { ...rowWith({}), viewId: 'core.curve', height: 52, spec: { widgetType: 'CURVE', options: {} } },
+      value: {}, x: 0, y: 0, width: 300, rowHeight: 26, connected: false,
+      tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' },
+    })
+    const square = recorded.fills.find((fill) => fill.width === fill.height)!
+    const inset = canvasPaintTokens.widget.curve.plotInset
+    const span = square.width - 2 * inset
+    const actual = line!.points.map(([x, y]) => [
+      (x! - square.x - inset) / span, 1 - (y! - square.y - inset) / span,
+    ])
+    const expected = [[0, 0.2], [0.25, 0.2], [0.25, 1], [0.75, 1], [0.75, 0], [1, 0], [1, 1], [1, 1]]
+    expect(actual).toHaveLength(expected.length)
+    actual.forEach((point, index) => point.forEach((coordinate, axis) => expect(coordinate).toBeCloseTo(expected[index]![axis]!)))
+    expect(recorded.arcs).toEqual([])
+  } finally { vi.stubGlobal('Path2D', original) }
+})
+
 const paintString = (value: string, width: number): string[] => {
   return paintStringDetails(value, width).texts
 }
@@ -390,6 +434,47 @@ describe('registry painter label/value split', () => {
     expect(fills[0]!.y).toBeCloseTo(5.8)
     expect(fills[0]!.x).toBeGreaterThanOrEqual(0)
     expect(fills[0]!.x + fills[0]!.width).toBeLessThanOrEqual(160)
+  })
+
+  it('aligns color squares beside different equal-length codes without changing label type', () => {
+    const colorView: WidgetView = {
+      ...stubView, id: 'core.color', kind: 'COLOR',
+      drawCompact: (scene, value) => {
+        scene.text(0, 0, 'Tint', { role: 'widgetLabel', width: 0.42 })
+        scene.text(1, 0, String(value), {
+          role: 'widgetValue', align: 'right', width: 0.58, swatch: value,
+        })
+      },
+    }
+    const colorRegistry: WidgetRegistry = {
+      ...registry,
+      kind: () => ({ ...stubKind, type: 'COLOR' }),
+      viewsFor: () => [colorView],
+    }
+    const paintColor = (value: string) => {
+      const painted = fakeCtx()
+      painted.ctx.font = `13px ${defaultTokens.fontFamily}`
+      painted.ctx.measureText = (text) => ({
+        width: [...text].reduce((width, char) => width + (painted.ctx.font.includes('Mono') ? 7 : char === 'f' ? 4 : 7), 0),
+      } as TextMetrics)
+      createRegistryPainter(colorRegistry)({
+        ctx: painted.ctx,
+        row: { ...rowWith(value), label: 'color', viewId: 'core.color', spec: { widgetType: 'COLOR', options: {} } },
+        value, x: 0, y: 0, width: 240, rowHeight: 24, connected: false, tokens: defaultTokens,
+      })
+      return painted
+    }
+    const white = paintColor('#ffffff')
+    const black = paintColor('#000000')
+    const whiteSquare = white.fills.find((fill) => fill.fillStyle === '#ffffff')!
+    const blackSquare = black.fills.find((fill) => fill.fillStyle === '#000000')!
+    expect(whiteSquare).toBeDefined()
+    expect(blackSquare).toBeDefined()
+    expect(whiteSquare.x).toBe(blackSquare.x)
+    expect(white.textCalls.find((call) => call.text === 'color')?.font).toBe(`13px ${defaultTokens.fontFamily}`)
+    expect(white.textCalls.find((call) => call.text === 'Tint')?.font).toBe(`13px ${defaultTokens.fontFamily}`)
+    expect(white.textCalls.some((call) => call.text === '#ffffff')).toBe(true)
+    expect(black.textCalls.some((call) => call.text === '#000000')).toBe(true)
   })
 
   it('a long label beside a short value renders in full at comfortable widths', () => {

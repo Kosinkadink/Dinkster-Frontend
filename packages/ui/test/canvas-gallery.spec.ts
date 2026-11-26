@@ -27,6 +27,49 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
+test('Step curves draw exact horizontal holds and vertical jumps without a histogram', async ({
+  page,
+}) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  for (const theme of ['dark', 'light'] as const) {
+    await page.setViewportSize({ width: 1280, height: 1000 })
+    await openPage(page, 'in-node-editors', theme)
+    const canvas = page.getByTestId('in-node-editor-hook-keyframes-curve')
+    await expect(canvas).toHaveAttribute(
+      'data-ready',
+      `hook-keyframes-curve-${theme}`,
+    )
+    const stage = canvas.locator('..')
+    await expect(stage).not.toContainText('Interpolation')
+    await expect(page.getByTestId('in-node-editor-sample-curve').locator('..')).toContainText('Step')
+    await expect(stage).not.toContainText('Histogram')
+    await expect(stage.locator('.dinkster-canvas-curve-point')).toHaveCount(4)
+    const points = await stage
+      .locator('.dinkster-canvas-curve-line[data-held="false"]')
+      .getAttribute('points')
+    const vertices = points!
+      .split(' ')
+      .map((pair) => pair.split(',').map(Number))
+    let jumps = 0
+    for (let index = 1; index < vertices.length; index++) {
+      const [x, y] = vertices[index]!
+      const [beforeX, beforeY] = vertices[index - 1]!
+      expect(x === beforeX || y === beforeY).toBe(true)
+      if (y !== beforeY) {
+        expect(x).toBe(beforeX)
+        jumps++
+      }
+    }
+    expect(jumps).toBe(3)
+    await page.setViewportSize({ width: 390, height: 1000 })
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBe(390)
+  }
+  expect(errors).toEqual([])
+})
+
 /** Every example card on the page has painted its canvas. */
 async function cardsReady(page: Page, id: string, theme: string) {
   const cards = page.locator('figure.dinkster-canvas-example canvas')

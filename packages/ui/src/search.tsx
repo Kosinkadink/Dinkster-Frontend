@@ -63,7 +63,7 @@ export interface ProductSearchGroup {
   readonly note?: string
 }
 
-/** One key hint along the bottom. */
+/** Alternative shortcuts for one action along the bottom. */
 export interface ProductSearchHint {
   readonly keys: readonly string[]
   readonly label: string
@@ -589,7 +589,9 @@ export function ProductSearch(props: {
             <For each={props.hints}>
               {(hint) => (
                 <span class="dinkster-search-hint">
-                  <ProductShortcut keys={hint.keys} />
+                  <For each={hint.keys}>
+                    {(keys) => <ProductShortcut keys={keys} />}
+                  </For>
                   <span>{hint.label}</span>
                 </span>
               )}
