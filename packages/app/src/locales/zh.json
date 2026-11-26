@@ -591,6 +591,7 @@
   "inNodeCurve.interpolation": "插值",
   "inNodeCurve.linear": "线性",
   "inNodeCurve.monotoneCubic": "单调三次",
+  "inNodeCurve.step": "阶梯",
   "inNodeCurve.position": "位置",
   "inNodeCurve.value": "值",
   "inNodeCurve.deletePoint": "删除点",

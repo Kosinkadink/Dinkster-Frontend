@@ -589,6 +589,7 @@
   "inNodeCurve.interpolation": "Interpolation",
   "inNodeCurve.linear": "Linear",
   "inNodeCurve.monotoneCubic": "Monotone cubic",
+  "inNodeCurve.step": "Step",
   "inNodeCurve.position": "Position",
   "inNodeCurve.value": "Value",
   "inNodeCurve.deletePoint": "Delete point",
