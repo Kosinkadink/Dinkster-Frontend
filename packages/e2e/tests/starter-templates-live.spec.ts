@@ -100,11 +100,11 @@ test("all retained loop templates load with zero problem-panel errors", async ({
 
   const owner = await connectNativeFrontend(page);
   await openTemplateGallery(page);
-  const gallery = page.getByTestId("template-gallery");
+  const gallery = page.getByTestId("templates-page");
   await expect(gallery).toBeVisible();
   for (const template of templates) {
     await expect(
-      gallery.getByTestId("template-card").filter({ hasText: template.name }),
+      gallery.getByRole("option", { name: new RegExp(template.name) }),
     ).toBeVisible();
   }
   await expect(gallery.locator('[data-family^="dinkster."]')).toHaveCount(0);
@@ -113,7 +113,7 @@ test("all retained loop templates load with zero problem-panel errors", async ({
       path: join(proofDir, "starter-template-gallery-live.png"),
       animations: "disabled",
     });
-  await gallery.getByRole("button", { name: "Close template gallery" }).click();
+  await page.getByRole("button", { name: "Close Templates", exact: true }).click();
   await openRailPanel(page, "Problems");
   const panelErrors = page
     .getByTestId("problems-panel")

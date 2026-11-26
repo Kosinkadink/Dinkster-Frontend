@@ -8,7 +8,7 @@ import {
   ProductTextButton,
   type ProductTemplateEntry,
 } from '@dinkster/ui'
-import type { AppState } from './app-state.js'
+import type { AppState, Backend } from './app-state.js'
 import { formatByteSize, normalizeTemplateSearch, templatesSource, type TemplateCollectionRef } from './collections.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
@@ -18,16 +18,18 @@ const makes = ['image', 'video', 'audio', '3d', 'tool'] as const
 /** The real template collection, with page navigation supplied by its tab host. */
 export function TemplatesPage(props: {
   readonly app: AppState
+  readonly backend?: Extract<Backend, { protocol: 'dinkster' }>
   readonly drawing: (entry: CollectionEntry) => JSX.Element
   readonly onOpen: (entry: CollectionEntry) => Promise<boolean>
   readonly onBlank: () => void
   readonly onOpenStorage: () => void
-  readonly onDownload: (entry: CollectionEntry) => void
+  readonly onDownload?: (entry: CollectionEntry) => void
 }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
   const activeTabId = useSignal(props.app.activeTabId)
   const settingsTick = useSignal(props.app.settings.changed)
+  const backend = () => props.backend ?? props.app.libraryBackend()
   const [entries, setEntries] = createSignal<readonly CollectionEntry[]>([])
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal('')
@@ -44,7 +46,8 @@ export function TemplatesPage(props: {
   const available = createMemo(() => {
     backendTick()
     activeTabId()
-    return props.app.libraryBackend()?.templatesEnabled.get() === true
+    const owner = backend()
+    return owner !== undefined && props.app.backends.get().includes(owner) && owner.templatesEnabled.get()
   })
 
   createEffect(() => {
@@ -52,7 +55,7 @@ export function TemplatesPage(props: {
     activeTabId()
     settingsTick()
     refresh()
-    const backend = props.app.libraryBackend()
+    const owner = backend()
     let live = true
     onCleanup(() => { live = false })
     setEntries([])
@@ -60,13 +63,13 @@ export function TemplatesPage(props: {
     setNoFolders(undefined)
     setError('')
     setLoadFailed(false)
-    if (!backend?.templatesEnabled.get()) {
+    if (!owner?.templatesEnabled.get()) {
       setLoading(false)
       return
     }
-    onCleanup(backend.connection.onMountsChanged(() => setRefresh((value) => value + 1)))
+    onCleanup(owner.connection.onMountsChanged(() => setRefresh((value) => value + 1)))
     // Groups and search operate on the entire collection, never a truncated first page.
-    void templatesSource(props.app).page({ query: '', limit: Number.MAX_SAFE_INTEGER }).then((page) => {
+    void templatesSource(props.app, backend).page({ query: '', limit: Number.MAX_SAFE_INTEGER }).then((page) => {
       if (!live) return
       setEntries(page.items)
       setLoading(false)
@@ -78,7 +81,7 @@ export function TemplatesPage(props: {
       }))
       setLoading(false)
     })
-    void backend.connection.fetchModelSettings().then((settings) => {
+    void owner.connection.fetchModelSettings().then((settings) => {
       if (live) setNoFolders(settings.locations.length === 0)
     }).catch((reason: unknown) => {
       if (live) {
@@ -160,8 +163,8 @@ export function TemplatesPage(props: {
   onCleanup(() => { live = false })
   const open = async (id: string): Promise<void> => {
     const entry = entries().find((candidate) => candidate.id === id)
-    const backend = props.app.libraryBackend()
-    if (opening() || !entry || !backend || entry.owner !== backend.id || !backend.templatesEnabled.get()) return
+    const owner = backend()
+    if (opening() || !entry || !owner || entry.owner !== owner.id || !available()) return
     setOpening(true)
     setError('')
     setLoadFailed(false)
@@ -221,14 +224,14 @@ export function TemplatesPage(props: {
             models: models(entry()).map((model) => ({ name: model.name, here: model.here, size: model.size === undefined ? undefined : formatByteSize(model.size) })),
           }}
           facts={[
-            { label: message('templatesPage.pack'), value: props.app.libraryBackend()?.registry.get()?.packs?.get(ref(entry()).template.pack)?.displayName ?? ref(entry()).template.pack },
+            { label: message('templatesPage.pack'), value: backend()?.registry.get()?.packs?.get(ref(entry()).template.pack)?.displayName ?? ref(entry()).template.pack },
             { label: message('templatesPage.from'), value: message(ref(entry()).kind === 'remote' ? 'templateGallery.source.remote' : 'templateGallery.source.builtIn') },
           ]}
           actions={<>
             <ProductButton fill="solid" pending={opening()} onClick={() => { void open(entry().id) }}>{message('templatesPage.use')}</ProductButton>
             <Show when={missing(entry()).length > 0}>
               <Show when={noFolders()} fallback={
-                <ProductButton disabled={opening() || noFolders() === undefined} onClick={() => props.onDownload(entry())}>
+                <ProductButton disabled={opening() || noFolders() === undefined || props.onDownload === undefined} onClick={() => props.onDownload?.(entry())}>
                   {message('templatesPage.downloadCount', { count: missing(entry()).length })}
                   <Show when={amount(entry())}>{(size) => <span class="dinkster-template-fact-detail">{size()}</span>}</Show>
                 </ProductButton>

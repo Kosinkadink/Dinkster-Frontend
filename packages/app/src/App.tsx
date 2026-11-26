@@ -57,7 +57,7 @@ import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
-import { TemplateGallery } from './TemplateGallery.js'
+import { TemplatesPage } from './TemplatesPage.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
 import { SettingsDialog } from './SettingsDialog.js'
@@ -671,7 +671,7 @@ export function App(props: {
       if (entry.owner === undefined) return
       const ref = entry.ref as TemplateCollectionRef | undefined
       const opening = ref?.kind === 'remote'
-        ? app.openRemoteTemplate(ref.template, entry.title)
+        ? app.openRemoteTemplate(ref.template, entry.title, entry.owner)
         : ref?.kind === 'local'
           ? app.openTemplate(ref.pack, ref.id, entry.title, entry.owner)
           : Promise.resolve(false)
@@ -1927,9 +1927,40 @@ export function App(props: {
     backendsTick()
     return backends().some((backend) => backend.templatesEnabled.get())
   })
+  const openTemplates = (backend: Backend | undefined = app.libraryBackend()): void => {
+    if (backend?.templatesEnabled.get()) app.pages.open('templates', backend.id)
+  }
+  onCleanup(app.pages.register({
+    id: 'templates',
+    get title() { return message('templatesPage.title') },
+    icon: LayoutTemplate,
+    enabled: () => {
+      backendsTick()
+      const page = shellTabs().find((tab) => isPageTab(tab) && tab.pageId === 'templates')
+      return page && isPageTab(page)
+        ? backends().some((backend) => backend.id === page.parameters && backend.templatesEnabled.get())
+        : templatesAvailable()
+    },
+    component: (context) => {
+      const backend = app.backends.get().find((candidate) => candidate.id === context.tab.parameters)
+      if (backend?.protocol !== 'dinkster') return undefined
+      return <TemplatesPage app={app} backend={backend} drawing={() => undefined}
+        onOpen={(entry) => {
+          const ref = entry.ref as TemplateCollectionRef
+          return ref.kind === 'remote'
+            ? app.openRemoteTemplate(ref.template, entry.title, backend.id, context.tab)
+            : app.openTemplate(ref.pack, ref.id, entry.title, backend.id, context.tab)
+        }}
+        onBlank={() => {
+          const workflow = app.createWorkflow()
+          app.setTabTarget(workflow.id, backend.id)
+          context.replaceWithWorkflow(workflow)
+        }}
+        onOpenStorage={() => openStorage(backend)} />
+    },
+  }))
   createEffect(() => {
     if (!templatesAvailable()) {
-      app.templateGalleryOpen.set(false)
       return
     }
     const unregisterSetting = app.settings.register({
@@ -1940,8 +1971,8 @@ export function App(props: {
     })
     const unregisterCommand = app.frontendDoors.command('workflow.openTemplateGallery', {
       get label() { return t('command.workflow.openTemplateGallery') },
-      run: () => app.templateGalleryOpen.set(true),
-      enabled: () => app.activeTab() !== undefined && app.activeTab()?.execution === undefined && activeBackend().templatesEnabled.get(),
+      run: () => openTemplates(),
+      enabled: () => app.libraryBackend()?.templatesEnabled.get() === true,
     })
     onCleanup(() => { unregisterCommand(); unregisterSetting() })
   })
@@ -1950,7 +1981,6 @@ export function App(props: {
   const GraphEditor = (editorProps: { readonly host?: EditorHostContext }) => {
     const tabs = useSignal(app.tabs)
     const globalActiveTabId = useSignal(app.activeTabId)
-    const galleryRequested = useSignal(app.templateGalleryOpen)
     const [documentRevision, setDocumentRevision] = createSolidSignal(0)
     const activeTabId = () => editorProps.host?.tabId() ?? globalActiveTabId()
     const activeEditorTab = () => tabs().find((tab) => tab.id === activeTabId())
@@ -1997,9 +2027,6 @@ export function App(props: {
       const tab = activeEditorTab()
       return tab !== undefined && app.backendForTab(tab).templatesEnabled.get()
     }
-    const close = (): void => {
-      app.templateGalleryOpen.set(false)
-    }
     return <div class="graph-editor-with-gallery">
       <div class="graph-editor-canvas">
         <Show when={!sessionFailed()} fallback={
@@ -2015,14 +2042,11 @@ export function App(props: {
             />
         </Show>
       </div>
-      <Show when={templatesEnabled() && activeEditorTab()?.execution === undefined && !sessionFailed() && empty() && !galleryRequested()}>
+      <Show when={templatesEnabled() && activeEditorTab()?.execution === undefined && !sessionFailed() && empty()}>
         <div class="template-empty-canvas" data-testid="template-empty-canvas">
           <span>{message('templatesEntry.addNode')}</span>
-          <span>{message('templatesEntry.or')}{' '}<ProductTextButton label={message('templateGallery.open')} onClick={() => app.templateGalleryOpen.set(true)} /></span>
+          <span>{message('templatesEntry.or')}{' '}<ProductTextButton label={message('templateGallery.open')} onClick={() => openTemplates(app.backendForTab(activeEditorTab()!))} /></span>
         </div>
-      </Show>
-      <Show when={templatesEnabled()}>
-        <TemplateGallery app={app} visible={galleryRequested} onClose={close} />
       </Show>
     </div>
   }
@@ -2850,7 +2874,7 @@ export function App(props: {
               { label: message('templatesEntry.blank'), icon: Workflow, visible: true, onSelect: () => { app.createWorkflow() } },
               { label: message('templatesEntry.fromTemplate'), icon: LayoutTemplate,
                 get visible() { backendsTick(); return activeBackend().templatesEnabled.get() },
-                onSelect: () => app.templateGalleryOpen.set(true) },
+                onSelect: () => openTemplates() },
             ]}
             canShare={(tab) => !isPageTab(tab) && tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
             onShare={(tab) => {

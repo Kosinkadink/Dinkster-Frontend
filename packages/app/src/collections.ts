@@ -228,19 +228,19 @@ export const normalizeTemplateSearch = (value: string): string => value
   .toLowerCase()
   .replace(/[^\p{L}\p{N}]+/gu, '')
 
-export function templatesSource(app: AppState): CollectionSource {
+export function templatesSource(app: AppState, resolveBackend = () => app.libraryBackend()): CollectionSource {
   return {
     id: 'templates',
     label: 'Templates',
     filters: [{
       id: 'pack',
       label: 'Packs',
-      options: () => [...(app.libraryBackend()?.registry.get()?.packs ?? new Map())]
+      options: () => [...(resolveBackend()?.registry.get()?.packs ?? new Map())]
         .map(([value, info]) => ({ value, label: info.displayName }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     }],
     page: async (req) => {
-      const backend = app.libraryBackend()
+      const backend = resolveBackend()
       if (!backend) return { items: [], total: 0 }
       const rawOffset = decodeOwnedCursor(backend.id, req.cursor)
       const offset = rawOffset === undefined ? 0 : Number(rawOffset)

@@ -30,7 +30,7 @@ test('disabled templates have no entry points or background requests', async ({ 
     window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined,
   )).toBe(true)
   await expect(page.getByRole('button', { name: 'Browse starter templates' })).toHaveCount(0)
-  await expect(page.getByTestId('template-gallery')).toHaveCount(0)
+  await expect(page.getByTestId('templates-page')).toHaveCount(0)
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
       panels: { get(id: string): unknown }

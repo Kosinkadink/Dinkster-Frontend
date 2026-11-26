@@ -7,7 +7,6 @@ import { DINKSTER_SCHEMA_WIRE_VERSION } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { templatesSource } from '../src/collections.js'
-import { TemplateGallery } from '../src/TemplateGallery.js'
 import { TemplatesPage } from '../src/TemplatesPage.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -22,7 +21,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('TemplateGallery', () => {
+describe('Template collection', () => {
   it('normalizes template identity searches', async () => {
     const app = new AppState()
     const backend = app.libraryBackend()!
@@ -89,103 +88,10 @@ describe('TemplateGallery', () => {
     const secondPage = await templatesSource(app).page({ query: '', limit: 1, cursor: firstPage.cursor! })
     expect(secondPage.items.map((entry) => entry.title)).toEqual(['MiniMax H3'])
     expect(secondPage.cursor).toBeUndefined()
-    const open = vi.spyOn(app, 'openTemplate').mockResolvedValue(true)
-    const close = vi.fn()
-    const host = document.createElement('div')
-    document.body.append(host)
-    const dispose = render(() => <TemplateGallery app={app} visible={() => true} onClose={close} />, host)
-
-    await vi.waitFor(() => expect(host.querySelectorAll('[data-testid="template-card"]')).toHaveLength(2))
-    const search = host.querySelector<HTMLInputElement>('[data-testid="template-gallery-search"]')!
-    search.value = 'SD 1.5'
-    search.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    await vi.waitFor(() => expect(host.querySelectorAll('[data-testid="template-card"]')).toHaveLength(1))
-    expect(host.querySelector('[data-testid="template-card"]')?.textContent).toContain('Stable Diffusion 1.5')
-    search.value = ''
-    search.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    await vi.waitFor(() => expect(host.querySelectorAll('[data-testid="template-card"]')).toHaveLength(2))
-    expect([...host.querySelectorAll('.template-family h3')].map((node) => node.textContent)).toEqual([
-      'dinkster.sd15',
-      'dinkster.minimax_h3',
-    ])
-    const h3 = [...host.querySelectorAll<HTMLButtonElement>('[data-testid="template-card"]')]
-      .find((card) => card.textContent?.includes('MiniMax H3'))!
-    expect(h3.textContent).toContain('2 required model(s) missing')
-    expect(h3.textContent).toContain('missing-dit.safetensors, missing-vae.safetensors')
-    h3.click()
-    await vi.waitFor(() => expect(open).toHaveBeenCalledWith('native', 'h3', 'MiniMax H3', backend.id))
-    expect(close).toHaveBeenCalled()
-    dispose()
-  })
-
-  it('keeps a failed template load dismissable and retries it in place', async () => {
-    const app = new AppState()
-    const backend = app.libraryBackend()!
-    vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({ templates: [
-      { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', family: 'dinkster.test' },
-    ] })
-    vi.spyOn(backend.connection, 'guessAssets').mockResolvedValue([])
-    const open = vi.spyOn(app, 'openTemplate')
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true)
-    const close = vi.fn()
-    const host = document.createElement('div')
-    document.body.append(host)
-    const dispose = render(() => <TemplateGallery app={app} visible={() => true} onClose={close} />, host)
-
-    await vi.waitFor(() => expect(host.querySelector('[data-testid="template-card"]')).not.toBeNull())
-    host.querySelector<HTMLButtonElement>('[data-testid="template-card"]')!.click()
-    await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Starter could not be opened'))
-    expect(close).not.toHaveBeenCalled()
-    host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click()
-    await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(2))
-    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1))
-    dispose()
-  })
-
-  it('explains zero mounts and grants a typed server path when mount changes are allowed', async () => {
-    const app = new AppState()
-    const backend = app.libraryBackend()!
-    vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({ templates: [
-      { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', family: 'dinkster.test', models: [] },
-    ] })
-    const fetchMountSettings = vi.spyOn(backend.connection, 'fetchMountSettings')
-      .mockResolvedValue({ mounts: [], mountChangesAllowed: true })
-    const addMount = vi.spyOn(backend.connection, 'addMount')
-      .mockResolvedValue({ id: 'shared-models', mode: 'read', state: 'pending' })
-    const host = document.createElement('div')
-    document.body.append(host)
-    const dispose = render(() => <TemplateGallery app={app} visible={() => true} onClose={() => undefined} />, host)
-
-    await vi.waitFor(() => expect(host.textContent).toContain('Dinkster indexes models in place'))
-    const form = host.querySelector<HTMLFormElement>('.desktop-mount-form-typed')!
-    expect(form).not.toBeNull()
-    enter(form.querySelector<HTMLInputElement>('#desktop-mount-path')!, '/tmp/dinkster-shared-models')
-    enter(form.querySelector<HTMLInputElement>('#desktop-mount-id')!, 'shared-models')
-    form.requestSubmit()
-    await vi.waitFor(() => expect(addMount).toHaveBeenCalledWith('shared-models', '/tmp/dinkster-shared-models', 'read', { project: 'default', shared: false, kind: '' }))
-    await vi.waitFor(() => expect(fetchMountSettings).toHaveBeenCalledTimes(2))
-    dispose()
-  })
-
-  it('keeps the zero-mount explanation but renders no path form when mount changes are not allowed', async () => {
-    const app = new AppState()
-    const backend = app.libraryBackend()!
-    vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({ templates: [
-      { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', family: 'dinkster.test', models: [] },
-    ] })
-    const fetchMountSettings = vi.spyOn(backend.connection, 'fetchMountSettings')
-      .mockResolvedValue({ mounts: [], mountChangesAllowed: false })
-    const addMount = vi.spyOn(backend.connection, 'addMount')
-    const host = document.createElement('div')
-    document.body.append(host)
-    const dispose = render(() => <TemplateGallery app={app} visible={() => true} onClose={() => undefined} />, host)
-
-    await vi.waitFor(() => expect(host.textContent).toContain('Dinkster indexes models in place'))
-    expect(host.querySelector('.desktop-mount-form')).toBeNull()
-    expect([...host.querySelectorAll('button')].some((button) => button.textContent === 'Grant folder')).toBe(false)
-    expect(addMount).not.toHaveBeenCalled()
-    dispose()
+    expect(secondPage.items[0]?.details).toEqual(expect.arrayContaining([
+      { label: 'model missing', text: 'missing-dit.safetensors' },
+      { label: 'model missing', text: 'missing-vae.safetensors' },
+    ]))
   })
 })
 
