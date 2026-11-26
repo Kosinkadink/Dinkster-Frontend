@@ -55,7 +55,7 @@ import {
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
 import { isButtonIcon, paintButtonIcon } from './button-icons.js'
-import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
+import { canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
 import { fitText, measureWidth, paintCenteredText, shareRowWidth, wrapText } from './text-fit.js'
 
 /**
@@ -1385,6 +1385,12 @@ export class CanvasRenderer {
     this.invalidate()
   }
 
+  setDetailMinScale(scale: number): void {
+    if (this.tokens.detailMinScale === scale) return
+    this.tokens = { ...this.tokens, detailMinScale: scale }
+    this.invalidate()
+  }
+
   setColors(colors: DesignTokens['colors'], typePaint?: Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'>): void {
     this.tokens = { ...this.tokens, ...typePaint, colors, stateColors: { ...this.tokens.stateColors, pending: colors.pendingOutline, skipped: colors.skippedOutline } }
     this.previewChecker = undefined
@@ -1595,7 +1601,7 @@ export class CanvasRenderer {
   }
 
   getDetailLevel(): CanvasDetailLevel {
-    return canvasDetailLevel(this.viewport.scale, this.tokens.mediaControlMinScale)
+    return canvasDetailLevel(this.viewport.scale, this.tokens.mediaControlMinScale, this.tokens.detailMinScale)
   }
 
   private badges: BadgeMap = {}
@@ -2195,10 +2201,11 @@ export class CanvasRenderer {
     const spanX = Math.max(1, bounds.maxX - bounds.minX)
     const spanY = Math.max(1, bounds.maxY - bounds.minY)
     const fitScale = Math.min((w - margin * 2) / spanX, (h - margin * 2) / spanY)
+    const detailMinScale = this.tokens.detailMinScale
     const detailFits =
-      (spanX + PIN_OVERHANG * 2) * CANVAS_DETAIL_MIN_SCALE <= w &&
-      (spanY + PIN_OVERHANG * 2) * CANVAS_DETAIL_MIN_SCALE <= h
-    const scale = Math.min(canvasPaintTokens.viewport.maxFitScale, Math.max(canvasPaintTokens.viewport.minFitScale, detailFits ? Math.max(CANVAS_DETAIL_MIN_SCALE, fitScale) : fitScale))
+      (spanX + PIN_OVERHANG * 2) * detailMinScale <= w &&
+      (spanY + PIN_OVERHANG * 2) * detailMinScale <= h
+    const scale = Math.min(canvasPaintTokens.viewport.maxFitScale, Math.max(canvasPaintTokens.viewport.minFitScale, detailFits ? Math.max(detailMinScale, fitScale) : fitScale))
     this.setViewport({
       x: (w - spanX * scale) / 2 - bounds.minX * scale,
       y: (h - spanY * scale) / 2 - bounds.minY * scale,

@@ -261,9 +261,9 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     "The Boundary panel lists a subgraph node's rows as one ordered tree: rows, lines of fields, sections and whole groups and choices, in the order the node draws them, with the selected row's settings in the fixed area below. Click a row to select it, a section's arrow to open or close it.",
   zoom: 'Three nodes at 75 percent, the smallest zoom that still draws controls.',
   'zoom-content':
-    'The same nodes at 50 percent, where text stays and controls are hidden.',
+    'The same nodes at 30 percent, where text stays and controls are hidden.',
   'zoom-overview':
-    'The same nodes just below 50 percent, where the canvas draws its overview.',
+    'The same nodes just below 30 percent, where the canvas draws its overview.',
   minimap:
     'The minimap: nodes outlined by state, a bypassed node, wires in their type colors, groups, and the frame of the visible area.',
   'switch-primitive':
