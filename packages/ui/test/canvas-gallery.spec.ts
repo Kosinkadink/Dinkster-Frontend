@@ -43,7 +43,9 @@ test('choosing a fixes Review entry selects its named example on the canvas', as
   await expect(removedChoices.locator('canvas')).toHaveAttribute(
     'data-ready', /-dark$/,
   )
-  await expect(removedChoices.locator('.dinkster-fixes-settings')).toHaveCount(0)
+  await expect(removedChoices.getByRole('button', {
+    name: 'Open the Review upgrades setting', exact: true,
+  })).toHaveCount(0)
   await removedChoices.screenshot({
     path: testInfo.outputPath('review-without-settings-dark.png'),
   })
