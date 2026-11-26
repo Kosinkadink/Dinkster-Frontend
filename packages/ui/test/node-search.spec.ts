@@ -18,8 +18,8 @@ test('a dropped image wire offers compatible installed nodes and blueprints and 
   expect(await chip.evaluate((element) => {
     const dot = element.querySelector('svg')!.getBoundingClientRect()
     const word = element.querySelector('.dinkster-search-type-label > span')!.getBoundingClientRect()
-    return dot.right < word.left
-  })).toBe(true)
+    return word.left - dot.right
+  })).toBe(8)
   const field = search.getByRole('combobox', { name: 'Search nodes', exact: true })
   await field.focus()
   await field.press('Enter')
@@ -58,9 +58,17 @@ test('recent entries, categories, type menus and installation actions stay on th
     const positions = await labels.evaluateAll((elements) => elements.map((element) => {
       const dot = element.querySelector('svg')!.getBoundingClientRect()
       const word = element.querySelector('span')!.getBoundingClientRect()
-      return dot.right < word.left ? 'before' : dot.left > word.right ? 'after' : 'overlap'
+      return {
+        side: dot.right < word.left ? 'before' : dot.left > word.right ? 'after' : 'overlap',
+        gap: Math.max(word.left - dot.right, dot.left - word.right),
+        minimumGap: getComputedStyle(element).gap,
+      }
     }))
-    expect(positions).toEqual(Array.from({ length: positions.length }, () => direction === 'Takes' ? 'before' : 'after'))
+    for (const position of positions) {
+      expect(position.side).toBe(direction === 'Takes' ? 'before' : 'after')
+      expect(position.gap).toBeGreaterThanOrEqual(8)
+      expect(position.minimumGap).toBe('8px')
+    }
     await expect(typed.getByRole('menuitemcheckbox', { name: `${direction} image`, exact: true }).locator('circle')).toHaveAttribute('fill', '#64B5F6')
     const anyDot = typed.getByRole('menuitemcheckbox', { name: `${direction} Any type`, exact: true }).locator('svg.dinkster-search-chip-dot')
     await expect(anyDot).toHaveCSS('color', 'rgb(116, 136, 139)')

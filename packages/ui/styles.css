@@ -1363,7 +1363,7 @@
 .dinkster-search-input::placeholder { color: var(--dinkster-text-muted); }
 .dinkster-search-input::-webkit-search-cancel-button { display: none; }
 .dinkster-search-chip { display: inline-flex; flex: none; align-items: center; gap: var(--dinkster-space-4); padding: 0 var(--dinkster-space-4) 0 var(--dinkster-space-8); border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); white-space: nowrap; }
-.dinkster-search-type-label { display: inline-flex; align-items: center; gap: var(--dinkster-space-4); white-space: nowrap; }
+.dinkster-search-type-label { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); white-space: nowrap; }
 .dinkster-search-type-label[data-direction='gives'] { width: 100%; justify-content: space-between; }
 .dinkster-search-chip-dot { flex: none; width: var(--dinkster-space-8); height: var(--dinkster-space-8); color: var(--dinkster-text-muted); }
 .dinkster-search-chip-remove { display: inline-flex; padding: 2px; border: 0; border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-secondary); background: transparent; cursor: pointer; }
