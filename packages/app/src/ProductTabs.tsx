@@ -1,4 +1,4 @@
-import { createRenderEffect, createSignal, createUniqueId, For, type JSX } from 'solid-js'
+import { children, createRenderEffect, createSignal, createUniqueId, For, type JSX } from 'solid-js'
 
 export interface ProductTab {
   readonly id: string
@@ -198,10 +198,12 @@ export function ProductTabs(props: ProductTabsProps) {
         </For>
       </div>
   )
+  // JSX getters can create another tree on each read, overwriting action refs.
+  const trailing = children(() => props.trailing)
   return (
     <div ref={root} id={props.id} class={`product-tabs${props.class ? ` ${props.class}` : ''}`}>
-      {props.trailing !== undefined
-        ? <div class="product-tabs-header">{tablistRow}{props.trailing}</div>
+      {trailing() !== undefined
+        ? <div class="product-tabs-header">{tablistRow}{trailing()}</div>
         : tablistRow}
       <For each={tabIds()}>
         {(id) => (

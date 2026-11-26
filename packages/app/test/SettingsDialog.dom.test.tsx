@@ -70,8 +70,8 @@ describe('SettingsDialog search', () => {
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} />, root)
     const description = root.querySelector('#setting-canvas\\.scrollBehavior-description')!
-    expect([...description.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Ctrl', wheel])
-    expect(description.textContent).toBe(t('settings.canvas.scrollBehavior.description').replace(/`/g, '').replace('Ctrl+wheel', 'CtrlWheel').replace('Ctrl+\u6eda\u8f6e', 'Ctrl\u6eda\u8f6e'))
+    expect([...description.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual([`Ctrl+${wheel}`])
+    expect(description.textContent).toBe(t('settings.canvas.scrollBehavior.description').replace(/`/g, '').replace('Ctrl+wheel', 'Ctrl+Wheel'))
     expect(root.querySelector('#setting-canvas\\.scrollBehavior')?.getAttribute('aria-describedby')).toContain(description.id)
     unmount()
   })
@@ -509,7 +509,7 @@ describe('SettingsDialog search', () => {
     capture.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', ctrlKey: true, bubbles: true }))
 
     expect(keybindings.combo('workflow.save')).toBe('ctrl+o')
-    expect([...capture.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Ctrl', 'O'])
+    expect([...capture.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Ctrl+O'])
     expect(saveRow.classList.contains('product-field-invalid')).toBe(true)
     expect(capture.getAttribute('aria-invalid')).toBe('true')
     expect(capture.getAttribute('aria-describedby')).toBe('keybinding-workflow.save-message')
