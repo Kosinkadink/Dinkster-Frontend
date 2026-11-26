@@ -847,7 +847,7 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
     <div class="dinkster-canvas-side-representation">
       <div ref={line} class="dinkster-canvas-side-representation-line" data-open={open()}>
         <CanvasClosedRow
-          label="Representation"
+          label="Display"
           value={props.choices.find((choice) => choice.id === props.selected)?.label ?? props.selected}
           choice
           onOpen={show}
@@ -859,15 +859,15 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
             <CanvasRowList
               rowWidth={position().width}
               place="right"
-              label="Representation"
+              label="Display"
               query={query()}
               onQuery={(text) => { setQuery(text); setHighlight(0) }}
-              inputLabel="Representation"
+              inputLabel="Display"
               options={choices().map((choice) => ({ key: choice.id, label: choice.label, saved: choice.id === props.selected }))}
               {...(highlight() === undefined ? {} : { highlight: highlight()! })}
               onHighlight={setHighlight}
               onPick={choose}
-              empty="No matching representations"
+              empty="No matching displays"
               listPlace={position().listPlace}
               listMaxHeight={position().listMaxHeight}
               onListSize={setListHeight}

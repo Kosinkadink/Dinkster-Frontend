@@ -122,7 +122,7 @@ export function widgetRepresentationMenuGroup(input: {
     group: '45-widget-representation',
     items: [{
       id: 'core.widget.representation',
-      label: 'Representation',
+      label: 'Display',
       ...(input.disabled === undefined ? {} : { disabled: input.disabled }),
       children: set.representations.map((representation) => ({
         id: `core.widget.representation.${representation.id}`,
