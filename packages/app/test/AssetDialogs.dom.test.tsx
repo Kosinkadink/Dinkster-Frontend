@@ -57,6 +57,25 @@ afterEach(() => {
 })
 
 describe('asset modal surfaces', () => {
+  it('explains an ambiguous model plan in the existing status line without offering a download', () => {
+    const mounted = mountConsent({ assets: [], busy: false, retry: vi.fn(), models: [{
+      requirement: { name: 'shared.safetensors', kind: 'model/checkpoint' },
+      plan: { status: 'duplicate' }, pending: false,
+    }] })
+    try {
+      for (const locale of ['en', 'zh']) {
+        setLocale(locale)
+        expect(mounted.root.querySelector('[data-testid="model-consent-phase"]')?.textContent)
+          .toBe('More than one model file matches this name; give the files distinct names, then review again.')
+        expect(mounted.root.textContent).not.toContain('modelConsent.plan.duplicate')
+        expect(mounted.root.querySelector('[data-testid="model-consent-download"]')).toBeNull()
+        expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')!.disabled).toBe(true)
+      }
+    } finally {
+      mounted.dispose()
+    }
+  })
+
   it('preserves choices on refusal and disables duplicate resolution while pending', async () => {
     const mounted = mountResolution(undefined)
     let finish!: (accepted: boolean) => void
