@@ -1107,6 +1107,8 @@ export interface LayoutOptions {
   readonly sectionOverrides?: Readonly<Record<string, boolean>>
   /** Fold state per line of fields, keyed by its first field's flattened id; absent lines are folded. */
   readonly lineFolds?: Readonly<Record<string, boolean>>
+  /** Boundary-driven inputs whose wires and pins are not drawn. */
+  readonly wirelessInputs?: ReadonlySet<string>
   /** Client-owned named widget representation selections by value key. */
   readonly widgetRepresentations?: Readonly<Record<string, string>>
   /** Height in lines of each text box the user sized, by value key (view.setTextBoxLines). */
@@ -2297,7 +2299,7 @@ export function layoutNode(
     const center = rows[rowIndex.get(line[0]!)!]!.y + tokens.rowHeight / 2
     for (const direction of ['in', 'out'] as const) {
       const own = (pin: PinLayout): boolean => fields.has(pin.portId) && pin.direction === direction &&
-        (direction === 'in' ? pin.widgetBacked === true : pin.widgetTap === true)
+        (direction === 'in' ? pin.widgetBacked === true && !options.wirelessInputs?.has(pin.portId) : pin.widgetTap === true)
       const wired = pins.filter((pin) => own(pin) && isConnected(direction, pin.portId))
       pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...wired.map((pin, index) => {
         const { dy, stacked } = pressed(index, wired.length)

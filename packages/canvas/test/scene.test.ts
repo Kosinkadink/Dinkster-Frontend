@@ -395,6 +395,35 @@ describe('buildScene', () => {
     expect(scene.links[0]!.from).toMatchObject({ kind: 'port', port: 'image' })
   })
 
+  it('centers a folded line on drawn boundary wires, not hidden ones, without carrying its fold to the face', () => {
+    const field = (id: string): Extract<NodeSchema['body'][number], { kind: 'input' }> => ({ kind: 'input', id, optional: false,
+      type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } })
+    const schema: NodeSchema = { type: 'Fields', displayName: 'Fields', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: [field('first'), field('last')] }] }
+    const document = structuredClone(loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document!)
+    ;(document.graphs.g1!.nodes as Record<string, unknown>).n0 = { id: 'n0', type: 'Fields', values: { first: 7, last: 19 } }
+    ;(document.graphs.g1 as { boundary: unknown }).boundary = { body: [
+      { kind: 'input', id: 'first', promoted: true, wireHidden: true, binds: { kind: 'port', node: 'n0', port: 'first' } },
+      { kind: 'input', id: 'last', promoted: true, binds: { kind: 'port', node: 'n0', port: 'last' } },
+    ] }
+    const resolve = documentResolver(document, (type) => type === 'Fields' ? schema : schemas.get(type))
+    const scene = (graphId: string) => buildScene({ document, graphId, resolve, tokens: defaultTokens, measure, widgetMeasure })
+    for (const hidden of [true, false]) {
+      const item = boundaryItems(document.graphs.g1!.boundary!, 'inputs')[0]!
+      ;(item as { wireHidden: boolean }).wireHidden = hidden
+      const inner = scene('g1')
+      const layout = inner.nodes[0]!.layout
+      const row = layout.rows[0]!
+      const center = row.y + defaultTokens.rowHeight / 2
+      const lastPin = layout.pins.find((pin) => pin.portId === 'last' && pin.direction === 'in')!
+      expect(lastPin.y).toBe(hidden ? center : center + canvasPaintTokens.node.box.clusterPitch.two / 2)
+      expect(inner.links.find((link) => link.to.kind === 'port' && link.to.port === 'first')?.hidden === true).toBe(hidden)
+      const face = scene('g0').nodes.find((node) => node.id === 'n0')!.layout
+      expect(face.lines).toBeUndefined()
+      expect(face.rows[0]!.y).not.toBe(face.rows[1]!.y)
+    }
+  })
+
   it('inner subgraph definitions render standalone by graph id', () => {
     const scene = sceneOf('exec-subgraph', 'g1')
     expect(scene.nodes.map((n) => n.id)).toEqual(['n0'])
