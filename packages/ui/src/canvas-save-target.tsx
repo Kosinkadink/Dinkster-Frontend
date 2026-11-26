@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, createUniqueId, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, createUniqueId, on, type JSX } from 'solid-js'
 import { Check, ChevronDown } from 'lucide-solid'
 import { CanvasEditorButtons, CanvasEditorChoiceList } from './canvas-editor.js'
 import {
@@ -131,7 +131,7 @@ export function CanvasTargetBox(props: {
   const mountBlocked = () => props.frozen === true || props.mountWired === true || props.mountReadOnly === true || props.mountDisabled === true
   const prefixBlocked = () => props.frozen === true || props.prefixWired === true || props.prefixReadOnly === true || props.prefixDisabled === true
   let mountButton: HTMLButtonElement | undefined
-  createEffect(() => { if (props.listOpen) setQuery('') })
+  createEffect(on(() => props.listOpen, (open, wasOpen) => { if (open && !wasOpen) setQuery('') }))
   createEffect(() => {
     if (!mountButton || props.inNode) return
     const index = props.highlight
