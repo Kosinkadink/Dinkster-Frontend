@@ -27,6 +27,63 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
+test('Node title capitals are within half a pixel of the title bar center', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const measurements: { text: string; error: number }[] = []
+    Object.assign(window, { headerCapitalMeasurements: measurements })
+    for (const prototype of [
+      CanvasRenderingContext2D.prototype,
+      OffscreenCanvasRenderingContext2D.prototype,
+    ]) {
+      const headers = new WeakMap<object, { top: number; height: number }>()
+      const roundRect = prototype.roundRect
+      prototype.roundRect = function (x, y, width, height, radii) {
+        if (Array.isArray(radii) && radii[2] === 0 && radii[3] === 0)
+          headers.set(this, { top: y, height })
+        return roundRect.call(this, x, y, width, height, radii)
+      }
+      const fillText = prototype.fillText
+      prototype.fillText = function (text, x, y, maxWidth) {
+        const header = headers.get(this)
+        if (
+          header &&
+          this.font.startsWith('600 ') &&
+          y > header.top &&
+          y < header.top + header.height
+        ) {
+          const capitals = this.measureText('H')
+          measurements.push({
+            text,
+            error:
+              y +
+              (capitals.actualBoundingBoxDescent -
+                capitals.actualBoundingBoxAscent) /
+                2 -
+              (header.top + header.height / 2),
+          })
+        }
+        if (maxWidth === undefined) return fillText.call(this, text, x, y)
+        return fillText.call(this, text, x, y, maxWidth)
+      }
+    }
+  })
+  await openPage(page, 'boxes')
+  await cardsReady(page, 'boxes', 'dark')
+  const measurements = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          headerCapitalMeasurements: { text: string; error: number }[]
+        }
+      ).headerCapitalMeasurements,
+  )
+  expect(measurements.some(({ text }) => text === 'Sampler')).toBe(true)
+  for (const { text, error } of measurements)
+    expect(Math.abs(error), text).toBeLessThanOrEqual(0.5)
+})
+
 test('Step curves draw exact horizontal holds and vertical jumps without a histogram', async ({
   page,
 }) => {
@@ -42,7 +99,9 @@ test('Step curves draw exact horizontal holds and vertical jumps without a histo
     )
     const stage = canvas.locator('..')
     await expect(stage).not.toContainText('Interpolation')
-    await expect(page.getByTestId('in-node-editor-sample-curve').locator('..')).toContainText('Step')
+    await expect(
+      page.getByTestId('in-node-editor-sample-curve').locator('..'),
+    ).toContainText('Step')
     await expect(stage).not.toContainText('Histogram')
     await expect(stage.locator('.dinkster-canvas-curve-point')).toHaveCount(4)
     const points = await stage
@@ -445,25 +504,69 @@ test('Open rows use a quiet outline and preserve keyboard focus and side-part co
 })
 
 for (const theme of ['dark', 'light'] as const) {
-  test(`Solver problems name their node once on each surface, ${theme}`, async ({ page }) => {
+  test(`Solver problems name their node once on each surface, ${theme}`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1440, height: 1000 })
     await openPage(page, 'problem-box', theme)
     await cardsReady(page, 'problem-box', theme)
     for (const [id, title, sentence, kind] of [
-      ['type-warning', 'Decode', 'Samples needs latent data, but Load image sends an image.', 'warning'],
-      ['type-list-error', 'Blur image', 'Image needs one image, but Load images sends a list of images.', 'error'],
-      ['type-group-position', 'Pick value', 'Position 3 was chosen, but the group has 2 values.', 'error'],
-      ['type-selected', 'Choose model', 'Source is set to image, but Load latent sends latent data.', 'warning'],
-      ['type-switch-stored', 'Switch', 'The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', 'warning'],
-      ['type-switch-runtime', 'Switch', 'The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', 'error'],
+      [
+        'type-warning',
+        'Decode',
+        'Samples needs latent data, but Load image sends an image.',
+        'warning',
+      ],
+      [
+        'type-list-error',
+        'Blur image',
+        'Image needs one image, but Load images sends a list of images.',
+        'error',
+      ],
+      [
+        'type-group-position',
+        'Pick value',
+        'Position 3 was chosen, but the group has 2 values.',
+        'error',
+      ],
+      [
+        'type-selected',
+        'Choose model',
+        'Source is set to image, but Load latent sends latent data.',
+        'warning',
+      ],
+      [
+        'type-switch-stored',
+        'Switch',
+        'The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.',
+        'warning',
+      ],
+      [
+        'type-switch-runtime',
+        'Switch',
+        'The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.',
+        'error',
+      ],
     ] as const) {
-      const card = page.locator('figure.dinkster-canvas-example', { has: page.getByTestId(`problem-box-${id}`) })
-      const box = card.getByRole('dialog', { name: `Problems of ${title}`, exact: true })
+      const card = page.locator('figure.dinkster-canvas-example', {
+        has: page.getByTestId(`problem-box-${id}`),
+      })
+      const box = card.getByRole('dialog', {
+        name: `Problems of ${title}`,
+        exact: true,
+      })
       await expect(box.locator('.problem-box-text')).toHaveText(sentence)
       await expect(box).toHaveAttribute('data-kind', kind)
-      await expect(card.locator('.problems-group-title')).toHaveText('This workflow')
-      await expect(card.locator('.problem-message')).toHaveText(`${title}: ${sentence}`)
-      await expect(card.locator('.problem')).toHaveAttribute('data-severity', kind)
+      await expect(card.locator('.problems-group-title')).toHaveText(
+        'This workflow',
+      )
+      await expect(card.locator('.problem-message')).toHaveText(
+        `${title}: ${sentence}`,
+      )
+      await expect(card.locator('.problem')).toHaveAttribute(
+        'data-severity',
+        kind,
+      )
     }
   })
 

@@ -193,7 +193,7 @@ export function ProductWindowAction(
         <span class="dinkster-window-action-icon" aria-hidden="true">
           <ProductIcon icon={local.icon} />
         </span>
-        <span class="dinkster-window-action-label">
+        <span class="dinkster-window-action-label" data-tooltip-visible-label="">
           {local.labelContent ?? local.label}
         </span>
         <Show when={local.shortcut}>
