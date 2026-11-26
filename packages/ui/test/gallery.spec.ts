@@ -428,7 +428,7 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await expect(field).toHaveCSS('border-top-width', '1px')
   await expect(field).toHaveCSS(
     'border-top-color',
-    await token(page, '--dinkster-border-focus'),
+    await token(page, '--dinkster-text-secondary'),
   )
   await expect(field).toHaveCSS('outline-width', '0px')
   await field.press('a')
@@ -436,16 +436,16 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await page.keyboard.press('Tab')
   await page.keyboard.press('Shift+Tab')
   await expect(field).toBeFocused()
-  await expect(field).toHaveCSS('outline-width', '2px')
+  await expect(field).toHaveCSS('outline-width', '0px')
   await expect(field).toHaveCSS(
     'border-top-color',
-    await token(page, '--dinkster-border-subtle'),
+    await token(page, '--dinkster-text-secondary'),
   )
   await field.click()
   await expect(field).toHaveCSS('outline-width', '0px')
   await expect(field).toHaveCSS(
     'border-top-color',
-    await token(page, '--dinkster-border-focus'),
+    await token(page, '--dinkster-text-secondary'),
   )
   await page.keyboard.press('Tab')
   await page.getByLabel('Unchecked option').focus()
@@ -467,6 +467,57 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
     page.getByRole('link', { name: 'Forms', exact: true }),
   ).toBeInViewport()
   await expect(page).toHaveScreenshot('frame-stays-when-scrolled.png')
+})
+
+test('gallery field borders show focus without adopting the trial on pages', async ({
+  page,
+}) => {
+  for (const theme of ['dark', 'light']) {
+    await page.goto(`/?theme=${theme}#controls`)
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme
+    }, theme)
+    await page.keyboard.press('Tab')
+    for (const [label, name, invalid] of [
+      ['Display name', 'text', false],
+      ['Notes', 'textarea', false],
+      ['Access', 'select', false],
+      ['Project ID', 'invalid', true],
+    ] as const) {
+      const field = page.getByLabel(label, { exact: true })
+      await field.focus()
+      await field.hover()
+      await expect(field).toHaveCSS('border-top-width', '1px')
+      await expect(field).toHaveCSS(
+        'border-top-color',
+        await token(
+          page,
+          invalid ? '--dinkster-danger-border' : '--dinkster-text-secondary',
+        ),
+      )
+      await expect(field).toHaveCSS('outline-width', '0px')
+      await expect(
+        field.locator('xpath=ancestor::div[@class="dinkster-field"][1]'),
+      ).toHaveScreenshot(`field-focus-${theme}-${name}.png`)
+    }
+    const disabled = page.getByLabel('Unavailable field', { exact: true })
+    await disabled.focus()
+    await expect(disabled).not.toBeFocused()
+    await expect(disabled).toHaveCSS(
+      'border-top-color',
+      await token(page, '--dinkster-border-subtle'),
+    )
+    await page.evaluate(() => {
+      delete document.documentElement.dataset.fieldFocusMark
+    })
+    const field = page.getByLabel('Display name', { exact: true })
+    await field.focus()
+    await expect(field).toHaveCSS('outline-width', '2px')
+    await expect(field).toHaveCSS(
+      'border-top-color',
+      await token(page, '--dinkster-border-subtle'),
+    )
+  }
 })
 
 test('quiet text menus keep shared focus, checked selection and dismissal without a resting outline', async ({ page }) => {

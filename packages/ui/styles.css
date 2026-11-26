@@ -175,6 +175,8 @@
 .dinkster-input:focus { border-color: var(--dinkster-border-subtle); }
 :where(:root[data-field-focus='pointer']) .dinkster-input:focus { border-color: var(--dinkster-border-focus); }
 :root[data-field-focus='pointer'] .dinkster-input:focus-visible { outline: 0; }
+:root[data-field-focus-mark='border'] .dinkster-input:focus { border-color: var(--dinkster-text-secondary); outline: 0; }
+:root[data-field-focus-mark='border'] .dinkster-input[aria-invalid='true']:focus { border-color: var(--dinkster-danger-border); }
 .dinkster-root .dinkster-input[data-density='canvas'] { height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-4); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
 .dinkster-input::placeholder { color: var(--dinkster-text-muted); opacity: 1; }
 .dinkster-input[aria-invalid='true'] { border-color: var(--dinkster-danger-border); }
