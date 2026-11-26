@@ -27,7 +27,7 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
-test('Controls inside an open row use ordinary borders and a brighter keyboard border', async ({ page }) => {
+test('Controls inside an open row use ordinary borders and a secondary-text keyboard border', async ({ page }) => {
   const tokenColor = async (token: string) => page.evaluate((token) => {
     const probe = document.createElement('span')
     probe.style.color = `var(${token})`
@@ -46,7 +46,8 @@ test('Controls inside an open row use ordinary borders and a brighter keyboard b
   const outerStroke = await outerOutline.evaluate((element) => getComputedStyle(element).stroke)
   await prefix.focus()
   await expect(prefix).toBeFocused()
-  await expect(prefix).toHaveCSS('border-color', await tokenColor('--dinkster-border-hover'))
+  await expect(prefix).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
+  await expect(prefix).toHaveCSS('border-width', '1px')
   await expect(prefix).toHaveCSS('outline-style', 'none')
   await expect(outerOutline).toHaveCSS('stroke', outerStroke)
   await expect(card).toHaveScreenshot('side-controls-prefix-focused-dark.png')
@@ -65,7 +66,7 @@ test('Controls inside an open row use ordinary borders and a brighter keyboard b
     await expect(control).toBeFocused()
     await expect(control).toHaveCSS('outline-style', 'none')
     await expect(control).toHaveCSS('border-width', '1px')
-    await expect(control).toHaveCSS('border-color', await tokenColor('--dinkster-border-hover'))
+    await expect(control).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
   }
   await openPage(page, 'color-editing')
   const area = page.getByTestId('color-editing-open').locator('..').locator('.dinkster-canvas-color-area')
@@ -73,12 +74,12 @@ test('Controls inside an open row use ordinary borders and a brighter keyboard b
   await expect(area).toBeFocused()
   await expect(area).toHaveCSS('outline-style', 'none')
   await expect(area).toHaveCSS('border-width', '1px')
-  await expect(area).toHaveCSS('border-color', await tokenColor('--dinkster-border-hover'))
+  await expect(area).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
   const swatches = page.getByTestId('color-editing-eight').locator('..').locator('.dinkster-canvas-color-swatches')
   await swatches.focus()
   await expect(swatches).toBeFocused()
   await expect(swatches).toHaveCSS('outline-style', 'none')
-  await expect(swatches.locator('[data-candidate="true"]')).toHaveCSS('border-color', await tokenColor('--dinkster-border-hover'))
+  await expect(swatches.locator('[data-candidate="true"]')).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
   await openPage(page, 'row-states')
   const stage = page.getByTestId('row-states-representation-open').locator('..')
   const filter = stage.getByRole('combobox', { name: 'Representation', exact: true })
@@ -86,13 +87,13 @@ test('Controls inside an open row use ordinary borders and a brighter keyboard b
   await filter.focus()
   await expect(filter).toBeFocused()
   await expect(filter).toHaveCSS('outline-style', 'none')
-  await expect(nestedOutline).toHaveCSS('stroke', await tokenColor('--dinkster-border-hover'))
+  await expect(nestedOutline).toHaveCSS('stroke', await tokenColor('--dinkster-text-secondary'))
   await expect(nestedOutline).toHaveCSS('stroke-width', '1px')
   await filter.press('Escape')
   const trigger = stage.getByRole('button', { name: 'Representation Number', exact: true })
   await expect(trigger).toBeFocused()
   await expect(trigger).toHaveCSS('outline-style', 'none')
-  await expect(trigger).toHaveCSS('border-color', await tokenColor('--dinkster-border-hover'))
+  await expect(trigger).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
 })
 
 test('Shared-line fields join exposed ends and keep the middle side part detached', async ({ page }) => {
