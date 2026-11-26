@@ -895,6 +895,7 @@ export function deriveBoundarySchema(
       ...derived,
       id: item.id,
       ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
+      ...(item.tooltip !== undefined ? { tooltip: item.tooltip } : {}),
       outer: outerScopeOf(binds, node, path, item.id),
     } as BodyRow
   }

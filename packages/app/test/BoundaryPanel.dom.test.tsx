@@ -68,18 +68,19 @@ const blendDocument = (): WorkflowDocument => ({
   },
 } as unknown as WorkflowDocument)
 
-const mountPanel = async (options: { inside?: boolean } = {}) => {
+const mountPanel = async (options: { inside?: boolean; schema?: NodeSchema; document?: WorkflowDocument } = {}) => {
   const app = prepareWorkflowApp(new AppState())
   apps.push(app)
   const backend = app.backends.get()[0]!
+  const schema = options.schema ?? blend
   backend.registry.set({
     connection: backend.id,
     hash: 'boundary-panel-test',
-    schemas: new Map([[blend.type, blend]]),
+    schemas: new Map([[schema.type, schema]]),
     diagnostics: [],
-    resolve: (type) => type === blend.type ? blend : undefined,
+    resolve: (type) => type === schema.type ? schema : undefined,
   })
-  expect(await app.openDocument(blendDocument(), 'Boundary component')).toEqual([])
+  expect(await app.openDocument(options.document ?? blendDocument(), 'Boundary component')).toEqual([])
   const tab = app.activeTab()!
   // Drill in through the real occurrence so navigation survives the
   // document-change reconciler (graphStack.length === instancePath.length + 1).
@@ -121,6 +122,42 @@ const delayDispatch = (app: AppState) => {
 }
 
 describe('BoundaryPanel rows and settings', () => {
+  it('edits help and Show for a whole choice and removes its complete exposure in one undo step', async () => {
+    const schema: NodeSchema = { ...blend, body: blend.body.map((row) => row.kind === 'input' && row.id === 'mode'
+      ? { kind: 'choice', id: 'mode', options: [{ key: 'a', rows: [] }, { key: 'b', rows: [] }], shared: [], required: true }
+      : row) }
+    const source = blendDocument()
+    const sub = source.graphs.sub!
+    const workflow = { ...source, graphs: { ...source.graphs, sub: { ...sub, boundary: {
+      body: sub.boundary!.body.map((row) => row.kind === 'input' && row.id === 'mode'
+        ? { kind: 'input', id: 'mode', binds: { kind: 'construct', node: 'n1', port: 'mode' } }
+        : row),
+    } } } } as WorkflowDocument
+    const { app, tab, root, unmount } = await mountPanel({ schema, document: workflow })
+    select(root, 'mode')
+    const help = root.querySelector<HTMLInputElement>('[data-testid="boundary-help-input"]')!
+    help.value = 'Choose the treatment'
+    help.dispatchEvent(new Event('input', { bubbles: true }))
+    help.dispatchEvent(new Event('change', { bubbles: true }))
+    await idle(root)
+    expect(itemOf(app, 'mode')?.tooltip).toBe('Choose the treatment')
+    const show = root.querySelector<HTMLButtonElement>('[data-testid="boundary-show-select"]')!
+    show.click()
+    const linked = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((element) => element.textContent?.includes('image is plugged in'))
+    expect(linked).toBeDefined()
+    linked!.click()
+    await idle(root)
+    expect(itemOf(app, 'mode')?.visible).toEqual({ formula: 'linked(image)' })
+    const beforeRemove = tab.store.doc
+    root.querySelector<HTMLButtonElement>('[data-testid="boundary-remove"]')!.click()
+    root.querySelector<HTMLButtonElement>('[data-testid="boundary-remove-yes"]')!.click()
+    await idle(root)
+    expect(itemOf(app, 'mode')).toBeUndefined()
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc).toEqual(beforeRemove)
+    unmount()
+  })
+
   it('lists the rows in stored order with the inner node, and shows the selected row in one settings area', async () => {
     const { app, tab, root, unmount } = await mountPanel()
     expect(root.querySelector('[data-testid="boundary-title"]')?.textContent).toBe('Soften')

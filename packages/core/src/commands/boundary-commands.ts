@@ -2,12 +2,9 @@
  * Boundary-editing commands: the write path for a subgraph definition's
  * boundary items - exposures, bindings and input fan-out (`alsoBinds`).
  *
- * Like every core command these are SCHEMA-BLIND and deterministic: they
- * validate structure (item exists, binding kind, unique targets) and write
- * exactly what the params describe. Whether a bound port exists and accepts
- * the boundary type is derivation's job (deriveBoundarySchema), so an editor
- * surfaces those problems inline without commands needing a schema resolver
- * (which would break command determinism/serializability).
+ * Writes are deterministic and validate document structure. Initial dispatch
+ * also checks schema-dependent ownership and construct compatibility; shared
+ * replay writes the accepted parameters without re-reading a live schema.
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
@@ -55,17 +52,32 @@ function findItem(
 //
 // Fan-out: appends an ADDITIONAL inner input target to a boundary INPUT
 // item (BoundaryItem.alsoBinds). Input-side only - an output has exactly
-// one source - and only on a 'port' primary. The new entry is always kind
-// 'port' (one canonical spelling).
-// Whether the target port exists and accepts the boundary type is
-// derivation's job (boundary.unknownPort / boundary.fanoutTypeMismatch);
-// this command validates document structure only.
+// one source. Every target has the primary's kind; constructs must have
+// matching rows, keys, options and growth.
+// Dispatch checks construct compatibility with derivation. Port type
+// mismatches remain advisory derivation diagnostics.
 // ---------------------------------------------------------------------------
 
 const bindingTargetKey = (node: string, port: string): string => JSON.stringify([node, port])
 
 const boundaryAddBinding: CommandDefinition = {
   id: 'boundary.addBinding',
+  validateDispatch(doc, params, context) {
+    if (!isObj(params) || typeof params.itemId !== 'string') return []
+    const def = graphOf(doc, params.graphId)
+    const found = def && findItem(def, 'inputs', params.itemId)
+    if (!def || found?.item.binds.kind !== 'construct') return []
+    const binding = bindingFromParams({ ...params, kind: 'construct' }, 'inputs')
+    const resolve = schemaResolverForCommand(doc, context)
+    if (binding === undefined || resolve === undefined) return []
+    const withTarget = { ...def, boundary: withBoundaryItems(def.boundary, 'inputs', boundaryItems(def.boundary, 'inputs').map((item) =>
+      item.id === params.itemId ? { ...item, alsoBinds: [...(item.alsoBinds ?? []), binding] } : item)) }
+    const resolveNode = (node: typeof def.nodes[string]) => documentNodeResolver(doc, resolve)(def.id, node)
+    const errorsOf = (graph: GraphDef) => deriveBoundarySchema(graph, documentResolver(doc, resolve), undefined, resolveNode).diagnostics
+      .filter((d) => d.severity === 'error')
+    const before = new Set(errorsOf(def).map((d) => JSON.stringify([d.code, d.message])))
+    return errorsOf(withTarget).filter((d) => !before.has(JSON.stringify([d.code, d.message])))
+  },
   run(doc, params, tx) {
     if (
       !isObj(params) ||
@@ -90,11 +102,11 @@ const boundaryAddBinding: CommandDefinition = {
           `boundary.addBinding: no boundary input '${params.itemId}' in graph '${String(params.graphId)}' (fan-out is input-side only)`,
         ),
       ]
-    if (found.item.binds.kind !== 'port')
+    if (found.item.binds.kind !== 'port' && found.item.binds.kind !== 'construct')
       return [
         err(
           'boundary.bindKind',
-          `boundary.addBinding: boundary input '${params.itemId}' binds a '${found.item.binds.kind}'; only a port binding can fan out`,
+          `boundary.addBinding: boundary input '${params.itemId}' binds a '${found.item.binds.kind}'; only a port or construct binding can fan out`,
         ),
       ]
     if (!def.nodes[params.node])
@@ -108,8 +120,10 @@ const boundaryAddBinding: CommandDefinition = {
           `boundary.addBinding: inner input '${params.node}/${params.port}' is already bound by a boundary input`,
         ),
       ]
-    const entry = bindingFromParams(params, 'inputs')
-    if (entry?.kind !== 'port') return [err('params.invalid', 'boundary.addBinding: params must identify an input port binding')]
+    const entry = bindingFromParams({ ...params, kind: found.item.binds.kind }, 'inputs')
+    if (entry === undefined) return [err('params.invalid', 'boundary.addBinding: params must identify an input binding')]
+    const conflict = itemConflict('boundary.addBinding', def, entry)
+    if (conflict !== undefined) return [conflict]
     tx.set(
       [...found.path, 'alsoBinds'],
       [...(found.item.alsoBinds ?? []), entry] as unknown as Json,
@@ -192,6 +206,11 @@ const bindingMatchesEndpoint = (binding: BoundaryBinding, target: BoundaryBindin
 
 const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding | undefined => {
   if (typeof params.node !== 'string') return undefined
+  if (params.kind !== undefined && params.kind !== 'port' && params.kind !== 'construct') return undefined
+  if (params.kind === 'construct') {
+    return typeof params.port === 'string' && params.tap === undefined && params.viaReroute === undefined
+      ? { kind: 'construct', node: asNodeId(params.node), port: asPortId(params.port) } : undefined
+  }
   if (typeof params.tap === 'string' && params.tap.length > 0 && params.port === undefined) {
     return side === 'outputs' && params.viaReroute === undefined
       ? { kind: 'widgetTap', node: asNodeId(params.node), tap: asPortId(params.tap) } : undefined

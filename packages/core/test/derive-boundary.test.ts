@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { compile } from '../src/compile/compile.js'
-import { asConnectionId } from '../src/ids.js'
+import { asConnectionId, asNodeId } from '../src/ids.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
@@ -929,6 +929,31 @@ describe('Boundary sample acceptance compilation', () => {
     expect(loaded.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
     expect(prompt(loaded.document!)).toEqual(prompt(after))
   }
+
+  it('boundary/whole-choice/fan-out forwards one owner and unbinds only the selected target', () => {
+    const source = boundarySample(1)
+    const sample = source.graphs.detail!.nodes.sample!
+    const document = { ...source, graphs: { ...source.graphs, detail: {
+      ...source.graphs.detail!, nodes: { ...source.graphs.detail!.nodes,
+        extra: { ...sample, id: asNodeId('extra'), values: { ...sample.values, 'mode.mix': 0.17 } },
+      },
+    } } } as WorkflowDocument
+    const store = storeFor(document)
+    edit(store, 'boundary.addBinding', { graphId: 'detail', itemId: 'mode', node: 'extra', port: 'mode' })
+    edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
+    edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'mode.mix', value: 0.84 })
+    expect(prompt(store.doc)['first.sample']!.inputs['mode.mix']).toBe(0.84)
+    expect(prompt(store.doc)['first.extra']!.inputs['mode.mix']).toBe(0.84)
+    expect(prompt(store.doc)['second.extra']!.inputs['mode.mix']).toBe(0.17)
+    const beforeRefusal = store.doc
+    const refused = store.dispatch({ command: 'boundary.addBinding', params: { graphId: 'detail', itemId: 'mode', node: 'extra', port: 'nested' } })
+    expect(!refused.ok && refused.diagnostics.some((d) => d.code === 'boundary.constructShapeMismatch')).toBe(true)
+    expect(store.doc).toBe(beforeRefusal)
+    edit(store, 'boundary.unbind', { graphId: 'detail', side: 'inputs', itemId: 'mode', kind: 'construct', node: 'sample', port: 'mode' })
+    expect(prompt(store.doc)['first.sample']!.inputs['mode.mix']).toBe(0.3)
+    expect(prompt(store.doc)['first.extra']!.inputs['mode.mix']).toBe(0.84)
+    expect(prompt(store.doc)['second.extra']!.inputs['mode.mix']).toBe(0.17)
+  })
 
   for (const [context, level, path] of [
     ['one-level', 1, 'first.sample'], ['two-levels', 2, 'first.detail.sample'],

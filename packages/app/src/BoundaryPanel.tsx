@@ -109,10 +109,11 @@ const formulaLiteral = (value: string | number | boolean): string =>
 /** The unbind parameters of one binding, or undefined when no unbind can remove it. */
 const unbindParams = (binding: BoundaryBinding): JsonObject | undefined => {
   if (binding.kind === 'widgetTap') return { node: binding.node, tap: binding.tap }
-  if (binding.kind !== 'port') return undefined
+  if (binding.kind !== 'port' && binding.kind !== 'construct') return undefined
   return {
     node: binding.node,
     port: binding.port,
+    ...(binding.kind === 'construct' ? { kind: 'construct' } : {}),
     ...(binding.viaReroute !== undefined ? { viaReroute: binding.viaReroute } : {}),
   }
 }
@@ -1135,18 +1136,16 @@ export function BoundaryPanel(props: { app: AppState }) {
             commit={(value) => void commitText(row(), 'name', value)}
           />
         </Setting>
-        <Show when={!construct()}>
-          <Setting label={message('boundaryPanel.help')} for={`boundary-help-${id()}`}>
-            <TextSetting
-              id={`boundary-help-${id()}`}
-              testId="boundary-help-input"
-              draftKey={`help:${id()}`}
-              stored={row().item.tooltip ?? ''}
-              placeholder={message('boundaryPanel.help.placeholder')}
-              commit={(value) => void commitText(row(), 'help', value)}
-            />
-          </Setting>
-        </Show>
+        <Setting label={message('boundaryPanel.help')} for={`boundary-help-${id()}`}>
+          <TextSetting
+            id={`boundary-help-${id()}`}
+            testId="boundary-help-input"
+            draftKey={`help:${id()}`}
+            stored={row().item.tooltip ?? ''}
+            placeholder={message('boundaryPanel.help.placeholder')}
+            commit={(value) => void commitText(row(), 'help', value)}
+          />
+        </Setting>
         <Setting label={row().side === 'outputs' ? message('boundaryPanel.from') : message('boundaryPanel.goesTo')}>
           <Show when={destination(row())} fallback={<span>{message('boundaryPanel.unbound')}</span>}>
             {(text) => (
@@ -1200,7 +1199,7 @@ export function BoundaryPanel(props: { app: AppState }) {
             </Setting>
           )}
         </Show>
-        <Show when={row().side === 'inputs' && !construct()}>
+        <Show when={row().side === 'inputs'}>
           <Setting label={message('boundaryPanel.show')}>
             <ProductSelect
               class="boundary-show-select"
