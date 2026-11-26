@@ -2071,6 +2071,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [canvasDestination, setCanvasDestination] = createSolidSignal<UploadDestinationChoice>({ remember: false })
   const [ancestorPromotion, setAncestorPromotion] = createSolidSignal<{
     readonly definitions: readonly { readonly name: string; readonly uses: number; readonly changed: boolean }[]
+    readonly description?: string
     readonly row: string
     readonly destination: string
     readonly confirm: () => void
@@ -4074,6 +4075,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // well-known names). Extensions add document behavior via commands; host
     // actions cover navigation/UI concerns only.
     const hostActions: Record<string, (params: Json | undefined, m: OwnedMenuAnchor) => void> = {
+      showButtonOnSubgraph: (params, m) => {
+        if (params === undefined || m.tab.execution !== undefined) return
+        const reg = props.app.registryForTab(m.tab)
+        if (reg === undefined) return
+        const before = m.tab.store.doc
+        const command = coreCommandRegistry().get('boundary.showButton')!
+        const tx = createTransactionBuilder(before)
+        const diagnostics = executeCommand(command, before, params, tx, { kind: 'initial', schemaResolverFor: () => reg.resolve })
+        if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) { showGestureRefusal(diagnostics); return }
+        const p = params as JsonObject
+        const graphId = p.graphId as string
+        const definition = before.graphs[graphId]!
+        const added = boundaryItems(tx.current.graphs[graphId]!.boundary, 'inputs')
+          .filter((item) => !boundaryItems(definition.boundary, 'inputs').some((old) => old.id === item.id))
+        ancestorPromotion()?.cancel()
+        const target = captureLifecycleTarget(m.tab, m.graphId)
+        const valid = () => target.isCurrent() && m.tab.execution === undefined && m.tab.store.doc === before && props.app.registryForTab(m.tab) === reg
+        const cancel = () => { setAncestorPromotion(undefined); target.dispose() }
+        setAncestorPromotion({ row: p.button as string, destination: definition.name,
+          definitions: [{ name: definition.name, uses: Object.values(before.graphs).reduce((count, graph) => count + Object.values(graph.nodes).filter((node) => node.type === `#${graphId}`).length, 0), changed: true }],
+          description: added.length === 0 ? message('boundaryPanel.button.existingFields')
+            : message('boundaryPanel.button.addFields', { fields: added.map((item) => item.displayName ?? item.id).join(', ') }),
+          valid, cancel, confirm: () => { const current = valid(); cancel(); if (current) void dispatchGesture(m.tab, { command: 'boundary.showButton', params }) },
+        })
+      },
       showOnAncestor: (params, m) => {
         if (params === undefined || m.tab.execution !== undefined) return
         const reg = props.app.registryForTab(m.tab)
@@ -5857,7 +5883,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (row.viewId === 'core.text' || row.viewId === 'core.line') &&
         widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi === undefined
       const stops = node.layout.rows.filter((row): row is WidgetLayoutRow | Extract<LayoutRow, { kind: 'button' }> =>
-        row.kind === 'button' || (row.kind === 'widget' && !row.readOnly && !rowIsDriven(node.id, row)))
+        row.kind === 'button' || (row.kind === 'widget' && !rowIsDriven(node.id, row)))
       const index = stops.findIndex((row) => row.kind === 'button'
         ? 'buttonId' in from && row.buttonId === from.buttonId
         : 'valueKey' in from && row.valueKey === from.valueKey)
@@ -7773,7 +7799,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         title={message('boundaryPanel.promotion.title', { row: promotion.row, name: promotion.destination })}
         onDismiss={promotion.cancel}>
         <BoundaryPromotionPreview definitions={promotion.definitions}
-          description={message('boundaryPanel.promotion.description')}
+          description={promotion.description ?? message('boundaryPanel.promotion.description')}
           consequence={message('boundaryPanel.promotion.consequence')}
           actionLabel={message('boundaryPanel.promotion.action', { name: promotion.destination })}
           usageLabel={(count) => message('boundaryPanel.usedIn', { count })}

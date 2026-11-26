@@ -19,6 +19,8 @@ import { boundaryFieldState } from '../commands/boundary-commands.js'
 import { t } from '../i18n/index.js'
 import type { MenuContribution, MenuContext, MenuItem } from './contract.js'
 import { boundaryItems } from '../format/document.js'
+import { buttonWriteFields } from '../actions/steps.js'
+import { elaborateInterface } from '../schema/elaborate.js'
 
 /** Menu-target port -> command PortRef params: the node and flattened port id. */
 const portParams = (p: { node: string; port: string }): { node: string; port: string } => ({
@@ -1090,6 +1092,20 @@ const showConstructOnSubgraphNode: MenuContribution = {
 
 export function coreMenuContributions(): readonly MenuContribution[] {
   return [
+    {
+      id: 'core.button.subgraphNode', targets: ['button'], group: '85-expose',
+      resolve(ctx) {
+        if (ctx.target.kind !== 'button' || ctx.graphId === ctx.doc.root) return []
+        const target = ctx.target
+        const node = ctx.doc.graphs[ctx.graphId]?.nodes[target.nodeId]
+        const schema = node === undefined ? undefined : ctx.resolve?.(node.type)
+        const button = schema === undefined || node === undefined ? undefined : elaborateInterface(schema, node).items
+          .find((row) => row.kind === 'button' && row.id === target.buttonId)
+        if (button?.kind !== 'button' || buttonWriteFields(button.spec) === undefined) return []
+        return [{ id: 'core.button.subgraphNode.show', label: 'Show on subgraph node',
+          action: { kind: 'host', action: 'showButtonOnSubgraph', params: { graphId: ctx.graphId, node: node!.id, button: target.buttonId } } }]
+      },
+    },
     showConstructOnSubgraphNode,
     nodeMode,
     nodePreviews,

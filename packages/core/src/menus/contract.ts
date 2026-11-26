@@ -31,6 +31,7 @@ import type { NodeSchema } from '../schema/model.js'
 /** What was right-clicked. Plain data mirroring the canvas hit kinds. */
 export type MenuTarget =
   | { readonly kind: 'canvas' }
+  | { readonly kind: 'button'; readonly nodeId: string; readonly buttonId: string }
   | {
       readonly kind: 'node'
       readonly nodeId: string

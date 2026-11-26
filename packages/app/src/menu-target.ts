@@ -380,6 +380,8 @@ export function widgetMenuTarget(
 /** Canvas hit -> plain menu target. */
 export function menuTargetOf(hit: Hit): MenuTarget {
   switch (hit.kind) {
+    case 'button':
+      return { kind: 'button', nodeId: hit.node.id, buttonId: hit.row.buttonId }
     case 'empty':
       return { kind: 'canvas' }
     case 'link':

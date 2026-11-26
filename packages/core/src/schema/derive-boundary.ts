@@ -57,7 +57,8 @@ import type {
   TypeChoiceSpec,
   TypeExpr,
 } from './model.js'
-import { boundaryItems, type BoundaryEntry } from '../format/document.js'
+import { boundaryButtons, boundaryItems, type BoundaryEntry } from '../format/document.js'
+import { buttonWriteFields } from '../actions/steps.js'
 
 /** Resolves node types and optional backend-declared editor roles. */
 export interface SchemaResolver {
@@ -1397,6 +1398,29 @@ export function deriveBoundarySchema(
       if (!(error instanceof FormulaRefused)) throw error
       diags.push(diag('warning', 'schema', 'boundary.visibleBroken', `[${def.id}] boundary input '${item.id}' shows only when "${visible.formula}", which no longer reads: ${error.message}. The row shows until its "Show" is set again.`, { refs: [{ graphId: def.id, portId: item.id }] }))
     }
+  }
+
+  for (const entry of boundaryButtons(def.boundary)) {
+    const node = def.nodes[entry.node]
+    const schema = node === undefined ? undefined : resolveNode(node)
+    const button = schema === undefined || node === undefined ? undefined
+      : elaborateInterface(schema, node, buildGraphConnectivity(def)(node.id), { promoteGhosts: false }).items
+        .find((row) => row.kind === 'button' && row.id === entry.button)
+    const writes = button?.kind === 'button' ? buttonWriteFields(button.spec) : undefined
+    const prefix = entry.button.includes('.') ? entry.button.slice(0, entry.button.lastIndexOf('.') + 1) : ''
+    const shown = writes?.map((field) => exposedPathOf(entry.node, prefix + field))
+    if (button?.kind !== 'button' || writes === undefined || shown?.some((field) => field === undefined)) {
+      diags.push(diag('warning', 'schema', 'boundary.buttonUnavailable', `[${def.id}] button '${entry.id}' is unavailable: its declaration or a written field is no longer shown.`, { refs: [{ graphId: def.id, portId: entry.id }] }))
+      continue
+    }
+    if (derivedItems.some((row) => 'id' in row && row.id === entry.id)) {
+      diags.push(diag('error', 'schema', 'boundary.duplicateId', `[${def.id}] duplicate boundary row '${entry.id}'`))
+      return { diagnostics: diags }
+    }
+    derivedItems.push({ ...button.spec, id: entry.id,
+      promotedFrom: { node: entry.node, button: entry.button, writes: shown as string[] },
+      outer: outerScopeOf({ kind: 'port', node: entry.node, port: entry.button as never }, node!, entry.button, entry.id, button.spec.outer),
+    })
   }
 
   return {

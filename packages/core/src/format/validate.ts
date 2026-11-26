@@ -247,6 +247,10 @@ function checkBoundaryEntries(c: ShapeChecker, entries: readonly unknown[], path
       checkBoundaryItem(c, entry, p, kind === 'input' ? 'inputs' : 'outputs')
       if (entry['ownRow'] !== undefined && (kind !== 'output' || entry['ownRow'] !== true))
         c.fail(`${p}.ownRow`, 'must be true when present, and only on an output')
+    } else if (kind === 'button') {
+      c.str(entry['id'], `${p}.id`, { nonEmpty: true })
+      c.str(entry['node'], `${p}.node`, { nonEmpty: true })
+      c.str(entry['button'], `${p}.button`, { nonEmpty: true })
     } else if (kind === 'section') {
       if (c.str(entry['id'], `${p}.id`, { nonEmpty: true })) {
         if (sectionIds.has(entry['id'])) c.fail(`${p}.id`, `duplicate section id '${entry['id']}'`)
@@ -270,7 +274,7 @@ function checkBoundaryEntries(c: ShapeChecker, entries: readonly unknown[], path
         })
       }
     } else {
-      c.fail(`${p}.kind`, "must be 'input', 'output', 'section' or 'line'")
+      c.fail(`${p}.kind`, "must be 'input', 'output', 'button', 'section' or 'line'")
     }
   })
 }

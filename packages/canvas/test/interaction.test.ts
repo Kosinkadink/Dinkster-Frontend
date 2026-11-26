@@ -3188,7 +3188,8 @@ describe('numeric widget steppers', () => {
     const scene = interactionScene() as any
     scene.nodes[0].layout.rows[0][flag] = true
     scene.nodes[0].layout.rows[0].viewId = 'core.number'
-    const harness = interactionHarness(scene)
+    const activate = vi.fn()
+    const harness = interactionHarness(scene, { onWidgetActivate: activate })
     Object.assign(harness.renderer, { setRowDrag: () => undefined })
     for (const x of [20, 60, 100]) {
       harness.fire('pointerdown', x, 35)
@@ -3198,6 +3199,7 @@ describe('numeric widget steppers', () => {
     harness.fire('pointermove', 90, 35)
     harness.fire('pointerup', 90, 35)
     expect(harness.dispatched).toEqual([])
+    expect(activate).toHaveBeenCalledTimes(3)
   })
 
   it('routes a forwarded suffix member value to its occurrence owner', () => {

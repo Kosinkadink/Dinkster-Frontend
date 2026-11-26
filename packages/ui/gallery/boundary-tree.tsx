@@ -54,6 +54,7 @@ const detailPass = (
 ): readonly BoundaryTreeEntry[] => [
   input('image', 'image', 'IMAGE', 'Blend'),
   input('mask', 'mask', 'MASK', 'Blend'),
+  { kind: 'row', id: 'increase', side: 'button', label: 'Increase', color: color('*'), target: 'Blend' },
   output('result', 'result', 'IMAGE', 'Blend'),
   {
     kind: 'section',

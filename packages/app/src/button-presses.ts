@@ -137,7 +137,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial }, signal)
     }
     return {
-      schemaOf: (doc, graphId, node) => documentNodeResolver(doc, resolve)(graphId, node, place.instancePath as readonly NodeId[] | undefined),
+      schemaOf: (doc, graphId, node, instancePath) => documentNodeResolver(doc, resolve)(graphId, node, (instancePath ?? place.instancePath) as readonly NodeId[] | undefined),
       schemaResolverFor: (doc) => documentResolver(doc, resolve),
       editorFor,
     }

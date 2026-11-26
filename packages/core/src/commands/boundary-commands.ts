@@ -10,7 +10,8 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { validateGraphDefShape } from '../format/validate.js'
 import { canonicalJson } from '../compile/hash.js'
-import { boundaryBindingKey, boundaryItems, boundaryItemsWithPaths, isNodeBoundaryBinding, withBoundaryItems, type Boundary, type BoundaryBinding, type BoundaryEntry, type BoundaryInputEntry, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
+import { boundaryBindingKey, boundaryButtons, boundaryItems, boundaryItemsWithPaths, isNodeBoundaryBinding, withBoundaryItems, type Boundary, type BoundaryBinding, type BoundaryEntry, type BoundaryInputEntry, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
+import { buttonWriteFields } from '../actions/steps.js'
 import { asNodeId, asPortId, asRerouteId, isPortEndpoint, samePortRef, type PortRef } from '../ids.js'
 import { Formula, FormulaRefused } from '../mirror/formula.js'
 import type { CommandDefinition, CommandExecutionContext, SharedReplayPreparation, TransactionBuilder } from './contract.js'
@@ -487,6 +488,70 @@ const boundaryShowOnSubgraphNode: CommandDefinition = {
   },
 }
 
+/** Promote every written field and its button in the same transaction. */
+const boundaryShowButton: CommandDefinition = {
+  id: 'boundary.showButton',
+  prepareForSharedReplay(doc, params, context, actor) {
+    const tx = createTransactionBuilder(doc, actor)
+    const diagnostics = boundaryShowButton.run(doc, params, tx, context)
+    return diagnostics.some((item) => item.severity === 'error') ? { ok: false, diagnostics }
+      : { ok: true, params: { ...(params as JsonObject), body: tx.current.graphs[(params as JsonObject).graphId as string]!.boundary!.body as unknown as Json } }
+  },
+  run(doc, params, tx, context) {
+    if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.node !== 'string' || typeof params.button !== 'string')
+      return [err('params.invalid', 'boundary.showButton: identify an inner node button')]
+    const def = doc.graphs[params.graphId]
+    const node = def?.nodes[params.node]
+    if (context.kind === 'shared-replay') {
+      if (def === undefined || !Array.isArray(params.body)) return [err('params.invalid', 'The shown button body is missing.')]
+      const shape = validateGraphDefShape({ ...def, boundary: { body: params.body } } as unknown as Json)
+      if (shape.length > 0) return shape
+      tx.set(['graphs', def.id, 'boundary'], { body: params.body })
+      return []
+    }
+    const resolve = context.schemaResolverFor?.(doc)
+    const schema = node === undefined || resolve === undefined ? undefined : documentNodeResolver(doc, resolve)(params.graphId, node)
+    if (def === undefined || node === undefined || schema === undefined || def.id === doc.root)
+      return [err('boundary.buttonMissing', 'The inner button is not available.')]
+    if (boundaryButtons(def.boundary).some((entry) => entry.node === node.id && entry.button === params.button)) return []
+    const button = elaborateInterface(schema, node).items.find((item) => item.kind === 'button' && item.id === params.button)
+    const writes = button?.kind === 'button' ? buttonWriteFields(button.spec) : undefined
+    if (writes === undefined) return [err('boundary.buttonUnsupported', 'This button changes graph structure or has unsupported steps and cannot be shown.')]
+    const prefix = params.button.includes('.') ? params.button.slice(0, params.button.lastIndexOf('.') + 1) : ''
+    for (const field of writes) {
+      const port = prefix + field
+      const current = tx.current.graphs[def.id]!
+      const state = boundaryFieldState(current, { node: node.id, port: asPortId(port) })
+      if (state.item?.promoted === true || state.item?.binds.kind === 'construct') continue
+      const diagnostics = boundaryShowOnSubgraphNode.run(tx.current, { graphId: def.id, node: node.id, port }, tx, context)
+      if (diagnostics.some((item) => item.severity === 'error')) return diagnostics
+    }
+    const current = tx.current.graphs[def.id]!
+    const ids = new Set([...(current.boundary?.body ?? []).flatMap((entry) => 'id' in entry ? [entry.id] : []),
+      ...boundaryItems(current.boundary, 'inputs').map((item) => item.id), ...boundaryItems(current.boundary, 'outputs').map((item) => item.id)])
+    let id = params.button.replace(/[^a-zA-Z0-9_]/g, '_')
+    for (let suffix = 2; ids.has(id); suffix++) id = `${params.button.replace(/[^a-zA-Z0-9_]/g, '_')}_${suffix}`
+    tx.set(['graphs', def.id, 'boundary', 'body'], [...(current.boundary?.body ?? []), { kind: 'button', id, node: node.id, button: params.button }] as unknown as Json)
+    return []
+  },
+}
+
+const boundaryHideButton: CommandDefinition = {
+  id: 'boundary.hideButton',
+  run(doc, params, tx) {
+    if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.itemId !== 'string')
+      return [err('params.invalid', 'boundary.hideButton: identify a shown button')]
+    const def = doc.graphs[params.graphId]
+    if (def === undefined || !boundaryButtons(def.boundary).some((entry) => entry.id === params.itemId))
+      return [err('boundary.buttonMissing', 'The shown button is missing.')]
+    const remove = (entries: readonly BoundaryEntry[]): BoundaryEntry[] => entries.flatMap((entry): BoundaryEntry[] =>
+      entry.kind === 'section' ? [{ ...entry, rows: remove(entry.rows) }]
+        : entry.kind === 'button' && entry.id === params.itemId ? [] : [entry])
+    tx.set(['graphs', def.id, 'boundary', 'body'], remove(def.boundary!.body) as unknown as Json)
+    return []
+  },
+}
+
 /** Follow only the explicitly chosen occurrence chain, never other uses of a definition. */
 const boundaryShowOnAncestor: CommandDefinition = {
   id: 'boundary.showOnAncestor',
@@ -701,12 +766,22 @@ const boundaryArrange: CommandDefinition = {
       inputs: new Map(boundaryItems(def.boundary, 'inputs').map((item) => [item.id as string, item])),
       outputs: new Map(boundaryItems(def.boundary, 'outputs').map((item) => [item.id as string, item])),
     }
+    const buttons = new Map(boundaryButtons(def.boundary).map((entry) => [entry.id, entry]))
     const named = new Set<string>()
     const problems: Diagnostic[] = []
     const build = (entries: readonly Json[]): BoundaryEntry[] => entries.flatMap((entry): BoundaryEntry[] => {
       if (!isObj(entry)) {
         problems.push(err('params.invalid', 'boundary.arrange: every body entry must be an object'))
         return []
+      }
+      if (entry.kind === 'button') {
+        const button = typeof entry.id === 'string' ? buttons.get(entry.id) : undefined
+        if (button === undefined || named.has(`button:${button.id}`)) {
+          problems.push(err('boundary.arrangeItems', 'boundary.arrange: unknown or repeated button'))
+          return []
+        }
+        named.add(`button:${button.id}`)
+        return [button]
       }
       if (entry.kind === 'input' || entry.kind === 'output') {
         const side = entry.kind === 'input' ? 'inputs' : 'outputs'
@@ -733,7 +808,7 @@ const boundaryArrange: CommandDefinition = {
     })
     const body = build(params.body)
     if (problems.length > 0) return problems
-    if (named.size !== items.inputs.size + items.outputs.size)
+    if (named.size !== items.inputs.size + items.outputs.size + buttons.size)
       return [err('boundary.arrangeItems', 'boundary.arrange: the body must name every input and output of the boundary')]
     const boundary: Boundary = { body }
     const shape = validateGraphDefShape({ ...def, boundary } as unknown as Json, `$.graphs.${def.id}`)
@@ -884,6 +959,8 @@ const boundarySetVisible: CommandDefinition = {
 }
 
 export const BOUNDARY_COMMANDS: readonly CommandDefinition[] = [
+  boundaryShowButton,
+  boundaryHideButton,
   boundaryArrange,
   boundaryAddBinding,
   boundaryRemoveBinding,

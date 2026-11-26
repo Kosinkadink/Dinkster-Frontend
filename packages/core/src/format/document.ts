@@ -471,6 +471,14 @@ export interface BoundaryOutputEntry extends BoundaryItem {
   readonly ownRow?: true
 }
 
+/** A declared button forwarded from one inner node, with no value or wire. */
+export interface BoundaryButtonEntry {
+  readonly kind: 'button'
+  readonly id: string
+  readonly node: NodeId
+  readonly button: string
+}
+
 /** A box that opens and closes. Layout only: it opens no scope. */
 export interface BoundarySectionEntry {
   readonly kind: 'section'
@@ -489,7 +497,7 @@ export interface BoundaryLineEntry {
   readonly rows: readonly BoundaryInputEntry[]
 }
 
-export type BoundaryEntry = BoundaryInputEntry | BoundaryOutputEntry | BoundarySectionEntry | BoundaryLineEntry
+export type BoundaryEntry = BoundaryInputEntry | BoundaryOutputEntry | BoundaryButtonEntry | BoundarySectionEntry | BoundaryLineEntry
 
 /**
  * A subgraph definition's boundary: one ordered body in the order the
@@ -525,6 +533,11 @@ export function boundaryItemsWithPaths(
 export const boundaryItems = (boundary: Boundary | undefined, side: 'inputs' | 'outputs'): readonly BoundaryItem[] =>
   boundaryItemsWithPaths(boundary, side).map(({ item }) => item)
 
+/** Buttons in body order, including those inside layout sections. */
+export const boundaryButtons = (boundary: Boundary | undefined): readonly BoundaryButtonEntry[] =>
+  (boundary?.body ?? []).flatMap((entry) => entry.kind === 'button' ? [entry]
+    : entry.kind === 'section' ? boundaryButtons({ body: entry.rows }) : [])
+
 const entryOf = (item: BoundaryItem, side: 'inputs' | 'outputs'): BoundaryInputEntry | BoundaryOutputEntry =>
   side === 'inputs' ? { ...item, kind: 'input' } : { ...item, kind: 'output' }
 
@@ -544,6 +557,7 @@ export function mapBoundaryItems(
 ): Boundary {
   const next = { inputs: 0, outputs: 0 }
   const visit = (entries: readonly BoundaryEntry[]): BoundaryEntry[] => entries.flatMap((entry): BoundaryEntry[] => {
+    if (entry.kind === 'button') return [entry]
     if (entry.kind === 'section') return [{ ...entry, rows: visit(entry.rows) }]
     if (entry.kind === 'line') {
       const rows = visit(entry.rows) as BoundaryInputEntry[]

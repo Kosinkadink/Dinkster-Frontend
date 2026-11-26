@@ -7,7 +7,7 @@
  */
 
 import { parseDinksterSchema } from '../schema/dinkster-wire.js'
-import type { InputSpec, StepSpec } from '../schema/model.js'
+import type { ButtonSpec, InputSpec, StepSpec } from '../schema/model.js'
 
 /** A literal, a formula over the button's scope, or a call to a lookup. */
 export type StepValue =
@@ -207,4 +207,20 @@ export function decodeSteps(specs: readonly StepSpec[]): readonly Step[] {
     else if (outside) throw new Error(`${step.step} changes the workflow after a step that acts outside it`)
   }
   return steps
+}
+
+/** Fields a promoted button must own; structural steps cannot be forwarded. */
+export function buttonWriteFields(button: ButtonSpec): readonly string[] | undefined {
+  if (button.promotedFrom !== undefined) return button.promotedFrom.writes
+  let steps: readonly Step[]
+  try { steps = decodeSteps(button.steps) } catch { return undefined }
+  const fields = new Set<string>()
+  for (const step of steps) {
+    if (step.step === 'addMember' || step.step === 'removeMember' || step.step === 'clearMembers' ||
+        step.step === 'disconnect' || step.step === 'addNode') return undefined
+    if ('field' in step) fields.add(step.step === 'setEach' ? step.group : step.field)
+    if (step.step === 'swap') { fields.add(step.a); fields.add(step.b) }
+    if (step.step === 'call') for (const field of step.writes) fields.add(field)
+  }
+  return [...fields]
 }

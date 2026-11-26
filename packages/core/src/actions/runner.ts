@@ -133,7 +133,7 @@ export interface ActionHost {
   readonly commands: ReadonlyMap<string, CommandDefinition>
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
   /** The schema of a node of `graphId` as the canvas resolves it; also asked for a node AddNode creates. */
-  schemaOf(doc: WorkflowDocument, graphId: string, node: NodeData): NodeSchema | undefined
+  schemaOf(doc: WorkflowDocument, graphId: string, node: NodeData, instancePath?: readonly string[]): NodeSchema | undefined
   /** A renderer host places additions using its measured node and wire geometry. */
   positionAddedNode?(doc: WorkflowDocument, target: StepPlace, node: NodeData, to: string, source?: LinkEndpoint): { readonly x: number; readonly y: number }
   lookup(request: LookupRequest, signal: AbortSignal): Promise<LookupResult>
@@ -392,7 +392,7 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
     ...(occurrence?.dynamic.get(stored.id) === undefined ? {} : { dynamic: occurrence.dynamic.get(stored.id)! }),
     ...(occurrence?.controllers.get(stored.id) === undefined ? {} : { controllers: occurrence.controllers.get(stored.id)! }),
   }
-  const schema = node && host.schemaOf(doc, target.graphId, node)
+  const schema = node && host.schemaOf(doc, target.graphId, node, path)
   if (graph === undefined || node === undefined || schema === undefined) return undefined
   const base = buildGraphConnectivity(graph)(node.id)
   const topology = path.length === 0 ? undefined : effectiveOccurrenceTopology(doc, resolve, {
@@ -530,6 +530,23 @@ function buttonOf(view: View, target: PressTarget): { readonly spec: ButtonSpec;
   if (item?.kind !== 'button') return undefined
   const dot = item.id.lastIndexOf('.')
   return { spec: item.spec, prefix: dot < 0 ? '' : item.id.slice(0, dot + 1) }
+}
+
+/** Follow a shown button through its exact occurrence, preserving the inner call context. */
+function promotedTarget(doc: WorkflowDocument, target: PressTarget, host: ActionHost): PressTarget {
+  const visited = new Set<string>()
+  for (;;) {
+    const key = JSON.stringify([target.graphId, target.nodeId, target.button])
+    if (visited.has(key)) return target
+    visited.add(key)
+    const view = viewOf(doc, target, host)
+    const source = view && buttonOf(view, target)?.spec.promotedFrom
+    const child = view && subgraphDefIdOf(view.node.type)
+    if (source === undefined || child === undefined) return target
+    const path = [...(target.instancePath ?? []), target.nodeId]
+    target = { graphId: child, nodeId: source.node, button: source.button,
+      instancePath: path, occurrence: [...path, source.node].join('/') }
+  }
 }
 
 const inputAt = (view: View, path: string): ElaboratedInput | undefined =>
@@ -1591,6 +1608,7 @@ export async function runPress(
   host: ActionHost,
   options: PressOptions = {},
 ): Promise<PressOutcome> {
+  target = promotedTarget(session.doc, target, host)
   const availability = buttonAvailability(session.doc, target, host)
   if (!availability.enabled) return failedOutcome(availability.reason)
   const view = viewOf(session.doc, target, host)!
@@ -1823,6 +1841,7 @@ const formulasOf = (value: StepValue | undefined): readonly string[] =>
  * has a wire.
  */
 export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, host: Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor'>): ButtonAvailability {
+  target = promotedTarget(doc, target, host as ActionHost)
   const initial = viewOf(doc, target, host as ActionHost)
   const button = initial && buttonOf(initial, target)
   const initialContext = button && initial!.contexts.get(button.prefix)

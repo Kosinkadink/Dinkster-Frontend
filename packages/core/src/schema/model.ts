@@ -766,6 +766,10 @@ export interface ButtonSpec {
   readonly kind: 'button'
   readonly id: string
   readonly label: string
+  /** The inner declaration and occurrence a forwarded press runs on. */
+  readonly promotedFrom?: { readonly node: string; readonly button: string; readonly writes: readonly string[] }
+  readonly outer?: OuterScope
+  readonly visibleWhen?: readonly ScopedVisibility[]
   readonly tooltip?: Formulated<string>
   readonly visible?: Formulated<boolean>
   readonly steps: readonly StepSpec[]

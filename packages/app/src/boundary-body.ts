@@ -162,6 +162,7 @@ export function addSection(entries: readonly BoundaryEntry[], displayName: strin
 /** The `body` parameter of `boundary.arrange`: every entry by kind and id, with its layout settings. */
 export function arrangeBody(entries: readonly BoundaryEntry[]): Json[] {
   return entries.map((entry): Json => {
+    if (entry.kind === 'button') return { kind: 'button', id: entry.id }
     if (entry.kind === 'input') return { kind: 'input', id: entry.id }
     if (entry.kind === 'output') return { kind: 'output', id: entry.id, ...(entry.ownRow === true ? { ownRow: true } : {}) }
     if (entry.kind === 'line') return { kind: 'line', rows: entry.rows.map((row) => ({ kind: 'input', id: row.id })) }

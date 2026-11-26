@@ -2,6 +2,7 @@ import { For, Match, Show, Switch, mergeProps, type JSX } from 'solid-js'
 import {
   ChevronDown,
   ChevronRight,
+  MousePointer2,
   Eye,
   GripVertical,
   TriangleAlert,
@@ -37,11 +38,11 @@ export function BoundaryPromotionPreview(props: {
   </div>
 }
 
-/** One input or output of a subgraph node, as the Boundary panel lists it. */
+/** One field, output or button of a subgraph node. */
 export interface BoundaryTreeRow {
   readonly kind: 'row'
   readonly id: string
-  readonly side: 'input' | 'output'
+  readonly side: 'input' | 'output' | 'button'
   readonly label: string
   /** The type's color, as pins of that type are drawn on the canvas. */
   readonly color: string
@@ -291,7 +292,9 @@ export function BoundaryTree(props: {
         fallback={
           <>
             <Grip />
-            <Dot color={rowProps.row.color} />
+            <Show when={rowProps.row.side === 'button'} fallback={<Dot color={rowProps.row.color} />}>
+              <ProductIcon icon={MousePointer2} />
+            </Show>
             <span class="boundary-tree-label">{rowProps.row.label}</span>
             <Marks
               condition={rowProps.row.condition}

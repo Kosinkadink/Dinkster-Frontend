@@ -3507,7 +3507,7 @@ export class InteractionController {
             this.host.onSubgraphMarkActivate?.(g.hit.row.subgraphMark!.item)
             return
           }
-          if (g.hit.row.readOnly) return
+          if (g.hit.row.readOnly && g.hit.row.familyOwner !== undefined) return
           const bindingOk = (link: SceneLink) => g.hit.row.selector === undefined || link.boundary !== true
           const connected = Object.hasOwn(g.hit.bnode?.fields?.wired ?? {}, g.hit.row.valueKey) || scene.links.some(
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,

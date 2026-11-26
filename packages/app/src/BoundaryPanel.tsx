@@ -13,6 +13,7 @@ import { defaultTokens, typeColor } from '@dinkster/canvas'
 import {
   boundaryConditionScope,
   boundaryInnerInput,
+  boundaryButtons,
   boundaryItems,
   canonicalTypeIdOf,
   defaultBoundaryLabels,
@@ -322,6 +323,11 @@ export function BoundaryPanel(props: { app: AppState }) {
     const key = selectedKey()
     return key === undefined ? undefined : rowById(key)
   }
+  const selectedButton = () => boundaryButtons(context()?.def.boundary).find((entry) => entry.id === selectedKey())
+  const buttonName = (id: string): string => {
+    const row = scopeRowsOf(derivation()?.schema?.body ?? []).find((entry) => entry.kind === 'button' && entry.id === id)
+    return row?.kind === 'button' && typeof row.label === 'string' ? row.label : id
+  }
   const selectedSection = (): BoundarySectionEntry | undefined => {
     const key = selectedKey()
     const found = key?.startsWith('section:') ? locate(body(), key) : undefined
@@ -458,6 +464,11 @@ export function BoundaryPanel(props: { app: AppState }) {
         })
         return [keep({ kind: 'line', id: lineKey(entry), rows: fields })]
       }
+      if (entry.kind === 'button') return [keep({ kind: 'row', id: entry.id, side: 'button',
+        label: buttonName(entry.id), color: typeColor(defaultTokens, '*'), target: innerNodeName(entry.node),
+        ...(boundaryDiags().some((diagnostic) => diagnostic.refs?.some((ref) => ref.portId === entry.id))
+          ? { problem: message('boundaryPanel.button.unavailable') } : {}),
+      })]
       const row = rowById(entry.id)
       if (row === undefined) return []
       if (row.item.binds.kind !== 'construct') return [keep(treeRow(row))]
@@ -1574,12 +1585,36 @@ export function BoundaryPanel(props: { app: AppState }) {
           </Show>
           <div class="boundary-settings-area" data-testid="boundary-settings-area">
             <Show when={selected()} fallback={
-              <Show when={selectedSection()} fallback={
+              <Show when={selectedButton()} fallback={<Show when={selectedSection()} fallback={
                 <div class="boundary-tree-settings">
                   <p class="boundary-tree-quiet" data-testid="boundary-pick">{message('boundaryPanel.pick')}</p>
                 </div>
               }>
                 {(section) => <SectionSettings section={section()} />}
+              </Show>}>
+                {(button) => <div class="boundary-tree-settings">
+                  <strong>{buttonName(button().id)}</strong>
+                  <p class="boundary-tree-quiet">{message('boundaryPanel.button.description')}</p>
+                  <Show when={confirmingRemove() === button().id} fallback={
+                    <div class="dinkster-actions boundary-tree-actions">
+                      <UiButton type="button" density="panel" intent="remove" disabled={editingDisabled()}
+                        onClick={() => setConfirmingRemove(button().id)}>
+                        <ProductIcon icon={Trash2} />{message('boundaryPanel.remove')}
+                      </UiButton>
+                    </div>
+                  }>
+                    <div class="boundary-remove-confirm" role="group">
+                      <span>{message('boundaryPanel.remove.question', { name: buttonName(button().id), count: usedIn() })}</span>
+                      <div class="dinkster-actions boundary-tree-actions">
+                        <UiButton type="button" density="panel" onClick={() => setConfirmingRemove(undefined)}>{message('boundaryPanel.remove.cancel')}</UiButton>
+                        <UiButton type="button" density="panel" intent="remove" fill="solid" disabled={editingDisabled()}
+                          onClick={() => void dispatch('boundary.hideButton', { itemId: button().id }, `button:${button().id}`)}>
+                          {message('boundaryPanel.remove.yes')}
+                        </UiButton>
+                      </div>
+                    </div>
+                  </Show>
+                </div>}
               </Show>
             }>
               {(row) => <Settings row={row()} />}
