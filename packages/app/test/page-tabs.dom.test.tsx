@@ -139,6 +139,42 @@ describe('page tab host', () => {
 })
 
 describe('app page tabs', () => {
+  it('opens distinct session-backed Boards only when enabled and releases closed documents without changing workflows', () => {
+    const app = createWorkflowApp()
+    const workflows = app.tabs.get()
+    try {
+      expect(app.commands.get('board.new')).toBeUndefined()
+      app.settings.set('features.board.enabled', true)
+      const create = app.commands.get('board.new')!
+      create.run()
+      const first = app.boards.entries.get()[0]!
+      const firstPage = app.pages.activeId()
+      first.session.dispatch({ command: 'board.item.add', params: {
+        items: [{ kind: 'note', text: 'Keep this Board separate', rect: { x: 12, y: 34, width: 180, height: 80 } }],
+      } })
+      create.run()
+      const second = app.boards.entries.get()[1]!
+      expect(second.id).not.toBe(first.id)
+      expect(second.session.doc.order).toEqual([])
+      expect(app.pages.descriptor(`board:${first.id}`)?.snapshot?.()).toBe(first.session.doc)
+      expect(app.activeTab()).toBeUndefined()
+      expect(app.tabs.get()).toBe(workflows)
+      app.pages.close(firstPage)
+      expect(app.boards.entries.get()).toEqual([second])
+      expect(app.pages.descriptor(`board:${first.id}`)).toBeUndefined()
+      app.settings.set('features.board.enabled', false)
+      expect(app.commands.get('board.new')).toBeUndefined()
+      expect(app.boards.entries.get()).toEqual([second])
+      app.pages.close(`page:board:${second.id}`)
+      expect(app.boards.entries.get()).toEqual([])
+      expect(app.pages.tabs()).toEqual(workflows)
+      expect(app.activeTab()).toBeDefined()
+    } finally {
+      app.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('renders pages in the shared shell, keeps workflows separate, and confirms discarding a dirty page', async () => {
     const app = createWorkflowApp()
     const workflows = app.tabs.get()

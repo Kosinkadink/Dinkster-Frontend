@@ -1,4 +1,8 @@
 {
+  "settings.features.board": "启用看板 (实验性)",
+  "command.board.new": "新建看板",
+  "board.title": "看板",
+  "settingsDialog.category.features_board": "看板功能",
   "storagePanel.title": "存储",
   "storagePanel.description": "设置模型文件夹和此项目使用的文件夹。",
   "backendsPanel.resources": "资源",

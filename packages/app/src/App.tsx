@@ -198,7 +198,7 @@ const splitDropNextLayout = (layout: EditorLayout, target: SplitDropTarget, tabI
 }
 
 const APP_MENU_COMMAND_GROUPS = [
-  { group: '10-open', ids: ['workflow.open', 'workflow.importFile'] },
+  { group: '10-open', ids: ['workflow.open', 'workflow.importFile', 'board.new'] },
   { group: '20-write', ids: ['workflow.save', 'workflow.export'] },
   { group: '30-edit', ids: ['edit.undo', 'edit.redo', 'edit.selectAll', 'subgraph.manageDefinitions'] },
   { group: '40-view', ids: ['view.zoomIn', 'view.zoomOut', 'view.fitSelection', 'layout.customize'] },

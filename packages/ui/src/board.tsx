@@ -44,6 +44,7 @@ import { useFieldFocus } from './field-focus.js'
 
 export interface ProductBoardProps {
   readonly store: BoardSession
+  readonly fill?: boolean
   readonly assetUrl: (asset: BoardAsset) => string
   readonly viewControls: (view: {
     readonly zoom: number
@@ -571,6 +572,7 @@ export function ProductBoard(props: ProductBoardProps) {
   return (
     <div
       class="dinkster-board"
+      data-fill={props.fill ? 'true' : undefined}
       ref={surface}
       tabindex={0}
       role="region"
