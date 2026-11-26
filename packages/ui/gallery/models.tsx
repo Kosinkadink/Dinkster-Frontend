@@ -30,7 +30,11 @@ const models: readonly ProductModel[] = [
         size: '17.2 GB',
         state: 'installed',
         facts: [
-          { label: 'File', value: 'flux1-dev-fp8.safetensors' },
+          {
+            label: 'File',
+            value: 'flux1-dev-fp8.safetensors',
+            monospace: true,
+          },
           { label: 'Folder', value: 'Studio models' },
         ],
       },
@@ -39,7 +43,7 @@ const models: readonly ProductModel[] = [
         name: 'fp16',
         state: 'downloading',
         progress: 0.42,
-        message: '42%, 10.0 of 23.8 GB',
+        message: '42%, 10 of 23.8 GB',
       },
       { id: 'q4', name: 'Q4, GGUF', size: '6.8 GB', state: 'not-downloaded' },
     ],
@@ -70,7 +74,11 @@ const models: readonly ProductModel[] = [
         size: '6.9 GB',
         state: 'installed',
         facts: [
-          { label: 'File', value: 'sd_xl_base_1.0.safetensors' },
+          {
+            label: 'File',
+            value: 'sd_xl_base_1.0.safetensors',
+            monospace: true,
+          },
           { label: 'Folder', value: 'Models' },
           { label: 'Also called', value: 'sdxl_base, sd_xl_base' },
         ],

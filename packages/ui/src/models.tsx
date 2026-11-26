@@ -1,11 +1,7 @@
 import { For, Show, createSignal } from 'solid-js'
 import { ChevronDown, ChevronRight, Download } from 'lucide-solid'
 import { ProductFacts } from './account.js'
-import {
-  ProductIcon,
-  ProductIconButton,
-  ProductTextButton,
-} from './controls.js'
+import { ProductIcon, ProductTextButton } from './controls.js'
 import { ProductList, ProductListRow } from './layout.js'
 import { ProductProgress } from './messages.js'
 import { useProductStrings } from './strings.js'
@@ -24,7 +20,11 @@ export interface ProductModelVersion {
     | 'unavailable'
   readonly progress?: number | undefined
   readonly message?: string
-  readonly facts?: readonly { readonly label: string; readonly value: string }[]
+  readonly facts?: readonly {
+    readonly label: string
+    readonly value: string
+    readonly monospace?: boolean
+  }[]
 }
 
 export interface ProductModel {
@@ -88,6 +88,10 @@ export function ProductModelList(props: ProductModelListProps) {
     const act = (
       callback: ((modelId: string, versionId: string) => void) | undefined,
     ) => callback?.(model().id, version().id)
+    const progressing = () =>
+      version().state === 'downloading' || version().state === 'checking'
+    const downloadable = () =>
+      version().state === 'not-downloaded' && props.onDownload !== undefined
     return (
       <ProductListRow
         title={
@@ -103,33 +107,42 @@ export function ProductModelList(props: ProductModelListProps) {
             {[
               propsRow.grouped ? undefined : model().kind,
               version().precision,
-              version().message ?? stateLabel(),
+              progressing() ? undefined : (version().message ?? stateLabel()),
             ]
               .filter(Boolean)
               .join(', ')}
           </span>
         }
         status={
-          <Show
-            when={
-              version().state === 'downloading' ||
-              version().state === 'checking'
-            }
-          >
-            <ProductProgress
-              label={`${model().name}: ${version().name}`}
-              value={version().progress}
-            />
+          <Show when={progressing()}>
+            <div class="dinkster-model-progress">
+              <ProductProgress
+                label={`${model().name}: ${version().name}`}
+                value={version().progress}
+              />
+            </div>
           </Show>
         }
-        trailing={<span class="dinkster-model-size">{version().size}</span>}
+        trailing={
+          <Show when={!downloadable()}>
+            <span class="dinkster-model-size">
+              {progressing()
+                ? (version().message ?? stateLabel())
+                : version().size}
+            </span>
+          </Show>
+        }
         action={
-          <Show when={version().state === 'not-downloaded' && props.onDownload}>
-            <ProductIconButton
-              icon={Download}
-              label={`${strings.modelDownload}: ${title()}`}
-              onClick={() => act(props.onDownload)}
-            />
+          <Show when={downloadable()}>
+            <div class="dinkster-model-download">
+              <ProductTextButton
+                icon={Download}
+                label={version().size ?? strings.modelDownload}
+                aria-label={`${strings.modelDownload}: ${title()}`}
+                intent="add"
+                onClick={() => act(props.onDownload)}
+              />
+            </div>
           </Show>
         }
         expanded={open()}
@@ -144,7 +157,17 @@ export function ProductModelList(props: ProductModelListProps) {
         }}
       >
         <Show when={version().facts?.length}>
-          <ProductFacts label={title()} items={version().facts ?? []} />
+          <ProductFacts
+            label={title()}
+            items={(version().facts ?? []).map((fact) => ({
+              label: fact.label,
+              value: fact.monospace ? (
+                <span class="dinkster-mono">{fact.value}</span>
+              ) : (
+                fact.value
+              ),
+            }))}
+          />
         </Show>
         <Show when={version().state === 'installed'}>
           <div class="dinkster-model-actions">
@@ -161,11 +184,12 @@ export function ProductModelList(props: ProductModelListProps) {
               />
             </Show>
             <Show when={props.onHide}>
-              <ProductTextButton
-                label={strings.modelHide}
-                intent="remove"
-                onClick={() => act(props.onHide)}
-              />
+              <div class="dinkster-model-hide">
+                <ProductTextButton
+                  label={strings.modelHide}
+                  onClick={() => act(props.onHide)}
+                />
+              </div>
             </Show>
           </div>
         </Show>
@@ -175,6 +199,13 @@ export function ProductModelList(props: ProductModelListProps) {
   function Model(propsRow: { model: ProductModel }) {
     const model = () => propsRow.model
     const open = () => expandedModels().has(model().id)
+    const installed = () =>
+      model().versions.filter((version) => version.state === 'installed').length
+    const missing = () =>
+      model().versions.filter(
+        (version) =>
+          version.state !== 'installed' && version.state !== 'unavailable',
+      ).length
     return (
       <Show
         when={model().versions.length > 1}
@@ -188,7 +219,11 @@ export function ProductModelList(props: ProductModelListProps) {
       >
         <ProductListRow
           title={<span class="dinkster-model-name">{model().name}</span>}
-          description={model().kind}
+          description={[
+            model().kind,
+            strings.modelHere.replace('{count}', String(installed())),
+            strings.modelToDownload.replace('{count}', String(missing())),
+          ].join(', ')}
           leading={<ProductIcon icon={open() ? ChevronDown : ChevronRight} />}
           trailing={
             <span class="dinkster-model-size">

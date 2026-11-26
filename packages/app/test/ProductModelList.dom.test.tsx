@@ -82,6 +82,9 @@ describe('ProductModelList', () => {
     )
     try {
       expect(root.textContent).not.toContain('flux-dev-fp8.safetensors')
+      expect(button(root, 'FLUX.1 dev').textContent).toContain(
+        '1 here, 1 to download',
+      )
       button(root, 'FLUX.1 dev').click()
       expect(chosen).toEqual([])
       expect(button(root, 'FLUX.1 dev').getAttribute('aria-expanded')).toBe(
@@ -95,6 +98,7 @@ describe('ProductModelList', () => {
       button(root, 'Q4').click()
       expect(chosen).toEqual([['flux', 'fp8']])
       expect(root.textContent).toContain('Not downloaded')
+      expect(button(root, 'Download').textContent).toBe('6.8 GB')
       button(root, 'Download').click()
       expect(downloaded).toEqual([['flux', 'q4']])
       button(root, 'SDXL base').click()
@@ -151,7 +155,9 @@ describe('ProductModelList', () => {
       ).toBe('0.25')
       button(root, 'FLUX.1 dev').click()
       setProgress(0.7)
-      expect(button(root, 'FLUX.1 dev').getAttribute('aria-expanded')).toBe('true')
+      expect(button(root, 'FLUX.1 dev').getAttribute('aria-expanded')).toBe(
+        'true',
+      )
       expect(
         root
           .querySelector('[role="progressbar"]')

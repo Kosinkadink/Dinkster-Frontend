@@ -45,6 +45,8 @@ export const defaultProductStrings = {
   modelCopyName: 'Copy name',
   modelHide: 'Hide in this project',
   modelVersions: '{count} versions',
+  modelHere: '{count} here',
+  modelToDownload: '{count} to download',
 }
 
 export type ProductStrings = Readonly<
