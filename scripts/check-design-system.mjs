@@ -403,7 +403,8 @@ export async function checkDesignSystem(args = []) {
   }
   for (const directory of sources) await visitDirectory(directory)
   if (!args.length)
-    await visitDirectory(resolve(repository, 'packages/app/src'), true)
+    for (const name of ['app', 'canvas', 'client', 'core', 'widgets'])
+      await visitDirectory(resolve(repository, `packages/${name}/src`), true)
   if (problems.length) throw new Error(problems.join('\n'))
 }
 
