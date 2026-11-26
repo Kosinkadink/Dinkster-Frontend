@@ -61,7 +61,7 @@ test('deleting a project asks first, and the default project cannot be deleted',
   await page.goto('/#projects')
   await page.getByRole('button', { name: 'Project actions' }).click()
   await page.getByRole('menuitem', { name: 'Delete' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Delete Film grain tests?' })
+  const dialog = page.getByRole('dialog', { name: 'Delete "Film grain tests"?' })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(dialog).toHaveCount(0)

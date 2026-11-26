@@ -23,7 +23,7 @@ import {
 import {
   ProductBrandMark,
   ProductButton,
-  ProductConfirmation,
+  ProductConfirmationDialog,
   ProductDialog,
   ProductEmptyState,
   ProductErrorBanner,
@@ -859,29 +859,25 @@ export function ProjectsView(props: {
                 )}
               </ProductField>
               <div class="dinkster-actions">
+                <ProductButton onClick={closeDialog}>{message('projects.action.cancel')}</ProductButton>
                 <ProductButton type="submit" fill="solid" disabled={newName().trim() === '' || busy()}>
                   {message('projects.rename.save')}
                 </ProductButton>
-                <ProductButton onClick={closeDialog}>{message('projects.action.cancel')}</ProductButton>
               </div>
             </form>
           </ProductDialog>
         </Show>
         <Show when={dialog() === 'delete'}>
-          <ProductDialog
+          <ProductConfirmationDialog
             title={message('projects.delete.title', { project: project().name })}
-            onDismiss={closeDialog}
+            consequence={message('projects.delete.consequence')}
+            error={dialogError()}
+            actionLabel={message('projects.delete.action')}
+            intent="remove"
             pending={busy()}
-          >
-            <ProductConfirmation
-              consequence={dialogError() ?? message('projects.delete.consequence')}
-              actionLabel={message('projects.delete.action')}
-              intent="remove"
-              pending={busy()}
-              onConfirm={() => void remove(project())}
-              onCancel={closeDialog}
-            />
-          </ProductDialog>
+            onConfirm={() => void remove(project())}
+            onCancel={closeDialog}
+          />
         </Show>
       </>
     )

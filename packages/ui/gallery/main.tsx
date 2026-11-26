@@ -14,6 +14,7 @@ import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
   CircleAlert,
+  Download,
   Ellipsis,
   LayoutList,
   PanelLeft,
@@ -48,6 +49,7 @@ import {
   ProductButton,
   ProductCheckbox,
   ProductConfirmation,
+  ProductConfirmationDialog,
   ProductDialog,
   ProductEmptyState,
   ProductErrorBanner,
@@ -76,6 +78,7 @@ import {
   ProductStringsProvider,
   ProductTable,
   ProductTextArea,
+  ProductTextButton,
   ProductTextInput,
   ProductToast,
   reportProductEvent,
@@ -102,6 +105,7 @@ import { EngineStatesGallery } from './engine-states.js'
 import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
 import { NodeSearchGallery } from './node-search.js'
+import { ModelsGallery } from './models.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -160,6 +164,7 @@ function Gallery() {
   const [toast, setToast] = createSignal<{ readonly message: string }>()
   const [error, setError] = createSignal(true)
   const [dialog, setDialog] = createSignal(false)
+  const [confirmationCase, setConfirmationCase] = createSignal<'one' | 'several' | 'safe' | 'working' | 'failed'>('one')
   const [wideDialog, setWideDialog] = createSignal(false)
   const [pending, setPending] = createSignal(false)
   const [fail, setFail] = createSignal(false)
@@ -169,6 +174,10 @@ function Gallery() {
   const [activity, setActivity] = createSignal('No action yet')
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
+  const [serverOpen, setServerOpen] = createSignal(false)
+  const [progressOpen, setProgressOpen] = createSignal(false)
+  const [versionSelected, setVersionSelected] = createSignal(false)
+  let versionButton: HTMLButtonElement | undefined
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
@@ -201,7 +210,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#engine-states'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -217,7 +226,7 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#project-loading' ? 'Project loading' : route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
+              (route() === '#models' ? 'Models' : route() === '#project-loading' ? 'Project loading' : route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
@@ -309,6 +318,8 @@ function Gallery() {
               <Section title="Card memory" components="ProductResourceUsage">
                 <For each={[false, true]}>
                   {(compact) => (
+                    <section class="dinkster-resource-card">
+                    <header class="dinkster-resource-card-heading"><strong>{compact ? 'RTX 3090' : 'RTX 4090'}</strong><span class="dinkster-resource-total"><strong>12.0</strong> <span>of 24.0 GB</span></span></header>
                     <ProductResourceUsage
                       label={compact ? 'Compact card memory' : 'Card memory'}
                       total={24}
@@ -330,8 +341,23 @@ function Gallery() {
                       limitLabel="Limit"
                       compact={compact}
                     />
+                    <dl class="dinkster-resource-live"><div><dt>Busy</dt><dd>73%</dd></div><div><dt>Temperature</dt><dd>61 C</dd></div><div><dt>Power</dt><dd>310 W</dd></div></dl>
+                    </section>
                   )}
                 </For>
+              </Section>
+              <Section title="Loaded model actions" components="ProductButton">
+                <For each={[false, true]}>{(inUse) => (
+                  <div class="dinkster-resource-model">
+                    <span>Flux model</span><span>3.0 GB</span>
+                    <span class="dinkster-resource-model-action">
+                      <span aria-hidden="true">Unload</span>
+                      <Show when={inUse} fallback={<ProductButton intent="remove" fill="quiet" data-resource-release>Unload</ProductButton>}>
+                        <span>In use</span>
+                      </Show>
+                    </span>
+                  </div>
+                )}</For>
               </Section>
               <Section
                 title="Partial telemetry"
@@ -443,6 +469,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#node-search'}>
               <NodeSearchGallery />
+            </Match>
+            <Match when={route() === '#models'}>
+              <ModelsGallery />
             </Match>
             <Match when={route() === '#run-controls'}>
               <Section title="Run controls" components="RunActivityControl, WorkflowQueueControl, RunRow, RunSection, ProductCancelButton">
@@ -815,6 +844,43 @@ function Gallery() {
               </ProductForm>
             </Match>
             <Match when={route() === '#lists'}>
+              <Section title="Grouped expandable rows" components="ProductList, ProductListRow, ProductFacts, ProductMenu">
+                <ProductList label="Backend servers" variant="grouped">
+                  <ProductListRow
+                    title="This computer"
+                    trailing="Dinkster, 70 node types"
+                    expanded={serverOpen()}
+                    onToggle={setServerOpen}
+                    action={<ProductMenu label="Server actions" icon={Ellipsis} iconOnly fill="quiet" items={[{ label: 'Change access token', onSelect: () => complete('Change access token chosen') }]} />}
+                  >
+                    <ProductFacts label="This computer" items={[{ label: 'Address', value: 'This computer' }, { label: 'Engine', value: 'Running' }]} />
+                    <ProductTextButton label="Restart engine" onClick={() => complete('Restart engine chosen')} />
+                  </ProductListRow>
+                  <ProductListRow title="Studio" trailing="Not connected" />
+                </ProductList>
+              </Section>
+              <Section title="Plain navigation rows" components="ProductList, ProductListRow">
+                <ProductList label="Asset folders" variant="plain">
+                  <ProductListRow title="Renders" description={<code>/home/name/Portraits/renders</code>} trailing="24 files" onActivate={() => complete('Renders opened')} />
+                </ProductList>
+              </Section>
+              <Section title="Rows with progress" components="ProductList, ProductListRow, ProductProgress">
+                <ProductList label="Model downloads" variant="plain">
+                  <ProductListRow title="Studio checkpoint" description="Checkpoint" trailing="42%" expanded={progressOpen()} onToggle={setProgressOpen}
+                    status={<ProductProgress label="Downloading Studio checkpoint" value={0.42} />}>
+                    <p class="dinkster-metadata">Download continues when details are closed.</p>
+                  </ProductListRow>
+                  <ProductListRow title="Pending checkpoint" description="Checkpoint, not downloaded"
+                    action={<ProductTextButton icon={Download} label="7.1 GB" aria-label="Download Pending checkpoint, 7.1 GB" intent="add" onClick={() => complete('Checkpoint download chosen')} />} />
+                </ProductList>
+              </Section>
+              <Section title="Selectable rows" components="ProductList, ProductListRow, ProductTextButton">
+                <ProductTextButton label="Focus version" onClick={() => versionButton?.focus()} />
+                <ProductList label="Model versions" variant="plain">
+                  <ProductListRow title="Studio checkpoint fp16" ref={(element) => { versionButton = element }} tabIndex={-1}
+                    pressed={versionSelected()} onActivate={() => setVersionSelected(!versionSelected())} />
+                </ProductList>
+              </Section>
               <Section title="Storage folders" components="ProductDisclosure, ProductMenu">
                 <div class="storage-folders">
                   <div class="storage-group-heading"><h3>Models</h3><ProductButton intent="add" onClick={() => complete('Add models folder chosen')}>Add</ProductButton></div>
@@ -1139,13 +1205,14 @@ function Gallery() {
             </Match>
             <Match when={route() === '#confirmations'}>
               <Section
-                title="Site confirmation"
+                title="In place"
                 components="ProductConfirmation"
               >
+                <ProductList label="Backend above the question"><ProductListRow title="Local" description="This computer" /></ProductList>
                 <ProductConfirmation
-                  title="Remove API key?"
-                  consequence="Applications using this key will lose access immediately."
-                  actionLabel="Remove key"
+                  title={'Remove "Studio B"?'}
+                  consequence="Studio B and its saved access tokens are removed from this project. No files are deleted."
+                  actionLabel="Remove backend"
                   intent="remove"
                   pending={pending()}
                   onConfirm={async () => {
@@ -1158,10 +1225,11 @@ function Gallery() {
                   }}
                   onCancel={() => complete('Removal cancelled')}
                 />
+                <ProductList label="Backend below the question"><ProductListRow title="Render farm" description="Disconnected" /></ProductList>
               </Section>
               <Section
-                title="App dialog"
-                components="ProductDialog with ProductConfirmation"
+                title="Something is lost"
+                components="ProductConfirmationDialog"
               >
                 <ProductButton intent="remove" onClick={() => setDialog(true)}>
                   Review removal
@@ -1170,6 +1238,19 @@ function Gallery() {
                   Open wide dialog
                 </ProductButton>
               </Section>
+              <For each={[
+                { id: 'several' as const, title: 'Several things' },
+                { id: 'safe' as const, title: 'Nothing is lost' },
+                { id: 'working' as const, title: 'Working' },
+                { id: 'failed' as const, title: 'Failed' },
+              ]}>{(example) => <Section title={example.title} components="ProductConfirmationDialog">
+                <ProductButton onClick={() => {
+                  setConfirmationCase(example.id)
+                  setPending(example.id === 'working')
+                  setDialog(true)
+                  if (example.id === 'working') window.setTimeout(() => setPending(false), 600)
+                }}>Review {example.title.toLowerCase()}</ProductButton>
+              </Section>}</For>
               <Section
                 title="Replaced built-in text"
                 components="ProductStringsProvider"
@@ -1198,26 +1279,31 @@ function Gallery() {
         onDismiss={() => setToast(undefined)}
       />
       <Show when={dialog()}>
-        <ProductDialog
-          title="Remove item?"
+        <ProductConfirmationDialog
+          title={confirmationCase() === 'several' ? 'Close 3 other tabs?' : confirmationCase() === 'safe' ? 'Show "strength" on Portrait fix?' : 'Remove "Studio B"?'}
           pending={pending()}
-          onDismiss={() => setDialog(false)}
-        >
-          <ProductConfirmation
-            consequence="This item will no longer be available."
-            actionLabel="Remove item"
-            intent="remove"
-            pending={pending()}
+            consequence={confirmationCase() === 'several' ? 'Two of them have unsaved changes, which will be lost.' : confirmationCase() === 'safe' ? 'The row is added to each subgraph on the way up. A subgraph used in several places gets it in every place.' : 'Studio B and its saved access tokens are removed from this project. No files are deleted.'}
+            actionLabel={confirmationCase() === 'several' ? 'Close and discard' : confirmationCase() === 'safe' ? 'Show on Portrait fix' : 'Remove backend'}
+            intent={confirmationCase() === 'safe' ? 'add' : 'remove'}
+            items={confirmationCase() === 'several' ? [
+              { name: 'Valley matte paintings', outcome: 'Unsaved changes' },
+              { name: 'Film grain experiments', outcome: 'Unsaved changes' },
+            ] : confirmationCase() === 'safe' ? [
+              { name: 'Blend detail', detail: 'used in 2 places', outcome: 'Already has it' },
+              { name: 'Detail pass', detail: 'used in 2 places', outcome: 'Gets the row' },
+              { name: 'Portrait fix', detail: 'used in 3 places', outcome: 'Gets the row' },
+            ] : undefined}
+            error={confirmationCase() === 'failed' ? 'Studio B was not removed. The library did not answer.' : undefined}
             onConfirm={async () => {
               setPending(true)
               await new Promise((resolve) => window.setTimeout(resolve, 600))
               setPending(false)
               setDialog(false)
+              setConfirmationCase('one')
               complete('Item removed')
             }}
-            onCancel={() => setDialog(false)}
+            onCancel={() => { setDialog(false); setConfirmationCase('one') }}
           />
-        </ProductDialog>
       </Show>
       <Show when={wideDialog()}>
         <ProductDialog
@@ -1290,9 +1376,25 @@ function WindowToolbarGallery() {
           Back to Desktop information
         </ProductLink>
         <ProductSection title="Shortcut keys">
-          <ProductShortcut keys="Ctrl+Shift+K" />
-          <ProductShortcut keys="Cmd+," />
-          <ProductShortcut keys={['Alt', '+']} />
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Compact</span>
+            <div class="dinkster-search-row-keys">
+              <ProductShortcut keys="Ctrl+Shift+O" />
+              <ProductShortcut keys="Cmd+," />
+              <ProductShortcut keys={['Alt', '+']} />
+            </div>
+          </div>
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Settings</span>
+            <ProductShortcut keys="Ctrl+Shift+O" size="settings" />
+          </div>
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Two presses in sequence</span>
+            <div class="dinkster-search-row-keys">
+              <ProductShortcut keys="Ctrl+K" />
+              <ProductShortcut keys="Ctrl+C" />
+            </div>
+          </div>
           <p class="dinkster-description"><ProductShortcutText text="Pan moves the canvas; `Ctrl+wheel` zooms. `Cmd+,` opens settings." /></p>
         </ProductSection>
         <ProductField label="Execution state">
@@ -1615,7 +1717,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs', '#models'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'

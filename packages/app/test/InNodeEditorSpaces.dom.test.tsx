@@ -87,6 +87,22 @@ it('describes unknown wired values once without implying recording or known angl
   recorder.dispose()
 })
 
+it('stops a camera stream whose permission arrives after its editor closes', async () => {
+  let grant!: (stream: MediaStream) => void
+  const stop = vi.fn()
+  const getUserMedia = vi.fn(() => new Promise<MediaStream>((resolve) => { grant = resolve }))
+  vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } })
+  dispose = render(() => <WebcamSpace value={undefined} carried={undefined} wired={false} covered={false}
+    ports={{ upload: vi.fn(), fetchBytes: undefined, size: () => ({ width: 32, height: 32 }), commit: vi.fn() }} />, document.body)
+  const start = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Start camera'))!
+  start.click()
+  expect(getUserMedia).toHaveBeenCalledTimes(1)
+  dispose()
+  dispose = undefined
+  grant({ getTracks: () => [{ stop }] } as unknown as MediaStream)
+  await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1))
+})
+
 it.each([false, true])('distinguishes an empty model from an unknown wired model (wired=%s)', async (wired) => {
   dispose = render(() => <Load3dSpace value={undefined} wired={wired} sourceKey="empty" captures={false} live={false}
     onWake={() => {}} openSections={[]} cameraWired={wired} placementWired={wired}

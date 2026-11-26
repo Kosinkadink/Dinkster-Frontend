@@ -33,7 +33,7 @@ export function auditLayout(page: Page, rootSelector: string): Promise<LayoutFin
       findings.push({ element: describe(root), finding: `extends outside the viewport (${Math.round(rootRect.left)},${Math.round(rootRect.top)} to ${Math.round(rootRect.right)},${Math.round(rootRect.bottom)} in ${window.innerWidth}x${window.innerHeight})` })
     }
 
-    // No hidden horizontal overflow: content pushed out of a card is a
+    // No unintended horizontal overflow: content pushed out of a card is a
     // layout bug even when overflow: auto technically makes it scrollable.
     const overflowCandidates = [root, ...Array.from(root.querySelectorAll('*'))]
     for (const el of overflowCandidates) {
@@ -43,6 +43,9 @@ export function auditLayout(page: Page, rootSelector: string): Promise<LayoutFin
       // have no visual layout to audit.
       if ((style.clip !== 'auto' || style.clipPath !== 'none') && el.clientWidth <= 1 && el.clientHeight <= 1) continue
       if (el !== root && style.overflowX === 'visible') continue
+      // Single-line ellipsis deliberately contains text in its own box;
+      // its ancestors and interactive controls still receive the full audit.
+      if (el !== root && style.textOverflow === 'ellipsis' && style.whiteSpace === 'nowrap' && (style.overflowX === 'hidden' || style.overflowX === 'clip')) continue
       if (el.scrollWidth > el.clientWidth + 2 && el.clientWidth > 0) {
         findings.push({ element: describe(el), finding: `horizontal overflow: content is ${el.scrollWidth}px wide inside ${el.clientWidth}px` })
       }

@@ -14,7 +14,7 @@ textarea {
 }
 
 :is(button, input, select, textarea, summary, a, [tabindex]):focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: 2px;
 }
 

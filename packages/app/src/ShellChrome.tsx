@@ -30,19 +30,25 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   const position = (): void => {
     if (!element.isConnected) return
     const tip = props.tip
-    const rect = tip.element?.getBoundingClientRect()
+    const rect = tip.paintedRect?.() ?? tip.element?.getBoundingClientRect()
+    const boundary = tip.boundary?.getBoundingClientRect()
+    const leftEdge = Math.max(0, boundary?.left ?? 0)
+    const topEdge = Math.max(0, boundary?.top ?? 0)
+    const rightEdge = Math.min(window.innerWidth, boundary?.right ?? window.innerWidth)
+    const bottomEdge = Math.min(window.innerHeight, boundary?.bottom ?? window.innerHeight)
     // A menu row's tooltip below it would cover the next row.
-    const beside = rect !== undefined && Boolean(tip.element?.closest('.left-sidebar, .context-menu'))
-    element.style.setProperty('--tooltip-available-width', `${window.innerWidth - (beside ? rect.right + 16 : 16)}px`)
+    const beside = rect !== undefined && (tip.paintedRect !== undefined || Boolean(tip.element?.closest('.left-sidebar, .context-menu')))
+    const before = tip.paintedRect !== undefined && rect !== undefined && rect.left - leftEdge > rightEdge - rect.right
+    element.style.setProperty('--tooltip-available-width', `${Math.max(1, beside ? before ? rect.left - leftEdge - 16 : rightEdge - rect.right - 16 : rightEdge - leftEdge - 16)}px`)
     content.style.removeProperty('-webkit-line-clamp')
     const naturalHeight = element.getBoundingClientRect().height
     if (tip.fit !== undefined) readoutHeight ??= naturalHeight
-    let available = window.innerHeight - 16
+    let available = bottomEdge - topEdge - 16
     let above = false
     if (rect !== undefined && !beside) {
       const belowSpace = window.innerHeight - rect.bottom - 16
       const aboveSpace = rect.top - 16
-      above = (readoutHeight ?? naturalHeight) > belowSpace && aboveSpace > belowSpace
+      above = tip.element?.dataset['tooltipPlace'] === 'above' || (readoutHeight ?? naturalHeight) > belowSpace && aboveSpace > belowSpace
       available = above ? aboveSpace : belowSpace
     }
     if (tip.fit !== undefined) {
@@ -85,7 +91,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     let top = tip.y
     if (rect !== undefined) {
       if (beside) {
-        left = rect.right + 8
+        left = before ? rect.left - width - 8 : rect.right + 8
         top = rect.top + (rect.height - height) / 2
       } else {
         left = rect.left + (rect.width - width) / 2
@@ -96,8 +102,8 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
       // so it does not cover the row it reads.
       top = tip.above - height
     }
-    element.style.left = `${Math.max(8, Math.min(left, window.innerWidth - width - 8))}px`
-    element.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`
+    element.style.left = `${Math.max(leftEdge + 8, Math.min(left, rightEdge - width - 8))}px`
+    element.style.top = `${Math.max(topEdge + 8, Math.min(top, bottomEdge - height - 8))}px`
   }
   const resetFit = (): void => {
     readoutHeight = undefined
@@ -127,9 +133,12 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   return (
     <aside ref={element} class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip">
       <div ref={content} role="tooltip">
-        <Show when={displayed().title}><div class="app-tooltip-title">{displayed().title}</div></Show>
-        <For each={displayed().lines}>{(line) => <div>{line}</div>}</For>
-        <Show when={displayed().shortcut}>{(keys) => <ProductShortcut keys={keys()} />}</Show>
+        <Show when={displayed().title}><div class="app-tooltip-title">
+          {displayed().title}<Show when={displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
+        </div></Show>
+        <For each={displayed().lines}>{(line, index) => <div>
+          {line}<Show when={index() === 0 && !displayed().title && displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
+        </div>}</For>
         <Show when={props.tip.detailed}><For each={displayed().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
       </div>
     </aside>
@@ -478,8 +487,6 @@ function DockZoneSection(props: {
             id: panel.id,
             // The title tooltip is suppressed while the placement menu is open
             // so it cannot overlap the menu (the menu opens at the tab).
-            // The badge sits outside the truncating text span so a narrow tab
-            // ellipsizes its title but never clips the attention badge.
             label: <span class="tab-title" data-tooltip-label={props.menuOpen() ? undefined : panel.title}>
               <span class="tab-title-text">{panel.title}</span>
               <Show when={activePanelIndicator(panel)} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show>
@@ -495,8 +502,7 @@ function DockZoneSection(props: {
   }
   const active = (): PanelDescriptor | undefined => props.panels.find((panel) => panel.id === props.activeId)
 
-  // Tabs shrink to an ellipsis floor instead of scrolling. Tabs beyond the
-  // last whole floor are hidden and remain reachable through the menu.
+  // Tabs that cannot fit whole remain reachable through the menu.
   const tabsClipped = (): boolean => hiddenTabIds().size > 0
   // A clipped tab's indicator would otherwise vanish with the tab; surface
   // the aggregate on the all-tabs trigger so attention stays discoverable.
@@ -516,29 +522,46 @@ function DockZoneSection(props: {
       return
     }
     const tablist = root.querySelector<HTMLElement>('[role="tablist"]')
-    const tab = tablist?.querySelector<HTMLElement>('[role="tab"]')
-    if (tablist === null || tab === null || tab === undefined) {
+    if (tablist === null) {
       if (hiddenTabIds().size > 0) setHiddenTabIds(new Set<string>())
       return
     }
-    const count = props.panels.length
-    const gap = Number.parseFloat(getComputedStyle(tablist).columnGap) || 0
-    const floor = Number.parseFloat(getComputedStyle(tab).minWidth) || 64
+    const style = getComputedStyle(tablist)
+    const gap = Number.parseFloat(style.columnGap) || 0
+    const padding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight)
+    // Hidden tabs still participate in fit calculations, including live badges.
+    const widths = new Map(Array.from(tablist.querySelectorAll<HTMLElement>('[role="tab"]'), (tab) => {
+      const display = tab.style.display
+      tab.style.display = 'block'
+      const width = tab.getBoundingClientRect().width
+      tab.style.display = display
+      return [tab.dataset['tabId']!, width] as const
+    }))
     const actions = root.querySelector<HTMLElement>('.dock-zone-actions')
     const actionGap = actions === null ? 0 : Number.parseFloat(getComputedStyle(actions).columnGap) || 0
     const overflowWidth = overflowRoot !== undefined && root.contains(overflowRoot)
       ? overflowRoot.getBoundingClientRect().width + actionGap
       : 0
-    const widthWithoutOverflow = tablist.clientWidth + overflowWidth
-    const allFloorsWidth = count * floor + Math.max(0, count - 1) * gap
-    const visibleCount = allFloorsWidth <= widthWithoutOverflow + 1
-      ? count
-      : Math.max(1, Math.min(count, Math.floor((tablist.clientWidth + gap) / (floor + gap))))
-    const visibleIds = new Set(props.panels.slice(0, visibleCount).map((panel) => panel.id))
-    if (props.activeId !== undefined && !visibleIds.has(props.activeId)) {
-      const last = props.panels[visibleCount - 1]
-      if (last !== undefined) visibleIds.delete(last.id)
-      visibleIds.add(props.activeId)
+    const available = tablist.clientWidth - padding
+    const allWidth = [...widths.values()].reduce((sum, width) => sum + width, 0)
+      + Math.max(0, widths.size - 1) * gap
+    const visibleIds = new Set<string>()
+    if (allWidth <= available + overflowWidth) {
+      for (const id of widths.keys()) visibleIds.add(id)
+    } else {
+      // Reserve the active title first, then fit the remaining complete tabs.
+      let used = 0
+      if (props.activeId !== undefined && widths.has(props.activeId)) {
+        visibleIds.add(props.activeId)
+        used = widths.get(props.activeId)!
+      }
+      for (const [id, width] of widths) {
+        if (visibleIds.has(id)) continue
+        const nextWidth = used + (visibleIds.size > 0 ? gap : 0) + width
+        if (nextWidth > available) continue
+        visibleIds.add(id)
+        used = nextWidth
+      }
     }
     const next = new Set(props.panels.filter((panel) => !visibleIds.has(panel.id)).map((panel) => panel.id))
     const previous = hiddenTabIds()
@@ -551,7 +574,12 @@ function DockZoneSection(props: {
     if (tablist === null || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measureTabs)
     observer.observe(tablist)
-    onCleanup(() => observer.disconnect())
+    const contentObserver = new MutationObserver(measureTabs)
+    contentObserver.observe(tablist, { childList: true, subtree: true, characterData: true })
+    onCleanup(() => {
+      observer.disconnect()
+      contentObserver.disconnect()
+    })
   })
   // Panel and active-tab changes can alter complete-tab fit without resizing
   // the strip itself, which the observer cannot see.

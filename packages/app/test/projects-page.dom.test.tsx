@@ -445,6 +445,27 @@ it('renames the selected project at the revision it read', async () => {
   expect(rows()).toContain('Film grain' + 'Opened 2 hours ago')
 })
 
+it('keeps the Delete consequence and selected project after a refused deletion', async () => {
+  const data = source(projects)
+  data.deleteProject = async () => { throw new Error('Project changed. Try again.') }
+  render(() => <ProjectsView shell={shell()} source={data} />, document.body)
+  await settle()
+  document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
+  menuItem('Delete')!.click()
+  await settle()
+  expect(document.activeElement).toBe(button('Cancel'))
+  const consequence = document.querySelector('dialog .dinkster-description')!.textContent
+  button('Delete project')!.click()
+  await settle()
+  expect(document.querySelector('dialog .dinkster-description')?.textContent).toBe(consequence)
+  expect(document.querySelector('dialog')?.textContent).toContain('Project changed. Try again.')
+  expect(document.querySelector('h2')?.textContent).toBe('Film grain tests')
+  button('Cancel')!.click()
+  await settle()
+  expect(document.querySelector('dialog')).toBeNull()
+  expect(rows()).toHaveLength(3)
+})
+
 it('moves a deleted project under Deleted projects, selects the next one, and restores it selected', async () => {
   vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
   const old = { ...project('p-old', 'Old storyboard', hoursAgo(24 * 40)), deleted: true, revision: 3, modified: new Date(NOW - 60_000).toISOString() }

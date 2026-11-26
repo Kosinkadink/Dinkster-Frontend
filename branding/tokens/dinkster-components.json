@@ -30,9 +30,15 @@
     "low": "0 4px 12px rgba(0, 0, 0, 0.28)",
     "high": "0 12px 32px rgba(0, 0, 0, 0.42)"
   },
+  "modalBackdrop": "color-mix(in srgb, var(--dinkster-surface-canvas) 72%, transparent)",
   "layout": {
     "borderWidth": 1,
     "topBarHeight": 44,
+    "shortcutCompactHeight": 18,
+    "shortcutSettingsHeight": 22,
+    "shortcutCompactTextSize": 11,
+    "shortcutSettingsTextSize": 12,
+    "shortcutRadius": 5,
     "toolbarFullRowWidth": 406,
     "toolbarExpandedRowWidth": 940,
     "toolbarMinimumWidthLinux": 384,
@@ -51,6 +57,7 @@
     "contentMaxWidth": 720,
     "tableMaxWidth": 960,
     "dialogWideMaxWidth": 960,
+    "confirmationMaxWidth": 460,
     "pagePadding": 32,
     "menuWidth": 240,
     "emptyStateMaxWidth": 480,

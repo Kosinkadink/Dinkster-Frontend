@@ -35,6 +35,7 @@ import { createTransactionBuilder, executeCommand, type CommandDefinition, type 
 import { BOUNDARY_COMMANDS } from './boundary-commands.js'
 import { SUBGRAPH_COMMANDS } from './subgraph-commands.js'
 import { DYNAMIC_COMMANDS } from './dynamic-commands.js'
+import { MEMBER_COMMANDS } from './member-commands.js'
 import { REPLACE_COMMANDS } from './replace-commands.js'
 import { CLIPBOARD_COMMANDS } from '../clipboard.js'
 import { EXPOSED_COMMANDS } from './exposed-commands.js'
@@ -2092,6 +2093,26 @@ const viewSetSectionCollapsed: CommandDefinition = {
   },
 }
 
+const viewSetLineFolded: CommandDefinition = {
+  id: 'view.setLineFolded',
+  run(doc, params, tx) {
+    if (
+      !isObj(params) || typeof params.nodeId !== 'string' ||
+      typeof params.lineKey !== 'string' || params.lineKey.length === 0 ||
+      typeof params.folded !== 'boolean'
+    ) return [err('params.invalid', 'view.setLineFolded: params must be {graphId, nodeId, lineKey, folded: boolean}')]
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `view.setLineFolded: unknown graph '${String(params.graphId)}'`)]
+    const graphId = params.graphId as string
+    const nodeId = params.nodeId
+    const view = doc.view.graphs[graphId]?.nodes[nodeId]
+    if (!def.nodes[nodeId] || !view) return [err('node.missing', `view.setLineFolded: unknown placed node '${nodeId}'`)]
+    if (!view.lines) tx.set(['view', 'graphs', graphId, 'nodes', nodeId, 'lines'], {})
+    tx.set(['view', 'graphs', graphId, 'nodes', nodeId, 'lines', params.lineKey], { folded: params.folded })
+    return []
+  },
+}
+
 /**
  * Set, or with null clear, one editor's fold or picture height. The editor
  * is a node's, by value key, or the Inputs panel's (`inputsPanel: true`), by
@@ -2749,6 +2770,7 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   viewSetTextBoxLines,
   viewSetPreviewFolded,
   viewSetSectionCollapsed,
+  viewSetLineFolded,
   viewSetEditorUnfolded,
   viewSetHistogramVisible,
   viewSetPictureHeight,
@@ -2761,6 +2783,7 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   viewSetBookmark,
   viewClearBookmark,
   ...DYNAMIC_COMMANDS,
+  ...MEMBER_COMMANDS,
   ...BOUNDARY_COMMANDS,
   ...SUBGRAPH_COMMANDS,
   ...REPLACE_COMMANDS,

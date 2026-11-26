@@ -10,6 +10,8 @@
  * arguments is never shown as the answer for new ones.
  */
 
+import { valueFromWire } from './pack-functions.js'
+
 export const LOOKUPS_PATH = '/api/lookups'
 export const LOOKUP_ANSWER_MAX_BYTES = 1024 * 1024
 /** Guards against a connection that never answers; the host bounds the call itself. */
@@ -24,6 +26,8 @@ export interface LookupCall {
   readonly function: string
   /** Typed arguments as JSON values (a whole number past 2^53 may be a bigint). */
   readonly args: readonly unknown[]
+  /** Formula arguments retain bigint integers and number decimals, unlike ordinary JSON callers. */
+  readonly typedArgs?: true
 }
 
 export type LookupFailure =
@@ -81,9 +85,9 @@ export interface LookupClient {
    */
   resolve(call: LookupCall, use: 'options' | 'value', options: { readonly signal: AbortSignal }): Promise<LookupResult>
   /** What to show for these arguments now, without asking. */
-  entry(call: Pick<LookupCall, 'function' | 'args'>): LookupEntry | undefined
+  entry(call: Pick<LookupCall, 'function' | 'args' | 'typedArgs'>): LookupEntry | undefined
   /** Whether a kept answer was made old by a trigger and should be asked for again. */
-  isOld(call: Pick<LookupCall, 'function' | 'args'>): boolean
+  isOld(call: Pick<LookupCall, 'function' | 'args' | 'typedArgs'>): boolean
   subscribe(listener: () => void): () => void
   /** Make the kept answers of these functions (all when absent) old. */
   invalidate(functions?: readonly string[]): void
@@ -96,7 +100,7 @@ export interface LookupClient {
    * A run got `value` from these arguments. When the kept answer differs,
    * that one call is old and is asked again when next shown.
    */
-  answerRecorded(call: Pick<LookupCall, 'function' | 'args'>, value: unknown): void
+  answerRecorded(call: Pick<LookupCall, 'function' | 'args' | 'typedArgs'>, value: unknown): void
   /** A different backend, catalog or user: drop every answer and call. */
   setPartition(partition: LookupPartition): void
   dispose(): void
@@ -136,23 +140,28 @@ interface Inflight {
 interface Kept {
   state: LookupEntry
   /** The last ready answer for exactly these arguments. */
-  answer?: { readonly value: unknown }
+  answer?: { readonly value: unknown; readonly typed?: unknown }
   old: boolean
   inflight?: Inflight
 }
 
-/** JSON with whole numbers past 2^53 written as their digits. */
-export function lookupArgsJson(value: unknown): string {
+/** JSON with exact integer digits and, for formula arguments, explicit integral decimals. */
+export function lookupArgsJson(value: unknown, typed = false): string {
   const marks: string[] = []
   const text = JSON.stringify(value, (_, item: unknown) => {
-    if (typeof item !== 'bigint') return item
-    marks.push(item.toString())
+    if (typeof item === 'bigint') marks.push(item.toString())
+    else if (typed && typeof item === 'number' && Number.isInteger(item)) {
+      const digits = Object.is(item, -0) ? '-0' : String(item)
+      marks.push(digits.includes('e') ? digits : `${digits}.0`)
+    } else if (typeof item === 'string' && /^\u0000bigint\d+\u0000$/.test(item)) {
+      marks.push(JSON.stringify(item))
+    } else return item
     return `\u0000bigint${marks.length - 1}\u0000`
   })
-  return text.replace(/"\\u0000bigint(\d+)\\u0000"/g, (_, index: string) => marks[Number(index)]!)
+  return text.replace(/"\\u0000bigint(\d+)\\u0000"(?!:)/g, (_, index: string) => marks[Number(index)]!)
 }
 
-const keyOf = (call: Pick<LookupCall, 'function' | 'args'>): string => lookupArgsJson([call.function, call.args])
+const keyOf = (call: Pick<LookupCall, 'function' | 'args' | 'typedArgs'>): string => lookupArgsJson([call.function, call.args], call.typedArgs)
 
 const isOption = (item: unknown): boolean => {
   if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') return true
@@ -184,7 +193,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     return state
   }
 
-  const ask = async (call: LookupCall, askedBy: LookupAsker, signal: AbortSignal): Promise<unknown> => {
+  const ask = async (call: LookupCall, askedBy: LookupAsker, signal: AbortSignal): Promise<NonNullable<Kept['answer']>> => {
     const limit = AbortSignal.timeout(LOOKUP_NETWORK_LIMIT_MS)
     const both = AbortSignal.any([signal, limit])
     let response: Response
@@ -202,7 +211,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
           function: call.function,
           args: call.args,
           ...(askedBy === 'press' ? { askedBy } : {}),
-        }),
+        }, call.typedArgs),
       })
     } catch (error) {
       if (signal.aborted) throw aborted()
@@ -211,7 +220,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     if (response.status === 429) throw new Paused()
     if (response.status === 412) throw new Superseded()
     const text = await response.text()
-    if (new TextEncoder().encode(text).length > LOOKUP_ANSWER_MAX_BYTES + 64) throw new LookupFault('wrong-shape')
+    if (new TextEncoder().encode(text).length > 2 * LOOKUP_ANSWER_MAX_BYTES + 64) throw new LookupFault('wrong-shape')
     let body: unknown
     try {
       body = JSON.parse(text)
@@ -223,7 +232,10 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       throw new LookupFault(typeof code === 'string' ? (FAILURE_CODES[code] ?? 'failed') : 'failed')
     }
     if (typeof body !== 'object' || body === null || !('answer' in body)) throw new LookupFault('wrong-shape')
-    return (body as { answer: unknown }).answer
+    for (const value of [body.answer, ...('typedAnswer' in body ? [body.typedAnswer] : [])]) {
+      if (new TextEncoder().encode(JSON.stringify(value)).length > LOOKUP_ANSWER_MAX_BYTES) throw new LookupFault('wrong-shape')
+    }
+    return { value: body.answer, ...('typedAnswer' in body ? { typed: valueFromWire(body.typedAnswer) } : {}) }
   }
 
   const start = (entry: Kept, call: LookupCall, askedBy: LookupAsker, accept?: (answer: unknown) => boolean): Inflight => {
@@ -238,10 +250,10 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       try {
         const answer = await ask(call, askedBy, controller.signal)
         if (kept !== owner) throw aborted()
-        if (accept !== undefined && !accept(answer)) throw new LookupFault('wrong-shape')
-        entry.answer = { value: answer }
+        if (accept !== undefined && !accept(answer.value)) throw new LookupFault('wrong-shape')
+        entry.answer = answer
         entry.old = false
-        return settle(entry, { state: 'ready', answer })
+        return settle(entry, { state: 'ready', answer: answer.value })
       } catch (error) {
         if (controller.signal.aborted || kept !== owner) throw aborted()
         if (error instanceof Paused) {
@@ -347,7 +359,10 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       if (entry.state === 'paused') return { state: 'paused' }
       if (entry.state === 'ready') {
         if (use === 'options' && !isLookupOptions(entry.answer)) return { state: 'failed', reason: 'wrong-shape' }
-        return { state: 'ready', value: entry.answer }
+        if (use === 'options') return { state: 'ready', value: entry.answer }
+        const cached = kept.get(keyOf(call))
+        if (cached?.state !== entry || cached.answer?.typed === undefined) return { state: 'failed', reason: 'wrong-shape' }
+        return { state: 'ready', value: cached.answer.typed }
       }
       return { state: 'failed', reason: entry.state === 'loading' ? 'failed' : entry.reason }
     },

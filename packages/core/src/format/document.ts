@@ -761,6 +761,8 @@ export interface NodeViewState {
    * default-collapsed section can also be explicitly expanded.
    */
   readonly sections?: Readonly<Record<string, { readonly collapsed: boolean }>>
+  /** Fold state by the flattened id of a line's first field; absent means folded. */
+  readonly lines?: Readonly<Record<string, { readonly folded: boolean }>>
   /**
    * Per-editor fold OVERRIDES by value key, for editors shown in the node.
    * Absent = the declaration's starting state (folded unless it declares

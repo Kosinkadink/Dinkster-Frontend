@@ -16,7 +16,12 @@ const profileRow = (root: Element) => root.querySelector('[data-connection="http
 const startRemoval = (root: Element) => {
   const row = profileRow(root)
   row.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
-  row.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click()
+  ;[...row.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent === 'Remove backend')!.click()
+}
+const editToken = (root: Element, url = 'https://host:8443') => {
+  const row = root.querySelector(`[data-connection="${url}"]`)!
+  row.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
+  ;[...row.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent === 'Change access token')!.click()
 }
 
 function fakeBridge(overrides: Partial<DinksterDesktopBridge> = {}): DinksterDesktopBridge {
@@ -81,10 +86,10 @@ describe('Backend saved connections', () => {
     })
     const { root } = mount(bridge)
     await flush()
-    ;(root.querySelector('[data-testid="profile-token-edit"]') as HTMLButtonElement).click()
+    editToken(root)
     ;(root.querySelector('[data-testid="profile-token-clear"]') as HTMLButtonElement).click()
     await flush()
-    expect(root.querySelector('[data-testid="backends-panel"]')?.getAttribute('aria-label')).toBe('Backend connections')
+    expect(root.querySelector('[data-testid="backends-panel"]')?.getAttribute('aria-label')).toBe('Backends')
     expect(root.querySelector('[role="alert"]')?.textContent).toBe('The token was not cleared: keychain locked')
 
     setLocale('de-DE')
@@ -152,9 +157,10 @@ describe('Backend saved connections', () => {
     })
     const { root } = mount(bridge)
     await flush()
+    editToken(root, 'https://other.test')
     startRemoval(root)
     expect(listConnectionProfiles()).toEqual([profile, other])
-    ;(root.querySelector('[data-fill="solid"]') as HTMLButtonElement).click()
+    ;(profileRow(root).querySelector('[data-fill="solid"]') as HTMLButtonElement).click()
     await flush()
     const clear = root.querySelector<HTMLButtonElement>('[data-connection="https://other.test"] [data-testid="profile-token-clear"]')!
     expect(clear.disabled).toBe(true)
@@ -178,6 +184,7 @@ describe('Backend saved connections', () => {
     })
     const { root } = mount(bridge)
     await flush()
+    editToken(root)
     ;(root.querySelector('[data-testid="profile-token-clear"]') as HTMLButtonElement).click()
     await flush()
     expect(root.querySelector('[role="alert"]')?.textContent).toContain('keychain locked')
@@ -230,6 +237,7 @@ describe('Backend saved connections', () => {
     expect(listConnectionProfiles().map(({ name, url }) => ({ name, url }))).toEqual([{ name: 'Studio', url: 'https://host:8443' }])
     expect(root.querySelectorAll('[data-testid="backend-row"]')).toHaveLength(2)
     expect(profileRow(root).getAttribute('data-status')).toBe('disconnected')
+    editToken(root)
     expect(profileRow(root).querySelector('[data-testid="profile-credential-badge"]')?.textContent).toBe('Token in OS keychain')
     const saved = localStorage.getItem(scopedStorageKey('dinkster.connectionProfiles'))!
     expect(saved).toContain('Studio')
@@ -274,7 +282,7 @@ describe('Backend saved connections', () => {
       await flush()
 
       // Window B saves a replacement token for the same profile meanwhile.
-      ;(windowB.root.querySelector('[data-testid="profile-token-edit"]') as HTMLButtonElement).click()
+      editToken(windowB.root)
       const editor = windowB.root.querySelector('[data-testid="profile-token-editor-input"]') as HTMLInputElement
       editor.value = 'replacement-secret'
       editor.dispatchEvent(new Event('input', { bubbles: true }))

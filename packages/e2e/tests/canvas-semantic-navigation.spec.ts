@@ -99,9 +99,9 @@ test('semantic scene navigation stays virtual until focused and pans only on act
     await page.keyboard.press('ArrowDown')
   }
   await expect(active).toHaveAttribute('data-kind', 'widget')
-  await expect(active).toHaveText(/^Row: width of .+, 64$/)
+  await expect(active).toHaveAccessibleName(/^Row: width of .+, 64$/)
   await page.keyboard.press('Enter')
-  await expect(active).toHaveAttribute('aria-selected', 'true')
+  await expect(active).toHaveAttribute('aria-selected', 'false')
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before.document)
 
@@ -138,11 +138,46 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   await page.keyboard.press('Escape')
   await expect(page.locator('.widget-in-row-field')).toHaveCount(0)
 
+  await page.setViewportSize({ width: 900, height: 620 })
+  await setShellRegion(page, 'bottom', true)
+  await navigator.focus()
+  await page.keyboard.press('Home')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(active).toHaveAttribute('data-kind', 'port')
+  await expect(active).toHaveAccessibleName(/^Output: width /)
+  await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes[0]!
+    const pin = node.layout.pins.find((candidate) => candidate.direction === 'out' && candidate.widgetTap === true)!
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const toolbar = document.querySelector('.canvas-stage-toolbar')!.getBoundingClientRect()
+    renderer.setViewport({
+      x: 280 - node.x - node.layout.width,
+      y: toolbar.bottom + 120 - canvas.top - node.y - pin.y,
+      scale: 1,
+    })
+  })
+  await expect.poll(() => navigator.evaluate((listbox) => {
+    const panel = listbox.parentElement!.getBoundingClientRect()
+    const toolbar = listbox.closest('.canvas-stage')!.querySelector('.canvas-stage-toolbar')!.getBoundingClientRect()
+    return panel.top >= toolbar.bottom
+  })).toBe(true)
+
   await page.setViewportSize({ width: 390, height: 844 })
   await setShellRegion(page, 'right', false)
   await navigator.focus()
+  await page.keyboard.press('Home')
   await expect(navigator).toBeFocused()
   await expect(navigator.getByRole('option')).toHaveCount(5)
+  await expect.poll(() => navigator.evaluate((listbox) => {
+    const panel = listbox.parentElement!.getBoundingClientRect()
+    const stage = listbox.closest('.canvas-stage')!.getBoundingClientRect()
+    const bar = listbox.closest('.canvas-stage')!.querySelector('.canvas-corner-bar')!.getBoundingClientRect()
+    const toolbar = listbox.closest('.canvas-stage')!.querySelector('.canvas-stage-toolbar')!.getBoundingClientRect()
+    return panel.top >= toolbar.bottom && panel.bottom <= bar.top && panel.left >= stage.left && panel.right <= stage.right
+  })).toBe(true)
   await capture(page, testInfo, 'narrow-selected-node')
 
   await page.keyboard.press('Escape')

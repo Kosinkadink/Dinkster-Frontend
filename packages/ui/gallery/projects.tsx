@@ -48,7 +48,7 @@ import {
   ProductBrandMark,
   ProductButton,
   ProductCheckbox,
-  ProductConfirmation,
+  ProductConfirmationDialog,
   ProductDialog,
   ProductEmptyState,
   ProductErrorBanner,
@@ -1021,6 +1021,9 @@ export function ProjectsGallery() {
             )}
           </ProductField>
           <div class="dinkster-actions">
+            <ProductButton onClick={() => setDialog(undefined)}>
+              Cancel
+            </ProductButton>
             <ProductButton
               fill="solid"
               onClick={() => {
@@ -1030,18 +1033,12 @@ export function ProjectsGallery() {
             >
               Save
             </ProductButton>
-            <ProductButton onClick={() => setDialog(undefined)}>
-              Cancel
-            </ProductButton>
           </div>
         </ProductDialog>
       </Show>
       <Show when={dialog() === 'delete'}>
-        <ProductDialog
-          title={`Delete ${project().name}?`}
-          onDismiss={() => setDialog(undefined)}
-        >
-          <ProductConfirmation
+          <ProductConfirmationDialog
+            title={`Delete "${project().name}"?`}
             consequence="It moves to Deleted projects at the bottom of this list, with its workflows and outputs. You can restore it from there. No files are removed."
             actionLabel="Delete project"
             intent="remove"
@@ -1051,7 +1048,6 @@ export function ProjectsGallery() {
             }}
             onCancel={() => setDialog(undefined)}
           />
-        </ProductDialog>
       </Show>
       <ProductPage
         title="Projects page"

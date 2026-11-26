@@ -18,6 +18,84 @@ const expectNoAxeViolations = async (page: Page) => {
     ),
   ).toEqual([])
 }
+test('list rows expand independently of their sibling menu and navigation does not imply expansion', async ({ page }) => {
+  await page.goto('/#lists')
+  const servers = page.getByRole('list', { name: 'Backend servers' })
+  const toggle = servers.getByRole('button', { name: 'This computer Dinkster, 70 node types', exact: true })
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await toggle.focus()
+  await page.keyboard.press('Enter')
+  await expect(servers.getByRole('button', { name: 'Restart engine', exact: true })).toBeVisible()
+  await servers.getByRole('button', { name: 'Server actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Change access token', exact: true }).click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await toggle.focus()
+  await page.keyboard.press('Space')
+  await expect(servers.getByRole('button', { name: 'Restart engine', exact: true })).toHaveCount(0)
+  const navigate = page.getByRole('list', { name: 'Asset folders' }).getByRole('button')
+  await expect(navigate).not.toHaveAttribute('aria-expanded')
+  await expect(navigate).not.toHaveAttribute('aria-controls')
+  await expect(navigate).not.toHaveAttribute('aria-pressed')
+  await navigate.click()
+  await expect(page.getByRole('status').filter({ hasText: 'Renders opened' }).first()).toBeVisible()
+  const downloads = page.getByRole('list', { name: 'Model downloads' })
+  const downloadToggle = downloads.getByRole('button', { name: 'Studio checkpoint Checkpoint 42%', exact: true })
+  const progress = downloads.getByRole('progressbar', { name: 'Downloading Studio checkpoint', exact: true })
+  await expect(downloadToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(progress).toBeVisible()
+  await expect(progress).toHaveAttribute('aria-valuenow', '0.42')
+  expect(await progress.evaluate((element) => element.closest('button'))).toBeNull()
+  await downloadToggle.click()
+  await expect(downloadToggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(downloads.getByText('Download continues when details are closed.')).toBeVisible()
+  await expect(progress).toBeVisible()
+  await downloadToggle.click()
+  await expect(downloadToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(progress).toBeVisible()
+  const version = page.getByRole('list', { name: 'Model versions' }).getByRole('button', { name: 'Studio checkpoint fp16', exact: true })
+  await expect(version).toHaveAttribute('tabindex', '-1')
+  await expect(version).toHaveAttribute('aria-pressed', 'false')
+  await page.getByRole('button', { name: 'Focus version', exact: true }).click()
+  await expect(version).toBeFocused()
+  await page.keyboard.press('Space')
+  await expect(version).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Enter')
+  await expect(version).toHaveAttribute('aria-pressed', 'false')
+  await expect(version).not.toHaveAttribute('aria-expanded')
+  await expect(version).not.toHaveAttribute('aria-controls')
+})
+
+test('multiline fields grow, scroll at their height cap, and shrink after deletion', async ({ page }) => {
+  await page.goto('/#controls')
+  const notes = page.getByRole('textbox', { name: 'Notes', exact: true })
+  const height = async () => (await notes.boundingBox())!.height
+  for (const density of ['app', 'site']) {
+    await page.evaluate((density) => { document.documentElement.dataset.density = density }, density)
+    for (const value of ['', 'One line']) {
+      await notes.fill(value)
+      const size = await notes.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { content: element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom), line: parseFloat(style.lineHeight) }
+      })
+      expect(size.content).toBeGreaterThanOrEqual(size.line * 2)
+    }
+  }
+  await notes.fill('One line')
+  const short = await height()
+  await notes.fill('First\nSecond\nThird\nFourth\nFifth')
+  expect(await height()).toBeGreaterThan(short)
+  await notes.fill(Array.from({ length: 30 }, (_, index) => `Line ${index}`).join('\n'))
+  const capped = await height()
+  await notes.fill(Array.from({ length: 60 }, (_, index) => `Line ${index}`).join('\n'))
+  expect(await height()).toBe(capped)
+  expect(await notes.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+  await notes.press('Control+End')
+  expect(await notes.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  expect(await notes.evaluate((element) => getComputedStyle(element).resize)).toBe('none')
+  await notes.fill('One line again')
+  expect(await height()).toBe(short)
+})
+
 test('run activity distinguishes concurrent running jobs from queued jobs and respects reduced motion', async ({ page }) => {
   await page.goto('/#controls')
   const one = page.getByRole('img', { name: '1 running', exact: true })
@@ -163,6 +241,7 @@ for (const width of [1280, 390]) {
       await page.goto(`/#${section}`)
       await page.evaluate(() => document.fonts.ready)
       await expect(page.getByRole('main')).toBeVisible()
+      if (section === 'confirmations') expect(await page.evaluate(() => window.scrollY)).toBe(0)
       if (section === 'lists') {
         const heading = page.locator('.storage-folder-heading').first()
         const name = await heading.locator('strong').boundingBox()
@@ -467,6 +546,10 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
     await button.evaluate((element) => element.matches(':focus-visible')),
   ).toBe(true)
   await expect(button).toHaveCSS('outline-width', '1px')
+  await expect(button).toHaveCSS(
+    'outline-color',
+    await token(page, '--dinkster-text-secondary'),
+  )
   await expect(samples).toHaveScreenshot('buttons-focus.png')
   await button.hover()
   await page.mouse.down()
@@ -538,6 +621,33 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
     page.getByRole('link', { name: 'Forms', exact: true }),
   ).toBeInViewport()
   await expect(page).toHaveScreenshot('frame-stays-when-scrolled.png')
+})
+
+test('model rows distinguish keyboard focus from selection in both themes', async ({ page }) => {
+  for (const [theme, keyboard, selected] of [
+    ['dark', 'rgb(164, 181, 183)', 'rgb(50, 230, 197)'],
+    ['light', 'rgb(88, 99, 109)', 'rgb(7, 113, 105)'],
+  ] as const) {
+    await page.goto(`/?theme=${theme}#models`)
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme
+      document.querySelector<HTMLElement>('.dinkster-root')!.dataset.theme = theme
+    }, theme)
+    const row = page.getByRole('button', { name: /^Detail Tweaker XL/ }).first()
+    await row.focus()
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Tab')
+    await expect(row).toBeFocused()
+    await expect(row).toHaveCSS('outline-color', keyboard)
+    await expect(row).toHaveCSS('outline-width', '1px')
+    await expect(row).toHaveAttribute('aria-pressed', 'false')
+    await page.keyboard.press('Enter')
+    await expect(row).toHaveAttribute('aria-pressed', 'true')
+    expect(await row.evaluate((element) =>
+      getComputedStyle(element, '::before').backgroundColor,
+    )).toBe(selected)
+    await expect(row).toHaveCSS('outline-color', keyboard)
+  }
 })
 
 test('page field borders show focus without a second ring', async ({
@@ -969,13 +1079,17 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await page.goto('/#confirmations')
   const opener = page.getByRole('button', { name: 'Review removal' })
   await opener.click()
-  const dialog = page.getByRole('dialog', { name: 'Remove item?' })
+  const dialog = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
   await expect(dialog).toBeVisible()
   await expect(
-    dialog.getByRole('button', { name: 'Remove item', exact: true }),
+    dialog.getByRole('button', { name: 'Remove backend', exact: true }),
   ).toBeVisible()
   await expect(page).toHaveScreenshot('dialog-open.png', { fullPage: true })
-  await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused()
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+  await opener.click()
   await page.keyboard.press('Shift+Tab')
   expect(
     await dialog.evaluate((element) =>
@@ -990,7 +1104,7 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(dialog).toHaveCount(0)
   await opener.click()
   const remove = dialog.getByRole('button', {
-    name: 'Remove item',
+    name: 'Remove backend',
     exact: true,
   })
   await remove.focus()
@@ -1021,10 +1135,10 @@ test('wide dialogs use their own width and preserve narrow margins and dismissal
   for (const width of [1280, 800, 390]) {
     await page.setViewportSize({ width, height: 900 })
     await page.getByRole('button', { name: 'Review removal' }).click()
-    const regular = page.getByRole('dialog', { name: 'Remove item?' })
-    await expect(regular).toHaveAttribute('data-size', 'default')
+    const regular = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
+    await expect(regular).toHaveAttribute('data-size', 'confirmation')
     const regularBounds = (await regular.boundingBox())!
-    if (width >= 800) expect(regularBounds.width).toBe(480)
+    if (width >= 800) expect(regularBounds.width).toBe(460)
     else {
       expect(regularBounds.x).toBeGreaterThanOrEqual(16)
       expect(regularBounds.width).toBeGreaterThanOrEqual(width - 36)

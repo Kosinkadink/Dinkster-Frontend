@@ -176,11 +176,11 @@ test('region occurrences author independent promoted widget state', async ({ pag
     document.graphs['sub']!.nodes['amount'] = { id: 'amount', type: 'RegionAmountTest', values: {} }
     document.graphs['sub']!.nodes['indexSink'] = { id: 'indexSink', type: 'RegionIndexSinkTest', values: {} }
     document.graphs['sub']!.boundary = {
-      inputs: [
-        { id: 'item', binds: { kind: 'port', node: 'pass', port: 'item' } },
-        { id: 'amount', promoted: true, binds: { kind: 'port', node: 'amount', port: 'amount' } },
+      body: [
+        { kind: 'input', id: 'item', binds: { kind: 'port', node: 'pass', port: 'item' } },
+        { kind: 'input', id: 'amount', promoted: true, binds: { kind: 'port', node: 'amount', port: 'amount' } },
+        { kind: 'output', id: 'result', binds: { kind: 'port', node: 'pass', port: 'result' } },
       ],
-      outputs: [{ id: 'result', binds: { kind: 'port', node: 'pass', port: 'result' } }],
     }
     document.view!.graphs['g0']!.nodes = {
       i0: { position: { x: 100, y: 100 } },
