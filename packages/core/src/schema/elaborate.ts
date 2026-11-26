@@ -1966,9 +1966,9 @@ function elaboratePass(
         default: return false
       }
     })
-    // The run's member list gives the engine the order of a grown group's
-    // members, including one whose only stored state is a choice or an output.
-    if (typeof grows === 'string' && !scope.ghost && !scope.dormant && storedCount > 0) {
+    // The worker rechecks the interface without evaluating count formulas.
+    // Record every active group's keys, including output-only counted members.
+    if (!scope.ghost && !scope.dormant && storedCount > 0) {
       outputMembers[path] = [...keys]
     }
 

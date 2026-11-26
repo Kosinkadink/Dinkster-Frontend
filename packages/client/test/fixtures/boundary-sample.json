@@ -1,0 +1,401 @@
+{
+  "format": "dinkster-workflow",
+  "formatVersion": 1,
+  "lineage": "boundary-sample",
+  "root": "root",
+  "graphs": {
+    "root": {
+      "id": "root",
+      "name": "Boundary sample acceptance",
+      "nodes": {
+        "first": {
+          "id": "first",
+          "type": "#portrait",
+          "values": {
+            "strength": 0.2,
+            "count": 3
+          }
+        },
+        "second": {
+          "id": "second",
+          "type": "#portrait",
+          "values": {
+            "strength": 0.8,
+            "count": 2,
+            "mode.text": "second text"
+          },
+          "dynamic": {
+            "mode": {
+              "selected": "text"
+            }
+          }
+        },
+        "imageA": {
+          "id": "imageA",
+          "type": "ImageSource",
+          "values": {}
+        },
+        "maskB": {
+          "id": "maskB",
+          "type": "MaskSource",
+          "values": {}
+        },
+        "sink": {
+          "id": "sink",
+          "type": "NumberSink",
+          "values": {}
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 100
+    },
+    "detail": {
+      "id": "detail",
+      "name": "Detail pass",
+      "nodes": {
+        "sample": {
+          "id": "sample",
+          "type": "Boundary sample",
+          "values": {
+            "strength": 0.3,
+            "count": 3,
+            "mode.text": "dormant inner text",
+            "layers.layer0.strength": 0.1,
+            "layers.layer1.strength": 0.4
+          },
+          "dynamic": {
+            "layers": {
+              "members": ["layer0", "layer1"]
+            },
+            "nested": {
+              "members": ["n0", "n1"]
+            },
+            "nested.n0.weights": {
+              "members": ["w0"]
+            },
+            "nested.n1.weights": {
+              "members": ["w0", "w1"]
+            },
+            "mode": {
+              "selected": "image"
+            }
+          }
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 100,
+      "boundary": {
+        "body": [
+          {
+            "kind": "input",
+            "id": "image",
+            "binds": {
+              "kind": "port",
+              "node": "sample",
+              "port": "image"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "mask",
+            "binds": {
+              "kind": "port",
+              "node": "sample",
+              "port": "mask"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "strength",
+            "binds": {
+              "kind": "port",
+              "node": "sample",
+              "port": "strength"
+            },
+            "promoted": true
+          },
+          {
+            "kind": "input",
+            "id": "radius",
+            "binds": {
+              "kind": "port",
+              "node": "sample",
+              "port": "radius"
+            },
+            "promoted": true
+          },
+          {
+            "kind": "input",
+            "id": "feather",
+            "binds": {
+              "kind": "port",
+              "node": "sample",
+              "port": "feather"
+            },
+            "promoted": true
+          },
+          {
+            "kind": "input",
+            "id": "balance",
+            "binds": {
+              "kind": "port",
+              "node": "sample",
+              "port": "balance"
+            },
+            "promoted": true
+          },
+          {
+            "kind": "input",
+            "id": "count",
+            "binds": {
+              "kind": "port",
+              "node": "sample",
+              "port": "count"
+            },
+            "promoted": true
+          },
+          {
+            "kind": "input",
+            "id": "layers",
+            "binds": {
+              "kind": "construct",
+              "node": "sample",
+              "port": "layers"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "nested",
+            "binds": {
+              "kind": "construct",
+              "node": "sample",
+              "port": "nested"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "mode",
+            "binds": {
+              "kind": "construct",
+              "node": "sample",
+              "port": "mode"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "source",
+            "binds": {
+              "kind": "construct",
+              "node": "sample",
+              "port": "source"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "description",
+            "binds": {
+              "kind": "construct",
+              "node": "sample",
+              "port": "description"
+            }
+          },
+          {
+            "kind": "output",
+            "id": "outputs",
+            "binds": {
+              "kind": "construct",
+              "node": "sample",
+              "port": "outputs"
+            }
+          },
+          {
+            "kind": "output",
+            "id": "result",
+            "binds": {
+              "kind": "port",
+              "node": "sample",
+              "port": "result"
+            }
+          },
+          {
+            "kind": "output",
+            "id": "output91",
+            "binds": {
+              "kind": "port",
+              "node": "sample",
+              "port": "output91"
+            }
+          }
+        ]
+      }
+    },
+    "portrait": {
+      "id": "portrait",
+      "name": "Portrait fix",
+      "nodes": {
+        "detail": {
+          "id": "detail",
+          "type": "#detail",
+          "values": {
+            "strength": 0.6
+          }
+        }
+      },
+      "links": {},
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 100,
+      "boundary": {
+        "body": [
+          {
+            "kind": "input",
+            "id": "image",
+            "binds": {
+              "kind": "port",
+              "node": "detail",
+              "port": "image"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "mask",
+            "binds": {
+              "kind": "port",
+              "node": "detail",
+              "port": "mask"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "strength",
+            "binds": {
+              "kind": "port",
+              "node": "detail",
+              "port": "strength"
+            },
+            "promoted": true
+          },
+          {
+            "kind": "input",
+            "id": "radius",
+            "binds": {
+              "kind": "port",
+              "node": "detail",
+              "port": "radius"
+            },
+            "promoted": true
+          },
+          {
+            "kind": "input",
+            "id": "feather",
+            "binds": {
+              "kind": "port",
+              "node": "detail",
+              "port": "feather"
+            },
+            "promoted": true
+          },
+          {
+            "kind": "input",
+            "id": "balance",
+            "binds": {
+              "kind": "port",
+              "node": "detail",
+              "port": "balance"
+            },
+            "promoted": true
+          },
+          {
+            "kind": "input",
+            "id": "count",
+            "binds": {
+              "kind": "port",
+              "node": "detail",
+              "port": "count"
+            },
+            "promoted": true
+          },
+          {
+            "kind": "input",
+            "id": "layers",
+            "binds": {
+              "kind": "construct",
+              "node": "detail",
+              "port": "layers"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "nested",
+            "binds": {
+              "kind": "construct",
+              "node": "detail",
+              "port": "nested"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "mode",
+            "binds": {
+              "kind": "construct",
+              "node": "detail",
+              "port": "mode"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "source",
+            "binds": {
+              "kind": "construct",
+              "node": "detail",
+              "port": "source"
+            }
+          },
+          {
+            "kind": "input",
+            "id": "description",
+            "binds": {
+              "kind": "construct",
+              "node": "detail",
+              "port": "description"
+            }
+          },
+          {
+            "kind": "output",
+            "id": "outputs",
+            "binds": {
+              "kind": "construct",
+              "node": "detail",
+              "port": "outputs"
+            }
+          },
+          {
+            "kind": "output",
+            "id": "result",
+            "binds": {
+              "kind": "port",
+              "node": "detail",
+              "port": "result"
+            }
+          },
+          {
+            "kind": "output",
+            "id": "output91",
+            "binds": {
+              "kind": "port",
+              "node": "detail",
+              "port": "output91"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "view": {
+    "graphs": {}
+  }
+}

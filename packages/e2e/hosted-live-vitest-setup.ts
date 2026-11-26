@@ -75,8 +75,9 @@ export default async function runLiveVitest(): Promise<void> {
         'test/collab-live.integration.test.ts',
         'test/loop-templates.live.test.ts',
         'test/executable-examples.test.ts',
+        'test/boundary-execution.live.test.ts',
       ],
-      count: 16,
+      count: 19,
     },
     {
       name: 'native-app',
@@ -108,6 +109,7 @@ export default async function runLiveVitest(): Promise<void> {
         ...process.env,
         DINKSTER_LIVE_URL: native,
         DINKSTER_COLLAB_LIVE_URL: native,
+        DINKSTER_BOUNDARY_LIVE_URL: native,
       },
     })
     await new Promise<void>((accept, reject) => {

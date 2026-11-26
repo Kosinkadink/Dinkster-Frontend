@@ -39,6 +39,7 @@ runs:
         project="$GITHUB_WORKSPACE/.ci/native-project"
         sources="$GITHUB_WORKSPACE/.ci/dinkster-nodes/packages"
         packs=(--pack-source "$GITHUB_WORKSPACE/.ci/Dinkster/packages/dinkster-nodes-dev"
+          --pack-source "$GITHUB_WORKSPACE/packages/e2e/fixtures/boundary-sample"
           --library-source "$sources/dinkster-pack-helpers")
         for pack in "$sources"/*; do
           if [ -f "$pack/dinkster-pack.toml" ]; then
