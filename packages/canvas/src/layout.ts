@@ -1309,8 +1309,7 @@ export function layoutNode(
     }
   }
 
-  // Ports hidden by a closed box whose pins the open box shows at rest:
-  // they gather on its closed row.
+  // Wired ports and required wire-only inputs gather on a closed box's row.
   const collapsedPins: ({ sectionId: string; portId: string; label: string; direction: 'in' | 'out'; type: TypeExpr; connected: boolean; optional?: true; maybeAbsent?: true; widgetTap?: true } & DynamicAnnotations)[] = []
   const hiddenPorts = new Map<string, HiddenPort[]>()
   const hidePort = (at: string, port: HiddenPort): void => {
@@ -1442,9 +1441,9 @@ export function layoutNode(
           ...annotate(item), portId: spec.id, label: displayLabel(spec), direction: 'out', type: spec.type,
           ...(spec.optional ? { maybeAbsent: true as const } : {}),
         })
-        collapsedPins.push({
+        if (isConnected('out', spec.id)) collapsedPins.push({
           sectionId: closedAt(chain)!, portId: spec.id, label: displayLabel(spec), direction: 'out', type: spec.type,
-          connected: isConnected('out', spec.id), ...(spec.optional ? { maybeAbsent: true as const } : {}), ...annotate(item),
+          connected: true, ...(spec.optional ? { maybeAbsent: true as const } : {}), ...annotate(item),
         })
         continue
       }
@@ -1485,9 +1484,8 @@ export function layoutNode(
           ...(widget && !spec.forceInput ? { widgetBacked: true as const } : {}),
         })
       }
-      // A field's input pin shows at rest only while wired; a socket's always.
       const inputWired = isConnected('in', spec.id)
-      if (!spec.socketless && (asSocket || inputWired)) {
+      if (!spec.socketless && (inputWired || (asSocket && !spec.optional))) {
         collapsedPins.push({
           sectionId: at, portId: spec.id, label: displayLabel(spec), direction: 'in', type: spec.type, connected: inputWired,
           ...(spec.optional ? { optional: true as const } : {}), ...annotate(item),
@@ -1766,7 +1764,8 @@ export function layoutNode(
         const done = open.pop()!
         afterMember = done.decl.kind === 'member'
         afterOutline = true
-        const bottom = y + under - slack + box.stroke
+        const bottomGap = done.decl.kind === 'member' ? Math.max(under, box.fieldGap) : under
+        const bottom = y + bottomGap - slack + box.stroke
         boxes.push({
           id: done.decl.id,
           kind: done.decl.kind,

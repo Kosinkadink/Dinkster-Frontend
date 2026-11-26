@@ -14,6 +14,7 @@ import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
   CircleAlert,
+  Download,
   Ellipsis,
   LayoutList,
   PanelLeft,
@@ -76,6 +77,7 @@ import {
   ProductStringsProvider,
   ProductTable,
   ProductTextArea,
+  ProductTextButton,
   ProductTextInput,
   ProductToast,
   reportProductEvent,
@@ -169,6 +171,10 @@ function Gallery() {
   const [activity, setActivity] = createSignal('No action yet')
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
+  const [serverOpen, setServerOpen] = createSignal(false)
+  const [progressOpen, setProgressOpen] = createSignal(false)
+  const [versionSelected, setVersionSelected] = createSignal(false)
+  let versionButton: HTMLButtonElement | undefined
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
@@ -309,6 +315,8 @@ function Gallery() {
               <Section title="Card memory" components="ProductResourceUsage">
                 <For each={[false, true]}>
                   {(compact) => (
+                    <section class="dinkster-resource-card">
+                    <header class="dinkster-resource-card-heading"><strong>{compact ? 'RTX 3090' : 'RTX 4090'}</strong><span class="dinkster-resource-total"><strong>12.0</strong> <span>of 24.0 GB</span></span></header>
                     <ProductResourceUsage
                       label={compact ? 'Compact card memory' : 'Card memory'}
                       total={24}
@@ -330,8 +338,23 @@ function Gallery() {
                       limitLabel="Limit"
                       compact={compact}
                     />
+                    <dl class="dinkster-resource-live"><div><dt>Busy</dt><dd>73%</dd></div><div><dt>Temperature</dt><dd>61 C</dd></div><div><dt>Power</dt><dd>310 W</dd></div></dl>
+                    </section>
                   )}
                 </For>
+              </Section>
+              <Section title="Loaded model actions" components="ProductButton">
+                <For each={[false, true]}>{(inUse) => (
+                  <div class="dinkster-resource-model">
+                    <span>Flux model</span><span>3.0 GB</span>
+                    <span class="dinkster-resource-model-action">
+                      <span aria-hidden="true">Unload</span>
+                      <Show when={inUse} fallback={<ProductButton intent="remove" fill="quiet" data-resource-release>Unload</ProductButton>}>
+                        <span>In use</span>
+                      </Show>
+                    </span>
+                  </div>
+                )}</For>
               </Section>
               <Section
                 title="Partial telemetry"
@@ -815,6 +838,43 @@ function Gallery() {
               </ProductForm>
             </Match>
             <Match when={route() === '#lists'}>
+              <Section title="Grouped expandable rows" components="ProductList, ProductListRow, ProductFacts, ProductMenu">
+                <ProductList label="Backend servers" variant="grouped">
+                  <ProductListRow
+                    title="This computer"
+                    trailing="Dinkster, 70 node types"
+                    expanded={serverOpen()}
+                    onToggle={setServerOpen}
+                    action={<ProductMenu label="Server actions" icon={Ellipsis} iconOnly fill="quiet" items={[{ label: 'Change access token', onSelect: () => complete('Change access token chosen') }]} />}
+                  >
+                    <ProductFacts label="This computer" items={[{ label: 'Address', value: 'This computer' }, { label: 'Engine', value: 'Running' }]} />
+                    <ProductTextButton label="Restart engine" onClick={() => complete('Restart engine chosen')} />
+                  </ProductListRow>
+                  <ProductListRow title="Studio" trailing="Not connected" />
+                </ProductList>
+              </Section>
+              <Section title="Plain navigation rows" components="ProductList, ProductListRow">
+                <ProductList label="Asset folders" variant="plain">
+                  <ProductListRow title="Renders" description={<code>/home/name/Portraits/renders</code>} trailing="24 files" onActivate={() => complete('Renders opened')} />
+                </ProductList>
+              </Section>
+              <Section title="Rows with progress" components="ProductList, ProductListRow, ProductProgress">
+                <ProductList label="Model downloads" variant="plain">
+                  <ProductListRow title="Studio checkpoint" description="Checkpoint" trailing="42%" expanded={progressOpen()} onToggle={setProgressOpen}
+                    status={<ProductProgress label="Downloading Studio checkpoint" value={0.42} />}>
+                    <p class="dinkster-metadata">Download continues when details are closed.</p>
+                  </ProductListRow>
+                  <ProductListRow title="Pending checkpoint" description="Checkpoint, not downloaded"
+                    action={<ProductTextButton icon={Download} label="7.1 GB" aria-label="Download Pending checkpoint, 7.1 GB" intent="add" onClick={() => complete('Checkpoint download chosen')} />} />
+                </ProductList>
+              </Section>
+              <Section title="Selectable rows" components="ProductList, ProductListRow, ProductTextButton">
+                <ProductTextButton label="Focus version" onClick={() => versionButton?.focus()} />
+                <ProductList label="Model versions" variant="plain">
+                  <ProductListRow title="Studio checkpoint fp16" ref={(element) => { versionButton = element }} tabIndex={-1}
+                    pressed={versionSelected()} onActivate={() => setVersionSelected(!versionSelected())} />
+                </ProductList>
+              </Section>
               <Section title="Storage folders" components="ProductDisclosure, ProductMenu">
                 <div class="storage-folders">
                   <div class="storage-group-heading"><h3>Models</h3><ProductButton intent="add" onClick={() => complete('Add models folder chosen')}>Add</ProductButton></div>
@@ -1290,9 +1350,25 @@ function WindowToolbarGallery() {
           Back to Desktop information
         </ProductLink>
         <ProductSection title="Shortcut keys">
-          <ProductShortcut keys="Ctrl+Shift+K" />
-          <ProductShortcut keys="Cmd+," />
-          <ProductShortcut keys={['Alt', '+']} />
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Compact</span>
+            <div class="dinkster-search-row-keys">
+              <ProductShortcut keys="Ctrl+Shift+O" />
+              <ProductShortcut keys="Cmd+," />
+              <ProductShortcut keys={['Alt', '+']} />
+            </div>
+          </div>
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Settings</span>
+            <ProductShortcut keys="Ctrl+Shift+O" size="settings" />
+          </div>
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Two presses in sequence</span>
+            <div class="dinkster-search-row-keys">
+              <ProductShortcut keys="Ctrl+K" />
+              <ProductShortcut keys="Ctrl+C" />
+            </div>
+          </div>
           <p class="dinkster-description"><ProductShortcutText text="Pan moves the canvas; `Ctrl+wheel` zooms. `Cmd+,` opens settings." /></p>
         </ProductSection>
         <ProductField label="Execution state">

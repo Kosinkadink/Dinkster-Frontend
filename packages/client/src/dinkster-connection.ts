@@ -482,6 +482,7 @@ export interface MemoryConsumerItem {
   readonly itemId: string
   readonly displayName: string
   readonly bytesByResidency: Readonly<Record<string, number>>
+  readonly inUse?: boolean
   readonly pages?: { readonly pageBytes: number; readonly pageCount: number; readonly flags: readonly number[] }
 }
 
@@ -539,6 +540,7 @@ function decodeMemoryStatus(value: unknown): MemoryStatus | undefined {
       Object.values(device['residencyApplied']['budgetsByWorker']).every((budget) => budget === null || finite(budget))))) return undefined
   if (status['consumerDetails'] !== undefined && (!record(status['consumerDetails']) || !Object.values(status['consumerDetails']).every((items) => Array.isArray(items) && items.every((item) => {
     if (!record(item) || typeof item['itemId'] !== 'string' || typeof item['displayName'] !== 'string' || !numberRecord(item['bytesByResidency'])) return false
+    if (item['inUse'] !== undefined && typeof item['inUse'] !== 'boolean') return false
     const pages = item['pages']
     return pages === undefined || (record(pages) && finite(pages['pageBytes']) && finite(pages['pageCount']) &&
       Array.isArray(pages['flags']) && pages['flags'].every(finite) && pages['flags'].length === pages['pageCount'])
@@ -1816,6 +1818,8 @@ export interface HistoryRunRecord {
   readonly startedAt?: number
   /** blake3:<64 hex> digest of the producing workflow document asset. */
   readonly sourceDocument?: string
+  /** The workflow's name when the run was submitted; absent when none was recorded. */
+  readonly workflowName?: string
   readonly principalId?: string
   readonly principalKind?: 'human' | 'agent'
   readonly nodeReceipts?: readonly NodeExecutionReceipt[]
@@ -1871,12 +1875,14 @@ const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
     typeof r['executed'] === 'number' &&
     typeof r['cached'] === 'number' &&
     typeof r['skipped'] === 'number' &&
+    (r['workflowName'] === undefined || (typeof r['workflowName'] === 'string' && r['workflowName'] !== '')) &&
     receiptsValid
   )) return undefined
   const {
     principalId: _wirePrincipalId,
     principalKind: _wirePrincipalKind,
     thumbnail: wireThumbnail,
+    workflowName: wireWorkflowName,
     ...record
   } = r
   let thumbnail: MediaAssetRef | undefined
@@ -1892,6 +1898,7 @@ const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
   return {
     ...record,
     ...(thumbnail === undefined ? {} : { thumbnail }),
+    ...(wireWorkflowName === undefined ? {} : { workflowName: wireWorkflowName }),
     ...(typeof r['principalId'] === 'string' ? { principalId: r['principalId'] } : {}),
     ...(r['principalKind'] === 'human' || r['principalKind'] === 'agent'
       ? { principalKind: r['principalKind'] }
@@ -2473,6 +2480,8 @@ export class DinksterConnection {
        * the job wire and history, never part of execution identity.
        */
       readonly sourceDocument?: string
+      /** The workflow's name as the person sees it, kept with the run's record. */
+      readonly workflowName?: string
       /**
        * Retained original import metadata, not a representation of native
        * edits. An absent original prompt stays absent, distinct from {}.
@@ -2577,6 +2586,7 @@ export class DinksterConnection {
       targets,
       graph: graph as unknown as Json,
       ...(options?.sourceDocument !== undefined ? { sourceDocument: options.sourceDocument } : {}),
+      ...(options?.workflowName !== undefined ? { workflowName: options.workflowName } : {}),
       ...(options?.exportSnapshot !== undefined ? { exportSnapshot: options.exportSnapshot } : {}),
       ...(options?.previews !== undefined ? { previews: options.previews } : {}),
       ...(placementNodeIds.length > 0 ? { placement } : {}),

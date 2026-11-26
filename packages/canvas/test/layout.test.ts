@@ -1379,15 +1379,34 @@ describe('sections', () => {
     expect(pinIds).toEqual(['in:a', 'in:b', 'in:w', 'out:w', 'out:x'])
   })
 
-  it('collapsing hides member rows; a socket keeps its pin and an unwired field has none', () => {
+  it('collapsing hides optional unwired sockets and fields without removing their held-wire discovery', () => {
     const l = layout({ sectionOverrides: { adv: true } })
     // Output x pairs into input a's socket row (top-down pairing), so hiding
     // b's row leaves just the paired row and the section header.
     expect(l.rows.map((r) => r.kind)).toEqual(['ports', 'section'])
     expect(l.rows[1]).toMatchObject({ kind: 'section', collapsed: true })
     const pinIds = l.pins.map((p) => `${p.direction}:${p.portId}`).sort()
-    expect(pinIds).toEqual(['in:a', 'in:b', 'out:x'])
-    expect(l.pins.find((p) => p.portId === 'b')).toMatchObject({ collapsedSection: 'adv', label: 'b' })
+    expect(pinIds).toEqual(['in:a', 'out:x'])
+    expect(l.rows[1]).toMatchObject({ hiddenPorts: [
+      { portId: 'w', direction: 'in', widgetBacked: true },
+      { portId: 'b', direction: 'in', optional: true },
+    ] })
+
+    const schema = schemaOf([section('closed', [
+      input('required'), input('optional', { optional: true }), widget('field'),
+      widget('forced', { forceInput: true }), output('result'),
+    ], { collapsedByDefault: true })])
+    for (const wired of [false, true]) {
+      const closed = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
+        connectedPorts: new Set(wired ? ['in:optional', 'in:field', 'out:field', 'out:result'] : []),
+      })
+      expect(closed.pins.map((pin) => `${pin.direction}:${pin.portId}`).sort()).toEqual(wired
+        ? ['in:field', 'in:optional', 'in:required', 'out:field', 'out:result']
+        : ['in:forced', 'in:required'])
+      expect(closed.rows[0]).toMatchObject({ hiddenPorts: expect.arrayContaining([
+        { portId: 'result', direction: 'out', address: { port: 'result' }, label: 'result', type: { kind: 'concrete', name: 'IMAGE' } },
+      ]) })
+    }
   })
 
   it('draws at most three pins on a closed box side, wired first, and stacks further wires on the last', () => {
@@ -1613,6 +1632,25 @@ describe('editors shown in the node', () => {
     }
     const pinsOf = (layout: ReturnType<typeof lay>, id: string) =>
       layout.pins.filter((pin) => pin.portId === id && pin.direction === 'in').map((pin) => pin.y)
+
+    it('leaves the same clearance below a member as beside it, folded or unfolded', () => {
+      const schema = schemaOf([{
+        kind: 'group', id: 'curves', member: [editor('curve', 'CURVE', { histogram: 'histogram' }), histogram('histogram')],
+        keys: { kind: 'numbered', prefix: '', start: 1, pad: 0 }, grows: 'button', minMembers: 2,
+      }])
+      const node = { ...nodeData, dynamic: { curves: { members: ['1', '2'], seq: 2 } } }
+      for (const unfolded of [false, true]) {
+        const layout = lay(schema, [], { editorUnfolded: { 'curves.1.curve': unfolded } }, node)
+        const box = layout.boxes!.find((item) => item.id === 'member:curves.1')!
+        const row = layout.rows.find((item) => item.kind === (unfolded ? 'editorSpace' : 'widget') && item.valueKey === 'curves.1.curve')!
+        if (row.kind !== 'widget' && row.kind !== 'editorSpace') throw new Error('Missing curve row')
+        const left = row.inset - box.x - canvasPaintTokens.node.box.stroke
+        const right = box.x + box.width - canvasPaintTokens.node.box.stroke - (layout.width - row.inset)
+        const bottom = box.y + box.height - canvasPaintTokens.node.box.stroke -
+          (row.y + row.height - defaultTokens.rowGeometry.fieldInsetY)
+        expect({ left, right, bottom }, unfolded ? 'unfolded member' : 'folded member').toEqual({ left: 8, right: 8, bottom: 8 })
+      }
+    })
 
     it('removes the interpolation row and moves the histogram pin up for a fixed curve', () => {
       const fixed = schemaOf([editor('curve', 'CURVE', { unfolded: true, histogram: 'bins', interpolations: ['step'] }), histogram('bins'), histogram('gamma')])

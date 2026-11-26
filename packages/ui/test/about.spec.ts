@@ -510,7 +510,7 @@ test('toolbar search is outlined, capped and centered with native reservations',
 }) => {
   await page.setViewportSize({ width: 2000, height: 900 })
   await page.goto('/#window-toolbar')
-  await expect(page.getByRole('region', { name: 'Shortcut keys', exact: true }).locator('kbd')).toHaveText(['Ctrl', 'Shift', 'K', 'Cmd', ',', 'Alt', '+', 'Ctrl', 'Wheel', 'Cmd', ','])
+  await expect(page.getByRole('region', { name: 'Shortcut keys', exact: true }).locator('kbd')).toHaveText(['Ctrl+Shift+O', 'Cmd+,', 'Alt++', 'Ctrl+Shift+O', 'Ctrl+K', 'Ctrl+C', 'Ctrl+Wheel', 'Cmd+,'])
   for (const theme of ['dark', 'light']) {
     for (const platform of ['linux', 'darwin', 'win32']) {
       const bar = page
@@ -1007,7 +1007,7 @@ for (const state of ['idle', 'running', 'pending'])
     await page.getByLabel('Search shortcut').selectOption('Alt+K')
     await expect(search).toHaveAccessibleDescription('Alt+K')
     await page.setViewportSize({ width: 1440, height: 900 })
-    await expect(search.locator('kbd')).toHaveText(['Alt', 'K'])
+    await expect(search.locator('kbd')).toHaveText(['Alt+K'])
     await expect(search.locator('kbd').first()).toBeVisible()
     await page.getByLabel('Search shortcut').selectOption('')
     await expect(search.locator('kbd')).toHaveCount(0)

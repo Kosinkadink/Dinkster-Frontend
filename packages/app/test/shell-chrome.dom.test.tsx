@@ -267,7 +267,7 @@ describe('canvas corner controls', () => {
     expect(menu()).toBe('zoom')
     expect(row().querySelector('.dinkster-canvas-closed-row-value')?.textContent).toBe('26%')
     const zoomInRow = root.querySelector('[data-testid="canvas-zoom-in"]')!
-    expect([...zoomInRow.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Alt', '='])
+    expect([...zoomInRow.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Alt+='])
     click(zoomInRow)
     expect(zoomBy).toHaveBeenLastCalledWith(1.2)
     expect(menu()).toBe('zoom')
@@ -327,8 +327,8 @@ describe('Dinkster app menu', () => {
     keybindings.set('view.fitSelection', null)
     click(root.querySelector('[data-testid="dinkster-menu-button"]')!)
 
-    expect([...root.querySelectorAll('[data-item-id="workflow.open"] kbd')].map((key) => key.textContent)).toEqual(['Ctrl', 'O'])
-    expect([...root.querySelectorAll('[data-item-id="edit.undo"] kbd')].map((key) => key.textContent)).toEqual(['Cmd', 'U'])
+    expect([...root.querySelectorAll('[data-item-id="workflow.open"] kbd')].map((key) => key.textContent)).toEqual(['Ctrl+O'])
+    expect([...root.querySelectorAll('[data-item-id="edit.undo"] kbd')].map((key) => key.textContent)).toEqual(['Cmd+U'])
     expect(root.querySelector('[data-item-id="view.fitSelection"] kbd')).toBeNull()
     dispose()
   })
@@ -358,6 +358,55 @@ describe('Dinkster app menu', () => {
     expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(document.activeElement).toBe(root.querySelector('[data-testid="dinkster-menu-button"]'))
+    dispose()
+  })
+
+  it('hides menu-button help while open and restores hover and focus help after closing', async () => {
+    const { root, dispose } = menuFixture()
+    const button = root.querySelector('[data-testid="dinkster-menu-button"]') as HTMLButtonElement
+    const controller = new TooltipController(() => 0)
+    controller.register({ id: 'dom', resolve: (target) => ({ lines: [(target as { label: string }).label] }) })
+    const detach = attachDomTooltips(root, controller)
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+    for (const opening of ['pointer', 'keyboard']) {
+      button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+      button.focus()
+      await settle()
+      expect(controller.visible?.lines).toEqual(['Dinkster'])
+      if (opening === 'pointer') {
+        button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+        click(button)
+      } else button.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      await settle()
+      expect(root.querySelector('[data-testid="context-menu"]')).not.toBeNull()
+      expect(controller.visible).toBeUndefined()
+
+      button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }))
+      await settle()
+      expect(controller.visible).toBeUndefined()
+      button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      root.querySelector('[data-testid="context-menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await settle()
+      expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
+      expect(document.activeElement).toBe(button)
+      expect(controller.visible).toBeUndefined()
+      button.blur()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
+      button.focus()
+      await settle()
+      expect(controller.visible?.lines).toEqual(['Dinkster'])
+
+      button.blur()
+      button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      expect(controller.visible).toBeUndefined()
+      button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }))
+      await settle()
+      expect(controller.visible?.lines).toEqual(['Dinkster'])
+    }
+    detach()
     dispose()
   })
 
@@ -1647,6 +1696,11 @@ describe('DockZoneHost', () => {
       />
     ), root)
     const tablist = root.querySelector('[role="tablist"]')!
+    ;(tablist as HTMLElement).style.padding = '4px'
+    const tabs = root.querySelectorAll<HTMLElement>('[role="tab"]')
+    tabs.forEach((tab, index) => {
+      vi.spyOn(tab, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 72 + index * 12, 32))
+    })
     let clientWidth = 100
     Object.defineProperty(tablist, 'clientWidth', { configurable: true, get: () => clientWidth })
     const remeasure = async (clipped: boolean): Promise<void> => {
@@ -1790,6 +1844,7 @@ describe('left rail tooltip hover session', () => {
     library!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Library\nBrowse saved workflows'])
     library!.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     pack!.focus()
     expect(controller.visible?.lines).toEqual(['Pack'])
     pack!.blur()
@@ -1950,8 +2005,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Hide minimap'])
     toggle.dataset['tooltipLabel'] = 'Show minimap'
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -1968,8 +2023,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Assets'])
     delete toggle.dataset['tooltipLabel']
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -1986,8 +2041,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Assets'])
     toggle.remove() // no attribute mutation: only the tree watch sees this
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -2004,8 +2059,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Hide minimap'])
     toggle.blur()
     toggle.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
