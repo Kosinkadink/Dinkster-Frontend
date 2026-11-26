@@ -241,6 +241,7 @@ export function SaveTargetSpace(props: {
   readonly fetchMounts: (() => Promise<MountSettings>) | undefined
   readonly commit: (value: Json) => Promise<boolean>
   readonly queue: () => void
+  readonly openStorage?: () => void
 }) {
   const message = useAppMessage()
   const [settings, setSettings] = createSignal<MountSettings>()
@@ -295,6 +296,23 @@ export function SaveTargetSpace(props: {
             : draft().mountGone ? message('saveTargetWidget.notHereSaving', { id: mount() ?? '', mount: projectMount() }) : undefined
   const mountTone = () => failed() || noDefault() && (mount() === null || draft().mountGone)
     ? 'error' as const : draft().mountGone || settings() !== undefined && ready().length === 0 ? 'warning' as const : undefined
+  const mountNote = () => {
+    if (mountProblem() === undefined) return undefined
+    const gone = draft().mountGone
+    const stops = noDefault() && (mount() === null || gone)
+    const words = { id: mount() ?? '', mount: projectMount() }
+    const recover = gone && !noDefault() && !props.wired && !blocked()
+    return <CanvasEditorNote tone={mountTone() === 'warning' ? 'warning' : 'problem'} details={{
+      label: message('runs.details'),
+      title: failed() ? message('mountWidget.error') : stops
+        ? message(gone ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.noDefaultTitle', words)
+        : gone ? message('saveTargetWidget.missingTitle', words) : message('saveTargetWidget.noMounts'),
+      body: message(stops || !gone ? 'saveTargetWidget.noDefaultBody' : 'saveTargetWidget.missingBody', words),
+      ...(recover ? { action: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } } }
+        : props.openStorage === undefined ? {} : { action: { label: message('problems.action.modelStorage'), onClick: props.openStorage } }),
+    }}>{message(failed() ? 'saveTargetWidget.failedShort' : stops ? 'saveTargetWidget.noDefaultShort'
+      : gone ? 'saveTargetWidget.missingShort' : 'saveTargetWidget.noMountsShort', words)}</CanvasEditorNote>
+  }
   const defaultTarget = () => isSaveTarget(props.declared) || isProjectDefaultTarget(props.declared) ? props.declared : undefined
   const differs = () => {
     const value = defaultTarget()
@@ -325,7 +343,7 @@ export function SaveTargetSpace(props: {
   return <div ref={(element) => {
     const outside = (event: PointerEvent): void => {
       if ((element.contains(document.activeElement) || listOpen()) && event.target instanceof Element &&
-        !element.contains(event.target) && !event.target.closest('.dinkster-canvas-editor-choice-list')) void store()
+        !element.contains(event.target) && !event.target.closest('.dinkster-canvas-editor-choice-list, .dinkster-canvas-editor-problem-note')) void store()
     }
     document.addEventListener('pointerdown', outside, true)
     onCleanup(() => document.removeEventListener('pointerdown', outside, true))
@@ -374,11 +392,8 @@ export function SaveTargetSpace(props: {
       options={options()} mount={mount() ?? ''} prefix={prefix()} listOpen={listOpen()} {...(highlight() === undefined ? {} : { highlight: highlight()! })}
       onPrefix={(value) => { if (!blocked() && !props.wired) setPrefix(value) }} onToggleList={() => listOpen() ? setListOpen(false) : openList()} onHighlight={setHighlight}
       onPick={pick}
-      {...(mountProblem() === undefined ? {} : { mountProblem: mountProblem()! })}
+      mountProblem={mountNote()}
       {...(mountTone() === undefined ? {} : { tone: mountTone()! })}
-      {...(draft().mountGone && !noDefault() && !props.wired && !blocked() ? {
-        mountAction: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } },
-      } : {})}
       {...(!props.wired && !blocked() && differs() ? {
         reset: { label: message('saveTargetWidget.reset'), onClick: () => {
           const value = defaultTarget()!

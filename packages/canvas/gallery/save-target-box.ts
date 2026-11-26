@@ -193,6 +193,8 @@ export const saveTargetGroups: readonly {
     title: 'Shared fold-out editor',
     examples: [
       { id: 'foldout-folded', caption: 'Folded: the shared editor header keeps its icon, target name, save location and opener.', stored: portrait, foldout: true },
+      { id: 'foldout-folded-missing', caption: 'Folded with a missing mount: the header keeps the warning outline and triangle.', stored: onUsb, foldout: true },
+      { id: 'foldout-folded-no-default', caption: 'Folded without an output mount: the header keeps the error outline and triangle.', stored: portrait, noDefault: true, foldout: true },
       { id: 'foldout-rest', caption: 'Open, at rest: the header stays in place; Mount and Name have ordinary dim borders. Neither field has the keyboard.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, foldout: true, resting: true },
       { id: 'foldout-typing', caption: 'Open, typing in Name: its own 1 px secondary-text border, with no cyan or second ring inside. The Mount border remains dim.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, foldout: true },
       { id: 'foldout-wired', caption: 'Whole target wired: folded, quiet, with the shared frame, icon and opener retained.', stored: portrait, arriving: { mount: 'archive', prefix: 'from/upstream' }, foldout: true },
@@ -201,7 +203,7 @@ export const saveTargetGroups: readonly {
       { id: 'foldout-mount-wired', caption: 'Example data only: Mount wired while Name stays editable. No engine input is added.', stored: portrait, open: { mount: 'archive', prefix: 'renders/portrait' }, foldout: true, resting: true, wiredParts: ['mount'] },
       { id: 'foldout-name-wired', caption: 'Example data only: Name wired while Mount stays editable.', stored: portrait, open: { mount: null, prefix: 'shots/shot_042' }, foldout: true, resting: true, wiredParts: ['name'] },
       { id: 'foldout-both-folded', caption: 'Example data only: connected Mount and Name pins gather at the closed header on the node edge.', stored: portrait, foldout: true, wiredParts: ['mount', 'name'] },
-      { id: 'foldout-missing', caption: 'A missing mount stays stored; its warning and project-default action belong under Mount.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, foldout: true, resting: true },
+      { id: 'foldout-missing', caption: 'A missing mount stays stored. Details opens the explanation and project-default action.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, foldout: true, resting: true },
       { id: 'foldout-no-default', caption: 'Project default has no output mount. The error stays inside the editor.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, noDefault: true, foldout: true, resting: true },
       { id: 'foldout-missing-no-default', caption: 'The stored mount is missing and this project has no default output mount.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, noDefault: true, foldout: true, resting: true },
       { id: 'foldout-none', caption: 'No ready writable mount. The message grows the editor only by its content height.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'none', foldout: true, resting: true },

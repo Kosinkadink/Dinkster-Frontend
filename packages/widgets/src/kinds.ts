@@ -1144,11 +1144,15 @@ export const saveTargetView: WidgetView<SaveTarget | ProjectDefaultTarget | null
     const projectMount = facts?.projectMount ?? t(facts === undefined ? 'saveTargetWidget.projectDefault' : 'saveTargetWidget.noOutputMount')
     const declared = isSaveTarget(spec.default) || isProjectDefaultTarget(spec.default) ? spec.default : undefined
     const shown: SaveTarget | ProjectDefaultTarget | null = value === null && declared !== undefined ? { prefix: declared.prefix } : value
+    const named = isSaveTarget(shown) ? shown : undefined
+    if (facts !== undefined && (named === undefined || !facts.ready.includes(named.mount))) {
+      const severity = facts.projectMount === undefined ? 'error' : named === undefined ? undefined : 'warning'
+      if (severity !== undefined) ctx.rect(0, 0, 1, 1, { role: 'widgetProblem', severity })
+    }
     if (shown === null) {
       compactRow(ctx, label, t('saveTargetWidget.default'), state, 'widget.edit', true)
       return
     }
-    const named = isSaveTarget(shown) ? shown : undefined
     if (named !== undefined && (facts === undefined || facts.ready.includes(named.mount))) {
       compactRow(ctx, label, `${named.mount}/${named.prefix}`, state, 'widget.edit', false,
         { shorter: named.prefix.includes('/') ? [`${named.mount}/.../${named.prefix.split('/').at(-1)}`] : [] })

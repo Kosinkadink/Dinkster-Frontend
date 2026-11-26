@@ -7490,6 +7490,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 {(at) => <Show when={at().owner} keyed>{(_owner) => <SaveTargetSpace value={item()?.value ?? (item()?.wired ? undefined : effectiveWidgetDefault(item()!.field.spec))}
                   wired={item()?.wired === true} readOnly={item()?.field.readOnly === true} disabled={item()?.field.disabled === true}
                   fetchMounts={at().fetchMounts} commit={at().commit}
+                  openStorage={() => props.app.commands.get('storage.open')?.run()}
                   {...(effectiveWidgetDefault(item()!.field.spec) === undefined ? {} : { declared: effectiveWidgetDefault(item()!.field.spec)! })}
                   help={at().help}
                   measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}

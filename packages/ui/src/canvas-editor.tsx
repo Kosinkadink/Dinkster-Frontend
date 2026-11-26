@@ -7,9 +7,10 @@ import {
   RotateCcw,
   Square,
   Trash2,
+  TriangleAlert,
   type LucideIcon,
 } from 'lucide-solid'
-import { CanvasClosedRow, CanvasRowField, CanvasSidePart } from './canvas-field.js'
+import { CanvasClosedRow, CanvasRowField, CanvasSideLink, CanvasSidePart } from './canvas-field.js'
 import { CanvasRowList, canvasListLayout } from './canvas-list.js'
 import { ProductButton, ProductIcon, ProductIconButton, ProductSpinner } from './controls.js'
 
@@ -84,12 +85,118 @@ export function CanvasEditorLine(props: { dimmed?: boolean; readOnly?: boolean |
 }
 
 /** A line naming what the editor stores, or a message about it; `tone` colors a problem. */
-export function CanvasEditorNote(props: { tone?: 'problem' | 'muted' | undefined; wrap?: boolean; children: JSX.Element }) {
+export function CanvasEditorNote(props: {
+  tone?: 'problem' | 'warning' | 'muted' | undefined
+  wrap?: boolean
+  children: JSX.Element
+  details?: {
+    readonly label: string
+    readonly title: string
+    readonly body?: string
+    readonly action?: { readonly label: string; readonly onClick: () => void }
+  } | undefined
+}) {
+  const [open, setOpen] = createSignal(false)
+  const id = createUniqueId()
+  let link!: HTMLButtonElement
   return (
     <div class="dinkster-canvas-editor-note" data-tone={props.tone} data-wrap={props.wrap === true ? 'true' : undefined}>
-      {props.children}
+      <Show when={props.details} fallback={props.children}>{(details) => <>
+        <TriangleAlert class="dinkster-canvas-editor-note-icon" aria-hidden="true" />
+        <span class="dinkster-canvas-editor-note-summary">{props.children}</span>
+        <CanvasSideLink ref={(element) => { link = element }} expanded={open()} controls={open() ? id : undefined}
+          onClick={() => setOpen(!open())}>{details().label}</CanvasSideLink>
+        <Show when={open()}>
+          <CanvasEditorProblemNote anchor={link} id={id} tone={props.tone} title={details().title}
+            body={details().body} action={details().action} onClose={() => setOpen(false)} />
+        </Show>
+      </>}</Show>
     </div>
   )
+}
+
+/** The full editor problem stays over the canvas, outside clipped editor spaces. */
+function CanvasEditorProblemNote(props: {
+  anchor: HTMLButtonElement
+  id: string
+  tone: ComponentProps<typeof CanvasEditorNote>['tone']
+  title: string
+  body: string | undefined
+  action: { readonly label: string; readonly onClick: () => void } | undefined
+  onClose: () => void
+}) {
+  let popup!: HTMLDivElement
+  let point!: HTMLSpanElement
+  const close = (restore: boolean): void => {
+    if (restore) props.anchor.focus()
+    props.onClose()
+  }
+  onMount(() => {
+    const place = (): void => {
+      const anchor = props.anchor
+      const row = anchor.getBoundingClientRect()
+      const scale = row.width / anchor.offsetWidth
+      let boundary = anchor.closest<HTMLElement>('.dinkster-canvas-example-stage')
+      for (let parent = anchor.parentElement; boundary === null && parent; parent = parent.parentElement)
+        boundary = parent.querySelector<HTMLElement>('canvas.graph-canvas')
+      const box = boundary?.getBoundingClientRect()
+      const view = window.visualViewport
+      const left = Math.max(box?.left ?? 0, view?.offsetLeft ?? 0)
+      const top = Math.max(box?.top ?? 0, view?.offsetTop ?? 0)
+      const right = Math.min(box?.right ?? window.innerWidth, (view?.offsetLeft ?? 0) + (view?.width ?? window.innerWidth))
+      const bottom = Math.min(box?.bottom ?? window.innerHeight, (view?.offsetTop ?? 0) + (view?.height ?? window.innerHeight))
+      popup.style.scale = String(scale)
+      popup.style.maxWidth = `${Math.max(0, right - left) / scale}px`
+      popup.style.maxHeight = `${Math.max(0, bottom - top) / scale}px`
+      const width = popup.offsetWidth * scale
+      const height = popup.offsetHeight * scale
+      const gap = 8 * scale
+      const below = bottom - row.bottom
+      const above = row.top - top
+      const placeBelow = below >= height + gap || below >= above
+      const x = Math.max(left, Math.min(row.left, right - width))
+      const y = Math.max(top, Math.min(placeBelow ? row.bottom + gap : row.top - height - gap, bottom - height))
+      popup.style.left = `${x}px`
+      popup.style.top = `${y}px`
+      point.style.left = `${Math.max(12, Math.min((row.left + row.width / 2 - x) / scale, popup.offsetWidth - 12))}px`
+      popup.dataset.place = placeBelow ? 'below' : 'above'
+    }
+    const outside = (event: Event): void => {
+      if (event.target instanceof Node && !popup.contains(event.target) && !props.anchor.contains(event.target)) close(false)
+    }
+    const entering = (event: FocusEvent): void => {
+      if (event.relatedTarget instanceof Node && popup.contains(event.relatedTarget)) event.stopPropagation()
+    }
+    const owner = props.anchor.parentElement!
+    owner.addEventListener('focusout', entering as EventListener)
+    document.addEventListener('pointerdown', outside, true)
+    document.addEventListener('focusin', outside)
+    let frame = 0
+    const follow = (): void => { place(); frame = requestAnimationFrame(follow) }
+    place()
+    frame = requestAnimationFrame(follow)
+    popup.focus()
+    onCleanup(() => {
+      cancelAnimationFrame(frame)
+      owner.removeEventListener('focusout', entering as EventListener)
+      document.removeEventListener('pointerdown', outside, true)
+      document.removeEventListener('focusin', outside)
+    })
+  })
+  return <Portal><div ref={popup} id={props.id} class="dinkster-canvas-editor-problem-note" data-tone={props.tone}
+    role="dialog" aria-labelledby={`${props.id}-title`} tabindex={-1}
+    onKeyDown={(event) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true) }
+    }}>
+    <span ref={point} class="dinkster-canvas-editor-problem-point" aria-hidden="true" />
+    <div class="dinkster-canvas-editor-problem-note-content">
+    <strong id={`${props.id}-title`}>{props.title}</strong>
+    <Show when={props.body}>{(body) => <p>{body()}</p>}</Show>
+    <Show when={props.action}>{(action) => <CanvasEditorButtons buttons={[{
+      label: action().label, onClick: () => { close(true); action().onClick() },
+    }]} />}</Show>
+    </div>
+  </div></Portal>
 }
 
 /** A closed or open section of an editor's own rows, its header drawn as the node draws a section's header. */

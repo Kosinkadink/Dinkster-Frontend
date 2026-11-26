@@ -1137,9 +1137,6 @@
 .dinkster-canvas-target-input[aria-invalid='true'], .dinkster-canvas-target-input[aria-invalid='true']:focus { outline: var(--dinkster-indicator-width) solid var(--dinkster-danger-foreground); outline-offset: calc(0px - var(--dinkster-indicator-width)); }
 .dinkster-canvas-target-input::selection { background: var(--dinkster-border-focus); color: var(--dinkster-text-inverse); }
 .dinkster-canvas-target-note { margin: 0; padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); color: var(--dinkster-danger-foreground); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-.dinkster-canvas-target-mount-problem { margin: 0; padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); color: var(--dinkster-warning-foreground); overflow-wrap: anywhere; }
-.dinkster-canvas-target-mount-problem[data-tone='error'] { color: var(--dinkster-danger-foreground); }
-.dinkster-canvas-target-mount-problem > .dinkster-canvas-target-glyph { display: inline-block; vertical-align: middle; margin-right: var(--dinkster-space-4); color: inherit; }
 .dinkster-canvas-target-reset > .dinkster-canvas-editor-buttons { justify-content: flex-end; }
 .dinkster-canvas-target-error { margin: 0; color: var(--dinkster-danger-foreground); }
 .dinkster-canvas-target-help { margin: 0; }
@@ -1158,8 +1155,21 @@
 .dinkster-canvas-editor-line[data-dimmed='true'], .dinkster-canvas-editor[data-state='dimmed'] .dinkster-canvas-editor-line { opacity: 0.45; pointer-events: none; }
 .dinkster-canvas-editor-note { padding: 0 calc(var(--dinkster-space-4) * 1.5); overflow: hidden; color: var(--dinkster-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
 .dinkster-canvas-editor-note[data-tone='problem'] { color: var(--dinkster-danger-foreground); }
+.dinkster-canvas-editor-note[data-tone='warning'] { color: var(--dinkster-warning-foreground); }
 .dinkster-canvas-editor-note[data-tone='muted'] { color: var(--dinkster-text-muted); }
 .dinkster-canvas-editor-note[data-wrap='true'] { height: auto; padding-block: var(--dinkster-space-4); white-space: normal; }
+.dinkster-canvas-editor-note-icon { flex: none; width: var(--dinkster-space-12); height: var(--dinkster-space-12); }
+.dinkster-canvas-editor-note-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dinkster-canvas-editor-note > .dinkster-canvas-side-link { flex: none; white-space: nowrap; color: var(--dinkster-text-primary); }
+.dinkster-canvas-editor-problem-note { position: fixed; z-index: 30; transform-origin: top left; box-sizing: border-box; width: calc(var(--dinkster-space-32) * 9); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); box-shadow: var(--dinkster-elevation-high); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
+.dinkster-canvas-editor-problem-note:focus, .dinkster-root .dinkster-canvas-editor-problem-note:focus-visible { outline: none; }
+.dinkster-canvas-editor-problem-point { position: absolute; top: calc(0px - var(--dinkster-space-4) - var(--dinkster-border-width)); width: var(--dinkster-space-8); height: var(--dinkster-space-8); transform: translateX(-50%) rotate(45deg); background: var(--dinkster-surface-raised); border-left: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+.dinkster-canvas-editor-problem-note[data-place='above'] > .dinkster-canvas-editor-problem-point { top: auto; bottom: calc(0px - var(--dinkster-space-4) - var(--dinkster-border-width)); transform: translateX(-50%) rotate(225deg); }
+.dinkster-canvas-editor-problem-note-content { box-sizing: border-box; max-height: inherit; overflow: auto; padding: var(--dinkster-space-12); overflow-wrap: anywhere; }
+.dinkster-canvas-editor-problem-note strong { color: var(--dinkster-danger-foreground); }
+.dinkster-canvas-editor-problem-note[data-tone='warning'] strong { color: var(--dinkster-warning-foreground); }
+.dinkster-canvas-editor-problem-note p { margin: var(--dinkster-space-4) 0 0; }
+.dinkster-canvas-editor-problem-note .dinkster-canvas-editor-buttons { margin-top: var(--dinkster-space-8); }
 /* Things side by side in an editor's row stand 4 px apart, and a row of buttons ends where the fields above it end. */
 .dinkster-canvas-editor-line, .dinkster-canvas-editor-buttons { gap: var(--dinkster-space-4); }
 /* A button in an editor keeps to the row it sits on, as the node's own buttons do. */

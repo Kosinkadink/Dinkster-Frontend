@@ -33,6 +33,7 @@ import {
 import {
   CanvasRowField,
   CanvasEditorSpace,
+  CanvasEditorNote,
   CanvasTargetBox,
   CanvasTargetSide,
   ProductSection,
@@ -287,9 +288,18 @@ function SaveTargetExampleCard(props: {
         {...(listOn() === undefined ? {} : { highlight: listOn()! })}
         prefix={open()?.prefix ?? ''}
         {...(example().foldout ? { onPrefix: (prefix: string) => setEdited({ mount: open()?.mount ?? null, prefix }) } : {})}
-        {...(example().foldout && mountProblem() !== undefined ? { mountProblem: mountProblem()! } : {})}
-        {...(example().foldout && draft().mountGone && !noDefault() ? {
-          mountAction: { label: t('saveTargetWidget.useProjectDefault'), onClick: () => setEdited({ mount: null, prefix: open()?.prefix ?? '' }) },
+        {...(example().foldout && mountProblem() !== undefined ? { mountProblem:
+          <CanvasEditorNote tone={mountTone() === 'warning' ? 'warning' : 'problem'} details={{
+            label: t('runs.details'),
+            title: t(noDefault() ? draft().mountGone ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.noDefaultTitle'
+              : draft().mountGone ? 'saveTargetWidget.missingTitle' : 'saveTargetWidget.noMounts', { id: open()?.mount ?? '' }),
+            body: t(noDefault() || !draft().mountGone ? 'saveTargetWidget.noDefaultBody' : 'saveTargetWidget.missingBody',
+              { id: open()?.mount ?? '', mount: projectText() }),
+            action: draft().mountGone && !noDefault()
+              ? { label: t('saveTargetWidget.useProjectDefault'), onClick: () => setEdited({ mount: null, prefix: open()?.prefix ?? '' }) }
+              : { label: t('problems.action.modelStorage'), onClick: () => undefined },
+          }}>{t(noDefault() ? 'saveTargetWidget.noDefaultShort' : draft().mountGone ? 'saveTargetWidget.missingShort'
+            : 'saveTargetWidget.noMountsShort', { id: open()?.mount ?? '' })}</CanvasEditorNote>,
         } : {})}
         {...(example().foldout && example().arriving === undefined && !example().wiredParts?.length &&
           (open()?.mount !== null || open()?.prefix !== galleryDefault.prefix) ? {

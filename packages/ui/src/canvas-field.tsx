@@ -900,11 +900,17 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
 export function CanvasSideLink(props: {
   children: JSX.Element
   onClick: () => void
+  ref?: (element: HTMLButtonElement) => void
+  expanded?: boolean
+  controls?: string | undefined
 }) {
   return (
     <button
+      ref={props.ref}
       type="button"
       class="dinkster-canvas-side-link"
+      aria-expanded={props.expanded}
+      aria-controls={props.controls}
       onPointerDown={(event) => event.preventDefault()}
       onClick={() => props.onClick()}
     >

@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, createUniqueId, type JSX } from 'solid-js'
-import { Check, ChevronDown, TriangleAlert } from 'lucide-solid'
+import { Check, ChevronDown } from 'lucide-solid'
 import { CanvasEditorButtons, CanvasEditorChoiceList } from './canvas-editor.js'
 import {
   CanvasSideLink,
@@ -103,8 +103,7 @@ export function CanvasTargetBox(props: {
   help?: string | undefined
   /** Why the prefix cannot be used, under the field. */
   prefixProblem?: string
-  mountProblem?: string
-  mountAction?: { readonly label: string; readonly onClick: () => void }
+  mountProblem?: JSX.Element
   reset?: { readonly label: string; readonly onClick: () => void }
   /** The part the keyboard is on, drawn focused even without the browser's focus. */
   focused?: CanvasTargetStop
@@ -229,13 +228,7 @@ export function CanvasTargetBox(props: {
         </Show>
       </div>
       <Show when={props.mountProblem}>
-        <p class="dinkster-canvas-target-mount-problem" data-tone={props.tone} role="status">
-          <TriangleAlert class="dinkster-canvas-target-glyph" aria-hidden="true" />
-          {props.mountProblem}{' '}
-          <Show when={props.mountAction}>{(action) =>
-            <CanvasSideLink onClick={() => action().onClick()}>{action().label}</CanvasSideLink>
-          }</Show>
-        </p>
+        {props.mountProblem}
       </Show>
       <div class="dinkster-canvas-target-name" data-wired={props.prefixWired === true} inert={props.prefixWired === true} title={props.help}>
         <label class="dinkster-canvas-target-caption" for={prefixId}>

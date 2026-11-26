@@ -389,6 +389,24 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       {
         rect: (rx, ry, rw, rh, style) => {
           if (style['role'] === 'widgetBackground') return // chrome already drawn
+          if (style['role'] === 'widgetProblem') {
+            if (row.unfolded) return
+            const color = style['severity'] === 'error' ? tokens.colors.error : tokens.colors.warningMark
+            ctx.save()
+            ctx.strokeStyle = color
+            ctx.lineWidth = paint.diagnosticStroke
+            ctx.beginPath()
+            ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
+            ctx.stroke()
+            const size = paint.opener.iconSize
+            const left = x + paint.opener.iconInset
+            const top = y + rowHeight / 2 - size / 2
+            ctx.fillStyle = tokens.colors.widgetRaised
+            ctx.fillRect(left, top, size, size)
+            paintToolboxIcon(ctx, 'triangle-alert', left, top, size, color)
+            ctx.restore()
+            return
+          }
           if (style['role'] === 'numericRangeFill') {
             if (!declaredSlider || row.disabled) return
             const rawFraction = Number(style['fraction'])
