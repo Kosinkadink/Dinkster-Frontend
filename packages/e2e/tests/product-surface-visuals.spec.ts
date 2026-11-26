@@ -251,7 +251,7 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     }] } })
   } else if (path.endsWith('/api/sessions')) {
     await route.fulfill({ json: { sessions: [] } })
-  } else if (path.endsWith('/api/history/runs')) {
+  } else if (path.endsWith('/api/history') || path.endsWith('/api/history/runs')) {
     await route.fulfill({ json: { records: [] } })
   } else if (path.endsWith('/api/projects/default')) {
     await route.fulfill({ json: { project: {
