@@ -70,26 +70,23 @@ test('Controls inside an open row use ordinary borders and a secondary-text keyb
     return color
   }, token)
   await openPage(page, 'save-target-box')
-  const card = page.getByTestId('save-target-box-open').locator('..')
+  const card = page.getByTestId('save-target-box-foldout-typing').locator('..')
   const mount = card.locator('.dinkster-canvas-target-choice')
   const prefix = card.locator('.dinkster-canvas-target-input')
   await expect(mount).toBeVisible()
   await expect(mount).toHaveCSS('border-color', await tokenColor('--dinkster-border-subtle'))
-  const resting = page.getByTestId('save-target-box-open-rest').locator('..').locator('.dinkster-canvas-target-input')
+  const resting = page.getByTestId('save-target-box-foldout-rest').locator('..').locator('.dinkster-canvas-target-input')
   await expect(resting).toHaveCSS('border-color', await tokenColor('--dinkster-border-subtle'))
-  const outerOutline = card.locator('.dinkster-canvas-field-outline path')
-  const outerStroke = await outerOutline.evaluate((element) => getComputedStyle(element).stroke)
   await prefix.focus()
   await expect(prefix).toBeFocused()
   await expect(prefix).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
   await expect(prefix).toHaveCSS('border-width', '1px')
   await expect(prefix).toHaveCSS('outline-style', 'none')
-  await expect(outerOutline).toHaveCSS('stroke', outerStroke)
   await expect(card).toHaveScreenshot('side-controls-prefix-focused-dark.png')
-  const invalid = page.getByTestId('save-target-box-invalid').locator('..').locator('.dinkster-canvas-target-input')
+  const invalid = page.getByTestId('save-target-box-foldout-invalid').locator('..').locator('.dinkster-canvas-target-input')
   await invalid.focus()
   await expect(invalid).toHaveCSS('outline-color', await tokenColor('--dinkster-danger-foreground'))
-  for (const [id, token] of [['not-here', '--dinkster-warning-foreground'], ['no-default', '--dinkster-danger-foreground']]) {
+  for (const [id, token] of [['foldout-missing', '--dinkster-warning-foreground'], ['foldout-no-default', '--dinkster-danger-foreground']]) {
     const warnedMount = page.getByTestId(`save-target-box-${id}`).locator('..').locator('.dinkster-canvas-target-choice')
     await warnedMount.focus()
     await expect(warnedMount).toHaveCSS('outline-color', await tokenColor(token!))
@@ -700,17 +697,6 @@ test('Open rows use a quiet outline and preserve keyboard focus and side-part co
       )
       await expect(outline).toHaveCSS('stroke-width', '2px')
     }
-    await openPage(page, 'save-target-box', theme)
-    await cardsReady(page, 'save-target-box', theme)
-    const target = page
-      .getByTestId('save-target-box-open')
-      .locator('..')
-      .locator('.dinkster-canvas-field-outline path')
-    await expect(target).toHaveCSS(
-      'stroke',
-      await palette('--dinkster-accent-rest-border'),
-    )
-    await expect(target).toHaveCSS('stroke-width', '2px')
     await openPage(page, 'color-editing', theme)
     await cardsReady(page, 'color-editing', theme)
     const neutral = page
@@ -881,7 +867,7 @@ for (const theme of ['dark', 'light'] as const) {
         const filters = page.locator(
           'input.dinkster-canvas-field-input[role="combobox"]:not(.dinkster-canvas-side-representation-list *)',
         )
-        await expect(filters).toHaveCount(id === 'row-lists' ? 23 : id === 'row-states' ? 3 : 0)
+        await expect(filters).toHaveCount(id === 'row-lists' ? 23 : id === 'row-states' ? 3 : id === 'save-target-box' ? 1 : 0)
         await expect(page.getByRole('combobox').and(
           page.locator(':not(.dinkster-canvas-side-representation *, .dinkster-canvas-side-representation-list *)'),
         )).toHaveCount(

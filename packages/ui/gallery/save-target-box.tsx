@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
-import { t, type Json, type WidgetRegistry } from '@dinkster/core'
+import { t, type WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
@@ -17,7 +17,6 @@ import {
   createWidgetRegistry,
   registerCoreWidgets,
   saveTargetDraft,
-  saveTargetText,
   widgetRegistrationDoors,
 } from '@dinkster/widgets'
 import {
@@ -31,26 +30,20 @@ import {
   type SaveTargetExample,
 } from '../../canvas/gallery/save-target-box.js'
 import {
-  CanvasRowField,
   CanvasEditorSpace,
   CanvasEditorNote,
   CanvasTargetBox,
-  CanvasTargetSide,
   ProductSection,
-  canvasTargetLayout,
   type CanvasTargetMount,
   type CanvasTargetMounts,
 } from '../src/index.js'
-import { MARGIN, NODE_WIDTH, SIDE_ROOM } from './row-editing.js'
+import { MARGIN } from './row-editing.js'
 import { InNodeEditorExampleCard } from './in-node-editors.js'
 
 type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
 
 /** The words a backend without mounts gives, as the product shows them. */
 const NO_BACKEND = 'mountWidget.error'
-
-const targetText = (value: Json, projectMount: string): string =>
-  saveTargetText(value, projectMount) ?? t('saveTargetWidget.default')
 
 /** One labeled save target state: the production renderer's node with the open row's own controls over it. */
 function SaveTargetExampleCard(props: {
@@ -59,11 +52,8 @@ function SaveTargetExampleCard(props: {
   registry: WidgetRegistry
 }) {
   let canvas!: HTMLCanvasElement
-  let stage!: HTMLDivElement
-  let field: HTMLDivElement | undefined
   const [scene, setScene] = createSignal<Scene>()
   const [fieldInsetY, setFieldInsetY] = createSignal(0)
-  const [sideSize, setSideSize] = createSignal({ width: SIDE_ROOM - MARGIN, height: 0 })
   const [boxHeight, setBoxHeight] = createSignal(0)
   const example = () => props.example
   const schema = () => (example().optional === true ? optionalSaveTargetSchema : saveTargetSchema)
@@ -111,7 +101,7 @@ function SaveTargetExampleCard(props: {
           ...(current.foldout ? { unfolded: current.open !== undefined } : {}),
         })
         const node = built.nodes.find((item) => item.id === schema().type)!
-        canvas.style.width = `${current.foldout ? node.layout.width + MARGIN * 2 : MARGIN + NODE_WIDTH + SIDE_ROOM}px`
+        canvas.style.width = `${node.layout.width + MARGIN * 2}px`
         canvas.style.height = `${node.y + node.layout.height + MARGIN}px`
         renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(props.registry))
         renderer.setReducedMotion(true)
@@ -120,7 +110,6 @@ function SaveTargetExampleCard(props: {
         if (current.arriving !== undefined) renderer.setCompanions(wiredTargetCompanions(node.id, current.arriving))
         if ((current.mounts ?? 'ready') === 'ready')
           renderer.setWidgetFacts({ SAVE_TARGET: { ready: [...galleryMounts], ...(current.noDefault === true ? {} : { projectMount: galleryMounts[0] }) } })
-        renderer.setOpenRow(current.open === undefined || current.foldout ? undefined : { nodeId: node.id, valueKey: 'target' })
         renderer.setViewport({ x: 0, y: 0, scale: 1 })
         renderer.renderNow()
         setScene(built)
@@ -174,43 +163,6 @@ function SaveTargetExampleCard(props: {
       ready: mounts() === 'ready' ? ready() : undefined,
       projectMount: projectText(),
     })
-  const tooltip = () => {
-    const input = schema().body.find((item) => item.kind === 'input' && item.id === 'target')
-    return input?.kind === 'input' ? input.tooltip : undefined
-  }
-
-  const placement = () => {
-    const found = target()
-    if (!found) return undefined
-    const { node, row } = found
-    const grow = 1
-    const rowWidth = (row.width ?? node.layout.width - row.inset * 2) + grow * 2
-    const screen = {
-      x: node.x + row.inset - grow,
-      y: node.y + row.y + fieldInsetY() - grow,
-      width: rowWidth,
-      height: row.height - fieldInsetY() * 2 + grow * 2,
-    }
-    const bounds = { x: 0, y: 0, width: canvas.clientWidth, height: Infinity }
-    return { rowWidth, screen, ...canvasTargetLayout(screen, bounds, boxHeight(), sideSize(), 1) }
-  }
-
-  createEffect(() => {
-    const current = placement()
-    if (!current || !field) return
-    field.style.left = `${current.screen.x}px`
-    field.style.top = `${current.screen.y}px`
-    // The mount list reaches past the box; the stage grows to show it whole.
-    const list = field.querySelector<HTMLElement>('.dinkster-canvas-target-list')
-    const listBottom = list ? list.getBoundingClientRect().bottom - field.getBoundingClientRect().top : 0
-    const bottom = Math.max(
-      current.screen.height + boxHeight(),
-      current.sideTop + sideSize().height,
-      listBottom,
-    )
-    stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + bottom + MARGIN)}px`
-  })
-
   const runStops = (): string | undefined => {
     if (!noDefault()) return undefined
     if (draft().mountGone) return t('saveTargetWidget.notHereNoDefault', { id: open()?.mount ?? '' })
@@ -224,31 +176,9 @@ function SaveTargetExampleCard(props: {
     : runStops() ?? (mounts() === 'none' ? t('saveTargetWidget.noMounts')
       : draft().mountGone ? t('saveTargetWidget.notHereSaving', { id: open()?.mount ?? '', mount: projectText() }) : undefined)
 
-  const side = createMemo(() => {
-    const result = draft()
-    const gone = result.mountGone ? open()?.mount ?? undefined : undefined
-    const stops = runStops()
-    const problem = stops !== undefined ? undefined : mounts() === 'none'
-      ? t('saveTargetWidget.noMounts')
-      : gone !== undefined ? t('saveTargetWidget.notHereSaving', { id: gone, mount: projectText() }) : undefined
-    return (
-      <CanvasTargetSide
-        {...(problem === undefined ? {} : { problem })}
-        enter={result.store === undefined
-          ? { verb: t('saveTargetWidget.enterKeeps'), target: targetText(example().stored, projectText()) }
-          : { verb: t('saveTargetWidget.enterStores'), target: targetText(result.store, projectText()) }}
-        {...(gone === undefined || noDefault() ? {} : { action: { label: t('saveTargetWidget.useProjectDefault'), onClick: () => undefined } })}
-        defaultLabel="default"
-        defaultText={targetText(galleryDefault, projectText())}
-        onDefault={() => undefined}
-        {...(mounts() === 'failed' ? { error: t(NO_BACKEND) } : stops !== undefined ? { error: stops } : {})}
-        {...(tooltip() === undefined ? {} : { tooltip: tooltip()! })}
-        naming={t('saveTargetWidget.naming', { suffix: '.png' })}
-      />
-    )
-  })
-
+  const [listOpen, setListOpen] = createSignal(example().listOn !== undefined)
   const listOn = () => {
+    if (!listOpen()) return undefined
     const on = example().listOn
     return on === undefined ? undefined : options().findIndex((entry) => entry.id === on)
   }
@@ -277,6 +207,7 @@ function SaveTargetExampleCard(props: {
         mount={open()?.mount ?? ''}
         {...(mountTone() === undefined ? {} : { tone: mountTone()! })}
         listOpen={listOn() !== undefined}
+        onToggleList={() => setListOpen(!listOpen())}
         {...(listOn() === undefined ? {} : { highlight: listOn()! })}
         prefix={open()?.prefix ?? ''}
         {...(example().foldout ? { onPrefix: (prefix: string) => setEdited({ mount: open()?.mount ?? null, prefix }) } : {})}
@@ -305,7 +236,7 @@ function SaveTargetExampleCard(props: {
 
   return (
     <figure class="dinkster-canvas-example">
-      <div ref={stage} class="dinkster-canvas-example-stage">
+      <div class="dinkster-canvas-example-stage">
         <canvas
           ref={canvas}
           role="img"
@@ -326,31 +257,6 @@ function SaveTargetExampleCard(props: {
               }}>{box}</CanvasEditorSpace>
             }</Show>
           }}
-        </Show>
-        <Show when={!example().foldout && open() !== undefined && placement()}>
-          {(current) => (
-            <CanvasRowField
-              ref={(element) => (field = element)}
-              look="flat-title"
-              rowWidth={current().rowWidth}
-              label={target()!.row.label}
-              value={draft().rowText}
-              placeholder={t('saveTargetWidget.default')}
-              onInput={() => undefined}
-              inputRef={(element) => {
-                element.readOnly = true
-                element.tabIndex = -1
-              }}
-              inputLabel={target()!.row.label}
-              place={current().place}
-              sideTop={current().sideTop}
-              {...(current().sideMaxHeight !== undefined ? { sideMaxHeight: current().sideMaxHeight! } : {})}
-              onSideSize={setSideSize}
-              side={side()}
-              panel={box}
-              panelPlace={current().panelPlace}
-            />
-          )}
         </Show>
       </div>
       <figcaption class="dinkster-metadata">{example().caption}</figcaption>
