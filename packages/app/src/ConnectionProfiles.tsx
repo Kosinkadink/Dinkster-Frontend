@@ -7,7 +7,7 @@ import {
 import { canonicalBackendUrl } from './app-state.js'
 import { desktopBridge, type DesktopConnectionCredentials } from './desktop-bridge.js'
 import { useAppMessage } from './locale.js'
-import { ProductButton } from '@dinkster/ui'
+import { ProductButton, ProductTextButton } from '@dinkster/ui'
 import { ProductTextInput } from './ProductControls.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { scopedStorageKey } from './projects.js'
@@ -113,35 +113,35 @@ export function ConnectionCredentialControls(props: {
   readonly connections: ReturnType<typeof createConnectionProfiles>
   readonly url: string
   readonly name: string
+  readonly onClose: () => void
 }) {
   const message = useAppMessage()
-  const [editing, setEditing] = createSignal<string>()
   const [token, setToken] = createSignal('')
   const profiles = () => props.connections.matching(props.url)
-  const save = async (profileId?: string) => {
+  // Keep the profile identity captured when editing began: a removal in
+  // another window must not turn a replacement into a new credential.
+  const profileId = profiles()[0]?.id
+  const save = async () => {
     if (await props.connections.saveToken(props.url, props.name, token().trim(), profileId)) {
       setToken('')
-      setEditing(undefined)
+      props.onClose()
     }
   }
-  const editButton = (profile?: ConnectionProfile) => <ProductButton data-testid="profile-token-edit" disabled={props.connections.busy()}
-    onClick={() => { setToken(''); setEditing(editing() === (profile?.id ?? '') ? undefined : profile?.id ?? '') }}>
-    {message(profile && props.connections.hasCredential(profile.id) ? 'connectionProfiles.action.replaceToken' : 'connectionProfiles.action.setToken')}
-  </ProductButton>
   return <>
     <For each={profiles()}>{(profile) => <div data-profile={profile.id}>
       <Show when={props.connections.hasCredential(profile.id)}><span class="backend-badge" data-testid="profile-credential-badge">{message('connectionProfiles.badge.tokenInKeychain')}</span></Show>
       <Show when={props.connections.custody()}><ProductActionFooter>
-        {editButton(profile)}
-        <Show when={props.connections.hasCredential(profile.id)}><ProductButton intent="remove" data-testid="profile-token-clear" disabled={props.connections.busy()} onClick={() => { void props.connections.clearToken(profile) }}>{message('connectionProfiles.action.clearToken')}</ProductButton></Show>
+        <Show when={props.connections.hasCredential(profile.id)}><ProductTextButton intent="remove" data-testid="profile-token-clear" disabled={props.connections.busy()} onClick={() => { void props.connections.clearToken(profile) }} label={message('connectionProfiles.action.clearToken')} /></Show>
       </ProductActionFooter></Show>
     </div>}</For>
-    <Show when={profiles().length === 0 && props.connections.custody()}>{editButton()}</Show>
-    <Show when={editing() !== undefined}><form class="connection-profile-token-editor" onSubmit={(event) => { event.preventDefault(); void save(editing() || undefined) }}>
+    <form class="connection-profile-token-editor" onSubmit={(event) => { event.preventDefault(); void save() }}>
       <label>{message('connectionProfiles.label.accessTokenFor', { name: props.name })}
         <ProductTextInput data-testid="profile-token-editor-input" type="password" autocomplete="off" value={token()} onInput={(event) => setToken(event.currentTarget.value)} />
       </label>
-      <ProductButton data-testid="profile-token-save" type="submit" fill="solid" disabled={!token().trim() || props.connections.busy()}>{message('connectionProfiles.action.saveToken')}</ProductButton>
-    </form></Show>
+      <div class="dinkster-actions">
+        <ProductButton data-testid="profile-token-save" type="submit" fill="solid" disabled={!token().trim() || props.connections.busy()}>{message('connectionProfiles.action.saveToken')}</ProductButton>
+        <ProductTextButton label={message('common.cancel')} disabled={props.connections.busy()} onClick={props.onClose} />
+      </div>
+    </form>
   </>
 }

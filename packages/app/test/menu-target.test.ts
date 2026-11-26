@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { buildScene, defaultTokens, type Hit } from '@dinkster/canvas'
-import { asNodeId, boundaryItems, coreCommandRegistry, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { asNodeId, boundaryItems, coreCommandRegistry, createLocalSession, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, resolveWidgetRepresentation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { intKind } from '@dinkster/widgets'
 import { toolboxMenuRequest } from '../src/CanvasHost.js'
-import { canvasMenuContext, curveHistogramMenuGroup, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
+import { canvasMenuContext, curveHistogramMenuGroup, memberRemovalInvocation, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
 
 const item = (id: string): MenuItem => ({
   id,
@@ -13,6 +14,135 @@ const item = (id: string): MenuItem => ({
 const group = (name: string, ...ids: string[]): ResolvedMenuGroup => ({
   group: name,
   items: ids.map(item),
+})
+
+describe('direct member removal', () => {
+  const schema: NodeSchema = {
+    type: 'Stack', displayName: 'Stack', category: 'test', source: 'v3', isOutputNode: false,
+    body: [{ kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: 'm', start: 0, pad: 0 },
+      grows: 'button', minMembers: 1, member: [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } },
+      ] }],
+  }
+  const document = (): WorkflowDocument => ({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'lin1', root: 'g0', view: { graphs: {} },
+    graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 }, sub: {
+      id: 'sub', name: 'sub', nextOrdinal: 100, reroutes: {},
+      nodes: {
+        n1: { id: 'n1', type: 'Stack', values: { 'items.m0.value': 7, 'items.m1.value': 19, 'items.m10.value': 31 },
+          dynamic: { items: { members: ['m0', 'm1', 'm10'], seq: 11 } } },
+        n2: { id: 'n2', type: 'Stack', values: {}, dynamic: { items: { members: ['m0', 'm1', 'm10'], seq: 11 } } },
+      },
+      links: {
+        incoming: { id: 'incoming', from: { node: 'n2', tap: 'items.m0.value' }, to: { node: 'n1', port: 'items.m1.value' } },
+        outgoing: { id: 'outgoing', from: { node: 'n1', tap: 'items.m1.value' }, to: { node: 'n2', port: 'items.m0.value' } },
+        kept: { id: 'kept', from: { node: 'n1', tap: 'items.m10.value' }, to: { node: 'n2', port: 'items.m10.value' } },
+      },
+      nets: {
+        sourced: { id: 'sourced', source: { node: 'n1', port: 'items.m1.out' }, sinks: [{ node: 'n2', port: 'items.m1.net' }] },
+        shared: { id: 'shared', source: { node: 'n2', port: 'items.m1.out' }, sinks: [{ node: 'n1', port: 'items.m1.net' }, { node: 'n1', port: 'items.m10.net' }] },
+      },
+      boundary: {
+        body: [{ kind: 'section', id: 'exposed', rows: [{ kind: 'input', id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m1.value' }, alsoBinds: [
+          { kind: 'port', node: 'n1', port: 'items.m1.extra' }, { kind: 'port', node: 'n1', port: 'items.m10.value' },
+        ] }, { kind: 'output', id: 'output', binds: { kind: 'widgetTap', node: 'n1', tap: 'items.m1.value' } }] }],
+      },
+    } },
+  } as unknown as WorkflowDocument)
+
+  it.each(['button', 'filled', 'link'] as const)('removes a %s-grown member and its wires in one undo step, preserving a similarly named sibling', (grows) => {
+    const before = document()
+    const session = createLocalSession(before, coreCommandRegistry())
+    const grown = { ...schema, body: schema.body.map((row) => row.kind === 'group' ? { ...row, grows } : row) }
+    const invocation = memberRemovalInvocation(session.doc, grown, 'sub', 'n1', 'items', 'm1')!
+    expect(session.dispatch(invocation).ok).toBe(true)
+    const after = session.doc
+    const graph = after.graphs.sub!
+    expect(graph.nodes.n1!.dynamic!.items).toEqual({ members: ['m0', 'm10'], seq: 11 })
+    expect(graph.nodes.n1!.values).toEqual({ 'items.m0.value': 7, 'items.m10.value': 31 })
+    expect(Object.keys(graph.links)).toEqual(['kept'])
+    expect(Object.keys(graph.nets)).toEqual(['shared'])
+    expect(graph.nets.shared!.sinks).toEqual([{ node: 'n1', port: 'items.m10.net' }])
+    expect(graph.boundary).toEqual({ body: [{ kind: 'section', id: 'exposed', rows: [{ kind: 'input', id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }] }] })
+    session.undo()
+    expect(session.doc).toEqual(before)
+    expect(session.canUndo).toBe(false)
+    session.redo()
+    expect(session.doc).toEqual(after)
+  })
+
+  it('offers no removal for the least count or a member the document does not store', () => {
+    const before = document()
+    expect(memberRemovalInvocation(before, schema, 'sub', 'n1', 'items', 'm2')).toBeUndefined()
+    const node = before.graphs.sub!.nodes.n1!
+    const least = { ...before, graphs: { ...before.graphs, sub: { ...before.graphs.sub!, nodes: {
+      ...before.graphs.sub!.nodes, n1: { ...node, dynamic: { items: { members: ['m1'], seq: 11 } } },
+    } } } }
+    expect(memberRemovalInvocation(least, schema, 'sub', 'n1', 'items', 'm1')).toBeUndefined()
+  })
+
+  it.each(['body input', 'body tap', 'boundary port', 'boundary tap', 'boundary construct', 'instance address'])(
+    'refuses removal used by an occurrence-local %s without changing any member or wire', (kind) => {
+      const initial = document()
+      const target = kind === 'body input'
+        ? { kind: 'body', endpoint: { node: 'n1', port: 'items.m1.value' } }
+        : kind === 'body tap'
+          ? { kind: 'body', endpoint: { node: 'n1', tap: 'items.m1.value' } }
+          : { kind: 'boundary', occurrence: { instancePath: [], node: 'a' },
+            address: { port: kind === 'instance address' ? 'items.m1.value' : kind === 'boundary tap' ? 'output' : 'input' },
+            route: [{ graph: 'sub', boundaryId: kind === 'boundary tap' ? 'output' : 'input', binding: kind === 'boundary tap'
+              ? { kind: 'widgetTap', node: 'n1', tap: 'items.m1.value' }
+              : { kind: kind === 'boundary construct' ? 'construct' : 'port', node: 'n1', port: 'items.m1.value' } }] }
+      const before = { ...initial, graphs: { ...initial.graphs, g0: { ...initial.graphs.g0!, nodes: {
+        a: { id: 'a', type: '#sub', values: {}, dynamic: { items: { members: ['m0', 'm1', 'm10'], seq: 11 } } },
+      } } }, occurrenceTopologies: { a: { owner: { instancePath: [], node: 'a' }, bodyGraph: 'sub', nextOrdinal: 1,
+        links: { local: { id: 'local', ...(kind.endsWith('tap')
+          ? { from: target, to: { kind: 'body', endpoint: { node: 'n2', port: 'items.m0.value' } } }
+          : { from: { kind: 'body', endpoint: { node: 'n2', tap: 'items.m0.value' } }, to: target }) } },
+      } } } as unknown as WorkflowDocument
+      const session = createLocalSession(before, coreCommandRegistry())
+      const graphId = kind === 'instance address' ? 'g0' : 'sub'
+      const nodeId = kind === 'instance address' ? 'a' : 'n1'
+      const invocation = memberRemovalInvocation(before, schema, graphId, nodeId, 'items', 'm1')!
+      expect(invocation).toBeDefined()
+      const result = session.dispatch(invocation)
+      expect(result.ok).toBe(false)
+      expect(result.diagnostics[0]).toMatchObject({ code: 'occurrence.topology.definitionReferenced',
+        message: 'A wire in one use of this subgraph still uses this member.' })
+      expect(session.doc).toEqual(before)
+      expect(session.canUndo).toBe(false)
+    })
+
+  it.each(['body sibling', 'boundary sibling', 'other body graph', 'other route graph', 'other instance graph'])(
+    'allows removal with an unrelated occurrence-local reference: %s', (kind) => {
+      const initial = document()
+      const graph = kind === 'other body graph' || kind === 'other route graph' ? 'other' : 'sub'
+      const target = kind === 'body sibling' || kind === 'other body graph'
+        ? { kind: 'body', endpoint: { node: 'n1', port: kind === 'body sibling' ? 'items.m10.value' : 'items.m1.value' } }
+        : { kind: 'boundary', occurrence: { instancePath: [], node: kind === 'other instance graph' ? 'n1' : 'a' },
+          address: { port: kind === 'other instance graph' ? 'items.m1.value' : 'input' },
+          route: [{ graph, boundaryId: kind === 'other instance graph' ? 'items.m1.value' : 'input', binding: { kind: 'port', node: 'n1',
+            port: kind === 'other route graph' ? 'items.m1.value' : 'items.m10.value' } }] }
+      const before = { ...initial, graphs: { ...initial.graphs, g0: { ...initial.graphs.g0!, nextOrdinal: 100, nodes: {
+        a: { id: 'a', type: `#${graph}`, values: {} }, n1: { id: 'n1', type: '#sub', values: {} },
+      } }, sub: { ...initial.graphs.sub!, boundary: { ...initial.graphs.sub!.boundary,
+        body: [...initial.graphs.sub!.boundary!.body, { kind: 'input', id: 'items.m1.value', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }],
+      } }, other: { ...initial.graphs.sub!, id: 'other', links: {}, nets: {} } },
+      occurrenceTopologies: { [kind === 'other instance graph' ? 'n1' : 'a']: {
+        owner: { instancePath: [], node: kind === 'other instance graph' ? 'n1' : 'a' }, bodyGraph: graph, nextOrdinal: 1,
+        links: { local: { id: 'local', from: { kind: 'body', endpoint: { node: 'n2', tap: 'items.m0.value' } },
+          to: target } },
+      } } } as unknown as WorkflowDocument
+      const session = createLocalSession(before, coreCommandRegistry())
+      const invocation = memberRemovalInvocation(before, schema, 'sub', 'n1', 'items', 'm1')!
+      const result = session.dispatch(invocation)
+      expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+      expect(session.doc.graphs.sub!.nodes.n1!.dynamic!.items!.members).toEqual(['m0', 'm10'])
+      expect(session.doc.occurrenceTopologies).toEqual(before.occurrenceTopologies)
+      session.undo()
+      expect(session.doc).toEqual(before)
+      expect(session.canUndo).toBe(false)
+    })
 })
 
 describe('curve histogram menu', () => {
@@ -196,7 +326,7 @@ describe('widgetRepresentationMenuGroup', () => {
     })!
     expect(group.group).toBe('45-widget-representation')
     const submenu = group.items[0]!
-    expect(submenu.label).toBe('Representation')
+    expect(submenu.label).toBe('Display')
     expect(submenu.children?.map((entry) => ({ id: entry.id, checked: entry.checked }))).toEqual([
       { id: 'core.widget.representation.single-line', checked: false },
       { id: 'core.widget.representation.multiline', checked: true },
@@ -231,6 +361,19 @@ describe('widgetRepresentationMenuGroup', () => {
           representations: [spec.representations!.representations[1]!],
         },
       },
+    })).toBeUndefined()
+  })
+
+  it('offers Color and Number for a whole number shown as a color', () => {
+    const tint: WidgetSpec = { widgetType: 'INT', options: { min: 0, max: 0xffffff, display: 'color' } }
+    const color = widgetRepresentationMenuGroup({
+      graphId: 'g0', nodeId: 'n1', inputId: 'tint', selected: 'color',
+      spec: resolveWidgetRepresentation(tint, undefined, intKind.representations?.(tint)).spec,
+    })!
+    expect(color.items[0]?.children?.map((entry) => [entry.label, entry.checked])).toEqual([['Color', true], ['Number', false]])
+    expect(widgetRepresentationMenuGroup({
+      graphId: 'g0', nodeId: 'n1', inputId: 'count',
+      spec: { widgetType: 'INT', options: { min: 0, max: 10 } },
     })).toBeUndefined()
   })
 

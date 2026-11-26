@@ -62,6 +62,8 @@ import {
   SIDE_ROOM,
 } from './row-editing.js'
 import { InNodeEditorsGallery } from './in-node-editors.js'
+import { RowStatesGallery } from './row-states.js'
+import { EditorChoicePlacementGallery } from './editor-choice-placement.js'
 import { RowAutomaticGallery } from './row-automatic.js'
 import { RowListsGallery } from './row-lists.js'
 import { BoundaryTreeGallery } from './boundary-tree.js'
@@ -97,7 +99,9 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       [
         'widgets',
         'core-rows',
+        'declaration-rows',
         'row-editing',
+        'row-states',
         'row-automatic',
         'row-lists',
         'lookups',
@@ -108,6 +112,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'row-summaries',
         'row-file-previews',
         'in-node-editors',
+        'editor-choice-placement',
         'widget-driven',
         'widget-offered',
         'widget-companions',
@@ -171,7 +176,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   anatomy:
     'The parts of a node: title bar with its minimize arrow, pins, value rows, a section open and closed, a subgraph node with its mark, and a node whose type is missing.',
   boxes:
-    'Sections, groups and choices drawn as boxes. A closed box shows how many rows it holds and marks a changed value with a dot. Its row carries the pins of the fields inside it, pressed together, at most three on a side with wired pins first; an unwired input is hollow, and a fourth wire ends on the last pin drawn. A wire held over a closed box names the field it would reach. Opening or closing a box moves neither its name nor any row above it. A member of a group that can be reordered has a grip: dragging it shows where the member would land and dims it in place, and its menu has Move up and Move down. The remove cross on a member of a group that grows by hand is shown here only; the editor leaves it off until pressing it removes the member.',
+    'Sections, groups and choices drawn as boxes. A closed box shows how many rows it holds and marks a changed value with a dot. Its row carries the pins of the fields inside it, pressed together, at most three on a side with wired pins first; an unwired input is hollow, and a fourth wire ends on the last pin drawn. A wire held over a closed box names the field it would reach. Opening or closing a box moves neither its name nor any row above it. A member of a group that can be reordered has a grip: dragging it shows where the member would land and dims it in place, and its menu has Move up and Move down. A stored member of a group the user grows has a remove cross; at the fewest members it stays dimmed, and offered members have none.',
   'idle-outline':
     'The outline of a node at rest, hovered and selected; hovering adds dots at the ends of the rows.',
   titles:
@@ -198,8 +203,12 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'One row of every widget kind, with its default value; After raises the rows that open an editor and puts a color in an inset field.',
   'core-rows':
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
+  'declaration-rows':
+    'Read-only fields keep their contrast and show a lock; disabled fields are quiet without active fills. When both flags apply, disabled paint keeps the read-only lock. Declaration notes keep one quiet line, including unknown and empty text. Long and multiline text ellipsizes without stretching the row. Shared lines divide the visible fields, worded buttons and notes equally with a 4 px gap.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'row-states':
+    'What a row shows when a finished run proved that nothing arrives, for a skipped node, while a wired value is not known, for a promoted field, and the control at the end of the side part that switches how a field is drawn. Ready, disabled and busy Buttons keep the shared keyboard outline, with host and declaration reasons beside disabled rows.',
   'row-automatic':
     'A number whose value is automatic: closed, opened, stepped, while a lookup loads, and when it cannot be worked out.',
   'row-lists':
@@ -218,10 +227,12 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'What a closed row shows for its value, for the 15 kinds of field: empty or initial, set, and in a node too narrow for the whole value. Lists show values in stored order and then how many more, or only the count when not even one fits; a color keeps its square and code; Markdown shows its first line and how many lines it has; crop regions and video edits fall back to shorter forms. The save target row keeps its mount and last path segment when the full prefix does not fit. Rows that only open an editor say what they open. Resolution preview is removed by the node rewrite, where a note replaces it, and is shown unchanged. Pointing at a row lists its whole value, below. Known after a run and Nothing come from the row looks work and are not drawn here yet.',
   'in-node-editors':
     'The audio recorder, webcam, 3D viewer, image comparison, camera angle and curve fold out inside the node under their editor button row, and the rows below move down; clicking the row again folds them back. A folded row says what the editor holds. A palette is a group of color rows: it grows as colors are added and shows a limit only when its group declares one.',
+  'editor-choice-placement':
+    'Curve and Save target share the ordinary choice list. It opens outside the editor, flips above when needed, and stays inside the canvas.',
   'row-file-previews':
     'Closed file rows use the shared preview loader and production node renderer. The stored values, incoming values, empty fields and narrow fallbacks below never open an editor or change the document.',
   'widget-driven':
-    'A row whose value comes from a wire is dimmed and its stored value is struck through.',
+    'A wired row is dimmed and keeps its own widget look, with its stored value struck through until its arriving value is known.',
   'widget-offered':
     'Rows a node offers but does not have yet are dimmed until they are added.',
   'widget-companions':
@@ -292,9 +303,6 @@ const summariesBefore: Variant = {
 
 function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
   switch (page) {
-    case 'boxes':
-      // The page shows the remove cross the editor leaves off until it works.
-      return [{ ...current, tokens: (t) => ({ ...t, memberRemoveCross: true }) }]
     case 'idle-outline':
       return [
         {
@@ -663,7 +671,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
+    if (currentPage === 'row-editing' || currentPage === 'row-states' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'editor-choice-placement' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -762,6 +770,9 @@ export function CanvasGallery() {
         <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
         </Show>
+        <Show when={fontsReady() && page() === 'row-states'}>
+          <RowStatesGallery theme={theme()} />
+        </Show>
         <Show when={fontsReady() && page() === 'row-lists'}>
           <RowListsGallery theme={theme()} />
         </Show>
@@ -782,6 +793,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'in-node-editors'}>
           <InNodeEditorsGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'editor-choice-placement'}>
+          <EditorChoicePlacementGallery />
         </Show>
         <Show when={fontsReady() && page() === 'problem-box'}>
           <ProblemBoxGallery theme={theme()} />

@@ -35,6 +35,7 @@ interface DinksterBridgeSceneNode {
       address?: { port: string; members?: readonly string[] }
       /** Field rows shown on the subgraph node without a wire. */
       subgraphMark?: { item: string; label: string }
+      familyOwner?: { graphId: string; nodeId: string; valueKey?: string }
       input?: { portId: string }
       output?: { portId: string }
       sectionId?: string
@@ -334,6 +335,7 @@ interface DinksterTestBridge {
     graphViewport(tabId: string, graphId: string): { x: number; y: number; scale: number } | undefined
     setGraphViewport(tabId: string, graphId: string, viewport: { x: number; y: number; scale: number }): void
     confirmStartupOwnership(): Promise<void>
+    enableWorkspaceAuthority(): Promise<void>
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
     renameTab(id: string, title: string): void
@@ -670,10 +672,12 @@ interface DinksterTestBridge {
         side: 'inputs' | 'outputs'
         x: number
         y: number
+        fields?: { node: { values: Readonly<Record<string, unknown>> } }
         layout: {
           width: number
           height: number
           headerHeight: number
+          rows: DinksterBridgeSceneNode['layout']['rows']
           pins: ReadonlyArray<{ portId: string; direction: 'in' | 'out'; y: number }>
         }
       }>

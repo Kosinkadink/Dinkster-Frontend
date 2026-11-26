@@ -103,10 +103,12 @@ interface PositionedSceneCacheEntry {
   readonly documentExt: WorkflowDocument['ext']
   readonly view: WorkflowDocument['view']['graphs'][string]
   readonly seedControllerEnabled: boolean | undefined
+  readonly buttonNoticeHeights: BuildSceneInput['buttonNoticeHeights']
   readonly tokens: DesignTokens
   readonly measure: TextMeasurer
   readonly widgetMeasure: WidgetMeasure
   readonly generation: unknown
+  readonly editorControls: BuildSceneInput['editorControls']
   readonly scene: Scene
 }
 
@@ -735,6 +737,8 @@ export interface BuildSceneInput {
   readonly seedControllerEnabled?: boolean
   /** What the editor holds for lookup calls; absent where lookups are off (frozen views, previews). */
   readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
+  /** Ephemeral measured result boxes, by visible node and elaborated button id. */
+  readonly buttonNoticeHeights?: Readonly<Record<string, Readonly<Record<string, number>>>>
   /** Graph definition to render (the root, or a subgraph being edited). */
   readonly graphId: string
   readonly resolve: SchemaResolver
@@ -749,6 +753,8 @@ export interface BuildSceneInput {
   readonly widgetMeasure: WidgetMeasure
   /** Enables position-only root-scene reuse until rendering capabilities change. */
   readonly layoutGeneration?: unknown
+  /** Measured editor controls, by scene node and value key. */
+  readonly editorControls?: Readonly<Record<string, Readonly<Record<string, number>>>>
   /** Concrete drilled owner plus the integration capability gate. */
   readonly occurrence?: {
     readonly owner: OccurrenceRef
@@ -991,8 +997,9 @@ export function buildScene(input: BuildSceneInput): Scene {
       positioned?.graph === def && graphMatchesSnapshot(positioned.graphSnapshot, def) &&
       positioned.graphs === input.document.graphs && positioned.documentExt === input.document.ext &&
       positioned.seedControllerEnabled === input.seedControllerEnabled &&
+      positioned.buttonNoticeHeights === input.buttonNoticeHeights &&
       positioned.tokens === input.tokens && positioned.measure === input.measure && positioned.widgetMeasure === input.widgetMeasure &&
-      positioned.generation === input.layoutGeneration && onlyNodePositionsChanged(positioned.view, view)) {
+      positioned.generation === input.layoutGeneration && positioned.editorControls === input.editorControls && onlyNodePositionsChanged(positioned.view, view)) {
     const scene = repositionScene(positioned.scene, def, view)
     positionedSceneCache.set(def, { ...positioned, view, scene })
     return scene
@@ -1041,9 +1048,11 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     if (isPortEndpoint(toEndpoint)) markConnected(toEndpoint, 'in')
   }
-  for (const net of effective === undefined ? Object.values(def.nets) : []) {
+  for (const net of Object.values(def.nets)) {
+    // A definition net's source tag remains a connection even in an
+    // occurrence with no effective sink deliveries.
     markConnected(net.source, 'out')
-    for (const sink of net.sinks) markConnected(sink, 'in')
+    if (effective === undefined) for (const sink of net.sinks) markConnected(sink, 'in')
   }
   // Boundary bindings are connections too: a bound port inside a collapsed
   // section must keep its pin so the boundary noodle never dangles. Family
@@ -1254,7 +1263,9 @@ export function buildScene(input: BuildSceneInput): Scene {
             ? { editorUnfolded: Object.fromEntries(Object.entries(view.editors).map(([key, e]) => [key, e.unfolded])) }
             : {}),
           ...(view?.pictureHeights ? { pictureHeights: view.pictureHeights } : {}),
+          ...(input.editorControls?.[node.id] === undefined ? {} : { editorControls: input.editorControls[node.id]! }),
           ...(view?.histogramVisibility ? { histogramVisibility: view.histogramVisibility } : {}),
+          ...(input.buttonNoticeHeights?.[node.id] === undefined ? {} : { buttonNoticeHeights: input.buttonNoticeHeights[node.id] }),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
           ...(elaborated !== undefined ? { elaborated } : {}),
         })
@@ -1771,8 +1782,13 @@ export function buildScene(input: BuildSceneInput): Scene {
     const outsideSpaces = new Map<string, NonNullable<BoundarySlotInfo['editorSpaces']>>()
     const panelView = graphView?.inputsPanel
     if (derived !== undefined && fieldOwners.size > 0) {
-      // The entered node's chosen views, so a field drawn as a slider there
-      // is a slider here too.
+      // A nested promotion can own its value and chosen view farther out
+      // than the immediately entered node.
+      const fieldRepresentations: Record<string, string> = {}
+      for (const [id, owner] of fieldOwners) {
+        const chosen = input.document.view.graphs[owner.graphId]?.nodes[owner.nodeId]?.views?.[owner.valueKey]
+        if (chosen !== undefined) fieldRepresentations[id] = chosen
+      }
       const ownerView = ownerNode !== undefined && ownerGraph !== undefined
         ? input.document.view.graphs[ownerGraph.id]?.nodes[ownerNode.id]
         : undefined
@@ -1783,13 +1799,14 @@ export function buildScene(input: BuildSceneInput): Scene {
         : resolveNode(def.id, fieldNode)) ?? derived
       const outside = layoutNode(fieldSchema, fieldNode, input.tokens, measure, input.widgetMeasure, {
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
-        ...(ownerView?.views !== undefined ? { widgetRepresentations: ownerView.views } : {}),
+        widgetRepresentations: fieldRepresentations,
         ...(ownerView?.textLines !== undefined ? { textBoxLines: ownerView.textLines } : {}),
         // The panel's own folds, not the subgraph node's outside; each starts folded.
         editorsStartFolded: true,
         ...(panelView?.editors !== undefined
           ? { editorUnfolded: Object.fromEntries(Object.entries(panelView.editors).map(([key, e]) => [key, e.unfolded])) } : {}),
         ...(panelView?.pictureHeights !== undefined ? { pictureHeights: panelView.pictureHeights } : {}),
+        ...(input.editorControls?.[boundarySceneId('inputs')] === undefined ? {} : { editorControls: input.editorControls[boundarySceneId('inputs')]! }),
       })
       for (const row of outside.rows) {
         if (row.kind === 'editorSpace' && fieldOwners.has(row.inputId)) {
@@ -2012,7 +2029,16 @@ export function buildScene(input: BuildSceneInput): Scene {
       bindings.forEach((b, i) => {
         const projected = projectedAnchors('in', item, b)
         const fallback = innerAnchor(b, 'in')
-        const targets = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
+        // A local driver replaces the boundary value in this occurrence.
+        // Its declaration binding is not a second delivery to draw.
+        const locallyDriven = effective?.links.some((link) => {
+          if (link.to.graphId !== def.id || fallback === undefined) return false
+          const to = link.to.endpoint
+          return fallback.end.kind === 'reroute'
+            ? isRerouteRef(to) && to.reroute === fallback.end.reroute
+            : fallback.end.kind === 'port' && isPortEndpoint(to) && to.node === fallback.end.node && to.port === fallback.end.port
+        }) === true
+        const targets = projected.length > 0 ? projected : fallback === undefined || locallyDriven ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,
@@ -2100,10 +2126,12 @@ export function buildScene(input: BuildSceneInput): Scene {
         nodes: Object.fromEntries(Object.entries(view.nodes).map(([id, node]) => [id, { ...node }])),
       },
       seedControllerEnabled: input.seedControllerEnabled,
+      buttonNoticeHeights: input.buttonNoticeHeights,
       tokens: input.tokens,
       measure: input.measure,
       widgetMeasure: input.widgetMeasure,
       generation: input.layoutGeneration,
+      editorControls: input.editorControls,
       scene: result,
     })
   }

@@ -56,6 +56,8 @@ import {
   validateDinksterGraph,
   type CompileArtifact,
   type ComfyTranslation,
+  type CallAnswer,
+  type CallRequest,
   type ConnectionId,
   type Diagnostic,
   type ExecutionArm,
@@ -91,6 +93,8 @@ import {
 } from './reconnecting-socket.js'
 import { DinksterValuesClient } from './values.js'
 import { expandDynamicPrompt } from './dynamic-prompts.js'
+import { callPackFunction } from './pack-functions.js'
+import { createLookupClient, type LookupClient } from './lookups.js'
 import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
 /** Existing /api/nodes capability flag for the placement submission sidecar. */
@@ -2900,6 +2904,23 @@ export class DinksterConnection {
     if (!record(value) || value['limitBytes'] !== limitBytes || value['collectionEnabled'] !== false) {
       throw new Error('Storage policy acknowledgment differs from the requested limit')
     }
+  }
+
+  private lookupClient: LookupClient | undefined
+
+  /** This backend's one lookup client: its answers are shared by fields, notes and button presses. */
+  get lookups(): LookupClient {
+    this.lookupClient ??= createLookupClient({ baseUrl: this.baseUrl, fetchFn: this.fetchFn })
+    return this.lookupClient
+  }
+
+  /** Run a node's declared pack function for a button press, with this backend's authority. */
+  callPackFunction(
+    request: CallRequest,
+    progress: (fraction: number, text: string) => void,
+    signal: AbortSignal,
+  ): Promise<CallAnswer> {
+    return callPackFunction({ baseUrl: this.baseUrl, fetchFn: this.fetchFn }, request, progress, signal)
   }
 
   clearLibraryStorage(): Promise<LibraryStorageCleanup> {
