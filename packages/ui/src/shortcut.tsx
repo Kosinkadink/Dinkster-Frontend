@@ -29,12 +29,9 @@ export function ProductShortcut(props: { keys: string | readonly string[] }) {
   )
 }
 
-/** Keep help prose intact while drawing embedded key combinations consistently. */
+/** Backticks delimit key combinations without guessing localized word boundaries. */
 export function ProductShortcutText(props: { text: string }) {
-  const parts = () =>
-    props.text.split(
-      /(\b(?:(?:Ctrl|Cmd|Alt|Shift|Meta)\+)+(?:[a-z\d]+|[^\s\w]))/giu,
-    )
+  const parts = () => props.text.split(/`([^`]+)`/gu)
   return (
     <For each={parts()}>
       {(part, index) =>

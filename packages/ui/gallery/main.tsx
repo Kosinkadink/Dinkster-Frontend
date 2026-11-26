@@ -1223,7 +1223,7 @@ function WindowToolbarGallery() {
           <ProductShortcut keys="Ctrl+Shift+K" />
           <ProductShortcut keys="Cmd+," />
           <ProductShortcut keys={['Alt', '+']} />
-          <p class="dinkster-description"><ProductShortcutText text="Pan moves the canvas; Ctrl+wheel zooms. Cmd+, opens settings." /></p>
+          <p class="dinkster-description"><ProductShortcutText text="Pan moves the canvas; `Ctrl+wheel` zooms. `Cmd+,` opens settings." /></p>
         </ProductSection>
         <ProductField label="Execution state">
           {(attributes) => (
