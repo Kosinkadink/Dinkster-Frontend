@@ -415,14 +415,16 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         const fanoutSource = structuredClone(lifecycleBaseline)
         const sample = fanoutSource.graphs.detail!.nodes.sample!
         Object.assign(fanoutSource.graphs.detail!.nodes, {
+          incompatible: { ...structuredClone(sample), id: 'incompatible' },
           extra: { ...structuredClone(sample), id: 'extra', values: {
             ...sample.values, 'mode.mix': 0.17, 'layers.layer0.strength': 0.6, 'layers.layer1.strength': 0.9,
+            'nested.n0.weights.w0': 0.55,
           } },
         })
         const fanout = new DocumentStore(fanoutSource, coreCommandRegistry(), 200, undefined, () => ({
           kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, registry.resolve),
         }))
-        for (const itemId of ['strength', 'mode', 'layers']) {
+        for (const itemId of ['strength', 'mode', 'layers', 'source', 'description', 'nested']) {
           const result = fanout.dispatch({ command: 'boundary.addBinding', params: {
             graphId: 'detail', itemId, node: 'extra', port: itemId,
           } })
@@ -430,6 +432,14 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         }
         expect(fanout.dispatch({ command: 'node.setValue', params: {
           graphId: 'root', nodeId: 'first', inputId: 'mode.mix', value: 0.84,
+        } }).ok).toBe(true)
+        expect(fanout.dispatch({ command: 'dynamic.materialize', params: {
+          graphId: 'root', nodeId: 'first', frames: [
+            { construct: 'nested', members: ['n0'] }, { construct: 'nested.n0.weights', members: ['w0', 'w1'] },
+          ],
+        } }).ok).toBe(true)
+        expect(fanout.dispatch({ command: 'node.setValues', params: {
+          graphId: 'root', nodeId: 'first', values: { 'nested.n0.weights.w0': 0.25, 'nested.n0.weights.w1': 0.85 },
         } }).ok).toBe(true)
         const extraPath = level === 1 ? 'first.extra' : 'first.detail.extra'
         const secondExtraPath = level === 1 ? 'second.extra' : 'second.detail.extra'
@@ -458,12 +468,40 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         ])
         expect(secondExtra.mode).toMatchObject({ key: 'text', text: 'second text', mix: 0.17 })
         expect(shared.second.mode).toMatchObject({ key: 'text', text: 'second text', mix: 0.3 })
+        expect(shared.first.source).toEqual({ variant: 'mask', pixels: [0.75], gain: 0.8 })
+        expect(extra.source).toEqual({ variant: 'mask', pixels: [0.75], gain: 0.8 })
+        expect(shared.second.source).toBeNull()
+        expect(secondExtra.source).toBeNull()
+        expect(shared.first.description).toEqual({ text: 'outer caption', number: null })
+        expect(extra.description).toEqual({ text: 'outer caption', number: null })
+        expect(shared.second.description).toEqual({})
+        expect(secondExtra.description).toEqual({})
+        expect(shared.first.nested).toEqual([
+          { key: 'n0', weights: [{ key: 'w0', value: 0.2 }] },
+          { key: 'n1', weights: [{ key: 'w0', value: 0.8 }, { key: 'w1', value: 0.9 }] },
+          { key: 'n2', weights: [{ key: 'w0', value: 0.25 }, { key: 'w1', value: 0.85 }] },
+        ])
+        expect(extra.nested).toEqual([
+          { key: 'n0', weights: [{ key: 'w0', value: 0.55 }] },
+          { key: 'n1', weights: [{ key: 'w0', value: 0.8 }, { key: 'w1', value: 0.9 }] },
+          { key: 'n2', weights: [{ key: 'w0', value: 0.25 }, { key: 'w1', value: 0.85 }] },
+        ])
+        expect(shared.second.nested).toEqual([
+          { key: 'n0', weights: [{ key: 'w0', value: 0.2 }] },
+          { key: 'n1', weights: [{ key: 'w0', value: 0.8 }, { key: 'w1', value: 0.9 }] },
+        ])
+        expect(secondExtra.nested).toEqual([
+          { key: 'n0', weights: [{ key: 'w0', value: 0.55 }] },
+          { key: 'n1', weights: [{ key: 'w0', value: 0.8 }, { key: 'w1', value: 0.9 }] },
+        ])
         const stable = fanout.doc
-        const mismatch = fanout.dispatch({ command: 'boundary.addBinding', params: {
-          graphId: 'detail', itemId: 'mode', node: 'extra', port: 'nested',
-        } })
-        expect(mismatch.ok).toBe(false)
-        expect(fanout.doc).toBe(stable)
+        for (const [itemId, port] of [['mode', 'nested'], ['source', 'mode'], ['description', 'layers'], ['nested', 'layers']] as const) {
+          const mismatch = fanout.dispatch({ command: 'boundary.addBinding', params: {
+            graphId: 'detail', itemId, node: 'incompatible', port,
+          } })
+          expect(mismatch.ok).toBe(false)
+          expect(fanout.doc).toBe(stable)
+        }
         expect(fanout.dispatch({ command: 'boundary.unbind', params: {
           graphId: 'detail', side: 'inputs', itemId: 'mode', kind: 'construct', node: 'sample', port: 'mode',
         } }).ok).toBe(true)
