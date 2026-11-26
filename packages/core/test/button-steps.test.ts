@@ -1609,6 +1609,7 @@ describe('steps inside a subgraph occurrence', () => {
         ] },
       { kind: 'button', id: 'increase', label: 'Increase', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: 'value + 7' } }] },
       { kind: 'button', id: 'position', label: 'Position', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: 'value + index() + len(items)' } }] },
+      { kind: 'button', id: 'range', label: 'Range', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: '10 + index() * 90 // (len(items) - 1)' } }] },
     ])
     const root = documentOf({ first: { type: depth === 1 ? '#g1' : '#g2' }, second: { type: depth === 1 ? '#g1' : '#g2' } })
     const middlePrefix = depth === 2 && prefix === 4 ? 2 : 0
@@ -1627,8 +1628,10 @@ describe('steps inside a subgraph occurrence', () => {
     } })
     expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g1', node: 'inner', button: 'increase' } }).ok).toBe(true)
     expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g1', node: 'inner', button: 'position' } }).ok).toBe(true)
+    expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g1', node: 'inner', button: 'range' } }).ok).toBe(true)
     if (depth === 2) expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g2', node: 'detail', button: 'increase' } }).ok).toBe(true)
     if (depth === 2) expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g2', node: 'detail', button: 'position' } }).ok).toBe(true)
+    if (depth === 2) expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g2', node: 'detail', button: 'range' } }).ok).toBe(true)
     const definition = session.doc.graphs[depth === 1 ? 'g1' : 'g2']!
     const group = boundaryItems(definition.boundary, 'inputs')[0]!.id
     const before: WorkflowDocument = { ...session.doc, graphs: { ...session.doc.graphs, g0: { ...session.doc.graphs.g0!, nodes: {
@@ -1641,7 +1644,7 @@ describe('steps inside a subgraph occurrence', () => {
     const outcome = await runPress(run, { graphId: 'g0', nodeId: 'first', button: boundaryButtons(definition.boundary)[0]!.id }, host)
     expect(outcome).toMatchObject({ kind: 'done' })
     expect(outcome.warning).toBeUndefined()
-    expect(outcome.message).toBe(prefix === 0 ? undefined : `Set 2 fields. ${prefix === 1 ? '1 more is inside and was' : '4 more are inside and were'} not changed.`)
+    expect(outcome.message).toBe(prefix === 0 ? undefined : 'Set 2 fields.')
     expect(outcome.skipped.map((item) => item.why)).toEqual(Array.from({ length: prefix }, () => 'inside'))
     expect(run.doc.graphs.g1).toEqual(before.graphs.g1)
     if (depth === 2) expect(run.doc.graphs.g2).toEqual(before.graphs.g2)
@@ -1651,10 +1654,19 @@ describe('steps inside a subgraph occurrence', () => {
     expect(run.doc).toEqual(before)
     expect(run.canUndo).toBe(false)
     expect(await runPress(run, { graphId: 'g0', nodeId: 'first', button: 'position' }, host)).toMatchObject({ kind: 'done' })
-    expect(run.doc.graphs.g0!.nodes.first!.values).toEqual({ [`${group}.item_1.value`]: 12 + 2 * prefix, [`${group}.item_2.value`]: 23 + 2 * prefix })
+    expect(run.doc.graphs.g0!.nodes.first!.values).toEqual({ [`${group}.item_1.value`]: 12, [`${group}.item_2.value`]: 23 })
     expect(run.doc.graphs.g1).toEqual(before.graphs.g1)
     if (depth === 2) expect(run.doc.graphs.g2).toEqual(before.graphs.g2)
     expect(run.doc.graphs.g0!.nodes.second).toEqual(before.graphs.g0!.nodes.second)
+    expect(run.undo()).toBe(true)
+    expect(run.doc).toEqual(before)
+    expect(await runPress(run, { graphId: 'g0', nodeId: 'first', button: 'range' }, host)).toMatchObject({ kind: 'done' })
+    expect(run.doc.graphs.g0!.nodes.first!.values).toEqual({ [`${group}.item_1.value`]: 10, [`${group}.item_2.value`]: 100 })
+    expect(run.doc.graphs.g1).toEqual(before.graphs.g1)
+    if (depth === 2) expect(run.doc.graphs.g2).toEqual(before.graphs.g2)
+    expect(run.doc.graphs.g0!.nodes.second).toEqual(before.graphs.g0!.nodes.second)
+    expect(run.undo()).toBe(true)
+    expect(run.doc).toEqual(before)
     const innerRun = sessionOf(before)
     const innerOutcome = await runPress(innerRun, { graphId: 'g1', nodeId: 'inner', button: 'increase',
       instancePath: depth === 1 ? ['first'] : ['first', 'detail'],
@@ -1770,14 +1782,13 @@ describe('steps inside a subgraph occurrence', () => {
     const incompatible = sessionOf({ ...fanoutBefore, graphs: { ...fanoutBefore.graphs, g1: { ...fanoutBefore.graphs.g1!, nodes: {
       ...fanoutBefore.graphs.g1!.nodes, extra: { id: asNodeId('extra'), type: 'test.incompatible_button_target', values: { amount: 'kept' } },
     } } } })
-    expect(incompatible.dispatch({ command: 'boundary.addBinding', params: { graphId: 'g1', itemId: innerField, node: 'extra', port: 'amount' } }).ok).toBe(true)
     const beforeIncompatible = incompatible.doc
-    expect(deriveBoundarySchema(beforeIncompatible.graphs.g1!, resolve).diagnostics.map((item) => [item.severity, item.code]))
-      .toContainEqual(['warning', 'boundary.fanoutTypeMismatch'])
-    expect(await runPress(incompatible, target, host)).toMatchObject({ kind: 'done' })
-    expect(incompatible.doc.graphs.g0!.nodes.first!.values[field]).toBe(17)
-    expect(incompatible.doc.graphs.g0!.nodes.second!.values[field]).toBe(80)
-    expect(incompatible.doc.graphs.g1).toEqual(beforeIncompatible.graphs.g1)
+    const incompatibleAddition = incompatible.dispatch({ command: 'boundary.addBinding', params: { graphId: 'g1', itemId: innerField, node: 'extra', port: 'amount' } })
+    expect(incompatibleAddition.ok).toBe(false)
+    expect(incompatibleAddition.diagnostics.map((item) => [item.severity, item.code])).toContainEqual(['error', 'boundary.fanoutTypeMismatch'])
+    expect(incompatible.doc).toBe(beforeIncompatible)
+    expect(incompatible.canUndo).toBe(false)
+    expect(deriveBoundarySchema(incompatible.doc.graphs.g1!, resolve)).toEqual(deriveBoundarySchema(beforeIncompatible.graphs.g1!, resolve))
     const renamed = sessionOf(doc)
     expect(renamed.dispatch({ command: 'boundary.addItem', params: {
       graphId: 'g1', side: 'inputs', node: 'inner', port: 'amount', itemId: 'gain', displayName: 'Inside gain',

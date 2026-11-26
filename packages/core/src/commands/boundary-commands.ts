@@ -21,6 +21,8 @@ import type { InputSpec } from '../schema/model.js'
 import { documentNodeResolver, documentResolver } from '../compile/compile.js'
 import { schemaResolverForCommand } from './command-support.js'
 import { elaborateInterface } from '../schema/elaborate.js'
+import { solveGraphTypes, typeProblemWords } from '../schema/solve.js'
+import { typesCompatible } from '../schema/type-relations.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -57,8 +59,8 @@ function findItem(
 // item (BoundaryItem.alsoBinds). Input-side only - an output has exactly
 // one source. Every target has the primary's kind; constructs must have
 // matching rows, keys, options and growth.
-// Dispatch checks construct compatibility with derivation. Port type
-// mismatches remain advisory derivation diagnostics.
+// Dispatch checks construct compatibility and scalar connection types.
+// Persisted mismatches remain advisory derivation diagnostics.
 // ---------------------------------------------------------------------------
 
 const bindingTargetKey = (node: string, port: string): string => JSON.stringify([node, port])
@@ -69,13 +71,23 @@ const boundaryAddBinding: CommandDefinition = {
     if (!isObj(params) || typeof params.itemId !== 'string') return []
     const def = graphOf(doc, params.graphId)
     const found = def && findItem(def, 'inputs', params.itemId)
-    if (!def || found?.item.binds.kind !== 'construct') return []
-    const binding = bindingFromParams({ ...params, kind: 'construct' }, 'inputs')
+    if (!def || found === undefined || (found.item.binds.kind !== 'construct' && found.item.binds.kind !== 'port')) return []
+    const binding = bindingFromParams({ ...params, kind: found.item.binds.kind }, 'inputs')
     const resolve = schemaResolverForCommand(doc, context)
     if (binding === undefined || resolve === undefined) return []
+    const resolveNode = (node: typeof def.nodes[string]) => documentNodeResolver(doc, resolve)(def.id, node)
+    if (found.item.binds.kind === 'port' && binding.kind === 'port') {
+      const solved = solveGraphTypes(def, documentResolver(doc, resolve), { resolveNode })
+      const from = solved.portTypeOf(found.item.binds.node, 'input', found.item.binds.port)
+      const to = solved.portTypeOf(binding.node, 'input', binding.port)
+      if (from !== undefined && to !== undefined && !typesCompatible(from, to)) return [err(
+        'boundary.fanoutTypeMismatch',
+        `Cannot add '${binding.node}/${binding.port}' to subgraph input '${found.item.id}': the field needs ${typeProblemWords(to)}, but the subgraph input sends ${typeProblemWords(from)}.`,
+      )]
+      return []
+    }
     const withTarget = { ...def, boundary: withBoundaryItems(def.boundary, 'inputs', boundaryItems(def.boundary, 'inputs').map((item) =>
       item.id === params.itemId ? { ...item, alsoBinds: [...(item.alsoBinds ?? []), binding] } : item)) }
-    const resolveNode = (node: typeof def.nodes[string]) => documentNodeResolver(doc, resolve)(def.id, node)
     const errorsOf = (graph: GraphDef) => deriveBoundarySchema(graph, documentResolver(doc, resolve), undefined, resolveNode).diagnostics
       .filter((d) => d.severity === 'error')
     const before = new Set(errorsOf(def).map((d) => JSON.stringify([d.code, d.message])))

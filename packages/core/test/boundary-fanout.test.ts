@@ -417,6 +417,35 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
 
   const params = (node: string, port = 'in') => ({ graphId: 'sub', itemId: 'in', node, port })
 
+  it.each([
+    [{ kind: 'asset', element: IMAGE }, IMAGE, true],
+    [IMAGE, { kind: 'asset', element: IMAGE }, false],
+    [IMAGE, FLOAT, false],
+  ] as const)('admits additional targets with the directional canvas connection rule: %j to %j', (from, to, accepted) => {
+    const local = {
+      Primary: schemaOf('Primary', [input('value', { type: from })]),
+      Target: schemaOf('Target', [input('value', { type: to })]),
+    }
+    const resolve = (type: string) => local[type as keyof typeof local]
+    const doc = docOf({ g0: { nodes: {} }, sub: {
+      nodes: { primary: { type: 'Primary' }, target: { type: 'Target' } },
+      boundary: { inputs: [{ id: 'in', binds: bind('primary', 'value') }] },
+    } })
+    const store = new DocumentStore(doc, coreCommandRegistry([], resolve), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const before = store.doc
+    const outcome = store.dispatch({ command: 'boundary.addBinding', params: params('target', 'value') })
+    expect(outcome.ok).toBe(accepted)
+    if (accepted) {
+      expect(itemOf(store).alsoBinds).toEqual([bind('target', 'value')])
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(doc)
+    } else {
+      expect(outcome.diagnostics.map((item) => item.code)).toContain('boundary.fanoutTypeMismatch')
+      expect(store.doc).toBe(before)
+      expect(store.canUndo).toBe(false)
+    }
+  })
+
   it('addBinding appends a target and undo restores the exact previous state', () => {
     const store = makeStore({ id: 'in', binds: bind('s1', 'in') })
     const out = store.dispatch({ command: 'boundary.addBinding', params: params('s2') })

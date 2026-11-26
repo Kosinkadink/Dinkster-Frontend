@@ -795,6 +795,13 @@ interface Locals {
   readonly values: Map<string, Value>
 }
 
+/** Forwarded member steps count the edited face, not its definition-owned prefix. */
+function shownMemberContext(context: FormulaContext, group: string, index: number, count: number): FormulaContext {
+  const sizes = new Map(context.values.groupSizes)
+  for (const [name, path] of context.paths) if (path === group) sizes.set(name, count)
+  return { ...context, values: { ...context.values, memberIndex: index, groupSizes: sizes } }
+}
+
 function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?: (name: string, availability: boolean) => Value | typeof UNKNOWN | undefined, onRead?: FormulaValues['onRead'], inspectReads = false): FormulaOutcome {
   const scope = { ...context.scope, names: new Map([...context.scope.names, ...locals.kinds]) }
   const values = { ...context.values, read: (name: string, availability: boolean) =>
@@ -1323,21 +1330,20 @@ class Press {
     const group = this.groupOf(name)
     const members = [...group.members, ...(this.view.elaborated.unstoredMinimums?.[group.path]?.members ?? [])]
     // Every member's value is worked out before any member is written.
-    const evaluated: [FormulaContext, unknown][] = []
-    let inside = 0
+    const contexts: FormulaContext[] = []
     for (const member of members) {
       const context = this.view.contexts.get(`${group.path}.${member}.`) ?? refuse(`${name} has no member ${member}.`)
       const path = context.paths.get(row)
       if (this.shownWrites !== undefined && (path === undefined || !this.shownWrites.has(writeOwnerKey(this.view, this.target, path)))) {
         this.skip(path ?? `${group.path}.${member}.${row}`, 'inside')
-        inside++
         continue
       }
-      evaluated.push([context, await this.value(value, context)])
+      contexts.push(context)
     }
-    if (inside > 0) {
-      const note = `${inside} more ${inside === 1 ? 'is inside and was' : 'are inside and were'} not changed.`
-      if (!this.notes.includes(note)) this.notes.push(note)
+    const evaluated: [FormulaContext, unknown][] = []
+    for (const [index, context] of contexts.entries()) {
+      const shown = this.shownWrites === undefined ? context : shownMemberContext(context, group.path, index, contexts.length)
+      evaluated.push([context, await this.value(value, shown)])
     }
     this.stage(evaluated.flatMap(([context, item]) => this.write(row, item, context)))
   }
@@ -1951,6 +1957,7 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
         return scope === undefined || (shownWrites !== undefined &&
           (field === undefined || !shownWrites.has(writeOwnerKey(view, target, field)))) ? [] : [scope]
       })
+      if (shownWrites !== undefined && path !== undefined) scopes = scopes.map((scope, index) => shownMemberContext(scope, path, index, scopes.length))
     }
     const writes = targetsOf([step])
     other ||= writes.other
