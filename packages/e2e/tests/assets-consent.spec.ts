@@ -118,7 +118,7 @@ test('selects exact digests, updates the mounted locale, and closes after succes
   expect(retryBase).toEqual(bodies[0])
 })
 
-test('model review separates download, reconnect and a single captured-body Run once', async ({ page }) => {
+test('model review separates download, retry and a single captured-body Run', async ({ page }) => {
   await prepare(page)
   const bodies: Record<string, unknown>[] = []
   let starts = 0
@@ -152,9 +152,10 @@ test('model review separates download, reconnect and a single captured-body Run 
     else await route.fulfill({ json: { instance: 'test-instance', jobs: job ? [job] : [] } })
   })
   await submitSelection(page)
-  const dialog = page.getByTestId('asset-consent-dialog')
-  await expect(dialog.getByTestId('asset-consent-acquire')).toBeDisabled()
-  await dialog.getByRole('button', { name: 'Review source', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Download models', exact: true })
+  const row = dialog.locator('.dinkster-model-download-row')
+  await expect(dialog.getByRole('button', { name: 'Download 1 model', exact: true })).toBeEnabled()
+  await row.getByRole('button', { name: `Source details for ${selection.name}`, exact: true }).click()
   await expect(dialog).toContainText(selection.sha256)
   await expect(dialog).toContainText(selection.destination)
   expect(starts).toBe(0)
@@ -165,44 +166,43 @@ test('model review separates download, reconnect and a single captured-body Run 
     }
   }
   await captureModel('review')
-  await dialog.getByTestId('model-consent-download').click()
-  await expect(dialog.getByTestId('model-consent-bytes')).toHaveText('3,072 / 8,192 bytes')
+  await dialog.getByRole('button', { name: 'Download 1 model', exact: true }).click()
+  await expect(row.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0.375')
   expect(bodies).toHaveLength(1)
   await captureModel('progress')
-  await dialog.getByTestId('model-consent-cancel').click()
-  await expect(dialog.getByTestId('model-consent-phase')).toContainText('Transfer cancelled')
+  await row.getByRole('button', { name: 'Stop', exact: true }).click()
+  await expect(row).toHaveAttribute('data-state', 'failed')
+  await expect(row).toContainText('The download stopped.')
   await captureModel('cancelled')
   expect(starts).toBe(1)
-  await dialog.getByRole('button', { name: 'Reconnect / review again', exact: true }).click()
-  await dialog.getByTestId('model-consent-download').click()
+  await row.getByRole('button', { name: 'Try again', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Download 1 model', exact: true }).click()
+  await expect.poll(() => starts).toBe(2)
   job = undefined
-  await expect(dialog.getByTestId('model-consent-phase')).toContainText('interrupted')
+  await expect(row).toContainText('The engine no longer has this download.')
   await captureModel('interrupted')
   expect(starts).toBe(2)
-  await dialog.getByRole('button', { name: 'Reconnect / review again', exact: true }).click()
-  await dialog.getByTestId('model-consent-download').click()
-  await expect(dialog.getByTestId('model-consent-bytes')).toHaveText('3,072 / 8,192 bytes')
-  await dialog.getByTestId('asset-consent-cancel').click()
+  await row.getByRole('button', { name: 'Try again', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Download 1 model', exact: true }).click()
+  await expect(row.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0.375')
+  await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
   await expect(dialog).not.toBeVisible()
   expect(starts).toBe(3)
   // Requeue to reopen discovers the same owned job rather than starting another.
   bodies.length = 0
   await submitSelection(page)
-  await dialog.getByRole('button', { name: 'Review source', exact: true }).click()
-  await expect(dialog.getByTestId('model-consent-bytes')).toHaveText('3,072 / 8,192 bytes')
+  await expect(row.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0.375')
   job = { ...selection, jobId: 'owned-job', status: 'completed', received: 8192, path: '/models/unconventional/existing.safetensors',
     reused: true, renamed: true, asset: { digest: digest('a'), name: 'existing.safetensors', size: 8192,
       mediaType: 'application/octet-stream', virtualPath: 'models/unconventional/existing.safetensors' } }
-  await expect(dialog).toContainText('/models/unconventional/existing.safetensors')
-  await expect(dialog.getByRole('button', { name: 'Run once', exact: true })).toBeEnabled()
-  await dialog.locator('.asset-decision-list').evaluate((element) => { element.scrollTop = element.scrollHeight })
+  await expect(dialog).toContainText('an identical file was already here')
+  await expect(dialog.getByRole('button', { name: 'Run', exact: true })).toBeEnabled()
   await captureModel('completed')
   await page.setViewportSize({ width: 480, height: 800 })
-  await dialog.locator('.asset-decision-list').evaluate((element) => { element.scrollTop = element.scrollHeight })
   await captureModel('completed-narrow')
   expect(starts).toBe(3)
   expect(bodies).toHaveLength(1)
-  await dialog.getByRole('button', { name: 'Run once', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Run', exact: true }).click()
   await expect(dialog).not.toBeVisible()
   expect(bodies).toHaveLength(2)
   const { acquireAssets, ...captured } = bodies[1]!
