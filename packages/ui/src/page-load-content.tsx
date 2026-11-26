@@ -58,7 +58,7 @@ export function ProductPageLoad<T>(props: {
             </div>
           )}
         </Show>
-        <ProductPageAnswer page={props.page} arrival={props.arrival ?? 'fade'}>
+        <ProductPageAnswer page={props.page} arrival={props.arrival ?? 'rise'}>
           {(value) => props.children(value)}
         </ProductPageAnswer>
       </div>
