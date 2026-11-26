@@ -4269,6 +4269,7 @@ export class AppState {
       models, workflowTitle: tab.title, slot: this.assetConsent, signal: controller.signal,
       modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+      locateModel: (requirement, status) => this.locateModelDownload(tab, backend, requirement, status),
       onSettled: () => {
         unsubscribe.forEach((dispose) => dispose())
         if (this.modelReview === controller) this.modelReview = undefined
@@ -4282,6 +4283,23 @@ export class AppState {
     const backend = this.backendForTab(tab)
     if (diagnostic.data?.['backend'] !== backend.id) return
     this.storageOpenRequest.set({ id: backend.id, hiddenModels: diagnostic.code === 'model.availability.model-hidden' })
+  }
+
+  private locateModelDownload(tab: Tab, backend: Backend, requirement: ModelDownloadRequirement, status: 'duplicate' | 'destination-required'): void {
+    if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return
+    if (status === 'destination-required') {
+      this.storageOpenRequest.set({ id: backend.id, hiddenModels: false })
+      return
+    }
+    const registry = this.registryForTab(tab)
+    const occurrence = registry && workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(backend.lookups))
+      .find((entry) => entry.name === requirement.name && entry.kind === requirement.kind &&
+        entry.asset?.digest === requirement.asset?.digest)
+    if (!occurrence) return
+    this.activeTabId.set(tab.id)
+    this.diagnosticFocus.set({ tab, openAssetInput: occurrence.input,
+      anchor: { occurrence: { instancePath: (occurrence.instancePath ?? []).map(asNodeId), node: asNodeId(occurrence.node) } },
+    })
   }
 
   private refreshWorkflowAssets(tab: Tab): void {
@@ -9645,6 +9663,7 @@ export class AppState {
       slot: this.assetConsent,
       modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+      locateModel: (requirement, status) => this.locateModelDownload(tab, backend, requirement, status),
       signal: lease.signal,
       onSettled: lease.release,
       // retryWithAssets re-POSTs the body captured by the first submit. Apply

@@ -40,11 +40,14 @@ it('keeps standalone review free of Run once even when locally ready, but retain
 
     const asset = { digest: `blake3:${'a'.repeat(64)}`, name: requirement.name, size: 8192,
       mediaType: 'application/octet-stream', virtualPath: `models/${requirement.name}` }
-    const retryWithAssets = vi.fn()
+    const media = { digest: `blake3:${'b'.repeat(64)}`, name: 'source.png', status: 'missing' as const,
+      sources: ['https://example.com/source.png'], fetchable: true }
+    const retryWithAssets = vi.fn(async () => ({ ok: false as const, diagnostics: [] }))
     installAssetConsent({ slot: assetConsent, modelReferences: [{ ...requirement, asset }],
       modelDownloads: { connection, project: 'default' },
       result: { ok: false, diagnostics: [], assetsMissing: { error: 'assets-missing', assets: [
         { digest: asset.digest, name: asset.name, status: 'missing', sources: [], fetchable: true },
+        media,
       ] }, retryWithAssets },
       onSubmitted: vi.fn(), onRejected: vi.fn(), onTransportError: vi.fn(), onSuperseded: vi.fn(),
     })
@@ -57,6 +60,16 @@ it('keeps standalone review free of Run once even when locally ready, but retain
     expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')?.textContent).toBe('Run once')
     expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')?.disabled).toBe(false)
     expect(retryWithAssets).not.toHaveBeenCalled()
+    root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')!.click()
+    await Promise.resolve()
+    expect(root.querySelector('[data-testid="model-consent-row"]')).toBeNull()
+    expect(root.querySelectorAll('[data-testid="asset-consent-row"]')).toHaveLength(1)
+    expect(root.textContent).toContain(media.name)
+    expect(root.textContent).not.toContain(requirement.name)
+    expect(retryWithAssets).not.toHaveBeenCalled()
+    root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')!.click()
+    await Promise.resolve()
+    expect(retryWithAssets).toHaveBeenCalledExactlyOnceWith([media.digest])
   } finally {
     assetConsent.set(undefined)
     unmount()

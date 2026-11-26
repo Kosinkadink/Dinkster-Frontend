@@ -412,6 +412,35 @@ describe('workflow model presence', () => {
     expect(app.assetConsent.get()).toBeUndefined()
   })
 
+  it('locates the reviewed model field or its storage without letting an old request navigate', async () => {
+    const { backend, tab } = await setup({ first: 'first.safetensors', second: 'second.safetensors' }, [field('first'), field('second')])
+    vi.spyOn(backend.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'test', jobs: [] })
+    vi.spyOn(backend.connection, 'planModelDownload').mockImplementation(async (requirement) =>
+      ({ status: requirement.name === 'second.safetensors' ? 'duplicate' : 'destination-required' }))
+    app.reviewModelDownload(tab)
+    await app.assetConsent.get()!.reviewModel!(1)
+    const stale = app.assetConsent.get()!
+    app.assetConsent.set(undefined)
+    app.reviewModelDownload(tab)
+    const current = app.assetConsent.get()!
+    stale.locateModel!(1)
+    expect(app.assetConsent.get()).toBe(current)
+    expect(app.diagnosticFocus.get()).toBeUndefined()
+    await open('another-workflow')
+    app.assetConsent.get()!.locateModel!(1)
+    expect(app.assetConsent.get()).toBeUndefined()
+    expect(app.activeTabId.get()).toBe(tab.id)
+    expect(app.diagnosticFocus.get()).toEqual({ tab, openAssetInput: 'second',
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n0') } },
+    })
+    app.reviewModelDownload(tab)
+    await app.assetConsent.get()!.reviewModel!(0)
+    app.assetConsent.get()!.locateModel!(0)
+    expect(app.assetConsent.get()).toBeUndefined()
+    expect(app.storageOpenRequest.get()).toEqual({ id: backend.id, hiddenModels: false })
+    expect(app.store.executions.get().size).toBe(0)
+  })
+
   it('checks active flattened model fields, not dormant choices, media, selections or digest references', async () => {
     const { backend, tab } = await setup({ 'files.model': 'active.safetensors', media: 'picture.png', selection: 'baked-in',
       digest: { digest: 'blake3:' + 'a'.repeat(64), name: 'stored.safetensors', size: 1, mediaType: 'application/octet-stream', virtualPath: 'models/stored.safetensors' },

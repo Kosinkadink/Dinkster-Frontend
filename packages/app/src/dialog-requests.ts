@@ -50,6 +50,7 @@ export interface AssetConsentRequest {
   readonly downloadModels?: (indices: readonly number[]) => Promise<void>
   readonly cancelModel?: (index: number) => Promise<void>
   readonly enableModelLocation?: (index: number, location: string) => Promise<void>
+  readonly locateModel?: (index: number) => void
   readonly assets: readonly MissingAsset[]
   readonly busy: boolean
   readonly retry?: (digests: readonly string[]) => Promise<void>
@@ -123,6 +124,7 @@ export function installAssetConsent(p: {
   /** Final app-owned safety check run before every captured-body retry. */
   readonly beforeRetry?: () => boolean
   readonly enableLocation?: (location: string) => Promise<void>
+  readonly locateModel?: (requirement: ModelDownloadRequirement, status: 'duplicate' | 'destination-required') => void
   readonly modelDownloads?: {
     readonly connection: Pick<DinksterConnection, 'planModelDownload' | 'startModelDownload' | 'fetchModelDownloads' | 'fetchModelDownload' | 'cancelModelDownload'>
     readonly project: string
@@ -166,7 +168,7 @@ export function installAssetConsent(p: {
     settle()
   }
   p.signal?.addEventListener('abort', cancel, { once: true })
-  const install = (assets: readonly MissingAsset[], models: readonly ModelDownloadRequirement[] | undefined, result?: AssetsMissingResult): void => {
+  const install = (assets: readonly MissingAsset[], models: readonly ModelDownloadRequirement[] | undefined, result?: AssetsMissingResult, includeModels = true): void => {
     // This STAGE's own request (advanced to its busy copy). `chain` alone
     // is not enough: a retained retry closure from an earlier stage of the
     // same chain would otherwise see the reopened request as "current" and
@@ -177,7 +179,7 @@ export function installAssetConsent(p: {
     const exact = transfers ? (p.modelReferences ?? []).filter((requirement) => requirement.asset !== undefined &&
       assets.some((asset) => asset.digest === requirement.asset!.digest)) : []
     const keys = new Set<string>()
-    const requirements = [...(models ?? []), ...exact].filter((requirement) => {
+    const requirements = (includeModels ? [...(models ?? []), ...exact] : []).filter((requirement) => {
       const key = JSON.stringify([requirement.name, requirement.kind, requirement.asset?.digest])
       if (keys.has(key)) return false
       keys.add(key)
@@ -198,6 +200,7 @@ export function installAssetConsent(p: {
         downloadModel: (i) => modelAction(i, 'download', next),
         downloadModels: (indices) => downloadModels(indices, next),
         cancelModel: (i) => modelAction(i, 'cancel', next),
+        ...(p.locateModel ? { locateModel: (i: number) => locateModel(i, next) } : {}),
         ...(p.enableLocation ? { enableModelLocation: (i: number, location: string) => modelAction(i, 'enable', next, location) } : {}),
         ...(p.modelDownloads?.providerConnection ? { providerChanged: () => providerChanged(next) } : {}),
       }
@@ -216,6 +219,14 @@ export function installAssetConsent(p: {
       if (!owned() || settled || owner.busy || owner !== expected) return
       if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
       for (const entry of owner.models ?? []) transfers?.invalidate(entry.requirement)
+    }
+    const locateModel = (index: number, expected: AssetConsentRequest): void => {
+      const state = owner.models?.[index]
+      if (!p.locateModel || !owned() || settled || owner !== expected || owner.busy || !state || state.pending ||
+        (state.plan?.status !== 'duplicate' && state.plan?.status !== 'destination-required')) return
+      if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
+      p.locateModel(state.requirement, state.plan.status)
+      clearIfOwned()
     }
     const modelAction = async (index: number, action: 'review' | 'download' | 'cancel' | 'enable', expected = owner, location?: string): Promise<void> => {
       const state = owner.models?.[index]
@@ -245,6 +256,11 @@ export function installAssetConsent(p: {
       if (settled || p.signal?.aborted || current === undefined || current !== owner || current !== chain || current.busy) return
       if (current.models?.some((entry) => entry.pending || (entry.plan?.status !== 'local' && entry.job?.status !== 'completed'))) return
       if (location !== undefined && (!p.enableLocation || !current.assets.some((asset) => asset.disabledLocations?.includes(location)))) return
+      if (current.models?.length && remainingAssets.length) {
+        if (p.beforeRetry !== undefined && !p.beforeRetry()) { clearIfOwned(); return }
+        install(assets, models, result, false)
+        return
+      }
       inFlight = true
       const busy: AssetConsentRequest = { ...current, busy: true, ...(location !== undefined ? { enablingLocation: location } : {}) }
       owner = busy
@@ -284,7 +300,7 @@ export function installAssetConsent(p: {
         if (!owned()) settle()
       }
     }
-    const request: AssetConsentRequest = { assets: remainingAssets, busy: false,
+    const request: AssetConsentRequest = { assets: requirements.length ? [] : remainingAssets, busy: false,
       ...(p.workflowTitle === undefined ? {} : { workflowTitle: p.workflowTitle }),
       ...(transfers ? { modelDownloadController: transfers } : {}),
       ...(result === undefined ? {} : { retry }),
@@ -300,6 +316,7 @@ export function installAssetConsent(p: {
         downloadModel: (index: number) => modelAction(index, 'download', request),
         downloadModels: (indices: readonly number[]) => downloadModels(indices, request),
         cancelModel: (index: number) => modelAction(index, 'cancel', request),
+        ...(p.locateModel ? { locateModel: (index: number) => locateModel(index, request) } : {}),
         ...(p.enableLocation ? { enableModelLocation: (index: number, location: string) => modelAction(index, 'enable', request, location) } : {}),
       } : {}),
       ...(p.enableLocation && result ? { enableLocation: (location: string) => retry([], location) } : {}),

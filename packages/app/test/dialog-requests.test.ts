@@ -119,12 +119,25 @@ describe('installAssetConsent ownership', () => {
       jobs.splice(0)
       locallyReady = true
       const retryWithAssets = vi.fn(async () => submitOk)
-      installAssetConsent({ result: { ...result, retryWithAssets }, modelReferences: [first, second], slot,
+      const media = missing(`blake3:${'e'.repeat(64)}`)
+      installAssetConsent({ result: { ...result, retryWithAssets, assetsMissing: { ...result.assetsMissing,
+        assets: [...result.assetsMissing.assets, media],
+      } }, modelReferences: [first, second], slot,
         modelDownloads: { connection, project: 'studio' }, ...consentCallbacks() })
+      expect(slot.value!.assets).toEqual([])
       for (let index = 0; index < 2; index++) await slot.value!.reviewModel!(index)
       expect(retryWithAssets).not.toHaveBeenCalled()
-      await slot.value!.retry!([asset.digest, second.asset.digest])
-      expect(retryWithAssets).toHaveBeenCalledWith([])
+      const readyModels = slot.value!
+      await readyModels.retry!([asset.digest, second.asset.digest, media.digest])
+      expect(retryWithAssets).not.toHaveBeenCalled()
+      expect(slot.value!.assets).toEqual([media])
+      expect(slot.value!.models).toBeUndefined()
+      const mediaConsent = slot.value!
+      await readyModels.retry!([media.digest])
+      expect(slot.value).toBe(mediaConsent)
+      expect(retryWithAssets).not.toHaveBeenCalled()
+      await mediaConsent.retry!([asset.digest, second.asset.digest, media.digest])
+      expect(retryWithAssets).toHaveBeenCalledExactlyOnceWith([media.digest])
       expect(slot.value).toBeUndefined()
     } finally {
       slot.set(undefined)
