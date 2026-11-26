@@ -1,5 +1,39 @@
 import { expect, test } from '@playwright/test'
 
+test('a new project picks a template without losing the form and revokes it when templates turn off', async ({ page }) => {
+  await page.goto('/#projects')
+  await page.getByRole('checkbox', { name: 'Engine templates on' }).check()
+  await page.getByRole('button', { name: 'New', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Evening light')
+  await page.getByRole('radio', { name: 'Template', exact: true }).check()
+  const choice = page.getByRole('group', { name: 'Template', exact: true })
+  await expect(choice).toContainText('No template selected')
+  await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
+  await choice.getByRole('button', { name: 'Change', exact: true }).click()
+  const picker = page.getByTestId('templates-gallery')
+  await picker.getByRole('option', { name: /Text to image/ }).click()
+  await picker.getByRole('button', { name: 'Use template', exact: true }).click()
+  await expect(picker).toHaveCount(0)
+  await expect(choice).toContainText('Text to image')
+  await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Evening light')
+  await choice.getByRole('button', { name: 'Change', exact: true }).click()
+  await expect(picker.getByRole('option', { name: /Text to image/ })).toHaveAttribute('aria-selected', 'true')
+  await picker.getByRole('option', { name: /Image to image/ }).click()
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(choice).toContainText('Text to image')
+  await page.getByRole('button', { name: 'Create', exact: true }).click()
+  await expect(page.getByRole('status').last()).toHaveText('Created Evening light from generation/text-to-image')
+  await page.getByRole('button', { name: 'New', exact: true }).click()
+  await choice.getByRole('button', { name: 'Change', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'Engine templates on' }).uncheck()
+  await expect(picker).toHaveCount(0)
+  await expect(choice).toHaveCount(0)
+  await expect(page.getByRole('radio', { name: 'Template', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('radio', { name: 'Empty', exact: true })).toBeChecked()
+  await page.getByRole('button', { name: 'Create', exact: true }).click()
+  await expect(page.getByRole('status').last()).toHaveText('Created Evening light')
+})
+
 test('the project list selects by pointer and arrow keys and the detail follows', async ({
   page,
 }) => {

@@ -24,6 +24,7 @@ import {
 } from 'lucide-solid'
 import { registerCatalog } from '@dinkster/core'
 import english from '../../app/src/locales/en.json'
+import { TemplatesGallery } from './templates.js'
 import {
   canvasColorsForTheme,
   canvasPaintTokens,
@@ -393,6 +394,15 @@ export function ProjectsGallery() {
   const [banner, setBanner] = createSignal(true)
   const [name, setName] = createSignal('Night market')
   const [startWith, setStartWith] = createSignal('empty')
+  const [template, setTemplate] = createSignal<{ pack: string; id: string; name: string }>()
+  const [pickingTemplate, setPickingTemplate] = createSignal(false)
+  createEffect(() => {
+    if (!templates()) {
+      if (startWith() === 'template') setStartWith('empty')
+      setPickingTemplate(false)
+      setTemplate(undefined)
+    }
+  })
   const [activity, setActivity] = createSignal('No action yet')
   const pictures = new Map<string, string>()
   const picture = (output: MockOutput, index: number) => {
@@ -711,7 +721,8 @@ export function ProjectsGallery() {
         class="dinkster-project-form"
         onSubmit={(event) => {
           event.preventDefault()
-          setActivity(`Created ${name()}`)
+          const chosen = startWith() === 'template' ? template() : undefined
+          setActivity(chosen ? `Created ${name()} from ${chosen.pack}/${chosen.id}` : `Created ${name()}`)
           setState('ready')
         }}
       >
@@ -757,6 +768,13 @@ export function ProjectsGallery() {
             ]}
           />
         </span>
+        <Show when={templates() && startWith() === 'template'}>
+          <span>Template</span>
+          <span class="dinkster-project-form-path" role="group" aria-label="Template">
+            <span>{template()?.name ?? 'No template selected'}</span>
+            <ProductTextButton label="Change" onClick={() => setPickingTemplate(true)} />
+          </span>
+        </Show>
         <div class="dinkster-actions">
           <ProductButton onClick={() => setState('ready')}>
             Cancel
@@ -765,7 +783,7 @@ export function ProjectsGallery() {
             type="submit"
             intent="add"
             fill="solid"
-            disabled={name().trim() === ''}
+            disabled={name().trim() === '' || (startWith() === 'template' && !template())}
           >
             Create
           </ProductButton>
@@ -908,6 +926,13 @@ export function ProjectsGallery() {
           </Show>
           <div class="dinkster-editor-preview-page">
             <Switch>
+              <Match when={pickingTemplate()}>
+                <TemplatesGallery
+                  initialSelection={template()?.id}
+                  onChoose={(chosen) => { setTemplate(chosen); setPickingTemplate(false) }}
+                  onCancel={() => setPickingTemplate(false)}
+                />
+              </Match>
               <Match when={place() === 'installations'}>
                 {otherPlace('Installations')}
               </Match>
