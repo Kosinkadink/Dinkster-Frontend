@@ -84,6 +84,11 @@ export function CanvasTargetBox(props: {
   inNode?: boolean
   mountWired?: boolean
   prefixWired?: boolean
+  mountReadOnly?: boolean
+  prefixReadOnly?: boolean
+  mountDisabled?: boolean
+  prefixDisabled?: boolean
+  mountText?: string | undefined
   words: CanvasTargetWords
   mounts: CanvasTargetMounts
   options: readonly CanvasTargetMount[]
@@ -123,6 +128,8 @@ export function CanvasTargetBox(props: {
     .filter(({ option }) => option.label.toLowerCase().includes(query().toLowerCase()))
   const picked = () => props.options.find((option) => option.id === props.mount)
   const ready = () => props.mounts === 'ready'
+  const mountBlocked = () => props.frozen === true || props.mountWired === true || props.mountReadOnly === true || props.mountDisabled === true
+  const prefixBlocked = () => props.frozen === true || props.prefixWired === true || props.prefixReadOnly === true || props.prefixDisabled === true
   let mountButton: HTMLButtonElement | undefined
   createEffect(() => { if (props.listOpen) setQuery('') })
   createEffect(() => {
@@ -133,6 +140,7 @@ export function CanvasTargetBox(props: {
     else mountButton.removeAttribute('aria-activedescendant')
   })
   const value = (): JSX.Element => {
+    if (props.mountText !== undefined) return <span class="dinkster-canvas-target-value-text">{props.mountText}</span>
     switch (props.mounts) {
       case 'loading':
         return (
@@ -156,7 +164,7 @@ export function CanvasTargetBox(props: {
   }
   return (
     <div class="dinkster-canvas-target-box" data-in-node={props.inNode === true} data-frozen={props.frozen === true}>
-      <div class="dinkster-canvas-target-mount" data-wired={props.mountWired === true} inert={props.mountWired === true}>
+      <div class="dinkster-canvas-target-mount" data-wired={props.mountWired === true} data-disabled={props.mountDisabled === true} inert={props.mountWired === true || props.mountDisabled === true}>
         <button
           ref={(element) => {
             mountButton = element
@@ -170,17 +178,17 @@ export function CanvasTargetBox(props: {
           aria-haspopup="listbox"
           aria-expanded={props.listOpen}
           aria-controls={props.listOpen ? listboxId() : undefined}
-          aria-disabled={!ready() || props.frozen === true}
-          tabindex={props.inNode && !props.frozen ? 0 : -1}
+          aria-disabled={!ready() || mountBlocked()}
+          tabindex={props.inNode && !mountBlocked() ? 0 : -1}
           onFocus={() => props.onFocusStop?.('mount')}
           onClick={() => {
-            if (ready() && props.frozen !== true) { setQuery(''); props.onToggleList?.() }
+            if (ready() && !mountBlocked()) { setQuery(''); props.onToggleList?.() }
           }}
         >
           <span class="dinkster-canvas-target-label">{props.words.mount}</span>
           <span class="dinkster-canvas-target-value">{value()}</span>
         </button>
-        <Show when={props.listOpen && ready()}>
+        <Show when={props.listOpen && ready() && !mountBlocked()}>
           <Show when={props.inNode} fallback={
             <div id={legacyListboxId} class="dinkster-canvas-target-list" role="listbox" aria-label={props.words.mount}>
               <For each={props.options}>{(option, index) =>
@@ -230,7 +238,7 @@ export function CanvasTargetBox(props: {
       <Show when={props.mountProblem}>
         {props.mountProblem}
       </Show>
-      <div class="dinkster-canvas-target-name" data-wired={props.prefixWired === true} inert={props.prefixWired === true} title={props.help}>
+      <div class="dinkster-canvas-target-name" data-wired={props.prefixWired === true} data-disabled={props.prefixDisabled === true} inert={props.prefixWired === true || props.prefixDisabled === true} title={props.help}>
         <label class="dinkster-canvas-target-caption" for={prefixId}>
           {props.words.prefix}
         </label>
@@ -243,12 +251,12 @@ export function CanvasTargetBox(props: {
           data-focused={props.focused === 'prefix'}
           aria-invalid={props.prefixProblem !== undefined}
           aria-errormessage={props.prefixProblem === undefined ? undefined : problemId}
-          readOnly={props.frozen === true || props.prefixWired === true}
+          readOnly={prefixBlocked()}
           autocomplete="off"
           spellcheck={false}
-          tabindex={props.inNode && !props.frozen ? 0 : -1}
+          tabindex={props.inNode && !prefixBlocked() ? 0 : -1}
           onFocus={() => props.onFocusStop?.('prefix')}
-          onInput={(event) => props.onPrefix?.(event.currentTarget.value)}
+          onInput={(event) => { if (!prefixBlocked()) props.onPrefix?.(event.currentTarget.value) }}
         />
       </div>
       <Show when={props.prefixProblem}>

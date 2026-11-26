@@ -1,4 +1,4 @@
-import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, effectiveWidgetDefault, elabInputsOf, jsonSameValue, occurrenceKey, type AssetRef, type ElaboratedInterface, type Json, type JsonObject } from '@dinkster/core'
+import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, effectiveWidgetDefault, elabInputsOf, occurrenceKey, type AssetRef, type ElaboratedInterface, type Json, type JsonObject } from '@dinkster/core'
 import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind, curveEditorInterpolations, curveInterpolator, isSaveTarget, isProjectDefaultTarget, saveTargetDraft, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
@@ -25,6 +25,16 @@ import { overlayClipStyle, type EditorWorldRect } from './widget-editor-position
 type SpaceRow = Extract<LayoutRow, { kind: 'editorSpace' }>
 type FieldRow = Extract<LayoutRow, { kind: 'widget' }>
 
+export interface SaveTargetPart {
+  readonly value: Json | undefined
+  readonly declared: Json | undefined
+  readonly wired: boolean
+  readonly readOnly: boolean
+  readonly disabled: boolean
+}
+
+type SaveTargetParts = Readonly<Record<'mount' | 'name', SaveTargetPart>>
+
 /** An unfolded editor's space in a node of the canvas, in world coordinates. */
 export interface EditorSpaceItem {
   readonly key: string
@@ -38,6 +48,7 @@ export interface EditorSpaceItem {
   /** Where the editor's value is kept: its own row, or for an editor row the one row it writes. */
   readonly valueKey: string
   readonly value: Json | undefined
+  readonly saveTargetParts?: SaveTargetParts
   /** The editor's input has a wire, so the wire decides its value. */
   readonly wired: boolean
   /** The parts of the widget whose rows have a wire, such as a 3D view's camera. */
@@ -61,6 +72,7 @@ export function editorSpaceItems(nodes: readonly {
   readonly y: number
   readonly layout: { readonly width: number; readonly height: number; readonly minimized?: boolean; readonly rows: readonly LayoutRow[] }
   readonly node: { readonly values?: Readonly<Record<string, Json>> }
+  readonly elaborated?: ElaboratedInterface
 }[], wires: EditorWires): EditorSpaceItem[] {
   return nodes.flatMap((node) => {
     if (node.layout.minimized === true) return []
@@ -73,6 +85,7 @@ export function editorSpaceItems(nodes: readonly {
       const parts = field.parts === undefined ? [] : [...Object.entries(field.parts.reads), ...Object.entries(field.parts.writes)]
       const wired = wires.wired(node.id, row.inputId)
       const carried = wires.carried(node.id, row.valueKey)
+      const saveParts = saveTargetParts(node, field, wires)
       return [{
         key: `${node.id}:${row.valueKey}`,
         nodeId: node.id,
@@ -82,7 +95,8 @@ export function editorSpaceItems(nodes: readonly {
         // The controls stop at the editor's outline, above the row's bottom band.
         space: { x: row.inset, y: row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height - defaultTokens.rowGeometry.fieldInsetY },
         valueKey,
-        value: wired ? carried : node.node.values?.[valueKey],
+        value: saveParts === undefined ? wired ? carried : node.node.values?.[valueKey] : saveTargetValue(saveParts),
+        ...(saveParts === undefined ? {} : { saveTargetParts: saveParts }),
         wired,
         wiredParts: new Set(parts.flatMap(([part, partRow]) => wires.wired(node.id, partRow) ? [part] : [])),
         carried,
@@ -91,6 +105,34 @@ export function editorSpaceItems(nodes: readonly {
       }]
     })
   })
+}
+
+function saveTargetParts(node: {
+  readonly id: string
+  readonly node?: { readonly values?: Readonly<Record<string, Json>> }
+  readonly elaborated?: ElaboratedInterface
+}, row: FieldRow, wires: EditorWires): SaveTargetParts | undefined {
+  const mountId = row.parts?.writes['mount']
+  const nameId = row.parts?.writes['name']
+  if (row.editor !== true || row.viewId !== 'core.saveTarget' || mountId === undefined || nameId === undefined) return undefined
+  const inputs = node.elaborated === undefined ? [] : elabInputsOf(node.elaborated)
+  const part = (id: string): SaveTargetPart => {
+    const input = inputs.find((input) => input.spec.id === id)
+    const declared = input?.spec.widget === undefined ? undefined : effectiveWidgetDefault(input.spec.widget)
+    const wired = wires.wired(node.id, id)
+    const stored = node.node?.values?.[id]
+    return {
+      value: wired ? wires.carried(node.id, id) : stored !== undefined ? stored : input?.derivedValue !== undefined ? input.derivedValue : input?.automatic?.value ?? declared,
+      declared, wired, readOnly: input?.readOnly === true, disabled: input?.disabled === true,
+    }
+  }
+  return { mount: part(mountId), name: part(nameId) }
+}
+
+function saveTargetValue(parts: SaveTargetParts): Json | undefined {
+  const mount = parts.mount.value
+  const prefix = parts.name.value
+  return mount === undefined || prefix === undefined ? undefined : { ...(mount === null ? {} : { mount }), prefix }
 }
 
 /**
@@ -107,21 +149,10 @@ export function wiredEditorSummaries(nodes: readonly {
   return Object.fromEntries(nodes.flatMap((node) => {
     const summaries = Object.fromEntries(node.layout.rows.flatMap((row): [string, EditorSummary][] => {
       if (row.kind !== 'widget') return []
-      const mountId = row.parts?.writes['mount']
-      const nameId = row.parts?.writes['name']
-      if (row.editor === true && row.viewId === 'core.saveTarget' && mountId !== undefined && nameId !== undefined) {
-        const inputs = node.elaborated === undefined ? [] : elabInputsOf(node.elaborated)
-        const valueOf = (id: string): Json | undefined => {
-          if (wires.wired(node.id, id)) return wires.carried(node.id, id)
-          const input = inputs.find((input) => input.spec.id === id)
-          const stored = node.node?.values?.[id]
-          return stored !== undefined ? stored : input?.derivedValue !== undefined ? input.derivedValue
-            : input?.spec.widget === undefined ? undefined : effectiveWidgetDefault(input.spec.widget)
-        }
-        const mount = valueOf(mountId)
-        const prefix = valueOf(nameId)
-        if (mount === undefined || prefix === undefined) return [[row.valueKey, { text: notKnown, placeholder: true, value: null }]]
-        return [[row.valueKey, { value: { ...(mount === null ? {} : { mount }), prefix } }]]
+      const saveParts = saveTargetParts(node, row, wires)
+      if (saveParts !== undefined) {
+        const value = saveTargetValue(saveParts)
+        return [[row.valueKey, value === undefined ? { text: notKnown, placeholder: true, value: null } : { value }]]
       }
       const wired = wires.wired(node.id, row.inputId)
       if (!wired) {
@@ -261,6 +292,7 @@ export const editorSpaceInteractive = (scale: number): boolean => scale >= defau
 /** Save target controls inside the shared fold-out editor space. */
 export function SaveTargetSpace(props: {
   readonly value: Json | undefined
+  readonly parts?: SaveTargetParts | undefined
   readonly wired: boolean
   readonly readOnly?: boolean
   readonly disabled?: boolean
@@ -283,16 +315,29 @@ export function SaveTargetSpace(props: {
   const [pending, setPending] = createSignal(false)
   let mountButton: HTMLButtonElement | undefined
   let prefixInput: HTMLInputElement | undefined
-  const reset = () => {
-    const value = props.value
-    setMount(isSaveTarget(value) ? value.mount : null)
-    setPrefix(isSaveTarget(value) || isProjectDefaultTarget(value) ? value.prefix : '')
+  const sourceMount = () => props.parts === undefined ? isSaveTarget(props.value) ? props.value.mount : null : props.parts.mount.value
+  const sourcePrefix = () => props.parts === undefined ? isSaveTarget(props.value) || isProjectDefaultTarget(props.value) ? props.value.prefix : '' : props.parts.name.value
+  const mountWired = () => props.wired || props.parts?.mount.wired === true
+  const prefixWired = () => props.wired || props.parts?.name.wired === true
+  const mountBlocked = () => props.readOnly === true || props.disabled === true || mountWired() || props.parts?.mount.readOnly === true || props.parts?.mount.disabled === true
+  const prefixBlocked = () => props.readOnly === true || props.disabled === true || prefixWired() || props.parts?.name.readOnly === true || props.parts?.name.disabled === true
+  const mountUnknown = () => mountWired() && sourceMount() === undefined
+  const prefixUnknown = () => prefixWired() && sourcePrefix() === undefined
+  const resetMount = () => {
+    const value = sourceMount()
+    setMount(typeof value === 'string' ? value : null)
   }
-  const incoming = createMemo(() => props.value, undefined, { equals: jsonSameValue })
-  const wired = createMemo(() => props.wired)
+  const resetPrefix = () => {
+    const name = sourcePrefix()
+    setPrefix(typeof name === 'string' ? name : '')
+  }
+  const reset = () => { resetMount(); resetPrefix() }
   const blocked = createMemo(() => props.readOnly === true || props.disabled === true)
   const fetchMounts = createMemo(() => props.fetchMounts)
-  createEffect(on([incoming, wired, blocked], () => { setListOpen(false); reset() }))
+  const mountState = createMemo(() => JSON.stringify([sourceMount(), mountBlocked(), mountWired()]))
+  const prefixState = createMemo(() => JSON.stringify([sourcePrefix(), prefixBlocked(), prefixWired()]))
+  createEffect(on(mountState, () => { setListOpen(false); resetMount() }))
+  createEffect(on(prefixState, resetPrefix))
   createEffect(on(fetchMounts, (fetch) => {
     let live = true
     setSettings(undefined)
@@ -311,21 +356,19 @@ export function SaveTargetSpace(props: {
   const draft = () => saveTargetDraft({ stored: props.value ?? null, mount: mount(), prefix: prefix(),
     ready: settings() === undefined || ready().length === 0 ? undefined : ready(), projectMount: projectMount() })
   createEffect(() => {
-    const value = props.value
-    const unchanged = mount() === (isSaveTarget(value) ? value.mount : null) &&
-      prefix() === (isSaveTarget(value) || isProjectDefaultTarget(value) ? value.prefix : '')
-    const valuePreview = props.wired || blocked() || unchanged ? undefined
+    const unchanged = mount() === sourceMount() && prefix() === sourcePrefix()
+    const valuePreview = props.wired || blocked() || mountUnknown() || prefixUnknown() || unchanged ? undefined
       : { prefix: prefix(), ...(mount() === null ? {} : { mount: mount()! }) }
     untrack(() => props.preview?.(valuePreview))
   })
   onCleanup(() => props.preview?.(undefined))
-  const mountProblem = () => failed() ? message('mountWidget.error')
+  const mountProblem = () => mountUnknown() ? undefined : failed() ? message('mountWidget.error')
     : settings() === undefined ? undefined
       : noDefault() && draft().mountGone ? message('saveTargetWidget.notHereNoDefault', { id: mount() ?? '' })
         : noDefault() && mount() === null ? message('saveTargetWidget.noDefaultMount')
           : ready().length === 0 ? message('saveTargetWidget.noMounts')
             : draft().mountGone ? message('saveTargetWidget.notHereSaving', { id: mount() ?? '', mount: projectMount() }) : undefined
-  const mountTone = () => failed() || noDefault() && (mount() === null || draft().mountGone)
+  const mountTone = () => mountUnknown() ? undefined : failed() || noDefault() && (mount() === null || draft().mountGone)
     ? 'error' as const : draft().mountGone || settings() !== undefined && ready().length === 0 ? 'warning' as const : undefined
   const mountGone = () => draft().mountGone
   const mountStops = () => noDefault() && (mount() === null || mountGone())
@@ -337,18 +380,34 @@ export function SaveTargetSpace(props: {
         ? message(mountGone() ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.noDefaultTitle', mountWords())
         : mountGone() ? message('saveTargetWidget.missingTitle', mountWords()) : message('saveTargetWidget.noMounts'),
       body: message(mountStops() || !mountGone() ? 'saveTargetWidget.noDefaultBody' : 'saveTargetWidget.missingBody', mountWords()),
-      ...(mountGone() && !noDefault() && !props.wired && !blocked() ? { action: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } } }
+      ...(mountGone() && !noDefault() && !mountBlocked() ? { action: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } } }
         : props.openStorage === undefined ? {} : { action: { label: message('problems.action.modelStorage'), onClick: props.openStorage } }),
     }}>{message(failed() ? 'saveTargetWidget.failedShort' : mountStops() ? 'saveTargetWidget.noDefaultShort'
       : mountGone() ? 'saveTargetWidget.missingShort' : 'saveTargetWidget.noMountsShort', mountWords())}</CanvasEditorNote>
   </Show>
   const defaultTarget = () => isSaveTarget(props.declared) || isProjectDefaultTarget(props.declared) ? props.declared : undefined
   const differs = () => {
+    if (props.parts !== undefined) return !prefixBlocked() && prefix() !== props.parts.name.declared || !mountBlocked() && mount() !== props.parts.mount.declared
     const value = defaultTarget()
     return value !== undefined && (prefix() !== value.prefix || mount() !== (isSaveTarget(value) ? value.mount : null))
   }
   const store = async (): Promise<boolean> => {
     if (props.wired || blocked() || pending()) return false
+    if (props.parts !== undefined) {
+      const changes: Record<string, Json> = {}
+      if (!prefixBlocked() && prefix() !== sourcePrefix()) {
+        if (!isProjectDefaultTarget({ prefix: prefix() })) return false
+        changes['prefix'] = prefix()
+      }
+      if (!mountBlocked() && mount() !== sourceMount()) {
+        if (settings() === undefined || ready().length === 0 || mount() !== null && !ready().includes(mount()!)) return false
+        changes['mount'] = mount()
+      }
+      if (Object.keys(changes).length === 0) return true
+      setPending(true)
+      try { return await props.commit(changes) }
+      finally { setPending(false) }
+    }
     const value = draft().store
     if (value === undefined) return true
     setPending(true)
@@ -357,13 +416,13 @@ export function SaveTargetSpace(props: {
   }
   const pick = (index: number) => {
     const entry = options()[index]
-    if (entry === undefined || 'unavailable' in entry || props.wired || blocked()) return
+    if (entry === undefined || 'unavailable' in entry || mountBlocked()) return
     setMount(entry.id || null)
     setListOpen(false)
     mountButton?.focus()
   }
   const openList = () => {
-    if (props.wired || blocked() || pending() || ready().length === 0) return
+    if (mountBlocked() || pending() || ready().length === 0) return
     const all = options()
     const picked = all.findIndex((entry) => entry.id === (mount() ?? '') && !('unavailable' in entry))
     setHighlight(picked >= 0 ? picked : 0)
@@ -415,28 +474,37 @@ export function SaveTargetSpace(props: {
     }
   }}>
     <CanvasTargetBox inNode frozen={props.wired || blocked() || pending()} help={props.help}
+      mountWired={props.parts?.mount.wired === true} prefixWired={props.parts?.name.wired === true}
+      mountReadOnly={props.parts?.mount.readOnly === true} prefixReadOnly={props.parts?.name.readOnly === true}
+      mountDisabled={props.parts?.mount.disabled === true} prefixDisabled={props.parts?.name.disabled === true}
+      mountText={mountUnknown() ? message('inNodeEditor.notKnown') : undefined}
       words={{ mount: message('assets.fact.mount'), prefix: message('assets.fact.name'),
         loading: message('saveTargetWidget.loading'), none: message('saveTargetWidget.none'), failed: message('saveTargetWidget.couldNotLoad') }}
       mounts={failed() ? 'failed' : settings() === undefined ? 'loading' : ready().length === 0 ? 'none' : 'ready'}
-      options={options()} mount={mount() ?? ''} prefix={prefix()} listOpen={listOpen()} {...(highlight() === undefined ? {} : { highlight: highlight()! })}
-      onPrefix={(value) => { if (!blocked() && !props.wired) setPrefix(value) }} onToggleList={() => listOpen() ? setListOpen(false) : openList()} onHighlight={setHighlight}
+      options={options()} mount={mount() ?? ''} prefix={prefixUnknown() ? message('inNodeEditor.notKnown') : prefix()} listOpen={listOpen()} {...(highlight() === undefined ? {} : { highlight: highlight()! })}
+      onPrefix={(value) => { if (!prefixBlocked()) setPrefix(value) }} onToggleList={() => listOpen() ? setListOpen(false) : openList()} onHighlight={setHighlight}
       onPick={pick}
       mountProblem={mountNote}
       {...(mountTone() === undefined ? {} : { tone: mountTone()! })}
       {...(!props.wired && !blocked() && differs() ? {
         reset: { label: message('saveTargetWidget.reset'), onClick: () => {
-          const value = defaultTarget()!
           prefixInput?.focus()
-          setMount(isSaveTarget(value) ? value.mount : null)
-          setPrefix(value.prefix)
+          if (props.parts !== undefined) {
+            if (!mountBlocked()) setMount(typeof props.parts.mount.declared === 'string' ? props.parts.mount.declared : null)
+            if (!prefixBlocked()) setPrefix(typeof props.parts.name.declared === 'string' ? props.parts.name.declared : '')
+          } else {
+            const value = defaultTarget()!
+            setMount(isSaveTarget(value) ? value.mount : null)
+            setPrefix(value.prefix)
+          }
         } },
       } : {})}
       mountRef={(element) => { mountButton = element }}
       prefixRef={(element) => {
         prefixInput = element
-        if (!props.wired && !blocked()) queueMicrotask(() => { if (!props.wired && !blocked()) { element.focus(); element.select() } })
+        if (!prefixBlocked()) queueMicrotask(() => { if (!prefixBlocked()) { element.focus(); element.select() } })
       }}
-      {...(draft().prefixInvalid ? { prefixProblem: message('saveTargetWidget.invalid') } : {})} />
+      {...(!prefixUnknown() && draft().prefixInvalid ? { prefixProblem: message('saveTargetWidget.invalid') } : {})} />
   </div>
 }
 

@@ -10,6 +10,51 @@ import { CurveSpace, SaveTargetSpace } from '../src/InNodeEditorSpaces.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it('edits only unwired mapped Save parts and discards a draft when that part becomes blocked', async () => {
+  const [mode, setMode] = createSolidSignal<'name-wired' | 'mount-unknown' | 'readOnly' | 'disabled'>('name-wired')
+  const changes: Json[] = []
+  const dispose = render(() => <SaveTargetSpace value={undefined} wired={false}
+    parts={{
+      mount: { value: mode() === 'mount-unknown' ? undefined : 'archive', declared: null,
+        wired: mode() === 'mount-unknown', readOnly: false, disabled: false },
+      name: { value: mode() === 'name-wired' ? 'arriving/name' : 'stored/name', declared: 'declared/name',
+        wired: mode() === 'name-wired', readOnly: mode() === 'readOnly', disabled: mode() === 'disabled' },
+    }}
+    fetchMounts={async () => ({ activeOutputMount: 'output', mountChangesAllowed: false, mounts: [
+      { id: 'output', mode: 'readwrite', state: 'ready' }, { id: 'archive', mode: 'readwrite', state: 'ready' },
+    ] })} commit={async (value) => { changes.push(value); return true }} queue={() => {}} />, document.body)
+  try {
+    const name = document.querySelector('input')!
+    const mount = document.querySelector('button')!
+    const reset = () => [...document.querySelectorAll('button')].find((button) => button.textContent === 'Reset to default')!
+    await vi.waitFor(() => expect(mount.textContent).toContain('archive'))
+    expect(name.value).toBe('arriving/name')
+    expect(name.readOnly).toBe(true)
+    reset().click()
+    expect(name.value).toBe('arriving/name')
+    expect(mount.textContent).toContain('Project default')
+    mount.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    await vi.waitFor(() => expect(changes).toEqual([{ mount: null }]))
+    setMode('mount-unknown')
+    expect(mount.textContent).toContain('Not known yet')
+    expect(name.value).toBe('stored/name')
+    expect(name.readOnly).toBe(false)
+    name.value = 'new/name'; name.dispatchEvent(new Event('input', { bubbles: true }))
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await vi.waitFor(() => expect(changes).toEqual([{ mount: null }, { prefix: 'new/name' }]))
+    for (const state of ['readOnly', 'disabled'] as const) {
+      setMode('mount-unknown')
+      name.value = 'discard/name'; name.dispatchEvent(new Event('input', { bubbles: true }))
+      setMode(state)
+      expect(name.value).toBe('stored/name')
+      expect(name.readOnly).toBe(true)
+      name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await Promise.resolve()
+      expect(changes).toHaveLength(2)
+    }
+  } finally { dispose() }
+})
+
 it('drops an open Save target draft when access changes and keeps its stored name selectable without writing', async () => {
   const root = document.createElement('div'); document.body.append(root)
   const [access, setAccess] = createSolidSignal<'editable' | 'readOnly' | 'disabled'>('editable')

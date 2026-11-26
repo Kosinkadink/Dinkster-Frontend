@@ -7371,7 +7371,33 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const help = node === undefined || schema === undefined ? undefined
             : elabInputsOf(elaborateInterface(schema, node)).find((input) => input.spec.id === at.target.inputId)?.spec.tooltip
           const suffix = at.current.field.spec.options['suffix']
-          return { commit: at.commit, fetchMounts: fetchSaveTargetMounts(),
+          const commit = async (value: Json): Promise<boolean> => {
+            if (at.current.saveTargetParts === undefined) return at.commit(value)
+            const live = item()
+            const graph = at.tab.store.doc.graphs[at.target.graphId]
+            const node = graph?.nodes[at.target.nodeId]
+            const schema = node === undefined ? undefined : props.app.registryForTab(at.tab)?.resolve(node.type)
+            if (live?.saveTargetParts === undefined || live.field.readOnly || live.field.disabled || graph === undefined || node === undefined || schema === undefined ||
+                typeof value !== 'object' || value === null || Array.isArray(value)) return false
+            const index = buildRerouteIndex(graph)
+            const inputs = elabInputsOf(elaborateInterface(schema, node))
+            const values: Record<string, Json> = {}
+            for (const [part, key] of [['mount', 'mount'], ['name', 'prefix']] as const) {
+              if (!Object.hasOwn(value, key)) continue
+              const inputId = live.field.parts?.writes[part]
+              const input = inputs.find((input) => input.spec.id === inputId)
+              const access = live.saveTargetParts[part]
+              if (inputId === undefined || input === undefined || access.wired || access.readOnly || access.disabled || input.readOnly || input.disabled || input.kept !== undefined) return false
+              const port = portRefKey({ node: asNodeId(at.target.nodeId), port: asPortId(inputId) })
+              if (index.inputDriverOf.has(port) || index.netSourceOf.has(port)) return false
+              values[inputId] = (value as JsonObject)[key]!
+            }
+            if (Object.keys(values).length === 0) return true
+            const outcome = await props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, live.field.materialize,
+              { command: 'node.setValues', params: { graphId: at.target.graphId, nodeId: at.target.nodeId, values } }))
+            return outcome.ok
+          }
+          return { commit, fetchMounts: fetchSaveTargetMounts(),
             owner: JSON.stringify([at.tab.id, at.target.graphId, viewInstancePath(at.tab)]),
             help: [help, message('saveTargetWidget.naming', { suffix: typeof suffix === 'string' ? suffix : '' })].filter(Boolean).join('\n\n') }
         })
@@ -7489,6 +7515,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               </Show>
               <Show when={saveTarget()}>
                 {(at) => <Show when={at().owner} keyed>{(_owner) => <SaveTargetSpace value={item()?.value ?? (item()?.wired ? undefined : effectiveWidgetDefault(item()!.field.spec))}
+                  parts={item()?.saveTargetParts}
                   wired={item()?.wired === true} readOnly={item()?.field.readOnly === true} disabled={item()?.field.disabled === true}
                   fetchMounts={at().fetchMounts} commit={at().commit}
                   openStorage={() => props.app.commands.get('storage.open')?.run()}
