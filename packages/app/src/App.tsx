@@ -659,11 +659,12 @@ export function App(props: {
         app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'library.ownerGone', 'the backend this entry came from is no longer connected')])
         return
       }
-      void app.boards.openSaved(entry.id, backend.baseUrl).then((board) => {
-        if (!app.backends.get().includes(backend) || !app.boards.entries.get().includes(board)) return
+      const stillWanted = app.beginDocumentOpen()
+      void app.boards.openSaved(entry.id, backend.baseUrl, stillWanted).then((board) => {
+        if (!stillWanted() || !app.backends.get().includes(backend) || !app.boards.entries.get().includes(board)) return
         if (app.pages.open(`board:${board.id}`)) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
       }).catch((reason: unknown) => {
-        if (app.backends.get().includes(backend)) app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
+        if (stillWanted() && app.backends.get().includes(backend)) app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
           diag('error', 'validation', 'board.openFailed', `failed to open Board: ${reason instanceof Error ? reason.message : String(reason)}`),
         ])
       })
