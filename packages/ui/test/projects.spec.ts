@@ -42,7 +42,7 @@ test('a new project picks a template without losing the form and revokes it when
   await page.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(page.getByRole('status').last()).toHaveText('Created Evening light from generation/text-to-image')
   await page.getByRole('button', { name: 'New', exact: true }).click()
-  await choice.getByRole('button', { name: 'Choose', exact: true }).click()
+  await choice.getByRole('button', { name: 'Change', exact: true }).click()
   await page.getByRole('checkbox', { name: 'Engine templates on' }).uncheck()
   await expect(picker).toHaveCount(0)
   await expect(choice).toHaveCount(0)
