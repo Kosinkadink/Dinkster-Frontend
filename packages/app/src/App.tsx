@@ -1930,12 +1930,11 @@ export function App(props: {
   const openTemplates = (backend: Backend | undefined = app.libraryBackend()): void => {
     if (backend?.templatesEnabled.get()) app.pages.open('templates', backend.id)
   }
-  const documentModifier = /Mac/i.test(navigator.platform) ? 'Cmd' : 'Ctrl'
   onCleanup(app.frontendDoors.command('workflow.new', {
     get label() { return message('templatesEntry.blank') },
     run: () => { app.createWorkflow() },
   }))
-  onCleanup(app.keybindings.register({ command: 'workflow.new', combo: `${documentModifier}+Shift+1` }))
+  onCleanup(app.keybindings.register({ command: 'workflow.new', combo: 'Ctrl+Shift+1' }))
   const documentKeys = (command: string): readonly string[] | undefined => {
     settingsTick()
     const combo = app.keybindings.combo(command)
@@ -1985,7 +1984,7 @@ export function App(props: {
       run: () => openTemplates(),
       enabled: () => app.libraryBackend()?.templatesEnabled.get() === true,
     })
-    const unregisterKeybinding = app.keybindings.register({ command: 'workflow.openTemplateGallery', combo: `${documentModifier}+Shift+2` })
+    const unregisterKeybinding = app.keybindings.register({ command: 'workflow.openTemplateGallery', combo: 'Ctrl+Shift+2' })
     onCleanup(() => { unregisterKeybinding(); unregisterCommand(); unregisterSetting() })
   })
   // The center region resolves every editor through EditorRegistry rather

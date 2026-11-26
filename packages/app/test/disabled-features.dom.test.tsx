@@ -151,7 +151,7 @@ it.each(['Linux x86_64', 'MacIntel'])('creates documents with physical shortcuts
   const host = document.createElement('div')
   document.body.append(host)
   dispose = render(() => <App app={app} />, host)
-  const modifiers = platform === 'MacIntel' ? { metaKey: true } : { ctrlKey: true }
+  const modifiers = { ctrlKey: true }
   const count = app.tabs.get().length
   window.dispatchEvent(new KeyboardEvent('keydown', { key: '!', code: 'Digit1', shiftKey: true, ...modifiers }))
   expect(app.tabs.get()).toHaveLength(count + 1)
@@ -161,7 +161,7 @@ it.each(['Linux x86_64', 'MacIntel'])('creates documents with physical shortcuts
   expect(app.tabs.get()).toHaveLength(count + 2)
   app.keybindings.set('workflow.new', 'Alt+3')
   host.querySelector<HTMLButtonElement>('[data-testid="new-tab"] button')!.click()
-  await vi.waitFor(() => expect([...host.querySelectorAll('[role="menuitem"] kbd')].map((key) => key.textContent)).toEqual(['Alt', '3', platform === 'MacIntel' ? 'Cmd' : 'Ctrl', 'Shift', '2']))
+  await vi.waitFor(() => expect([...host.querySelectorAll('[role="menuitem"] kbd')].map((key) => key.textContent)).toEqual(['Alt', '3', 'Ctrl', 'Shift', '2']))
 })
 
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {
