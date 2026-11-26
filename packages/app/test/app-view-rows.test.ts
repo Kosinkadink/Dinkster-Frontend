@@ -13,9 +13,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, type GraphDef, type InputSpec, type Json, type NodeSchema, type OutputSpec, type TypeExpr, type WidgetRegistry, type WorkflowDocument } from '@dinkster/core'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, compile, coreCommandRegistry, DocumentStore, type GraphDef, type InputSpec, type Json, type NodeSchema, type OutputSpec, type TypeExpr, type WidgetRegistry, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { appViewQueueScope, appViewQueueTargetOptions, buildParamRows, buildPreviewRows, previewRuntimeMapping, type ParamRow } from '../src/app-view-rows.js'
+import { boundarySample, resolveBoundarySample } from '../../core/test/fixtures/boundary-sample.js'
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
 
@@ -98,6 +99,50 @@ const live = (row: ParamRow): Extract<ParamRow, { kind: 'live' }> => {
 }
 
 describe('buildParamRows', () => {
+  it('boundary/plain-field/app-view edits only the chosen outer occurrence through one and two boundaries', () => {
+    for (const depth of [1, 2] as const) {
+      const source = boundarySample(depth)
+      const store = new DocumentStore({ ...source, ext: { 'dinkster.exposed': [
+        { graphId: 'root', nodeId: 'first', inputId: 'strength' },
+        { graphId: 'root', nodeId: 'second', inputId: 'strength' },
+        { graphId: 'root', nodeId: 'second', inputId: 'mode.text' },
+      ] } }, coreCommandRegistry())
+      const rows = () => buildParamRows(store.doc, resolveBoundarySample)
+      expect(rows().map((row) => live(row).value)).toEqual([0.2, 0.8, 'second text'])
+      const chosen = live(rows()[0]!)
+      expect(store.dispatch({ command: 'node.setValue', params: {
+        graphId: chosen.entry.graphId, nodeId: chosen.entry.nodeId, inputId: chosen.valueKey, value: 0.4,
+      } }).ok).toBe(true)
+      expect(rows().map((row) => live(row).value)).toEqual([0.4, 0.8, 'second text'])
+      expect(store.doc.graphs.detail!.nodes.sample!.values.strength).toBe(0.3)
+      if (depth === 2) expect(store.doc.graphs.portrait!.nodes.detail!.values.strength).toBe(0.6)
+      const compiled = compile({ document: store.doc, revision: 1, resolve: resolveBoundarySample,
+        scope: { kind: 'full' }, connection: 'app-view' as never, schemaHash: 'boundary-sample' })
+      expect(compiled.ok).toBe(true)
+      if (!compiled.ok) throw new Error(JSON.stringify(compiled.diagnostics))
+      const prefix = depth === 2 ? 'detail.' : ''
+      expect(compiled.artifact.prompt[`first.${prefix}sample`]!.inputs.strength).toBe(0.4)
+      expect(compiled.artifact.prompt[`second.${prefix}sample`]!.inputs.strength).toBe(0.8)
+      expect(store.undo()).toBe(true)
+      expect(rows().map((row) => live(row).value)).toEqual([0.2, 0.8, 'second text'])
+      expect(store.redo()).toBe(true)
+      expect(rows().map((row) => live(row).value)).toEqual([0.4, 0.8, 'second text'])
+      expect(store.dispatch({ command: 'boundary.setVisible', params: {
+        graphId: 'detail', itemId: 'strength', formula: 'strength < 0',
+      } }).ok).toBe(true)
+      expect(rows().map((row) => row.entry.inputId)).toEqual(['mode.text'])
+      expect(store.dispatch({ command: 'link.connect', params: {
+        graphId: 'root', from: port('first', 'result'), to: port('second', 'strength'),
+      } }).ok).toBe(true)
+      expect(rows().map((row) => row.entry.nodeId)).toEqual(['second', 'second'])
+      expect(live(rows()[0]!).linked).toBe(true)
+      expect(store.undo()).toBe(true)
+      expect(rows().map((row) => row.entry.inputId)).toEqual(['mode.text'])
+      expect(store.undo()).toBe(true)
+      expect(rows().map((row) => live(row).value)).toEqual([0.4, 0.8, 'second text'])
+    }
+  })
+
   it('omits a hidden compatibility input while preserving its stored exposure', () => {
     const document = doc({
       values: { provider: 'vision.depth.v2' },

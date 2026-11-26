@@ -18,6 +18,7 @@
 
 import {
   buildGraphConnectivity,
+  documentResolver,
   elabInputsOf,
   elaborateInterface,
   effectiveWidgetDefault,
@@ -131,6 +132,7 @@ export function buildParamRows(
   resolve: ((type: string) => NodeSchema | undefined) | undefined,
   lookupAnswers?: ElaborateOptions['lookupAnswers'],
 ): readonly ParamRow[] {
+  const resolveSchema = resolve === undefined ? undefined : documentResolver(doc, resolve)
   const cache = new Map<string, (node: NodeId) => Connectivity>()
   const connectivityFor = (graphId: string): ((node: NodeId) => Connectivity) => {
     let c = cache.get(graphId)
@@ -138,7 +140,7 @@ export function buildParamRows(
     return c
   }
   return exposedParameters(doc).flatMap((entry) => {
-    const row = resolveRow(doc, entry, resolve, connectivityFor, lookupAnswers)
+    const row = resolveRow(doc, entry, resolveSchema, connectivityFor, lookupAnswers)
     return row.kind === 'live' && row.item.spec.hidden === true ? [] : [row]
   })
 }
