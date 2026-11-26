@@ -18,6 +18,8 @@
 
 import {
   buildGraphConnectivity,
+  documentNodeResolver,
+  documentPrimitiveResolver,
   documentResolver,
   elabInputsOf,
   elaborateInterface,
@@ -33,6 +35,7 @@ import {
   normalizedComboOptions,
   type Connectivity,
   type CommandInvocation,
+  type DocumentNodeResolver,
   type ElaborateOptions,
   type ElaboratedInput,
   type ExecutionScope,
@@ -88,7 +91,7 @@ export type PreviewRow =
 function resolveRow(
   doc: WorkflowDocument,
   entry: ExposedParameter,
-  resolve: ((type: string) => NodeSchema | undefined) | undefined,
+  resolve: DocumentNodeResolver | undefined,
   connectivityFor: (graphId: string) => (node: NodeId) => Connectivity,
   lookupAnswers: ElaborateOptions['lookupAnswers'],
 ): ParamRow {
@@ -96,7 +99,7 @@ function resolveRow(
   if (!def) return { kind: 'stale', entry, reason: 'graph no longer exists' }
   const node = def.nodes[entry.nodeId]
   if (!node) return { kind: 'stale', entry, reason: 'node no longer exists' }
-  const schema = resolve?.(node.type)
+  const schema = resolve?.(entry.graphId, node, entry.graphId === doc.root ? [] : undefined)
   if (!schema) return { kind: 'stale', entry, reason: `no schema for '${node.type}'` }
   const connectivity = connectivityFor(entry.graphId)(node.id)
   const elaborated = elaborateInterface(schema, node, connectivity, lookupAnswers === undefined ? {} : { lookupAnswers })
@@ -133,7 +136,7 @@ export function buildParamRows(
   resolve: ((type: string) => NodeSchema | undefined) | undefined,
   lookupAnswers?: ElaborateOptions['lookupAnswers'],
 ): readonly ParamRow[] {
-  const resolveSchema = resolve === undefined ? undefined : documentResolver(doc, resolve)
+  const resolveSchema = resolve === undefined ? undefined : documentNodeResolver(doc, resolve, documentPrimitiveResolver(doc, resolve))
   const cache = new Map<string, (node: NodeId) => Connectivity>()
   const connectivityFor = (graphId: string): ((node: NodeId) => Connectivity) => {
     let c = cache.get(graphId)

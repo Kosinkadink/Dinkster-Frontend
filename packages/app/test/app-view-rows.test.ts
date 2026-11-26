@@ -99,6 +99,52 @@ const live = (row: ParamRow): Extract<ParamRow, { kind: 'live' }> => {
 }
 
 describe('buildParamRows', () => {
+  it('boundary/primitive/app-view uses consumer-derived widgets on each renamed occurrence', () => {
+    const INT = { kind: 'concrete', name: 'INT' } as const
+    const field = (id: string, options: Record<string, number>): InputSpec => ({ kind: 'input', id, type: INT, optional: false,
+      widget: { widgetType: 'INT', options, default: 0 } })
+    const registry = [schemaOf('Int', [field('value', { min: -1000, max: 1000 }),
+      { kind: 'output', id: 'INT', type: INT, knownValue: { input: 'value' } }]),
+      schemaOf('Steps', [field('steps', { min: 0, max: 8 })]), schemaOf('Count', [field('count', { min: 4, max: 12 })])]
+    const resolve = (type: string) => registry.find((schema) => schema.type === type)
+    for (const depth of [1, 2]) {
+      const graph = (id: string, node: string, type: string, inputId: string, target: string, outputId: string) => ({
+        id, name: id, nodes: { [node]: { id: node, type, values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
+        boundary: { body: [
+          { kind: 'input', id: inputId, promoted: true, binds: { kind: 'port', node, port: target } },
+          { kind: 'output', id: 'number', binds: { kind: 'port', node, port: outputId } },
+        ] },
+      })
+      const inputId = depth === 1 ? 'amount' : 'quantity'
+      const document = { format: 'dinkster-workflow', formatVersion: 1, root: 'root', lineage: 'app-primitive', view: { graphs: {} },
+        graphs: { root: { id: 'root', name: 'root', nextOrdinal: 10, nets: {}, reroutes: {}, nodes: {
+          first: { id: 'first', type: depth === 1 ? '#detail' : '#portrait', values: { [inputId]: 6 } },
+          second: { id: 'second', type: depth === 1 ? '#detail' : '#portrait', values: { [inputId]: 9 } },
+          a: { id: 'a', type: 'Steps', values: {} }, b: { id: 'b', type: 'Count', values: {} },
+        }, links: {
+          firstLink: { id: 'firstLink', from: { node: 'first', port: 'number' }, to: { node: 'a', port: 'steps' } },
+          secondLink: { id: 'secondLink', from: { node: 'second', port: 'number' }, to: { node: 'b', port: 'count' } },
+        } }, detail: graph('detail', 'prim', 'Int', 'amount', 'value', 'INT'),
+        ...(depth === 2 ? { portrait: graph('portrait', 'detail', '#detail', 'quantity', 'amount', 'number') } : {}) },
+        ext: { 'dinkster.exposed': ['first', 'second'].map((nodeId) => ({ graphId: 'root', nodeId, inputId })) },
+      } as unknown as WorkflowDocument
+      const rows = buildParamRows(document, resolve).map(live)
+      expect(rows.map((row) => [row.value, row.spec?.options['min'], row.spec?.options['max']])).toEqual([[6, 0, 8], [9, 4, 12]])
+      const store = new DocumentStore(document, coreCommandRegistry())
+      const first = rows[0]!
+      const edited = store.dispatch({ command: 'node.setValue', params: {
+        graphId: first.entry.graphId, nodeId: first.entry.nodeId, inputId: first.valueKey, value: 7,
+      } })
+      expect(edited.ok, JSON.stringify(edited.diagnostics)).toBe(true)
+      expect(buildParamRows(store.doc, resolve).map((row) => live(row).value)).toEqual([7, 9])
+      expect(store.undo()).toBe(true)
+      expect(buildParamRows(store.doc, resolve).map((row) => live(row).value)).toEqual([6, 9])
+      expect(store.redo()).toBe(true)
+      const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(buildParamRows(reopened, resolve).map((row) => [live(row).value, live(row).spec?.options['max']])).toEqual([[7, 8], [9, 12]])
+    }
+  })
+
   it('keeps an unselected optional boundary choice read-only through one and two boundaries', () => {
     const resolveOptional = (type: string): NodeSchema | undefined => {
       const schema = resolveBoundarySample(type)
