@@ -77,7 +77,7 @@ import {
   elabOutputsOf,
   elaborateInterface,
   type ElaborateOptions,
-  missingWhenUnset,
+  missingInputValue,
   ruleProblemRefs,
   selectorMembersOf,
   valueKeyOf,
@@ -2614,10 +2614,11 @@ function compileImpl(
       if (input.apiName === undefined) continue // never reaches the prompt
       if (input.origin.kind === 'member' && input.origin.ghost === true) continue
       const spec = input.spec
-      if (fn.inputs[spec.id] !== undefined) continue
+      const value = fn.inputs[spec.id]
+      if (value !== undefined && !missingInputValue(input, value)) continue
       // An automatic field with nothing stored stays out of the prompt, shown
       // or not: the engine works it out when the run is queued.
-      if (spec.automatic !== undefined) {
+      if (value === undefined && spec.automatic !== undefined) {
         const call = input.automatic?.call
         if (call !== undefined) automaticCalls.push({ runtimeNodeId: fn.runtimeId, inputId: spec.id, lookup: call.lookup, args: call.args })
         continue
@@ -2627,7 +2628,7 @@ function compileImpl(
       if (spec.hidden === true && input.hiddenByScope !== true) continue
       // A primitive's empty limit only shows the limit worked out for it.
       if (spec.widget?.automatic === true) continue
-      if (spec.widget) {
+      if (value === undefined && spec.widget) {
         // Explicit schema default first, then the widget kind's intrinsic
         // value (an INT shows 0/min, a STRING shows '', ...): what the
         // canvas visibly displays is what executes, and what a formula reads
@@ -2646,12 +2647,21 @@ function compileImpl(
           continue
         }
       }
-      // The canvas shows a row this refuses even when it is hidden, by the same rule.
-      if (missingWhenUnset(input)) {
+      // A visible-hidden row is revealed; a declaration-hidden field belongs to the node.
+      if (missingInputValue(input, value)) {
         // Server-side validation is authoritative; surface early as a warning.
-        diags.push(diag('warning', 'compile', 'compile.input.missing', `'${fn.node.type}' required input '${spec.id}' has no value or connection`, {
+        const hidden = input.hiddenByDeclaration === true
+        const label = spec.displayName ?? spec.id
+        const duplicate = hidden && fn.elab.inputs.some((other) => other !== input && other.hiddenByDeclaration === true
+          && !other.spec.optional && (other.spec.displayName ?? other.spec.id) === label)
+        const name = duplicate ? `${label} (${spec.id})` : label
+        const message = hidden
+          ? `${nameOf(fn.graphId, fn.node)} requires ${name} but hides it, so it cannot be set. The node's author has to fix this.`
+          : `'${fn.node.type}' required input '${spec.id}' has no value or connection`
+        diags.push(diag('warning', 'compile', 'compile.input.missing', message, {
           blocksExecution: true,
-          anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef },
+          ...(hidden ? { hiddenRequiredField: name } : {}),
+          anchor: { occurrence: fn.occ, ...(hidden ? {} : { port: { node: fn.occ.node, port: input.address.port } as PortRef }) },
         }))
       }
     }

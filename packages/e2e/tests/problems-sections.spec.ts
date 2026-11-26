@@ -45,7 +45,7 @@ test('removed pack parts open with anchored upgrade rows and preserve their stor
   expect(await page.evaluate(() => {
     const nodes = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes
     return { values: nodes.option!.values, group: nodes.group!.dynamic, choice: nodes.choice!.dynamic }
-  })).toEqual({ values: { 'mode.oldAmount': 31 }, group: { old: { members: ['m3'], seq: 4 } }, choice: { old: { selected: 'previous' } } })
+  })).toEqual({ values: { 'mode.oldAmount': 31 }, group: { old: { members: ['m3'], seq: 4 }, mode: { selected: 'current' } }, choice: { old: { selected: 'previous' }, mode: { selected: 'current' } } })
 })
 
 test('Problems presents five ordered sections with one-line rows and debug-only codes', async ({ page }) => {

@@ -27,8 +27,8 @@ import { credentialFetch, mintDelegation, type CollabCredentials, type Delegatio
 import { requestWithDeadline } from './request-deadline.js'
 import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
   type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
-import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs,
-  type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob } from './model-downloads.js'
+import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs, decodeModelPresence,
+  type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob, type ModelPresence } from './model-downloads.js'
 import {
   asPromptId,
   createSignal,
@@ -3497,6 +3497,22 @@ export class DinksterConnection {
     return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
 
+  /** Observe local model names without looking up sources or creating download plans. */
+  async checkModelPresence(models: readonly ModelRequirement[], signal?: AbortSignal): Promise<readonly ModelPresence[]> {
+    const rows: ModelPresence[] = []
+    for (let offset = 0; offset < models.length; offset += 256) {
+      const batch = models.slice(offset, offset + 256)
+      const response = await this.fetchFn(`${this.baseUrl}/api/models/presence`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, cache: 'no-store',
+        body: JSON.stringify({ models: batch, project: this.project ?? 'default', scope: 'local' }),
+        ...(signal === undefined ? {} : { signal }),
+      })
+      if (!response.ok) throw new Error(`POST /api/models/presence failed: ${response.status}`)
+      rows.push(...decodeModelPresence(await response.json(), batch))
+    }
+    return rows
+  }
+
   async planModelDownload(requirement: ModelRequirement, signal?: AbortSignal, source?: string): Promise<ModelDownloadPlan> {
     return decodeModelDownloadPlan(await this.modelDownloadRequest('plan', 'POST', {
       name: requirement.name, kind: requirement.kind, project: this.project ?? 'default', scope: 'local',
@@ -4250,7 +4266,8 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/library`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(args),
+      // A new record belongs to this window's project; without it the engine files it in Default.
+      body: JSON.stringify({ ...args, ...(this.project !== undefined ? { project: this.project } : {}) }),
     })
     if (!res.ok) throw new Error(`POST /api/library failed: ${res.status}`)
     const payload: unknown = await res.json()

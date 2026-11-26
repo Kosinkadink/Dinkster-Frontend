@@ -868,7 +868,10 @@ export function CollectionPanel(props: {
                     <Entry entry={entry()} />
                     <Show when={expandedIds().has(id)}>
                       <div id={`${resultsId}-group-${id}`} class="collection-children" role="group" aria-label={message('collection.group.runsIn', { title: entry().title })}>
-                        <For each={visibleChildren(entry())}>{(child) => <Entry entry={child} child />}</For>
+                        {/* Keyed by id, like the rows above, so a re-page keeps a chosen child's own state. */}
+                        <For each={visibleChildren(entry()).map((child) => child.id)}>{(childId) => (
+                          <Show when={visibleChildren(entry()).find((child) => child.id === childId)}>{(child) => <Entry entry={child()} child />}</Show>
+                        )}</For>
                       </div>
                     </Show>
                   </>

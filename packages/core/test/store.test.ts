@@ -1213,6 +1213,27 @@ describe('view.setEditorUnfolded and view.setPictureHeight', () => {
   const unfold = (nodeId: string, valueKey: string, unfolded: boolean | null) =>
     ({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', nodeId, valueKey, unfolded } })
 
+  it('saves each curve histogram override independently and undoes it without changing computation', () => {
+    const store = makeStore()
+    const set = (valueKey: string, visible: boolean) => ({
+      command: 'view.setHistogramVisible', params: { graphId: 'g0', nodeId: 'n1', valueKey, visible },
+    })
+    const beforeHash = semanticHashOf(store.doc)
+    expect(store.dispatch(set('curves.1.curve', false)).ok).toBe(true)
+    expect(store.dispatch(set('curves.2.curve', true)).ok).toBe(true)
+    expect(semanticHashOf(store.doc)).toBe(beforeHash)
+    const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc)))
+    expect(loaded.document!.view.graphs.g0!.nodes.n1!.histogramVisibility).toEqual({
+      'curves.1.curve': false, 'curves.2.curve': true,
+    })
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1!.histogramVisibility).toEqual({ 'curves.1.curve': false })
+    expect(store.redo()).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1!.histogramVisibility?.['curves.2.curve']).toBe(true)
+    expect(store.dispatch({ ...set('', false) }).ok).toBe(false)
+    expect(store.dispatch({ command: 'view.setHistogramVisible', params: { ...set('curve', false).params, visible: 'false' } }).ok).toBe(false)
+  })
+
   it('keeps each editor fold per node through undo and a save and load, outside the semantic hash', () => {
     const store = makeStore({
       ...doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1'), n2: node('n2') } }) }),

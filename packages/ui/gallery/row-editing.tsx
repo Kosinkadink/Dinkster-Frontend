@@ -23,6 +23,7 @@ import {
   canvasTypePaintForTheme,
   createRegistryPainter,
   defaultTokens,
+  widgetValueText,
   type DesignTokens,
   type LayoutRow,
   type Scene,
@@ -66,6 +67,8 @@ export interface RowExample {
   readonly open?: string
   /** The row the keyboard is on while nothing is open, on the keyboard node. */
   readonly focus?: string
+  /** The keyboard node's schema, when not the row-editing page's. */
+  readonly schema?: NodeSchema
   readonly drag?: { readonly valueKey: string; readonly value: Json }
   /** Shows the node whose number has a special value instead of the shared sample node. */
   readonly special?: boolean
@@ -340,6 +343,8 @@ export function RowEditingExample(props: {
   registry: WidgetRegistry
   /** Token overrides, such as a node look's. */
   look?: Partial<DesignTokens>
+  /** Writes the side part's default as plain JSON, for a Before card. */
+  jsonDefault?: boolean
   testIdPrefix?: string
 }) {
   let canvas!: HTMLCanvasElement
@@ -389,20 +394,15 @@ export function RowEditingExample(props: {
             : undefined
         }
         widgetMeasure.representations = (spec) => props.registry.kind(spec.widgetType)?.representations?.(spec)
-        const built = (
-          example.build?.scene ??
-          (example.special === true
-            ? createRowSpecialScene
+        const width = example.nodeWidth ?? NODE_WIDTH
+        const built =
+          example.build !== undefined
+            ? example.build.scene(tokens, measure, widgetMeasure, example.node, width)
+            : example.special === true
+            ? createRowSpecialScene(tokens, measure, widgetMeasure, example.node, width)
             : example.focus === undefined
-              ? createRowEditingScene
-              : createRowFocusScene)
-        )(
-          tokens,
-          measure,
-          widgetMeasure,
-          example.node,
-          example.nodeWidth ?? NODE_WIDTH,
-        )
+            ? createRowEditingScene(tokens, measure, widgetMeasure, example.node, width)
+            : createRowFocusScene(tokens, measure, widgetMeasure, example.node, width, example.schema)
         const node = built.nodes[0]!
         const bottom = Math.max(...built.nodes.map((drawn) => drawn.y + drawn.layout.height))
         const height = (bottom + MARGIN) * example.scale
@@ -447,6 +447,7 @@ export function RowEditingExample(props: {
     if (!row) return undefined
     const schema =
       props.example.build?.schema ??
+      props.example.schema ??
       (props.example.special === true
         ? rowSpecialSchema
         : props.example.focus === undefined
@@ -482,21 +483,22 @@ export function RowEditingExample(props: {
             },
           }
     if (props.example.focus !== undefined) {
+      // The default reads as the closed row would read it, in full.
       const declared = effectiveWidgetDefault(row.spec)
-      if (declared === undefined && help === undefined && looks === undefined)
-        return undefined
+      let defaultText =
+        declared === undefined
+          ? undefined
+          : props.jsonDefault === true
+            ? formatWidgetValue(declared, row.spec)
+            : widgetValueText(props.registry, row.viewId, declared, row.spec)
+      if (defaultText === undefined && declared !== undefined)
+        defaultText = formatWidgetValue(declared, row.spec)
+      if (defaultText == null && help === undefined && looks === undefined) return undefined
       return (
         <CanvasSidePart
           {...representation}
           facts={
-            declared === undefined
-              ? []
-              : [
-                  {
-                    key: 'default',
-                    value: formatWidgetValue(declared, row.spec),
-                  },
-                ]
+            defaultText == null ? [] : [{ key: 'default', value: defaultText }]
           }
           {...(help !== undefined ? { help: help! } : {})}
         />

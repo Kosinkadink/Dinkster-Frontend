@@ -60,6 +60,60 @@ const consentCallbacks = () => ({
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
 describe('installAssetConsent ownership', () => {
+  it('reviews and transfers one model without holding any submission retry', async () => {
+    const slot = slotOf<AssetConsentRequest>()
+    const requirement = { name: 'requested.safetensors', kind: 'model/vae' }
+    const selection = { ...requirement, project: 'studio', provider: 'huggingface' as const,
+      source: 'https://huggingface.co/example/vae', repo: 'example/vae', revision: 'a'.repeat(40),
+      file: 'weights.safetensors', sha256: 'b'.repeat(64), size: 8192, license: 'apache-2.0',
+      destination: '/models/vae/requested.safetensors', mount: 'models' }
+    const plan = { ...selection, status: 'consent-required' as const, planId: 'opaque-plan' }
+    let job: import('@dinkster/client').ModelDownloadJob = { ...selection, jobId: 'owned', status: 'downloading', received: 2048 }
+    const connection = {
+      planModelDownload: vi.fn(async () => plan), startModelDownload: vi.fn(async () => job),
+      fetchModelDownloads: vi.fn(async () => ({ instance: 'one', jobs: [] as typeof job[] })),
+      fetchModelDownload: vi.fn(async () => job),
+      cancelModelDownload: vi.fn(async () => ({ ...job, status: 'cancelled' as const })),
+    }
+    const input = { models: [requirement], slot, modelDownloads: { project: 'studio', connection } }
+    installAssetConsent(input)
+    expect(slot.value?.assets).toEqual([])
+    expect(slot.value?.models?.map((entry) => entry.requirement)).toEqual([requirement])
+    expect(slot.value).not.toHaveProperty('retry')
+    await slot.value!.downloadModel!(0)
+    expect(connection.startModelDownload).not.toHaveBeenCalled()
+    await slot.value!.reviewModel!(0)
+    expect(slot.value?.models?.[0]?.plan).toEqual(plan)
+    expect(connection.startModelDownload).not.toHaveBeenCalled()
+    await slot.value!.downloadModel!(0)
+    expect(slot.value?.models?.[0]?.job?.received).toBe(2048)
+    await slot.value!.cancelModel!(0)
+    expect(slot.value?.models?.[0]?.job?.status).toBe('cancelled')
+    await slot.value!.reviewModel!(0)
+    await slot.value!.downloadModel!(0)
+    job = { ...job, status: 'completed', received: 8192, path: selection.destination }
+    await slot.value!.reviewModel!(0)
+    expect(slot.value?.models?.[0]?.job?.status).toBe('completed')
+    expect(slot.value).not.toHaveProperty('retry')
+    const completed = slot.value!
+    slot.set(undefined)
+    await completed.downloadModel!(0)
+    expect(slot.value).toBeUndefined()
+    expect(connection.startModelDownload).toHaveBeenCalledTimes(2)
+
+    installAssetConsent(input)
+    let finish!: (value: typeof plan) => void
+    connection.planModelDownload.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    const review = slot.value!.reviewModel!(0)
+    await flush()
+    installAssetConsent(input)
+    const newer = slot.value
+    finish(plan)
+    await review
+    expect(slot.value).toBe(newer)
+    slot.set(undefined)
+  })
+
   it('invalidates reviewed model consent after sign-in changes without starting or submitting', async () => {
     const slot = slotOf<AssetConsentRequest>()
     const { result, retries } = rejection([])
@@ -75,7 +129,7 @@ describe('installAssetConsent ownership', () => {
     reviewed.providerChanged!()
     expect(slot.value!.models![0]!.plan).toBeUndefined()
     await reviewed.downloadModel!(0)
-    await slot.value!.retry([])
+    await slot.value!.retry!([])
     expect(connection.startModelDownload).not.toHaveBeenCalled()
     expect(retries).toHaveLength(0)
     slot.set(undefined)
@@ -113,7 +167,7 @@ describe('installAssetConsent ownership', () => {
     expect(slot.value!.models![0]!.source).toBe(replacement)
     await reviewed.downloadModel!(0)
     await slot.value!.downloadModel!(0)
-    await slot.value!.retry([])
+    await slot.value!.retry!([])
     expect(connection.startModelDownload).not.toHaveBeenCalled()
     expect(retries).toHaveLength(0)
     expect(reviewedSources).toEqual([undefined, source])
@@ -140,7 +194,7 @@ describe('installAssetConsent ownership', () => {
     const input = { result: { ...result, assetsMissing: { ...result.assetsMissing, models: [requirement] } },
       slot, modelDownloads: { project: 'studio', connection }, ...consentCallbacks() }
     installAssetConsent(input)
-    await slot.value!.retry([])
+    await slot.value!.retry!([])
     expect(retries).toHaveLength(0)
     await slot.value!.downloadModel!(0)
     expect(connection.startModelDownload).not.toHaveBeenCalled()
@@ -151,7 +205,7 @@ describe('installAssetConsent ownership', () => {
     expect(connection.startModelDownload).not.toHaveBeenCalled()
     await slot.value!.downloadModel!(0)
     expect(slot.value!.models![0]!.job?.received).toBe(2048)
-    await slot.value!.retry([])
+    await slot.value!.retry!([])
     expect(retries).toHaveLength(0)
     await slot.value!.cancelModel!(0)
     expect(slot.value!.models![0]!.job?.status).toBe('cancelled')
@@ -166,7 +220,7 @@ describe('installAssetConsent ownership', () => {
     job = { ...job, status: 'completed', received: 8192, path: '/models/odd/existing.safetensors', reused: true }
     await slot.value!.reviewModel!(0)
     expect(retries).toHaveLength(0)
-    const run = slot.value!.retry([])
+    const run = slot.value!.retry!([])
     expect(retries).toHaveLength(1)
     retries[0]!.resolve(submitOk)
     await run
@@ -186,7 +240,7 @@ describe('installAssetConsent ownership', () => {
     await slot.value!.reviewModel!(0)
     expect(slot.value!.models![0]!.plan).toEqual(plan)
     expect(slot.value!.models![0]!.job).toBeUndefined()
-    await slot.value!.retry([])
+    await slot.value!.retry!([])
     expect(retries).toHaveLength(1)
     slot.set(undefined)
   })
@@ -224,7 +278,7 @@ describe('installAssetConsent ownership', () => {
     const { result, retries } = rejection([missing('blake3:a')])
     const cb = consentCallbacks()
     installAssetConsent({ result, slot, ...cb })
-    void slot.value!.retry(['blake3:a'])
+    void slot.value!.retry!(['blake3:a'])
     expect(slot.value?.busy).toBe(true)
     retries[0]!.resolve(submitOk)
     await flush()
@@ -236,8 +290,8 @@ describe('installAssetConsent ownership', () => {
     const slot = slotOf<AssetConsentRequest>()
     const { result, retries } = rejection([missing('blake3:a')])
     installAssetConsent({ result, slot, ...consentCallbacks() })
-    void slot.value!.retry(['blake3:a'])
-    void slot.value!.retry(['blake3:a'])
+    void slot.value!.retry!(['blake3:a'])
+    void slot.value!.retry!(['blake3:a'])
     expect(retries).toHaveLength(1)
   })
 
@@ -246,7 +300,7 @@ describe('installAssetConsent ownership', () => {
     const { result, retries } = rejection([missing('blake3:a')])
     const beforeRetry = vi.fn().mockReturnValue(false)
     installAssetConsent({ result, slot, beforeRetry, ...consentCallbacks() })
-    await slot.value!.retry(['blake3:a'])
+    await slot.value!.retry!(['blake3:a'])
     expect(beforeRetry).toHaveBeenCalledOnce()
     expect(retries).toHaveLength(0)
     expect(slot.value).toBeUndefined()
@@ -260,7 +314,7 @@ describe('installAssetConsent ownership', () => {
     const b = rejection([missing('blake3:b')])
     installAssetConsent({ result: b.result, slot, ...consentCallbacks() })
     const current = slot.value
-    void stale.retry(['blake3:a'])
+    void stale.retry!(['blake3:a'])
     expect(retries).toHaveLength(0)
     expect(slot.value).toBe(current)
     expect(slot.value?.busy).toBe(false)
@@ -271,7 +325,7 @@ describe('installAssetConsent ownership', () => {
     const { result, retries } = rejection([missing('blake3:a')])
     const cb = consentCallbacks()
     installAssetConsent({ result, slot, ...cb })
-    void slot.value!.retry(['blake3:a'])
+    void slot.value!.retry!(['blake3:a'])
     const followup = rejection([missing('blake3:a'), missing('blake3:b')])
     retries[0]!.resolve(followup.result)
     await flush()
@@ -279,7 +333,7 @@ describe('installAssetConsent ownership', () => {
     expect(slot.value?.assets.map((a) => a.digest)).toEqual(['blake3:a', 'blake3:b'])
     expect(cb.onSuperseded).not.toHaveBeenCalled()
     // ...and the reopened request's retry chain still works.
-    void slot.value!.retry(['blake3:b'])
+    void slot.value!.retry!(['blake3:b'])
     expect(followup.retries).toHaveLength(1)
   })
 
@@ -288,7 +342,7 @@ describe('installAssetConsent ownership', () => {
     const a = rejection([missing('blake3:a')])
     const cb = consentCallbacks()
     installAssetConsent({ result: a.result, slot, ...cb })
-    void slot.value!.retry(['blake3:a'])
+    void slot.value!.retry!(['blake3:a'])
     // A newer submit claims the dialog while A's retry is in flight.
     const b = rejection([missing('blake3:b')])
     const cbB = consentCallbacks()
@@ -299,7 +353,7 @@ describe('installAssetConsent ownership', () => {
     expect(slot.value).toBe(owner)
     expect(cb.onSuperseded).toHaveBeenCalledWith([expect.objectContaining({ digest: 'blake3:a' })])
     // B's own chain is untouched and fully operational.
-    void slot.value!.retry(['blake3:b'])
+    void slot.value!.retry!(['blake3:b'])
     expect(b.retries).toHaveLength(1)
   })
 
@@ -311,7 +365,7 @@ describe('installAssetConsent ownership', () => {
     const a = rejection([missing('blake3:a')])
     const cb = consentCallbacks()
     installAssetConsent({ result: a.result, slot, ...cb })
-    void slot.value!.retry(['blake3:a'])
+    void slot.value!.retry!(['blake3:a'])
     slot.set(undefined) // slot cleared externally while the retry is in flight
     a.retries[0]!.resolve(rejection([missing('blake3:a')]).result)
     await flush()
@@ -324,7 +378,7 @@ describe('installAssetConsent ownership', () => {
     const a = rejection([missing('blake3:a')])
     const cb = consentCallbacks()
     installAssetConsent({ result: a.result, slot, ...cb })
-    void slot.value!.retry(['blake3:a'])
+    void slot.value!.retry!(['blake3:a'])
     const diag = { severity: 'error', origin: 'validation', code: 'x', message: 'no' } as const
     a.retries[0]!.resolve({ ok: false, diagnostics: [diag] })
     await flush()
@@ -337,7 +391,7 @@ describe('installAssetConsent ownership', () => {
     const a = rejection([missing('blake3:a')])
     const cb = consentCallbacks()
     installAssetConsent({ result: a.result, slot, ...cb })
-    void slot.value!.retry(['blake3:a'])
+    void slot.value!.retry!(['blake3:a'])
     a.retries[0]!.reject(new Error('socket closed'))
     await flush()
     expect(cb.onTransportError).toHaveBeenCalledWith('socket closed')

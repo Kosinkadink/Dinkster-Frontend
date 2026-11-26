@@ -302,24 +302,32 @@ describe('AppState multi-window workspace', () => {
 
   it('converges create, reorder, close, and persistence snapshots across windows', async () => {
     const factory = authorityFactories()
-    const first = prepareWorkflowApp(new AppState())
-    const second = prepareWorkflowApp(new AppState())
+    const first = createEditableApp()
+    const second = createEditableApp()
+    first.pages.register({ id: 'example', title: 'Example', icon: () => undefined, component: () => null })
+    const page = first.pages.open('example')!
     await Promise.all([
       first.enableWorkspaceAuthority(factory.document, factory.workspace),
       second.enableWorkspaceAuthority(factory.document, factory.workspace),
     ])
+    expect(first.activeTabId.get()).toBe(page.id)
+    expect(second.pages.tabs().every((tab) => tab.editorKind !== 'page')).toBe(true)
 
     const created = first.createWorkflow()
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(second.tabs.get().map((tab) => tab.id)).toContain(created.id)
+    first.pages.open('example')
 
     second.tabs.set([...second.tabs.get()].reverse())
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(first.tabs.get().map((tab) => tab.id)).toEqual(second.tabs.get().map((tab) => tab.id))
+    expect(first.activeTabId.get()).toBe(page.id)
+    expect(first.pages.tabs().filter((tab) => tab.editorKind !== 'page').map((tab) => tab.id)).toEqual(second.tabs.get().map((tab) => tab.id))
 
     second.closeTab(created.id)
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(first.tabs.get().some((tab) => tab.id === created.id)).toBe(false)
+    expect(first.activeTabId.get()).toBe(page.id)
     first.flushPersistTabs()
     second.flushPersistTabs()
     expect(first.tabs.get().map((tab) => tab.id)).toEqual(second.tabs.get().map((tab) => tab.id))

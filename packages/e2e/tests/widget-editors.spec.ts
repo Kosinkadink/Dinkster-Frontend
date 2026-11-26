@@ -1741,16 +1741,16 @@ test('a click on a wired row whose value is known only after a run explains it, 
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'MeasureTest', displayName: 'Measure', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'radius', type: { kind: 'concrete', name: 'INT' } }],
+        body: [{ kind: 'output', id: 'radius', type: { kind: 'concrete', name: 'INT' } }],
       },
       {
         type: 'SoftenTest', displayName: 'Soften', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{
+        body: [{
           kind: 'input', id: 'radius', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 4 },
         }],
       },
-    ] as never)
+    ])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'known-after-run', root: 'g0',
       graphs: { g0: {

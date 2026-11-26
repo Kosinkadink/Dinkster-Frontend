@@ -627,6 +627,8 @@ export interface NodeViewState {
    * `unfolded`; a growing group's members always start folded).
    */
   readonly editors?: Readonly<Record<string, { readonly unfolded: boolean }>>
+  /** Per-curve histogram visibility overrides; a connected input always stays visible. */
+  readonly histogramVisibility?: Readonly<Record<string, boolean>>
   /**
    * Height in canvas units of each unfolded editor's picture the user
    * dragged, by value key. Absent = the editor's own picture height.
