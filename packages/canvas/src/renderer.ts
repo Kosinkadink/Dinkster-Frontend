@@ -4433,8 +4433,8 @@ export class CanvasRenderer {
         const pinAlpha = ctx.globalAlpha
         if (pin.kept !== undefined) ctx.globalAlpha = pinAlpha * canvasPaintTokens.widget.inactiveOpacity
         else if (pin.direction === 'in' && this.mutedInputPins.has(`${node.id}\u0000${pin.portId}`)) ctx.globalAlpha = pinAlpha * canvasPaintTokens.node.modeOpacity
-        if (pin.collapsedSection !== undefined) {
-          // Each pin of a closed box's cluster cuts the one above it.
+        if (pin.collapsedSection !== undefined || pin.pressed === true) {
+          // Each pin of a compact cluster cuts the one above it.
           ctx.fillStyle = t.colors.nodeBody
           ctx.beginPath()
           ctx.arc(px, py, radius + canvasPaintTokens.node.box.clusterRing, 0, Math.PI * 2)

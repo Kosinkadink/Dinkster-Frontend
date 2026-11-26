@@ -502,6 +502,8 @@ export interface PinLayout extends DynamicAnnotations {
    * it; the pins of one side press together around the row's middle.
    */
   readonly collapsedSection?: string
+  /** Pin in a shared field line's compact cluster. */
+  readonly pressed?: true
   /** A wire's end under the last drawn pin of a full closed-box cluster: not drawn and not grabbed. */
   readonly stacked?: true
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
@@ -1791,12 +1793,7 @@ export function layoutNode(
     : (row.widget!.viewId === 'core.text'
       ? multilineWidgetHeight(row.widget!.rows, tokens)
       : row.widget!.rows * tokens.rowHeight)
-  // Each field of a shared line keeps its own border socket; notes and buttons have none.
-  const pinnedCells = (line: PendingRow[]): PendingRow[] => line.filter((row) => row.kind === 'widget')
-  const lineBaseHeight = (line: PendingRow[]): number => Math.max(
-    ...line.map(rowBaseHeight),
-    pinnedCells(line).length > 1 ? pinnedCells(line).length * (tokens.pinRadius * 2 + WIDGET_PIN_GAP * 2) : 0,
-  )
+  const lineBaseHeight = (line: PendingRow[]): number => Math.max(...line.map(rowBaseHeight))
   // Only the last text box takes the node's resize surplus; every other text
   // box keeps the height it was given in lines.
   const flexibleRows = pending.filter((row) =>
@@ -2075,6 +2072,11 @@ export function layoutNode(
   // A closed box's row carries the pins of the fields inside it, each side
   // pressed together around the row's middle. Wired pins come first and at
   // most `clusterMax` are drawn; a further wire ends on the last drawn pin.
+  const pressed = (index: number, count: number): { dy: number; stacked: boolean } => {
+    const drawn = Math.min(count, box.clusterMax)
+    const pitch = drawn === 2 ? box.clusterPitch.two : box.clusterPitch.three
+    return { dy: (Math.min(index, drawn - 1) - (drawn - 1) / 2) * pitch, stacked: index >= drawn }
+  }
   const clusters = new Map<string, typeof collapsedPins>()
   for (const p of collapsedPins) {
     const key = `${p.sectionId}\n${p.direction}`
@@ -2084,14 +2086,11 @@ export function layoutNode(
     const center = anchorY.get(all[0]!.sectionId)
     if (center === undefined) continue
     const ordered = [...all.filter((p) => p.connected), ...all.filter((p) => !p.connected)]
-    const drawn = Math.min(ordered.length, box.clusterMax)
-    const pitch = drawn === 2 ? box.clusterPitch.two : box.clusterPitch.three
     for (const [index, p] of ordered.entries()) {
-      const stacked = index >= drawn
+      const { dy, stacked } = pressed(index, ordered.length)
       if (stacked && !p.connected) break
-      const slot = Math.min(index, drawn - 1)
       pins.push({
-        ...annotationsOf(p), portId: p.portId, label: p.label, direction: p.direction, y: center + (slot - (drawn - 1) / 2) * pitch, type: p.type, collapsedSection: p.sectionId,
+        ...annotationsOf(p), portId: p.portId, label: p.label, direction: p.direction, y: center + dy, type: p.type, collapsedSection: p.sectionId,
         ...(stacked ? { stacked: true as const } : {}),
         ...(p.optional ? { optional: true as const } : {}), ...(p.maybeAbsent ? { maybeAbsent: true as const } : {}),
         ...(p.widgetTap ? { widgetTap: true as const } : {}),
@@ -2183,8 +2182,7 @@ export function layoutNode(
       ? box.cross.fieldGap * 2 + box.gripWidth - box.fieldGap : 0
     const crossRoom = (last.kind === 'widget' || last.kind === 'button') && last.crossInset !== undefined
       ? last.crossInset + box.cross.size + box.cross.fieldGap - inset : 0
-    const pinned = pinnedCells(line)
-    const icons = new Set(pinned.length === 0 ? [] : line.filter((row) => row.button?.icon !== undefined))
+    const icons = new Set(line.some((row) => row.kind === 'widget') ? line.filter((row) => row.button?.icon !== undefined) : [])
     const iconWidth = lineBaseHeight(line) - tokens.rowGeometry.fieldInsetY * 2
     const sharedWidth = (width - inset * 2 - gripRoom - crossRoom - (line.length - 1) * gap - icons.size * iconWidth) /
       (line.length - icons.size)
@@ -2195,14 +2193,20 @@ export function layoutNode(
       const cellWidth = (icons.has(pendingRow) ? iconWidth : sharedWidth) +
         (column === 0 ? gripRoom : 0) + (column === line.length - 1 ? crossRoom : 0)
       rows[index] = { ...row, inset: left, width: cellWidth }
-      const slot = pinned.indexOf(pendingRow)
-      for (const [index, pin] of pins.entries()) {
-        if (row.kind === 'widget' && pin.portId === row.inputId && (pin.direction === 'in' || pin.widgetTap === true))
-          // Border sockets keep noodles outside the node body. Distinct slots
-          // retain independent hit targets while the controls share a line.
-          pins[index] = { ...pin, y: row.y + (slot + 0.5) * lineBaseHeight(line) / pinned.length }
-      }
       left += cellWidth + gap
+    }
+    // Only wired fields keep pins on a shared line, clustered at its ends
+    // without making the fields taller. Real outputs retain their own rows.
+    const fields = new Set(line.flatMap((row) => row.widget ? [row.widget.inputId] : []))
+    const center = rows[rowIndex.get(line[0]!)!]!.y + tokens.rowHeight / 2
+    for (const direction of ['in', 'out'] as const) {
+      const own = (pin: PinLayout): boolean => fields.has(pin.portId) && pin.direction === direction &&
+        (direction === 'in' ? pin.widgetBacked === true : pin.widgetTap === true)
+      const wired = pins.filter((pin) => own(pin) && isConnected(direction, pin.portId))
+      pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...wired.map((pin, index) => {
+        const { dy, stacked } = pressed(index, wired.length)
+        return { ...pin, y: center + dy, pressed: true as const, ...(stacked ? { stacked: true as const } : {}) }
+      }))
     }
   }
   // A member that can be moved has its grip at the left end, and its field
