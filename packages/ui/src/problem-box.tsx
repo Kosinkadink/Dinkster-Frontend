@@ -76,6 +76,7 @@ export function ProblemBox(props: {
             class="problem-box-line"
             data-testid="problem-box-line"
             data-kind={line.kind}
+            data-stacked-actions={line.actions.length > 1 ? 'true' : undefined}
             data-row={line.row}
             data-highlighted={props.highlighted === line.key ? 'true' : undefined}
             onPointerEnter={() => props.onPointLine?.(line)}
@@ -92,18 +93,22 @@ export function ProblemBox(props: {
               </Show>
               <span class="problem-box-message">{line.message}</span>
             </p>
-            <For each={line.actions}>
-              {(action) => (
-                <button
-                  type="button"
-                  class="problem-box-action"
-                  data-testid={`problem-box-${action.id}`}
-                  onClick={() => props.onAction?.(line, action.id)}
-                >
-                  {action.label}
-                </button>
-              )}
-            </For>
+            <Show when={line.actions.length > 0}>
+              <div class="problem-box-actions">
+                <For each={line.actions}>
+                  {(action) => (
+                    <button
+                      type="button"
+                      class="problem-box-action"
+                      data-testid={`problem-box-${action.id}`}
+                      onClick={() => props.onAction?.(line, action.id)}
+                    >
+                      {action.label}
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
           </div>
         )}
       </For>

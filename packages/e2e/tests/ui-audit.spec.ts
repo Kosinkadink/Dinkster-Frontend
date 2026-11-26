@@ -112,10 +112,10 @@ test.describe('plain widget editors', () => {
     await auditSurface(page, 'editor-color', '[data-testid=widget-editor]')
   })
 
-  test('COMBO dropdown passes the layout audit', async ({ page }) => {
+  test('COMBO list in the row passes the layout audit', async ({ page }) => {
     await openEditor(page, 'choice')
-    await expect(page.getByTestId('combo-dropdown')).toBeVisible()
-    await auditSurface(page, 'editor-combo', '[data-testid=combo-dropdown]')
+    await expect(page.locator('[data-editor-surface="in-row-list"] input')).toBeVisible()
+    await auditSurface(page, 'editor-combo', '[data-editor-surface="in-row-list"]')
   })
 })
 

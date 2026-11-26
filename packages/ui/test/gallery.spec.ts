@@ -428,7 +428,7 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await expect(field).toHaveCSS('border-top-width', '1px')
   await expect(field).toHaveCSS(
     'border-top-color',
-    await token(page, '--dinkster-border-focus'),
+    await token(page, '--dinkster-text-secondary'),
   )
   await expect(field).toHaveCSS('outline-width', '0px')
   await field.press('a')
@@ -436,16 +436,16 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await page.keyboard.press('Tab')
   await page.keyboard.press('Shift+Tab')
   await expect(field).toBeFocused()
-  await expect(field).toHaveCSS('outline-width', '2px')
+  await expect(field).toHaveCSS('outline-width', '0px')
   await expect(field).toHaveCSS(
     'border-top-color',
-    await token(page, '--dinkster-border-subtle'),
+    await token(page, '--dinkster-text-secondary'),
   )
   await field.click()
   await expect(field).toHaveCSS('outline-width', '0px')
   await expect(field).toHaveCSS(
     'border-top-color',
-    await token(page, '--dinkster-border-focus'),
+    await token(page, '--dinkster-text-secondary'),
   )
   await page.keyboard.press('Tab')
   await page.getByLabel('Unchecked option').focus()
@@ -467,6 +467,47 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
     page.getByRole('link', { name: 'Forms', exact: true }),
   ).toBeInViewport()
   await expect(page).toHaveScreenshot('frame-stays-when-scrolled.png')
+})
+
+test('page field borders show focus without a second ring', async ({
+  page,
+}) => {
+  for (const theme of ['dark', 'light']) {
+    await page.goto(`/?theme=${theme}#controls`)
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme
+    }, theme)
+    await page.keyboard.press('Tab')
+    for (const [label, name, invalid] of [
+      ['Display name', 'text', false],
+      ['Notes', 'textarea', false],
+      ['Access', 'select', false],
+      ['Project ID', 'invalid', true],
+    ] as const) {
+      const field = page.getByLabel(label, { exact: true })
+      await field.focus()
+      await field.hover()
+      await expect(field).toHaveCSS('border-top-width', '1px')
+      await expect(field).toHaveCSS(
+        'border-top-color',
+        await token(
+          page,
+          invalid ? '--dinkster-danger-border' : '--dinkster-text-secondary',
+        ),
+      )
+      await expect(field).toHaveCSS('outline-width', '0px')
+      await expect(
+        field.locator('xpath=ancestor::div[@class="dinkster-field"][1]'),
+      ).toHaveScreenshot(`field-focus-${theme}-${name}.png`)
+    }
+    const disabled = page.getByLabel('Unavailable field', { exact: true })
+    await disabled.focus()
+    await expect(disabled).not.toBeFocused()
+    await expect(disabled).toHaveCSS(
+      'border-top-color',
+      await token(page, '--dinkster-border-subtle'),
+    )
+  }
 })
 
 test('quiet text menus keep shared focus, checked selection and dismissal without a resting outline', async ({ page }) => {
@@ -536,6 +577,48 @@ test('quiet text menus keep shared focus, checked selection and dismissal withou
     await expect(section.getByRole('menu')).toBeVisible()
     await expect(outlined).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await page.keyboard.press('Escape')
+  }
+})
+
+test('menu end alignment preserves the trigger edge and viewport containment', async ({ page }, testInfo) => {
+  for (const width of [1280, 600, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/?theme=dark#menu-alignment')
+    const end = page.getByRole('button', { name: 'End actions', exact: true })
+    const start = page.getByRole('button', { name: 'Start actions', exact: true })
+    await end.click()
+    const menu = page.getByRole('menu', { name: 'End actions', exact: true })
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Recommended build', exact: true })).toBeFocused()
+    const anchor = (await end.boundingBox())!
+    const bounds = (await menu.boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(8)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8)
+    if (width === 1280) {
+      expect(anchor.x + bounds.width).toBeLessThanOrEqual(width - 8)
+      expect(anchor.x + anchor.width - bounds.width).toBeGreaterThanOrEqual(8)
+    }
+    if (anchor.x + anchor.width - bounds.width >= 8) {
+      expect(bounds.x + bounds.width).toBe(anchor.x + anchor.width)
+    }
+    await page.screenshot({ path: testInfo.outputPath(`menu-end-${width}.png`) })
+    await page.keyboard.press('ArrowDown')
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Alternative build', exact: true })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveCount(0)
+    await expect(end).toBeFocused()
+    await start.click()
+    const startMenu = page.getByRole('menu', { name: 'Start actions', exact: true })
+    const startAnchor = (await start.boundingBox())!
+    const startBounds = (await startMenu.boundingBox())!
+    expect(startBounds.x).toBeGreaterThanOrEqual(8)
+    expect(startBounds.x + startBounds.width).toBeLessThanOrEqual(width - 8)
+    if (startAnchor.x + startBounds.width <= width - 8) expect(startBounds.x).toBe(startAnchor.x)
+    await page.screenshot({ path: testInfo.outputPath(`menu-start-${width}.png`) })
+    await page.keyboard.press('Escape')
+    await expect(start).toBeFocused()
+    await end.click()
+    await page.getByRole('heading', { name: 'Menu alignment', exact: true }).click()
+    await expect(menu).toHaveCount(0)
   }
 })
 

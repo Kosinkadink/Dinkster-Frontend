@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { effectiveWidgetDefault, t, type CompactState, type Json, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
+import { effectiveWidgetDefault, registerCatalog, t, type CompactState, type Json, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '../src/index.js'
+
+registerCatalog('en', { 'widgetSummary.lines': '{count} lines' })
 
 const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'cat.png', size: 12, mediaType: 'image/png', virtualPath: 'input/cat.png' }
 
@@ -202,12 +204,12 @@ describe('compact display through the real registered views', () => {
     ['core.number', 'INT', 7, {}, '7'],
     ['core.number', 'FLOAT', 1.25, {}, '1.3'],
     ['core.line', 'STRING', 'hello', {}, 'hello'],
-    ['core.markdown', 'MARKDOWN', '## Heading\nsecond line', {}, '## Heading'],
+    ['core.markdown', 'MARKDOWN', '## Heading\nsecond line', {}, '## Heading (2 lines)'],
     ['core.text', 'STRING', 'first\nsecond', {}, ['first', 'second']],
     ['core.toggle', 'BOOLEAN', true, {}, 'true'],
     ['core.toggle', 'BOOLEAN', true, { labelOn: 'Enabled' }, 'Enabled'],
     ['core.select', 'COMBO', 'euler', { options: ['euler', 'ddim'] }, 'euler'],
-    ['core.multiSelect', 'MULTI_COMBO', ['ddim', 'euler', 'ddim'], { options: ['euler', 'ddim'] }, '3 selected'],
+    ['core.multiSelect', 'MULTI_COMBO', ['ddim', 'euler', 'ddim'], { options: ['euler', 'ddim'] }, 'ddim, euler, ddim'],
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer' }] }, {}, '1 document edit'],
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: null, commands: [] }, {}, 'Run to load layers'],
     ['core.list', 'LIST', [1, 'two', { three: 3 }], {}, '1, two, {"three":3}'],
@@ -218,9 +220,9 @@ describe('compact display through the real registered views', () => {
     ['core.asset', 'ASSET', null, { accept: ['image/png', 'image/jpeg'] }, 'Choose image'],
     ['core.asset', 'ASSET', null, { accept: ['audio/wav'] }, 'Choose audio'],
     ['core.asset', 'ASSET', null, { accept: ['image/png', 'video/mp4'] }, 'Choose file'],
-    // Multi-select values (list-of-asset declarations): one name, else a count.
+    // Multi-select values keep every name; the painter fits them in the row.
     ['core.asset', 'ASSET', [asset], {}, 'cat.png'],
-    ['core.asset', 'ASSET', [asset, { ...asset, name: 'dog.png' }], {}, '2 assets'],
+    ['core.asset', 'ASSET', [asset, { ...asset, name: 'dog.png' }], {}, 'cat.png, dog.png'],
     ['core.asset', 'ASSET', [], { accept: ['video/mp4'] }, 'Choose video'],
   ] as const)('%s (%s) displays %j as %j', (viewId, widgetType, value, options, expected) => {
     const rec = draw(viewId, widgetType, value as Json, options as Record<string, unknown>)
