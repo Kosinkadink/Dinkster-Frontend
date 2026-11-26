@@ -1513,10 +1513,45 @@ describe('formula properties', () => {
     expect(suffix({ formula: 'str(1 // 0)' })).toBeUndefined()
   })
 
+  it('works out input access without changing sent values, and allows editing while a flag is unknown or failed', () => {
+    const body = [
+      field('mode', { pin: false, sent: false }),
+      field('fixed', { readOnly: true }),
+      field('both', { readOnly: true, disabled: true, disabledReason: 'Preset controls this field' }),
+      field('limited', { readOnly: { formula: 'mode > 5' }, disabled: { formula: 'mode < 2' }, disabledReason: { formula: '"Preset " + str(mode)' } }),
+      field('failed', { readOnly: { formula: '1 // 0 > 0' }, disabled: { formula: '1 // 0 > 0' } }),
+      pick,
+      field('unknown', { readOnly: { formula: 'pick.under > 0' }, disabled: { formula: 'pick.under > 0' } }),
+    ]
+    const access = (value: number) => elabInputsOf(elaborate(body, { mode: value, limited: 24 }, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } }))
+    const high = access(9)
+    expect(high.find((row) => row.spec.id === 'fixed')).toMatchObject({ readOnly: true, apiName: 'fixed' })
+    expect(high.find((row) => row.spec.id === 'both')).toMatchObject({ readOnly: true, disabled: true, disabledReason: 'Preset controls this field', apiName: 'both' })
+    expect(high.find((row) => row.spec.id === 'limited')).toMatchObject({ readOnly: true, apiName: 'limited' })
+    expect(high.find((row) => row.spec.id === 'limited')).not.toHaveProperty('disabled')
+    const low = access(1).find((row) => row.spec.id === 'limited')!
+    expect(low).toMatchObject({ disabled: true, disabledReason: 'Preset 1', apiName: 'limited' })
+    expect(low).not.toHaveProperty('readOnly')
+    for (const row of high.filter((item) => item.spec.id === 'failed' || item.spec.id === 'unknown')) {
+      expect(row).not.toHaveProperty('readOnly')
+      expect(row).not.toHaveProperty('disabled')
+      expect(row).not.toHaveProperty('disabledReason')
+    }
+    expect(high.find((row) => row.spec.id === 'mode')).not.toHaveProperty('apiName')
+    expect(high.map((row) => row.apiName)).toEqual(access(1).map((row) => row.apiName))
+    expect(body[3]).toMatchObject({ readOnly: { formula: 'mode > 5' }, disabled: { formula: 'mode < 2' } })
+  })
+
   it("works out a button's enabled, reason and tooltip, and leaves it enabled while unknown or failed", () => {
     const body = (enabled: string) => [field('w'), pick, { kind: 'button', id: 'go', label: 'Go', steps: [],
       enabled: { formula: enabled }, disabledReason: { formula: '"needs " + str(w) + " more"' }, tooltip: { formula: '"Go " + str(w)' } }]
-    const button = (elaborated: ReturnType<typeof elaborate>) => elaborated.items.find((item) => item.kind === 'button')
+    // What elaboration works out; the declaration it carries is the body's own.
+    const button = (elaborated: ReturnType<typeof elaborate>) => {
+      const found = elaborated.items.find((item) => item.kind === 'button')
+      if (found?.kind !== 'button') return found
+      const { spec: _spec, ...rest } = found
+      return rest
+    }
     expect(button(elaborate(body('w > 5'), { w: 2 }))).toEqual({ kind: 'button', id: 'go', label: 'Go', enabled: false, disabledReason: 'needs 2 more', tooltip: 'Go 2' })
     expect(button(elaborate(body('w > 5'), { w: 9 }))).toEqual({ kind: 'button', id: 'go', label: 'Go', tooltip: 'Go 9' })
     expect(button(elaborate(body('pick.under > 5'), { w: 2 }, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } })))

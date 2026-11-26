@@ -2,6 +2,7 @@ import {
   defaultValuesOf,
   loadDocument,
   type Json,
+  type JsonObject,
   type NodeSchema,
 } from '@dinkster/core'
 import {
@@ -47,6 +48,18 @@ export const optionalSaveTargetSchema: NodeSchema = {
   ],
 }
 
+export const mappedSaveTargetSchema: NodeSchema = {
+  ...saveTargetSchema,
+  body: [
+    { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+    { kind: 'input', id: 'mount', displayName: 'Mount', type: { kind: 'concrete', name: 'MOUNT' }, optional: true,
+      widget: { widgetType: 'MOUNT', options: {} } },
+    { kind: 'input', id: 'filename_prefix', displayName: 'Name', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+      widget: { widgetType: 'STRING', options: {}, default: 'ComfyUI' } },
+    { kind: 'editor', id: 'target', widget: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' }, writes: { mount: 'mount', name: 'filename_prefix' } } },
+  ],
+}
+
 const SOURCE = 'Target source'
 const sourceSchema: NodeSchema = {
   type: SOURCE,
@@ -68,11 +81,24 @@ export function createSaveTargetScene(
   widgetMeasure: WidgetMeasure,
   position: { x: number; y: number },
   stored: Json,
-  options: { readonly optional?: boolean; readonly wired?: boolean } = {},
+  options: { readonly optional?: boolean; readonly wired?: boolean; readonly unfolded?: boolean; readonly mapped?: boolean; readonly wiredParts?: readonly ('mount' | 'name')[] } = {},
 ): Scene {
-  const schema = options.optional === true ? optionalSaveTargetSchema : saveTargetSchema
-  const id = schema.type
   const wired = options.wired === true
+  const schema = {
+    ...(options.mapped ? mappedSaveTargetSchema : options.optional === true ? optionalSaveTargetSchema : saveTargetSchema),
+    ...(wired ? { displayName: 'Save layers' } : {}),
+  }
+  const id = schema.type
+  const parts = options.wiredParts ?? []
+  const hasSource = wired || parts.length > 0
+  const target = (typeof stored === 'object' && stored !== null && !Array.isArray(stored) ? stored : {}) as JsonObject
+  const source = {
+    ...sourceSchema,
+    body: options.mapped ? [
+      { kind: 'output', id: 'mount', type: { kind: 'concrete', name: 'MOUNT' } },
+      { kind: 'output', id: 'name', type: { kind: 'concrete', name: 'STRING' } },
+    ] : sourceSchema.body,
+  } satisfies NodeSchema
   const loaded = loadDocument({
     format: 'dinkster-workflow',
     formatVersion: 1,
@@ -84,12 +110,13 @@ export function createSaveTargetScene(
         name: 'Gallery',
         nextOrdinal: 3,
         nodes: {
-          [id]: { id, type: id, values: { ...defaultValuesOf(schema), target: stored } },
-          ...(wired ? { [SOURCE]: { id: SOURCE, type: SOURCE, values: {} } } : {}),
+          [id]: { id, type: id, values: { ...defaultValuesOf(schema), ...(options.mapped
+            ? { mount: target['mount'] ?? null, filename_prefix: target['prefix'] ?? '' } : { target: stored }) } },
+          ...(hasSource ? { [SOURCE]: { id: SOURCE, type: SOURCE, values: {} } } : {}),
         },
         links: wired
           ? { wire: { id: 'wire', from: { node: SOURCE, port: 'target' }, to: { node: id, port: 'target' } } }
-          : {},
+          : Object.fromEntries(parts.map((part) => [part, { id: part, from: { node: SOURCE, port: part }, to: { node: id, port: part === 'mount' ? 'mount' : 'filename_prefix' } }])),
         nets: {},
         reroutes: {},
       },
@@ -98,8 +125,8 @@ export function createSaveTargetScene(
       graphs: {
         gallery: {
           nodes: {
-            [id]: { position, size: { width: 280, height: 0 } },
-            ...(wired ? { [SOURCE]: { position: { x: -400, y: position.y }, size: { width: 160, height: 0 } } } : {}),
+            [id]: { position, size: { width: 280, height: 0 }, ...(options.unfolded === undefined ? {} : { editors: { target: { unfolded: options.unfolded } } }) },
+            ...(hasSource ? { [SOURCE]: { position: { x: -400, y: position.y }, size: { width: 160, height: 0 } } } : {}),
           },
         },
       },
@@ -110,7 +137,7 @@ export function createSaveTargetScene(
   return buildScene({
     document: loaded.document,
     graphId: 'gallery',
-    resolve: (type) => (type === id ? schema : type === SOURCE ? sourceSchema : undefined),
+    resolve: (type) => (type === id ? schema : type === SOURCE ? source : undefined),
     tokens,
     measure,
     widgetMeasure,
@@ -141,11 +168,16 @@ export interface SaveTargetExample {
   readonly noDefault?: boolean
   /** A wire brings this target. */
   readonly arriving?: Json
+  /** The shared in-node fold-out rather than the hanging-box examples. */
+  readonly foldout?: true
+  /** Show the text field without a host-managed keyboard highlight. */
+  readonly resting?: true
+  readonly mapped?: true
+  readonly wiredParts?: readonly ('mount' | 'name')[]
 }
 
 /** A target on Project default names only the prefix. */
 const portrait = { prefix: 'renders/portrait' }
-const onOutput = { mount: 'output', prefix: 'renders/portrait' }
 const onUsb = { mount: 'usb1', prefix: 'renders/portrait' }
 
 /** The ready writable mounts every example offers; the first is the project's default output mount. */
@@ -159,37 +191,35 @@ export const saveTargetGroups: readonly {
   readonly examples: readonly SaveTargetExample[]
 }[] = [
   {
-    title: 'Opening, picking a mount and leaving',
+    title: 'Ordinary Save inputs',
     examples: [
-      { id: 'closed-default', caption: 'Closed, on Project default: the row names the mount it means here in italics, then the name.', stored: portrait },
-      { id: 'closed', caption: 'Closed, on a named mount: the mount is upright, as stored.', stored: onOutput },
-      { id: 'open', caption: 'Open on Project default, where a new target starts: the dropdown says Project default and stores no mount; the row and the side part name the mount it means here. The default is a link.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' } },
-      { id: 'list', caption: 'The dropdown open: Project default first, naming the mount it means here, then this machine\'s writable mounts. The list lies over the box and past its lower edge.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, listOn: '' },
-      { id: 'changed', caption: 'archive picked and a new name typed: the row and the side part show what leaving would store. Escape would keep the stored target.', stored: portrait, open: { mount: 'archive', prefix: 'renders/final' } },
-      { id: 'left', caption: 'Left with Enter, Tab or a click outside: the new target is stored as one undo step.', stored: { mount: 'archive', prefix: 'renders/final' } },
+      { id: 'mapped-open', caption: 'Mount and Name are real inputs, grouped by the target editor. The header has no pin.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mapped: true, foldout: true, resting: true },
+      { id: 'mapped-mount-wired', caption: 'Mount wired: its arriving archive value is quiet. Name stays editable.', stored: portrait, open: { mount: 'archive', prefix: 'renders/portrait' }, wiredParts: ['mount'], mapped: true, foldout: true, resting: true },
+      { id: 'mapped-name-wired', caption: 'Name wired: its arriving name is quiet. Mount stays editable. Reset is hidden because the unwired Mount already has its default.', stored: portrait, open: { mount: null, prefix: 'from/upstream' }, wiredParts: ['name'], mapped: true, foldout: true, resting: true },
+      { id: 'mapped-folded', caption: 'Folded with no wires: the Mount and Name pins are hidden.', stored: portrait, mapped: true, foldout: true },
+      { id: 'mapped-both-wired', caption: 'Folded with both inputs wired: the header is quiet and their pins gather on the node edge. No target input is invented.', stored: portrait, wiredParts: ['mount', 'name'], mapped: true, foldout: true },
+      { id: 'mapped-both-wired-open', caption: 'Both inputs wired, reopened: the header and both arriving values are quiet. Nothing in the editor can change.', stored: portrait, open: { mount: 'archive', prefix: 'from/upstream' }, wiredParts: ['mount', 'name'], mapped: true, foldout: true, resting: true },
     ],
   },
   {
-    title: 'Mounts that cannot be used',
+    title: 'Shared fold-out editor',
     examples: [
-      { id: 'loading', caption: 'The mounts are still being read: the prefix can already be typed, and the row reads Project default until the mount it means is known.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'loading' },
-      { id: 'none', caption: 'No writable mount is ready: no mount can be picked.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'none' },
-      { id: 'failed', caption: 'The mounts could not be read: the dropdown says Could not load and the error\'s own sentence leads the side part.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'failed' },
-      { id: 'not-here-closed', caption: 'Closed, with a stored mount this machine lacks: it is struck through, followed by the mount the run uses in italics. Nothing has to be changed.', stored: onUsb },
-      { id: 'not-here', caption: 'The stored mount is not on this machine: the run saves to the project default and the stored mount stays. The side part says so and offers Use project default.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' } },
-      { id: 'no-default-closed', caption: 'Closed, on Project default in a project with no default output mount: the row says so in italics, unlike the row whose mounts are still being read.', stored: portrait, noDefault: true },
-      { id: 'no-default', caption: 'Open, in a project with no default output mount: the list entry reads Project default (no output mount), and the side part leads with why a run cannot save, in the error color. Nothing is refused.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, noDefault: true },
-      { id: 'not-here-no-default-closed', caption: 'Closed, with a stored mount this machine lacks and no default output mount: the mount is struck through and nothing in italics follows.', stored: onUsb, noDefault: true },
-      { id: 'not-here-no-default', caption: 'Open, with a stored mount this machine lacks and no default output mount: the side part names both facts in the error color.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, noDefault: true },
-      { id: 'not-here-list', caption: 'The same mount in the list: dimmed, marked not on this machine, and it cannot be picked.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, listOn: '' },
-    ],
-  },
-  {
-    title: 'Names, tooltips and wires',
-    examples: [
-      { id: 'invalid', caption: 'A name that cannot be used: the field is outlined, the sentence stands under it and Enter keeps the stored target.', stored: portrait, open: { mount: null, prefix: '../escape' } },
-      { id: 'no-tooltip', caption: 'An input with no tooltip: only the naming help shows under the divider.', stored: onOutput, open: { mount: 'output', prefix: 'renders/portrait' }, optional: true },
-      { id: 'wired', caption: 'The row has a wire: it shows the target that arrives and does not open.', stored: onOutput, arriving: { mount: 'archive', prefix: 'from/upstream' } },
+      { id: 'foldout-folded', caption: 'Folded: the shared editor header keeps its icon, target name, save location and opener.', stored: portrait, foldout: true },
+      { id: 'foldout-folded-missing', caption: 'Folded with a missing mount: the header keeps the warning outline and triangle.', stored: onUsb, foldout: true },
+      { id: 'foldout-folded-no-default', caption: 'Folded without an output mount: the header keeps the error outline and triangle.', stored: portrait, noDefault: true, foldout: true },
+      { id: 'foldout-rest', caption: 'Open, at rest: the header stays in place; Mount and Name have ordinary dim borders. Neither field has the keyboard.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, foldout: true, resting: true },
+      { id: 'foldout-typing', caption: 'Open, typing in Name: its own 1 px secondary-text border, with no cyan or second ring inside. The Mount border remains dim.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, foldout: true },
+      { id: 'foldout-wired', caption: 'Whole target wired: folded, quiet, with the shared frame, icon and opener retained.', stored: portrait, arriving: { mount: 'archive', prefix: 'from/upstream' }, foldout: true },
+      { id: 'foldout-wired-open', caption: 'Whole target wired, reopened to read what arrives. Neither Mount nor Name can change.', stored: portrait, arriving: { mount: 'archive', prefix: 'from/upstream' }, open: { mount: 'archive', prefix: 'from/upstream' }, foldout: true, resting: true },
+      { id: 'foldout-invalid', caption: 'A refused Name keeps the Mount row visible. The name cannot leave the mount.', stored: portrait, open: { mount: null, prefix: '../escape' }, foldout: true },
+      { id: 'foldout-missing', caption: 'A missing mount stays stored. Details opens the explanation and project-default action.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, foldout: true, resting: true },
+      { id: 'foldout-no-default', caption: 'Project default has no output mount. The error stays inside the editor.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, noDefault: true, foldout: true, resting: true },
+      { id: 'foldout-missing-no-default', caption: 'The stored mount is missing and this project has no default output mount.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, noDefault: true, foldout: true, resting: true },
+      { id: 'foldout-none', caption: 'No ready writable mount. The message grows the editor only by its content height.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'none', foldout: true, resting: true },
+      { id: 'foldout-loading', caption: 'Mounts are loading. Name stays editable inside the shared editor.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'loading', foldout: true, resting: true },
+      { id: 'foldout-failed', caption: 'Mounts could not be read. The problem note stays inside the shared editor.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'failed', foldout: true, resting: true },
+      { id: 'foldout-list', caption: 'The Mount list opens over the canvas without a side part.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, listOn: '', foldout: true, resting: true },
+      { id: 'foldout-changed', caption: 'A changed target offers Reset to default in the shared editor button row.', stored: portrait, open: { mount: 'archive', prefix: 'renders/final' }, foldout: true, resting: true },
     ],
   },
 ]

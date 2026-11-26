@@ -11,6 +11,7 @@ import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET,
 import { paintToolboxIcon } from '../src/icons.js'
 import { createRegistryPainter } from '../src/registry-painter.js'
 import { createInNodeEditorScene, inNodeEditorExamples } from '../gallery/in-node-editors.js'
+import { createSaveTargetScene } from '../gallery/save-target-box.js'
 import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type CompanionDisplay, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, outputRowKey, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
@@ -161,6 +162,25 @@ function mutableCanvas(ctx: CanvasRenderingContext2D, clientWidth: number, clien
 
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = () => ({ viewId: 'core.line', rows: 1 })
+
+it('dims a mapped Save header only when both real inputs are wired, open or folded', () => {
+  for (const unfolded of [false, true]) {
+    for (const wiredParts of [[], ['mount'], ['name'], ['mount', 'name']] as const) {
+      const scene = createSaveTargetScene(defaultTokens, measure, () => ({ viewId: 'core.saveTarget', rows: 1 }),
+        { x: 0, y: 0 }, { prefix: 'renders/portrait' }, { mapped: true, unfolded, wiredParts })
+      const { ctx, calls } = recordingCtx()
+      const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens, (args) => {
+        if (args.row.editor) args.ctx.fillText('Save header', args.x, args.y)
+      })
+      try {
+        renderer.setScene(scene)
+        renderer.renderNow()
+        expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Save header')?.globalAlpha)
+          .toBe(wiredParts.length === 2 ? canvasPaintTokens.widget.connectedOpacity : 1)
+      } finally { renderer.dispose() }
+    }
+  }
+})
 
 // Two producers and two LATENT sinks: link 'bad' (IMAGE -> LATENT) is a
 // proven mismatch, link 'good' (LATENT -> LATENT) is healthy.
@@ -557,6 +577,19 @@ describe('canvas hover affordance paint', () => {
         ],
       },
     } as unknown as SceneNode],
+  })
+
+  it.each([false, true])('keeps supplied note text readable and ellipsizes without changing the original, unknown=%s', (unknown) => {
+    const scene = hoverScene()
+    const node = scene.nodes[0]!
+    const text = 'First\nsecond\r\nthird'
+    const note = { kind: 'note' as const, noteId: 'result', y: 20, height: 24, inset: 10, width: 80, text, ...(unknown ? { unknown: true as const } : {}) }
+    const calls = paint({ ...scene, nodes: [{ ...node, layout: { ...node.layout, rows: [note] } }] })
+    const rendered = calls.find((call) => call.method === 'fillText' && call.args[0] === 'First se...')
+    expect(rendered?.args).toEqual(['First se...', 116, 132])
+    expect(rendered?.globalAlpha).toBe(1)
+    expect(rendered?.fillStyle).toBe(defaultTokens.colors.label)
+    expect(note.text).toBe(text)
   })
 
   it('leaves only the row whose field is open unpainted', () => {
@@ -1224,6 +1257,27 @@ const nodeBorder = (calls: PaintCall[], node: SceneNode): PaintCall | undefined 
 const ERR = defaultTokens.colors.error
 
 describe('diagnostic paint on the live renderer', () => {
+  it.each([false, true])('dims a disabled field once with its problem outline at full strength (read-only %s)', (readOnly) => {
+    const base = nodeOf(fixtureScene('clean'), 'c1')
+    const node: SceneNode = { ...base, node: { ...base.node, values: { radius: 12 } }, layout: {
+      ...base.layout, width: 280, pins: [], rows: [{
+        kind: 'widget', y: base.layout.headerHeight, height: 24, inset: 10, inputId: 'radius', valueKey: 'radius',
+        address: { port: 'radius' }, label: 'Radius', type: typed('INT'), viewId: 'core.number', rows: 1,
+        spec: { widgetType: 'INT', options: {}, default: 12 }, disabled: true, inactive: true, ghost: true,
+        ...(readOnly ? { readOnly: true } : {}),
+      }],
+    } }
+    const calls = paintWith(emptyScene({ nodes: [node] }), (renderer) => {
+      renderer.setCompanions({ [node.id]: { radius: { value: 24 } } })
+      renderer.setRowMarks({ [node.id]: { radius: 'error' } })
+    })
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Radius')?.globalAlpha)
+      .toBe(canvasPaintTokens.widget.inactiveOpacity)
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === '24')?.globalAlpha)
+      .toBe(canvasPaintTokens.widget.inactiveOpacity)
+    expect(calls.some((call) => call.method === 'stroke' && call.strokeStyle === defaultTokens.colors.error && call.globalAlpha === 1)).toBe(true)
+  })
+
   it.each([
     ['warning', PROBLEM_WARNING_BADGE.color],
     ['error', ERR],
@@ -2022,31 +2076,20 @@ describe('node chrome paint on the live renderer', () => {
     expect(single.some((c) => c.method === 'roundRect' && c.args[0] === node.x - 3 && c.args[1] === node.y - 3)).toBe(false)
   })
 
-  it('dims connected widget rows and strikes only stored values without companions', () => {
+  it('keeps an unknown wired value in its own widget look with the stored value struck through', () => {
     const scene = constructsScene((json) => {
       json.graphs.g0.nodes.fs.values = { f: 3.5 }
     })
     const fs = nodeOf(scene, 'fs')
     const row = fs.layout.rows.find((candidate) => candidate.kind === 'widget')!
     const calls = paint(scene)
-    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label && c.args[1] === fs.x + row.inset + 6)
+    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label &&
+      c.args[2] === fs.y + row.y + row.height / 2)
     expect(connectedText?.globalAlpha).toBeCloseTo(0.45)
-    const valueText = calls.find((c) => c.method === 'fillText' && c.args[0] === '3.5')!
-    const strike = calls.slice(calls.indexOf(valueText) + 1).find((c) => c.method === 'stroke')!
-    const strikeIndex = calls.indexOf(strike)
-    expect(strike).toMatchObject({
-      strokeStyle: defaultTokens.colors.value,
-      lineWidth: 1.5,
-      globalAlpha: 0.45,
-    })
-    expect(calls[strikeIndex - 2]).toMatchObject({
-      method: 'moveTo',
-      args: [(valueText.args[1] as number) - 18, valueText.args[2]],
-    })
-    expect(calls[strikeIndex - 1]).toMatchObject({
-      method: 'lineTo',
-      args: [valueText.args[1], valueText.args[2]],
-    })
+    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === '3.5')).toBe(true)
+    expect(calls.some((c) =>
+      c.method === 'stroke' && c.strokeStyle === defaultTokens.colors.value && c.lineWidth === 1.5,
+    )).toBe(true)
 
     const companionCalls = paintWith(scene, (renderer) => {
       renderer.setCompanions({ fs: { f: { value: 2.5 } } })

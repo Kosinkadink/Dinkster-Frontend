@@ -30,19 +30,25 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   const position = (): void => {
     if (!element.isConnected) return
     const tip = props.tip
-    const rect = tip.element?.getBoundingClientRect()
+    const rect = tip.paintedRect?.() ?? tip.element?.getBoundingClientRect()
+    const boundary = tip.boundary?.getBoundingClientRect()
+    const leftEdge = Math.max(0, boundary?.left ?? 0)
+    const topEdge = Math.max(0, boundary?.top ?? 0)
+    const rightEdge = Math.min(window.innerWidth, boundary?.right ?? window.innerWidth)
+    const bottomEdge = Math.min(window.innerHeight, boundary?.bottom ?? window.innerHeight)
     // A menu row's tooltip below it would cover the next row.
-    const beside = rect !== undefined && Boolean(tip.element?.closest('.left-sidebar, .context-menu'))
-    element.style.setProperty('--tooltip-available-width', `${window.innerWidth - (beside ? rect.right + 16 : 16)}px`)
+    const beside = rect !== undefined && (tip.paintedRect !== undefined || Boolean(tip.element?.closest('.left-sidebar, .context-menu')))
+    const before = tip.paintedRect !== undefined && rect !== undefined && rect.left - leftEdge > rightEdge - rect.right
+    element.style.setProperty('--tooltip-available-width', `${Math.max(1, beside ? before ? rect.left - leftEdge - 16 : rightEdge - rect.right - 16 : rightEdge - leftEdge - 16)}px`)
     content.style.removeProperty('-webkit-line-clamp')
     const naturalHeight = element.getBoundingClientRect().height
     if (tip.fit !== undefined) readoutHeight ??= naturalHeight
-    let available = window.innerHeight - 16
+    let available = bottomEdge - topEdge - 16
     let above = false
     if (rect !== undefined && !beside) {
       const belowSpace = window.innerHeight - rect.bottom - 16
       const aboveSpace = rect.top - 16
-      above = (readoutHeight ?? naturalHeight) > belowSpace && aboveSpace > belowSpace
+      above = tip.element?.dataset['tooltipPlace'] === 'above' || (readoutHeight ?? naturalHeight) > belowSpace && aboveSpace > belowSpace
       available = above ? aboveSpace : belowSpace
     }
     if (tip.fit !== undefined) {
@@ -85,7 +91,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     let top = tip.y
     if (rect !== undefined) {
       if (beside) {
-        left = rect.right + 8
+        left = before ? rect.left - width - 8 : rect.right + 8
         top = rect.top + (rect.height - height) / 2
       } else {
         left = rect.left + (rect.width - width) / 2
@@ -96,8 +102,8 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
       // so it does not cover the row it reads.
       top = tip.above - height
     }
-    element.style.left = `${Math.max(8, Math.min(left, window.innerWidth - width - 8))}px`
-    element.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`
+    element.style.left = `${Math.max(leftEdge + 8, Math.min(left, rightEdge - width - 8))}px`
+    element.style.top = `${Math.max(topEdge + 8, Math.min(top, bottomEdge - height - 8))}px`
   }
   const resetFit = (): void => {
     readoutHeight = undefined
