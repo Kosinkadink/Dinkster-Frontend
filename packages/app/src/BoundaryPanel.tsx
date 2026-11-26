@@ -659,15 +659,18 @@ export function BoundaryPanel(props: { app: AppState }) {
     focusEntry(next)
   }
 
-  // One inline notice at a time, keyed to the row (or the region) whose edit
-  // the command refused; cleared by any successful edit.
+  // Formula errors stay with their draft while other settings are edited.
   const [notice, setNotice] = createSolidSignal<{ key: string; text: string } | undefined>(undefined)
   const [drafts, setDrafts] = createSolidSignal<Record<string, string>>({})
   const [pending, setPending] = createSolidSignal<object | undefined>(undefined)
   const [confirmingRemove, setConfirmingRemove] = createSolidSignal<string | undefined>(undefined)
   let lifetime = {}
+  const editingTab = createMemo(activeTab, undefined, {
+    equals: (before, after) => before?.id === after?.id && before?.store === after?.store &&
+      before?.graphStack === after?.graphStack && before?.instancePath === after?.instancePath,
+  })
   createEffect(() => {
-    const tab = activeTab()
+    const tab = editingTab()
     const reset = () => {
       lifetime = {}
       setPending(undefined)
@@ -693,8 +696,12 @@ export function BoundaryPanel(props: { app: AppState }) {
     })
   }
 
+  const formulaSelection = createMemo(() => {
+    const ctx = context()
+    return ctx === undefined ? undefined : JSON.stringify([ctx.tab.id, ctx.def.id, selectedKey()])
+  })
   createEffect(() => {
-    selectedKey()
+    formulaSelection()
     setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith('show:'))))
     setNotice((current) => current?.key.startsWith('show:') ? undefined : current)
   })
@@ -710,7 +717,7 @@ export function BoundaryPanel(props: { app: AppState }) {
     try {
       const outcome = await props.app.dispatchTo(ctx.tab, invocation)
       if (lifetime !== owner || activeTab() !== ctx.tab || ctx.tab.store !== store) return false
-      if (outcome.ok) setNotice(undefined)
+      if (outcome.ok) setNotice((current) => current?.key.startsWith('show:') && current.key !== key ? current : undefined)
       else if (outcome.diagnostics[0]) setNotice({ key, text: outcome.diagnostics[0].message })
       return outcome.ok
     } finally {
