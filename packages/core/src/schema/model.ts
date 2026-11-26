@@ -427,7 +427,7 @@ export function widgetRepresentationChoices(spec: WidgetSpec, selected: string |
   // A slider needs its range; until it is known the row draws a number field
   // and the choice stays Slider.
   const rangeUnknown = display === 'slider' && !(typeof min === 'number' && typeof max === 'number' &&
-    Number.isFinite(min) && Number.isFinite(max) && max > min)
+    Number.isFinite(min) && Number.isFinite(max) && max > min && Number.isFinite(max - min))
   return {
     choices: set.representations.map((representation) => ({ id: representation.id, label: representation.displayName || representation.id })),
     selected: chosen.id,

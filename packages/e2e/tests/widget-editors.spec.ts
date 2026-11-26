@@ -5,6 +5,43 @@ const test = base.extend<{ widgetDocument: boolean }>({ widgetDocument: [true, {
 
 const catalogTest = test.extend({ widgetDocument: false })
 
+catalogTest('a Slider with an overflowing range explains its Number fallback', async ({ page }, testInfo) => {
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'OverflowRange', displayName: 'Overflow range', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, readOnly: true,
+        widget: { widgetType: 'FLOAT', options: {}, default: 7, representations: {
+          default: 'number', userSwitchable: true, representations: [
+            { id: 'number', displayName: 'Number', widget: { widgetType: 'FLOAT', options: { display: 'number' } } },
+            { id: 'slider', displayName: 'Slider', widget: { widgetType: 'FLOAT', options: { display: 'slider', min: -1e308, max: 1e308 } } },
+          ],
+        } },
+      }],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'overflow-range', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'OverflowRange', values: { amount: 7 } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 }, views: { amount: 'slider' } } } } } },
+    } as never, 'Overflow range')
+    window.__dinksterTest!.renderer!.setViewport({ x: 200, y: 150, scale: 1 })
+  })
+  const point = await nodeRowPoint(page, 'n1', 'amount')
+  await page.mouse.click(point.x, point.y)
+  const inspection = page.locator('.dinkster-canvas-field-side')
+  await expect(inspection.getByRole('button', { name: 'Representation Slider', exact: true })).toBeVisible()
+  await expect(inspection).toContainText('Showing Number until the range is known.')
+  expect(await page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
+    return node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'amount')?.viewId
+  })).toBe('core.number')
+  await page.screenshot({ path: testInfo.outputPath('overflow-slider-fallback.png') })
+})
+
 catalogTest('mixed scalar COMBO keeps typed native choices through list picks', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'scalar-combo-fixture', schemaWire: 2 },
