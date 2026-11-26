@@ -284,6 +284,7 @@ test('moving a section keeps outside media loaded and above it', async ({
     'none',
   )
   for (const item of [video, sound]) {
+    await item.scrollIntoViewIfNeeded()
     const box = (await item.boundingBox())!
     expect(
       await item.evaluate(
