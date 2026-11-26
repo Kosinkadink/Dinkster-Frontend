@@ -1,7 +1,13 @@
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
-import type { WidgetRegistry } from '@dinkster/core'
+import {
+  defaultValuesOf,
+  loadDocument,
+  type NodeSchema,
+  type WidgetRegistry,
+} from '@dinkster/core'
 import {
   CanvasRenderer,
+  buildScene,
   canvasColorsForTheme,
   canvasPaintTokens,
   canvasTypePaintForTheme,
@@ -263,6 +269,67 @@ const REVIEW_WIDTH = 360
 const WIDE_STAGE_WIDTH =
   MARGIN * 2 + NODE_WIDTH + MARGIN + REVIEW_WIDTH + MARGIN
 
+const reviewNodes: readonly NodeSchema[] = [
+  {
+    type: 'Sampler',
+    displayName: 'Sampler',
+    category: 'gallery',
+    source: 'v3',
+    isOutputNode: false,
+    body: [
+      {
+        kind: 'input',
+        id: 'steps',
+        type: { kind: 'concrete', name: 'INT' },
+        optional: false,
+        widget: {
+          widgetType: 'INT',
+          options: { min: 1, max: 10000 },
+          default: 10000,
+        },
+      },
+      {
+        kind: 'input',
+        id: 'cfg',
+        type: { kind: 'concrete', name: 'FLOAT' },
+        optional: false,
+        widget: {
+          widgetType: 'FLOAT',
+          options: { min: 0, max: 100 },
+          default: 0,
+        },
+      },
+    ],
+  },
+  {
+    type: 'Unpack frames',
+    displayName: 'Unpack frames',
+    category: 'gallery',
+    source: 'v3',
+    isOutputNode: false,
+    body: [1, 2, 3, 4].map((index) => ({
+      kind: 'output',
+      id: String(index),
+      type: { kind: 'concrete', name: 'IMAGE' },
+    })),
+  },
+  {
+    type: 'Resize image',
+    displayName: 'Resize image',
+    category: 'gallery',
+    source: 'v3',
+    isOutputNode: false,
+    body: [
+      {
+        kind: 'input',
+        id: 'image',
+        type: { kind: 'concrete', name: 'IMAGE' },
+        optional: false,
+      },
+    ],
+  },
+]
+
 function NodeCanvas(props: {
   theme: 'dark' | 'light'
   registry: WidgetRegistry
@@ -315,6 +382,61 @@ function NodeCanvas(props: {
         NODE_WIDTH,
       )
       const node = fixture.scene.nodes[0]!
+      let scene = fixture.scene
+      if (props.id === 'per-node') {
+        const loaded = loadDocument({
+          format: 'dinkster-workflow',
+          formatVersion: 1,
+          lineage: 'canvas-gallery',
+          root: 'gallery',
+          graphs: {
+            gallery: {
+              id: 'gallery',
+              name: 'Gallery',
+              nextOrdinal: 4,
+              nodes: Object.fromEntries(
+                reviewNodes.map((definition) => [
+                  definition.type,
+                  {
+                    id: definition.type,
+                    type: definition.type,
+                    values: defaultValuesOf(definition),
+                  },
+                ]),
+              ),
+              links: {},
+              nets: {},
+              reroutes: {},
+            },
+          },
+          view: {
+            graphs: {
+              gallery: {
+                nodes: Object.fromEntries(
+                  reviewNodes.map((definition, index) => [
+                    definition.type,
+                    {
+                      position: { x: MARGIN + index * 208, y: MARGIN * 2 },
+                      size: { width: 192, height: 0 },
+                    },
+                  ]),
+                ),
+              },
+            },
+          },
+        })
+        if (!loaded.document)
+          throw new Error('Invalid fixes Review gallery document')
+        scene = buildScene({
+          document: loaded.document,
+          graphId: 'gallery',
+          resolve: (type) =>
+            reviewNodes.find((definition) => definition.type === type),
+          tokens,
+          measure,
+          widgetMeasure,
+        })
+      }
       canvas.style.width = `${stage === 'wide' ? WIDE_STAGE_WIDTH : STAGE_WIDTH}px`
       canvas.style.height = `${stage === 'node' ? node.y + node.layout.height + MARGIN * 2 : STAGE_HEIGHT}px`
       renderer = new CanvasRenderer(
@@ -324,8 +446,8 @@ function NodeCanvas(props: {
       )
       renderer.setReducedMotion(true)
       renderer.setScene(
-        chosen === undefined
-          ? fixture.scene
+        chosen === undefined || props.id === 'per-node'
+          ? scene
           : {
               ...fixture.scene,
               nodes: [
@@ -342,7 +464,9 @@ function NodeCanvas(props: {
       renderer.setOverlay(
         chosen === undefined
           ? fixture.overlay
-          : { selection: new Set([node.id]) },
+          : {
+              selection: new Set([props.id === 'per-node' ? chosen : node.id]),
+            },
       )
       renderer.setViewport({ x: 0, y: 0, scale: 1 })
       renderer.renderNow()
@@ -436,13 +560,11 @@ function NoticeExample(props: {
             </Show>
           </div>
           <figcaption class="dinkster-metadata">
-            <Show when={chosen()} fallback="Nothing chosen yet.">
-              {(target) =>
-                target() === 'settings'
-                  ? 'Opens the settings of automatic fixes.'
-                  : `Moves the canvas to ${changes().find((change) => change.target === target())?.node}.`
-              }
-            </Show>
+            {chosen() === ''
+              ? 'Nothing chosen yet.'
+              : chosen() === 'settings'
+                ? 'Opens the settings of automatic fixes.'
+                : `Moves the canvas to ${changes().find((change) => change.target === chosen())?.node}.`}
           </figcaption>
           <Show when={props.card.arrives}>
             {(extra) => (
