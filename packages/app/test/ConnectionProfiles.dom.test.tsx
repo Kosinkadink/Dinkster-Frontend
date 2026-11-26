@@ -22,8 +22,7 @@ const startRemoval = (root: Element) => {
 function fakeBridge(overrides: Partial<DinksterDesktopBridge> = {}): DinksterDesktopBridge {
   return {
     locale: vi.fn(async () => 'en-US'),
-    status: vi.fn(),
-    retry: vi.fn(),
+    info: vi.fn(),
     chooseDirectory: vi.fn(),
     fileCapabilities: vi.fn(async () => ({ nativeFolderChoice: false, reveal: false })),
     windowContext: vi.fn(async () => ({ id: 'primary' as const, kind: 'primary' as const })),
@@ -37,8 +36,6 @@ function fakeBridge(overrides: Partial<DinksterDesktopBridge> = {}): DinksterDes
     retireConnectionProfile: vi.fn(async () => undefined),
     connectionCredentials: vi.fn(async () => ({ custody: true, profiles: [] })),
     takeDeepLinks: vi.fn(async () => []),
-    onStatus: vi.fn(() => () => undefined),
-    onLog: vi.fn(() => () => undefined),
     onWindowLayout: vi.fn(() => () => undefined),
     onDeepLinkPending: vi.fn(() => () => undefined),
     ...overrides,

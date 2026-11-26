@@ -1,4 +1,3 @@
-import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { syntheticWorkflow } from '@dinkster/core'
 import { App } from './App.js'
@@ -6,8 +5,7 @@ import { projectsPage, Shell, type ShellNavigation } from './Shell.js'
 import { readHomeStatus } from './shell-route.js'
 import { AppState } from './app-state.js'
 import { createBootIndicatorElement, startBootIndicator } from './boot-indicator.js'
-import { DesktopSetup } from './DesktopSetup.js'
-import { desktopBridge, type DesktopLifecycleStatus } from './desktop-bridge.js'
+import { desktopBridge } from './desktop-bridge.js'
 import { bindLocale, bindPersistedLocale } from './locale.js'
 import { bindTheme, bindPersistedTheme } from './theme.js'
 import { activeProjectId, initializeProjectScope, projectIdFromSearch } from './projects.js'
@@ -22,7 +20,7 @@ import './styles.css'
 initializeProjectScope(projectIdFromSearch(globalThis.location?.search ?? ''))
 const disposeBootTheme = bindPersistedTheme()
 
-// Show a minimal centered indicator while fonts and desktop setup load.
+// Show a minimal centered indicator while fonts and window context load.
 // It appears only after 150ms (no flash on a fast boot), names what it is
 // waiting on after 3s, and is removed the
 // moment the real app renders. See docs/shell.md "Boot indicator".
@@ -71,53 +69,17 @@ async function bootstrap(): Promise<void> {
   ])
   const desktop = desktopBridge()
   const desktopLocale = await desktop?.locale()
-  const desktopLogs: string[] = []
-  let app: AppState | undefined
-  desktop?.onLog((line) => {
-    if (app) app.recordHostLog('info', 'Local engine', line)
-    else {
-      desktopLogs.push(line)
-      if (desktopLogs.length > 500) desktopLogs.shift()
-    }
-  })
-  if (desktop) {
-    hideBoot()
-    const disposeSetupLocale = bindPersistedLocale(globalThis.localStorage, document.documentElement, navigator.language, desktopLocale)
-    try {
-      const [desktopStatus, setDesktopStatus] = createSignal<DesktopLifecycleStatus>(await desktop.status())
-      const disposeSetup = render(
-        () => <DesktopSetup status={desktopStatus()} onRetry={() => { void desktop.retry().catch(() => undefined) }} />,
-        root,
-      )
-      revealRoot()
-      try {
-        await new Promise<void>((resolve) => {
-          const receive = (status: DesktopLifecycleStatus) => {
-            setDesktopStatus(status)
-            if (status.phase === 'running') {
-              stopListening()
-              resolve()
-            }
-          }
-          const stopListening = desktop.onStatus(receive)
-          receive(desktopStatus())
-        })
-      } finally {
-        disposeSetup()
-      }
-    } finally {
-      disposeSetupLocale()
-      root.replaceChildren()
-    }
-  }
-  const home = desktop || projectsPage === undefined ? undefined : await readHomeStatus()
+  const desktopWindow = desktop
+    ? { context: await desktop.windowContext(), layout: await desktop.windowLayout() }
+    : undefined
+  const home = projectsPage === undefined ? undefined : await readHomeStatus()
   hideBoot()
   if (home !== undefined && projectsPage !== undefined) {
     // The projects page shares the editor's frame; it follows the persisted theme and language.
-    bindPersistedLocale(globalThis.localStorage, document.documentElement, navigator.language)
+    bindPersistedLocale(globalThis.localStorage, document.documentElement, navigator.language, desktopLocale)
     render(() => <Shell home={home} page={projectsPage!} mountEditor={async (projectId, host, shell, projectName) => {
       initializeProjectScope(projectId)
-      const { dispose } = await startEditor(host, desktopLocale, undefined, shell, [], projectName)
+      const { dispose } = await startEditor(host, desktopLocale, desktopWindow, shell, projectName)
       await new Promise(requestAnimationFrame)
       await new Promise(requestAnimationFrame)
       return dispose
@@ -126,10 +88,7 @@ async function bootstrap(): Promise<void> {
     return
   }
   disposeBootTheme()
-  const desktopWindow = desktop
-    ? { context: await desktop.windowContext(), layout: await desktop.windowLayout() }
-    : undefined
-  app = (await startEditor(root, desktopLocale, desktopWindow, undefined, desktopLogs)).app
+  await startEditor(root, desktopLocale, desktopWindow, undefined)
   revealRoot()
 }
 
@@ -139,13 +98,11 @@ async function startEditor(
   desktopLocale: string | undefined,
   desktopWindow: Parameters<typeof App>[0]['desktopWindow'],
   shell: ShellNavigation | undefined,
-  desktopLogs: readonly string[] = [],
   projectName?: string,
 ): Promise<{ readonly app: AppState; readonly dispose: () => void }> {
   const app = new AppState()
   const disposeTheme = bindTheme(app.settings)
   const disposeLocale = bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)
-  for (const line of desktopLogs.slice(-500)) app.recordHostLog('info', 'Local engine', line)
   // Browser tests reach the app as soon as it exists; they wait for
   // readiness through it, not for the kept node tables below.
   if (import.meta.env.MODE === 'test') {

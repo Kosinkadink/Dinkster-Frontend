@@ -1,6 +1,56 @@
 import { expect, test } from '../visual.js'
 import { evidencePath } from './evidence-output.js'
 
+test('the native bridge opens Home without owning engine startup and retains its window context', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  const project = {
+    id: 'scene-native', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Native bookshop',
+    created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
+    packs: { extra: [] }, environment: null, accountProject: null,
+  }
+  await page.addInitScript(() => {
+    const context = { id: 'native-workflow', kind: 'workflow' as const, workflowId: 'detached-workflow' }
+    const desktopWindow = window as Window & { dinksterDesktop: unknown }
+    desktopWindow.dinksterDesktop = {
+      locale: async () => 'zh-CN',
+      info: async () => ({}),
+      windowContext: async () => context,
+      windowLayout: async () => ({ windows: [context] }),
+      onWindowLayout: () => () => undefined,
+      takeDeepLinks: async () => [],
+      onDeepLinkPending: () => () => undefined,
+      connectionCredentials: async () => ({ custody: false, profiles: [] }),
+    }
+  })
+  await page.route('**/supervisor/status', (route) => route.fulfill({ json: {
+    protocol: 1, role: 'home', state: 'stopped', installations: 1,
+    open: { root: '/installs/native', engine: 'main' },
+  } }))
+  await page.route('**/supervisor/installations', (route) => route.fulfill({ json: {
+    installations: [{ root: '/installs/native', frontend: { wire: 2, selected: null, available: true } }],
+  } }))
+  await page.route('**/supervisor/setup**', (route) => route.fulfill({ json: { activeJob: null } }))
+  await page.route('**/api/**', (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path === '/api/projects') return route.fulfill({ json: { items: [project], cursor: null } })
+    if (path === `/api/projects/${project.id}`) return route.fulfill({ json: { project } })
+    return route.fulfill({ status: 503, json: { error: 'engine-not-ready', state: 'stopped' } })
+  })
+
+  await page.goto('/')
+  await expect(page.getByTestId('projects-page')).toBeVisible()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
+  await page.screenshot({ path: evidencePath('issue-1304', 'native-home-stopped.png') })
+  await page.getByRole('option').filter({ hasText: project.name }).click()
+  await page.getByTestId('projects-open').click()
+  await expect(page.getByTestId('app-shell')).toHaveAttribute('data-view', 'editor')
+  await expect(page.getByTestId('redock-workflow')).toBeVisible()
+  await expect(page.getByTestId('app-shell-page')).toHaveCount(0)
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
+  expect(errors).toEqual([])
+})
+
 test('cold project opening keeps its authoritative name while the engine refuses project reads', async ({ page }) => {
   let state = 'stopped'
   const root = '/installs/nightly'
