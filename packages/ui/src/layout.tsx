@@ -511,6 +511,8 @@ export function ProductListRow(props: {
   onToggle?: (expanded: boolean) => void
   onActivate?: () => void
   children?: JSX.Element
+  testId?: string
+  dataAttributes?: Readonly<Record<`data-${string}`, string | undefined>>
 }) {
   const detailsId = createUniqueId()
   const expandable = () => props.expanded !== undefined
@@ -526,7 +528,7 @@ export function ProductListRow(props: {
     <Show when={props.trailing}><span class="dinkster-row-trailing">{props.trailing}</span></Show>
   </>
   return (
-    <li class="dinkster-row" data-expanded={props.expanded}>
+    <li {...props.dataAttributes} class="dinkster-row" data-testid={props.testId} data-expanded={props.expanded}>
       <div class="dinkster-row-heading">
         <Show when={props.onToggle || props.onActivate} fallback={<div class="dinkster-row-main">{copy()}</div>}>
           <button

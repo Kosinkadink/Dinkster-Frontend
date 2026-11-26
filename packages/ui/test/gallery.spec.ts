@@ -36,7 +36,7 @@ test('list rows expand independently of their sibling menu and navigation does n
   await expect(navigate).not.toHaveAttribute('aria-expanded')
   await expect(navigate).not.toHaveAttribute('aria-controls')
   await navigate.click()
-  await expect(page.getByRole('status').filter({ hasText: 'Renders opened' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Renders opened' }).first()).toBeVisible()
 })
 
 test('run activity distinguishes concurrent running jobs from queued jobs and respects reduced motion', async ({ page }) => {
