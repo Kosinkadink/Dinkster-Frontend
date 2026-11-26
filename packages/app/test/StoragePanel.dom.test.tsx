@@ -8,6 +8,37 @@ import { AppState } from '../src/app-state.js'
 const disposers: (() => void)[] = []
 afterEach(() => { for (const dispose of disposers.splice(0)) dispose(); document.body.replaceChildren(); vi.restoreAllMocks() })
 
+it('shows live file and byte reading progress for mounts and grouped model folders', async () => {
+  let mounts: MountDescriptor[] = [
+    { id: 'models-lora', mode: 'read', state: 'scanning', source: 'shared-models', kind: 'model/lora', scanProgress: { filesDone: 3, filesTotal: 12, bytesDone: 1024, bytesTotal: 8192, elapsedSeconds: 1 } },
+    { id: 'models-vae', mode: 'read', state: 'scanning', source: 'shared-models', kind: 'model/vae', scanProgress: { filesDone: 2, filesTotal: 8, bytesDone: 1024, bytesTotal: 2048, elapsedSeconds: 1 } },
+    { id: 'input', mode: 'readwrite', state: 'scanning', scanProgress: { filesDone: 7, filesTotal: 10, bytesDone: 4096, bytesTotal: 16384, elapsedSeconds: 1 } },
+  ]
+  const location = { id: 'models', path: '/models', mode: 'read' as const, visibility: 'default-on' as const }
+  let changed = () => {}
+  const connection = {
+    fetchMountSettings: async () => ({ mounts, mountChangesAllowed: true }),
+    fetchMountLocations: async () => ({ mounts: mounts.map((mount) => ({ ...mount, path: `/${mount.id}` })) }),
+    fetchModelSettings: async () => ({ settings: { version: 1, locations: [location], downloadLocation: null },
+      locations: [{ ...location, enabled: true, active: true, mounts: ['models-lora', 'models-vae'] }], changesAllowed: true }),
+    onMountsChanged: (listener: () => void) => { changed = listener; return () => {} },
+  } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
+  await vi.waitFor(() => expect(root.textContent).toContain('Reading, 5 of 20'))
+  const model = root.querySelector('[data-model-location="models"]')!
+  expect(model.textContent).toContain('2.0 KiB of 10 KiB read')
+  expect(model.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0.2')
+  const input = root.querySelector('[data-mount-id="input"]')!
+  expect(input.textContent).toContain('Reading, 7 of 10')
+  expect(input.textContent).toContain('4.0 KiB of 16 KiB read')
+  expect(input.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0.25')
+  mounts = mounts.map(({ scanProgress: _, ...mount }) => ({ ...mount, state: 'ready', entryCount: 12 }))
+  changed()
+  await vi.waitFor(() => expect(root.querySelectorAll('[role="progressbar"]')).toHaveLength(0))
+  expect(root.textContent).not.toContain('Reading,')
+})
+
 it('repeats a backend jump after a manual folder-server choice without retargeting execution', async () => {
   const app = new AppState()
   const local = app.backends.get()[0]!

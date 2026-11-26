@@ -21,6 +21,8 @@
   "storagePanel.openAssets": "Open in Assets",
   "storagePanel.saveHere": "Save new files here",
   "storagePanel.files": "{count} files",
+  "storagePanel.reading": "Reading, {done} of {total}",
+  "storagePanel.bytesRead": "{done} of {total} read",
   "storagePanel.saves": "New saves go here",
   "storagePanel.imports": "Dropped files are copied here",
   "storagePanel.operatorOnly": "Some folder details are unavailable. Operator access is needed to manage model folders and view physical paths.",

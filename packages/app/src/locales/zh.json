@@ -21,6 +21,8 @@
   "storagePanel.openAssets": "在资产中打开",
   "storagePanel.saveHere": "将新文件保存到这里",
   "storagePanel.files": "{count} 个文件",
+  "storagePanel.reading": "正在读取，{done} / {total}",
+  "storagePanel.bytesRead": "已读取 {done} / {total}",
   "storagePanel.saves": "新文件保存在这里",
   "storagePanel.imports": "拖入的文件复制到这里",
   "storagePanel.operatorOnly": "部分文件夹详情不可用。管理模型文件夹和查看实际路径需要操作员权限。",

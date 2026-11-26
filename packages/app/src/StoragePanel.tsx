@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
-import type { DinksterConnection, ModelSettingsState, MountDescriptor, MountLocations, MountSettings } from '@dinkster/client'
+import type { DinksterConnection, ModelSettingsState, MountDescriptor, MountLocations, MountSettings, MountScanProgress } from '@dinkster/client'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
-import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductLoading, ProductMenu, ProductNotice, ProductSection, ProductToast } from '@dinkster/ui'
+import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductLoading, ProductMenu, ProductNotice, ProductProgress, ProductSection, ProductToast } from '@dinkster/ui'
 import type { AppState, Backend } from './app-state.js'
 import { useSignal } from './solid-adapter.js'
 import { useAppMessage } from './locale.js'
@@ -10,6 +10,7 @@ import { ProductPanelHeader } from './ProductSurfaces.js'
 import { ModelSettings } from './ModelSettings.js'
 import { MountFolderForm } from './MountFolderForm.js'
 import { OutputMountSettings } from './OutputMountSettings.js'
+import { formatSize } from './asset-browser/helpers.js'
 
 type NativeBackend = Extract<Backend, { protocol: 'dinkster' }>
 
@@ -124,6 +125,19 @@ export function StorageFolders(props: {
   const path = (mount: MountDescriptor) => all().find((row) => row.id === mount.id)?.path ?? mount.path
   const disabled = () => busy() || settings()?.mountChangesAllowed !== true
   const counts = (ids: readonly string[]) => ids.map((id) => all().find((row) => row.id === id)).filter((row): row is MountDescriptor => row !== undefined)
+  const reading = (mounts: readonly MountDescriptor[]) => {
+    const progress = mounts.filter((mount) => mount.state === 'scanning').flatMap((mount) => mount.scanProgress ? [mount.scanProgress] : [])
+    return progress.length === 0 ? undefined : progress.reduce((sum, row) => ({
+      filesDone: sum.filesDone + row.filesDone, filesTotal: sum.filesTotal + row.filesTotal,
+      bytesDone: sum.bytesDone + row.bytesDone, bytesTotal: sum.bytesTotal + row.bytesTotal,
+      elapsedSeconds: Math.max(sum.elapsedSeconds, row.elapsedSeconds),
+    }), { filesDone: 0, filesTotal: 0, bytesDone: 0, bytesTotal: 0, elapsedSeconds: 0 })
+  }
+  const scan = (progress: MountScanProgress) => <div class="dinkster-stack">
+    <ProductProgress label={message('storagePanel.reading', { done: progress.filesDone, total: progress.filesTotal })}
+      value={progress.bytesTotal > 0 ? progress.bytesDone / progress.bytesTotal : undefined} />
+    <span class="dinkster-metadata">{message('storagePanel.bytesRead', { done: formatSize(progress.bytesDone), total: formatSize(progress.bytesTotal) })}</span>
+  </div>
   const kinds = (ids: readonly string[]) => {
     const result = new Map<string, number | undefined>()
     for (const row of counts(ids)) {
@@ -172,6 +186,10 @@ export function StorageFolders(props: {
           ? [{ label: message('storagePanel.downloadHere'), disabled: disabled(), onSelect: () => { const state = models()!; void perform(() => props.connection.updateModelSettings({ ...state.settings, downloadLocation: location.id }, state.revision)) } }] : []),
       ]} />
     </div>
+    <Show when={reading(counts(location.mounts))}>{(progress) => <>
+      <span class="dinkster-metadata">{message('storagePanel.reading', { done: progress().filesDone, total: progress().filesTotal })}</span>
+      {scan(progress())}
+    </>}</Show>
     <Show when={location.enabled}>
       <ProductDisclosure title={message('storagePanel.kinds')}>
         <dl class="dinkster-facts"><For each={kinds(location.mounts)}>{(row) => <div class="dinkster-fact"><dt>{kindLabel(row.kind)}</dt><dd>{row.count}</dd></div>}</For></dl>
@@ -203,7 +221,10 @@ export function StorageFolders(props: {
     </div>
     <Show when={mount.id === settings()?.outputMount}><span class="storage-folder-mark">{message('storagePanel.saves')}</span></Show>
     <Show when={mount.id === locations()?.importMount}><span class="storage-folder-mark">{message('storagePanel.imports')}</span></Show>
-    <Show when={mount.scanProgress}>{(progress) => <p class="dinkster-metadata">{message('projectFolders.scanning', { done: progress().filesDone, total: progress().filesTotal })}</p>}</Show>
+    <Show when={reading([mount])}>{(progress) => <>
+      <span class="dinkster-metadata">{message('storagePanel.reading', { done: progress().filesDone, total: progress().filesTotal })}</span>
+      {scan(progress())}
+    </>}</Show>
   </article>
 
   return <div class="storage-folders" data-testid="storage-folders">
