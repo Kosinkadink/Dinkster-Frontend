@@ -374,9 +374,13 @@ export function ProjectsView(props: {
   const rereadPage = () => page.load(readPage)
   const projects = () => page.value()?.projects
   const installations = () => page.value()?.installations
+  let projectUpdate = Promise.resolve()
   const setProjects = (update: (list: LibraryProject[] | null) => LibraryProject[] | null | undefined) => {
-    const current = page.value()
-    return current && page.load(async () => ({ ...current, projects: update(current.projects) ?? null }))
+    projectUpdate = projectUpdate.then(() => {
+      const current = page.value()
+      return current && page.load(async () => ({ ...current, projects: update(current.projects) ?? null }))
+    })
+    return projectUpdate
   }
   const painted = () => page.value() !== undefined
   const projectHeading = createUniqueId()

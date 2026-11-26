@@ -319,6 +319,20 @@ it('moves a deleted project under Deleted projects, selects the next one, and re
   expect(deletedRows()).toEqual(['Film grain testsDeleted just nowRestore'])
 })
 
+it('keeps both projects when two restores complete together', async () => {
+  const deleted = [
+    { ...project('p-old-a', 'Old storyboard', hoursAgo(48)), deleted: true },
+    { ...project('p-old-b', 'Old lighting', hoursAgo(24)), deleted: true },
+  ]
+  render(() => <ProjectsView shell={shell()} source={source([...projects, ...deleted])} />, document.body)
+  await settle()
+  document.querySelector('summary')!.click()
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-testid="deleted-projects"] button')) button.click()
+  await settle()
+  expect(rows().filter((row) => row?.startsWith('Old')).length).toBe(2)
+  expect(document.querySelector('[data-testid="deleted-projects"]')).toBeNull()
+})
+
 it('offers no Delete for the default project', async () => {
   render(() => <ProjectsView shell={shell()} source={source([project('default', 'Default', hoursAgo(1))])} />, document.body)
   await settle()
