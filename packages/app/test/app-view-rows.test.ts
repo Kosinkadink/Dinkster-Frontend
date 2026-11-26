@@ -402,22 +402,31 @@ describe('buildPreviewRows', () => {
       const sample = resolveBoundarySample('Boundary sample')!
       const resolveAssets = (type: string): NodeSchema | undefined => type !== sample.type ? resolveBoundarySample(type) : {
         ...sample, body: sample.body.map((row) => row.kind === 'input' && row.id === 'image' ? {
-          ...row, type: { kind: 'concrete', name: 'core.ASSET' },
+          ...row, type: { kind: 'concrete', name: 'ASSET' },
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null },
         } : row),
       }
       const store = new DocumentStore(source, coreCommandRegistry())
       const selected = (document = store.doc) => buildPreviewRows(document, resolveAssets, rendererFor)
-        .map((row) => row.kind === 'candidate' ? row.selectedAsset?.digest : undefined)
-      expect(selected(), `boundary/asset-field/app-view depth ${depth}`).toEqual([asset('1').digest, asset('2').digest])
+        .map((row) => row.kind === 'candidate' ? row.selectedAsset : undefined)
+      const expected = (digit: string) => ({ digest: asset(digit).digest, name: `${digit}.png`, count: 1,
+        mediaType: 'image/png', mediaKind: 'image' })
+      expect(selected(), `boundary/asset-field/app-view depth ${depth}`).toEqual([expected('1'), expected('2')])
       const result = store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: key, value: asset('3') } })
       expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
-      expect(selected()).toEqual([asset('3').digest, asset('2').digest])
+      expect(selected()).toEqual([expected('3'), expected('2')])
       expect(store.undo()).toBe(true)
-      expect(selected()).toEqual([asset('1').digest, asset('2').digest])
+      expect(selected()).toEqual([expected('1'), expected('2')])
       expect(store.redo()).toBe(true)
       const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
-      expect(selected(reopened)).toEqual([asset('3').digest, asset('2').digest])
+      expect(selected(reopened)).toEqual([expected('3'), expected('2')])
+      const run = compile({ document: reopened, revision: 1, resolve: resolveAssets,
+        scope: { kind: 'full' }, connection: 'asset-preview' as never, schemaHash: 'boundary-assets' })
+      expect(run.ok, JSON.stringify(!run.ok && run.diagnostics)).toBe(true)
+      if (!run.ok) throw new Error(JSON.stringify(run.diagnostics))
+      const prefix = depth === 2 ? 'detail.' : ''
+      expect(run.artifact.prompt[`first.${prefix}sample`]!.inputs.image).toEqual(asset('3'))
+      expect(run.artifact.prompt[`second.${prefix}sample`]!.inputs.image).toEqual(asset('2'))
     }
   })
 

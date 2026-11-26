@@ -548,6 +548,11 @@ function compileImpl(
     ownerPriority: number,
   ): void => {
     const source: ControllerNodeInputSource = { graph, occurrence, valueKey: valueKeyOf(input) }
+    // Consumer-derived widgets need every promoted owner, not only after-run controls.
+    const key = JSON.stringify([target.runtimeId, target.inputId])
+    const promotions = sourcePromotions.get(key) ?? []
+    if (!promotions.some((candidate) => JSON.stringify(candidate) === JSON.stringify(source))) promotions.push(source)
+    sourcePromotions.set(key, promotions)
     const widget = input.spec.widget
     if (widget?.controller !== 'after_generate') return
     let byInput = controllerSources.get(target.runtimeId)
@@ -1510,6 +1515,7 @@ function compileImpl(
           if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `'${knownNode}' is muted`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
           const runtimeId = occurrenceKey({ instancePath: knownPath, node: knownNode })
           const sources: readonly ControllerInputSource[] = [
+            ...(selectedProjection === 'spec' ? sourcePromotions.get(JSON.stringify([runtimeId, input.spec.id])) ?? [] : []),
             ...(controllerSources.get(runtimeId)?.get(input.spec.id) ?? []).map((source) => source.source),
             { graph: asGraphDefId(knownDefId), occurrence: { instancePath: knownPath, node: knownNode }, valueKey: valueKeyOf(input) },
           ]

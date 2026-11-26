@@ -184,10 +184,10 @@ describe('a primitive works out its value widget', () => {
         { kind: 'output', id: 'number', binds: { kind: 'port', node, port: node === 'prim' ? 'INT' : 'number' } },
       ] })
       const source = docOf({
-        first: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: 6, [low]: 5, [high]: 9 } },
+        first: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: 6, [low]: 5 } },
         second: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: 2, [low]: 1, [high]: 12 } },
-        a: { type: 'Steps' }, b: { type: 'Steps' },
-      }, [['first', 'number', 'a', 'steps'], ['second', 'number', 'b', 'steps']])
+        a: { type: 'Steps' }, b: { type: 'Count' },
+      }, [['first', 'number', 'a', 'steps'], ['second', 'number', 'b', 'count']])
       const graph = (id: string, node: string, type: string, exposed: ReturnType<typeof boundary>) => ({
         id, name: id, nodes: { [node]: { id: node, type, values: {} } },
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 10, boundary: exposed,
@@ -200,23 +200,26 @@ describe('a primitive works out its value widget', () => {
       const store = new DocumentStore(document, coreCommandRegistry())
       const effective = (current: WorkflowDocument, nodeId: string) =>
         documentPrimitiveResolver(current, resolve)('g0', current.graphs.g0!.nodes[nodeId]!, [])
-      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 5, max: 9 })
+      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 5, max: 8 })
+      expect(effective(store.doc, 'first')?.derived.has('max')).toBe(true)
+      expect(effective(store.doc, 'first')?.derived.has('min')).toBe(false)
       expect(effective(store.doc, 'second')?.spec?.options).toMatchObject({ min: 1, max: 12 })
+      expect(effective(store.doc, 'second')?.derived.has('max')).toBe(false)
       const outcome = store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: low, value: 3 } })
       expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
-      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 3, max: 9 })
+      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 3, max: 8 })
       expect(effective(store.doc, 'second')?.spec?.options).toMatchObject({ min: 1, max: 12 })
       expect(store.undo()).toBe(true)
-      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 5, max: 9 })
+      expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 5, max: 8 })
       expect(store.redo()).toBe(true)
       const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
-      expect(effective(reopened, 'first')?.spec?.options).toMatchObject({ min: 3, max: 9 })
+      expect(effective(reopened, 'first')?.spec?.options).toMatchObject({ min: 3, max: 8 })
       const run = compile({ document: reopened, revision: 1, resolve, scope: { kind: 'full' },
         connection: 'boundary-limits' as never, schemaHash: 'primitive' })
       expect(run.ok).toBe(true)
       if (!run.ok) throw new Error(JSON.stringify(run.diagnostics))
       expect(run.artifact.prompt.a!.inputs.steps).toBe(6)
-      expect(run.artifact.prompt.b!.inputs.steps).toBe(2)
+      expect(run.artifact.prompt.b!.inputs.count).toBe(2)
     }
   })
 })
