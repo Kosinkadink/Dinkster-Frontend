@@ -580,6 +580,48 @@ test('quiet text menus keep shared focus, checked selection and dismissal withou
   }
 })
 
+test('menu end alignment preserves the trigger edge and viewport containment', async ({ page }, testInfo) => {
+  for (const width of [1280, 600, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/?theme=dark#menu-alignment')
+    const end = page.getByRole('button', { name: 'End actions', exact: true })
+    const start = page.getByRole('button', { name: 'Start actions', exact: true })
+    await end.click()
+    const menu = page.getByRole('menu', { name: 'End actions', exact: true })
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Recommended build', exact: true })).toBeFocused()
+    const anchor = (await end.boundingBox())!
+    const bounds = (await menu.boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(8)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8)
+    if (width === 1280) {
+      expect(anchor.x + bounds.width).toBeLessThanOrEqual(width - 8)
+      expect(anchor.x + anchor.width - bounds.width).toBeGreaterThanOrEqual(8)
+    }
+    if (anchor.x + anchor.width - bounds.width >= 8) {
+      expect(bounds.x + bounds.width).toBe(anchor.x + anchor.width)
+    }
+    await page.screenshot({ path: testInfo.outputPath(`menu-end-${width}.png`) })
+    await page.keyboard.press('ArrowDown')
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Alternative build', exact: true })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveCount(0)
+    await expect(end).toBeFocused()
+    await start.click()
+    const startMenu = page.getByRole('menu', { name: 'Start actions', exact: true })
+    const startAnchor = (await start.boundingBox())!
+    const startBounds = (await startMenu.boundingBox())!
+    expect(startBounds.x).toBeGreaterThanOrEqual(8)
+    expect(startBounds.x + startBounds.width).toBeLessThanOrEqual(width - 8)
+    if (startAnchor.x + startBounds.width <= width - 8) expect(startBounds.x).toBe(startAnchor.x)
+    await page.screenshot({ path: testInfo.outputPath(`menu-start-${width}.png`) })
+    await page.keyboard.press('Escape')
+    await expect(start).toBeFocused()
+    await end.click()
+    await page.getByRole('heading', { name: 'Menu alignment', exact: true }).click()
+    await expect(menu).toHaveCount(0)
+  }
+})
+
 test('menus support pointer dismissal, keyboard navigation and immediate sign out', async ({
   page,
 }) => {
