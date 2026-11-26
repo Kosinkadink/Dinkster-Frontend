@@ -11,23 +11,29 @@
 
 import { createMemo, createSignal, onCleanup, Show, type Component, type JSX } from 'solid-js'
 import {
+  asNodeId,
+  asPortId,
+  buildRerouteIndex,
   canonicalTypeIdOf,
+  portRefKey,
   semanticDesignTokens,
+  type AutomaticState,
   type CommandInvocation,
   type EditorSizing,
   type HostUiProviderV1,
   type Json,
+  type LookedState,
+  type LookedWidgetField,
   type MaterializeFrame,
-  type OutputDescriptorsSpec,
   type SourceFilenameSpec,
   type TypeExpr,
+  type WidgetParts,
   type WidgetSpec,
 } from '@dinkster/core'
 import { defaultTokens, typeColor, type DynamicEditOwner } from '@dinkster/canvas'
 import type { AppState, Tab } from './app-state.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductNotice } from './ProductForm.js'
-import { OutputDescriptorEditor } from './OutputDescriptorEditor.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { HostUiProviderHost } from './host-ui.js'
 import { useAppMessage } from './locale.js'
@@ -43,7 +49,7 @@ import {
 export { parseNumericCommit, widgetCommitError, type NumericCommitResult } from './widget-commit.js'
 export { withMaterializeFrames } from './widget-editor-command.js'
 
-/** What a widget editor writes to: a node input, or a value source's value. */
+/** What a widget editor writes to: a node input. */
 export type EditorTarget =
   | {
       readonly kind: 'input'
@@ -57,25 +63,44 @@ export type EditorTarget =
       /** Structural authored-menu state coordinate, separate from value ownership. */
       readonly optionsTarget?: {
         readonly construct: string
-        readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
         readonly owner?: DynamicEditOwner
         readonly materialize?: readonly MaterializeFrame[]
-      }
-      /** Occurrence-local owner of a COMBO option source's input family. */
-      readonly inputFamilyOwner?: {
-        readonly graphId: string
-        readonly nodeId: string
-        readonly construct: string
-        readonly memberIds: Readonly<Record<string, string>>
       }
       /** DynamicCombo selector row: commit via dynamic.selectOption instead. */
       readonly selector?: {
         readonly construct: string
-        readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
-        readonly owner?: DynamicEditOwner
       }
+      /**
+       * The rows the widget's `writes` and `reads` name, as flattened value
+       * keys of `nodeId`. A part missing here is absent; no editor reads a
+       * row by a fixed name.
+       */
+      readonly parts?: WidgetParts
     }
-  | { readonly kind: 'valueSource'; readonly valueSourceId: string }
+
+/**
+ * The node row a widget part names: the row the widget writes or reads under
+ * that part name. Undefined when the widget's mapping lacks the part, which
+ * the editor treats as absent.
+ */
+export function partRow(target: EditorTarget, part: string): string | undefined {
+  const parts = target.parts
+  if (parts === undefined) return undefined
+  return Object.hasOwn(parts.writes, part) ? parts.writes[part] : Object.hasOwn(parts.reads, part) ? parts.reads[part] : undefined
+}
+
+/**
+ * A row's fields declared as a lookup, as they stand now: the widget with the
+ * answers in use, and what the editor holds for each field. Reactive.
+ */
+export interface RowLookups {
+  readonly current: () => {
+    readonly spec: WidgetSpec
+    readonly looked: Readonly<Partial<Record<LookedWidgetField, LookedState>>>
+  } | undefined
+  /** Refresh or Try again for one field: asks its call again. Nothing is stored. */
+  readonly refresh: (field: LookedWidgetField) => void
+}
 
 export interface WidgetEditorState {
   /**
@@ -88,12 +113,9 @@ export interface WidgetEditorState {
   tab: Tab
   readonly graphId: string
   readonly target: EditorTarget
-  /** The same display label painted on the widget row or value source. */
+  /** The same display label painted on the widget row. */
   readonly label: string
-  /**
-   * Effective widget spec. Undefined = the raw JSON fallback editor (an
-   * unconnected, undeclared value source still has an editable value - P2).
-   */
+  /** Effective widget spec. Undefined = the raw JSON fallback editor. */
   readonly spec: WidgetSpec | undefined
   /** Resolved row view, including a user-selected presentation override. */
   readonly viewId?: string
@@ -116,20 +138,44 @@ export interface WidgetEditorState {
    */
   readonly mergeableTypes?: readonly string[]
   readonly multiline: boolean
-  /** Current materialized member names for schema-declared completion sources. */
-  readonly inputFamilyMembers?: Readonly<Record<string, readonly string[]>>
+  /**
+   * Set when the row is edited in its own row on the canvas instead of in a
+   * card: the node look, the node's bottom edge in world coordinates (the
+   * side part goes under the node when neither side has room), and the
+   * input's tooltip for the side part.
+   */
+  readonly inRow?: {
+    readonly look: 'original' | 'flat-title'
+    readonly nodeTop: number
+    readonly nodeBottom: number
+    readonly help?: string
+    /** The raw stored value when the field opened (null when none was stored). */
+    readonly storedAtOpen: Json
+    /** A seed's after-run mode. */
+    readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
+    /**
+     * A field that declares `automatic`: the value it has in use, or for a
+     * fixed value, what it would work out to if emptied, read from the scene
+     * as it is rebuilt. An empty field stores nothing, which makes the value
+     * automatic.
+     */
+    readonly automatic?: () => AutomaticState
+    /** Where a click opened a text row, in client coordinates. */
+    readonly caret?: { readonly x: number; readonly y: number }
+    /** The editor now shows a popover instead of the row, so the canvas draws the row again. */
+    readonly handOff?: () => void
+    /** The row's fields worked out by a declared lookup; absent when it declares none. */
+    readonly lookups?: RowLookups
+  }
+  /** Where a click opened a text box, in client coordinates. */
+  readonly caret?: { readonly x: number; readonly y: number }
+  /** How far a text box's row extends above and below `rect`, in world units; its bar sits near the row's bottom. */
+  readonly rowInsetY?: number
   /** Editor anchor rect in canvas world coordinates. */
   readonly rect: { x: number; y: number; width: number; height: number }
   readonly initial: Json | undefined
   /** A known-missing stored ref must not issue an initial preview byte read. */
   readonly missingAssetDigest?: string
-  readonly outputDescriptors?: {
-    readonly spec: OutputDescriptorsSpec
-    readonly asset: unknown
-    readonly staleLinks: readonly { readonly linkId: string; readonly outputId: string }[]
-    readonly isCurrent: () => boolean
-    readonly onDisconnect: (linkId: string) => void
-  }
   readonly instancePath?: readonly string[]
   /** Host-decoded declarative editor supplied by the resolved WidgetView. */
   readonly hostUi?: {
@@ -147,8 +193,15 @@ export interface WidgetEditorProps {
   ed: WidgetEditorState
   /** Main canvas viewport, sampled once to place a newly opened popover. */
   viewport: () => { x: number; y: number; scale: number }
-  /** Registers the synchronous commit-or-close path for an outside press. */
-  bindClickAway?: (handler: (() => void) | undefined) => void
+  /** Puts the keyboard on a row of the node with nothing open, as after Enter. */
+  focusRow?: (from: { readonly nodeId: string; readonly valueKey: string }) => void
+  /** Opens the next (1) or previous (-1) row of the same node that Tab stops on. */
+  moveRow?: (from: { readonly nodeId: string; readonly valueKey: string }, direction: 1 | -1) => void
+  /**
+   * Registers the synchronous commit-or-close path for an outside press. A
+   * handler that returns false keeps the editor open and stops the press.
+   */
+  bindClickAway?: (handler: (() => unknown) | undefined) => void
   /** Lets the canvas activate an exposed ASSET row after this modal closes. */
   onAssetBackdropPointerDown?: (event: PointerEvent) => void
   onClose: () => void
@@ -246,6 +299,17 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     window.removeEventListener('resize', clampPopover)
   })
 
+  // An editor that writes another row of its node never writes through that row's wire.
+  const wiredWrite = ((): string | undefined => {
+    const target = ed.target
+    if (target.familyOwner !== undefined || target.parts === undefined) return undefined
+    if (!Object.values(target.parts.writes).includes(target.valueKey)) return undefined
+    const graph = ed.tab.store.doc.graphs[ed.graphId]
+    if (graph === undefined) return undefined
+    const index = buildRerouteIndex(graph)
+    const key = portRefKey({ node: asNodeId(target.nodeId), port: asPortId(target.valueKey) })
+    return index.inputDriverOf.has(key) || index.netSourceOf.has(key) ? target.valueKey : undefined
+  })()
   const close = (): void => { live = false; props.onClose() }
   const [commitPending, setCommitPending] = createSignal(false)
   const [commitError, setCommitError] = createSignal<string>()
@@ -280,11 +344,9 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     // (or any unmount) would otherwise re-enter here and commit the discarded
     // text. Closed editors never commit.
     if (!live) return Promise.resolve(false)
-    if (ed.target.kind !== 'input') {
-      return commitCommand({
-        command: 'valueSource.setValue',
-        params: { graphId: ed.graphId, valueSourceId: ed.target.valueSourceId, value },
-      })
+    if (wiredWrite !== undefined) {
+      setCommitError(message('widgetEditor.writeWired', { row: wiredWrite }))
+      return Promise.resolve(false)
     }
     const selectorCommand = dynamicSelectorCommitCommand(ed, value)
     if (selectorCommand !== undefined) {
@@ -330,6 +392,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
           <span class="widget-editor-type" data-testid="widget-editor-type" style={pillStyle}>{headerProps.type}</span>
         </span>
       </header>
+      <Show when={wiredWrite}>{(row) => <ProductNotice tone="info" testId="widget-write-wired">{message('widgetEditor.writeWired', { row: row() })}</ProductNotice>}</Show>
       <Show when={props.modal === undefined && commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
       </>
     )
@@ -400,22 +463,6 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       header={EditorHeader}
       popoverStyle={popoverStyle}
     />
-  ) : ed.outputDescriptors !== undefined ? (
-    <div ref={bindPopover} class="widget-editor floating-surface widget-editor-popover output-descriptor-popover" data-testid="widget-editor" role="dialog" aria-label="Edit output descriptors" style={popoverStyle}>
-      <Show when={commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
-      <OutputDescriptorEditor
-        spec={ed.outputDescriptors.spec}
-        initial={ed.initial}
-        asset={ed.outputDescriptors.asset}
-        staleLinks={ed.outputDescriptors.staleLinks}
-        app={props.app}
-        tab={ed.tab}
-        isCurrent={ed.outputDescriptors.isCurrent}
-        onDisconnect={ed.outputDescriptors.onDisconnect}
-        onCommit={commitEditorValue}
-        onClose={close}
-      />
-    </div>
   ) : null
 
   return (

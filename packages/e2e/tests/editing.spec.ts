@@ -4,7 +4,7 @@
  * Real pointer/keyboard input against the live app; document assertions go
  * through the __dinksterTest bridge (commands -> DocumentStore -> doc).
  */
-import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 /** Reset the viewport to identity so world coords == canvas CSS pixels. */
 async function identityViewport(page: Page): Promise<void> {
@@ -73,7 +73,7 @@ async function openauditInteractionFixture(page: Page): Promise<void> {
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'auditPlacementTest', displayName: 'audit KSampler', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: { widgetType: 'INT', options: { min: 1, max: 100 }, default: 20 },
@@ -160,15 +160,11 @@ test('Ctrl+A selects every selectable citizen in the current scene', async ({ pa
       selected: {
         nodes: [...controller.getSelection()].sort(),
         reroutes: [...controller.getRerouteSelection()].sort(),
-        valueSources: [...controller.getValueSourceSelection()].sort(),
-        selectors: [...controller.getSelectorSelection()].sort(),
         groups: [...controller.getGroupSelection()].sort(),
       },
       scene: {
         nodes: [...scene.nodes.map((node: { id: string }) => node.id), ...scene.boundaryNodes.map((node: { side: string }) => `@boundary:${node.side}`)].sort(),
         reroutes: scene.reroutes.map((item: { id: string }) => item.id).sort(),
-        valueSources: scene.valueSources.map((item: { id: string }) => item.id).sort(),
-        selectors: scene.selectors.map((item: { id: string }) => item.id).sort(),
         groups: scene.groups.map((item: { id: string }) => item.id).sort(),
       },
     }
@@ -196,7 +192,7 @@ test('Ctrl+empty-canvas drag sweeps a marquee that selects covered nodes', async
       y: rect.top + wy * vp.scale + vp.y,
     })
     const from = toPage(minX - 20, minY - 20)
-    const control = document.querySelector('.canvas-view-control')?.getBoundingClientRect()
+    const control = document.querySelector('.canvas-view-controls')?.getBoundingClientRect()
     if (control && from.x < control.right + 4 && from.y < control.bottom + 4) {
       throw new Error('marquee start would land on the canvas views control; fixture layout changed')
     }
@@ -335,12 +331,12 @@ test('clicking a widget row opens the editor; Enter commits node.setValue', asyn
   expect(unchanged.graphs['g0']!.nodes['n0']!.values['width']).toBe(128)
 })
 
-test('double-clicking a subgraph instance drills in; breadcrumb navigates back', async ({ page }) => {
+test('double-clicking a subgraph instance\'s mark drills in; breadcrumb navigates back', async ({ page }) => {
   await page.getByTestId('tab-bar').locator('.tab', { hasText: 'Subgraph' }).click()
   await identityViewport(page)
 
-  const header = await pointOn(page, 'n0', { kind: 'header' })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'n0')
+  await page.mouse.dblclick(mark.x, mark.y)
 
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   await expect(page.getByTestId('graph-breadcrumb')).toContainText('Image source')
@@ -486,8 +482,8 @@ test('double-click Add node arms a title-centered ghost and commits only on the 
 
   const search = page.getByTestId('palette-search')
   await search.fill('audit KSampler')
-  await expect(page.getByTestId('palette-item').first()).toBeVisible()
-  await page.locator('[data-node-type="auditPlacementTest"]').click()
+  await expect(page.getByTestId('node-palette').getByRole('option').first()).toBeVisible()
+  await page.locator('[data-key="entry:auditPlacementTest"]').click()
 
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
   expect(await page.evaluate(() => Object.keys(
@@ -540,7 +536,7 @@ test('palette lists subgraph definitions and adds an instance', async ({ page })
 
   await page.mouse.dblclick(700, 600)
   await page.getByTestId('palette-search').fill('Image source')
-  await page.locator('[data-node-type="#g1"]').click()
+  await page.locator('[data-key="entry:#g1"]').click()
   await page.mouse.click(700, 600)
 
   const doc = await activeDoc(page)
@@ -591,10 +587,9 @@ test('selection toolbox: mode selector and minimize act without dropping selecti
   doc = await activeDoc(page)
   expect(doc.graphs['g0']!.nodes['n0']!.mode).toBe('bypassed')
 
-  await page.mouse.click(...xy(await toolboxButtonPoint(page, 'core.minimize')))
-  doc = await activeDoc(page)
-  expect(doc.view.graphs['g0']!.nodes['n0']!.collapsed).toBe(true)
-  await expect(canvas).toHaveAttribute('data-selection', '1')
+  // Minimizing lives in the node's title bar, not the selection toolbar.
+  expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getToolboxLayout()!.buttons.map((entry) => entry.button.id)))
+    .not.toContain('core.minimize')
 
   // Empty-space click clears the selection and the toolbox with it.
   await page.mouse.click(700, 750)

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Hit } from '@dinkster/canvas'
-import { createMenuRegistry, type MenuContext, type MenuItem, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { buildScene, defaultTokens, type Hit } from '@dinkster/canvas'
+import { asNodeId, boundaryItems, coreCommandRegistry, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 import { toolboxMenuRequest } from '../src/CanvasHost.js'
-import { canvasMenuContext, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
+import { canvasMenuContext, curveHistogramMenuGroup, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
 
 const item = (id: string): MenuItem => ({
   id,
@@ -13,6 +13,133 @@ const item = (id: string): MenuItem => ({
 const group = (name: string, ...ids: string[]): ResolvedMenuGroup => ({
   group: name,
   items: ids.map(item),
+})
+
+describe('curve histogram menu', () => {
+  const curve: NodeSchema = {
+    type: 'Curves', displayName: 'Curves', category: 'test', source: 'v3', isOutputNode: false,
+    body: [{ kind: 'group', id: 'curves', member: [
+      { kind: 'input', id: 'curve', type: { kind: 'concrete', name: 'CURVE' }, optional: true, widget: { widgetType: 'CURVE', options: { histogram: 'bins' } } },
+      { kind: 'input', id: 'bins', type: { kind: 'concrete', name: 'HISTOGRAM' }, optional: true },
+    ], keys: { kind: 'numbered', prefix: '', start: 1, pad: 0 }, grows: 'button', minMembers: 2 }],
+  }
+  const source: NodeSchema = {
+    type: 'Source', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
+    body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'HISTOGRAM' } }],
+  }
+  const resolve = (type: string) => type === curve.type ? curve : type === source.type ? source : undefined
+  const port = (member: number) => ({ node: 'curves', port: `curves.${member}.bins` })
+  const fixture = (delivery: 'link' | 'net' | 'boundary') => loadDocument({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'histogram-menu', root: 'g0',
+    graphs: { g0: {
+      id: 'g0', name: 'Curves', nextOrdinal: 10,
+      nodes: { curves: { id: 'curves', type: curve.type, values: {}, dynamic: { curves: { members: ['1', '2'] } } }, source: { id: 'source', type: 'Source', values: {} } },
+      links: delivery === 'link' ? { wire: { id: 'wire', from: { node: 'source', port: 'out' }, to: port(1) } } : {},
+      nets: delivery === 'net' ? { net: { id: 'net', name: 'Histogram', source: { node: 'source', port: 'out' }, sinks: [port(1), port(2)] } } : {},
+      reroutes: {},
+      ...(delivery === 'boundary' ? { boundary: { body: [{ kind: 'input', id: 'feed', binds: { kind: 'port', ...port(1) }, alsoBinds: [{ kind: 'port', ...port(2) }] }] } } : {}),
+    } }, view: { graphs: {} },
+  }).document!
+  const menu = (document: WorkflowDocument, member = 1, disabled = false, occurrence?: Parameters<typeof buildScene>[0]['occurrence']) => {
+    const scene = buildScene({ document, graphId: 'g0', resolve, tokens: defaultTokens, measure: (text) => text.length * 7,
+      widgetMeasure: () => ({ viewId: 'core.curve', rows: 2 }), ...(occurrence === undefined ? {} : { occurrence }) })
+    const node = scene.nodes.find((node) => node.id === 'curves')!
+    const row = node.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === `curves.${member}.curve`)!
+    if (row.kind !== 'widget') throw new Error('curve widget missing')
+    return curveHistogramMenuGroup({ document, scene, hit: { node, row }, resolve, disabled,
+      planner: { planOccurrenceLinkMutation } })!.items[0]!
+  }
+  for (const delivery of ['link', 'net', 'boundary'] as const) {
+    it(`hides a group member and disconnects its ${delivery} in one undo, preserving its neighbour`, () => {
+      const store = new DocumentStore(fixture(delivery), coreCommandRegistry())
+      const before = store.doc
+      const action = menu(before)
+      expect(action.label).toBe('Hide histogram input')
+      expect(action.disabled, action.disabledReason).toBe(false)
+      if (action.action?.kind !== 'command') throw new Error('command missing')
+      expect(store.dispatch(action.action.invocation).ok).toBe(true)
+      expect(store.doc.view.graphs.g0!.nodes.curves!.histogramVisibility).toEqual({ 'curves.1.curve': false })
+      expect(menu(store.doc).label).toBe('Show histogram input')
+      expect(menu(store.doc, 2).label).toBe('Hide histogram input')
+      if (delivery === 'link') expect(store.doc.graphs.g0!.links).toEqual({})
+      if (delivery === 'net') expect(store.doc.graphs.g0!.nets.net!.sinks).toEqual([port(2)])
+      if (delivery === 'boundary') expect(boundaryItems(store.doc.graphs.g0!.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'port', ...port(2) })
+      const saved = loadDocument(JSON.parse(JSON.stringify(store.doc)))
+      expect(menu(saved.document!).label).toBe('Show histogram input')
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(before)
+      expect(store.redo()).toBe(true)
+      expect(menu(store.doc).label).toBe('Show histogram input')
+      expect(menu(store.doc, 1, true).disabled).toBe(true)
+    })
+  }
+  it('disconnects only the drilled occurrence and undoes visibility and topology together', () => {
+    const body = fixture('link')
+    const document = loadDocument({ ...body, root: 'outer', graphs: { ...body.graphs, outer: {
+      id: 'outer', name: 'Outer', nextOrdinal: 1, links: {}, nets: {}, reroutes: {},
+      nodes: { first: { id: 'first', type: '#g0', values: {} }, second: { id: 'second', type: '#g0', values: {} } },
+    } } }).document!
+    const occurrence = { owner: { instancePath: [], node: asNodeId('first') }, plannerAvailable: true }
+    const store = new DocumentStore(document, coreCommandRegistry())
+    const action = menu(store.doc, 1, false, occurrence)
+    expect(action.disabled).toBe(false)
+    if (action.action?.kind !== 'command') throw new Error('command missing')
+    const outcome = store.dispatch(action.action.invocation)
+    expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
+    expect(menu(store.doc, 1, false, occurrence).label).toBe('Show histogram input')
+    const other = effectiveOccurrenceTopology(store.doc, resolve, { instancePath: [], node: asNodeId('second') })
+    expect(other.links.some((link) => isPortEndpoint(link.to.endpoint) && link.to.endpoint.port === 'curves.1.bins')).toBe(true)
+    expect(store.doc.graphs.g0!.links.wire).toEqual(document.graphs.g0!.links.wire)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(document)
+  })
+  for (const delivery of ['net', 'boundary', 'parent-boundary', 'parent-boundary-fanout'] as const) {
+    it(`hides a drilled ${delivery} histogram without changing its definition or sibling delivery`, () => {
+      const body = fixture(delivery === 'net' ? 'net' : 'boundary')
+      const document = loadDocument({ ...body, root: 'outer', graphs: { ...body.graphs,
+        g0: { ...body.graphs.g0!, ...(delivery === 'parent-boundary' ? {
+          boundary: { body: [{ kind: 'input', id: 'feed', binds: { kind: 'port', ...port(1) } }] },
+        } : {}) },
+        outer: {
+          id: 'outer', name: 'Outer', nextOrdinal: 1, nets: {}, reroutes: {},
+          nodes: { first: { id: 'first', type: '#g0', values: {} }, second: { id: 'second', type: '#g0', values: {} }, source: { id: 'source', type: 'Source', values: {} } },
+          links: delivery.startsWith('parent-') ? {
+            firstWire: { id: 'firstWire', from: { node: 'source', port: 'out' }, to: { node: 'first', port: 'feed' } },
+            secondWire: { id: 'secondWire', from: { node: 'source', port: 'out' }, to: { node: 'second', port: 'feed' } },
+          } : {},
+        },
+      }, view: { graphs: { g0: { nodes: { curves: { editors: { 'curves.1.curve': { unfolded: true }, 'curves.2.curve': { unfolded: true } } } } } } } }).document!
+      const occurrence = { owner: { instancePath: [], node: asNodeId('first') }, plannerAvailable: true }
+      const store = new DocumentStore(document, coreCommandRegistry())
+      const scene = () => buildScene({ document: store.doc, graphId: 'g0', resolve, tokens: defaultTokens, measure: (text) => text.length * 7,
+        widgetMeasure: () => ({ viewId: 'core.curve', rows: 2 }), occurrence })
+      const before = scene().nodes.find((node) => node.id === 'curves')!
+      const siblingBefore = effectiveOccurrenceTopology(document, resolve, { instancePath: [], node: asNodeId('second') })
+      const action = menu(store.doc, 1, false, occurrence)
+      expect(action.disabled).toBe(false)
+      if (action.action?.kind !== 'command') throw new Error('command missing')
+      const outcome = store.dispatch(action.action.invocation)
+      expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
+      const after = scene().nodes.find((node) => node.id === 'curves')!
+      expect(after.layout.pins.some((pin) => pin.portId === 'curves.1.bins')).toBe(false)
+      expect(after.layout.height).toBe(before.layout.height - defaultTokens.rowHeight)
+      expect(menu(store.doc, 1, false, occurrence).label).toBe('Show histogram input')
+      expect(menu(store.doc, 1, false, occurrence).disabled).toBe(false)
+      const effective = effectiveOccurrenceTopology(store.doc, resolve, occurrence.owner)
+      expect([...effective.links, ...effective.projectedParentLinks].some((link) => isPortEndpoint(link.to.endpoint) && link.to.endpoint.port === 'curves.1.bins')).toBe(false)
+      expect(effectiveOccurrenceTopology(store.doc, resolve, { instancePath: [], node: asNodeId('second') })).toEqual(siblingBefore)
+      expect(store.doc.graphs).toEqual(document.graphs)
+      if (delivery === 'net' || delivery === 'parent-boundary-fanout') {
+        expect([...effective.links, ...effective.projectedParentLinks].some((link) => isPortEndpoint(link.to.endpoint) && link.to.endpoint.port === 'curves.2.bins')).toBe(true)
+      }
+      const saved = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(menu(saved, 1, false, occurrence).label).toBe('Show histogram input')
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(document)
+      expect(store.redo()).toBe(true)
+      expect(menu(store.doc, 1, false, occurrence).label).toBe('Show histogram input')
+    })
+  }
 })
 
 describe('menuFlat', () => {
@@ -32,8 +159,6 @@ describe('selectionLifecycleMenuGroups', () => {
       { kind: 'node', nodeId: 'n1' },
       { kind: 'group', groupId: 'g1' },
       { kind: 'reroute', rerouteId: 'r1' },
-      { kind: 'valueSource', valueSourceId: 'v1' },
-      { kind: 'selector', selectorId: 's1' },
     ]
     for (const target of targets) {
       expect(selectionLifecycleMenuGroups(target, lifecycle).flatMap((entry) => entry.items.map((entry) => entry.id)))
@@ -119,21 +244,21 @@ describe('widgetRepresentationMenuGroup', () => {
 
   it('addresses dynamic rows by value key and forwarded rows by their document owner', () => {
     expect(widgetRepresentationAddress(hit({
-      kind: 'widget', node: { id: 'visible' }, row: { valueKey: 'family.member#text' },
+      kind: 'widget', node: { id: 'visible' }, row: { valueKey: 'family.member.text' },
     }) as Extract<Hit, { kind: 'widget' }>, 'g0')).toEqual({
-      graphId: 'g0', nodeId: 'visible', inputId: 'family.member#text',
+      graphId: 'g0', nodeId: 'visible', inputId: 'family.member.text',
     })
     expect(widgetRepresentationAddress(hit({
       kind: 'widget',
       node: { id: 'instance' },
       row: {
-        valueKey: 'forwarded.member#text',
+        valueKey: 'forwarded.member.text',
         familyOwner: {
-          graphId: 'definition', nodeId: 'owner', construct: 'boundary', valueKey: 'boundary.persisted#text',
+          graphId: 'definition', nodeId: 'owner', construct: 'boundary', valueKey: 'boundary.persisted.text',
         },
       },
     }) as Extract<Hit, { kind: 'widget' }>, 'g0')).toEqual({
-      graphId: 'definition', nodeId: 'owner', inputId: 'boundary.persisted#text',
+      graphId: 'definition', nodeId: 'owner', inputId: 'boundary.persisted.text',
     })
   })
 })
@@ -151,29 +276,34 @@ describe('menuTargetOf', () => {
         kind: 'widget',
         node: { id: 'inst' },
         row: {
-          inputId: 'lora.m1#strength',
-          familyOwner: { graphId: 'sub', nodeId: 'owner', construct: 'b0', valueKey: 'b0.m1#strength' },
+          inputId: 'lora.m1.strength',
+          address: { port: 'lora.m1.strength' },
+          familyOwner: { graphId: 'sub', nodeId: 'owner', construct: 'b0', valueKey: 'b0.m1.strength' },
         },
       })),
     ).toEqual({
       kind: 'widget',
       nodeId: 'inst',
-      inputId: 'lora.m1#strength',
-      owner: { graphId: 'sub', nodeId: 'owner', inputId: 'b0.m1#strength' },
+      inputId: 'lora.m1.strength',
+      address: { port: 'lora.m1.strength' },
+      owner: { graphId: 'sub', nodeId: 'owner', inputId: 'b0.m1.strength' },
     })
   })
 
-  it('flags unpersisted widget rows and taps synthetic (ghost, materialize, ownerless forwarding)', () => {
-    const flagged = (row: unknown) =>
-      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row })) as { synthetic?: true }).synthetic
+  it('flags unpersisted widget rows and taps synthetic (ghost, materialize)', () => {
+    const flagged = (row: object) =>
+      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row: { address: { port: 'x' }, ...row } })) as { synthetic?: true }).synthetic
     expect(flagged({ inputId: 'x', ghost: true })).toBe(true)
     expect(flagged({ inputId: 'x', materialize: [{ construct: 'c', member: 'm' }] })).toBe(true)
-    expect(flagged({ inputId: 'x', familyOwner: { graphId: 'g', nodeId: 'n', construct: 'c' } })).toBe(true)
     expect(flagged({ inputId: 'x' })).toBeUndefined()
+    const construct = (row: object) =>
+      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row: { address: { port: 'x' }, inputId: 'x', ...row } })) as { construct?: true }).construct
+    expect(construct({ selector: { construct: 'mode' } })).toBe(true)
+    expect(construct({ dynamicSlot: { construct: 'value', variants: [] } })).toBe(true)
+    expect(construct({})).toBeUndefined()
     const tapFlagged = (pin: unknown) =>
       (menuTargetOf(hit({ kind: 'widgetTap', node: { id: 'n1' }, input: 'x', pin })) as { synthetic?: true }).synthetic
     expect(tapFlagged({ ghost: true })).toBe(true)
-    expect(tapFlagged({ familyOwner: { graphId: 'g', nodeId: 'n', construct: 'c' } })).toBe(true)
     expect(tapFlagged({})).toBeUndefined()
   })
 
@@ -191,8 +321,6 @@ describe('toolbox more menu parity', () => {
         item(`nodes:${ctx.selection.nodes.join(',')}`),
         item(`links:${ctx.selection.links.join(',')}`),
         item(`reroutes:${ctx.selection.reroutes.join(',')}`),
-        item(`values:${ctx.selection.valueSources.join(',')}`),
-        item(`selectors:${ctx.selection.selectors.join(',')}`),
         item('core.node.queueSelection'),
       ],
     })
@@ -216,7 +344,7 @@ describe('toolbox more menu parity', () => {
       button: { id: 'core.more', label: 'More actions' }, x: 100, y: 40, size: 28,
     }, ['n1'])!
     expect(request).toMatchObject({ worldX: 114, worldY: 54 })
-    const selection = { nodes: ['n1'], links: ['l1'], reroutes: ['r1'], valueSources: ['v1'], selectors: ['s1'] }
+    const selection = { nodes: ['n1'], links: ['l1'], reroutes: ['r1'] }
     expect(resolve(selection, request.target)).toEqual(resolve(selection, rightClickTarget))
     expect(resolve(selection, request.target)).toContainEqual({ id: 'core.node.queueSelection', disabled: true })
   })
@@ -226,8 +354,7 @@ describe('toolbox more menu parity', () => {
     const request = toolboxMenuRequest({
       button: { id: 'core.more', label: 'More actions' }, x: 100, y: 40, size: 28,
     }, ['n1', 'n2'])!
-    const selection = { nodes: ['n1', 'n2'], links: ['l1'], reroutes: ['r1'], valueSources: ['v1'], selectors: ['s1'] }
+    const selection = { nodes: ['n1', 'n2'], links: ['l1'], reroutes: ['r1'] }
     expect(resolve(selection, request.target)).toEqual(resolve(selection, rightClickTarget))
   })
-
 })

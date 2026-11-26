@@ -6,23 +6,42 @@ and redo preserve it without affecting compile output or semantic hashes.
 
 ## Controls
 
-- Double-click a node title to minimize or restore it. Double-clicking a
-  subgraph still opens the subgraph.
+- Click the arrow at the left end of a node's title bar. It points down on an
+  open node and right on a minimized one. A press that drags moves the node
+  like the rest of the title bar, and a click on the arrow never opens a
+  subgraph.
+- Double-click a node title to minimize or restore it. A subgraph node's title
+  works the same way; its mark at the right end of the title bar enters it.
 - Press **Alt+C** to toggle the selected nodes.
 - Choose **Minimize** or **Restore** from the node context menu.
-- Use the minimize/restore button in the selection toolbar.
 
 Selection toggles are atomic. If any selected node is expanded, the action
 minimizes all selected nodes. If every selected node is minimized, it restores
-all of them. The toolbar's mode button opens the same **Active**, **Muted**, and
-**Bypassed** selector as the node context menu.
+all of them. The arrow on a selected node acts on the whole selection by this
+rule; the arrow on a node that is not selected acts on that node alone and
+leaves the selection unchanged. The arrow is drawn at every zoom but takes
+clicks only where rows take clicks, and in a read-only run view it changes
+nothing. The selection toolbar has no minimize button; its mode button opens
+the same **Active**, **Muted**, and **Bypassed** selector as the node context
+menu.
+
+The canvas scene navigator lists a **Minimize** or **Restore** button after
+each node; Enter toggles that node alone. It is not a Tab stop on the canvas.
 
 ## Presentation and links
 
-A minimized node is title-width with an 80 px minimum. Its stored expanded
-size remains unchanged and returns exactly when restored. The compact preview
-row is always visible and shows available image output or a short preview
-status.
+A minimized node keeps the width it has when open and shows only its title
+bar; a subgraph's mark stays in that bar and the tabs above and below stay
+outside it, as on the open node. Its
+stored size remains unchanged and the height returns exactly when restored.
+Below the title bar it keeps the "Preview" caption row, folded, only while it
+has real content to show: a picture the canvas paints, such as a decoded image
+output or a 3D model's poster, shown as a small picture and its size, or else
+the start of the first line of a recorded text result. With nothing to show, a
+pending or unavailable preview, or a ready video or audio player, there is no
+second row and no label. Clicking the caption opens the picture under it at
+its open height without restoring the node; minimizing or restoring folds it
+again (see [In-node output previews](in-node-preview.md)).
 
 Editing rows, resize handles, individual pins, widget taps, data panels, and
 lens actions are hidden. Each side with one or more connections shows one

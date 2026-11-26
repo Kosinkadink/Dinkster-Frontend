@@ -1,6 +1,6 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createSignal } from '@dinkster/core'
+import { createSignal, boundaryOf } from '@dinkster/core'
 import { diagnosticFocusPlan, diagnosticFocusTarget, AppState, pushGraph, truncateGraphStack, viewInstancePath, type Tab } from '../src/app-state.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
@@ -17,7 +17,7 @@ const makeTab = (): Tab =>
         root: { id: 'root', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 },
         child: {
           id: 'child', name: 'child', nodes: {}, links: {}, nets: {}, reroutes: {},
-          boundary: { inputs: [], outputs: [] }, nextOrdinal: 1,
+          boundary: boundaryOf([], []), nextOrdinal: 1,
         },
       },
     } },
@@ -43,7 +43,7 @@ describe('graph navigation helpers', () => {
     expect(outcome.ok).toBe(true)
     expect(tab.graphStack.get()).toEqual([root, 'g0'])
     expect(tab.instancePath.get()).toEqual(['n1'])
-    expect(tab.store.doc.graphs.g0?.boundary).toEqual({ inputs: [], outputs: [] })
+    expect(tab.store.doc.graphs.g0?.boundary).toEqual({ body: [] })
     expect(tab.store.doc.graphs[root]!.nodes.n1).toMatchObject({ type: '#g0', values: {} })
     app.commands.get('edit.undo')!.run()
     expect(tab.store.doc.graphs.g0).toBeUndefined()
@@ -78,10 +78,13 @@ describe('graph navigation helpers', () => {
     const root = tab.store.doc.root
     const dispatch = app.dispatchTo.bind(app)
     let settle!: () => void
-    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => new Promise((resolve) => {
-      const outcome = Promise.resolve(dispatch(owner, invocation))
-      settle = () => { void outcome.then(resolve) }
-    }) as never)
+    // Only the creation is held; the start-choice pass a new tab runs goes straight through.
+    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => invocation.command === 'dynamic.storeStartState'
+      ? dispatch(owner, invocation)
+      : new Promise((resolve) => {
+        const outcome = Promise.resolve(dispatch(owner, invocation))
+        settle = () => { void outcome.then(resolve) }
+      }) as never)
     const pending = app.createEmptySubgraph(tab, root, { x: 12, y: 34 })
     await vi.waitFor(() => expect(tab.store.doc.graphs.g0).toBeDefined())
     expect(tab.graphStack.get()).toEqual([root])
@@ -103,7 +106,7 @@ describe('graph navigation helpers', () => {
     const app = prepareWorkflowApp(new AppState())
     const schema = {
       type: 'test.documented', displayName: 'Documented', category: 'testing', pack: 'test-pack',
-      inputs: [], outputs: [], items: [], hasDocs: true,
+      body: [], hasDocs: true,
     }
     app.registry.set({
       connection: '', hash: 'test', schemas: new Map([[schema.type, schema]]), diagnostics: [],

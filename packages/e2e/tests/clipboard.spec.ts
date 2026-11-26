@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SUBGRAPH_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -10,7 +10,7 @@ async function openFixture(page: Page): Promise<void> {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ClipboardText', displayName: 'Clipboard Text', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'text', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+      body: [{ kind: 'input', id: 'text', type: { kind: 'concrete', name: 'STRING' }, optional: false,
         widget: { widgetType: 'STRING', options: {}, default: '' } }],
     }])
     await app.openDocument({
@@ -88,13 +88,11 @@ test('pasting a dynamic node removes unused members without recycling identity',
     app.registerSchemas([{
       type: 'ClipboardAutogrow', displayName: 'Clipboard Autogrow', category: 'test',
       source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'values', type: scalar, optional: false,
-        dynamic: {
-          kind: 'autogrow',
-          template: [{ kind: 'input', id: 'value', type: scalar, optional: false }],
-          naming: { kind: 'prefix', prefix: 'value', min: 1, max: 10 },
-        },
+      body: [{
+        kind: 'group', id: 'values',
+        value: { kind: 'input', id: 'value', type: scalar, optional: false },
+        keys: { kind: 'numbered', prefix: 'value', start: 1, pad: 0 },
+        grows: 'link', minMembers: 0, maxMembers: 10,
       }],
     }] as never)
     await app.openDocument({
@@ -104,7 +102,7 @@ test('pasting a dynamic node removes unused members without recycling identity',
         nodes: {
           dynamic: {
             id: 'dynamic', type: 'ClipboardAutogrow', values: {},
-            dynamic: { values: { members: ['m3'], seq: 4 } },
+            dynamic: { values: { members: ['value4'], seq: 4 } },
           },
         },
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
@@ -125,21 +123,21 @@ test('pasting a dynamic node removes unused members without recycling identity',
       pasted,
       dynamic: tab.store.doc.graphs.g0!.nodes[pasted]!.dynamic,
       members: sceneNode?.layout.pins
-        .filter((pin) => pin.direction === 'in' && pin.address.port === 'values.value')
+        .filter((pin) => pin.direction === 'in' && pin.address.port.startsWith('values.'))
         .map((pin) => ({
-          id: pin.address.members?.[0],
+          id: pin.address.port,
           ghost: pin.ghost === true,
           familyMember: pin.familyMember === true,
           optional: pin.optional === true,
         })),
     }
   })).toEqual({
-    original: { values: { members: ['m3'], seq: 4 } },
+    original: { values: { members: ['value4'], seq: 4 } },
     pasted: 'n10',
     dynamic: { values: { seq: 4 } },
+    // The spare member is offered past the counter, never value4 again.
     members: [
-      { id: 'm4', ghost: false, familyMember: true, optional: false },
-      { id: 'm5', ghost: true, familyMember: true, optional: true },
+      { id: 'values.value5', ghost: true, familyMember: true, optional: true },
     ],
   })
 
@@ -186,10 +184,10 @@ test('connected paste restores an incoming link into a widget-backed input (audi
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'FloatOut', displayName: 'Float Out', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
+      body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
     }, {
       type: 'FloatWidget', displayName: 'Float Widget', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
+      body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
         widget: { widgetType: 'FLOAT', options: {}, default: 0 } }],
     }])
     await app.openDocument({
@@ -247,7 +245,7 @@ test('subgraph copy across tabs carries nested definitions and undoes atomically
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'NestedPass', displayName: 'Nested Pass', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'image', displayName: 'Source Image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
         { kind: 'output', id: 'result', displayName: 'Result Image', type: { kind: 'concrete', name: 'IMAGE' } },
       ],
@@ -259,15 +257,19 @@ test('subgraph copy across tabs carries nested definitions and undoes atomically
         outer: {
           id: 'outer', name: 'Outer', nodes: { nested: { id: 'nested', type: '#inner', values: {} } }, links: {}, nets: {}, reroutes: {},
           boundary: {
-            inputs: [{ id: 'source', binds: { kind: 'port', node: 'nested', port: 'source' } }],
-            outputs: [{ id: 'result', binds: { kind: 'port', node: 'nested', port: 'result' } }],
+            body: [
+              { kind: 'input', id: 'source', binds: { kind: 'port', node: 'nested', port: 'source' } },
+              { kind: 'output', id: 'result', binds: { kind: 'port', node: 'nested', port: 'result' } },
+            ],
           }, nextOrdinal: 1,
         },
         inner: {
           id: 'inner', name: 'Inner', nodes: { pass: { id: 'pass', type: 'NestedPass', values: {} } }, links: {}, nets: {}, reroutes: {},
           boundary: {
-            inputs: [{ id: 'source', binds: { kind: 'port', node: 'pass', port: 'image' } }],
-            outputs: [{ id: 'result', binds: { kind: 'port', node: 'pass', port: 'result' } }],
+            body: [
+              { kind: 'input', id: 'source', binds: { kind: 'port', node: 'pass', port: 'image' } },
+              { kind: 'output', id: 'result', binds: { kind: 'port', node: 'pass', port: 'result' } },
+            ],
           }, nextOrdinal: 1,
         },
       },
@@ -320,20 +322,15 @@ test('subgraph copy across tabs carries nested definitions and undoes atomically
   expect(pasted.innerId).not.toBe('')
   if (proofDir) await page.screenshot({ path: join(proofDir, 'cross-tab-subgraph-paste.png'), animations: 'disabled', fullPage: true })
 
-  const point = await page.evaluate((nodeId) => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === nodeId)!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
-  }, pasted.nodeId)
+  const point = await subgraphMarkPoint(page, pasted.nodeId)
   await page.mouse.dblclick(point.x, point.y)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().at(-1))).toBe(pasted.outerId)
 
-  const nestedPoint = await page.evaluate(() => {
+  const nestedId = await page.evaluate(() => {
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-    const node = window.__dinksterTest!.renderer!.getScene().nodes[0]!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
+    return window.__dinksterTest!.renderer!.getScene().nodes[0]!.id
   })
+  const nestedPoint = await subgraphMarkPoint(page, nestedId)
   await page.mouse.dblclick(nestedPoint.x, nestedPoint.y)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().at(-1))).toBe(pasted.innerId)
   if (proofDir) await page.screenshot({ path: join(proofDir, 'cross-tab-nested-definition.png'), animations: 'disabled', fullPage: true })

@@ -30,7 +30,7 @@ const schemaOf = (type: string, extra?: Partial<NodeSchema>): NodeSchema => ({
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [],
+  body: [],
   ...extra,
 })
 

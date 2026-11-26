@@ -35,7 +35,7 @@ const corpus = JSON.parse(corpusText) as {
   readonly frames: Readonly<Record<string, CorpusFrame>>
   readonly cases: readonly CorpusCase[]
 }
-const filterWire = JSON.parse(fixture('image_filter_wire30.json')) as {
+const filterWire = JSON.parse(fixture('image_filter.json')) as {
   readonly mirror: { readonly source: string; readonly applies: Readonly<Record<string, readonly string[]>> }
 }
 

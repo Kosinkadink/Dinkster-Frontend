@@ -6,7 +6,13 @@
  * input, endpoints resolve) are what commands enforce.
  */
 
-import { cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type TypeExpr } from './model.js'
+import { cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type Cardinality, type TypeExpr } from './model.js'
+
+/** A whole-list input lifts its declared element type only for a list source. */
+export const admittedInputType = (type: TypeExpr, acceptsList: boolean, sourceCardinality: Cardinality): TypeExpr =>
+  acceptsList && type.kind !== 'list' && sourceCardinality === 'list'
+    ? { kind: 'list', element: type }
+    : type
 
 /**
  * The concrete atom names a type expression can denote; undefined means
@@ -29,7 +35,6 @@ export const atomNamesOf = (t: TypeExpr): readonly string[] | undefined => {
     case 'variable':
       if (!t.allowedTypes || t.allowedTypes.length === 0) return undefined
       return t.allowedTypes.flatMap((a) => atomNamesOf(a) ?? [])
-    case 'family_tuple':
     case 'tuple_element':
       return undefined
     case 'tuple': {

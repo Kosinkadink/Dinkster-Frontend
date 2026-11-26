@@ -88,7 +88,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'text-completion-proof', schemaWire: 1 },
+    dinkster: { version: 'text-completion-proof', schemaWire: 2 },
     packs: {},
     nodes: {},
   } }))
@@ -135,7 +135,7 @@ test.beforeEach(async ({ page }) => {
         category: 'utilities/primitive',
         source: 'v3',
         isOutputNode: false,
-        items: [textInput(false)],
+        body: [textInput(false)],
       },
       {
         type: 'dinkster.string_multiline',
@@ -144,7 +144,7 @@ test.beforeEach(async ({ page }) => {
         source: 'v3',
         isOutputNode: false,
         searchVisibility: 'hidden',
-        items: [textInput(true)],
+        body: [textInput(true)],
       },
     ])
     return await window.__dinksterTest!.app.openDocument({
@@ -179,8 +179,8 @@ test('ordinary Text uses a compact editor and switches views only from its conte
   const palette = page.getByTestId('node-palette')
   await expect(palette).toBeVisible()
   await page.getByTestId('palette-search').fill('Text')
-  await expect(palette.locator('[data-node-type="dinkster.string"]')).toHaveCount(1)
-  await expect(palette.locator('[data-node-type="dinkster.string_multiline"]')).toHaveCount(0)
+  await expect(palette.locator('[data-key="entry:dinkster.string"]')).toHaveCount(1)
+  await expect(palette.locator('[data-key="entry:dinkster.string_multiline"]')).toHaveCount(0)
   await page.screenshot({
     path: `${TEXT_WIDGET_PROOF_DIR}/01-consolidated-text-picker.png`,
     animations: 'disabled',
@@ -190,11 +190,11 @@ test('ordinary Text uses a compact editor and switches views only from its conte
   const singlePoint = await textRow(page)
   await page.mouse.click(singlePoint.x, singlePoint.y)
   const compactEditor = page.getByTestId('widget-editor')
-  await expect(compactEditor).toHaveAttribute('data-editor-surface', 'popover')
+  await expect(compactEditor).toHaveAttribute('data-editor-surface', 'in-row')
   await expect(compactEditor.locator('input')).toBeVisible()
   await expect(compactEditor.locator('textarea')).toHaveCount(0)
   await page.screenshot({
-    path: `${TEXT_WIDGET_PROOF_DIR}/02-single-line-compact-popover.png`,
+    path: `${TEXT_WIDGET_PROOF_DIR}/02-single-line-in-row.png`,
     animations: 'disabled',
   })
   await page.keyboard.press('Escape')
@@ -253,7 +253,7 @@ test('Math Expression saves invalid text and reports the error in its accessible
         kind: 'expression', precision: 'bounded',
         tolerance: { relative: 1e-12 }, grammarVersion: 1,
       },
-      items: [
+      body: [
         {
           kind: 'input', id: 'expression',
           type: { kind: 'concrete', name: 'STRING' }, optional: false,
@@ -264,17 +264,14 @@ test('Math Expression saves invalid text and reports the error in its accessible
                 { value: 'sin', label: 'sin()', insertText: 'sin(', detail: 'Function', kind: 'identifier' },
                 { value: '+', label: '+', insertText: '+', detail: 'Operator', kind: 'operator' },
               ],
-              inputFamilies: ['values'],
             },
           },
         },
         {
-          kind: 'input', id: 'values', type: { kind: 'wildcard' }, optional: false,
-          dynamic: {
-            kind: 'autogrow',
-            template: [{ kind: 'input', id: 'value', type: { kind: 'wildcard' }, optional: false }],
-            naming: { kind: 'names', names: 'abcdefghijklmnopqrstuvwxyz'.split(''), min: 1 },
-          },
+          kind: 'group', id: 'values',
+          value: { kind: 'input', id: 'value', type: { kind: 'wildcard' }, optional: false },
+          keys: { kind: 'named', names: 'abcdefghijklmnopqrstuvwxyz'.split('') },
+          grows: 'link', minMembers: 1,
         },
         { kind: 'output', id: 'float', type: { kind: 'concrete', name: 'FLOAT' } },
         { kind: 'output', id: 'int', type: { kind: 'concrete', name: 'INT' } },
@@ -312,12 +309,6 @@ test('Math Expression saves invalid text and reports the error in its accessible
   await textarea.press('Enter')
   await expect(textarea).toHaveValue('sin(')
   await expect(page.getByRole('alert')).toHaveCount(0)
-
-  await textarea.fill('b')
-  await expect(suggestions.getByRole('option')).toContainText('b')
-  await expect(suggestions.getByRole('option')).toContainText('Input')
-  await suggestions.getByRole('option').click()
-  await expect(textarea).toHaveValue('b')
 
   await textarea.fill('a +')
   await expect(textarea).not.toHaveAttribute('aria-invalid', 'true')

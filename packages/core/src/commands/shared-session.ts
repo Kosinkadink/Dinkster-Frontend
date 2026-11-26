@@ -55,7 +55,7 @@
  * fake connection deterministically.
  */
 
-import type { Json, WorkflowDocument } from '../format/document.js'
+import type { Json, JsonObject, WorkflowDocument } from '../format/document.js'
 import { ownJson } from '../format/json.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { loadDocument } from '../format/migrate.js'
@@ -70,7 +70,7 @@ import type {
 import { predictAllocatedId } from './alloc.js'
 import { isValidActorId } from '../ids.js'
 import { applyOps, type PatchOp } from './patch.js'
-import { DocumentStore, jsonSameValue, replayHistoryOps, type BoundaryPositionResolver, type DocumentCommitPolicy, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
+import { DocumentStore, jsonSameValue, replayHistoryOps, type BoundaryPositionResolver, type NodeHeightResolver, type DocumentCommitPolicy, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
 import { toWirePatch, type DocumentSession, type SessionOp, type WirePatchOp } from './session.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
@@ -132,12 +132,16 @@ const sessionPatchCommand: CommandDefinition = {
 
 export type SharedSessionStatus = 'live' | 'catching-up' | 'closed' | 'error'
 
-/** A pending intention dropped because it no longer applies after a rebase. */
+/** A pending intention dropped because it no longer applies or the server refused it. */
 export interface SessionConflict {
   readonly invocation: CommandInvocation
   readonly diagnostics: readonly Diagnostic[]
-  /** 'rebase' = foreign op invalidated it; 'undo'/'redo' = history replay refused. */
-  readonly during: 'rebase' | 'undo' | 'redo'
+  /**
+   * 'rebase' = foreign op invalidated it; 'undo'/'redo' = history replay
+   * refused; 'refused' = the server stored none of it, and the diagnostic
+   * carries the server's reason.
+   */
+  readonly during: 'rebase' | 'undo' | 'redo' | 'refused'
 }
 
 export interface SharedSessionOptions {
@@ -154,6 +158,7 @@ export interface SharedSessionOptions {
   readonly onError?: (message: string) => void
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
   readonly boundaryPositionsFor?: BoundaryPositionResolver
+  readonly nodeHeightFor?: NodeHeightResolver
   /** Synchronous local command, history and rebased intention policy. */
   readonly validateCommit?: DocumentCommitPolicy
   /** Confirm ownership before adoption; the receipt callback runs after commit, before observers. */
@@ -243,6 +248,7 @@ class SharedDocumentSession implements DocumentSession {
   private readonly maxUndo: number
   private readonly schemaResolverFor: ((doc: WorkflowDocument) => SchemaResolver) | undefined
   private readonly boundaryPositionsFor: SharedSessionOptions['boundaryPositionsFor']
+  private readonly nodeHeightFor: SharedSessionOptions['nodeHeightFor']
   private readonly validateCommit: SharedSessionOptions['validateCommit']
   private readonly beforeRemoteDocument: SharedSessionOptions['beforeRemoteDocument']
   private rebasing = false
@@ -320,6 +326,7 @@ class SharedDocumentSession implements DocumentSession {
     this.maxUndo = options?.maxUndo ?? 200
     this.schemaResolverFor = options?.schemaResolverFor
     this.boundaryPositionsFor = options?.boundaryPositionsFor
+    this.nodeHeightFor = options?.nodeHeightFor
     this.validateCommit = options?.validateCommit
     this.beforeRemoteDocument = options?.beforeRemoteDocument
     this.snapshotPolicy = new SnapshotPublicationPolicy(
@@ -570,6 +577,28 @@ class SharedDocumentSession implements DocumentSession {
     const store = this.store
     const prepared = store.prepareDispatch(stamped)
     if (!prepared.ok) return prepared
+    // Keep arrival folds and measured heights in the intention: replay has no live schema authority.
+    const folds = (definition?.replaysHistory ? [] : prepared.forward).flatMap<Json>((op) => {
+      const [root, graphs, graphId, nodes, nodeId, editors, valueKey] = op.path
+      if (op.op !== 'remove' && op.path.length === 6 && root === 'view' && graphs === 'graphs' &&
+        nodes === 'nodes' && editors === 'size') {
+        const before = store.doc.view.graphs[graphId!]?.nodes[nodeId!]
+        const after = prepared.document.view.graphs[graphId!]?.nodes[nodeId!]
+        if (!jsonSameValue(before?.editors, after?.editors) || !jsonSameValue(before?.sections, after?.sections))
+          return [{ command: 'view.setNodeSize', params: { graphId: graphId!, nodeId: nodeId!, size: op.value } }]
+      }
+      if (op.op === 'remove' || op.path.length !== 7 || root !== 'view' || graphs !== 'graphs' ||
+        nodes !== 'nodes' || editors !== 'editors' || typeof op.value !== 'object' || op.value === null ||
+        Array.isArray(op.value) || (op.value as JsonObject)['unfolded'] !== false) return []
+      return [{ command: 'view.setEditorUnfolded', params: { graphId: graphId!, nodeId: nodeId!, valueKey: valueKey!, unfolded: false } }]
+    })
+    const replayInvocation: CommandInvocation = folds.length === 0 ? stamped : {
+      ...stamped, command: 'batch', params: { invocations: [
+        ...(stamped.command === 'batch' ? (stamped.params as JsonObject)['invocations'] as readonly Json[]
+          : [{ command: stamped.command, params: stamped.params }]),
+        ...folds,
+      ] },
+    }
     const confirmedRevision = this.confirmedRevision
     const confirmed = this.confirmed
     const freezeHistory = (history: HistorySnapshot): HistorySnapshot => Object.freeze({
@@ -621,7 +650,7 @@ class SharedDocumentSession implements DocumentSession {
             ? { forward: outcome.forward, inverse: outcome.inverse } : undefined
           this.pending.push({
             opId: this.mintOpId(),
-            invocation: stamped,
+            invocation: replayInvocation,
             origin: origin ?? stamped.command,
             predicted: toWirePatch(outcome.forward),
             attempts: [],
@@ -820,6 +849,11 @@ class SharedDocumentSession implements DocumentSession {
       if (outcome.kind === 'protocol-unsupported') {
         this.fail(`protocol version ${COLLAB_PROTOCOL_VERSION} unsupported (server supports ${outcome.supported.join(', ')})`)
         break
+      }
+      if (outcome.kind === 'refused') {
+        // A rebase during the request reminted the head; its new op is judged afresh.
+        if (this.pending[0] === head) this.dropRefused(head, outcome.code, outcome.message)
+        continue
       }
       if ('diagnostic' in outcome) {
         this.submissionDenial = outcome.diagnostic
@@ -1183,6 +1217,21 @@ class SharedDocumentSession implements DocumentSession {
     for (const conflict of conflicts) this.notifyConflict(conflict)
   }
 
+  /**
+   * Drop the refused intention with its history record and rebuild the
+   * optimistic document from confirmed state without it; the intentions
+   * queued after it re-execute as on any rebase.
+   */
+  private dropRefused(entry: PendingEntry, code: string, message: string): void {
+    if (entry.record) this.removeRecord(entry.record)
+    this.rebase(this.confirmed, new Set([entry]))
+    this.notifyConflict({
+      invocation: entry.invocation,
+      diagnostics: [diag('error', 'command', `session.refused.${code}`, message)],
+      during: 'refused',
+    })
+  }
+
   private createStore(doc: WorkflowDocument): DocumentStore {
     return new DocumentStore(doc, this.commands, 0, this.sink, () =>
       this.rebasing
@@ -1190,6 +1239,7 @@ class SharedDocumentSession implements DocumentSession {
         : ({ kind: 'initial', ...(this.schemaResolverFor ? { schemaResolverFor: this.schemaResolverFor } : {}) }),
       undefined,
       this.boundaryPositionsFor,
+      this.nodeHeightFor,
     )
   }
 

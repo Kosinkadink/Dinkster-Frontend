@@ -1,8 +1,5 @@
-import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { describe, expect, it } from 'vitest'
-import { diag, documentResolver, occurrenceDynamicView, coreCommandRegistry, createLocalSession, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
-import { buildScene, defaultTokens } from '@dinkster/canvas'
-import { AppState } from '../src/app-state.js'
+import { asConnectionId, checkDocument, compile, diag, DocumentStore, loadDocument, planClipboardPaste, serializeSelection, documentResolver, coreCommandRegistry, createLocalSession, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument, boundaryOf, boundaryItems } from '@dinkster/core'
 import { extractSubgraphInvocationThroughBridge, flattenSubgraphThroughBridge } from '../src/CanvasHost.js'
 import { activateProblem } from '../src/ProblemsPanel.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection } from '../src/subgraph-lifecycle.js'
@@ -11,7 +8,7 @@ import { createWorkflowApp } from './fixtures/workflow-app.js'
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const schema: NodeSchema = {
-  type: 'Plain', displayName: 'Plain', category: 'test', source: 'v3', isOutputNode: false, items: [],
+  type: 'Plain', displayName: 'Plain', category: 'test', source: 'v3', isOutputNode: false, body: [],
 }
 
 const document = (): WorkflowDocument => ({
@@ -23,7 +20,7 @@ const document = (): WorkflowDocument => ({
         inside: { id: 'inside' as never, type: 'Plain', values: {} },
         outside: { id: 'outside' as never, type: 'Plain', values: {} },
       },
-      links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, nextOrdinal: 10,
+      links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
     },
   },
   view: { graphs: { root: {
@@ -54,7 +51,7 @@ describe('subgraph lifecycle app plans', () => {
   it('does not offer hidden compatibility widgets as extracted boundary taps', () => {
     const providerSchema: NodeSchema = {
       ...schema,
-      items: [
+      body: [
         { kind: 'input', id: 'model', type: { kind: 'concrete', name: 'COMBO' }, optional: false, widget: { widgetType: 'COMBO', options: { options: ['Automatic'] } } },
         { kind: 'input', id: 'provider', type: { kind: 'concrete', name: 'COMBO' }, optional: true, widget: { widgetType: 'COMBO', options: { options: ['vision.depth.v2'] } }, hidden: true },
       ],
@@ -78,7 +75,7 @@ describe('subgraph lifecycle app plans', () => {
     expect(hasExtractSelection({ geometry: [] })).toBe(false)
     expect(hasExtractSelection({ groupIds: ['empty'], geometry: [{ id: 'empty', kind: 'group', x: 0, y: 0, width: 10, height: 10 }] })).toBe(false)
     expect(isFlattenSelection(doc, 'root', ['inside'], 0)).toBe(false)
-    ;(doc as any).graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: { inputs: [], outputs: [] }, nextOrdinal: 0 }
+    ;(doc as any).graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
     ;(doc as any).view.graphs.body = { nodes: {} }
     ;(doc as any).graphs.root.nodes.inside.type = '#body'
     expect(isFlattenSelection(doc, 'root', ['inside'], 0)).toBe(true)
@@ -105,10 +102,12 @@ describe('subgraph lifecycle app plans', () => {
           regionBody: {
             id: 'regionBody', name: 'Region Body',
             nodes: { n0: { id: 'n0', type: 'Plain', values: {} } },
-            links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
+            links: {}, nets: {}, reroutes: {},
             boundary: {
-              inputs: [{ id: 'item', binds: { kind: 'port', node: 'n0', port: 'item' } }],
-              outputs: [{ id: 'result', binds: { kind: 'port', node: 'n0', port: 'result' } }],
+              body: [
+                { kind: 'input', id: 'item', binds: { kind: 'port', node: 'n0', port: 'item' } },
+                { kind: 'output', id: 'result', binds: { kind: 'port', node: 'n0', port: 'result' } },
+              ],
             },
             nextOrdinal: 1,
           },
@@ -161,7 +160,7 @@ describe('subgraph lifecycle app plans', () => {
 
   it('reports actionable bridge planning failures instead of swallowing them', async () => {
     const doc = document() as any
-    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: { inputs: [], outputs: [] }, nextOrdinal: 0 }
+    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
     doc.view.graphs.body = { nodes: {} }
     doc.graphs.root.nodes.inside.type = '#body'
     const reports: Diagnostic[] = []
@@ -226,7 +225,7 @@ describe('subgraph lifecycle app plans', () => {
 
   it('reports every flatten dispatch and post-commit failure arm', async () => {
     const doc = document() as any
-    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: { inputs: [], outputs: [] }, nextOrdinal: 0 }
+    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
     doc.view.graphs.body = { nodes: {} }
     doc.graphs.root.nodes.inside.type = '#body'
     const reports: Diagnostic[] = []
@@ -364,155 +363,257 @@ describe('subgraph lifecycle app plans', () => {
     expect(Object.keys(session.doc.graphs.root!.nodes).sort()).toEqual(accepted ? ['n11', 'outside'] : ['n10', 'outside'])
     expect(reports.length).toBe(accepted ? 0 : 1)
   })
+})
 
-  it('uses occurrence-resolved dynamic layout height when placing flattened body nodes', () => {
-    const familySchema: NodeSchema = {
-      type: 'Family', displayName: 'Family', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'items', type: { kind: 'concrete', name: 'STRING' }, optional: true,
-        dynamic: {
-          kind: 'autogrow',
-          template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: true }],
-          naming: { kind: 'prefix', prefix: 'item', min: 0, max: 8 },
-        },
-      }],
-    }
-    const doc = document() as any
-    doc.graphs.root.nodes = { occurrence: { id: 'occurrence', type: '#body', values: {}, dynamic: { forwarded: { members: ['m0'] } } } }
-    doc.graphs.root.nextOrdinal = 20
-    doc.view.graphs.root.nodes = { occurrence: { position: { x: 500, y: 300 }, size: { width: 180, height: 100 } } }
-    doc.graphs.body = {
-      id: 'body', name: 'Body',
-      nodes: { bodyNode: { id: 'bodyNode', type: 'Family', values: {} } },
-      links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, nextOrdinal: 1,
-      boundary: { inputs: [{ id: 'forwarded', binds: { kind: 'family', node: 'bodyNode', port: 'items' } }], outputs: [] },
-    }
-    doc.view.graphs.body = { nodes: { bodyNode: { position: { x: 0, y: 0 } } } }
-    const resolveSchema = (type: string) => type === 'Family' ? familySchema : undefined
-    const resolve = documentResolver(doc, resolveSchema)
-    const measure = (text: string) => text.length * 7
-    const widgetMeasure = () => ({ viewId: 'core.line', rows: 1 })
-    const definition = buildScene({ document: doc, graphId: 'body', resolve, tokens: defaultTokens, measure, widgetMeasure })
-    const resolved = buildScene({
-      document: doc, graphId: 'body', resolve, tokens: defaultTokens, measure, widgetMeasure,
-      occurrenceView: occurrenceDynamicView(doc, resolve, ['occurrence']),
-    })
-    expect(resolved.nodes[0]!.layout.height).toBeGreaterThan(definition.nodes[0]!.layout.height)
-    const occurrence = { id: 'occurrence', kind: 'node' as const, x: 410, y: 250, width: 180, height: 100 }
-    const bodyGeometry = [{
-      id: 'bodyNode', kind: 'node' as const, x: resolved.nodes[0]!.x, y: resolved.nodes[0]!.y,
-      width: resolved.nodes[0]!.layout.width, height: resolved.nodes[0]!.layout.height,
-    }]
-    const invocation = flattenInvocation(doc, 'root', [], 'occurrence', occurrence, bodyGeometry, resolveSchema)!
-    const session = createLocalSession(doc, coreCommandRegistry([], resolveSchema), {
-      schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolveSchema),
-    })
-    expect(session.dispatch(invocation).ok).toBe(true)
-    expect(session.doc.view.graphs.root!.nodes.n20!.position).toEqual({
-      x: 500 - resolved.nodes[0]!.layout.width / 2,
-      y: 300 - resolved.nodes[0]!.layout.height / 2,
-    })
+describe('whole constructs shown on a subgraph node through two levels', () => {
+  const IMAGE = { kind: 'concrete', name: 'IMAGE' } as const
+  const FLOAT = { kind: 'concrete', name: 'FLOAT' } as const
+  const STRING = { kind: 'concrete', name: 'STRING' } as const
+  const node = (type: string, body: NodeSchema['body']): NodeSchema => ({
+    type, displayName: type, category: 'test', source: 'v3', isOutputNode: true, body,
   })
-
-  it('exports, reopens, and drills through a grouped forwarded autogrow member without changing identity', async () => {
-    const image = { kind: 'concrete', name: 'IMAGE' } as const
-    const sourceSchema: NodeSchema = {
-      type: 'Source', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'out', type: image }],
-    }
-    const groupedSchema: NodeSchema = {
-      type: 'Grouped', displayName: 'Grouped', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'pairs', type: image, optional: true,
-        dynamic: {
-          kind: 'autogrow',
-          template: [
-            { kind: 'input', id: 'image', type: image, optional: true },
-            { kind: 'input', id: 'mask', type: image, optional: true },
-          ],
-          naming: { kind: 'prefix', prefix: 'pair', min: 0, max: 4 },
-        },
-      }],
-    }
-    const schemas = new Map([[sourceSchema.type, sourceSchema], [groupedSchema.type, groupedSchema]])
-    const configure = (app: AppState) => {
-      const backend = app.backends.get()[0]!
-      backend.registry.set({
-        connection: backend.id, hash: 'autogrow-export-open', schemas, diagnostics: [],
-        resolve: (type) => schemas.get(type),
-      })
-    }
-    const doc = {
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'autogrow-export-open', root: 'root',
-      graphs: {
-        root: {
-          id: 'root', name: 'Root',
-          nodes: {
-            source: { id: 'source', type: 'Source', values: {} },
-            occurrence: { id: 'occurrence', type: '#body', values: {} },
+  const floatField = (id: string, def: number) => ({
+    kind: 'input', id, type: FLOAT, optional: true, widget: { widgetType: 'FLOAT', options: {}, default: def },
+  }) as const
+  const schemas: Record<string, NodeSchema> = {
+    Src: node('Src', [{ kind: 'output', id: 'out', type: IMAGE }]),
+    Sink: node('Sink', [{ kind: 'input', id: 'in', type: IMAGE, optional: false }]),
+    Weigh: node('Weigh', [
+      { kind: 'group', id: 'weights', value: floatField('w', 0.5), keys: { kind: 'numbered', prefix: 'w', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 8 },
+      { kind: 'output', id: 'out', type: IMAGE },
+    ]),
+    Batch: node('Batch', [
+      { kind: 'group', id: 'images', value: { kind: 'input', id: 'image', type: IMAGE, optional: true }, keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 8 },
+    ]),
+    Mode: node('Mode', [{
+      kind: 'choice', id: 'mode', required: true, shared: [],
+      options: [
+        { key: 'image', rows: [floatField('strength', 0.3)] },
+        { key: 'text', rows: [{ kind: 'input', id: 'words', type: STRING, optional: false, widget: { widgetType: 'STRING', options: {}, default: '' } }] },
+      ],
+    }]),
+  }
+  const resolveSchema = (type: string) => schemas[type]
+  const empty = { links: {}, nets: {}, reroutes: {}, nextOrdinal: 100 }
+  const construct = (id: string, node: string, port: string) => ({ id, binds: { kind: 'construct', node, port } })
+  const fixture = (mode: 'active' | 'muted' | 'bypassed' = 'active'): WorkflowDocument => ({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'lineage' as never, root: 'root' as never,
+    graphs: {
+      root: {
+        id: 'root' as never, name: 'Root', ...empty,
+        nodes: {
+          a: { id: 'a' as never, type: 'Src', values: {} },
+          first: {
+            id: 'first' as never, type: '#portrait', ...(mode === 'active' ? {} : { mode }),
+            dynamic: { mix: { members: ['w0', 'w1'] }, pics: { members: ['image0'] }, look: { selected: 'text' } },
+            values: { 'mix.w0': 0.2, 'mix.w1': 0.8, 'look.words': 'portrait' },
           },
-          links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, nextOrdinal: 1,
+          second: { id: 'second' as never, type: '#portrait', dynamic: { mix: { members: ['w0'] } }, values: { 'mix.w0': 0.9 } },
+          k: { id: 'k' as never, type: 'Sink', values: {} },
         },
-        body: {
-          id: 'body', name: 'Body',
-          nodes: { grouped: { id: 'grouped', type: 'Grouped', values: {} } },
-          links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, nextOrdinal: 1,
-          boundary: {
-            inputs: [{ id: 'forwarded', binds: { kind: 'family', node: 'grouped', port: 'pairs' } }],
-            outputs: [],
-          },
+        links: {
+          l1: { id: 'l1' as never, from: { node: 'a', port: 'out' } as never, to: { node: 'first', port: 'pics.image0' } as never },
+          l2: { id: 'l2' as never, from: { node: 'first', port: 'out' } as never, to: { node: 'k', port: 'in' } as never },
         },
       },
-      view: { graphs: { root: { nodes: {} }, body: { nodes: {} } } },
-    } as unknown as WorkflowDocument
-
-    const app = prepareWorkflowApp(new AppState())
-    configure(app)
-    expect((await app.openDocument(doc, 'Autogrow export'))).toEqual([])
-    const tab = app.activeTab()!
-    expect(tab.store.dispatch({
-      command: 'batch',
-      params: { invocations: [
-        {
-          command: 'dynamic.materialize',
-          params: { graphId: 'root', nodeId: 'occurrence', frames: [{ construct: 'forwarded', members: ['m0'] }] },
-        },
-        {
-          command: 'link.connect',
-          params: {
-            graphId: 'root', from: { node: 'source', port: 'out' },
-            to: { node: 'occurrence', port: 'forwarded.image', members: ['m0'] },
+      portrait: {
+        id: 'portrait' as never, name: 'Portrait fix', ...empty,
+        nodes: {
+          d: {
+            id: 'd' as never, type: '#detail',
+            dynamic: { weights: { members: ['w0'] }, mode: { selected: 'image' } },
+            values: { 'weights.w0': 0.6, 'mode.strength': 0.6 },
           },
         },
-      ] },
-    } as any).ok).toBe(true)
+        boundary: {
+          body: [
+            { kind: 'input', ...construct('mix', 'd', 'weights') },
+            { kind: 'input', ...construct('pics', 'd', 'imgs') },
+            { kind: 'input', ...construct('look', 'd', 'mode') },
+            { kind: 'output', id: 'out', binds: { kind: 'port', node: 'd', port: 'out' } },
+          ],
+        } as never,
+      },
+      detail: {
+        id: 'detail' as never, name: 'Detail pass', ...empty,
+        nodes: {
+          n: { id: 'n' as never, type: 'Weigh', dynamic: { weights: { members: ['w0', 'w1'] } }, values: { 'weights.w0': 0.1, 'weights.w1': 0.15 } },
+          b: { id: 'b' as never, type: 'Batch', values: {} },
+          m: { id: 'm' as never, type: 'Mode', dynamic: { mode: { selected: 'image' } }, values: { 'mode.strength': 0.4, 'mode.words': 'kept' } },
+        },
+        boundary: {
+          body: [
+            { kind: 'input', ...construct('weights', 'n', 'weights') },
+            { kind: 'input', ...construct('imgs', 'b', 'images') },
+            { kind: 'input', ...construct('mode', 'm', 'mode') },
+            { kind: 'output', id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } },
+          ],
+        } as never,
+      },
+    },
+    view: { graphs: {
+      root: { nodes: { a: { position: { x: 0, y: 0 } }, first: { position: { x: 200, y: 0 } }, second: { position: { x: 200, y: 300 } }, k: { position: { x: 500, y: 0 } } } },
+      portrait: { nodes: { d: { position: { x: 0, y: 0 } } } },
+      detail: { nodes: { n: { position: { x: 0, y: 0 } }, b: { position: { x: 0, y: 200 } }, m: { position: { x: 0, y: 400 } } } },
+    } },
+  })
 
-    const exported = app.exportDocument(tab.id)!
-    const reopenedApp = prepareWorkflowApp(new AppState())
-    configure(reopenedApp)
-    expect((await reopenedApp.openDocument(JSON.parse(JSON.stringify(exported)), 'Autogrow reopened'))).toEqual([])
-    const reopened = reopenedApp.activeTab()!
-    expect(reopened.store.doc.graphs.root!.nodes.occurrence!.dynamic).toEqual({
-      forwarded: { members: ['m0'], seq: 1 },
+  /** Each run node by type, with wires named by their source's type and output, sorted: prompt ids change on flatten. */
+  const runOf = (doc: WorkflowDocument) => {
+    const result = compile({
+      document: doc, revision: 1, resolve: resolveSchema, scope: { kind: 'full' },
+      connection: asConnectionId('c0'), schemaHash: 'test',
     })
-    expect(Object.values(reopened.store.doc.graphs.root!.links)[0]!.to).toEqual({
-      node: 'occurrence', port: 'forwarded.image', members: ['m0'],
-    })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    const prompt = result.artifact.prompt
+    return Object.values(prompt).map((entry) => JSON.stringify({
+      ...entry,
+      inputs: Object.fromEntries(Object.entries(entry.inputs).map(([key, value]) =>
+        [key, Array.isArray(value) ? [prompt[value[0] as string]!.class_type, value[1]] : value])),
+    })).sort()
+  }
 
-    const resolver = documentResolver(reopened.store.doc, (type) => schemas.get(type))
-    const rootScene = buildScene({
-      document: reopened.store.doc, graphId: 'root', resolve: resolver, tokens: defaultTokens,
+  const flatten = async (doc: WorkflowDocument, graphId: string, instancePath: readonly string[], nodeId: string) => {
+    const session = createLocalSession(doc, coreCommandRegistry(), { schemaResolverFor: () => documentResolver(doc, resolveSchema) })
+    const reports: Diagnostic[] = []
+    const ok = await flattenSubgraphThroughBridge({
+      document: doc, graphId, instancePath, nodeId,
+      occurrence: { id: nodeId, kind: 'node', x: 200, y: 0, width: 140, height: 120 },
+      resolveSchema, seedControllerEnabled: true,
       measure: (text) => text.length * 7, widgetMeasure: () => ({ viewId: 'core.line', rows: 1 }),
+      report: (diagnostic) => reports.push(diagnostic),
+      dispatch: (invocation) => session.dispatch(invocation),
+      selectNodes: () => {},
     })
-    const drilledScene = buildScene({
-      document: reopened.store.doc, graphId: 'body', resolve: resolver, tokens: defaultTokens,
-      measure: (text) => text.length * 7, widgetMeasure: () => ({ viewId: 'core.line', rows: 1 }),
-      occurrenceView: occurrenceDynamicView(reopened.store.doc, resolver, ['occurrence']),
-    })
-    expect(rootScene.nodes.find((node) => node.id === 'occurrence')!.layout.pins
-      .some((pin) => pin.address.members?.[0] === 'm0' && !pin.ghost)).toBe(true)
-    expect(drilledScene.nodes.find((node) => node.id === 'grouped')!.layout.pins
-      .some((pin) => pin.address.members?.[0] === '\u0000m0' && !pin.ghost)).toBe(true)
-    expect(Object.values(reopened.store.doc.graphs.root!.links)[0]!.to).toMatchObject({ members: ['m0'] })
+    return { ok, reports, session }
+  }
+
+  it('flattening the outer subgraph node keeps every run input, member order and pick', async () => {
+    const doc = fixture()
+    const before = runOf(doc)
+    // The first node's weights: the inner definition's two, the middle one's, then its own two.
+    expect(before.filter((entry) => entry.includes('"class_type":"Weigh"'))).toContainEqual(expect.stringContaining('"weights.w0":0.1,"weights.w1":0.15,"weights.w2":0.6,"weights.w3":0.2,"weights.w4":0.8'))
+    const { ok, reports, session } = await flatten(doc, 'root', [], 'first')
+    expect(ok, JSON.stringify(reports)).toBe(true)
+    expect(checkDocument(session.doc)).toEqual([])
+    const flattened = Object.values(session.doc.graphs.root!.nodes).find((entry) => entry.type === '#detail')!
+    // The middle definition's member first, then the outer node's, renumbered past it.
+    expect(flattened.dynamic?.['weights']?.members).toEqual(['w0', 'w1', 'w2'])
+    expect(flattened.values).toEqual({ 'weights.w0': 0.6, 'weights.w1': 0.2, 'weights.w2': 0.8, 'mode.strength': 0.6, 'mode.words': 'portrait' })
+    expect(flattened.dynamic?.['mode']?.selected).toBe('text')
+    expect(Object.values(session.doc.graphs.root!.links).map((entry) => entry.to)).toContainEqual({ node: flattened.id, port: 'imgs.image0' })
+    expect(runOf(session.doc)).toEqual(before)
+    expect(session.undo()).toBe(true)
+    expect(session.doc.graphs).toEqual({ ...doc.graphs, root: { ...doc.graphs.root, nextOrdinal: session.doc.graphs.root!.nextOrdinal } })
+  })
+
+  it('flattening the middle node rewrites the outer boundary and keeps both uses running the same', async () => {
+    const doc = fixture()
+    const before = runOf(doc)
+    const { ok, reports, session } = await flatten(doc, 'portrait', ['first'], 'd')
+    expect(ok, JSON.stringify(reports)).toBe(true)
+    expect(checkDocument(session.doc)).toEqual([])
+    const portrait = session.doc.graphs.portrait!
+    const weigh = Object.values(portrait.nodes).find((entry) => entry.type === 'Weigh')!
+    expect(boundaryItems(portrait.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'construct', node: weigh.id, port: 'weights' })
+    expect(weigh.dynamic?.['weights']?.members).toEqual(['w0', 'w1', 'w2'])
+    expect(weigh.values).toEqual({ 'weights.w0': 0.1, 'weights.w1': 0.15, 'weights.w2': 0.6 })
+    expect(runOf(session.doc)).toEqual(before)
+  })
+
+  it('a muted subgraph node flattens to the same run, and a bypassed one is refused', async () => {
+    const muted = fixture('muted')
+    const before = runOf(muted)
+    const flattened = await flatten(muted, 'root', [], 'first')
+    expect(flattened.ok, JSON.stringify(flattened.reports)).toBe(true)
+    expect(Object.values(flattened.session.doc.graphs.root!.nodes).find((entry) => entry.type === '#detail')!.mode).toBe('muted')
+    expect(runOf(flattened.session.doc)).toEqual(before)
+
+    const bypassed = fixture('bypassed')
+    const refused = await flatten(bypassed, 'root', [], 'first')
+    expect(refused.ok).toBe(false)
+    expect(refused.session.doc).toEqual(bypassed)
+    expect(refused.session.canUndo).toBe(false)
+  })
+
+  it('extracting the inner nodes inside the definition keeps them shown whole through the new subgraph node', () => {
+    const doc = fixture()
+    const before = runOf(doc)
+    const geometry = [
+      { id: 'n', kind: 'node' as const, x: 0, y: 0, width: 140, height: 120 },
+      { id: 'm', kind: 'node' as const, x: 0, y: 400, width: 140, height: 80 },
+    ]
+    const invocation = extractInvocation(doc, 'detail', ['first', 'd'], { nodeIds: ['n', 'm'], geometry }, 'Inner', resolveSchema)!
+    const session = createLocalSession(doc, coreCommandRegistry([], (type) => documentResolver(session.doc, resolveSchema)(type)))
+    const outcome = session.dispatch(invocation)
+    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
+    expect(checkDocument(session.doc)).toEqual([])
+    const detail = session.doc.graphs.detail!
+    const occurrence = Object.values(detail.nodes).find((entry) => entry.type.startsWith('#'))!
+    const inner = session.doc.graphs[occurrence.type.slice(1)]!
+    expect(boundaryItems(detail.boundary, 'inputs').map((item) => item.binds)).toEqual([
+      { kind: 'construct', node: occurrence.id, port: expect.any(String) },
+      { kind: 'construct', node: 'b', port: 'images' },
+      { kind: 'construct', node: occurrence.id, port: expect.any(String) },
+    ])
+    expect(boundaryItems(inner.boundary, 'inputs').map((item) => item.binds.kind)).toEqual(['construct', 'construct'])
+    expect(runOf(session.doc)).toEqual(before)
+  })
+
+  it('extracting a node whose shown construct also takes a wire from outside the selection is refused', () => {
+    const doc = fixture()
+    const detail = doc.graphs.detail!
+    const wired: WorkflowDocument = { ...doc, graphs: { ...doc.graphs, detail: {
+      ...detail,
+      nodes: { ...detail.nodes, src: { id: 'src' as never, type: 'Src', values: {} } },
+      links: { w: { id: 'w' as never, from: { node: 'src', port: 'out' } as never, to: { node: 'b', port: 'images.image0' } as never } },
+    } }, view: { graphs: { ...doc.view.graphs, detail: { nodes: { ...doc.view.graphs.detail!.nodes, src: { position: { x: -300, y: 200 } } } } } } }
+    const geometry = [{ id: 'b', kind: 'node' as const, x: 0, y: 200, width: 140, height: 80 }]
+    const invocation = extractInvocation(wired, 'detail', ['first', 'd'], { nodeIds: ['b'], geometry }, 'Inner', resolveSchema)
+    const session = createLocalSession(wired, coreCommandRegistry([], (type) => documentResolver(session.doc, resolveSchema)(type)))
+    const outcome = invocation === undefined ? undefined : session.dispatch(invocation)
+    expect(outcome?.ok ?? false).toBe(false)
+    expect(session.doc).toEqual(wired)
+  })
+
+  it('a saved and reopened document, and a pasted copy in a new one, run the same', () => {
+    const doc = fixture()
+    const before = runOf(doc)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(doc)))
+    expect(reopened.diagnostics.filter((entry) => entry.severity === 'error')).toEqual([])
+    expect(runOf(reopened.document!)).toEqual(before)
+
+    const envelope = serializeSelection(doc, 'root', { nodes: ['a', 'first', 'k'], reroutes: [] })!
+    const target: WorkflowDocument = {
+      ...doc,
+      lineage: 'other' as never,
+      graphs: { root: { ...doc.graphs.root!, nodes: {}, links: {} } },
+      view: { graphs: { root: { nodes: {} } } },
+    }
+    const store = new DocumentStore(target, coreCommandRegistry())
+    expect(store.dispatch(planClipboardPaste(target, 'root', envelope, { x: 0, y: 0 })!.invocation).ok).toBe(true)
+    expect(checkDocument(store.doc)).toEqual([])
+    // Only the first node was copied, so the run is the original's without the second node's nodes.
+    const second = runOf({ ...doc, graphs: { ...doc.graphs, root: { ...doc.graphs.root!, nodes: Object.fromEntries(Object.entries(doc.graphs.root!.nodes).filter(([id]) => id !== 'second')) } } })
+    expect(runOf(store.doc)).toEqual(second)
+  })
+
+  it('detaching one use keeps the other use and its definition unchanged', () => {
+    const doc = fixture()
+    const before = runOf(doc)
+    const session = createLocalSession(doc, coreCommandRegistry())
+    expect(session.dispatch({ command: 'occurrence.localize', params: { graphId: 'root', nodeId: 'first' } }).ok).toBe(true)
+    const detached = session.doc.graphs.root!.nodes.first!.type
+    expect(detached).not.toBe('#portrait')
+    expect(session.doc.graphs.root!.nodes.second!.type).toBe('#portrait')
+    expect(session.doc.graphs.portrait).toEqual(doc.graphs.portrait)
+    expect(runOf(session.doc)).toEqual(before)
+    // An edit to the detached copy reaches only the first node's run.
+    const copy = detached.slice(1)
+    expect(session.dispatch({ command: 'node.setValue', params: { graphId: copy, nodeId: 'd', inputId: 'weights.w0', value: 0.7 } }).ok).toBe(true)
+    const after = runOf(session.doc)
+    expect(after.filter((entry) => entry.includes('"weights.w2":0.7'))).toHaveLength(1)
+    expect(after.filter((entry) => entry.includes('"weights.w2":0.6'))).toHaveLength(1)
   })
 })

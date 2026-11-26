@@ -15,7 +15,8 @@
     "compactControlHeight": 32,
     "primaryInputHeight": 40,
     "canvasInputHeight": 24,
-    "focusRingWidth": 2,
+    "focusRingWidth": 1,
+    "indicatorWidth": 2,
     "disabledOpacity": 0.45,
     "unfocusedOpacity": 0.5
   },
@@ -32,6 +33,11 @@
   "layout": {
     "borderWidth": 1,
     "topBarHeight": 44,
+    "shortcutCompactHeight": 18,
+    "shortcutSettingsHeight": 22,
+    "shortcutCompactTextSize": 11,
+    "shortcutSettingsTextSize": 12,
+    "shortcutRadius": 5,
     "toolbarFullRowWidth": 406,
     "toolbarExpandedRowWidth": 940,
     "toolbarMinimumWidthLinux": 384,
@@ -44,11 +50,12 @@
     "toolbarBrandMarkSize": 22,
     "toolbarAccountCircleSize": 28,
     "toolbarAccountCircleBorderWidth": 1.5,
-    "iconBarWidth": 48,
+    "iconBarWidth": 54,
     "sidebarWidth": 240,
     "sidebarBreakpoint": 768,
     "contentMaxWidth": 720,
     "tableMaxWidth": 960,
+    "dialogWideMaxWidth": 960,
     "pagePadding": 32,
     "menuWidth": 240,
     "emptyStateMaxWidth": 480,
@@ -61,7 +68,8 @@
     "iconSize": 16,
     "railIconSize": 20,
     "menuRowHeight": 28,
-    "scrollbarSize": 8
+    "scrollbarSize": 8,
+    "problemBoxMaxHeight": 400
   },
   "siteLayout": {
     "shellMaxWidth": 1040,

@@ -6,21 +6,23 @@ async function badgePoint(page: Page, nodeId: string): Promise<{ x: number; y: n
     const vp = r.getViewport()
     const node = r.getScene().nodes.find((n) => n.id === nodeId)
     if (!node) throw new Error(`no scene node '${nodeId}'`)
+    const tab = r.getNodeBadgeLayout(node).find((entry) => entry.badge.id === 'core.deprecated')
+    if (!tab) throw new Error(`no deprecated tab on '${nodeId}'`)
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     return {
-      x: rect.left + (node.x + node.layout.width - 22 + 7) * vp.scale + vp.x,
-      y: rect.top + (node.y + node.layout.headerHeight / 2) * vp.scale + vp.y,
+      x: rect.left + (tab.x + tab.width / 2) * vp.scale + vp.x,
+      y: rect.top + (tab.y + tab.height / 2) * vp.scale + vp.y,
     }
   }, nodeId)
 }
 
 test('review-mode native deprecation badges show guidance without an executable rule', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'deprecation-fixture', schemaWire: 1 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'deprecation-fixture', schemaWire: 2 },
     nodes: {
-      AuthoredNode: { deprecation: { message: 'Use CurrentNode for new workflows', since: '2.0', replacement: 'CurrentNode' }, interface: [] },
-      CurrentNode: { interface: [] },
-      NoSuccessor: { deprecation: { message: 'This node is deprecated' }, interface: [] },
+      AuthoredNode: { deprecation: { message: 'Use CurrentNode for new workflows', since: '2.0', replacement: 'CurrentNode' }, body: [] },
+      CurrentNode: { body: [] },
+      NoSuccessor: { deprecation: { message: 'This node is deprecated' }, body: [] },
     },
   } }))
   await page.goto('/')
@@ -60,11 +62,11 @@ test('review-mode native deprecation badges show guidance without an executable 
 // Only the successor is served: historical nodes must migrate from stored data.
 async function migrationCatalog(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'migration-fixture', schemaWire: 1 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'migration-fixture', schemaWire: 2 },
     nodes: { Current: {
-      interface: [
-        { role: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
-        { role: 'input', id: 'format', type: { kind: 'concrete', types: ['COMBO'] },
+      body: [
+        { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+        { kind: 'input', id: 'format', type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', options: ['mp4_h264', 'webm_av1'] }, default: 'mp4_h264' },
       ],
       replacements: [{ from: 'Previous', cases: [{ to: 'Current', inputs: {
@@ -185,14 +187,14 @@ test('migration notices dismiss, clear on save or close, and never persist', asy
 
 test('deprecated resize imports its authored size and undoes from the migration notice', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'resize-migration-fixture', schemaWire: 1 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'resize-migration-fixture', schemaWire: 2 },
     nodes: { ImageScaleToMaxDimension: {
       displayName: 'Scale image to maximum dimension', category: 'image',
-      interface: [
-        { role: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
-        { role: 'input', id: 'largest_size', type: { kind: 'concrete', types: ['INT'] }, default: 512, widget: { type: 'INT' } },
-        { role: 'input', id: 'upscale_method', type: { kind: 'concrete', types: ['COMBO'] }, default: 'nearest-exact', widget: { type: 'COMBO', options: ['nearest-exact', 'lanczos'] } },
-        { role: 'output', id: 'IMAGE', type: { kind: 'concrete', types: ['IMAGE'] } },
+      body: [
+        { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+        { kind: 'input', id: 'largest_size', type: { kind: 'concrete', types: ['INT'] }, default: 512, widget: { type: 'INT' } },
+        { kind: 'input', id: 'upscale_method', type: { kind: 'concrete', types: ['COMBO'] }, default: 'nearest-exact', widget: { type: 'COMBO', options: ['nearest-exact', 'lanczos'] } },
+        { kind: 'output', id: 'IMAGE', type: { kind: 'concrete', types: ['IMAGE'] } },
       ],
       replacements: [{ from: 'ResizeImagesByLongerEdge', cases: [{ to: 'ImageScaleToMaxDimension',
         inputs: { image: { kind: 'copy', input: 'images' }, largest_size: { kind: 'copy', input: 'longer_edge' },

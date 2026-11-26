@@ -56,18 +56,89 @@ export async function productOption(page: Page, optionId: string): Promise<Locat
   return option
 }
 
+/** Shows this workflow's runs or every workflow's in the Runs panel. */
+export async function chooseRunScope(page: Page, scope: 'workflow' | 'all'): Promise<void> {
+  const control = page.getByTestId('runs-scope')
+  await control.locator('.dinkster-segment').filter({ has: page.locator(`input[value="${scope}"]`) }).click()
+  await expect(control).toHaveAttribute('data-selected-id', scope)
+}
+
 export async function selectProductOption(page: Page, control: Locator, optionId: string, selectedId = optionId): Promise<void> {
   await control.click()
   await (await productOption(page, optionId)).click()
   await expect(control).toHaveAttribute('data-selected-id', selectedId)
 }
 
-export async function executionDetails(row: Locator): Promise<Locator> {
-  const details = row.locator('details.runs-details')
-  if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) {
-    await details.locator('summary').click()
+/** Page point at the middle of a subgraph node's title-bar mark; a double-click there enters the subgraph. */
+export async function subgraphMarkPoint(page: Page, nodeId: string): Promise<{ x: number; y: number }> {
+  const point = await page.waitForFunction((nodeId) => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+    const mark = node === undefined ? undefined : renderer.getNodeBadgeLayout(node).find((entry) => entry.badge.id === 'core.subgraph')
+    if (mark === undefined) return undefined
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return {
+      x: rect.left + (mark.x + mark.width / 2) * viewport.scale + viewport.x,
+      y: rect.top + (mark.y + mark.height / 2) * viewport.scale + viewport.y,
+    }
+  }, nodeId)
+  return await point.jsonValue() as { x: number; y: number }
+}
+
+/**
+ * Opens a closed editor through its row, or keeps an already open editor,
+ * and returns the controls laid over its space.
+ */
+export async function unfoldNodeEditor(page: Page, nodeId: string, inputId: string): Promise<Locator> {
+  const editor = page.locator(`.node-editor-space-overlay[data-node-id="${nodeId}"][data-value-key="${inputId}"]`)
+  if (await editor.isVisible()) return editor
+  const point = await page.waitForFunction(({ nodeId, inputId }) => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((entry) => entry.id === nodeId)
+    const row = node?.layout.rows.find((entry) => entry.kind === 'widget' && entry.inputId === inputId)
+    if (node === undefined || row === undefined) return undefined
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return {
+      x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+      y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
+    }
+  }, { nodeId, inputId })
+  const { x, y } = await point.jsonValue() as { x: number; y: number }
+  await page.mouse.click(x, y)
+  await expect(editor).toBeVisible()
+  return editor
+}
+
+/**
+ * Opens a run's inspection and returns it: a finished chosen run's "Inspect
+ * run" from its menu, or a running or queued run's Details fold.
+ */
+export async function inspectRun(row: Locator): Promise<Locator> {
+  const chosen = row.getByTestId('chosen-run')
+  const fold = row.locator('details.runs-details')
+  // A running or queued row shows its outputs once its name is pressed.
+  if (await chosen.count() === 0 && await fold.count() === 0) await row.locator('.run-row-name').click()
+  // A chosen run whose menu sits on its title line can have no box of its own, so presence is the check.
+  await expect(chosen.or(fold).first()).toBeAttached()
+  if (await chosen.count() > 0) {
+    const inspection = row.getByTestId('run-inspection')
+    if (await inspection.count() === 0) {
+      await row.getByRole('button', { name: /^More for / }).click()
+      await row.page().getByRole('menuitem', { name: 'Inspect run', exact: true }).click()
+    }
+    await expect(inspection).toBeVisible()
+    return inspection
   }
-  return details.getByTestId('run-details')
+  if (!await fold.evaluate((element) => (element as HTMLDetailsElement).open)) await fold.locator('summary').click()
+  return fold
+}
+
+/** A run's activity card, inside its inspection; it stays found when the run finishes. */
+export async function executionDetails(row: Locator): Promise<Locator> {
+  await inspectRun(row)
+  return row.getByTestId('run-details')
 }
 
 const regionSwitches = {
@@ -141,7 +212,7 @@ export const nativeTest = base.extend<{ appView: boolean; seedWorkflows: boolean
       const basic = structuredClone(seedBasic)
       basic.graphs.g0.links.l2.from.port = 'IMAGE'
       const subgraph = structuredClone(seedSubgraph)
-      subgraph.graphs.g1.boundary.outputs[0]!.binds.port = 'IMAGE'
+      subgraph.graphs.g1.boundary.body[1]!.binds.port = 'IMAGE'
       await page.addInitScript(({ basic, subgraph }) => {
         if (localStorage.getItem('dinkster.openTabs') !== null) return
         localStorage.setItem('dinkster.openTabs', JSON.stringify({

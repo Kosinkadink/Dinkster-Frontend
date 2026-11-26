@@ -2,42 +2,42 @@
  * Interrupted durable-history records through the production Runs panel,
  * against a fully route-stubbed page-origin backend (no live server):
  *
- * - restart-swept records (state 'interrupted', Dinkster #556) render with the
- *   sweep phase ('was running' / 'never started') as a badge and detail row;
- * - only a STAMPED interrupted record offers 'Resubmit'; an unstamped one
- *   (no sourceDocument) has nothing to resubmit and must not offer it;
- * - 'Resubmit' reopens the exact producing document and queues it through
+ * - a chosen restart-swept record (state 'interrupted', Dinkster #556) says in
+ *   one line whether the engine stopped while it ran or before it started;
+ * - only a STAMPED interrupted record offers 'Run again'; an unstamped one
+ *   (no sourceDocument) has nothing to run again and must not offer it;
+ * - 'Run again' reopens the exact producing document and queues it through
  *   the normal compile/submit pipeline as a FRESH submission: the POST
  *   /api/jobs body carries a NEW job identity, never the interrupted one.
  *   Nothing auto-resumes, by contract.
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, mockProjectPacks, openRailPanel, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, openRailPanel, nativeTest as test, waitForWorkspaceReady, type Page, chooseRunScope } from './fixtures.js'
 
 const DIGEST = `blake3:${'a'.repeat(64)}`
 
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'interrupted-history-e2e', schemaWire: 1 },
+  dinkster: { version: 'interrupted-history-e2e', schemaWire: 2 },
   packs: { test: { displayName: 'Test' } },
   nodes: {
     'test.ImageSource': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.ImageSource',
       displayName: 'Image Source',
       category: 'test',
-      interface: [{ role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+      body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
       signature: 'image-source-e2e',
     },
     'test.ImageSink': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.ImageSink',
       displayName: 'Image Sink',
       category: 'test',
       outputNode: true,
-      interface: [{ role: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+      body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
       signature: 'image-sink-e2e',
     },
   },
@@ -162,11 +162,11 @@ async function bootAndOpenRuns(page: Page): Promise<void> {
   )).toBe(true)
   await waitForWorkspaceReady(page)
   await openRailPanel(page, 'Runs')
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
+  await chooseRunScope(page, 'all')
 }
 
 const entryFor = (page: Page, jobId: string) =>
-  page.getByTestId('runs-panel').getByTestId('collection-entry').filter({ hasText: jobId })
+  page.getByTestId('runs-panel').getByTestId('collection-entry').filter({ has: page.locator(`[data-job="${jobId}"]`) })
 
 test('unseen stored image/video rows show thumbnails without loading jobs, absent and unavailable media show none', async ({ page }) => {
   const asset = (char: string, mediaType: string) => ({ digest: `blake3:${char.repeat(64)}`, name: '', size: 1, mediaType, virtualPath: '' })
@@ -194,7 +194,7 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
   })
   await bootAndOpenRuns(page)
   const panel = page.getByTestId('runs-panel')
-  const row = (label: string) => panel.getByTestId('collection-entry').filter({ hasText: label })
+  const row = (jobId: string) => panel.getByTestId('collection-entry').filter({ has: page.locator(`[data-job="${jobId}"]`) })
   await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
   await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
   expect(await row('Image output').locator('img').evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
@@ -217,7 +217,7 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
   }
   await page.setViewportSize({ width: 1440, height: 1000 })
   await row('Image output').click()
-  await expect(row('Image output').getByTestId('collection-action').filter({ hasText: 'Delete record' })).toBeVisible()
+  await expect(row('Image output').getByTestId('chosen-run')).toBeVisible()
   await expect.poll(() => hydrated.length).toBe(1)
   await expect(row('Image output').getByTestId('run-thumbnail')).toBeVisible()
 
@@ -234,12 +234,12 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
       app.store.apply({ kind: 'completed', execution: ref, timestamp: index + 10 })
     }
   }, { doc: producingDoc, image, video })
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await chooseRunScope(page, 'workflow')
   const live = page.getByTestId('execution-row')
   await expect(live).toHaveCount(3)
-  await expect(live.locator('.runs-row-heading img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
-  await expect(live.locator('.runs-row-heading video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
-  await expect(live.locator('.runs-row-heading .execution-open')).toHaveCount(3)
+  await expect(live.locator('.run-row-line img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  await expect(live.locator('.run-row-line video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  await expect(live.locator('.run-row-line .execution-open')).toHaveCount(3)
   if (proof) await page.screenshot({ path: join(proof, 'workflow-thumbnails-1440.png'), animations: 'disabled' })
   await live.filter({ has: page.locator('video.run-thumbnail') }).locator('.execution-open').click()
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
@@ -262,7 +262,7 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
     const tab = app.createWorkflow()
     app.setTabTarget(tab.id, owner.id)
   })
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
+  await chooseRunScope(page, 'all')
   await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('src', /\/thumbnail-owner\/api\/assets\//)
   await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
   await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('src', /\/thumbnail-owner\/api\/assets\//)
@@ -270,13 +270,24 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
   if (proof) await page.screenshot({ path: join(proof, 'owning-backend-thumbnails-1440.png'), animations: 'disabled' })
 })
 
-test('Resubmit reopens the producing document and queues a FRESH submission', async ({ page }) => {
+test('Run again reopens the producing document and queues a FRESH submission', async ({ page }) => {
   const fixture = await installFixture(page)
   await bootAndOpenRuns(page)
 
+  // Swept before it started and unstamped: the reason, but nothing to run again or open.
+  const unstamped = entryFor(page, 'job-int-queued-2')
+  await unstamped.click()
+  await expect(unstamped.locator('.run-chosen-reason')).toHaveText('The engine stopped before this started.')
+  await expect(unstamped.getByTestId('chosen-run-again')).toHaveCount(0)
+  await expect(unstamped.getByTestId('chosen-run-open')).toHaveCount(0)
+
   const stamped = entryFor(page, INTERRUPTED_JOB_ID)
   await stamped.click()
-  await stamped.locator('[data-testid=collection-action][data-action=resubmit]').click()
+  await expect(stamped.locator('.run-chosen-reason')).toHaveText('The engine stopped while this was running.')
+  // An interrupted run kept no outputs: once its record has loaded, only the reason shows, never a load failure.
+  await expect(stamped.getByText('Loading retained outputs...')).toHaveCount(0)
+  await expect(stamped.getByText(/Could not load outputs/)).toHaveCount(0)
+  await stamped.getByTestId('chosen-run-again').click()
 
   // Runs stays available while the producing document opens in the active tab.
   await expect(page.getByTestId('runs-panel')).toBeVisible()

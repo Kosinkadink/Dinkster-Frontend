@@ -7,7 +7,7 @@
  * - allowedTypes seed the domain; edges intersect it; empty domain = conflict
  *   with EVERY contributing edge marked (deterministic blame)
  * - reroute chains constrain through to the real producer; undriven chains
- *   and value sources constrain nothing
+ *   constrain nothing
  * - solving is advisory: it never changes which ports exist
  */
 import { describe, expect, it } from 'vitest'
@@ -15,7 +15,7 @@ import type { GraphDef } from '../src/format/document.js'
 import { asNodeId, asPortId } from '../src/ids.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface } from '../src/schema/elaborate.js'
-import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
+import type { BodyRow, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 import { netSinkKey, solveGraphTypes } from '../src/schema/solve.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 
@@ -31,14 +31,24 @@ const T = (templateId: string, allowed?: string[]): TypeExpr => ({
 
 const input = (id: string, type: TypeExpr): InputSpec => ({ kind: 'input', id, type, optional: false })
 const output = (id: string, type: TypeExpr): OutputSpec => ({ kind: 'output', id, type })
+const group = (id: string, prefix: string, rows: Pick<GroupSpec, 'value' | 'member'>, extra: Partial<GroupSpec> = {}): GroupSpec => ({
+  kind: 'group',
+  id,
+  ...rows,
+  keys: { kind: 'numbered', prefix, start: 0, pad: 0 },
+  grows: 'link',
+  minMembers: 0,
+  maxMembers: 8,
+  ...extra,
+})
 
-const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema => ({
+const schemaOf = (type: string, items: BodyRow[]): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body: items,
 })
 
 /** Schema library used across tests. */
@@ -64,28 +74,23 @@ const schemas: Record<string, NodeSchema> = {
     widget: { widgetType: 'FLOAT', options: {}, default: 1 },
   }]),
   SpecializedSlot: schemaOf('SpecializedSlot', [{
-    ...input('model', { kind: 'concrete', name: 'MODEL' }),
-    dynamic: {
-      kind: 'dynamicSlot',
-      slotType: { kind: 'concrete', name: 'MODEL' },
-      inputs: [],
-      variants: [{ key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, inputs: [] }],
-    },
+    kind: 'typeChoice',
+    id: 'model',
+    variants: [{ key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, rows: [] }],
+    rows: [],
+    required: false,
   }]),
   MatchedSlot: schemaOf('MatchedSlot', [
     {
-      ...input('source', { kind: 'union', names: ['IMAGE', 'MASK'] }),
-      dynamic: {
-        kind: 'dynamicSlot',
-        materialization: 'wire15',
-        slotType: { kind: 'union', names: ['IMAGE', 'MASK'] },
-        inputs: [],
-        variants: [
-          { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, inputs: [input('copy', T('T', ['IMAGE', 'MASK']))] },
-          { key: 'mask', type: { kind: 'concrete', name: 'MASK' }, inputs: [input('copy', T('T', ['IMAGE', 'MASK']))] },
-        ],
-        typeTemplateId: 'T',
-      },
+      kind: 'typeChoice',
+      id: 'source',
+      variants: [
+        { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, rows: [input('copy', T('T', ['IMAGE', 'MASK']))] },
+        { key: 'mask', type: { kind: 'concrete', name: 'MASK' }, rows: [input('copy', T('T', ['IMAGE', 'MASK']))] },
+      ],
+      rows: [],
+      required: true,
+      typeVariable: 'T',
     },
     output('out', T('T', ['IMAGE', 'MASK'])),
     output('batch', { kind: 'list', element: T('T', ['IMAGE', 'MASK']) }),
@@ -94,94 +99,58 @@ const schemas: Record<string, NodeSchema> = {
   MatchedSlotEmptyFamily: schemaOf('MatchedSlotEmptyFamily', [
     input('count', { kind: 'concrete', name: 'INT' }),
     {
-      ...input('source', { kind: 'union', names: ['IMAGE', 'MASK'] }),
-      dynamic: {
-        kind: 'dynamicSlot',
-        materialization: 'wire15',
-        slotType: { kind: 'union', names: ['IMAGE', 'MASK'] },
-        inputs: [],
-        variants: [
-          { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, inputs: [] },
-          { key: 'mask', type: { kind: 'concrete', name: 'MASK' }, inputs: [] },
-        ],
-        typeTemplateId: 'T',
-      },
+      kind: 'typeChoice',
+      id: 'source',
+      variants: [
+        { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, rows: [] },
+        { key: 'mask', type: { kind: 'concrete', name: 'MASK' }, rows: [] },
+      ],
+      rows: [],
+      required: true,
+      typeVariable: 'T',
     },
-    {
-      ...output('items', T('T', ['IMAGE', 'MASK'])),
-      dynamic: {
-        kind: 'autogrow',
-        materialization: 'wire15',
-        template: [input('item', T('T', ['IMAGE', 'MASK']))],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 8 },
-        count: { input: 'count', suffix: 'index' },
-      },
-    },
+    group('items', 'item', { value: output('item', T('T', ['IMAGE', 'MASK'])) }, { grows: { count: 'count' } }),
   ]),
   // MatchType: input and output share one template
   Switch: schemaOf('Switch', [input('in', T('T')), output('out', T('T'))]),
   // MatchType with an allowed-type domain
   Pickle: schemaOf('Pickle', [input('in', T('T', ['IMAGE', 'LATENT'])), output('out', T('T', ['IMAGE', 'LATENT']))]),
-  // Autogrow family whose template slot shares the node's output template
+  // A group whose member value shares the node's output template
   VarGrower: schemaOf('VarGrower', [
-    {
-      ...input('inputs', { kind: 'wildcard' }),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('item', T('T'))],
-        naming: { kind: 'prefix', prefix: 'input', min: 1, max: 8 },
-      },
-    },
+    group('inputs', 'input', { value: input('item', T('T')) }, { minMembers: 1 }),
     output('out', T('T')),
   ]),
-  Wire15VarGrower: schemaOf('Wire15VarGrower', [
-    {
-      ...input('inputs', { kind: 'wildcard' }),
-      dynamic: {
-        kind: 'autogrow', materialization: 'wire15',
-        template: [input('value', { kind: 'list', element: T('T') })],
-        naming: { kind: 'prefix', prefix: 'input', min: 1, max: 8 },
-      },
-    },
+  ListVarGrower: schemaOf('ListVarGrower', [
+    group('inputs', 'input', { value: input('value', { kind: 'list', element: T('T') }) }, { minMembers: 1 }),
     output('out', { kind: 'list', element: T('T') }),
   ]),
 }
 const resolve: SchemaResolver = (type) => schemas[type]
 
-const tupleMake = parseDinksterSchema('std.tuple.make', {
-  schemaVersion: 1,
-  interface: [
-    { role: 'inputFamily', id: 'items', independentTypes: true, template: [{ role: 'input', id: 'value', type: { kind: 'variable', templateId: 'T' }, required: true }] },
-    { role: 'output', id: 'tuple', type: { kind: 'family_tuple', input: 'items' } },
-  ],
-}).schema!
 const tupleGet = parseDinksterSchema('std.tuple.get', {
-  schemaVersion: 1,
-  interface: [
-    { role: 'input', id: 'tuple', type: { kind: 'variable', templateId: 'Tuple' }, required: true },
-    { role: 'input', id: 'index', type: { kind: 'concrete', types: ['INT'] }, default: 0, required: true },
-    { role: 'output', id: 'item', type: { kind: 'tuple_element', input: 'tuple', index: 'index' } },
+  schemaVersion: 2,
+  nodeType: 'std.tuple.get',
+  body: [
+    { kind: 'input', id: 'tuple', type: { kind: 'variable', templateId: 'Tuple' }, required: true },
+    { kind: 'input', id: 'index', type: { kind: 'concrete', types: ['INT'] }, default: 0, required: true },
+    { kind: 'output', id: 'item', type: { kind: 'tuple_element', input: 'tuple', index: 'index' } },
   ],
 }).schema!
 
 /** Assemble a GraphDef literal tersely (branded ids make literals noisy). */
 type TestEndpoint =
-  | [string, string, string?]
+  | [string, string]
   | { reroute: string }
-  | { valueSource: string }
-  | { selector: string; candidate?: string }
   | { widgetTap: [string, string] }
 const defOf = (parts: {
-  nodes: Record<string, { type: string; values?: Record<string, unknown>; dynamic?: Record<string, { members?: string[]; selected?: string; memberState?: Record<string, Record<string, { members: string[] }>> }> }>
+  nodes: Record<string, { type: string; title?: string; values?: Record<string, unknown>; dynamic?: Record<string, { members?: string[]; selected?: string }> }>
   links?: Record<string, { from: TestEndpoint; to: TestEndpoint }>
-  nets?: Record<string, { source: [string, string]; sinks: [string, string, string?][] }>
+  nets?: Record<string, { source: [string, string]; sinks: [string, string][] }>
   reroutes?: string[]
-  /** Selector id -> candidate ids (policy: fixed on the first). */
-  selectors?: Record<string, string[]>
 }): GraphDef => {
   const end = (e: TestEndpoint): unknown =>
     Array.isArray(e)
-      ? { node: e[0], port: e[1], ...(e[2] !== undefined ? { members: [e[2]] } : {}) }
+      ? { node: e[0], port: e[1] }
       : 'widgetTap' in e
         ? { node: e.widgetTap[0], tap: e.widgetTap[1] }
         : e
@@ -191,7 +160,7 @@ const defOf = (parts: {
     nodes: Object.fromEntries(
       Object.entries(parts.nodes).map(([id, n]) => [
         id,
-        { id, type: n.type, values: n.values ?? {}, ...(n.dynamic ? { dynamic: n.dynamic } : {}) },
+        { id, type: n.type, ...(n.title === undefined ? {} : { title: n.title }), values: n.values ?? {}, ...(n.dynamic ? { dynamic: n.dynamic } : {}) },
       ]),
     ),
     links: Object.fromEntries(
@@ -204,66 +173,124 @@ const defOf = (parts: {
       ]),
     ),
     reroutes: Object.fromEntries((parts.reroutes ?? []).map((id) => [id, { id }])),
-    ...(parts.selectors
-      ? {
-          selectors: Object.fromEntries(
-            Object.entries(parts.selectors).map(([id, candidates]) => [
-              id,
-              {
-                id,
-                candidates: candidates.map((c) => ({ id: c })),
-                policy: { kind: 'fixed', candidate: candidates[0] },
-              },
-            ]),
-          ),
-        }
-      : {}),
     nextOrdinal: 99,
   } as unknown as GraphDef
 }
 
 const n = asNodeId
 
+describe('solver problems in the reader\'s words', () => {
+  const image: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
+  const latent: TypeExpr = { kind: 'concrete', name: 'LATENT' }
+  const named = (name: string, body: NodeSchema['body']): NodeSchema => schemaOf(name, [...body])
+  const source = (type: TypeExpr, optional = false) => named('Load images', [{ ...output('source_internal', type), displayName: 'picture', optional }])
+  const sink = (type: TypeExpr) => named('Decode', [{ ...input('target_internal', type), displayName: 'samples' }])
+  const pair = (from: NodeSchema, to: NodeSchema, extra: { values?: Record<string, unknown>; dynamic?: Record<string, { selected?: string }> } = {}) => {
+    const def = defOf({
+      nodes: { producer_internal: { type: from.type, title: 'Load image' }, consumer_internal: { type: to.type, ...extra } },
+      links: { wire_internal: { from: ['producer_internal', 'source_internal'], to: ['consumer_internal', 'target_internal'] } },
+    })
+    return solveGraphTypes(def, (type) => type === from.type ? from : type === to.type ? to : undefined)
+  }
+
+  it.each([
+    ['solve.linkMismatch', image, latent, 'Samples needs latent data, but Load image sends an image.'],
+    ['solve.listIntoScalar', { kind: 'list', element: image }, image, 'Samples needs one image, but Load image sends a list of images.'],
+    ['solve.scalarIntoList', image, { kind: 'list', element: image }, 'Samples needs a list of images, but Load image sends one image.'],
+    ['solve.tupleArity', { kind: 'tuple', elements: [image, latent] }, { kind: 'tuple', elements: [image, latent, image] }, 'Samples needs a group of 3 values, but Load image sends a group of 2.'],
+    ['solve.linkMismatch', { kind: 'asset', element: image }, { kind: 'union', names: ['asset<LATENT>', 'INT'] }, 'Samples needs stored latent data or a whole number, but Load image sends a stored image.'],
+    ['solve.linkMismatch', { kind: 'stream', element: image }, { kind: 'stream', element: latent }, 'Samples needs a stream of latent values, but Load image sends a stream of images.'],
+    ['solve.linkMismatch', { kind: 'concrete', name: 'constructor' }, latent, 'Samples needs latent data, but Load image sends constructor.'],
+  ] as const)('names the title, shown row and types for %s', (code, from, to, text) => {
+    const problems = pair(source(from), sink(to)).diagnostics.filter((diagnostic) => diagnostic.code === code)
+    expect(problems).toHaveLength(1)
+    const problem = problems[0]
+    expect(problem?.message).toBe(`Decode: ${text}`)
+    expect(problem?.data?.['nodeMessage']).toBe(text)
+  })
+
+  it('names the source row only when the source has several outputs', () => {
+    const from = source(image)
+    const problem = pair({ ...from, body: [...from.body, output('other_internal', latent)] }, sink(latent)).diagnostics[0]
+    expect(problem?.message).toBe('Decode: Samples needs latent data, but the output picture of Load image sends an image.')
+  })
+
+  it('describes a required value that may be absent', () => {
+    const target = named('Decode', [{ ...input('target_internal', image), displayName: 'samples', onAbsent: 'fail' }])
+    const problem = pair(source(image, true), target).diagnostics.find((diagnostic) => diagnostic.code === 'solve.maybeAbsent')
+    expect(problem?.message).toBe('Decode: Samples needs a value, but Load image may send nothing.')
+  })
+
+  it('does not expose an unknown connected port id', () => {
+    const problem = pair(source(image), named('Decode', [])).diagnostics.find((diagnostic) => diagnostic.code === 'solve.portMissing')
+    expect(problem?.message).toBe('Decode: A connected input no longer exists on this node, but a wire is still connected to it.')
+  })
+
+  it('names an outer input rather than claiming the receiving node sends its own value', () => {
+    const target = sink(latent)
+    const def = defOf({ nodes: { consumer_internal: { type: target.type } } })
+    const problem = solveGraphTypes(def, () => target, {
+      projectedInputs: [{ to: { node: n('consumer_internal'), port: asPortId('target_internal') }, type: image }],
+    }).diagnostics.find((diagnostic) => diagnostic.code === 'solve.linkMismatch')
+    expect(problem?.message).toBe('Decode: Samples needs latent data, but the outer input sends an image.')
+  })
+
+  it.each([
+    [{ kind: 'tuple', elements: [image, latent] }, 'Position 3 was chosen, but the group has 2 values.'],
+    [image, 'Value needs a group and a fixed position in it.'],
+  ] as const)('explains an invalid group position on the shown output for %j', (type, message) => {
+    const groupSource = source(type)
+    const get = { ...tupleGet, displayName: 'Pick value', body: tupleGet.body.map((row) => row.kind === 'output' ? { ...row, displayName: 'value' } : row) }
+    const def = defOf({
+      nodes: { producer_internal: { type: groupSource.type }, consumer_internal: { type: get.type, values: { index: 3 } } },
+      links: { wire_internal: { from: ['producer_internal', 'source_internal'], to: ['consumer_internal', 'tuple'] } },
+    })
+    const problem = solveGraphTypes(def, (type) => type === get.type ? get : groupSource).diagnostics.find((diagnostic) => diagnostic.code === 'solve.tupleProjection')
+    expect(problem?.message).toBe(`Pick value: ${message}`)
+  })
+
+  it('names both conflicting inputs without the type variable', () => {
+    const same = T('private_template')
+    const target = named('Switch', [{ ...input('first_internal', same), displayName: 'branch 1' }, { ...input('second_internal', same), displayName: 'branch 2' }])
+    const img = source(image)
+    const lat = { ...source(latent), type: 'Latent producer' }
+    const def = defOf({
+      nodes: { a: { type: img.type }, b: { type: lat.type }, c: { type: target.type } },
+      links: { l0: { from: ['a', 'source_internal'], to: ['c', 'first_internal'] }, l1: { from: ['b', 'source_internal'], to: ['c', 'second_internal'] } },
+    })
+    const problem = solveGraphTypes(def, (type) => type === img.type ? img : type === lat.type ? lat : target).diagnostics.find((diagnostic) => diagnostic.code === 'solve.varConflict')
+    expect(problem?.message).toBe('Switch: The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.')
+    expect(problem?.anchor?.port?.node).toBe('c')
+  })
+
+  it('names a downstream constraint instead of a variable id', () => {
+    const img = source(image)
+    const passthrough = named('Switch', [{ ...input('in_internal', T('secret')), displayName: 'image' }, { ...output('out_internal', T('secret')), displayName: 'image' }])
+    const target = sink(latent)
+    const def = defOf({
+      nodes: { a: { type: img.type }, b: { type: passthrough.type }, c: { type: target.type } },
+      links: { l0: { from: ['a', 'source_internal'], to: ['b', 'in_internal'] }, l1: { from: ['b', 'out_internal'], to: ['c', 'target_internal'] } },
+    })
+    const problem = solveGraphTypes(def, (type) => type === img.type ? img : type === passthrough.type ? passthrough : target).diagnostics.find((diagnostic) => diagnostic.code === 'solve.varConflict')
+    expect(problem?.message).toBe('Switch: Image receives an image, but its output feeds the input samples of Decode, which needs latent data.')
+    expect(problem?.anchor?.port).toEqual({ node: 'b', port: 'in_internal' })
+  })
+
+  it('names the selected type rather than the stored variant key', () => {
+    const target = named('Choose model', [{ kind: 'typeChoice', id: 'target_internal', displayName: 'source', required: true, rows: [], variants: [{ key: 'private_variant', type: image, rows: [] }] }])
+    const diagnostics = pair(source(latent), target, { dynamic: { target_internal: { selected: 'private_variant' } } }).diagnostics
+    expect(diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['solve.linkMismatch', 'solve.slot.staleSpecialization'])
+    const problem = diagnostics.find((diagnostic) => diagnostic.code === 'solve.slot.staleSpecialization')
+    expect(problem?.message).toBe('Choose model: Source is set to image, but Load image sends latent data.')
+    for (const diagnostic of diagnostics) expect(diagnostic.data).toMatchObject({ sourceNode: 'producer_internal', sourcePort: 'source_internal' })
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Atom-vs-atom edges
 // ---------------------------------------------------------------------------
 
 describe('positional tuple types', () => {
-  it('rejects a tuple family with more than one input per member', () => {
-    const parsed = parseDinksterSchema('InvalidTuple', {
-      schemaVersion: 1,
-      interface: [
-        { role: 'inputFamily', id: 'items', independentTypes: true, template: [
-          { role: 'input', id: 'first', required: true, type: { kind: 'variable', templateId: 'T' } },
-          { role: 'input', id: 'second', required: true, type: { kind: 'variable', templateId: 'U' } },
-        ] },
-        { role: 'output', id: 'tuple', type: { kind: 'family_tuple', input: 'items' } },
-      ],
-    })
-    expect(parsed.schema).toBeUndefined()
-    expect(parsed.diagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
-  })
-
-  it.each([false, true])('projects independent family positions with reversed edge order=%s', (reverse) => {
-    expect(tupleMake).toBeDefined()
-    expect(tupleGet).toBeDefined()
-    const links = {
-      consume: { from: ['get', 'item'], to: ['sink', 'in'] },
-      product: { from: ['make', 'tuple'], to: ['get', 'tuple'] },
-      image: { from: ['img', 'out'], to: ['make', 'items.items', 'm0'] },
-      latent: { from: ['latent', 'out'], to: ['make', 'items.items', 'm1'] },
-    } satisfies Record<string, { from: TestEndpoint; to: TestEndpoint }>
-    const def = defOf({
-      nodes: { img: { type: 'ImageSrc' }, latent: { type: 'LatentSrc' }, make: { type: tupleMake.type, dynamic: { items: { members: ['m0', 'm1'] } } }, get: { type: tupleGet.type, values: { index: -1 } }, sink: { type: 'LatentSink' } },
-      links: reverse ? Object.fromEntries(Object.entries(links).reverse()) : links,
-    })
-    const result = solveGraphTypes(def, (type) => type === tupleMake.type ? tupleMake : type === tupleGet.type ? tupleGet : resolve(type))
-    expect(result.diagnostics).toEqual([])
-    expect(result.portTypeOf(asNodeId('make'), 'output', 'tuple')).toEqual({ kind: 'tuple', elements: [{ kind: 'concrete', name: 'IMAGE' }, { kind: 'concrete', name: 'LATENT' }] })
-    expect(result.portTypeOf(asNodeId('get'), 'output', 'item')).toEqual({ kind: 'concrete', name: 'LATENT' })
-    expect([...result.linkVerdicts.values()]).toEqual(['ok', 'ok', 'ok', 'ok'])
-  })
-
   it.each([2, -3])('rejects out-of-range tuple index %s', (index) => {
     const source = schemaOf('Product', [output('out', { kind: 'tuple', elements: [{ kind: 'concrete', name: 'IMAGE' }, { kind: 'concrete', name: 'LATENT' }] })])
     const def = defOf({ nodes: { source: { type: source.type }, get: { type: tupleGet.type, values: { index } } }, links: { value: { from: ['source', 'out'], to: ['get', 'tuple'] } } })
@@ -335,6 +362,57 @@ describe('concrete and union edges', () => {
       expect(ordinary.linkVerdicts.get('edge' as never)).toBe('mismatch')
     },
   )
+
+  it.each([
+    ['a type variable', T('T')],
+    ['IMAGE', { kind: 'concrete', name: 'IMAGE' } as TypeExpr],
+  ])('admits a list into a subgraph input only when every inner input it feeds accepts lists (%s)', (_, type) => {
+    // Shaped like a joining node: one value or a list in, a list out.
+    const whole = schemaOf('Whole', [
+      { ...input('in', type), acceptsList: true as const },
+      output('out', { kind: 'list', element: type }),
+    ])
+    const listSink = schemaOf('ListSink', [input('in', { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } })])
+    const resolveInner: SchemaResolver = (name) => (name === 'Whole' ? whole : name === 'ListSink' ? listSink : schemas[name])
+    for (const alsoSingle of [false, true]) {
+      const innerDef = {
+        id: 'gsub',
+        name: 'wrap',
+        nodes: {
+          whole: { id: 'whole', type: 'Whole', values: {} },
+          single: { id: 'single', type: 'ImageSink', values: {} },
+        },
+        links: {},
+        nets: {},
+        reroutes: {},
+        boundary: {
+          body: [
+            {
+              kind: 'input',
+              id: 'in',
+              binds: { kind: 'port', node: 'whole', port: 'in' },
+              ...(alsoSingle ? { alsoBinds: [{ kind: 'port', node: 'single', port: 'in' }] } : {}),
+            },
+            { kind: 'output', id: 'out', binds: { kind: 'port', node: 'whole', port: 'out' } },
+          ],
+        },
+        nextOrdinal: 1,
+      } as unknown as GraphDef
+      const derived = deriveBoundarySchema(innerDef, resolveInner).schema!
+      const result = solveGraphTypes(
+        defOf({
+          nodes: { source: { type: 'ListImageSrc' }, sub: { type: derived.type }, sink: { type: 'ListSink' } },
+          links: {
+            edge: { from: ['source', 'out'], to: ['sub', 'in'] },
+            joined: { from: ['sub', 'out'], to: ['sink', 'in'] },
+          },
+        }),
+        (name) => (name === derived.type ? derived : resolveInner(name)),
+      )
+      expect(result.linkVerdicts.get('edge' as never)).toBe(alsoSingle ? 'mismatch' : 'ok')
+      expect(result.diagnostics.length > 0).toBe(alsoSingle)
+    }
+  })
 
   it('does not admit a nested or differently typed list into an opted-in concrete input', () => {
     const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
@@ -544,9 +622,9 @@ describe('MatchType resolution', () => {
     expect(solved.diagnostics).toEqual([
       expect.objectContaining({
         code: 'solve.varConflict',
-        message: 'target.target: connected types have no common match',
+        message: 'LatentVariable: In needs latent data, but the outer input sends an image.',
         anchor: { port: to },
-        data: { edges: ['parent input'] },
+        data: { edges: ['parent input'], nodeMessage: 'In needs latent data, but the outer input sends an image.' },
       }),
     ])
     expect(solved.diagnostics[0]!.message).not.toContain('links are marked')
@@ -675,8 +753,10 @@ describe('MatchType resolution', () => {
       nets: {},
       reroutes: {},
       boundary: {
-        inputs: [{ id: 'in', binds: { kind: 'port', node: 'sw', port: 'in' } }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'sw', port: 'out' } }],
+        body: [
+          { kind: 'input', id: 'in', binds: { kind: 'port', node: 'sw', port: 'in' } },
+          { kind: 'output', id: 'out', binds: { kind: 'port', node: 'sw', port: 'out' } },
+        ],
       },
       nextOrdinal: 1,
     } as unknown as GraphDef
@@ -705,16 +785,16 @@ describe('MatchType resolution', () => {
     expect(s.diagnostics).toEqual([])
   })
 
-  it('autogrow members all constrain the family template: mixed feeds conflict', () => {
+  it('group members all constrain the shared template: mixed feeds conflict', () => {
     const def = defOf({
       nodes: {
         img: { type: 'ImageSrc' },
         lat: { type: 'LatentSrc' },
-        g: { type: 'VarGrower', dynamic: { inputs: { members: ['m0', 'm1'] } } },
+        g: { type: 'VarGrower', dynamic: { inputs: { members: ['input0', 'input1'] } } },
       },
       links: {
-        l0: { from: ['img', 'out'], to: ['g', 'inputs.item', 'm0'] },
-        l1: { from: ['lat', 'out'], to: ['g', 'inputs.item', 'm1'] },
+        l0: { from: ['img', 'out'], to: ['g', 'inputs.input0'] },
+        l1: { from: ['lat', 'out'], to: ['g', 'inputs.input1'] },
       },
     })
     const s = solveGraphTypes(def, resolve)
@@ -726,11 +806,11 @@ describe('MatchType resolution', () => {
       nodes: {
         img: { type: 'ImageSrc' },
         img2: { type: 'ImageSrc' },
-        g: { type: 'VarGrower', dynamic: { inputs: { members: ['m0', 'm1'] } } },
+        g: { type: 'VarGrower', dynamic: { inputs: { members: ['input0', 'input1'] } } },
       },
       links: {
-        l0: { from: ['img', 'out'], to: ['g', 'inputs.item', 'm0'] },
-        l1: { from: ['img2', 'out'], to: ['g', 'inputs.item', 'm1'] },
+        l0: { from: ['img', 'out'], to: ['g', 'inputs.input0'] },
+        l1: { from: ['img2', 'out'], to: ['g', 'inputs.input1'] },
       },
     })
     const ok = solveGraphTypes(consistent, resolve)
@@ -738,35 +818,35 @@ describe('MatchType resolution', () => {
     expect(ok.portTypeOf(n('g'), 'output', 'out')).toEqual({ kind: 'concrete', name: 'IMAGE' })
   })
 
-  it('a widget output constrains a dynamic family member and its shared output', () => {
+  it('a widget output constrains a group member and its shared output', () => {
     const def = defOf({
       nodes: {
         widget: { type: 'FloatWidget' },
-        list: { type: 'VarGrower', dynamic: { inputs: { members: ['m0'] } } },
+        list: { type: 'VarGrower', dynamic: { inputs: { members: ['input0'] } } },
       },
       links: {
-        l0: { from: { widgetTap: ['widget', 'value'] }, to: ['list', 'inputs.item', 'm0'] },
+        l0: { from: { widgetTap: ['widget', 'value'] }, to: ['list', 'inputs.input0'] },
       },
     })
     const solved = solveGraphTypes(def, resolve)
     expect(solved.linkVerdicts.get('l0' as never)).toBe('ok')
     expect(solved.resolutionOf(n('list'), 'T')).toEqual({ kind: 'resolved', name: 'FLOAT' })
-    expect(solved.portTypeOf(n('list'), 'input', 'inputs.item#m0')).toEqual({ kind: 'concrete', name: 'FLOAT' })
+    expect(solved.portTypeOf(n('list'), 'input', 'inputs.input0')).toEqual({ kind: 'concrete', name: 'FLOAT' })
     expect(solved.portTypeOf(n('list'), 'output', 'out')).toEqual({ kind: 'concrete', name: 'FLOAT' })
     expect(solved.diagnostics).toEqual([])
   })
 
-  it('wire-15 materialized list variables join every member with same-template outputs', () => {
+  it('list variables of a group member join the same-template outputs', () => {
     const def = defOf({
       nodes: {
         src: { type: 'ListImageSrc' },
-        grow: { type: 'Wire15VarGrower', dynamic: { inputs: { members: ['stable'] } } },
+        grow: { type: 'ListVarGrower', dynamic: { inputs: { members: ['input0'] } } },
       },
-      links: { l0: { from: ['src', 'out'], to: ['grow', 'inputs.stable'] } },
+      links: { l0: { from: ['src', 'out'], to: ['grow', 'inputs.input0'] } },
     })
     const solved = solveGraphTypes(def, resolve)
     expect(solved.resolutionOf(n('grow'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
-    expect(solved.portTypeOf(n('grow'), 'input', 'inputs.stable')).toEqual({
+    expect(solved.portTypeOf(n('grow'), 'input', 'inputs.input0')).toEqual({
       kind: 'list', element: { kind: 'concrete', name: 'IMAGE' },
     })
     expect(solved.portTypeOf(n('grow'), 'output', 'out')).toEqual({
@@ -775,31 +855,14 @@ describe('MatchType resolution', () => {
     expect(solved.diagnostics).toEqual([])
   })
 
-  it('solves through a recursively elaborated nested address (autogrow-in-autogrow)', () => {
-    // Real recursive elaboration: the outer family's template
-    // slot carries an inner family whose slot shares the node's MatchType
-    // template. The solver must find the port by FULL member path and
-    // constrain the template through it.
+  it('solves through a nested group member by its flattened id', () => {
+    // The outer group's member holds an inner group whose value shares the
+    // node's MatchType template. The solver must find the port by its full
+    // flattened id and constrain the template through it.
     const withNested: SchemaResolver = (t) =>
       t === 'NestedGrower'
         ? schemaOf('NestedGrower', [
-            {
-              ...input('inputs', { kind: 'wildcard' }),
-              dynamic: {
-                kind: 'autogrow',
-                template: [
-                  {
-                    ...input('sub', { kind: 'wildcard' }),
-                    dynamic: {
-                      kind: 'autogrow',
-                      template: [input('item', T('T'))],
-                      naming: { kind: 'prefix', prefix: 'g', min: 0, max: 4 },
-                    },
-                  },
-                ],
-                naming: { kind: 'prefix', prefix: 'item', min: 1, max: 4 },
-              },
-            },
+            group('inputs', 'item', { member: [group('sub', 'g', { value: input('item', T('T')) })] }, { minMembers: 1 }),
             output('out', T('T')),
           ])
         : schemas[t]
@@ -809,23 +872,23 @@ describe('MatchType resolution', () => {
         g: {
           type: 'NestedGrower',
           dynamic: {
-            inputs: { members: ['m0'], memberState: { m0: { 'inputs.sub': { members: ['g0'] } } } },
+            inputs: { members: ['item0'] },
+            'inputs.item0.sub': { members: ['g0'] },
           },
         },
       },
-      links: { l0: { from: ['img', 'out'], to: ['g', 'inputs.sub.item', 'm0'] } },
+      links: { l0: { from: ['img', 'out'], to: ['g', 'inputs.item0.sub.g0'] } },
     })
-    const l0 = (def.links as Record<string, { to: { members?: readonly string[] } }>)['l0']!
-    ;(l0 as { to: unknown }).to = { ...l0.to, members: ['m0', 'g0'] }
     const s = solveGraphTypes(def, withNested)
     expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
     expect(s.resolutionOf(n('g'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
+    expect(s.portTypeOf(n('g'), 'output', 'out')).toEqual({ kind: 'concrete', name: 'IMAGE' })
     expect(s.diagnostics).toEqual([])
   })
 })
 
 // ---------------------------------------------------------------------------
-// Reroutes, nets, value sources
+// Reroutes and nets
 // ---------------------------------------------------------------------------
 
 describe('edges through structure', () => {
@@ -845,7 +908,7 @@ describe('edges through structure', () => {
     expect(s.linkVerdicts.has('l0' as never)).toBe(false)
   })
 
-  it('undriven reroutes and value sources constrain nothing', () => {
+  it('undriven reroutes constrain nothing', () => {
     const def = defOf({
       nodes: { sw: { type: 'Switch' } },
       links: {
@@ -900,124 +963,7 @@ describe('unknown endpoints', () => {
 // Selector branches (policy-independent conservative solving)
 // ---------------------------------------------------------------------------
 
-describe('selector branches', () => {
-  it('a consumer fed by a selector output checks against EVERY branch producer', () => {
-    // IMAGE and LATENT branches feeding an ImageSink: the LATENT branch can
-    // be picked by a future policy change, so the output link is a mismatch.
-    const def = defOf({
-      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, sink: { type: 'ImageSink' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l0: { from: ['img', 'out'], to: { selector: 's1', candidate: 'ca' } },
-        l1: { from: ['lat', 'out'], to: { selector: 's1', candidate: 'cb' } },
-        l2: { from: { selector: 's1' }, to: ['sink', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l2' as never)).toBe('mismatch')
-    expect(s.diagnostics.some((d) => d.code === 'solve.linkMismatch')).toBe(true)
-    // Candidate feeds are structural: no verdicts of their own.
-    expect(s.linkVerdicts.get('l0' as never)).toBeUndefined()
-    expect(s.linkVerdicts.get('l1' as never)).toBeUndefined()
-  })
-
-  it('homogeneous branches are ok; verdicts are sticky-worst, not last-write-wins', () => {
-    const def = defOf({
-      nodes: { a: { type: 'ImageSrc' }, b: { type: 'ImageSrc' }, sink: { type: 'ImageSink' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l0: { from: ['a', 'out'], to: { selector: 's1', candidate: 'ca' } },
-        l1: { from: ['b', 'out'], to: { selector: 's1', candidate: 'cb' } },
-        l2: { from: { selector: 's1' }, to: ['sink', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l2' as never)).toBe('ok')
-    expect(s.diagnostics).toEqual([])
-  })
-
-  it('an UNCONSUMED selector never unifies its branches (heterogeneous feeds are fine)', () => {
-    const def = defOf({
-      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l0: { from: ['img', 'out'], to: { selector: 's1', candidate: 'ca' } },
-        l1: { from: ['lat', 'out'], to: { selector: 's1', candidate: 'cb' } },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.diagnostics).toEqual([])
-    expect([...s.linkVerdicts.entries()]).toEqual([])
-  })
-
-  it('MatchType variables see all branches: heterogeneous feeds conflict the class', () => {
-    // Pickle's T (domain IMAGE|LATENT) is intersected by BOTH branches:
-    // IMAGE then LATENT -> empty -> conflict, contributing edge marked.
-    const def = defOf({
-      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pk: { type: 'Pickle' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l0: { from: ['img', 'out'], to: { selector: 's1', candidate: 'ca' } },
-        l1: { from: ['lat', 'out'], to: { selector: 's1', candidate: 'cb' } },
-        l2: { from: { selector: 's1' }, to: ['pk', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.resolutionOf(n('pk'), 'T').kind).toBe('conflict')
-    expect(s.linkVerdicts.get('l2' as never)).toBe('mismatch')
-    expect(s.diagnostics.some((d) => d.code === 'solve.varConflict')).toBe(true)
-  })
-
-  it('MatchType variables resolve through homogeneous selector branches', () => {
-    const def = defOf({
-      nodes: { a: { type: 'ImageSrc' }, b: { type: 'ImageSrc' }, sw: { type: 'Switch' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l0: { from: ['a', 'out'], to: { selector: 's1', candidate: 'ca' } },
-        l1: { from: ['b', 'out'], to: { selector: 's1', candidate: 'cb' } },
-        l2: { from: { selector: 's1' }, to: ['sw', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.resolutionOf(n('sw'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
-    expect(s.linkVerdicts.get('l2' as never)).toBe('ok')
-  })
-
-  it('composes: reroutes and selector chains solve end to end', () => {
-    // img -> r1 -> s1/ca; s1 -> s2/cx; s2 -> r2 -> sink
-    const def = defOf({
-      nodes: { img: { type: 'ImageSrc' }, sink: { type: 'ImageSink' } },
-      reroutes: ['r1', 'r2'],
-      selectors: { s1: ['ca'], s2: ['cx'] },
-      links: {
-        l0: { from: ['img', 'out'], to: { reroute: 'r1' } },
-        l1: { from: { reroute: 'r1' }, to: { selector: 's1', candidate: 'ca' } },
-        l2: { from: { selector: 's1' }, to: { selector: 's2', candidate: 'cx' } },
-        l3: { from: { selector: 's2' }, to: { reroute: 'r2' } },
-        l4: { from: { reroute: 'r2' }, to: ['sink', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l4' as never)).toBe('ok')
-    expect(s.diagnostics).toEqual([])
-  })
-
-  it('an undriven candidate constrains nothing; driven branches still check', () => {
-    const def = defOf({
-      nodes: { lat: { type: 'LatentSrc' }, sink: { type: 'ImageSink' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l1: { from: ['lat', 'out'], to: { selector: 's1', candidate: 'cb' } },
-        l2: { from: { selector: 's1' }, to: ['sink', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l2' as never)).toBe('mismatch') // the LATENT branch
-  })
-
-})
-
-describe('dynamicSlot MatchType binding', () => {
+describe('type choice MatchType binding', () => {
   const matched = (selected: 'image' | 'mask') => ({
     type: 'MatchedSlot',
     dynamic: { source: { selected } },
@@ -1027,7 +973,10 @@ describe('dynamicSlot MatchType binding', () => {
     ['image', 'IMAGE'],
     ['mask', 'MASK'],
   ] as const)('binds the selected %s variant through inputs and outputs', (selected, expected) => {
-    const solved = solveGraphTypes(defOf({ nodes: { matched: matched(selected) } }), resolve)
+    const solved = solveGraphTypes(defOf({
+      nodes: { src: { type: selected === 'image' ? 'ImageSrc' : 'DinksterMaskSrc' }, matched: matched(selected) },
+      links: { l0: { from: ['src', 'out'], to: ['matched', 'source'] } },
+    }), resolve)
     expect(solved.resolutionOf(n('matched'), 'T')).toEqual({ kind: 'resolved', name: expected })
     expect(solved.portTypeOf(n('matched'), 'input', 'source')).toEqual({ kind: 'concrete', name: expected })
     expect(solved.portTypeOf(n('matched'), 'input', 'source.copy')).toEqual({ kind: 'concrete', name: expected })
@@ -1068,7 +1017,7 @@ describe('dynamicSlot MatchType binding', () => {
     expect(solved.diagnostics.filter((diag) => diag.code === 'solve.linkMismatch')).toHaveLength(1)
   })
 
-  it('binds the selected type when a matched output family has zero members', () => {
+  it('binds the selected type when a matched output group has zero members', () => {
     const solved = solveGraphTypes(defOf({
       nodes: {
         matched: {
@@ -1081,44 +1030,42 @@ describe('dynamicSlot MatchType binding', () => {
     expect(solved.diagnostics).toEqual([])
     expect(solved.resolutionOf(n('matched'), 'T')).toEqual({ kind: 'resolved', name: 'MASK' })
     expect(solved.portTypeOf(n('matched'), 'input', 'source')).toEqual({ kind: 'concrete', name: 'MASK' })
-    expect(solved.portTypeOf(n('matched'), 'output', 'items')).toBeUndefined()
+    expect(solved.portTypeOf(n('matched'), 'output', 'items.item0')).toBeUndefined()
   })
 
   it('diagnoses an active input allowlist that rejects the stored selection', () => {
     const narrowed = schemaOf('NarrowedMatchedSlot', [
       {
-        ...input('source', { kind: 'union', names: ['IMAGE', 'MASK'] }),
-        dynamic: {
-          kind: 'dynamicSlot',
-          materialization: 'wire15',
-          slotType: { kind: 'union', names: ['IMAGE', 'MASK'] },
-          inputs: [],
-          variants: [
-            { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, inputs: [] },
-            { key: 'mask', type: { kind: 'concrete', name: 'MASK' }, inputs: [input('copy', T('T', ['IMAGE']))] },
-          ],
-          typeTemplateId: 'T',
-        },
+        kind: 'typeChoice',
+        id: 'source',
+        variants: [
+          { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, rows: [] },
+          { key: 'mask', type: { kind: 'concrete', name: 'MASK' }, rows: [input('copy', T('T', ['IMAGE']))] },
+        ],
+        rows: [],
+        required: true,
+        typeVariable: 'T',
       },
       output('out', T('T', ['IMAGE', 'MASK'])),
     ])
     const solved = solveGraphTypes(defOf({
-      nodes: { matched: { type: narrowed.type, dynamic: { source: { selected: 'mask' } } } },
+      nodes: { src: { type: 'DinksterMaskSrc' }, matched: { type: narrowed.type, dynamic: { source: { selected: 'mask' } } } },
+      links: { l0: { from: ['src', 'out'], to: ['matched', 'source'] } },
     }), (type) => type === narrowed.type ? narrowed : resolve(type))
     expect(solved.resolutionOf(n('matched'), 'T')).toEqual({ kind: 'conflict' })
     expect(solved.portTypeOf(n('matched'), 'input', 'source.copy')).toEqual({ kind: 'concrete', name: 'MASK' })
     expect(solved.diagnostics).toEqual([
       expect.objectContaining({
         code: 'solve.varConflict',
-        message: "matched.T: connected types conflict with selected variant 'mask'",
+        message: 'NarrowedMatchedSlot: Source is set to mask, but the input copy needs image.',
         anchor: { port: { node: 'matched', port: 'source' } },
-        data: { edges: [], slotSelections: ['matched/source=mask'] },
+        data: { edges: [], slotSelections: ['matched/source=mask'], nodeMessage: 'Source is set to mask, but the input copy needs image.' },
       }),
     ])
   })
 })
 
-describe('dynamicSlot specialization staleness', () => {
+describe('type choice specialization staleness', () => {
   const staleWarnings = (def: GraphDef) => solveGraphTypes(def, resolve).diagnostics.filter((d) => d.code === 'solve.slot.staleSpecialization')
   const slotNode = (selected: boolean) => ({ type: 'SpecializedSlot', dynamic: { model: selected ? { selected: 'image' } : {} } })
 
@@ -1162,5 +1109,123 @@ describe('dynamicSlot specialization staleness', () => {
       nodes: { src: { type: 'LatentSrc' }, slot: slotNode(false) },
       links: { l0: { from: ['src', 'out'], to: ['slot', 'model'] } },
     }))).toEqual([])
+  })
+})
+
+describe('a type variable fed two different types', () => {
+  const INT = { kind: 'concrete', name: 'INT' } as const
+  const local: Record<string, NodeSchema> = {
+    Pair: schemaOf('Pair', [input('first', T('T')), input('second', T('T')), output('out', T('T'))]),
+    ImagePair: schemaOf('ImagePair', [input('first', T('T', ['IMAGE'])), input('second', T('T', ['IMAGE'])), output('out', T('T', ['IMAGE']))]),
+    IntSrc: schemaOf('IntSrc', [output('out', INT)]),
+    IntValue: schemaOf('IntValue', [input('value', INT), { ...output('out', INT), knownValue: { input: 'value' } }]),
+    PickSwitch: {
+      ...schemaOf('PickSwitch', [
+        input('pick', INT),
+        group('branch', 'branch', { value: input('branch', T('T')) }, { minMembers: 1 }),
+        output('out', T('T')),
+      ]),
+      selector: { input: 'pick', group: 'branch' },
+    },
+  }
+  const solve = (def: GraphDef) => solveGraphTypes(def, (type) => local[type] ?? resolve(type))
+  const conflicts = (def: GraphDef) =>
+    solve(def).diagnostics
+      .filter((d) => d.code === 'solve.varConflict')
+      .map((d) => ({ severity: d.severity, message: d.message, node: d.data?.['node'] }))
+
+  it('is an error on the node, naming each input and the type it brings', () => {
+    const solved = solve(defOf({
+      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pair: { type: 'Pair' } },
+      links: {
+        l0: { from: ['img', 'out'], to: ['pair', 'first'] },
+        l1: { from: ['lat', 'out'], to: ['pair', 'second'] },
+      },
+    }))
+    expect(solved.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'solve.varConflict',
+        message: 'Pair: The inputs must be the same type, but the input first is an image and the input second is latent data.',
+        anchor: { port: { node: 'pair', port: 'second' }, link: 'l1' },
+        data: { node: 'pair', edges: ["link 'l0'", "link 'l1'"], nodeMessage: 'The inputs must be the same type, but the input first is an image and the input second is latent data.' },
+      }),
+    ])
+    expect(solved.linkVerdicts.get('l0' as never)).toBe('mismatch')
+    expect(solved.linkVerdicts.get('l1' as never)).toBe('mismatch')
+  })
+
+  it('follows a generic producer to the node that receives both types', () => {
+    expect(conflicts(defOf({
+      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, sw: { type: 'Switch' }, pair: { type: 'Pair' } },
+      links: {
+        l0: { from: ['img', 'out'], to: ['sw', 'in'] },
+        l1: { from: ['sw', 'out'], to: ['pair', 'first'] },
+        l2: { from: ['lat', 'out'], to: ['pair', 'second'] },
+      },
+    }))).toEqual([{ severity: 'error', message: 'Pair: The inputs must be the same type, but the input first is an image and the input second is latent data.', node: 'pair' }])
+  })
+
+  it('stays a warning when the engine would run the node', () => {
+    // A downstream input that wants another type.
+    expect(conflicts(defOf({
+      nodes: { img: { type: 'ImageSrc' }, sw: { type: 'Switch' }, lat: { type: 'LatentSink' } },
+      links: { l0: { from: ['img', 'out'], to: ['sw', 'in'] }, l1: { from: ['sw', 'out'], to: ['lat', 'in'] } },
+    })).map((c) => c.severity)).toEqual(['warning'])
+    // A type outside the variable's allowlist.
+    expect(conflicts(defOf({
+      nodes: { img: { type: 'ImageSrc' }, sw: { type: 'ComfyImageSwitch' } },
+      links: { l0: { from: ['img', 'out'], to: ['sw', 'in'] } },
+    })).map((c) => c.severity)).toEqual(['warning'])
+    // One input outside the allowlist beside one inside it.
+    expect(conflicts(defOf({
+      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pair: { type: 'ImagePair' } },
+      links: { l0: { from: ['img', 'out'], to: ['pair', 'first'] }, l1: { from: ['lat', 'out'], to: ['pair', 'second'] } },
+    })).map((c) => c.severity)).toEqual(['warning'])
+    // One untyped generic producer feeding two nodes that each get another type.
+    expect(conflicts(defOf({
+      nodes: {
+        img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, sw: { type: 'Switch' },
+        a: { type: 'Pair' }, b: { type: 'Pair' },
+      },
+      links: {
+        l0: { from: ['sw', 'out'], to: ['a', 'first'] },
+        l1: { from: ['img', 'out'], to: ['a', 'second'] },
+        l2: { from: ['sw', 'out'], to: ['b', 'first'] },
+        l3: { from: ['lat', 'out'], to: ['b', 'second'] },
+      },
+    })).map((c) => c.severity)).toEqual(['warning'])
+    // A union that one member of can match.
+    expect(conflicts(defOf({
+      nodes: { either: { type: 'EitherSrc' }, img: { type: 'ImageSrc' }, pair: { type: 'Pair' } },
+      links: { l0: { from: ['either', 'out'], to: ['pair', 'first'] }, l1: { from: ['img', 'out'], to: ['pair', 'second'] } },
+    }))).toEqual([])
+  })
+
+  it('counts a Switch only when its pick is a run-time value', () => {
+    const switchWith = (pick: 'runtime' | 'known' | 'stored') => defOf({
+      nodes: {
+        img: { type: 'ImageSrc' },
+        lat: { type: 'LatentSrc' },
+        pick: { type: pick === 'known' ? 'IntValue' : 'IntSrc', values: { value: 1 } },
+        sw: { type: 'PickSwitch', values: pick === 'stored' ? { pick: 1 } : {}, dynamic: { branch: { members: ['branch0', 'branch1'] } } },
+      },
+      links: {
+        l0: { from: ['img', 'out'], to: ['sw', 'branch.branch0'] },
+        l1: { from: ['lat', 'out'], to: ['sw', 'branch.branch1'] },
+        ...(pick === 'stored' ? {} : { l2: { from: ['pick', 'out'], to: ['sw', 'pick'] } }),
+      },
+    })
+    expect(conflicts(switchWith('runtime'))).toEqual([
+      { severity: 'error', message: 'PickSwitch: The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', node: 'sw' },
+    ])
+    // Only the picked branch runs, so it is a warning on the Switch, in the error's words.
+    for (const pick of ['known', 'stored'] as const) {
+      expect(conflicts(switchWith(pick))).toEqual([
+        { severity: 'warning', message: 'PickSwitch: The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', node: 'sw' },
+      ])
+      expect(solve(switchWith(pick)).diagnostics.find((d) => d.code === 'solve.varConflict')?.anchor?.port)
+        .toEqual({ node: 'sw', port: 'branch.branch1' })
+    }
   })
 })

@@ -12,10 +12,8 @@ test('removed pack parts open with anchored upgrade rows and preserve their stor
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'UpdatedSampler', displayName: 'Sampler', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'mode', displayName: 'Mode', optional: false,
-        type: { kind: 'concrete', name: 'STRING' }, dynamic: { kind: 'dynamicCombo', materialization: 'wire15',
-          options: [{ key: 'current', inputs: [] }, { key: 'other', inputs: [] }],
-        } }],
+      body: [{ kind: 'choice', id: 'mode', displayName: 'Mode', required: true, shared: [],
+        options: [{ key: 'current', rows: [] }, { key: 'other', rows: [] }] }],
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'removed-pack-parts', root: 'g0',
@@ -23,7 +21,7 @@ test('removed pack parts open with anchored upgrade rows and preserve their stor
         option: { id: 'option', type: 'UpdatedSampler', title: 'Removed option',
           values: { 'mode.oldAmount': 31 }, dynamic: { mode: { selected: 'removed' } } },
         group: { id: 'group', type: 'UpdatedSampler', title: 'Removed group',
-          values: { 'old.amount#m3': 17 }, dynamic: { old: { members: ['m3'], seq: 4 } } },
+          values: { 'old.m3.amount': 17 }, dynamic: { old: { members: ['m3'], seq: 4 } } },
         choice: { id: 'choice', type: 'UpdatedSampler', title: 'Removed choice',
           values: { 'old.amount': 23 }, dynamic: { old: { selected: 'previous' } } },
       }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 } },
@@ -47,7 +45,7 @@ test('removed pack parts open with anchored upgrade rows and preserve their stor
   expect(await page.evaluate(() => {
     const nodes = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes
     return { values: nodes.option!.values, group: nodes.group!.dynamic, choice: nodes.choice!.dynamic }
-  })).toEqual({ values: { 'mode.oldAmount': 31 }, group: { old: { members: ['m3'], seq: 4 } }, choice: { old: { selected: 'previous' } } })
+  })).toEqual({ values: { 'mode.oldAmount': 31 }, group: { old: { members: ['m3'], seq: 4 }, mode: { selected: 'current' } }, choice: { old: { selected: 'previous' }, mode: { selected: 'current' } } })
 })
 
 test('Problems presents five ordered sections with one-line rows and debug-only codes', async ({ page }) => {
@@ -59,7 +57,7 @@ test('Problems presents five ordered sections with one-line rows and debug-only 
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'PanelSampler', displayName: 'Sampler', category: 'test', source: 'v3',
-      isOutputNode: false, items: [],
+      isOutputNode: false, body: [],
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'problems-sections', root: 'g0',

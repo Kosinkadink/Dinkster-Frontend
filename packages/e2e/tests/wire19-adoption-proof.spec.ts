@@ -23,23 +23,23 @@ test('proves all five wire 19 widget facts through the current live wire', async
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'wire19-proof', schemaWire: 1 },
+    dinkster: { version: 'wire19-proof', schemaWire: 2 },
     packs: { test: { displayName: 'Test' } },
     nodes: { Wire19Proof: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'Wire19Proof',
       displayName: 'Wire 19 Adoption',
       category: 'test',
       outputNode: true,
       signature: 'wire19-proof-node',
-      interface: [
-        { role: 'input', id: 'rounded', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
+      body: [
+        { kind: 'input', id: 'rounded', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
           widget: { type: 'NUMBER', round: 0.25 } },
-        { role: 'input', id: 'prompt', required: true, type: { kind: 'concrete', types: ['STRING'] },
+        { kind: 'input', id: 'prompt', required: true, type: { kind: 'concrete', types: ['STRING'] },
           widget: { type: 'STRING', multiline: false, placeholder: 'Describe a scene', dynamicPrompts: true } },
-        { role: 'input', id: 'mode', required: true, type: { kind: 'concrete', types: ['COMBO'] },
-          widget: { type: 'COMBO', options: ['alpha', 'beta', 'gamma'], controlAfterGenerate: 'increment' } },
-        { role: 'input', id: 'tint', required: true, type: { kind: 'concrete', types: ['STRING'] },
+        { kind: 'input', id: 'mode', required: true, type: { kind: 'concrete', types: ['COMBO'] },
+          widget: { type: 'COMBO', options: ['alpha', 'beta', 'gamma'] }, afterRun: 'increment' },
+        { kind: 'input', id: 'tint', required: true, type: { kind: 'concrete', types: ['STRING'] },
           widget: { type: 'COLOR' } },
       ],
     } },
@@ -90,7 +90,8 @@ test('proves all five wire 19 widget facts through the current live wire', async
   const roundPoint = await rowPoint(page, 'rounded')
   await page.mouse.click(roundPoint.x, roundPoint.y)
   const numberEditor = page.getByTestId('widget-editor').locator('input')
-  await numberEditor.fill('1.12')
+  // An unchanged field stores nothing, so type another value the round option turns into 1.
+  await numberEditor.fill('1.1')
   await page.keyboard.press('Enter')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.rounded)).toBe(1)
 
@@ -129,7 +130,7 @@ test('proves all five wire 19 widget facts through the current live wire', async
     const banner = document.createElement('pre')
     banner.setAttribute('data-testid', 'wire19-proof-banner')
     banner.style.cssText = 'position:fixed;right:24px;top:80px;z-index:10000;background:#102030;color:#e8f4ff;padding:16px;border:2px solid #60a5fa'
-    banner.textContent = `round commit: 1.12 -> 1\ncombo completion: alpha -> beta\nPOST prompt: ${submittedPrompt}\ndocument prompt unchanged\nsubmission revision: ${beforeRevision} -> ${afterRevision}\ncompletion revision: ${completedRevision}`
+    banner.textContent = `round commit: 1.1 -> 1\ncombo completion: alpha -> beta\nPOST prompt: ${submittedPrompt}\ndocument prompt unchanged\nsubmission revision: ${beforeRevision} -> ${afterRevision}\ncompletion revision: ${completedRevision}`
     document.body.appendChild(banner)
   }, { submittedPrompt: submittedNode.inputs.prompt, beforeRevision, afterRevision: proof.afterRevision, completedRevision })
   await page.screenshot({ path: `${proofDir}/02-round-combo-dynamic-post.png`, animations: 'disabled' })

@@ -5,6 +5,12 @@ export interface ModelRequirement {
   readonly kind: string
 }
 
+export type ModelPresence = ModelRequirement & (
+  | { readonly status: 'local' | 'model-hidden' | 'duplicate' }
+  | { readonly status: 'folder-disabled'; readonly disabledLocations: readonly string[] }
+  | { readonly status: 'missing'; readonly plannable: boolean }
+)
+
 export interface ModelDownloadSelection extends ModelRequirement {
   readonly project: string
   readonly provider: 'huggingface' | 'civitai'
@@ -63,6 +69,25 @@ function strings(row: Record<string, unknown>, key: string): readonly string[] {
   const value = row[key]
   if (!Array.isArray(value) || !value.every((entry: unknown) => typeof entry === 'string')) throw new Error(`Malformed model download ${key}`)
   return value as string[]
+}
+
+export function decodeModelPresence(raw: unknown, requested: readonly ModelRequirement[]): readonly ModelPresence[] {
+  const rows = record(raw)['models']
+  if (!Array.isArray(rows) || rows.length !== requested.length) throw new Error('Malformed model presence response')
+  return requested.map((requirement, index) => {
+    const row = record(rows[index])
+    if (row['name'] !== requirement.name || row['kind'] !== requirement.kind) throw new Error('Mismatched model presence response')
+    switch (row['status']) {
+      case 'local':
+      case 'model-hidden':
+      case 'duplicate': return { ...requirement, status: row['status'] }
+      case 'folder-disabled': return { ...requirement, status: 'folder-disabled', disabledLocations: strings(row, 'disabledLocations') }
+      case 'missing':
+        if (typeof row['plannable'] === 'boolean') return { ...requirement, status: 'missing', plannable: row['plannable'] }
+        break
+    }
+    throw new Error('Malformed model presence status')
+  })
 }
 
 function selection(row: Record<string, unknown>): ModelDownloadSelection {

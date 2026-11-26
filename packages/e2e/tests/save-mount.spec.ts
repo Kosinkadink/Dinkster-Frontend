@@ -48,7 +48,7 @@ test('native SaveImage and SaveVideo keep imported prefixes beside independent m
     expect(mount.y).toBe(prefix.y)
     expect(mount.x).toBeGreaterThan(prefix.x)
     await page.mouse.click(prefix.x, prefix.y)
-    await expect(page.getByTestId('widget-editor')).toBeVisible()
+    await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
     await page.keyboard.press('Escape')
     await page.mouse.click(mount.x, mount.y)
     await expect(page.getByTestId('mount-widget-editor')).toHaveAttribute('data-mounts', 'ready')
@@ -61,13 +61,15 @@ test('native SaveImage and SaveVideo keep imported prefixes beside independent m
 
 test('schema adjacency keeps separate prefix and mount controls through selection, default reset and undo', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'mount-contract-fixture', schemaWire: 1 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'mount-contract-fixture', schemaWire: 2 },
     nodes: { SaveContractFixture: {
-      schemaVersion: 1, displayName: 'Save contract fixture', outputNode: true,
-      interface: [
-        { role: 'input', id: 'prefix', type: { kind: 'concrete', types: ['STRING'] }, default: 'frames/session' },
-        { role: 'input', id: 'quality', type: { kind: 'concrete', types: ['INT'] }, default: 73 },
-        { role: 'input', id: 'destination', displayName: 'Mount', type: { kind: 'concrete', types: ['STRING'] }, required: false, default: null, widget: { type: 'MOUNT' }, adjacentTo: 'prefix' },
+      schemaVersion: 2, displayName: 'Save contract fixture', outputNode: true,
+      body: [
+        { kind: 'row', rows: [
+          { kind: 'input', id: 'prefix', type: { kind: 'concrete', types: ['STRING'] }, default: 'frames/session' },
+          { kind: 'input', id: 'destination', label: 'Mount', type: { kind: 'concrete', types: ['STRING'] }, required: false, default: null, widget: { type: 'MOUNT' } },
+        ] },
+        { kind: 'input', id: 'quality', type: { kind: 'concrete', types: ['INT'] }, default: 73 },
       ],
     } },
   } }))
@@ -98,7 +100,7 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
   expect(point.y).toBe(prefixPoint.y)
   expect(point.x).toBeGreaterThan(prefixPoint.x)
   await page.mouse.click(prefixPoint.x, prefixPoint.y)
-  await expect(page.locator('[data-testid="widget-editor"]')).toBeVisible()
+  await expect(page.locator('[data-testid="widget-editor"][data-editor-surface="in-row"] input')).toBeVisible()
   await page.keyboard.press('Escape')
   await page.screenshot({ path: testInfo.outputPath('mount-row-default.png') })
   await page.mouse.click(point.x, point.y)

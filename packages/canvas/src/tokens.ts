@@ -3,7 +3,7 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { canvasSemanticTokens, DIM_FILL_SHARE, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
@@ -39,9 +39,7 @@ export const canvasPaintTokens = {
   scene: {
     nodeFallbackX: 40,
     nodeFallbackStepY: 120,
-    valueSourceFallbackStepY: 60,
     rerouteFallbackStepY: 60,
-    selectorFallbackStepY: 100,
     emptyGraphWidth: 320,
     boundaryGap: 120,
     fallbackValueMaxCharacters: 42,
@@ -49,40 +47,35 @@ export const canvasPaintTokens = {
   viewport: { initialOffset: 40, fitMargin: 60, minFitScale: 0.1, maxFitScale: 2 },
   graphCache: { tilePixels: 512, bleedPixels: 2 },
   badge: {
-    size: 14,
-    stride: 18,
-    rightInset: 22,
-    characterWidth: 5.5,
-    labelPadding: 10,
-    iconWidth: 10,
     radius: 3,
-    iconInset: 1,
-    fontSize: 9,
-    textIconOffset: 5,
     baselineOffset: 0.5,
+    /** The subgraph mark at the right end of the title bar. */
+    /** `iconSize` is the drawn size of the mark's icon. */
+    mark: { size: 20, hitSize: 20, iconSize: 14, padding: 3, gap: 3 },
     tab: {
-      height: 16,
+      height: 20,
       fontSize: 11,
-      inset: 12,
+      /** Distance from the node's left and right outer edges to the first tab. */
+      inset: 0,
+      /** Gap between the node's painted outer edge and its tabs. */
+      offset: 3,
       gap: 2,
       padding: 6,
-      iconSize: 10,
+      /** Drawn size of a tab's icon. */
+      iconSize: 14,
       iconGap: 4,
+      /** Gap in screen px between the node's lowest tab and its open problem box. */
+      problemBoxGap: 4,
+      /** Widest an open problem box gets, in screen px, and the room it keeps from each side of the canvas pane. */
+      problemBox: { maxWidth: 400, paneMargin: 16 },
       maxLabelWidth: 120,
-      overlap: 1,
-      hoverStroke: 1,
-      hoverTint: 0.22,
-      foreground(background: string): string {
-        if (!/^#[0-9a-f]{6}$/i.test(background)) return canvasSemanticTokens.text.primary
-        const channels = background.replace('#', '').match(/.{2}/g)!.map((channel) => {
-          const value = parseInt(channel, 16) / 255
-          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-        })
-        const luminance = channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
-        return luminance > 0.179 ? '#000000' : '#ffffff'
-      },
+      stroke: 1,
+      /** Shares of the tab's color: its fill over the canvas, its line over the canvas, its words over the title color. */
+      fillMix: DIM_FILL_SHARE,
+      hoverFillMix: 0.3,
+      lineMix: 0.65,
+      textMix: 0.7,
     },
-    roomierTab: { height: 20, fontSize: 12, inset: 16 },
     colors: {
       subgraph: '#4a4a5e',
       executionError: '#b3402f',
@@ -93,6 +86,8 @@ export const canvasPaintTokens = {
     },
   },
   controller: {
+    /** Drawn size of the mode icon as a share of its square chip, centered in it. */
+    chipIconRatio: 0.6,
     edgeWidth: 12,
     glyphHalf: 3,
     verticalInset: canvasSemanticTokens.space[4],
@@ -104,12 +99,9 @@ export const canvasPaintTokens = {
     groupSelection: { world: [6, 4], screen: [4, 3] },
     ghost: { world: [6, 4], screen: [4, 3] },
     maybeAbsentLink: { world: [9, 5], screen: [5, 3] },
-    netGuide: { world: [7, 5], screen: [7, 5] },
     selectionUnion: { world: [5, 4], screen: [4, 3] },
     marquee: { world: [4, 3], screen: [3, 2] },
     remote: [6, 4],
-    blockingWarning: { world: [1, 3], screen: [1, 3] },
-    growth: [3, 3],
     companionUnderline: [1, 2],
     running: { world: [13, 9], screen: [9, 6] },
     boundary: { world: [5, 3], screen: [4, 3] },
@@ -123,31 +115,142 @@ export const canvasPaintTokens = {
     bypassed: { world: [8, 3], screen: [5, 3] },
   },
   node: {
-    minimizedMinWidth: 80,
     titleWidthPadding: canvasSemanticTokens.space[8],
     portLabelPadding: 6,
     labelPinGap: canvasSemanticTokens.space[4],
     pairedPortGap: canvasSemanticTokens.space[24],
     sectionWidthPadding: 18,
     growthWidthPadding: 18,
+    /** A lookup note's state line: its mark (spinner or info), the words after it, and Try again under it. */
+    lookupNote: {
+      /** Rows a note takes with a state line, and with Try again under that too. */
+      stateRows: 2,
+      retryRows: 3,
+      markMinRadius: 3,
+      /** The mark's radius as a share of the font size. */
+      markRadiusScale: 0.45,
+      markStroke: 1,
+      /** The info mark's letter as a share of the mark's radius. */
+      glyphScale: 1.6,
+      glyphNudge: 0.5,
+      textGap: canvasSemanticTokens.space[4] + 2,
+      hoverInset: 2,
+    },
     widgetLabelPadding: canvasSemanticTokens.space[12],
     widgetValueMinWidth: 90,
     widgetColumnGap: 20,
+    /** Rows an open text result shows by default at most; the node's bottom edge sizes it past that. */
     textOutputMaxRows: 6,
+    /** Rows an open text result shows at least. */
+    textOutputMinRows: 2,
+    /**
+     * The bar of a node whose preview is open: the text box's bar
+     * (`widget.textBoxEdge`), its top `barRise` above the node's bottom edge
+     * so it sits inside the node under the preview, as a text box's bar sits
+     * inside its box, and a band around the edge that drags it. Arrow keys on
+     * a pressed bar step a picture's height by `keyStep`; a text result steps
+     * one row.
+     */
+    previewEdge: { barRise: 5, hitAbove: 5, hitBelow: 5, keyStep: 10 },
     missing: { portLabelPadding: 4, pairedPortGap: 16, tapLabelPadding: 20 },
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
     modeOpacity: canvasSemanticTokens.interaction.disabledOpacity,
-    outline: { idle: 1.25, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
+    /** `crisp` is the idle outline of a node look with crisp edges. */
+    outline: { idle: 1.25, crisp: 1, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
+    /**
+     * A node that ran, in the frozen view: 2 px in its state's colour at half
+     * strength. A cached node takes the same 2 px, dashed, in the neutral outline.
+     */
+    ranOutline: { stroke: 2, opacity: 0.5 },
     identityBodyTint: 0.18,
     identityHeaderTint: 0.72,
     errorBodyTint: 0.2,
     errorHeaderTint: 0.35,
+    /** The flat-title look's rule under the title, inside the title bar. */
+    headerRuleStroke: 1,
     titleBadgeGap: canvasSemanticTokens.space[4],
+    /**
+     * The minimize arrow at the left end of the title bar: its square target
+     * starts `left` in from the node's edge, and the title starts where the
+     * target ends. The arrow itself is the section disclosure triangle.
+     */
+    minimizeArrow: { left: 5, target: 18, hoverRadius: 3 },
     drop: { outset: 2, opacity: 0.65, stroke: 1.5 },
     scope: { outset: 5, stroke: 2.5, minScreenStroke: 2 },
     progress: { height: 3, minScreenHeight: 1.5 },
-    advancedGroup: { fill: 'rgba(255, 255, 255, 0.035)', stroke: 1, inset: 0.5 },
+    /**
+     * The space an editor shown in the node takes under its editor button
+     * row when unfolded: a padded picture, then rows of its own controls.
+     */
+    editorSpace: {
+      /** An unfolded editor keeps the node at least this wide. */
+      minWidth: 260,
+      pad: 6,
+      gap: 6,
+      /** A dragged picture height is kept within these. */
+      pictureMin: 60,
+      pictureMax: 1200,
+      /** Height of the bar on a picture's bottom edge that is dragged. */
+      resizeBar: 6,
+    },
+    /**
+     * Sections, groups, members and a choice's option rows drawn as boxes.
+     * Horizontal values step in from the node's edge; vertical ones sit on
+     * the row grid, so a closed row is as tall as a field.
+     */
+    box: {
+      stroke: 1,
+      radius: 5,
+      /** Each box inside a box steps in this far from the outline around it. */
+      step: 8,
+      /**
+       * A field inside a box sits this far inside its outline, and the
+       * outline's inner side lines up with a field outside any box, so a
+       * field in one box is this much narrower on each side. Equal to
+       * `step`, so a field is as wide as a box beside it in the same box.
+       */
+      fieldGap: 8,
+      /** The open header is this much shorter than the closed row, inside the outline. */
+      headerShrink: 2,
+      /** From the last field in a box to its outline. */
+      bottomGap: 4,
+      /** Between two member boxes, so their outlines do not read as one thick line. */
+      memberGap: 4,
+      /** From a field or pin row to the outline of a box header under it. */
+      headerGap: 4,
+      /** From a box's outline to the box header, field or pin row after it. */
+      boxGap: 4,
+      /** An open box with no name: room above its outline for the tab, and below it. */
+      tabGap: 6,
+      tabPad: 4,
+      tab: { width: 18, height: 10, inset: 5, radius: 3 },
+      /** A choice's option box starts this far up its dropdown and pads its first row. */
+      optionOverlap: 3,
+      optionPad: 4,
+      textInset: 6,
+      arrow: { halfWidth: 3, length: 4 },
+      labelGap: 6,
+      countFontSize: 11,
+      dotRadius: 2.5,
+      dotGap: 6,
+      /** Width of a member's grip; a member's header keeps it before the label. */
+      gripWidth: 5,
+      /** A grip's square of six dots, and the width of its target across its row. */
+      grip: { height: 7, dot: 0.9, hit: 16 },
+      /** Where a dragged member would land between the others. */
+      dropLine: 2,
+      /** A remove cross; a field it ends stops `fieldGap` before it. */
+      cross: { size: 7, reserve: 18, stroke: 1, fieldGap: 4 },
+      /** Name, arrow, dot and count room beside a header's text. */
+      widthPadding: 40,
+      /** Center distance of the pins a closed box gathers at one end, by how many there are. */
+      clusterPitch: { two: 7, three: 6 },
+      /** A ring in the node's color around each pressed-together pin, so pins of one color stay apart. */
+      clusterRing: 1.5,
+      /** Most pins drawn at one end of a closed box. */
+      clusterMax: 3,
+    },
     section: {
       horizontalInset: 1,
       verticalInset: 2,
@@ -180,9 +283,19 @@ export const canvasPaintTokens = {
     dividerMinWorld: 0.75,
     dividerMaxWorld: canvasSemanticTokens.space[4],
     diamondScale: 1.25,
-    hoverScale: 1.35,
+    /**
+     * The pin for an input that takes one value or a list: the list diamond
+     * behind a smaller circle with a dark ring around the circle. Multiples of
+     * an ordinary pin's radius: the diamond's corner, the circle's radius and
+     * the ring's width.
+     */
+    eitherDiamond: 1.65,
+    eitherCircle: 0.75,
+    eitherRing: 0.22,
+    /** A pointed pin's radius grows by this many pixels, so an 11px disc becomes 13px on the same whole-pixel center. */
+    hoverGrowth: 1,
     statusRingGap: 3.5,
-    statusRingStroke: canvasSemanticTokens.interaction.focusRingWidth,
+    statusRingStroke: canvasSemanticTokens.interaction.indicatorWidth,
     outlineStroke: 1,
     optionalMinRadius: 1.5,
     optionalRadiusRatio: 0.32,
@@ -190,22 +303,30 @@ export const canvasPaintTokens = {
     ghostStroke: 1.5,
     ghostMinScreenStroke: 1,
   },
+  /**
+   * The running node: a steady 2 px outline in the running colour at 90%, and
+   * a glow around it, as a box shadow of 1 px spread would draw it, that
+   * breathes on a sine from 12 px blur at 32% to 17 px at 47%. Reduced
+   * motion holds the midpoint.
+   */
   running: {
+    outlineStroke: 2,
+    outlineOpacity: 0.9,
     pulsePeriodMs: 1400,
     reducedMotionPulse: 0.5,
-    glowOpacity: 0.48,
-    glowPulseOpacity: 0.22,
-    glowOutset: 2,
-    glowStroke: 4.5,
-    glowMinScreenStroke: 3,
-    glowBlur: canvasSemanticTokens.space[8],
+    glowOpacity: 0.32,
+    glowPulseOpacity: 0.15,
+    glowBlur: 12,
     glowPulseBlur: 5,
+    glowSpread: 1,
     accentStroke: 1.5,
     accentMinScreenStroke: 1.5,
     dashSpeed: 0.032,
   },
   toolbox: {
     buttonSize: 28,
+    /** Drawn size of a button's icon, centered in the button. */
+    iconSize: 16.8,
     gap: 5,
     padding: 6,
     selectionGap: canvasSemanticTokens.space[16],
@@ -213,7 +334,7 @@ export const canvasPaintTokens = {
     separatorWidth: 1,
     separatorHeightRatio: 0.6,
     nodeSelectionOutset: 3,
-    selectionStroke: canvasSemanticTokens.interaction.focusRingWidth,
+    selectionStroke: canvasSemanticTokens.interaction.indicatorWidth,
     selectionMinScreenStroke: 2,
     cullScreenPadding: 1,
     boundarySelectionOutset: 2,
@@ -241,40 +362,11 @@ export const canvasPaintTokens = {
     dropOutset: 2,
     dropStroke: 2,
     labelPinGap: canvasSemanticTokens.space[4],
-  },
-  valueSource: {
-    heightPadding: 8,
-    minWidth: 90,
-    badgeSize: 14,
-    badgeInset: 6,
-    stroke: 1,
-    strongStroke: 2,
-    badgeGap: canvasSemanticTokens.space[4],
-    valueGap: canvasSemanticTokens.space[8],
-    baselineOffset: 0.5,
-    badgeRadiusInset: 2,
-    badgeFontWeight: 700,
-    badgeFontReduction: 2,
-    badgeStroke: 1.5,
-  },
-  selector: {
-    widthPadding: canvasSemanticTokens.space[8],
-    minWidth: 110,
-    badgeSize: 14,
-    badgeInset: 6,
-    selectionOutset: 3,
-    selectionStroke: 2,
-    stroke: 1.25,
-    minScreenStroke: 1,
-    badgeGap: canvasSemanticTokens.space[4],
-    badgeRadius: 3,
-    badgeStroke: 1,
-    badgeFontSize: 9,
-    baselineOffset: 0.5,
-    accentInset: 1.5,
-    accentVerticalInset: 3,
-    accentWidth: 2.5,
-    labelPinGap: canvasSemanticTokens.space[4],
+    /** Space between the panel title and the quieter text naming whose values its fields carry. */
+    subtitleGap: canvasSemanticTokens.space[4],
+    /** The row of the boundary item selected in the Boundary panel. */
+    focusInset: 2,
+    focusStroke: 1.5,
   },
   net: {
     gap: 10,
@@ -327,6 +419,8 @@ export const canvasPaintTokens = {
     multilineLeadingNumerator: 4,
     multilineLeadingDenominator: 3,
     semiboldWeight: 600,
+    /** Noto Sans capital height in ems; a pin's name centers its capitals on the pin. */
+    capHeight: 0.714,
     smallMinSize: 9,
     smallReduction: 1,
     adornmentMinSize: 8,
@@ -339,7 +433,8 @@ export const canvasPaintTokens = {
     outputPinGap: canvasSemanticTokens.space[4],
     outputOffsetY: 10,
   },
-  icon: { circleRadiusRatio: 0.22, paddingRatio: 0.2, viewBoxSize: 24, stroke: 2 },
+  /** The filled circle icon's radius is a share of the icon's drawn size. */
+  icon: { circleRadiusRatio: 11 / 30, viewBoxSize: 24, stroke: 2 },
   virtualNote: {
     verticalPadding: canvasSemanticTokens.space[8],
     bodyTint: 0.28,
@@ -353,6 +448,7 @@ export const canvasPaintTokens = {
   },
   preview: {
     palette: { availableWidthPadding: 16, maxHeight: 240, inset: 6 },
+    search: { inset: 16, maxScale: 1.5 },
     appWidgetFallbackWidth: 320,
     unknownPlacement: { width: 180, height: 88 },
     stroke: 1,
@@ -367,9 +463,17 @@ export const canvasPaintTokens = {
     provenancePosition: 0.25,
     metadataPosition: 0.75,
     outputPadding: canvasSemanticTokens.space[4],
-    outputMaxLines: 6,
     staleStroke: 1,
     staleUnderlineOffset: 1,
+    /** The "Preview" caption row over a preview or text result. */
+    caption: {
+      padLeft: 6,
+      padRight: canvasSemanticTokens.space[8],
+      gap: 6,
+      thumbHeight: canvasSemanticTokens.space[16],
+      thumbMaxWidth: 28,
+      radius: canvasSemanticTokens.space[4],
+    },
   },
   lensAffordance: {
     rowMinSize: 10,
@@ -422,8 +526,26 @@ export const canvasPaintTokens = {
     nameOffset: 3,
   },
   widget: {
-    opener: { iconSize: 20, iconInset: 2, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
-    curve: { sourceRows: 2, inset: 2, minSampleHeight: 1 },
+    /**
+     * A row that opens an editor: `iconSize` is the drawn size of its kind icon
+     * and chevron, `iconInset` the kind icon's distance from the row's left
+     * edge and `trailingInset` the chevron's from its right edge. `iconReserve`
+     * is the room before the name's label inset, so the name starts 8 px (the
+     * mode icon gap) after the kind icon: iconInset + iconSize + 8 - labelInset.
+     */
+    opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 20, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
+    /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
+    subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
+    /**
+     * A folded curve in the raised look: a square before its count, `inset`
+     * inside the row and as tall as the row allows, `gap` before the count;
+     * the plot sits `plotInset` inside its frame.
+     */
+    curve: { inset: 5, gap: 8, plotInset: 3, lineWidth: 1.5, pointRadius: 1.75, dash: [2, 2], lineStep: 16, edge: 1 },
+    /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
+    valueSwatch: { size: 10, radius: 2, gap: 6, checkerCell: 3, edge: 1 },
+    /** A folded editor's small picture before its value, such as the stored frame. */
+    valueThumbnail: { size: 16, radius: 2, gap: 6, fileNameGap: 4, entryGap: 8 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,
@@ -439,6 +561,10 @@ export const canvasPaintTokens = {
     valueWidthPadding: canvasSemanticTokens.space[16],
     swatchReserve: canvasSemanticTokens.space[16],
     toggleReserve: canvasSemanticTokens.space[12],
+    /** An automatic value's dot, drawn before "auto" when the default is used. */
+    automaticDot: { radius: 3, gap: canvasSemanticTokens.space[4] },
+    /** Room between a word about a value ("auto", "inactive") and the value: the open field's room between auto and its hint. */
+    valueWordGap: canvasSemanticTokens.space[8],
     toggle: {
       trailingInset: 22,
       halfHeight: 5,
@@ -452,18 +578,53 @@ export const canvasPaintTokens = {
     },
     chevron: { stroke: 1.5, topOffset: -2, bottomOffset: 1 },
     scrollbarMinThumbRatio: 2,
+    /**
+     * The short bar on a text box's bottom edge, measured from the row's
+     * bottom. The bar widens under the pointer, while dragged and with
+     * keyboard focus; the hit band spans the box's full width.
+     */
+    textBoxEdge: {
+      width: 22,
+      hotWidth: 34,
+      height: 3,
+      radius: 1.5,
+      bottomOffset: 5,
+      hitAbove: 7,
+      hitBelow: 3,
+      /** A box is 2 to 16 lines tall; an arrow key steps one line. */
+      minLines: 2,
+      maxLines: 16,
+      keyStepLines: 1,
+    },
     inactiveOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     connectedOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     hoverOpacity: 0.12,
-    diagnosticStroke: 1.5,
+    diagnosticStroke: 1,
+    /** Outline and wash of the row whose line is pointed at in the node's problem box. */
+    problemHighlightStroke: 2,
+    problemHighlightOpacity: 0.18,
+    /** Outline of the field a held wire would take. */
+    dropStroke: 2,
     connectedControllerOpacity: 0.5,
     connectedGlyphOpacity: 0.35,
     stepperStroke: 1.5,
+    /** Moves a 1 px line onto a pixel row's center. */
+    pixelCenter: 0.5,
+    rangeFillAccentOpacity: 0.2,
+    dragLineStroke: 2,
+    /** A seed's mode icon before its value: drawn size, room kept before it, gap to the value. */
+    modeIconSize: canvasSemanticTokens.space[12],
+    modeIconLead: canvasSemanticTokens.space[4],
+    modeIconGap: canvasSemanticTokens.space[8],
     staleValueStroke: 1.5,
     companion: { stroke: 1, underlineOffset: canvasSemanticTokens.space[4] },
     fallbackValueWidthPadding: canvasSemanticTokens.space[8],
     fallback: { opacity: 0.75, textInset: 4, labelRatio: 0.45, valueRatio: 0.5 },
-    growth: { stroke: 1, verticalInset: 3, textPadding: canvasSemanticTokens.space[8] },
+    /**
+     * A button on a node (a group's add row, a declared button): its outline,
+     * the room kept beside its words, and how far a disabled one fades.
+     */
+    button: { stroke: 1, textPadding: canvasSemanticTokens.space[8], disabledOpacity: canvasSemanticTokens.interaction.disabledOpacity },
   },
   minimap: {
     fallbackWidth: 160,
@@ -471,15 +632,44 @@ export const canvasPaintTokens = {
     margin: canvasSemanticTokens.space[8],
     maxScale: 0.25,
     viewportInset: 2,
-    linkStroke: 0.3,
-    stateStroke: 0.3,
+    /** Wires: one stroke width; type colors nearly opaque, the one grey quieter. */
+    linkStroke: 1,
+    linkOpacity: 0.9,
+    quietLinkOpacity: 0.55,
+    /** Node boxes: corner radius (at most this share of a small box's side), outline width, and the outline of a run state. */
+    nodeRadius: 2,
+    nodeRadiusShare: 0.25,
+    nodeStroke: 0.75,
+    stateStroke: 1,
+    /**
+     * A box smaller than this on either side draws as a plain block with no
+     * outline, and when most boxes are that small the wires draw straight.
+     */
+    roundedMinSize: 3,
+    /** The title line: drawn only on a box at least this large, inset, and this tall. */
+    titleMinWidth: 9,
+    titleMinHeight: 6,
+    titleInset: 2,
+    titleHeight: 1.4,
+    titleWidthRatio: 0.55,
+    /** Groups: a faint fill and a thin outline in the group's color. */
+    groupRadius: 2.5,
+    groupStroke: 0.75,
+    groupFillOpacity: 0.1,
+    groupStrokeOpacity: 0.38,
     minPointRadius: 0.5,
     minNodeSize: 2,
     bypassFill: 'rgba(75, 24, 75, 0.9)',
     remoteStroke: 1.5,
     remoteOpacity: 0.8,
+    /** The area outside the current view is dimmed by the canvas color at this opacity. */
+    outsideViewOpacity: 0.34,
+    /** The view area: filled with its outline's color at this opacity, so it reads as a lit window. */
     viewportFillOpacity: 0.06,
-    viewportStrokeOpacity: 0.5,
+    viewportStrokeOpacity: 0.4,
+    /** While the pointer is over the minimap the view's fill and outline are a little stronger, so the minimap reads as live. */
+    viewportFillHoverOpacity: 0.1,
+    viewportStrokeHoverOpacity: 0.6,
     viewportStroke: 1,
     viewportRadius: 3,
     markerRadius: 7,
@@ -488,6 +678,51 @@ export const canvasPaintTokens = {
     markerFontSize: 9,
   },
 } as const
+
+/**
+ * The editors that fold out in the node, by widget view id: the picture's own
+ * height (absent for an editor without one) and how many rows of controls sit
+ * under it. The rows are fixed for each editor, so the node does not change
+ * height when the editor's state changes; a host that knows the controls
+ * differ for good, such as a recorder on a backend that cannot take uploads,
+ * gives their height in the widget's measure.
+ */
+export const IN_NODE_EDITORS: Readonly<Record<string, {
+  readonly picture?: number
+  readonly controlRows: number
+  /**
+   * The editor's own sections, closed at first, each one of the control rows
+   * when closed and `rows` more when open. Their open state is kept with the
+   * node's sections, under `<value key>.<section id>`.
+   */
+  readonly sections?: readonly { readonly id: string; readonly rows: number }[]
+  /**
+   * Where a curve that declares a histogram has one more control row, counted
+   * from the first control row: the histogram's line, with its input's pin.
+   * The row is there whether or not the input has a wire, so the height
+   * follows the declaration and not a run.
+   */
+  readonly histogramLine?: number
+}>> = {
+  // Record strip (two rows), Microphone, Limit, the stored clip's line.
+  'core.audioRecord': { controlRows: 5 },
+  // Start camera or Capture frame and Stop; the stored frame's line.
+  'core.webcam': { picture: 180, controlRows: 2 },
+  // Camera projection, Field of view, then Model placement and Animation closed.
+  'core.load3d': {
+    picture: 200,
+    controlRows: 4,
+    // Model position, rotation and scale; Animation clip, its time, its speed, Play.
+    sections: [{ id: 'placement', rows: 3 }, { id: 'animation', rows: 4 }],
+  },
+  // Wipe divider, Image A frame, Image B frame.
+  'core.imageCompare': { picture: 180, controlRows: 3 },
+  // The camera position under the orbit and elevation pictures.
+  'core.cameraAngle': { picture: 150, controlRows: 1 },
+  // Interpolation; Position; Value; Delete point; and, for a curve that declares a histogram,
+  // the histogram's line after them.
+  'core.curve': { picture: 180, controlRows: 4, histogramLine: 4 },
+}
 
 /** Minimum zoom for text detail and transient media DOM. */
 export const CANVAS_DETAIL_MIN_SCALE = canvasPaintTokens.detailMinScale
@@ -498,6 +733,38 @@ export type CanvasDetailLevel = 'overview' | 'content' | 'controls'
 export function canvasDetailLevel(scale: number, mediaControlMinScale: number): CanvasDetailLevel {
   if (scale >= mediaControlMinScale) return 'controls'
   return scale >= CANVAS_DETAIL_MIN_SCALE ? 'content' : 'overview'
+}
+
+export type NodeLook = 'original' | 'flat-title'
+
+export interface RowGeometry {
+  /** Height of a row that holds only pins. */
+  readonly portRowHeight: number
+  /** A widget field's inset from the top and bottom of its row. */
+  readonly fieldInsetY: number
+  /** A widget field's inset from the node's edge. */
+  readonly fieldInsetX: number
+  /** Width of the stepper zone at each end of a number field. */
+  readonly stepperZone: number
+  /** Distance from a field's end to its stepper glyph's center. */
+  readonly stepperCenter: number
+  readonly stepperStroke: number
+  /** A number field's label, after the minus stepper's zone. */
+  readonly stepperLabelInset: number
+  /** Extra inset of a text field's value from the field's right end. */
+  readonly textEndInset: number
+  /** A pin's name, from the node's edge. */
+  readonly portLabelInset: number
+  /** Space from the title line to a first row that is boxed (a field, section or growth row). */
+  readonly boxedTopInset: number
+  /** Space from the title line to a first row of pins, whose text carries its own space. */
+  readonly pinTopInset: number
+  /**
+   * Space from a last row of pins to the node's bottom edge; after a boxed row
+   * it is padBottom. Both bottom insets include the 1px border, which is drawn
+   * inside the node's box.
+   */
+  readonly pinBottomInset: number
 }
 
 export interface DesignTokens {
@@ -518,10 +785,46 @@ export interface DesignTokens {
   readonly pinRadius: number
   readonly cornerRadius: number
   readonly fontFamily: string
+  readonly fontMono: string
   readonly fontSize: number
   readonly titleFontSize: number
-  readonly widgetRowLook: 'inset' | 'inset-raised' | 'inset-raised-collections'
-  readonly badgeLayout: 'chips' | 'tabs'
+  /**
+   * Which rows are raised and what a closed row shows. `raised-editors`:
+   * a row that opens an editor is raised, a value typed in its row is an
+   * inset field, a color's square sits directly before its code over a
+   * checker pattern, a curve is drawn in its row, and a value passed down a
+   * wire shows the same summary as its own row. `inset-raised` is the
+   * earlier look: color and asset rows raised, the square by the name, a
+   * curve described in text and a passed structured value shown as code.
+   */
+  readonly widgetRowLook: 'inset-raised' | 'raised-editors'
+  /**
+   * A remove cross on each member of a group that grows by hand. Off until
+   * pressing it removes the member: nothing is drawn that does nothing.
+   */
+  readonly memberRemoveCross: boolean
+  /**
+   * How number, single-line text and seed rows are edited: in a card under
+   * the row, or in the row itself. In-row editing tints a slider's fill with
+   * the accent at rest and names a seed's mode before its value instead of
+   * drawing the mode chip.
+   */
+  readonly widgetEditing: 'card' | 'in-row'
+  /**
+   * The node look: the original, or `flat-title` with taller fields,
+   * tighter gaps, a dark body and a title bar in the body's own color over
+   * a thin rule. `nodeLookTokens` gives the geometry and colors of each.
+   */
+  readonly nodeLook: NodeLook
+  /**
+   * At 100 percent, put the node's idle outline, its title bar's rule,
+   * its row boxes and the steppers' lines on whole pixels: the outline is
+   * 1 px drawn inside the node's box, and stepper lines sit on pixel
+   * centers.
+   */
+  readonly crispEdges: boolean
+  /** Placement inside widget and pin rows; the node look sets it. */
+  readonly rowGeometry: RowGeometry
   readonly badgeTab: { readonly height: number; readonly fontSize: number; readonly inset: number }
   readonly titleOverflow: 'squeeze' | 'ellipsis'
   /** Spacious prompt typography; compact row metrics remain independent. */
@@ -529,6 +832,8 @@ export interface DesignTokens {
     readonly fontSize: number
     readonly lineHeight: number
     readonly padding: number
+    /** Left inset of the text: the label's inset, so text and label start at one x. */
+    readonly textInset: number
     /** Compact floating-label band, independent of the shared row height. */
     readonly labelHeight: number
     readonly scrollbarWidth: number
@@ -542,6 +847,12 @@ export interface DesignTokens {
     readonly skippedOutline: string
     readonly nodeBody: string
     readonly nodeHeader: string
+    readonly nodeSelectedHeader: string
+    readonly nodeSelectedEdge: string
+    /** Face of a raised opener row, lighter than the node body. */
+    readonly widgetRaised: string
+    /** Rule under a title bar drawn in the body's own color. */
+    readonly nodeHeaderRule: string
     /** Structural and pseudo-node outline, stronger than inset chrome. */
     readonly nodeOutline: string
     readonly nodeIdleOutline: string
@@ -551,6 +862,12 @@ export interface DesignTokens {
     readonly groupDefault: string
     readonly title: string
     readonly label: string
+    readonly valueMark: string
+    /** The two squares of the pattern under a color square with opacity. */
+    readonly swatchChecker: string
+    readonly swatchCheckerAlt: string
+    /** The one-pixel edge inside a color square, so white, black and colors near the node still show. */
+    readonly swatchEdge: string
     readonly value: string
     readonly widgetBackground: string
     /** Muted compact-control tracks and glyphs. */
@@ -559,6 +876,8 @@ export interface DesignTokens {
     readonly widgetAffordanceActive: string
     /** Low-contrast bounded-numeric value-zone fill. */
     readonly widgetRangeFill: string
+    /** Slider fill under in-row editing: the accent, tinted into the field. */
+    readonly widgetRangeFillAccent: string
     readonly linkDefault: string
     readonly selection: string
     /**
@@ -569,6 +888,27 @@ export interface DesignTokens {
     readonly dropTarget: string
     /** Subtle dot marking non-default values hidden by a collapsed section. */
     readonly modifiedIndicator: string
+    /** A link drawn in a row, such as a lookup note's Try again. */
+    readonly rowLink: string
+    /** The cyan subgraph icon on a field shown on the subgraph node without a wire. */
+    readonly subgraphMark: string
+    /** A box's outline, and the outline of a box inside a box. */
+    readonly boxOutline: string
+    readonly boxInnerOutline: string
+    /** A box's header or closed row under the pointer. */
+    readonly boxHover: string
+    /** A box's member or row count. */
+    readonly boxCount: string
+    /** The dot on a closed box that holds a value that is not its default. */
+    readonly boxChanged: string
+    /** A button's face at rest, under the pointer and held down. */
+    readonly buttonFace: string
+    readonly buttonHover: string
+    readonly buttonPressed: string
+    /** The lit top edge of a button that is not pressed. */
+    readonly buttonLitEdge: string
+    /** The dark line under a button that is not pressed. */
+    readonly buttonShade: string
     /**
      * Companion (propagated) value text: what a link-driven input WOULD
      * execute with, rendered read-only in neutral italic text in place of
@@ -604,8 +944,8 @@ export interface DesignTokens {
      * document-level problems the solver proved, independent of execution.
      */
     readonly error: string
-    /** Execution-blocking document warning, shared by its badge and outline. */
-    readonly blockingWarning: string
+    /** The dot before a row's value that could not be worked out, so its default is used. */
+    readonly warningMark: string
   }
   /** Data-type -> pin/link color. Unknown types get a stable hashed hue. */
   readonly typeColors: Readonly<Record<string, string>>
@@ -642,11 +982,14 @@ export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFal
   typeFallbackLightness: 62,
 }
 
+/** A field's box inset from the node's edge in the default look; a pin's name lines up with the field's label inside it. */
+const defaultFieldInsetX = 8
+
 export const defaultTokens: DesignTokens = {
-  rowHeight: 24,
-  headerHeight: 28,
+  rowHeight: 26,
+  headerHeight: 26,
   padX: 10,
-  padBottom: 8,
+  padBottom: 6,
   previewDefaultHeight: 180,
   previewMinHeight: 40,
   previewCaptionHeight: 22,
@@ -658,10 +1001,29 @@ export const defaultTokens: DesignTokens = {
   pinRadius: 5.5,
   cornerRadius: 6,
   fontFamily: canvasSemanticTokens.type.fontFamily,
+  fontMono: canvasSemanticTokens.type.fontMono,
   fontSize: 12,
   titleFontSize: 13,
-  widgetRowLook: 'inset-raised',
-  badgeLayout: 'chips',
+  widgetRowLook: 'raised-editors',
+  memberRemoveCross: false,
+  widgetEditing: 'in-row',
+  nodeLook: 'flat-title',
+  crispEdges: true,
+  rowGeometry: {
+    portRowHeight: 26,
+    fieldInsetY: 1,
+    fieldInsetX: defaultFieldInsetX,
+    stepperZone: 22,
+    stepperCenter: 12.5,
+    stepperStroke: 1,
+    stepperLabelInset: 2,
+    textEndInset: 4,
+    // A pin's name starts where a text or choice field's label does.
+    portLabelInset: defaultFieldInsetX + canvasPaintTokens.widget.labelInset,
+    boxedTopInset: 5,
+    pinTopInset: 1,
+    pinBottomInset: 2,
+  },
   badgeTab: canvasPaintTokens.badge.tab,
   titleOverflow: 'ellipsis',
   // Comfy-style prompt fields use 14px type with readable 20px leading and
@@ -671,6 +1033,7 @@ export const defaultTokens: DesignTokens = {
     fontSize: 14,
     lineHeight: 20,
     padding: 6,
+    textInset: 6,
     labelHeight: 18,
     scrollbarWidth: 6,
     scrollbarInset: 2,
@@ -695,7 +1058,7 @@ export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTok
     typeColors: {
       ...previousCanvasTypePaint.typeColors,
       ...(theme === 'dark' ? {
-        STRING: '#3A853E', INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A', AUDIO: '#3077C7',
+        INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A',
       } : {
         CLIP: '#A18600', CLIP_VISION: '#6E8E90', CONDITIONING: '#BA7B24', CONTROL_NET: '#489778',
         IMAGE: '#4F8EC1', LATENT: '#B770B2', MASK: '#609563', MODEL: '#9280B3',
@@ -707,6 +1070,13 @@ export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTok
   }
 }
 
+/** `#rrggbb` at an opacity, as an rgba() paint value. */
+function accentTint(color: string, opacity: number): string {
+  const hex = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color)
+  if (!hex) return color
+  return `rgba(${Number.parseInt(hex[1]!, 16)}, ${Number.parseInt(hex[2]!, 16)}, ${Number.parseInt(hex[3]!, 16)}, ${opacity})`
+}
+
 export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['colors'] {
   const tokens = semanticTokensForTheme(theme)
   return {
@@ -714,8 +1084,15 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     gridDot: tokens.border.subtle,
     pendingOutline: tokens.border.pending,
     skippedOutline: tokens.border.skipped,
-    nodeBody: tokens.surface.raised,
+    // The dark theme's flat-title look: the darker surface is the body and
+    // the title bar, raised rows take the lighter one. The light theme
+    // keeps its original surfaces.
+    nodeBody: theme === 'dark' ? tokens.surface.panel : tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
+    nodeSelectedHeader: tokens.surface.selected,
+    nodeSelectedEdge: tokens.text.secondary,
+    widgetRaised: theme === 'dark' ? tokens.surface.raised : tokens.surface.panel,
+    nodeHeaderRule: tokens.border.divider,
     nodeOutline: tokens.border.strong,
     nodeIdleOutline: tokens.border.subtle,
     nodeBorder: tokens.border.subtle,
@@ -723,11 +1100,17 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     groupDefault: tokens.border.strong,
     title: tokens.text.primary,
     label: tokens.text.secondary,
+    // A word or icon before a value that describes it, such as a seed's mode.
+    valueMark: tokens.text.muted,
+    swatchChecker: tokens.checker.dark,
+    swatchCheckerAlt: tokens.checker.light,
+    swatchEdge: tokens.border.strong,
     value: tokens.text.primary,
     widgetBackground: tokens.surface.field,
     widgetAffordance: tokens.text.disabled,
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,
+    widgetRangeFillAccent: accentTint(tokens.border.focus, canvasPaintTokens.widget.rangeFillAccentOpacity),
     // Link and execution-mode semantics do not change with shell themes.
     linkDefault: '#8d9aa5',
     mutedBadge: '#4a4a5e',
@@ -735,12 +1118,26 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     bypassWash: 'rgba(147, 88, 220, 0.28)',
     selection: tokens.border.focus,
     dropTarget: tokens.border.selected,
-    modifiedIndicator: tokens.meaning.warning.border,
+    // The dot on a closed section that hides changed values. Yellow is kept
+    // for problems.
+    modifiedIndicator: tokens.meaning.accent.foreground,
+    rowLink: tokens.meaning.accent.foreground,
+    subgraphMark: tokens.meaning.accent.foreground,
     companionValue: tokens.text.secondary,
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,
     error: tokens.meaning.danger.border,
-    blockingWarning: tokens.meaning.warning.border,
+    warningMark: tokens.meaning.warning.border,
+    boxOutline: tokens.border.box,
+    boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
+    boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,
+    boxCount: tokens.text.muted,
+    boxChanged: tokens.meaning.accent.border,
+    buttonFace: tokens.button.face,
+    buttonHover: tokens.button.faceHover,
+    buttonPressed: tokens.button.facePressed,
+    buttonLitEdge: tokens.button.litEdge,
+    buttonShade: tokens.button.shade,
   }
 }
 
@@ -815,7 +1212,6 @@ const typeExprLabelWith = (type: TypeExpr, aliases: Readonly<Record<string, stri
     case 'union': return type.names.map((name) => aliases[name] ?? name).join(' | ')
     case 'wildcard': return 'Any'
     case 'tuple': return `tuple<${type.elements.map((element, index) => `${index}: ${typeExprLabelWith(element, aliases)}`).join(', ')}>`
-    case 'family_tuple': return `tuple<${type.input}>`
     case 'tuple_element': return `${type.element === undefined ? type.input : typeExprLabelWith(type.element, aliases)}[${type.index}]`
     case 'variable':
       return type.allowedTypes !== undefined && type.allowedTypes.length > 0
@@ -877,5 +1273,46 @@ export function presentedType(
     tooltip: canonicalName !== undefined && typeDisplayAliases[canonicalName] !== undefined
       ? `${label} (${canonicalName})`
       : label,
+  }
+}
+
+/**
+ * The tokens a node look changes, to spread over a theme's tokens. The
+ * defaults are the flat-title look; `original` restores the earlier sizes
+ * in both themes and the earlier dark colors, for side-by-side review.
+ */
+export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial<DesignTokens> {
+  if (look === 'flat-title') return { nodeLook: look }
+  const colors = canvasColorsForTheme(theme)
+  const original = semanticTokensForTheme(theme)
+  return {
+    nodeLook: look,
+    crispEdges: false,
+    rowHeight: 24,
+    headerHeight: 28,
+    padBottom: 8,
+    rowGeometry: {
+      portRowHeight: 24,
+      fieldInsetY: 2,
+      fieldInsetX: 5.5 + canvasSemanticTokens.space[4],
+      stepperZone: 12,
+      stepperCenter: 6,
+      stepperStroke: 1.5,
+      stepperLabelInset: 6,
+      textEndInset: 0,
+      portLabelInset: 10 + 5.5 + canvasSemanticTokens.space[4],
+      boxedTopInset: 0,
+      pinTopInset: 0,
+      pinBottomInset: 8,
+    },
+    colors: {
+      ...colors,
+      nodeBody: original.surface.raised,
+      nodeHeader: original.surface.panel,
+      widgetRaised: original.surface.panel,
+      nodeHeaderRule: original.border.subtle,
+      valueMark: colors.label,
+      widgetBackground: original.surface.inset,
+    },
   }
 }

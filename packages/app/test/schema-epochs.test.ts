@@ -27,7 +27,7 @@ const reg = (backend: Backend, epoch?: number): SchemaRegistry => ({
 const translations = (version: string): readonly ComfyTranslation[] => [{
   pack: 'dinkster-text', version,
   schema: { type: 'dinkster.text.string_length', displayName: 'String Length', category: 'text',
-    source: 'v3', isOutputNode: false, items: [] },
+    source: 'v3', isOutputNode: false, body: [] },
   rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length', inputs: {}, outputs: {} }] },
 }]
 

@@ -1,9 +1,8 @@
 /**
- * Current raw-wire DynamicCombo coverage for comfy.ResizeImageMaskNode.
+ * Raw-wire choice coverage for comfy.ResizeImageMaskNode.
  *
- * This intercepts the captured wire-16 catalog entry under the current wire
- * number (the DynamicCombo grammar is unchanged) and never calls
- * registerSchemas.
+ * This intercepts the catalog entry in its schema wire 2 body form under the
+ * current wire number and never calls registerSchemas.
  */
 import { readFileSync } from 'node:fs'
 import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
@@ -12,17 +11,17 @@ const resizeWireFixture = JSON.parse(readFileSync(
   new URL('../../core/fixtures/dinkster-resize-image-mask-wire16.json', import.meta.url),
   'utf8',
 )) as Record<string, unknown>
-const resizeWire = { ...resizeWireFixture, schemaVersion: 1 }
+const resizeWire = { ...resizeWireFixture, schemaVersion: 2 }
 
 for (const hidden of [false, true]) {
   test(`dynamic choice hidden=${hidden} preserves submission while controlling its subtree`, async ({ page }, testInfo) => {
     const nodeType = 'test.HiddenChoice'
     const choice = {
-      schemaVersion: 1, nodeType, displayName: 'Dynamic choice', category: 'test', outputNode: true,
-      interface: [
-        { role: 'input', id: 'filename_prefix', type: { kind: 'concrete', types: ['STRING'] }, default: 'output' },
-        { role: 'dynamicCombo', id: 'codec', hidden, required: false, options: [{ key: 'h264', inputs: [
-          { role: 'input', id: 'crf', type: { kind: 'concrete', types: ['INT'] }, default: 18 },
+      schemaVersion: 2, nodeType, displayName: 'Dynamic choice', category: 'test', outputNode: true,
+      body: [
+        { kind: 'input', id: 'filename_prefix', type: { kind: 'concrete', types: ['STRING'] }, default: 'output' },
+        { kind: 'choice', id: 'codec', hidden, required: false, options: [{ key: 'h264', rows: [
+          { kind: 'input', id: 'crf', type: { kind: 'concrete', types: ['INT'] }, default: 18 },
         ] }] },
       ], signature: `hidden-${hidden}`,
     }
@@ -30,7 +29,7 @@ for (const hidden of [false, true]) {
     await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
     await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
     await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'hidden-choice', schemaWire: 1 }, packs: {}, nodes: { [nodeType]: choice },
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'hidden-choice', schemaWire: 2 }, packs: {}, nodes: { [nodeType]: choice },
     } }))
     await page.route('/api/assets', (route) => route.fulfill({ status: 404, json: { error: 'no library' } }))
     await page.route('/api/jobs', async (route) => {
@@ -68,16 +67,16 @@ for (const hidden of [false, true]) {
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'resize-dynamiccombo-e2e', schemaWire: 1 },
+  dinkster: { version: 'resize-dynamiccombo-e2e', schemaWire: 2 },
   packs: { comfy: { displayName: 'ComfyUI' } },
   nodes: {
     'comfy.ResizeImageMaskNode': resizeWire,
     'test.ImageSource': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.ImageSource',
       displayName: 'Image Source',
       category: 'test',
-      interface: [{ role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+      body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
       signature: 'image-source-e2e',
     },
   },
@@ -166,7 +165,7 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
 
   await page.mouse.dblclick(700, 500)
   await page.getByTestId('palette-search').fill('Resize Image/Mask')
-  await page.locator('[data-node-type="comfy.ResizeImageMaskNode"]').click()
+  await page.locator('[data-key="entry:comfy.ResizeImageMaskNode"]').click()
   await page.mouse.click(700, 500)
   await expect.poll(() => page.evaluate(() => Object.values(
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes,
@@ -210,8 +209,8 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
 
   // Pointer selection changes the explicit state seeded at node creation.
   await clickRow(page, 'resize_type')
-  await page.getByTestId('combo-dropdown').getByRole('option', { name: 'scale by multiplier', exact: true }).click()
-  expect(await selected(page)).toBe('scale by multiplier')
+  await page.locator('[data-editor-surface="in-row-list"]').getByRole('option', { name: 'scale by multiplier', exact: true }).click()
+  await expect.poll(() => selected(page)).toBe('scale by multiplier')
   expect(await rowIds(page)).toContain('resize_type.multiplier')
 
   // One undo restores the explicit first option seeded at creation.
@@ -221,17 +220,17 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
 
   // Keyboard selection follows the same command path.
   await clickRow(page, 'resize_type')
-  let search = page.getByTestId('combo-search')
+  let search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('scale by multiplier')
   await search.press('ArrowDown')
   await search.press('Enter')
-  expect(await selected(page)).toBe('scale by multiplier')
+  await expect.poll(() => selected(page)).toBe('scale by multiplier')
 
   // Return to dimensions by pointer, then edit the ordinary static combo by keyboard.
   await clickRow(page, 'resize_type')
-  await page.getByTestId('combo-dropdown').getByRole('option', { name: 'scale dimensions', exact: true }).click()
+  await page.locator('[data-editor-surface="in-row-list"]').getByRole('option', { name: 'scale dimensions', exact: true }).click()
   await clickRow(page, 'scale_method')
-  search = page.getByTestId('combo-search')
+  search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('bicubic')
   await search.press('ArrowDown')
   await search.press('Enter')
@@ -270,13 +269,13 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
   })
 })
 
-test('hidden DynamicCombo hides branch controls and retains serialized state', async ({ page }, testInfo) => {
+test('a hidden choice hides its option controls and retains serialized state', async ({ page }, testInfo) => {
   const nodes = Object.fromEntries([false, true].map((hidden) => [hidden ? 'HiddenSelector' : 'VisibleSelector', {
     displayName: hidden ? 'Hidden codec selector' : 'Visible codec selector',
     category: 'test',
-    interface: [{ role: 'dynamicCombo', id: 'codec', hidden, options: [
-      { key: 'auto', inputs: [] },
-      { key: 'custom', inputs: [{ role: 'input', id: 'quality', type: { kind: 'concrete', types: ['INT'] }, default: 7 }] },
+    body: [{ kind: 'choice', id: 'codec', hidden, options: [
+      { key: 'auto', rows: [] },
+      { key: 'custom', rows: [{ kind: 'input', id: 'quality', type: { kind: 'concrete', types: ['INT'] }, default: 7 }] },
     ] }],
   }]))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
@@ -307,7 +306,8 @@ test('hidden DynamicCombo hides branch controls and retains serialized state', a
     pins: node.layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.address.port),
   }])))
   expect(presentation['visible']?.widgets).toEqual(['codec', 'codec.quality'])
-  expect(presentation['visible']?.pins).toEqual(['codec', 'codec.quality'])
+  // A choice's dropdown is a field with no pin; the option's input keeps its pin.
+  expect(presentation['visible']?.pins).toEqual(['codec.quality'])
   expect(presentation['hidden']?.widgets).toEqual([])
   expect(presentation['hidden']?.pins).toEqual([])
   await page.evaluate(async () => {

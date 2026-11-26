@@ -3,61 +3,66 @@ import { expect, mockProjectPacks, nativeTest as test, openRailPanel, waitForWor
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'provider-ux-proof', schemaWire: 1 },
+  dinkster: { version: 'provider-ux-proof', schemaWire: 2 },
   packs: {
     'dinkster-nodes-image': { displayName: 'Dinkster Image Nodes', abbr: 'DN' },
     'dinkster-nodes-generation': { displayName: 'Dinkster Generation', abbr: 'DG' },
   },
   nodes: {
     'test.ImageSource': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.ImageSource',
       displayName: 'Load Test Image',
       category: 'test',
-      interface: [{ role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+      body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
       signature: 'provider-ux-image-source',
     },
     'test.ImageSink': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.ImageSink',
       displayName: 'Preview Image',
       category: 'test',
       outputNode: true,
-      interface: [{ role: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+      body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
       signature: 'provider-ux-image-sink',
     },
     'test.AdvancedControls': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.AdvancedControls',
       displayName: 'Advanced Controls',
       category: 'test',
-      interface: [
+      body: [
         {
-          role: 'input', id: 'prompt', displayName: 'Prompt', required: false,
+          kind: 'input', id: 'prompt', label: 'Prompt', required: false,
           type: { kind: 'concrete', types: ['STRING'] }, default: '',
           widget: { type: 'STRING', multiline: true },
         },
         {
-          role: 'input', id: 'policy', displayName: 'Policy', required: false,
-          type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto', advanced: true,
-          widget: { type: 'COMBO', options: ['auto', 'quality'] },
-        },
-        {
-          role: 'input', id: 'reference_image', displayName: 'Reference Image', required: false,
-          type: { kind: 'concrete', types: ['comfy.IMAGE'] }, advanced: true,
+          kind: 'section', id: 'advanced', label: 'Advanced', collapsed: true,
+          rows: [
+            {
+              kind: 'input', id: 'policy', label: 'Policy', required: false,
+              type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto',
+              widget: { type: 'COMBO', options: ['auto', 'quality'] },
+            },
+            {
+              kind: 'input', id: 'reference_image', label: 'Reference Image', required: false,
+              type: { kind: 'concrete', types: ['comfy.IMAGE'] },
+            },
+          ],
         },
       ],
       signature: 'advanced-controls-proof',
     },
     'dinkster.preprocess.model_depth': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       displayName: 'Preprocess Model Depth',
       category: 'Image',
       pack: 'dinkster-nodes-image',
       executionArms: ['native'],
-      interface: [
+      body: [
         {
-          role: 'input', id: 'model', displayName: 'Model', required: false,
+          kind: 'input', id: 'model', label: 'Model', required: false,
           type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto',
           widget: {
             type: 'COMBO',
@@ -69,7 +74,7 @@ const catalog = {
           },
         },
         {
-          role: 'input', id: 'provider', displayName: 'Provider', required: false,
+          kind: 'input', id: 'provider', label: 'Provider', required: false,
           type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', remote: { route: '/api/choices/dinkster.preprocess.model_depth.providers' } },
           hidden: true,
@@ -77,42 +82,42 @@ const catalog = {
       ],
     },
     'dinkster.preprocess.lineart_realistic': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       displayName: 'Preprocess Realistic Line Art',
       category: 'Image',
       pack: 'dinkster-vision-hed',
       executionArms: ['native'],
-      interface: [
+      body: [
         {
-          role: 'input', id: 'image', displayName: 'Image', required: true,
+          kind: 'input', id: 'image', label: 'Image', required: true,
           type: { kind: 'concrete', types: ['comfy.IMAGE'] },
         },
         {
-          role: 'input', id: 'provider', displayName: 'Provider', required: false,
+          kind: 'input', id: 'provider', label: 'Provider', required: false,
           type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', remote: { route: '/api/choices/dinkster.preprocess.lineart_realistic.providers' } },
           hidden: true,
         },
         {
-          role: 'output', id: 'image', displayName: 'Image',
+          kind: 'output', id: 'image', label: 'Image',
           type: { kind: 'concrete', types: ['comfy.IMAGE'] },
         },
       ],
     },
     'dinkster.text_generate': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       displayName: 'Generate Text',
       category: 'Generation',
       pack: 'dinkster-nodes-generation',
       executionArms: ['native'],
-      interface: [
+      body: [
         {
-          role: 'input', id: 'prompt', displayName: 'Prompt', required: false,
+          kind: 'input', id: 'prompt', label: 'Prompt', required: false,
           type: { kind: 'concrete', types: ['STRING'] }, default: '',
           widget: { type: 'STRING', multiline: true },
         },
         {
-          role: 'input', id: 'provider', displayName: 'Service', required: false,
+          kind: 'input', id: 'provider', label: 'Service', required: false,
           type: { kind: 'concrete', types: ['COMBO'] }, hidden: true,
           widget: {
             type: 'COMBO',
@@ -214,11 +219,11 @@ test('node cards show intent controls without provider, arm, or pack leakage', a
   const collapsedAdvanced = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'advanced')!
     return {
-      group: node.layout.advancedGroup,
+      box: node.layout.boxes?.find((box) => box.id === 'advanced'),
       pins: node.layout.pins.filter((pin) => ['policy', 'reference_image'].includes(pin.portId)),
     }
   })
-  expect(collapsedAdvanced.group).toBeUndefined()
+  expect(collapsedAdvanced.box?.closed).toBe(true)
   expect(collapsedAdvanced.pins).toHaveLength(1)
   expect(collapsedAdvanced.pins[0]).toMatchObject({ portId: 'reference_image', collapsedSection: 'advanced' })
   expect(initial.badgeGlyphs).not.toEqual(expect.arrayContaining(['NATIVE', 'N + C', 'COMFYUI', 'DN', 'DG']))
@@ -249,17 +254,17 @@ test('node cards show intent controls without provider, arm, or pack leakage', a
   })).toContain('policy')
   expect(await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'advanced')!
-    const group = node.layout.advancedGroup
+    const box = node.layout.boxes?.find((box) => box.id === 'advanced')
     const policy = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'policy')
     const reference = node.layout.rows.find((row) => row.kind === 'ports' && row.input?.portId === 'reference_image')
     return {
-      bounded: group !== undefined
+      bounded: box !== undefined && box.closed !== true
         && policy !== undefined
         && reference !== undefined
-        && policy.y >= group.y
-        && policy.y + policy.height <= group.y + group.height
-        && reference.y >= group.y
-        && reference.y + reference.height <= group.y + group.height,
+        && policy.y >= box.y
+        && policy.y + policy.height <= box.y + box.height
+        && reference.y >= box.y
+        && reference.y + reference.height <= box.y + box.height,
       pinCount: node.layout.pins.filter((pin) => pin.portId === 'policy').length,
       referencePinCount: node.layout.pins.filter((pin) => pin.portId === 'reference_image').length,
     }

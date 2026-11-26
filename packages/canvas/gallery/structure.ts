@@ -1,8 +1,10 @@
 import {
+  asNodeId,
   CORE_VIRTUAL_NODE_KINDS,
   coreVirtualNodeKind,
   documentResolver,
   loadDocument,
+  occurrenceDynamicView,
   type NodeSchema,
 } from '@dinkster/core'
 import {
@@ -19,7 +21,7 @@ const blur: NodeSchema = {
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     { kind: 'input', id: 'image', type: image, optional: false },
     {
       kind: 'input',
@@ -28,7 +30,32 @@ const blur: NodeSchema = {
       optional: false,
       widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 4 },
     },
+    {
+      kind: 'input',
+      id: 'strength',
+      type: { kind: 'concrete', name: 'FLOAT' },
+      optional: false,
+      widget: { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.05 }, default: 0.5 },
+    },
     { kind: 'output', id: 'IMAGE', type: image },
+  ],
+}
+
+const feather = {
+  kind: 'input',
+  id: 'feather',
+  type: { kind: 'concrete', name: 'INT' },
+  optional: false,
+  widget: { widgetType: 'INT', options: { min: 0, max: 32 }, default: 2 },
+} as const
+const edge: NodeSchema = {
+  type: 'Edge',
+  displayName: 'Edge',
+  category: 'gallery',
+  source: 'v3',
+  isOutputNode: false,
+  body: [
+    { kind: 'choice', id: 'edge', options: [{ key: 'soft', rows: [feather] }, { key: 'hard', rows: [] }], shared: [], required: true },
   ],
 }
 
@@ -74,7 +101,7 @@ export function structuralGalleryScene(
             values: { radius: 8 },
             title: 'Alternative',
           },
-          sub: { id: 'sub', type: '#g1', values: { radius: 6 } },
+          sub: { id: 'sub', type: '#g1', values: { radius: 6, strength: 0.75, feather: 3 } },
           note: {
             id: 'note',
             type: 'dinkster.note',
@@ -90,25 +117,10 @@ export function structuralGalleryScene(
           minimized: { id: 'minimized', type: 'Blur', values: {} },
         },
         links: {
-          l1: {
-            id: 'l1',
-            from: { node: 'a', port: 'IMAGE' },
-            to: { selector: 's', candidate: 'full' },
-          },
-          l2: {
-            id: 'l2',
-            from: { node: 'b', port: 'IMAGE' },
-            to: { selector: 's', candidate: 'draft' },
-          },
           l3: {
             id: 'l3',
-            from: { selector: 's' },
+            from: { node: 'a', port: 'IMAGE' },
             to: { node: 'sub', port: 'image' },
-          },
-          l4: {
-            id: 'l4',
-            from: { valueSource: 'size' },
-            to: { node: 'a', port: 'radius' },
           },
           l5: {
             id: 'l5',
@@ -130,41 +142,48 @@ export function structuralGalleryScene(
           },
         },
         reroutes: { r: { id: 'r' } },
-        valueSources: { size: { id: 'size', value: 12, title: 'Radius' } },
-        selectors: {
-          s: {
-            id: 's',
-            title: 'Quality',
-            candidates: [
-              { id: 'full', title: 'Full' },
-              { id: 'draft', title: 'Draft' },
-            ],
-            policy: { kind: 'fixed', candidate: 'full' },
-          },
-        },
       },
       g1: {
         id: 'g1',
         name: 'Soften',
         nextOrdinal: 2,
-        nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
+        nodes: {
+          inner: { id: 'inner', type: 'Blur', values: {} },
+          edge: { id: 'edge', type: 'Edge', values: {}, dynamic: { edge: { selected: 'soft' } } },
+        },
         links: {},
         nets: {},
         reroutes: {},
         boundary: {
-          inputs: [
+          body: [
             {
+              kind: 'input',
               id: 'image',
               binds: { kind: 'port', node: 'inner', port: 'image' },
             },
             {
+              kind: 'input',
               id: 'radius',
               binds: { kind: 'port', node: 'inner', port: 'radius' },
               promoted: true,
             },
-          ],
-          outputs: [
             {
+              kind: 'input',
+              id: 'strength',
+              binds: { kind: 'port', node: 'inner', port: 'strength' },
+              promoted: true,
+              wireHidden: true,
+            },
+            {
+              kind: 'input',
+              id: 'feather',
+              displayName: 'feather',
+              binds: { kind: 'port', node: 'edge', port: 'edge.feather' },
+              promoted: true,
+              wireHidden: true,
+            },
+            {
+              kind: 'output',
               id: 'image_out',
               binds: { kind: 'port', node: 'inner', port: 'IMAGE' },
             },
@@ -189,8 +208,6 @@ export function structuralGalleryScene(
               size: { width: 300, height: 140 },
             },
           },
-          selectors: { s: { position: { x: 360, y: 100 } } },
-          valueSources: { size: { position: { x: 360, y: 300 } } },
           reroutes: { r: { position: { x: 900, y: 240 } } },
           groups: {
             group: {
@@ -203,24 +220,46 @@ export function structuralGalleryScene(
           collapsedNets: ['net'],
           guideNets: ['net'],
         },
-        g1: { nodes: { inner: { position: { x: 350, y: 120 } } } },
+        g1: {
+          nodes: { inner: { position: { x: 350, y: 120 } }, edge: { position: { x: 350, y: 240 } } },
+        },
       },
     },
   }).document
   if (!document) throw new Error('Invalid structural gallery document')
   const schemas = new Map(
-    [blur, ...CORE_VIRTUAL_NODE_KINDS.map((kind) => kind.schema)].map(
+    [blur, edge, ...CORE_VIRTUAL_NODE_KINDS.map((kind) => kind.schema)].map(
       (schema) => [schema.type, schema],
     ),
   )
+  const resolve = documentResolver(document, (type) => schemas.get(type))
+  // The top level carries the occurrence view as the app does, so a subgraph
+  // node paints the values a run sends.
+  if (!inside)
+    return buildScene({
+      document,
+      graphId: 'g0',
+      resolve,
+      tokens,
+      measure,
+      widgetMeasure,
+      renderVirtualNode: (node) => coreVirtualNodeKind(node.type)?.render(node),
+      occurrenceView: occurrenceDynamicView(document, resolve, [], 'g0'),
+    })
+  // Inside, the subgraph is entered through its node, as the app does: the
+  // Inputs panel carries that node's radius, which the inner Blur shows.
   return buildScene({
     document,
-    graphId: inside ? 'g1' : 'g0',
-    resolve: (type) => schemas.get(type),
+    graphId: 'g1',
+    resolve,
     tokens,
     measure,
     widgetMeasure,
-    renderVirtualNode: (node) => coreVirtualNodeKind(node.type)?.render(node),
+    occurrence: {
+      owner: { instancePath: [], node: asNodeId('sub') },
+      plannerAvailable: false,
+    },
+    occurrenceView: occurrenceDynamicView(document, resolve, ['sub']),
   })
 }
 
@@ -248,7 +287,7 @@ export function boundaryNamesGalleryScene(
     ...blur,
     type: 'Boundary example',
     displayName: 'Boundary example',
-    items: [
+    body: [
       ...inputs.map((id) => ({
         kind: 'input' as const,
         id,
@@ -289,27 +328,31 @@ export function boundaryNamesGalleryScene(
         nets: {},
         reroutes: {},
         boundary: {
-          inputs: inputs.map((id) => ({
-            id,
-            ...(id === 'named_input'
-              ? { displayName: 'Source image' }
-              : exactIds
-                ? {}
-                : { displayName: previousNames[id] }),
-            binds: { kind: 'port', node: 'inner', port: id },
-          })),
-          outputs: [
+          body: [
+            ...inputs.map((id) => ({
+              kind: 'input',
+              id,
+              ...(id === 'named_input'
+                ? { displayName: 'Source image' }
+                : exactIds
+                  ? {}
+                  : { displayName: previousNames[id] }),
+              binds: { kind: 'port', node: 'inner', port: id },
+            })),
             {
+              kind: 'output',
               id: 'result',
               ...(exactIds ? {} : { displayName: 'Image' }),
               binds: { kind: 'port', node: 'inner', port: 'IMAGE' },
             },
             {
+              kind: 'output',
               id: 'refined_image',
               ...(exactIds ? {} : { displayName: 'Refined image' }),
               binds: { kind: 'port', node: 'inner', port: 'refined_image' },
             },
             {
+              kind: 'output',
               id: 'preview',
               displayName: 'Chosen preview',
               binds: { kind: 'port', node: 'inner', port: 'preview' },

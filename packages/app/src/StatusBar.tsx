@@ -141,7 +141,7 @@ export function StatusBar(props: {
     if (frozen !== undefined && !busy()) {
       return frozen.status === 'completed' && frozen.startedAt !== undefined && frozen.endedAt !== undefined
         ? message('shell.status.completedIn', { seconds: Math.round((frozen.endedAt - frozen.startedAt) / 1000) })
-        : executionStatusLabel(frozen.status)
+        : executionStatusLabel(frozen.status).toLocaleLowerCase()
     }
     const progress = run().leading === undefined ? undefined : executionProgress(run().leading!)
     return progress === undefined ? '' : `${Math.round(progress.value * 100)}%`
@@ -151,9 +151,19 @@ export function StatusBar(props: {
   const runLabel = () => `${props.tab()?.title}: ${busy() ? activityLabel() : message('shell.status.noActivity')}${props.tab()?.execution === undefined ? '' : ` - ${message('shell.status.frozen')}`}${runWords() === '' ? '' : ` - ${runWords()}`}`
   const connection = () => {
     backendTick()
-    return noEngineOpen(props.backend().supervisor.get()) ? 'no-engine' : backendConnectionStatus(props.backend())
+    const supervisor = props.backend().supervisor.get()
+    if (noEngineOpen(supervisor) || supervisor?.state === 'stopped') return 'no-engine'
+    if (supervisor?.state === 'starting' || supervisor?.state === 'failed') return supervisor.state
+    return backendConnectionStatus(props.backend())
   }
-  const connectionWords = () => connection() === 'no-engine' ? message('shell.status.noEngine') : connection()
+  const connectionWords = () => {
+    switch (connection()) {
+      case 'no-engine': return message('shell.engine.notRunning')
+      case 'starting': return message('shell.engine.starting')
+      case 'failed': return message('shell.engine.failed')
+      default: return connection()
+    }
+  }
   const connectionLabel = () => `${props.backend().label}: ${connectionWords()}`
   const backgroundLabel = () => allTasks().map((task) => `${task.backend}: ${task.text}`).join('; ')
   let footer!: HTMLElement
@@ -187,7 +197,7 @@ export function StatusBar(props: {
         <Show when={workflowTab()}>
           <ProductButton variant="ghost" size="compact" class="status-item status-run" data-testid="status-run"
             aria-label={runLabel()} data-tooltip-label={runLabel()} onClick={props.openRuns}>
-            <Show when={props.tab()?.execution !== undefined}><Icon icon={Snowflake} /><span>{message('shell.status.frozen')}</span></Show>
+            <Show when={props.tab()?.execution !== undefined}><Icon icon={Snowflake} /><span>{message(run().frozen !== undefined && !busy() && runWords() !== '' ? 'shell.status.frozenEnded' : 'shell.status.frozen')}</span></Show>
             <Show when={busy()} fallback={<Show when={props.tab()?.execution === undefined}><ProductRunIcon icon={Workflow} /></Show>}>
               <ProductRunActivity running={run().running} waiting={run().waiting} label={activityLabel()} />
             </Show>
@@ -203,7 +213,7 @@ export function StatusBar(props: {
           <Icon icon={Download} /><span class="status-background-description">{allTasks().length === 1 ? allTasks()[0]!.text : message('shell.status.tasks', { count: allTasks().length })}</span>
           <span class="status-background-count" aria-hidden="true">{allTasks().length}</span>
         </ProductButton></Show>
-        <Show when={connection() !== 'no-engine' && props.backend().schemaState.get().status !== 'ready'}>
+        <Show when={!['no-engine', 'starting', 'failed'].includes(connection()) && props.backend().connection.status.get() === 'connected' && props.backend().schemaState.get().status !== 'ready'}>
           <span class="status-catalog">{props.backend().schemaState.get().status === 'error' ? message('backendsPanel.schema.unavailable') : message('shell.status.loadingSchemas')}</span>
         </Show>
         <span class="status-extensions" data-testid="status-trailing">{props.extensions}</span>

@@ -32,7 +32,7 @@ async function installRoutes(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 4,
-    dinkster: { version: 'issue-37-proof', schemaWire: 1 },
+    dinkster: { version: 'issue-37-proof', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
@@ -155,6 +155,8 @@ test('backend and runtime management remains truthful and usable across wide, na
   await page.getByTestId('backend-url-input').focus()
   await expect(page.getByTestId('backend-url-input')).toBeFocused()
   await page.getByTestId('backend-url-input').fill('http://touch.example.test:7777')
+  await expect(page.getByTestId('backend-url-input')).toHaveCSS('border-top-width', '1px')
+  await expect(page.getByTestId('backend-url-input')).toHaveCSS('outline-width', '0px')
   expect(await auditLayout(page, BACKENDS_SURFACE)).toEqual([])
   expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
   const add = page.getByTestId('backend-add')
@@ -163,8 +165,10 @@ test('backend and runtime management remains truthful and usable across wide, na
   expect(box!.height).toBeGreaterThanOrEqual(44)
   await page.keyboard.press('Tab')
   await expect(panel.getByRole('textbox', { name: 'Name (optional)', exact: true })).toBeFocused()
+  await expect(panel.getByRole('textbox', { name: 'Name (optional)', exact: true })).toHaveCSS('outline-width', '0px')
   await page.keyboard.press('Tab')
   await expect(add).toBeFocused()
+  await expect(add).toHaveCSS('outline-width', '1px')
   await page.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent.png') })
   await surface.evaluate((element) => { element.scrollTop = 0 })
   await page.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent-top.png') })

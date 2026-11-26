@@ -44,9 +44,9 @@ test.beforeEach(async ({ page, request }) => {
   expect(sameOrigin.ok()).toBe(true)
   const payload = await sameOrigin.json() as {
     dinkster?: { schemaWire?: number }
-    nodes?: Record<string, { interface?: unknown[] }>
+    nodes?: Record<string, { body?: unknown[] }>
   }
-  expect(payload.dinkster?.schemaWire).toBe(1)
+  expect(payload.dinkster?.schemaWire).toBe(2)
   expect(JSON.stringify(payload.nodes)).toContain('"type":"REPRESENTATIONS"')
 
   await page.goto('/')
@@ -131,7 +131,7 @@ test('schema default and user switch persist as view state without changing the 
     const app = window.__dinksterTest!.app
     const registry = app.backends.get()[0]!.registry.get() as unknown as {
       resolve(type: string): {
-        items: readonly {
+        body: readonly {
           kind: string
           id: string
           widget?: {
@@ -148,7 +148,7 @@ test('schema default and user switch persist as view state without changing the 
     ;(window as typeof window & { __wire17OriginalSchema?: typeof original }).__wire17OriginalSchema = original
     app.registerSchemas([{
       ...original,
-      items: original.items.map((item) => item.kind === 'input' && item.id === 'value'
+      body: original.body.map((item) => item.kind === 'input' && item.id === 'value'
         ? {
             ...item,
             widget: {
@@ -270,9 +270,14 @@ test('multiline preview expands with node height while representation, editor, a
   const natural = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
     const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!
-    return { width: node.layout.width, height: node.layout.height, rowHeight: row.height }
+    // Two visible lines under the floating label, inside the field's inset.
+    const renderer = window.__dinksterTest!.renderer! as unknown as { getDesignTokens(): any }
+    const tokens = renderer.getDesignTokens()
+    const expectedRowHeight = tokens.rowGeometry.fieldInsetY * 2 + tokens.multilineText.labelHeight +
+      2 * tokens.multilineText.lineHeight + tokens.multilineText.padding * 2
+    return { width: node.layout.width, height: node.layout.height, rowHeight: row.height, expectedRowHeight }
   })
-  expect(natural.rowHeight).toBe(74)
+  expect(natural.rowHeight).toBe(natural.expectedRowHeight)
   const compact = await paintAt(natural.width, natural.height, 'multiline-natural')
   expect(compact.calls.map((call) => call.text)).toContain('first line')
   expect(compact.calls.map((call) => call.text)).toContain('second line')
@@ -293,7 +298,9 @@ test('multiline preview expands with node height while representation, editor, a
   await page.locator('[data-item-id="core.widget.representation"]').hover()
   await page.locator('[data-item-id="core.widget.representation.single-line"]').click()
   await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
-  expect((await textRow(page)).height).toBe(24)
+  // A single-line representation takes exactly one row.
+  expect((await textRow(page)).height).toBe(await page.evaluate(() =>
+    (window.__dinksterTest!.renderer! as unknown as { getDesignTokens(): { rowHeight: number } }).getDesignTokens().rowHeight))
 
   const single = await textRow(page)
   await page.mouse.click(single.x, single.y, { button: 'right' })
@@ -365,13 +372,16 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()
     const actual = document.querySelector('[data-editor-surface="in-node"]')!.getBoundingClientRect()
+    // The editor opens over the field box the canvas paints, inside the row.
+    const insetY = (renderer as unknown as { getDesignTokens(): { rowGeometry: { fieldInsetY: number } } })
+      .getDesignTokens().rowGeometry.fieldInsetY
     return {
       actual: { left: actual.left, top: actual.top, width: actual.width, height: actual.height },
       expected: {
         left: canvas.left + (node.x + row.inset!) * viewport.scale + viewport.x,
-        top: canvas.top + (node.y + row.y) * viewport.scale + viewport.y,
+        top: canvas.top + (node.y + row.y + insetY) * viewport.scale + viewport.y,
         width: (node.layout.width - row.inset! * 2) * viewport.scale,
-        height: row.height * viewport.scale,
+        height: (row.height - insetY * 2) * viewport.scale,
       },
     }
   })

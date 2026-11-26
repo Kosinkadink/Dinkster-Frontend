@@ -18,6 +18,10 @@ async function expectWholeTabs(tablist: Locator, tabs: Locator): Promise<void> {
     expect(await tab.isVisible()).toBe(true)
     expect(box.x).toBeGreaterThanOrEqual(strip.x - 1)
     expect(box.x + box.width).toBeLessThanOrEqual(strip.x + strip.width + 1)
+    const title = await tab.locator('.tab-title-text').evaluate((element) => ({
+      shown: element.clientWidth, full: element.scrollWidth,
+    }))
+    expect(title.shown).toBeGreaterThanOrEqual(title.full)
   }
 }
 
@@ -184,9 +188,21 @@ test('left bar uses square icon-only actions and each toggle activates or closes
     app.dock.setOpen('left', false)
   })
   await expect(page.locator('.left-sidebar').getByRole('button', { name: 'Extensions', exact: true })).toBeVisible()
+  // The bar's buttons, their selected fill and the logo above them are centred
+  // between the window's edge and whatever the row shows next.
+  const expectCentredInStrip = async () => {
+    const stripEnd = await page.locator('.body').evaluate((body) => Math.min(...Array.from(body.children)
+      .filter((child) => !child.matches('.left-sidebar') && child.getClientRects().length > 0)
+      .map((child) => child.getBoundingClientRect().left)))
+    const centres = [page.getByTestId('dinkster-menu-button'), ...await page.locator('.left-sidebar .sidebar-button').all()]
+    for (const item of centres) {
+      const box = (await item.boundingBox())!
+      expect(box.x + box.width / 2).toBeCloseTo(stripEnd / 2, 0)
+    }
+  }
   for (const width of [1440, 900, 769, 768, 480]) {
     await page.setViewportSize({ width, height: 800 })
-    expect((await page.locator('.left-sidebar').boundingBox())!.width).toBe(48)
+    await expectCentredInStrip()
     for (const button of await page.locator('.left-sidebar .sidebar-button').all()) {
       await expect(button).not.toHaveAccessibleName('')
       await expect(button).toHaveText('')
@@ -212,6 +228,10 @@ test('left bar uses square icon-only actions and each toggle activates or closes
   await expect(zone.getByRole('heading', { name: 'Library', exact: true })).toBeVisible()
   await expect(zone.getByRole('tablist')).not.toBeVisible()
   await expect(zone.getByTestId('dock-zone-overflow-button')).toHaveCount(0)
+  await expectCentredInStrip()
+  await page.setViewportSize({ width: 480, height: 800 })
+  await expectCentredInStrip()
+  await page.setViewportSize({ width: 1440, height: 900 })
 
   // The left bar switches the active panel while its inactive body stays mounted.
   await page.getByTestId('backends-sidebar-toggle').click()
@@ -353,7 +373,7 @@ test('a panel floated and docked back finishes loading and keeps reacting', asyn
   await page.route('/api/nodes*', (route) => void route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'shell-dock-e2e', schemaWire: 1 },
+    dinkster: { version: 'shell-dock-e2e', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('**/api/mounts', (route) => void route.fulfill({ json: { mounts: [
@@ -698,11 +718,11 @@ test('layout menu switches persist and Reset layout restores the bars and region
   await expect(page.getByRole('menu', { name: 'Customize layout' })).toBeHidden()
 })
 
-test('right-zone tab strip shrinks tabs with ellipsis instead of a native scrollbar', async ({ page }) => {
+test('right-zone tab strip keeps complete titles in the strip or its menu without a native scrollbar', async ({ page }) => {
   await page.evaluate(() => {
     for (let index = 0; index < 3; index += 1) {
       window.__dinksterTest!.app.panels.register({
-        id: `overflow-proof-${index}`, title: `Overflow proof ${index}`,
+        id: `overflow-proof-${index}`, title: `Panel ${index}`,
         placement: 'rail', allowedPlacements: ['rail'], order: 100 + index,
         when: () => true,
         component: () => document.createElement('div'),
@@ -722,8 +742,7 @@ test('right-zone tab strip shrinks tabs with ellipsis instead of a native scroll
   const tablist = zone.getByRole('tablist', { name: 'Inspector panels' })
   expect(['auto', 'scroll']).not.toContain(await tablist.evaluate((element) => getComputedStyle(element).overflowX))
 
-  // Tabs shrink only to their ellipsis floor, never to zero-width slivers,
-  // and each label carries its full title for the product tooltip.
+  // Visible titles stay whole, with their badges and product tooltips.
   const tabs = zone.locator('[role="tab"]')
   expect(await tabs.count()).toBeGreaterThanOrEqual(3)
   for (const tab of await tabs.all()) {
@@ -738,7 +757,7 @@ test('right-zone tab strip shrinks tabs with ellipsis instead of a native scroll
   expect(hiddenTitles.length).toBeGreaterThan(0)
   await expect(zone.getByTestId('dock-zone-close')).toBeVisible()
 
-  // At the minimum width the floors cannot all fit. No partial tab remains,
+  // At the minimum width the titles cannot all fit. No partial tab remains,
   // and the all-tabs menu keeps every hidden tab reachable by pointer.
   await zone.getByTestId('dock-zone-overflow-button').click()
   const menu = zone.getByTestId('dock-zone-overflow-menu')
@@ -804,4 +823,14 @@ test('right-zone tab strip shrinks tabs with ellipsis instead of a native scroll
   await page.keyboard.press('Home')
   await expect(overflowButton).toBeVisible()
   await expect(menu).not.toBeVisible()
+  // The recreated overflow must retain live action refs, not just look closed.
+  const hiddenAgain = await tabs.evaluateAll((elements) => elements
+    .find((element) => element.getClientRects().length === 0)
+    ?.querySelector('.tab-title-text')?.textContent)
+  expect(hiddenAgain).toBeTruthy()
+  await overflowButton.click()
+  await menu.getByRole('menuitemradio').filter({ has: page.getByText(hiddenAgain!, { exact: true }) }).click()
+  await expect(activeTab.locator('.tab-title-text')).toHaveText(hiddenAgain!)
+  await expect(menu).not.toBeVisible()
+  await expectWholeTabs(tablist, tabs)
 })

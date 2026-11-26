@@ -143,7 +143,7 @@ async function openNetWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } }],
+        body: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } }],
       },
       {
         type: 'NetConsumer',
@@ -151,7 +151,7 @@ async function openNetWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
+        body: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
       },
     ])
     await app.openDocument(
@@ -324,7 +324,7 @@ test('collapsed mismatch tags keep the solver error visible beside a healthy del
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+      body: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
     }])
     const doc = structuredClone(app.activeTab()!.store.doc)
     doc.lineage = 'lineage-nets-mismatch'
@@ -608,7 +608,7 @@ test('nets never cross subgraph boundaries: inner pins see no parent nets', asyn
           sub: {
             id: 'sub',
             name: 'Sub',
-            boundary: { inputs: [], outputs: [] },
+            boundary: { body: [] },
             nodes: {
               m1: { id: 'm1', type: 'NetConsumer', values: {} },
               m2: { id: 'm2', type: 'NetProducer', values: {} },

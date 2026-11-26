@@ -13,7 +13,7 @@ import { activeLocale, type MessageParams } from '@dinkster/core'
 import type { DinksterConnection, PackSettings } from '@dinkster/client'
 import type { AppCommand, CommandRegistry, KeybindingRegistry, SettingDefinition, SettingsRegistry } from './settings.js'
 import { captureKeydown, initialSettingsCategory } from './settings.js'
-import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, type SettingsSearchItem } from './settings-search.js'
+import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel, type SettingsSearchItem } from './settings-search.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
 import { ProductCheckbox } from './ProductControls.js'
@@ -22,7 +22,7 @@ import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { LibraryStorageSettings } from './LibraryStorageSettings.js'
-import { ProductButton } from '@dinkster/ui'
+import { ProductButton, ProductShortcut } from '@dinkster/ui'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import type { Backend } from './app-state.js'
@@ -104,16 +104,6 @@ function PackSettingsPanel(props: {
       </ProductField>
     }}</For>
   </div>}</Show>
-}
-
-function fallbackCategoryLabel(category: string): string {
-  return category
-    .replaceAll('.', ' ')
-    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
-    .split(' ')
-    .filter(Boolean)
-    .map((part) => `${part[0]?.toLocaleUpperCase() ?? ''}${part.slice(1)}`)
-    .join(' ')
 }
 
 function SettingField(props: {
@@ -270,9 +260,7 @@ export function SettingsDialog(props: {
     if (backend) return backend.label
     const packName = packCategories().get(candidate)
     if (packName !== undefined) return packName
-    const key = `settingsDialog.category.${candidate.replaceAll('.', '_')}`
-    const translated = message(key)
-    return translated === key ? fallbackCategoryLabel(candidate) : translated
+    return settingsCategoryLabel(candidate, message)
   }
   const shownMatchCount = createMemo(() => shownSearchGroups().reduce((total, group) => total + group.matches.length, 0))
   const searchSummary = (): string => {
@@ -328,7 +316,7 @@ export function SettingsDialog(props: {
         aria-invalid={conflict() ? 'true' : undefined}
         aria-describedby={conflict() ? ids.message : undefined}
         onClick={() => setCapture({ command: command.id, pending: '' })}
-      >{captureText()}</button>
+      ><Show when={capture()?.command === command.id ? capture()?.pending : combo()} fallback={captureText()}>{(keys) => <ProductShortcut keys={keys()} />}</Show></button>
     </ProductField>
   }
 

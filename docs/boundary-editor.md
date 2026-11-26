@@ -1,88 +1,209 @@
 # Boundary editor
 
-The Boundary panel presents the public interface of the workflow definition
-currently open on the canvas. Inputs describe values entering the workflow;
-outputs describe values returned by it. Empty sections remain visible so the
-absence of an interface is explicit.
+The Boundary panel shows what is on a subgraph node as one tree in stored
+order: rows, sections and lines of fields, as the node draws them. It edits the definition
+open on the canvas or, with no subgraph open, the definition of the one
+subgraph node selected on the canvas. Every change here changes every subgraph
+node of that definition, so the head names the subgraph and says how many
+places in the document use it ("used in 3 places").
 
-Imported interface slots without an internal endpoint retain their declared
-type and ordered position as `unbound` bindings. They do not create body
-nodes, inner wires, or promoted widgets. An unattached output has no producer;
-connecting it cannot fabricate an execution value. Flattening a definition
-with unattached slots is refused until its interface can be resolved.
-The panel identifies these slots as **No internal endpoint** and disables
-their **Show** action; connected slots retain their ordinary focus action.
+Each row shows the type's color dot, its label and, while pointed at, the
+inner node it goes to. An output's label and dot sit at the right end, where
+its pin is on the node. After the label, an eye marks a row with a "Show"
+condition and a warning sign marks a row with a problem. A section is an
+outline around its rows under its name, a line holds two to four fields side
+by side, and a whole group, choice, type choice or described row is one face
+with the note that says how it grows or what it picks. Rows are not added
+here: a row reaches the node from the canvas, by showing a field on the
+subgraph node or by a wire to the Inputs or Outputs panel.
 
-Outside a subgraph, the panel shows a ProductEmptyState prompt instead of a
-blank area. An Open action is available for each subgraph occurrence on the
-current canvas whose definition has a boundary. It enters through that
-occurrence, preserving instance navigation without editing the document.
-When there is no available occurrence, the prompt explains how to open a
-subgraph on the canvas. Empty input and output sections use ProductEmptyState
-and retain their status announcements.
+Pressing a row, line or section and dragging it moves it; a gap opens where it
+would land, and Escape puts it back. Dropping a field on the right end of a
+field starts a shared line; dropping into a line's pocket inserts or reorders
+the field there. A line holds at most four fields. Its top and bottom edges
+offer vertical slots to split a field out. Alt with the up or down arrow moves the
+selected entry one place: past its neighbour, into an open section it meets,
+or out of the section or line it ends. **Add section** adds an empty section
+before the outputs that end the tree. Each move is one `boundary.arrange` and
+one undo step, and changes no row id, value or wire.
+
+Clicking an entry selects it, and the arrow keys move the selection. The
+selected entry's settings sit in a fixed area at the bottom of the panel, so
+the tree never moves when another entry is picked. The selection is session
+state (`AppState.boundaryFocus`) and is not saved.
+
+The panel and the canvas point at each other. While a row is selected, the
+canvas outlines its row on the Inputs or Outputs panel in the selection color
+and rings each inner pin it goes to, or outlines the inner field. A click on a
+row's name on the Inputs or Outputs panel, without dragging, selects that row
+in the Boundary panel; dragging the name still moves the panel, and a
+double-click still renames.
+
+## Row settings
+
+Each setting is one command and one undo step, and is kept through save and
+load, copy and paste, and undo and redo. None of them changes a row's id, a
+stored value, a wire, a cache key or what a run sends.
+
+- **Label** sets the row's display name (`boundary.renameItem`), shared by the
+  panel and every subgraph node. Clearing it restores the inner field's name,
+  then the bound port or tap id as written. Unattached rows fall back to
+  their interface ids.
+- **Help text** is the row's tooltip on every subgraph node
+  (`boundary.setTooltip`); empty falls back to the inner field's tooltip.
+- **Goes to** (an input) or **From** (an output) names the destination in
+  words, such as "strength on Blend", with "and 1 more" for a row that feeds
+  several fields. Clicking it centers the canvas on the destination through
+  the standard diagnostic focus route; with no subgraph open it opens the
+  subgraph through the selected node. An unattached row reads **Nothing
+  inside**.
+- **Default**, for a field: the value a new subgraph node starts with, which
+  is the inner field's stored value (`node.setValue`). Numbers, text,
+  dropdowns and toggles are edited with the product's form controls; any
+  other kind shows its value and a link to the inner field on the canvas.
+- **Limits**, for a number field: a lowest and a highest value
+  (`boundary.setLimits`). They narrow the inner field's range on every
+  subgraph node and never widen it; a wider value is refused with a sentence
+  that names the inner range. Editing a subgraph node's field is held inside
+  the limits. A value a node already stores outside them is kept, sent as
+  stored and reported as a node's own limits report it. If the inner range
+  later shrinks past the stored limits, the row has a problem.
+- **Show**, for an input: **Always**, **When X is plugged in** for each other
+  input, and **When X is Y** for each dropdown input and option. It is stored
+  as a formula in the formula language (`boundary.setVisible`), read at each
+  subgraph node over that node's own inputs. Only inputs whose id the formula
+  language can name are offered; when some cannot be, a quiet line says that
+  inputs from an imported workflow cannot be used in a condition yet. A
+  condition whose input was removed is a problem on the row, and the row
+  shows. A valid condition hides the row on each subgraph node when false,
+  including a field that shares a line; its stored value is kept.
+- An input pin also says whether it may be left empty. The nodes inside
+  decide that; it is not a setting.
+- **Remove from subgraph node** opens a confirmation that says how many places
+  change. Confirming removes the row in one batch of `boundary.unbind`, the
+  row's extra bindings first and its primary binding last. Unattached rows
+  have no Remove.
+- **Force its own row on the node**, for an output: the node draws it on a
+  row of its own instead of beside an input.
+
+A whole group, choice, type choice or described row has a Label and **Goes
+to**, and no Help text, Show or Remove. A section has a **Name**, **Show the
+name while open**, **Start closed on new nodes** and **Remove section**, which
+keeps its rows where the section was.
+
+A row with a problem shows it in words above its settings, and what to do
+about it. Edits wait for final command acceptance. While an edit is pending,
+editing controls are disabled and the displayed values still reflect the
+document. A refused edit keeps its draft for retry and shows an inline notice;
+acceptance clears the draft. Navigating away clears transient drafts and
+notices without cancelling a submitted command. Its later completion cannot
+clear a newer draft or report a refusal in another view.
+
+## No subgraph open
+
+Selecting one subgraph node on the canvas shows its rows, so they can be
+renamed and limited without going in. With nothing selected, the panel shows a
+ProductEmptyState prompt with an Open action for each subgraph node on the
+current canvas whose definition has a boundary. Open enters through that node,
+preserving instance navigation without editing the document. When there is no
+such node, the prompt explains how to open a subgraph on the canvas.
 
 Drilling into a subgraph definition leaves the current side-panel tab active.
 An information badge highlights the Boundary tab while its editor is available;
 the badge clears after navigating back out of the definition. The badge follows
 the tab when it is moved to another dock zone, floated, or opened in a window.
 
-Each item shows its name, canvas destination, binding kind, and region role
-when applicable. Names prefer an explicit boundary display name, then the
-bound schema's display name, then the bound port or widget tap id as written.
-Case, punctuation, member suffixes and uppercase output type labels are
-preserved; repeated labels are not numbered. Unattached and literal-source
-slots fall back to their interface ids. The **Display name** field sets a
-user-defined name shared by the interior boundary panel and every collapsed
-occurrence; clearing it restores the schema name or exact binding id. Names persist
-through save/load, copy/paste, and undo/redo. **Show** uses the standard
-diagnostic focus route to select and center the destination node without
-changing the workflow. Long identities wrap, and the panel remains vertically
-scrollable at narrow viewport widths.
+Imported interface slots without an internal endpoint retain their declared
+type and ordered position as `unbound` bindings. They do not create body
+nodes, inner wires, or promoted widgets. An unattached output has no producer;
+connecting it cannot fabricate an execution value. Flattening a definition
+with unattached slots is refused until its interface can be resolved.
 
-Edits wait for final command acceptance. While an edit is pending, editing
-controls are disabled and the displayed choices still reflect the document.
-A refused name edit retains its draft for retry and shows an inline notice;
-acceptance clears the draft. Navigating away clears transient drafts and
-notices without cancelling a submitted command. Its later completion cannot
-clear a newer draft or report a refusal in another view.
+## Fields on the canvas Inputs panel
 
-## Subgraph field values
+Inside an open subgraph, the Inputs panel drawn on the canvas shows each
+input that the subgraph node outside shows as a field as the same field, in
+the same order, with its pin and wire to the inner node kept. An input that
+is only a pin outside stays a name and a pin. The Outputs panel is unchanged.
 
-A subgraph node displays the value a run sends: a value set on the instance
-wins, otherwise a forwarded option field inherits the inner node's stored
-value. Scene construction derives this state when no occurrence view is
-supplied, including gallery and standalone canvas callers, without writing
-inherited values into the document.
+The fields carry the values of the subgraph node the editor came in through,
+and the title says whose they are ("Inputs of Soften"). Editing a field
+there is the same command as editing it on that node outside and is one undo
+step; two subgraph nodes of one definition keep their own values. In a
+subgraph inside a subgraph the same rule applies one level down, and an edit
+is written to whichever outer node owns the value. Entered with no node, the
+panel shows and edits the defaults a new subgraph node starts with (the inner
+node's stored value), and the quieter text after the title says "defaults".
 
-## Canvas panel positions
+The inner field the row is wired to shows the same value dimmed, as an
+arriving value. A field that the entered node receives by a wire outside the
+subgraph is dimmed and not editable, and shows the arriving value when the
+document fixes it. A frozen run view shows the values that run used and
+edits nothing.
 
-The Inputs and Outputs panels inside a subgraph keep their own saved positions.
-Moving, adding, removing or resizing other graph items does not move them. Drag a
-panel, alone or in a selection, to reposition it.
+A field takes the view chosen for it on the subgraph node (a slider stays a
+slider); the view is chosen there, so a right-click on a panel field opens
+the canvas menu. Tab, Enter and Escape move through the panel's fields as
+through a node's, skipping wired ones, and the canvas keyboard list names
+each as a row of Inputs. A choice whose options are edited on the node
+itself (editable choices) stays a name and a pin. A field
+row is renamed in the Boundary panel, not by double-clicking it. A text box
+has the height the subgraph node gives it and is resized there.
 
-New definitions store their initial content-bound positions during extraction,
-paste or import. Opening an older document does not change it: the first command
-that edits a definition stores its previously drawn panel positions in that same
-undo step. Undo restores the edited items and the panels' original places.
+A field whose input reaches the inner node through a reroute is the same
+field, and the inner field shows its value through the reroute.
 
-## Nested slot exposure
+## Showing a field on the subgraph node
 
-A forwarded family starts in **Tracks template** mode. New nested slots become
-exposed automatically. **Pin selection** records the current explicit slot
-set; checkboxes then expose a whole subtree, a narrowed subtree, or no part of
-that subtree. **Track all slots** removes the explicit set.
+Inside a subgraph, the right-click menu of a field on an inner node offers
+**Show on subgraph node**. It adds a boundary input bound to that field,
+at the end of the inputs and in one undo step, and the subgraph node
+outside shows it as a field with a pin, starting from the inner field's
+value. No wire is drawn inside: the Inputs panel row is a field without a
+pin, and the inner field has no pin and shows the entered node's value dimmed, as a wired
+one does. The entry is not offered in the top-level workflow, on a field
+a wire or another input already drives, on a choice's or type choice's own
+row, or on a row of a construct already shown whole, and it is refused with a
+message on any other field the subgraph node cannot show (a row with no
+stored value). A group, choice, type choice or described row is shown whole
+instead, by **Show <name> on subgraph node** (see Groups and choices below);
+its wire is always drawn.
 
-The document remains authoritative. Slot edits use `boundary.setSlots` and
-`boundary.clearSlots`, remain one undo step, and never keep a second local
-selection. The panel refuses an empty pinned selection, reports invalid stored
-paths and derivation diagnostics inline, and names an unavailable schema
-catalog instead of hiding the exposure state.
+On a field already on the subgraph node the entry reads **Remove from
+subgraph node** and removes that input. A field whose wire is drawn also
+offers **Hide wire**, which keeps the input and every node's value.
+Dragging a wire from the Inputs panel to a field also puts the field on the
+subgraph node; dragging one to a field shown without a wire draws its wire
+again and keeps the same input. Whether the wire is drawn is stored with the
+input in the document, so a shared session and every later opening agree;
+it never changes what runs.
+
+A field shown without a wire carries the cyan subgraph icon before its name,
+on the inner node and on its Inputs panel row; a field whose wire is drawn
+and the subgraph node outside carry none. Hovering the icon names the input
+("On the subgraph node as strength"); clicking it opens the Boundary panel
+with that input selected.
+
+## Groups and choices
+
+A boundary item forwards one inner input or output by its flattened id, such
+as `loras.lora0.strength` (see [Node body](node-body.md)), or shows a whole
+group, choice, type choice or described row. Right-click any row of one inside
+the subgraph and choose **Show <name> on subgraph node**; the item binds the
+construct and the subgraph node shows its members, pick and fields, stored on
+that node. Inside, the definition's own members come first and the entered
+node's follow with its values; editing one, or picking an option, writes the
+entered node. A row inside a construct that is already shown, or a construct
+around a row that is already shown, is not offered and is refused
+(`boundary.constructOwned`). Boundary diagnostics, such as a row of an option
+that is not chosen, appear inline on their item.
 
 ## Regions and frozen views
 
 When the definition was reached through a region occurrence, the panel shows
-that occurrence's binding, iteration limit, input roles, output roles, state
-mapping, and continuation output. These controls dispatch the existing region
+that occurrence's binding and iteration limit above the rows, and the selected
+row's input role, output role, state mapping, or continuation output in its
+settings. These controls dispatch the existing region
 commands; refused combinations leave the document unchanged and appear as a
 status message. Focus or hover an output-role choice for its runtime effect:
 Gather preserves one result per iteration, Compact keeps only present results,

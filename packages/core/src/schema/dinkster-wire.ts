@@ -8,20 +8,26 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { isReplacementRule, type ReplacementRule } from '../replace/model.js'
-import { canonicalTypeIdOf } from './model.js'
+import { allRowsOf, inputsOf, KNOWN_VALUE_LIMITS, outputsOf, scopeRowsOf } from './model.js'
+import { checkBody, formulaTablesOf, isLayoutId, isMemberKey, isOptionKey, isRowId, isVariantKey, MAX_GROUP_MEMBERS } from './body.js'
 import { isCanonicalUnsafeInteger } from './numeric-step.js'
 import { isComboValue } from './combo-options.js'
 import type {
   AbsentPolicy,
   AlphaPolicy,
-  CountBoundOutputAutogrowSpec,
-  ConditionalWidgetCondition,
-  ConditionalWidgetGroup,
   DeprecationInfo,
-  DynamicSlotSpec,
-  DynamicSpec,
+  BodyRow,
+  ChoiceSpec,
+  GroupSpec,
+  DescribedSpec,
+  FormulaSpec,
+  Formulated,
+  GroupGrowsSpec,
+  GroupKeysSpec,
   InputSpec,
-  InterfaceItem,
+  LookupSpec,
+  Looked,
+  LookedNumberField,
   MaskPolarity,
   MaskSemantic,
   MirrorSpec,
@@ -29,25 +35,30 @@ import type {
   NodeSelectorSpec,
   NodeSchema,
   OutputKnownValue,
-  OutputDescriptorsSpec,
+  KnownValueLimit,
   OutputRepresents,
+  OptionRow,
   OutputSpec,
   PackAssetDescriptor,
   PackAssetSource,
   PackBlueprintDescriptor,
   PackIcon,
   PackInfo,
+  RowSpec,
+  RuleSpec,
   SearchVisibility,
   SourceFilenameSpec,
+  StepSpec,
   TextCompletionsSpec,
   TypeExpr,
+  UseSpec,
   WidgetDescriptorSpec,
   WidgetRepresentationSpec,
   WidgetSpec,
 } from './model.js'
 
 /** The single schema wire contract decoded by this frontend. */
-export const DINKSTER_SCHEMA_WIRE_VERSION = 1
+export const DINKSTER_SCHEMA_WIRE_VERSION = 2
 
 /** Widget kinds implied by built-in primitive type ids. */
 const PRIMITIVE_WIDGETS: Readonly<Record<string, string>> = {
@@ -85,7 +96,6 @@ interface WireEntry {
   readonly memberPrefix?: unknown
   readonly memberNames?: unknown
   readonly optionalAfterMinimum?: unknown
-  readonly forceInput?: unknown
   readonly socketless?: unknown
   /** Computation-semantic demand marker. */
   readonly lazy?: unknown
@@ -101,7 +111,6 @@ interface WireEntry {
   readonly represents?: unknown
   /** Typed primitive identity output declaration. */
   readonly knownValue?: unknown
-  readonly advanced?: unknown
   /** Compatibility-only presentation marker. */
   readonly hidden?: unknown
   /** Execution-affecting media policies. */
@@ -181,7 +190,15 @@ export interface DinksterWireSchema {
   readonly description?: unknown
   readonly editorRole?: unknown
   readonly idempotent?: unknown
+  /** Legacy flat entry list; version 2 carries the node body instead and refuses a non-empty list. */
   readonly interface?: unknown
+  /** The node body tree (engine `body_row_to_wire`). */
+  readonly body?: unknown
+  readonly tables?: unknown
+  readonly derived?: unknown
+  readonly validate?: unknown
+  readonly titleSuffix?: unknown
+  readonly menu?: unknown
   readonly additionalInputs?: unknown
   readonly occupies?: unknown
   readonly ioBound?: unknown
@@ -211,54 +228,50 @@ export interface DinksterWireSchema {
   /** Frontend-renderable mirror declaration (presentation only). */
   readonly mirror?: unknown
   readonly chunkSafe?: unknown
-  /** Legacy v1 class_type names this node also answers to (resolution only). */
-  readonly aliases?: unknown
 }
 
-function decodeWireSelector(wire: unknown, inputs: ReadonlyMap<string, InputSpec>, outputs: readonly OutputSpec[]): NodeSelectorSpec | undefined {
+function decodeWireSelector(
+  wire: unknown,
+  inputs: ReadonlyMap<string, InputSpec>,
+  body: readonly OptionRow[],
+  outputs: readonly OutputSpec[],
+): NodeSelectorSpec | undefined {
   if (wire === undefined) return undefined
   const selector = wireObject(wire, 'selector')
-  const selectorKeys = Object.keys(selector).sort()
-  if (selectorKeys.length !== 2 || selectorKeys[0] !== 'branches' || selectorKeys[1] !== 'input') {
-    throw new Error('selector must contain exactly input and branches')
+  const extra = Object.keys(selector).filter((key) => key !== 'input' && key !== 'group' && key !== 'names')
+  if (!('input' in selector) || !('group' in selector) || extra.length > 0) {
+    throw new Error('selector must contain input and group, and may contain names')
   }
-  if (typeof selector['input'] !== 'string') throw new Error('selector.input must be a string')
   const input = selector['input']
-  const selectorInput = inputs.get(input)
-  if (selectorInput === undefined) throw new Error(`selector.input names unknown input '${input}'`)
-  if (selectorInput.dynamic !== undefined) throw new Error('selector.input must name a static input')
-  if (JSON.stringify(selectorInput.type) !== JSON.stringify({ kind: 'concrete', name: 'BOOLEAN' })) {
-    throw new Error('selector.input must have type BOOLEAN')
+  const group = selector['group']
+  const names = selector['names']
+  if (typeof input !== 'string' || typeof group !== 'string') throw new Error('selector input and group must be strings')
+  if (names !== undefined && (typeof names !== 'string' || names === '' || names === input || names === group)) {
+    throw new Error('selector.names must be a non-empty string distinct from its input and group')
   }
-
-  const branches = wireObject(selector['branches'], 'selector.branches')
-  const branchKeys = Object.keys(branches).sort()
-  if (branchKeys.length !== 2 || branchKeys[0] !== 'false' || branchKeys[1] !== 'true') {
-    throw new Error('selector.branches must contain exactly false and true')
+  const pick = inputs.get(input)
+  if (pick === undefined) throw new Error(`selector.input names unknown input '${input}'`)
+  const pickTypes = names === undefined ? 'BOOLEAN,INT' : 'BOOLEAN,COMBO,INT,STRING'
+  if (pick.type.kind !== 'union' || [...pick.type.names].sort().join() !== pickTypes) {
+    throw new Error(`selector.input must have type ${pickTypes.split(',').join(' | ')}`)
   }
-  if (typeof branches['false'] !== 'string' || typeof branches['true'] !== 'string') {
-    throw new Error('selector branch input ids must be strings')
+  if (names !== undefined) {
+    const target = body.find((row): row is InputSpec => row.kind === 'input' && row.id === names)
+    const stringList = target?.type.kind === 'list' && target.type.element.kind === 'concrete' && target.type.element.name === 'STRING'
+    if (target === undefined || target.hidden !== true || !target.optional || target.widget !== undefined || !stringList) {
+      throw new Error(`selector.names '${names}' must name a top-level hidden, optional list<STRING> input with no widget`)
+    }
   }
-  const falseInput = branches['false']
-  const trueInput = branches['true']
-  if (falseInput === trueInput) throw new Error('selector branch input ids must be distinct')
-  if (input === falseInput || input === trueInput) {
-    throw new Error('selector.input must be distinct from both branch input ids')
-  }
-  const falseSpec = inputs.get(falseInput)
-  const trueSpec = inputs.get(trueInput)
-  if (falseSpec === undefined) throw new Error(`selector false branch names unknown input '${falseInput}'`)
-  if (trueSpec === undefined) throw new Error(`selector true branch names unknown input '${trueInput}'`)
-  if (falseSpec.dynamic !== undefined || trueSpec.dynamic !== undefined) {
-    throw new Error('selector branches must name static inputs')
+  const rows = scopeRowsOf(body)
+  const branches = rows.find((row): row is GroupSpec => row.kind === 'group' && row.id === group)
+  if (branches?.value?.kind !== 'input' || branches.value.lazy !== true) {
+    throw new Error(`selector.group must name a top-level group of lazy inputs, not '${group}'`)
   }
   if (outputs.length !== 1) throw new Error('selector-bearing schema must declare exactly one output')
-  if (outputs[0]!.dynamic !== undefined) throw new Error('selector output must be static')
-  const outputType = JSON.stringify(outputs[0]!.type)
-  if (JSON.stringify(falseSpec.type) !== outputType || JSON.stringify(trueSpec.type) !== outputType) {
-    throw new Error('selector branch inputs must share the sole output type')
+  if (JSON.stringify(branches.value.type) !== JSON.stringify(outputs[0]!.type)) {
+    throw new Error('selector branches must share the sole output type')
   }
-  return { input, branches: { false: falseInput, true: trueInput } }
+  return { input, group, ...(names !== undefined ? { names } : {}) }
 }
 
 export interface DinksterNodesPayload {
@@ -280,6 +293,12 @@ export interface DinksterNodesPayload {
    * this table is real but not final. Omitted once composed - never false.
    */
   readonly composing?: unknown
+  /**
+   * When a kept copy of this table was recorded, in epoch milliseconds: by
+   * the engine for the always-on process's record, by the browser for its
+   * own copy. Absent on a live answer.
+   */
+  readonly recordedAt?: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +352,6 @@ export function typeExprFromDinksterWire(wire: unknown): TypeExpr {
     case 'stream':
       return { kind: w.kind, element: typeExprFromDinksterWire(w.element) }
     case 'tuple':
-    case 'family_tuple':
     case 'tuple_element':
       return wireType(wire, 'type')
     default:
@@ -351,10 +369,31 @@ export function typeExprFromDinksterWire(wire: unknown): TypeExpr {
  */
 const ASSET_KIND = /^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)+$/
 
-const CONTROL_AFTER_GENERATE_MODES: ReadonlySet<string> = new Set(['fixed', 'increment', 'decrement', 'randomize'])
 const NUMBER_DISPLAY_MODES: ReadonlySet<string> = new Set(['number', 'slider', 'knob', 'gradientslider', 'color'])
 
 const WIDGET_REPRESENTATION_ID = /^[A-Za-z0-9_-]+$/
+
+interface NumberSpecialValue {
+  readonly value: number | string
+  readonly label: string
+}
+
+function numberSpecialValues(raw: unknown, integer: boolean): NumberSpecialValue[] {
+  if (!Array.isArray(raw)) return []
+  const values: NumberSpecialValue[] = []
+  for (const item of raw) {
+    if (!Array.isArray(item) || item.length !== 2 || typeof item[1] !== 'string' || item[1] === '') continue
+    const value: unknown = item[0]
+    if (integer ? (typeof value === 'number' && Number.isSafeInteger(value)) || isCanonicalUnsafeInteger(value)
+      : typeof value === 'number' && Number.isFinite(value)) values.push({ value: value as number | string, label: item[1] })
+  }
+  const key = (value: number | string): bigint | number => typeof value === 'string' ? BigInt(value) : value
+  return values.sort((a, b) => {
+    const left = key(a.value)
+    const right = key(b.value)
+    return left < right ? -1 : left > right ? 1 : 0
+  })
+}
 
 function checkWidgetFields(descriptor: Record<string, unknown>, allowed: readonly string[], where: string, diags?: Diagnostic[]): void {
   const unknown = Object.keys(descriptor)
@@ -406,14 +445,9 @@ function decodeTextCompletions(value: unknown, where: string, diags: Diagnostic[
     throw new Error(`${where} must be an object`)
   }
   const raw = value as Record<string, unknown>
-  checkWidgetFields(raw, ['items', 'inputFamilies'], where, diags)
+  checkWidgetFields(raw, ['items'], where, diags)
   const rawItems = raw['items'] ?? []
-  const rawFamilies = raw['inputFamilies'] ?? []
   if (!Array.isArray(rawItems)) throw new Error(`${where}.items must be an array`)
-  if (!Array.isArray(rawFamilies) || !rawFamilies.every((family) => typeof family === 'string' && /^[A-Za-z0-9_-]+$/.test(family))) {
-    throw new Error(`${where}.inputFamilies must be an array of structural ids`)
-  }
-  if (new Set(rawFamilies).size !== rawFamilies.length) throw new Error(`${where}.inputFamilies must be unique`)
   const items = rawItems.map((value, index) => {
     const itemWhere = `${where}.items[${index}]`
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -444,8 +478,8 @@ function decodeTextCompletions(value: unknown, where: string, diags: Diagnostic[
       kind: kind === 'operator' ? kind : 'identifier',
     } as const
   })
-  if (items.length === 0 && rawFamilies.length === 0) throw new Error(`${where} must declare items or inputFamilies`)
-  return { items, inputFamilies: rawFamilies as string[] }
+  if (items.length === 0) throw new Error(`${where} must declare items`)
+  return { items }
 }
 
 function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, where: string, diags: Diagnostic[]): void {
@@ -472,15 +506,25 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'COMBO': {
-      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'controlAfterGenerate', 'optionSource', 'editableOptions'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'editableOptions', 'optionsInput'], where, diags)
       if (descriptor['editableOptions'] !== undefined && typeof descriptor['editableOptions'] !== 'boolean') {
         throw new Error(`${where}.editableOptions must be a boolean`)
       }
-      if (descriptor['editableOptions'] === true && (descriptor['remote'] !== undefined || descriptor['optionSource'] !== undefined)) {
+      if (descriptor['optionsInput'] !== undefined && (typeof descriptor['optionsInput'] !== 'string' || descriptor['optionsInput'] === '')) {
+        throw new Error(`${where}.optionsInput must be a non-empty string`)
+      }
+      if (descriptor['optionsInput'] !== undefined && descriptor['editableOptions'] !== true) {
+        throw new Error(`${where}.optionsInput requires editableOptions`)
+      }
+      if (descriptor['editableOptions'] === true && descriptor['remote'] !== undefined) {
         throw new Error(`${where}.editableOptions cannot have another option source`)
       }
       const options = descriptor['options']
-      if (options !== undefined) {
+      const lookedOptions = isLookedWire(options)
+      if (lookedOptions && (descriptor['remote'] !== undefined || descriptor['editableOptions'] === true)) {
+        throw new Error(`${where}.options from a formula or a lookup take no other option source`)
+      }
+      if (options !== undefined && !lookedOptions) {
         if (!Array.isArray(options)) throw new Error(`${where}.options must be an array`)
         options.forEach((value, index) => validateComboOption(value, `${where}.options[${index}]`, diags, true))
       }
@@ -498,19 +542,8 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.remote.refreshButton must be a boolean`)
         }
       }
-      const optionSource = descriptor['optionSource']
-      if (optionSource !== undefined) {
-        if (typeof optionSource !== 'object' || optionSource === null || Array.isArray(optionSource)) {
-          throw new Error(`${where}.optionSource must be an object`)
-        }
-        const source = optionSource as Record<string, unknown>
-        checkWidgetFields(source, ['inputFamily'], `${where}.optionSource`, diags)
-        if (typeof source['inputFamily'] !== 'string' || source['inputFamily'] === '') {
-          throw new Error(`${where}.optionSource.inputFamily must be a non-empty string`)
-        }
-      }
-      if ((!Array.isArray(options) || options.length === 0) && remote === undefined && optionSource === undefined && descriptor['editableOptions'] !== true) {
-        throw new Error(`${where} requires options, remote, or optionSource`)
+      if (!lookedOptions && (!Array.isArray(options) || options.length === 0) && remote === undefined && descriptor['editableOptions'] !== true) {
+        throw new Error(`${where} requires options or remote`)
       }
       return
     }
@@ -552,13 +585,13 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'NUMBER':
-      checkWidgetFields(descriptor, ['type', 'min', 'max', 'step', 'controlAfterGenerate', 'display', 'round'], where, diags)
-      for (const key of ['min', 'max', 'step']) {
+      checkWidgetFields(descriptor, ['type', 'min', 'max', 'step', 'display', 'round', 'offset', 'special', 'reason'], where, diags)
+      for (const key of ['min', 'max', 'step', 'offset']) {
         const value = descriptor[key]
         const finiteNumber = typeof value === 'number' && Number.isFinite(value)
         const decimalInteger = isCanonicalUnsafeInteger(value)
-        if (value !== undefined && !finiteNumber && !decimalInteger) {
-          throw new Error(`${where}.${key} must be a finite number or exact decimal integer`)
+        if (value !== undefined && !finiteNumber && !decimalInteger && !isLookedWire(value)) {
+          throw new Error(`${where}.${key} must be a finite number, an exact decimal integer, a formula or a lookup`)
         }
       }
       if (descriptor['min'] !== undefined && descriptor['max'] !== undefined) {
@@ -585,14 +618,20 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       ) {
         throw new Error(`${where}.round must be false or a finite positive number`)
       }
-      if (
-        descriptor['controlAfterGenerate'] !== undefined &&
-        (typeof descriptor['controlAfterGenerate'] !== 'string' || !CONTROL_AFTER_GENERATE_MODES.has(descriptor['controlAfterGenerate']))
-      ) {
-        throw new Error(`${where}.controlAfterGenerate is invalid`)
+      if (descriptor['special'] !== undefined) {
+        const special = descriptor['special']
+        const pair = (item: unknown): boolean => Array.isArray(item) && item.length === 2 &&
+          ((typeof item[0] === 'number' && Number.isFinite(item[0])) || isCanonicalUnsafeInteger(item[0])) &&
+          typeof item[1] === 'string' && item[1] !== ''
+        if (!Array.isArray(special) || !special.every(pair)) {
+          throw new Error(`${where}.special must be a list of [number, label] pairs`)
+        }
       }
-      if (['min', 'max', 'step', 'controlAfterGenerate', 'display', 'round'].every((key) => descriptor[key] === undefined)) {
-        throw new Error(`${where} requires a constraint or controlAfterGenerate`)
+      if (descriptor['reason'] !== undefined && (typeof descriptor['reason'] !== 'string' || descriptor['reason'] === '')) {
+        throw new Error(`${where}.reason must be non-empty text`)
+      }
+      if (['min', 'max', 'step', 'display', 'round', 'offset', 'special', 'reason'].every((key) => descriptor[key] === undefined)) {
+        throw new Error(`${where} requires a constraint`)
       }
       return
     case 'STRING':
@@ -603,7 +642,9 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       if (descriptor['dynamicPrompts'] !== undefined && typeof descriptor['dynamicPrompts'] !== 'boolean') {
         throw new Error(`${where}.dynamicPrompts must be a boolean`)
       }
-      if (descriptor['completions'] !== undefined) decodeTextCompletions(descriptor['completions'], `${where}.completions`, diags)
+      if (descriptor['completions'] !== undefined && !isLookedWire(descriptor['completions'])) {
+        decodeTextCompletions(descriptor['completions'], `${where}.completions`, diags)
+      }
       if (
         descriptor['multiline'] === undefined &&
         descriptor['placeholder'] === undefined &&
@@ -613,24 +654,69 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where} requires a presentation field`)
       return
     case 'COLOR':
+      checkWidgetFields(descriptor, ['type', 'alpha'], where, diags)
+      if (descriptor['alpha'] !== undefined && typeof descriptor['alpha'] !== 'boolean') {
+        throw new Error(`${where}.alpha must be a boolean`)
+      }
+      return
     case 'MOUNT':
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'CURVE':
-      checkWidgetFields(descriptor, ['type'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'inputStrip', 'outputStrip', 'histogram', 'histogramVisible', 'interpolations'], where, diags)
+      for (const key of ['inputStrip', 'outputStrip']) {
+        const colors = descriptor[key]
+        if (colors !== undefined && !(Array.isArray(colors) && colors.length === 2 &&
+          colors.every((color) => typeof color === 'string' && /^#[0-9a-f]{6}$/.test(color)))) {
+          throw new Error(`${where}.${key} must be two lower-case #rrggbb colors`)
+        }
+      }
+      if (descriptor['histogram'] !== undefined && (typeof descriptor['histogram'] !== 'string' || descriptor['histogram'] === '')) {
+        throw new Error(`${where}.histogram must name an input`)
+      }
+      if (descriptor['histogramVisible'] !== undefined && typeof descriptor['histogramVisible'] !== 'boolean') {
+        throw new Error(`${where}.histogramVisible must be a boolean`)
+      }
+      if (descriptor['interpolations'] !== undefined) {
+        const kinds = descriptor['interpolations']
+        if (!(Array.isArray(kinds) && kinds.length > 0 &&
+          kinds.every((kind) => kind === 'linear' || kind === 'monotone_cubic' || kind === 'step') &&
+          new Set(kinds).size === kinds.length)) {
+          throw new Error(`${where}.interpolations must be distinct supported kinds`)
+        }
+      }
       return
     case 'COMPOSITOR':
-      checkWidgetFields(descriptor, ['type'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'writes', 'reads'], where, diags)
+      editorNamesOf(descriptor, where)
       return
     default:
       if (typeof descriptor['type'] !== 'string' || descriptor['type'] === '') {
         throw new Error(`${where}.type must be a non-empty string`)
       }
+      editorNamesOf(descriptor, where)
       for (const [key, value] of Object.entries(descriptor)) {
         if (key !== 'type') cloneJsonValue(value, `${where}.${key}`)
       }
       return
   }
+}
+
+/**
+ * The rows a custom or compositor widget writes and reads: its own part name
+ * -> a row id of its scope (the engine checks the ids when the pack loads).
+ */
+function editorNamesOf(descriptor: Record<string, unknown>, where: string): Pick<WidgetSpec, 'writes' | 'reads'> {
+  const names: { writes?: Record<string, string>; reads?: Record<string, string> } = {}
+  for (const field of ['writes', 'reads'] as const) {
+    if (descriptor[field] === undefined) continue
+    const mapping = wireObject(descriptor[field], `${where}.${field}`)
+    for (const [part, row] of Object.entries(mapping)) {
+      if (part === '' || typeof row !== 'string' || row === '') throw new Error(`${where}.${field}.${part} must name a row`)
+    }
+    names[field] = mapping as Record<string, string>
+  }
+  return names
 }
 
 function cloneJsonValue(value: unknown, where: string): unknown {
@@ -647,14 +733,13 @@ function cloneJsonValue(value: unknown, where: string): unknown {
   throw new Error(`${where} must be JSON-safe`)
 }
 
-function numericWidgetType(type: TypeExpr, forceInput = false): 'INT' | 'FLOAT' | undefined {
+function numericWidgetType(type: TypeExpr): 'INT' | 'FLOAT' | undefined {
   if (type.kind === 'concrete' && (type.name === 'INT' || type.name === 'FLOAT')) return type.name
-  if (forceInput && type.kind === 'concrete' && type.name === 'FLOATS') return 'FLOAT'
   if (type.kind === 'union' && type.names.length === 2 && type.names.includes('INT') && type.names.includes('FLOAT')) return 'FLOAT'
   return undefined
 }
 
-function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: TypeExpr, where: string, forceInput = false): void {
+function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: TypeExpr, where: string): void {
   const socket = type.kind === 'concrete' ? type.name : undefined
   switch (descriptor['type']) {
     case 'STRING':
@@ -682,9 +767,9 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       }
       return
     case 'NUMBER': {
-      const numericKind = numericWidgetType(type, forceInput)
+      const numericKind = numericWidgetType(type)
       if (numericKind === undefined) {
-        throw new Error(`${where} requires INT, FLOAT, their numeric-only union, or forced FLOATS`)
+        throw new Error(`${where} requires INT, FLOAT, or their numeric-only union`)
       }
       if (descriptor['round'] !== undefined && numericKind !== 'FLOAT') {
         throw new Error(`${where}.round requires FLOAT`)
@@ -692,11 +777,11 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       if (numericKind === 'INT') {
         for (const key of ['min', 'max', 'step']) {
           const value = descriptor[key]
-          if (value !== undefined && !Number.isSafeInteger(value) && !isCanonicalUnsafeInteger(value)) {
+          if (value !== undefined && !Number.isSafeInteger(value) && !isCanonicalUnsafeInteger(value) && !isLookedWire(value)) {
             throw new Error(`${where}.${key} must be an exact integer on INT`)
           }
         }
-      } else if (['min', 'max', 'step'].some((key) => descriptor[key] !== undefined && typeof descriptor[key] !== 'number')) {
+      } else if (['min', 'max', 'step'].some((key) => descriptor[key] !== undefined && typeof descriptor[key] !== 'number' && !isLookedWire(descriptor[key]))) {
         throw new Error(`${where} decimal integer constraints require INT`)
       }
       return
@@ -755,7 +840,6 @@ function widgetFor(
   wire: unknown,
   diags: Diagnostic[],
   representationsAllowed = true,
-  forceInput = false,
 ): WidgetSpec | undefined {
   if (typeof wire === 'object' && wire !== null) {
     const descriptor = wire as {
@@ -769,12 +853,11 @@ function widgetFor(
       remote?: unknown
       labelOn?: unknown
       labelOff?: unknown
-      optionSource?: unknown
       editableOptions?: unknown
+      optionsInput?: unknown
       min?: unknown
       max?: unknown
       step?: unknown
-      controlAfterGenerate?: unknown
       display?: unknown
       round?: unknown
       multiline?: unknown
@@ -782,6 +865,10 @@ function widgetFor(
       dynamicPrompts?: unknown
       completions?: unknown
       chip?: unknown
+      offset?: unknown
+      special?: unknown
+      reason?: unknown
+      alpha?: unknown
     }
     if (descriptor.type === 'REPRESENTATIONS') {
       if (!representationsAllowed) throw new Error(`${nodeType}.${id}: nested widget representations are forbidden`)
@@ -811,7 +898,7 @@ function widgetFor(
         if (typeof representation['widget'] !== 'object' || representation['widget'] === null || Array.isArray(representation['widget'])) {
           throw new Error(`${nodeType}.${id}: representation ${index} widget must be an object`)
         }
-        const nested = widgetFor(nodeType, id, type, dflt, representation['widget'], diags, false, forceInput)
+        const nested = widgetFor(nodeType, id, type, dflt, representation['widget'], diags, false)
         if (nested === undefined || nested.representations !== undefined) {
           throw new Error(`${nodeType}.${id}: representation ${index} must contain one widget descriptor`)
         }
@@ -852,7 +939,7 @@ function widgetFor(
       }
     }
     validateStrictWidgetDescriptor(wire as Record<string, unknown>, `${nodeType}.${id} widget`, diags)
-    validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`, forceInput)
+    validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`)
     if (descriptor.type === 'ASSET' && Array.isArray(descriptor.accept) && descriptor.accept.every((v) => typeof v === 'string')) {
       let kind: string | undefined
       if (descriptor.kind !== undefined) {
@@ -886,7 +973,10 @@ function widgetFor(
         return undefined
       }
       let options: unknown[] | undefined
-      if (descriptor.options !== undefined) {
+      const lookedOptions = isLookedWire(descriptor.options)
+        ? wireLookedValue(descriptor.options, `${nodeType}.${id} widget.options`)
+        : undefined
+      if (descriptor.options !== undefined && lookedOptions === undefined) {
         if (Array.isArray(descriptor.options)) {
           if (descriptor.options.length > 0 || descriptor.editableOptions === true) options = descriptor.options.map(comboOptionFields)
         } else {
@@ -931,43 +1021,16 @@ function widgetFor(
           diags.push(diag('warning', 'schema', 'schema.dinkster.badComboRemote', `${nodeType}.${id}: COMBO remote requires a route starting with '/'`))
         }
       }
-      let optionSource: WidgetSpec['optionSource']
-      if (descriptor.optionSource !== undefined) {
-        const source = descriptor.optionSource as Record<string, unknown>
-        if (
-          typeof descriptor.optionSource === 'object' &&
-          descriptor.optionSource !== null &&
-          typeof source['inputFamily'] === 'string' &&
-          source['inputFamily'] !== ''
-        ) {
-          optionSource = { inputFamily: source['inputFamily'] }
-        }
-      }
-      if (options === undefined && remote === undefined && optionSource === undefined && descriptor.editableOptions !== true) {
+      if (options === undefined && remote === undefined && lookedOptions === undefined && descriptor.editableOptions !== true) {
         diags.push(diag('warning', 'schema', 'schema.dinkster.badCombo', `${nodeType}.${id}: COMBO has no options or option source`))
       } else {
-        let controllerInitial: WidgetSpec['controllerInitial']
-        if (descriptor.controlAfterGenerate !== undefined) {
-          if (typeof descriptor.controlAfterGenerate === 'string' && CONTROL_AFTER_GENERATE_MODES.has(descriptor.controlAfterGenerate)) {
-            controllerInitial = descriptor.controlAfterGenerate as NonNullable<WidgetSpec['controllerInitial']>
-          } else {
-            diags.push(
-              diag(
-                'warning',
-                'schema',
-                'schema.dinkster.badComboControlAfterGenerate',
-                `${nodeType}.${id}: unknown COMBO controlAfterGenerate '${String(descriptor.controlAfterGenerate)}'`,
-              ),
-            )
-          }
-        }
         return {
           widgetType: 'COMBO',
           options: options !== undefined ? { options } : {},
+          ...(lookedOptions !== undefined ? { looked: { options: lookedOptions } } : {}),
           ...(descriptor.editableOptions === true ? { editableOptions: true as const } : {}),
+          ...(typeof descriptor.optionsInput === 'string' ? { optionsInput: descriptor.optionsInput } : {}),
           ...(remote !== undefined ? { remote } : {}),
-          ...(optionSource !== undefined ? { optionSource } : {}),
-          ...(controllerInitial !== undefined ? { controller: 'after_generate' as const, controllerInitial } : {}),
           ...(dflt !== undefined ? { default: dflt } : {}),
         }
       }
@@ -1035,7 +1098,7 @@ function widgetFor(
     // metadata never hides an editor. Integer sockets retain unsafe
     // constraints as canonical decimal strings; float sockets remain numbers.
     if (descriptor.type === 'NUMBER') {
-      const numericKind = numericWidgetType(type, forceInput)
+      const numericKind = numericWidgetType(type)
       if (numericKind !== 'INT' && numericKind !== 'FLOAT') {
         diags.push(
           diag('warning', 'schema', 'schema.dinkster.badNumberSocket', `${nodeType}.${id}: NUMBER descriptor requires a numeric input`),
@@ -1043,9 +1106,14 @@ function widgetFor(
       } else {
         const isInt = numericKind === 'INT'
         const options: Record<string, unknown> = {}
-        for (const key of ['min', 'max', 'step'] as const) {
+        const looked: Partial<Record<LookedNumberField, FormulaSpec | LookupSpec>> = {}
+        for (const key of ['min', 'max', 'step', 'offset'] as const) {
           const v = descriptor[key]
           if (v === undefined) continue
+          if (isLookedWire(v)) {
+            looked[key] = wireLookedValue(v, `${nodeType}.${id} widget.${key}`)
+            continue
+          }
           const numeric = typeof v === 'number' && Number.isFinite(v)
           const exactInteger = (numeric && Number.isSafeInteger(v)) || isCanonicalUnsafeInteger(v)
           const positiveStep = key !== 'step' || (numeric && v > 0) || (isCanonicalUnsafeInteger(v) && BigInt(v) > 0n)
@@ -1097,28 +1165,14 @@ function widgetFor(
         if (descriptor.round !== undefined) {
           options['round'] = descriptor.round
         }
-        let controllerInitial: WidgetSpec['controllerInitial']
-        if (descriptor.controlAfterGenerate !== undefined) {
-          if (typeof descriptor.controlAfterGenerate === 'string' && CONTROL_AFTER_GENERATE_MODES.has(descriptor.controlAfterGenerate)) {
-            controllerInitial = descriptor.controlAfterGenerate as NonNullable<WidgetSpec['controllerInitial']>
-          } else {
-            // The vocabulary is closed on the wire (the backend refuses
-            // unknown modes at decode), so an unknown mode here is smuggled;
-            // drop the CONTROL alone, never the numeric widget.
-            diags.push(
-              diag(
-                'warning',
-                'schema',
-                'schema.dinkster.badControlAfterGenerate',
-                `${nodeType}.${id}: unknown controlAfterGenerate '${String(descriptor.controlAfterGenerate)}'`,
-              ),
-            )
-          }
-        }
+        // Values allowed outside the limits and off the step, each with its label.
+        const special = numberSpecialValues(descriptor.special, isInt)
+        if (special.length > 0) options['special'] = special
+        if (typeof descriptor.reason === 'string' && descriptor.reason !== '') options['reason'] = descriptor.reason
         return {
           widgetType: numericKind,
           options,
-          ...(controllerInitial !== undefined ? { controller: 'after_generate' as const, controllerInitial } : {}),
+          ...(Object.keys(looked).length > 0 ? { looked } : {}),
           ...(dflt !== undefined ? { default: dflt } : {}),
         }
       }
@@ -1139,12 +1193,18 @@ function widgetFor(
             )
         }
         if (descriptor.dynamicPrompts !== undefined) options['dynamicPrompts'] = descriptor.dynamicPrompts
+        const lookedCompletions = isLookedWire(descriptor.completions)
+          ? wireLookedValue(descriptor.completions, `${nodeType}.${id} widget.completions`)
+          : undefined
         const textCompletions =
-          descriptor.completions === undefined ? undefined : decodeTextCompletions(descriptor.completions, `${nodeType}.${id} widget.completions`)
+          descriptor.completions === undefined || lookedCompletions !== undefined
+            ? undefined
+            : decodeTextCompletions(descriptor.completions, `${nodeType}.${id} widget.completions`)
         return {
           widgetType: 'STRING',
           options,
           ...(textCompletions === undefined ? {} : { textCompletions }),
+          ...(lookedCompletions !== undefined ? { looked: { completions: lookedCompletions } } : {}),
           ...(dflt !== undefined ? { default: dflt } : {}),
         }
       } else {
@@ -1161,14 +1221,26 @@ function widgetFor(
     if (descriptor.type === 'COLOR' || descriptor.type === 'MOUNT') {
       return {
         widgetType: descriptor.type,
-        options: {},
+        // A color field that uses opacity says so; the editor offers opacity only there.
+        options: descriptor.type === 'COLOR' && descriptor.alpha === true ? { alpha: true } : {},
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
     if (descriptor.type === 'CURVE') {
+      // The color strips a curve declares along its input and output, low end first,
+      // and the input beside the curve that is its histogram, by its id in the curve's scope.
+      const fields = wire as Record<string, unknown>
+      const strips = Object.fromEntries(['inputStrip', 'outputStrip']
+        .flatMap((key) => fields[key] === undefined ? [] : [[key, [...(fields[key] as string[])]]]))
+      const histogram = fields['histogram']
       return {
         widgetType: 'CURVE',
-        options: {},
+        options: {
+          ...strips,
+          ...(typeof histogram === 'string' ? { histogram } : {}),
+          ...(typeof fields['histogramVisible'] === 'boolean' ? { histogramVisible: fields['histogramVisible'] } : {}),
+          ...(Array.isArray(fields['interpolations']) ? { interpolations: [...fields['interpolations']] } : {}),
+        },
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -1176,6 +1248,7 @@ function widgetFor(
       return {
         widgetType: 'COMPOSITOR',
         options: {},
+        ...editorNamesOf(wire as Record<string, unknown>, `${nodeType}.${id}.widget`),
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -1201,11 +1274,12 @@ function widgetFor(
     if (typeof descriptor.type === 'string' && descriptor.type !== '') {
       const options: Record<string, unknown> = {}
       for (const [key, value] of Object.entries(descriptor)) {
-        if (key !== 'type') options[key] = cloneJsonValue(value, `${nodeType}.${id}.widget.${key}`)
+        if (key !== 'type' && key !== 'writes' && key !== 'reads') options[key] = cloneJsonValue(value, `${nodeType}.${id}.widget.${key}`)
       }
       return {
         widgetType: descriptor.type,
         options,
+        ...editorNamesOf(wire as Record<string, unknown>, `${nodeType}.${id}.widget`),
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -1241,7 +1315,7 @@ function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], no
       )
     }
   }
-  const widget = widgetFor(nodeType, id, type, entry.default, entry.widget, diags, true, entry.forceInput === true)
+  const widget = widgetFor(nodeType, id, type, entry.default, entry.widget, diags, true)
   const representedUpload = widget?.representations?.representations.some((representation) => representation.widget.allowUpload === true) === true
   let sourceFilename: SourceFilenameSpec | undefined
   if (entry.sourceFilename !== undefined) {
@@ -1298,23 +1372,6 @@ function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], no
   }
 }
 
-/** A family's autogrow spec: one template slot typed as the member type. */
-function familyDynamic(id: string, type: TypeExpr, entry: WireEntry): DynamicSpec {
-  const min = typeof entry.minMembers === 'number' ? entry.minMembers : 0
-  const max = typeof entry.maxMembers === 'number' ? entry.maxMembers : undefined
-  return {
-    kind: 'autogrow',
-    ...(entry.role === 'outputFamily' ? { materialization: 'wire15' as const } : {}),
-    template: [{ kind: 'input', id, type, optional: true }],
-    naming: {
-      kind: 'prefix',
-      prefix: id,
-      ...(min > 0 ? { min } : {}),
-      ...(max !== undefined ? { max } : {}),
-    },
-  }
-}
-
 function decodeOutput(nodeType: string, entry: WireEntry, diags: Diagnostic[], normalizedType?: TypeExpr): OutputSpec {
   const id = String(entry.id)
   const type = normalizedType ?? typeExprFromDinksterWire(entry.type)
@@ -1339,13 +1396,6 @@ function wirePreview(entry: Record<string, unknown>, where: string): { preview?:
 }
 
 const WIRE_SEGMENT = /^[A-Za-z0-9_-]+$/
-const WIRE_COMBO_OPTION_KEY = /^[!-~]+( [!-~]+)*$/
-const MAX_DYNAMIC_DEPTH = 16
-const MAX_DYNAMIC_ITEMS = 512
-
-interface WireDecodeBudget {
-  remaining: number
-}
 
 function wireObject(value: unknown, where: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -1357,27 +1407,6 @@ function wireObject(value: unknown, where: string): Record<string, unknown> {
 function wireSegment(value: unknown, where: string): string {
   if (typeof value !== 'string' || !WIRE_SEGMENT.test(value)) {
     throw new Error(`${where} must match [A-Za-z0-9_-]+`)
-  }
-  return value
-}
-
-function wireComboOptionKey(value: unknown, where: string): string {
-  if (typeof value !== 'string' || WIRE_COMBO_OPTION_KEY.exec(value)?.[0] !== value) {
-    throw new Error(`${where} must match [!-~]+( [!-~]+)*`)
-  }
-  return value
-}
-
-// The co-pinned [A-Za-z0-9_-]+ grammar covers STRUCTURAL segments only:
-// construct ids, nested entry ids, template leaf ids, variant keys,
-// memberPrefix, and memberNames entries. DynamicCombo option keys use
-// [!-~]+( [!-~]+)*; they never join
-// dot-scoped paths. Ordinary top-level input and output ids also never join a
-// dot-joined construct path, so they keep the top-level leniency (any non-empty
-// string; upstream emits ids like "input_blocks.0." and "Audio VAE").
-function wireEntryId(value: unknown, where: string): string {
-  if (typeof value !== 'string' || value === '') {
-    throw new Error(`${where} must be a non-empty string`)
   }
   return value
 }
@@ -1467,8 +1496,6 @@ function wireType(value: unknown, where: string): TypeExpr {
       if (!Array.isArray(type['elements'])) throw new Error(`${where}.elements must be an array`)
       return { kind: 'tuple', elements: type['elements'].map((element, index) => wireType(element, `${where}.elements[${index}]`)) }
     }
-    case 'family_tuple':
-      return { kind: 'family_tuple', input: wireSegment(type['input'], `${where}.input`) }
     case 'tuple_element': {
       const input = type['input'] === undefined ? undefined : wireSegment(type['input'], `${where}.input`)
       const element = type['element'] === undefined ? undefined : wireType(type['element'], `${where}.element`)
@@ -1482,444 +1509,592 @@ function wireType(value: unknown, where: string): TypeExpr {
   }
 }
 
-function wirePresentation(
-  entry: Record<string, unknown>,
-  where: string,
-): {
-  displayName?: string
-  tooltip?: string
-} {
-  const displayName = wireOptionalString(entry['displayName'], `${where}.displayName`)
-  const tooltip = wireOptionalString(entry['doc'], `${where}.doc`)
-  return {
-    ...(displayName !== undefined ? { displayName } : {}),
-    ...(tooltip !== undefined ? { tooltip } : {}),
+// ---------------------------------------------------------------------------
+// The node body on schema wire version 2
+// ---------------------------------------------------------------------------
+
+const AFTER_RUN_MODES: ReadonlySet<string> = new Set(['fixed', 'increment', 'decrement', 'randomize'])
+
+function rejectUnknownFields(entry: Record<string, unknown>, allowed: readonly string[], where: string): void {
+  for (const key of Object.keys(entry)) {
+    if (!allowed.includes(key)) throw new Error(`${where} has unknown field '${key}'`)
   }
 }
 
-function decodeWireOrdinary(nodeType: string, entry: Record<string, unknown>, where: string, diags: Diagnostic[], depth: number): InputSpec {
-  // Nested ordinary entries are structural (they extend dot-joined construct
-  // paths); top-level ordinary inputs are plain ids.
-  const id = depth > 0 ? wireSegment(entry['id'], `${where}.id`) : wireEntryId(entry['id'], `${where}.id`)
+function wireRowId(value: unknown, where: string): string {
+  if (!isRowId(value)) throw new Error(`${where} must be an identifier that is not a Python keyword`)
+  return value
+}
+
+function wireLayoutId(value: unknown, where: string): string {
+  if (!isLayoutId(value)) throw new Error(`${where} must be an identifier`)
+  return value
+}
+
+function wireString(value: unknown, where: string): string {
+  if (typeof value !== 'string') throw new Error(`${where} must be a string`)
+  return value
+}
+
+function wireList(value: unknown, where: string): readonly unknown[] {
+  if (!Array.isArray(value)) throw new Error(`${where} must be an array`)
+  return value
+}
+
+function wireFormula(value: unknown, where: string): FormulaSpec {
+  const data = wireObject(value, where)
+  rejectUnknownFields(data, ['formula'], where)
+  return { formula: wireString(data['formula'], `${where}.formula`) }
+}
+
+function wireLookup(data: Record<string, unknown>, where: string): LookupSpec {
+  rejectUnknownFields(data, ['lookup', 'args'], where)
+  const args = wireList(data['args'] ?? [], `${where}.args`).map((argument, index): string | FormulaSpec =>
+    typeof argument === 'string' ? wireRowId(argument, `${where}.args[${index}]`) : wireFormula(argument, `${where}.args[${index}]`))
+  return { lookup: wireString(data['lookup'], `${where}.lookup`), args }
+}
+
+/** Text or a flag as itself, a formula or a lookup as an object (engine `_formula_to_wire`). */
+function wireFormulated<T extends string | boolean>(value: unknown, where: string, literal: 'string' | 'boolean'): Formulated<T> {
+  if (typeof value === literal) return value as T
+  return wireFormula(value, where)
+}
+
+/** A widget field written as a formula or a lookup instead of its literal. */
+function isLookedWire(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && ('formula' in value || 'lookup' in value)
+}
+
+function wireLookedValue(value: Record<string, unknown>, where: string): FormulaSpec | LookupSpec {
+  return 'lookup' in value ? wireLookup(value, where) : wireFormula(value, where)
+}
+
+function wireLooked(value: unknown, where: string): Looked<string> {
+  if (typeof value === 'string') return value
+  const data = wireObject(value, where)
+  if ('lookup' in data) return wireLookup(data, where)
+  return wireFormula(data, where)
+}
+
+function wireSteps(value: unknown, where: string): readonly StepSpec[] {
+  return wireList(value, where).map((raw, index) => {
+    const step = wireObject(raw, `${where}[${index}]`)
+    if (typeof step['step'] !== 'string' || step['step'] === '') throw new Error(`${where}[${index}].step must name a step`)
+    wireJson(step, `${where}[${index}]`)
+    return step as StepSpec
+  })
+}
+
+function wireRule(value: unknown, where: string): RuleSpec {
+  const data = wireObject(value, where)
+  rejectUnknownFields(data, ['check', 'message', 'fix'], where)
+  return {
+    check: wireFormula(data['check'], `${where}.check`),
+    message: wireString(data['message'], `${where}.message`),
+    fix: wireSteps(data['fix'] ?? [], `${where}.fix`),
+  }
+}
+
+/** The label, tooltip and visible every box may carry. */
+function wireCommon(entry: Record<string, unknown>, where: string): {
+  displayName?: Formulated<string>
+  tooltip?: Formulated<string>
+  visible?: Formulated<boolean>
+} {
+  return {
+    ...(entry['label'] !== undefined ? { displayName: wireFormulated<string>(entry['label'], `${where}.label`, 'string') } : {}),
+    ...(entry['tooltip'] !== undefined ? { tooltip: wireFormulated<string>(entry['tooltip'], `${where}.tooltip`, 'string') } : {}),
+    ...(entry['visible'] !== undefined ? { visible: wireFormulated<boolean>(entry['visible'], `${where}.visible`, 'boolean') } : {}),
+  }
+}
+const COMMON_FIELDS = ['label', 'tooltip', 'visible'] as const
+
+const INPUT_FIELDS = [
+  'kind', 'id', 'type', 'required', 'default', 'onAbsent', 'widget', 'tooltip', 'label', 'pinFirst', 'pin',
+  'afterRun', 'onEdit', 'hidden', 'lazy', 'acceptsStorage', 'acceptsStream', 'acceptsList', 'sourceFilename',
+  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible', 'automatic', 'sent',
+]
+
+/** A port's label, literal or worked out by formula, and whether it shows. */
+function wirePortCommon(entry: Record<string, unknown>, where: string): Pick<InputSpec, 'displayName' | 'labelFormula' | 'visible'> {
+  const label = entry['label'] === undefined ? undefined : wireFormulated<string>(entry['label'], `${where}.label`, 'string')
+  return {
+    ...(typeof label === 'string' ? { displayName: label } : label !== undefined ? { labelFormula: label } : {}),
+    ...(entry['visible'] !== undefined ? { visible: wireFormulated<boolean>(entry['visible'], `${where}.visible`, 'boolean') } : {}),
+  }
+}
+
+function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where: string, diags: Diagnostic[]): InputSpec {
+  rejectUnknownFields(entry, INPUT_FIELDS, where)
+  const id = wireRowId(entry['id'], `${where}.id`)
   const required = wireBoolean(entry['required'], `${where}.required`, true)
-  const forceInput = wireBoolean(entry['forceInput'], `${where}.forceInput`, false)
-  const socketless = wireBoolean(entry['socketless'], `${where}.socketless`, false)
-  if (socketless && forceInput) throw new Error(`${where}.socketless conflicts with forceInput`)
-  wireBoolean(entry['advanced'], `${where}.advanced`, false)
+  const pinFirst = wireBoolean(entry['pinFirst'], `${where}.pinFirst`, false)
+  const pin = wireBoolean(entry['pin'], `${where}.pin`, true)
+  if (!pin && pinFirst) throw new Error(`${where}.pin false conflicts with pinFirst`)
+  const sent = wireBoolean(entry['sent'], `${where}.sent`, true)
+  if (!sent && pin) throw new Error(`${where}: a field that is not sent cannot be wired; it needs pin false`)
   const hidden = wireBoolean(entry['hidden'], `${where}.hidden`, false)
+  const lazy = wireBoolean(entry['lazy'], `${where}.lazy`, false)
   wireJson(entry['default'], `${where}.default`)
   if (entry['onAbsent'] !== undefined && (typeof entry['onAbsent'] !== 'string' || !ABSENT_POLICIES.has(entry['onAbsent']))) {
     throw new Error(`${where}.onAbsent is invalid`)
   }
-  if (required && entry['onAbsent'] === 'omit') {
-    throw new Error(`${where}.onAbsent cannot be 'omit' when required`)
+  if (required && entry['onAbsent'] === 'omit') throw new Error(`${where}.onAbsent cannot be 'omit' when required`)
+  const afterRun = entry['afterRun']
+  if (afterRun !== undefined && (typeof afterRun !== 'string' || !AFTER_RUN_MODES.has(afterRun))) {
+    throw new Error(`${where}.afterRun must be one of ${[...AFTER_RUN_MODES].join(', ')}`)
   }
-  const normalized = decodeInput(nodeType, entry as WireEntry, diags, wireType(entry['type'], `${where}.type`))
-  return {
-    ...normalized,
-    id,
-    ...(entry['adjacentTo'] !== undefined ? { adjacentTo: wireEntryId(entry['adjacentTo'], `${where}.adjacentTo`) } : {}),
-    ...(entry['forceInput'] === true ? { forceInput: true } : {}),
-    ...(socketless ? { socketless: true } : {}),
-    ...(entry['advanced'] === true ? { advanced: true } : {}),
-    ...(hidden ? { hidden: true } : {}),
+  const onEdit = entry['onEdit'] === undefined ? [] : wireSteps(entry['onEdit'], `${where}.onEdit`)
+  const automatic = entry['automatic'] === undefined ? undefined : wireLooked(entry['automatic'], `${where}.automatic`)
+  if (typeof automatic === 'string') throw new Error(`${where}.automatic must be a formula or a lookup`)
+  if (automatic !== undefined && (entry['default'] === undefined || entry['default'] === null)) {
+    throw new Error(`${where}.automatic needs a default`)
   }
-}
-
-function decodeWireOrdinaryInput(nodeType: string, entry: Record<string, unknown>, where: string, diags: Diagnostic[], depth: number): InputSpec {
-  const normalized = decodeWireOrdinary(nodeType, entry, where, diags, depth)
-  const lazy = wireBoolean(entry['lazy'], `${where}.lazy`, false)
-  return {
-    ...normalized,
-    ...(lazy ? { lazy: true } : {}),
-  }
-}
-
-function decodeWireEntries(
-  nodeType: string,
-  value: unknown,
-  where: string,
-  diags: Diagnostic[],
-  budget: WireDecodeBudget,
-  depth: number,
-  nonEmpty = false,
-): readonly InputSpec[] {
-  if (!Array.isArray(value)) throw new Error(`${where} must be an array`)
-  if (nonEmpty && value.length === 0) throw new Error(`${where} must be non-empty`)
-  if (depth > MAX_DYNAMIC_DEPTH) {
-    throw new Error(`${where} exceeds the ${MAX_DYNAMIC_DEPTH}-level dynamic nesting limit`)
-  }
-  const entries: InputSpec[] = []
-  const ids = new Set<string>()
-  for (const [index, raw] of value.entries()) {
-    if (budget.remaining-- <= 0) {
-      throw new Error(`${where} exceeds the ${MAX_DYNAMIC_ITEMS}-item dynamic-entry budget`)
-    }
-    const childWhere = `${where}[${index}]`
-    const entry = wireObject(raw, childWhere)
-    const id = wireSegment(entry['id'], `${childWhere}.id`)
-    if (ids.has(id)) throw new Error(`${where} declares duplicate id '${id}'`)
-    ids.add(id)
-    entries.push(decodeWireEntry(nodeType, entry, childWhere, diags, budget, depth))
-  }
-  validateInputAdjacency(entries)
-  return entries
-}
-
-function validateInputAdjacency(inputs: readonly InputSpec[]): void {
-  const byId = new Map(inputs.map((input) => [input.id, input]))
-  for (const input of inputs) {
-    if (input.adjacentTo !== undefined && (input.adjacentTo === input.id || !byId.has(input.adjacentTo))) {
-      throw new Error(`${input.id}.adjacentTo must name a different sibling input`)
-    }
-  }
-  const checked = new Set<string>()
-  for (const input of inputs) {
-    const path = new Set<string>()
-    let current: InputSpec | undefined = input
-    while (current !== undefined && !checked.has(current.id)) {
-      if (path.has(current.id)) throw new Error(`${current.id}.adjacentTo cycle`)
-      path.add(current.id)
-      current = current.adjacentTo === undefined ? undefined : byId.get(current.adjacentTo)
-    }
-    for (const id of path) checked.add(id)
-  }
-}
-
-function decodeWireFamily(
-  nodeType: string,
-  entry: Record<string, unknown>,
-  where: string,
-  diags: Diagnostic[],
-  budget: WireDecodeBudget,
-  depth: number,
-): InputSpec {
-  const id = wireSegment(entry['id'], `${where}.id`)
-  if (entry['template'] === undefined || entry['type'] !== undefined) {
-    throw new Error(`${where} must carry template and must not carry legacy type`)
-  }
-  const decodedTemplate = decodeWireEntries(nodeType, entry['template'], `${where}.template`, diags, budget, depth + 1, true)
-  const min = wireBound(entry['minMembers'], `${where}.minMembers`)
-  const max = wireBound(entry['maxMembers'], `${where}.maxMembers`)
-  const hasPrefix = Object.prototype.hasOwnProperty.call(entry, 'memberPrefix')
-  const hasNames = Object.prototype.hasOwnProperty.call(entry, 'memberNames')
-  const optionalAfterMinimum = wireBoolean(entry['optionalAfterMinimum'], `${where}.optionalAfterMinimum`, false)
-  if (optionalAfterMinimum && (
-    decodedTemplate.length !== 1 || decodedTemplate[0]!.dynamic !== undefined || (!hasPrefix && !hasNames)
-  )) throw new Error(`${where}.optionalAfterMinimum needs one ordinary template leaf and a declared vocabulary`)
-  if (hasPrefix && hasNames) throw new Error(`${where} cannot carry both memberPrefix and memberNames`)
-  let naming: Extract<DynamicSpec, { kind: 'autogrow' }>['naming']
-  if (hasNames) {
-    if (max !== undefined) throw new Error(`${where}.maxMembers is forbidden with memberNames`)
-    if (!Array.isArray(entry['memberNames'])) throw new Error(`${where}.memberNames must be an array`)
-    const names = entry['memberNames'].map((name, index) => wireSegment(name, `${where}.memberNames[${index}]`))
-    if (new Set(names).size !== names.length) throw new Error(`${where}.memberNames must be unique`)
-    if ((min ?? 0) > names.length) throw new Error(`${where}.minMembers exceeds memberNames length`)
-    naming = { kind: 'names', names, ...(min !== undefined ? { min } : {}) }
-  } else if (hasPrefix) {
-    const prefix = wireSegment(entry['memberPrefix'], `${where}.memberPrefix`)
-    if (max !== undefined && (min ?? 0) > max) throw new Error(`${where}.minMembers exceeds maxMembers`)
-    naming = {
-      kind: 'prefix',
-      prefix,
-      ...(min !== undefined ? { min } : {}),
-      ...(max !== undefined ? { max } : {}),
-    }
-  } else {
-    if (max !== undefined && (min ?? 0) > max) throw new Error(`${where}.minMembers exceeds maxMembers`)
-    // No wire naming vocabulary: the backend elaborates any structural
-    // suffix under the family id ('items.<suffix>'), so mint members with
-    // the family id as the prefix - the same policy familyDynamic applies
-    // to legacy and output families. Mapping to prefix naming here gives
-    // these families the full prefix lifecycle (min-fill, ghost growth,
-    // subgraph flatten) instead of the fenced native arm, which has no
-    // document suffix source and renders zero members.
-    naming = {
-      kind: 'prefix',
-      prefix: id,
-      ...(min !== undefined ? { min } : {}),
-      ...(max !== undefined ? { max } : {}),
-    }
-  }
-  // The compatibility encoder synthesizes "value" only for a top-level
-  // prefix family. Nested families and names vocabularies use dot-scoped
-  // identities even when their authored leaf is named "value".
-  const flatFamilyCompatible =
-    !optionalAfterMinimum && depth === 0 && naming.kind === 'prefix' && decodedTemplate.length === 1 && decodedTemplate[0]!.dynamic === undefined && decodedTemplate[0]!.id === 'value'
-  let template = decodedTemplate
-  if (flatFamilyCompatible) {
-    const { widget: _inferredWidget, ...compatLeaf } = decodedTemplate[0]!
-    template = [{ ...compatLeaf, id }]
-  }
-  const required = wireBoolean(entry['required'], `${where}.required`, false)
-  return {
-    kind: 'input',
-    id,
-    type: { kind: 'wildcard' },
-    optional: !required,
-    ...wirePresentation(entry, where),
-    dynamic: {
-      kind: 'autogrow',
-      template,
-      naming,
-      ...(optionalAfterMinimum ? { optionalAfterMinimum: true } : {}),
-      ...(wireBoolean(entry['independentTypes'], `${where}.independentTypes`, false) ? { independentTypes: true } : {}),
-      ...(!flatFamilyCompatible ? { materialization: 'wire15' as const } : {}),
+  const tooltip = wireOptionalString(entry['tooltip'], `${where}.tooltip`)
+  const decoded = decodeInput(
+    nodeType,
+    {
+      id,
+      type: entry['type'],
+      required,
+      default: entry['default'],
+      onAbsent: entry['onAbsent'],
+      widget: entry['widget'],
+      sourceFilename: entry['sourceFilename'],
+      ...(tooltip !== undefined ? { doc: tooltip } : {}),
     },
-  }
-}
-
-function decodeWireCombo(
-  nodeType: string,
-  entry: Record<string, unknown>,
-  where: string,
-  diags: Diagnostic[],
-  budget: WireDecodeBudget,
-  depth: number,
-): InputSpec {
-  const id = wireSegment(entry['id'], `${where}.id`)
-  if (!Array.isArray(entry['options'])) throw new Error(`${where}.options must be an array`)
-  if (entry['widget'] !== undefined) throw new Error(`${where}.widget is forbidden; selector options are derived`)
-  const optionKeys = new Set<string>()
-  const options = entry['options'].map((raw, index) => {
-    const optionWhere = `${where}.options[${index}]`
-    const option = wireObject(raw, optionWhere)
-    const key = wireComboOptionKey(option['key'], `${optionWhere}.key`)
-    if (optionKeys.has(key)) throw new Error(`${where} declares duplicate option key '${key}'`)
-    optionKeys.add(key)
-    return {
-      key,
-      inputs: decodeWireEntries(nodeType, option['inputs'], `${optionWhere}.inputs`, diags, budget, depth + 1),
+    diags,
+    wireType(entry['type'], `${where}.type`),
+  )
+  let widget = decoded.widget
+  if (afterRun !== undefined) {
+    // As the engine checks it: every field the row can show is a number or
+    // list field, or the row has no field and a number or list type.
+    const field = entry['widget'] as Record<string, unknown> | undefined
+    const shown = field?.['type'] === 'REPRESENTATIONS'
+      ? (field['representations'] as readonly { readonly widget: Record<string, unknown> }[]).map((item) => item.widget)
+      : [field]
+    const numeric = decoded.type.kind === 'concrete' && ['INT', 'FLOAT', 'COMBO'].includes(decoded.type.name)
+    if (!shown.every((item) => item === undefined ? numeric : item['type'] === 'NUMBER' || item['type'] === 'COMBO')) {
+      throw new Error(`${where}.afterRun needs a number or list field`)
     }
-  })
-  for (const option of options) {
-    const aliased = options.find((sibling) => sibling !== option && option.key.startsWith(`${sibling.key}]`))
-    if (aliased !== undefined) {
-      throw new Error(`${where} option key '${option.key}' aliases sibling key '${aliased.key}'`)
-    }
-  }
-  if (entry['default'] !== undefined && (typeof entry['default'] !== 'string' || !optionKeys.has(entry['default']))) {
-    throw new Error(`${where}.default must name an option`)
-  }
-  const required = wireBoolean(entry['required'], `${where}.required`, false)
-  const hidden = wireBoolean(entry['hidden'], `${where}.hidden`, false)
-  return {
-    kind: 'input',
-    id,
-    type: { kind: 'concrete', name: 'COMBO' },
-    optional: !required,
-    ...wirePresentation(entry, where),
-    ...(hidden ? { hidden: true } : {}),
-    widget: {
-      widgetType: 'COMBO',
-      options: { options: options.map((option) => option.key) },
-      ...(entry['default'] !== undefined ? { default: entry['default'] } : {}),
-    },
-    // Retain the validated descriptor field for fidelity, but the
-    // DynamicCombo lifecycle deliberately chooses the first option just as
-    // stock Comfy does; effectiveComboOption treats this value as inert.
-    dynamic: {
-      kind: 'dynamicCombo',
-      materialization: 'wire15',
-      options,
-      ...(typeof entry['default'] === 'string' ? { defaultOption: entry['default'] } : {}),
-    },
-  }
-}
-
-function wireSlotTypeFromVariants(variants: readonly { type: TypeExpr }[]): TypeExpr {
-  if (variants.length === 1) return variants[0]!.type
-  if (variants.length > 1 && variants.every((variant) => variant.type.kind === 'concrete')) {
-    const names = [...new Set(variants.map((variant) => (variant.type as Extract<TypeExpr, { kind: 'concrete' }>).name))]
-    return names.length === 1 ? { kind: 'concrete', name: names[0]! } : { kind: 'union', names }
-  }
-  return { kind: 'wildcard' }
-}
-
-function wireRecursivelyConcrete(type: TypeExpr): boolean {
-  return type.kind === 'concrete' || ((type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') && wireRecursivelyConcrete(type.element))
-}
-
-function decodeWireSlot(
-  nodeType: string,
-  entry: Record<string, unknown>,
-  where: string,
-  diags: Diagnostic[],
-  budget: WireDecodeBudget,
-  depth: number,
-): InputSpec {
-  const id = wireSegment(entry['id'], `${where}.id`)
-  const hasVariants = Object.prototype.hasOwnProperty.call(entry, 'variants')
-  const hasSlotType = Object.prototype.hasOwnProperty.call(entry, 'slotType')
-  if (hasVariants === hasSlotType) throw new Error(`${where} must carry exactly one of variants or slotType`)
-  if (entry['typeTemplateId'] === '') {
-    throw new Error(`${where}.typeTemplateId must be a non-empty string`)
-  }
-  const typeTemplateId = wireOptionalString(entry['typeTemplateId'], `${where}.typeTemplateId`)
-  if (!Object.prototype.hasOwnProperty.call(entry, 'required')) throw new Error(`${where}.required is mandatory`)
-  const required = wireBoolean(entry['required'], `${where}.required`, false)
-  const shared = entry['inputs'] === undefined && hasVariants ? [] : decodeWireEntries(nodeType, entry['inputs'], `${where}.inputs`, diags, budget, depth + 1)
-  let slotType: TypeExpr
-  let variants:
-    | {
-        key: string
-        type: TypeExpr
-        inputs: readonly InputSpec[]
-        tooltip?: string
-      }[]
-    | undefined
-  let forceInput = false
-  if (hasSlotType) {
-    if (typeTemplateId !== undefined) throw new Error(`${where}.typeTemplateId is only legal on closed dynamicSlot`)
-    if (required) throw new Error(`${where}.required must be false on open-form dynamicSlot`)
-    slotType = wireType(entry['slotType'], `${where}.slotType`)
-    if (slotType.kind === 'variable') throw new Error(`${where}.slotType cannot be a variable`)
-    forceInput = wireBoolean(entry['forceInput'], `${where}.forceInput`, false)
-  } else {
-    if (typeTemplateId !== undefined && !required) throw new Error(`${where}.typeTemplateId requires a required dynamicSlot`)
-    if (typeTemplateId !== undefined && depth !== 0) throw new Error(`${where}.typeTemplateId is only legal on a top-level dynamicSlot`)
-    if (entry['forceInput'] !== undefined) throw new Error(`${where}.forceInput is only legal on open-form dynamicSlot`)
-    if (!Array.isArray(entry['variants'])) throw new Error(`${where}.variants must be an array`)
-    const keys = new Set<string>()
-    variants = entry['variants'].map((raw, index) => {
-      const variantWhere = `${where}.variants[${index}]`
-      const variant = wireObject(raw, variantWhere)
-      const key = wireSegment(variant['key'], `${variantWhere}.key`)
-      if (keys.has(key)) throw new Error(`${where} declares duplicate variant key '${key}'`)
-      keys.add(key)
-      const inputs = variant['inputs'] === undefined ? [] : decodeWireEntries(nodeType, variant['inputs'], `${variantWhere}.inputs`, diags, budget, depth + 1)
-      const sharedIds = new Set(shared.map((input) => input.id))
-      const collision = inputs.find((input) => sharedIds.has(input.id))
-      if (collision !== undefined) throw new Error(`${variantWhere}.inputs id '${collision.id}' collides with a shared dependent`)
-      const tooltip = wireOptionalString(variant['doc'], `${variantWhere}.doc`)
-      const type = wireType(variant['type'], `${variantWhere}.type`)
-      if (!wireRecursivelyConcrete(type)) throw new Error(`${variantWhere}.type must be recursively concrete`)
-      return {
-        key,
-        type,
-        inputs,
-        ...(tooltip !== undefined ? { tooltip } : {}),
-      }
-    })
-    slotType = wireSlotTypeFromVariants(variants)
-  }
-  return {
-    kind: 'input',
-    id,
-    type: slotType,
-    optional: !required,
-    ...wirePresentation(entry, where),
-    ...(forceInput ? { forceInput: true } : {}),
-    dynamic: {
-      kind: 'dynamicSlot',
-      materialization: 'wire15',
-      slotType,
-      inputs: shared,
-      ...(variants !== undefined ? { variants } : {}),
-      ...(typeTemplateId !== undefined ? { typeTemplateId } : {}),
-      ...(forceInput ? { forceInput: true } : {}),
-    },
-  }
-}
-
-function* slotTypeBindingsOf(
-  inputs: readonly InputSpec[],
-  depth = 0,
-): Generator<{
-  readonly input: InputSpec
-  readonly spec: DynamicSlotSpec
-  readonly depth: number
-}> {
-  for (const input of inputs) {
-    const dynamic = input.dynamic
-    if (dynamic === undefined) continue
-    if (dynamic.kind === 'autogrow') {
-      yield* slotTypeBindingsOf(dynamic.template, depth + 1)
-    } else if (dynamic.kind === 'dynamicCombo') {
-      for (const option of dynamic.options) yield* slotTypeBindingsOf(option.inputs, depth + 1)
-    } else {
-      yield { input, spec: dynamic, depth }
-      yield* slotTypeBindingsOf(dynamic.inputs, depth + 1)
-      for (const variant of dynamic.variants ?? []) {
-        yield* slotTypeBindingsOf(variant.inputs, depth + 1)
-      }
-    }
-  }
-}
-
-function* typeVariablesOf(type: TypeExpr): Generator<TypeExpr & { readonly kind: 'variable' }> {
-  if (type.kind === 'variable') yield type
-  else if (type.kind === 'tuple') for (const element of type.elements) yield* typeVariablesOf(element)
-  else if (type.kind === 'tuple_element' && type.element !== undefined) yield* typeVariablesOf(type.element)
-  else if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') yield* typeVariablesOf(type.element)
-}
-
-function validateSlotTypeBindings(inputs: readonly InputSpec[], outputs: readonly OutputSpec[]): void {
-  const outputVariables = outputs.flatMap((output) => [...typeVariablesOf(output.type)])
-  const bindings = new Set<string>()
-  for (const { input, spec, depth } of slotTypeBindingsOf(inputs)) {
-    const templateId = spec.typeTemplateId
-    if (templateId === undefined) continue
-    if (depth !== 0) throw new Error(`dynamicSlot '${input.id}' typeTemplateId is only legal on a top-level slot`)
-    if (input.optional) throw new Error(`dynamicSlot '${input.id}' typeTemplateId requires a required slot`)
-    if (spec.variants === undefined) throw new Error(`dynamicSlot '${input.id}' typeTemplateId is only legal on a closed slot`)
-    if (bindings.has(templateId)) throw new Error(`type variable '${templateId}' is bound by multiple dynamic slots`)
-    bindings.add(templateId)
-    const matchingOutputs = outputVariables.filter((variable) => variable.templateId === templateId)
-    if (matchingOutputs.length === 0) {
-      throw new Error(`dynamicSlot '${input.id}' binds type variable '${templateId}', but no output uses it`)
-    }
-    for (const variant of spec.variants) {
-      const typeId = canonicalTypeIdOf(variant.type)
-      if (typeId === undefined) throw new Error(`dynamicSlot '${input.id}' variant '${variant.key}' type must be recursively concrete`)
-      if (
-        matchingOutputs.some(
-          (variable) => variable.allowedTypes !== undefined && !variable.allowedTypes.some((allowed) => canonicalTypeIdOf(allowed) === typeId),
-        )
-      ) {
-        throw new Error(`dynamicSlot '${input.id}' variant '${variant.key}' type '${typeId}' is outside output variable '${templateId}' allowlist`)
-      }
-    }
-  }
-}
-
-function decodeWireEntry(
-  nodeType: string,
-  entry: Record<string, unknown>,
-  where: string,
-  diags: Diagnostic[],
-  budget: WireDecodeBudget,
-  depth: number,
-): InputSpec {
-  const acceptsStorage = acceptsStorageOf(entry, where)
-  const acceptsStream = acceptsStreamOf(entry, where)
-  const acceptsList = acceptsListOf(entry, where)
-  if (entry['role'] !== 'input' && depth >= MAX_DYNAMIC_DEPTH) {
-    throw new Error(`${where} exceeds the ${MAX_DYNAMIC_DEPTH}-level dynamic nesting limit`)
-  }
-  let decoded: InputSpec
-  switch (entry['role']) {
-    case 'input':
-      decoded = decodeWireOrdinaryInput(nodeType, entry, where, diags, depth)
-      break
-    case 'inputFamily':
-      decoded = decodeWireFamily(nodeType, entry, where, diags, budget, depth)
-      break
-    case 'dynamicCombo':
-      decoded = decodeWireCombo(nodeType, entry, where, diags, budget, depth)
-      break
-    case 'dynamicSlot':
-      decoded = decodeWireSlot(nodeType, entry, where, diags, budget, depth)
-      break
-    default:
-      throw new Error(`${where}.role has unknown structural kind '${String(entry['role'])}'`)
+    if (widget !== undefined) widget = { ...widget, controller: 'after_generate', controllerInitial: afterRun as NonNullable<WidgetSpec['controllerInitial']> }
   }
   return {
     ...decoded,
-    ...acceptsStorage,
-    ...acceptsStream,
-    ...acceptsList,
+    ...wirePortCommon(entry, where),
+    ...(widget !== undefined ? { widget } : {}),
+    ...(pinFirst ? { forceInput: true } : {}),
+    ...(!pin ? { socketless: true } : {}),
+    ...(!sent ? { sent: false as const } : {}),
+    ...(hidden ? { hidden: true } : {}),
+    ...(lazy ? { lazy: true } : {}),
+    ...(onEdit.length > 0 ? { onEdit } : {}),
+    ...(automatic !== undefined ? { automatic } : {}),
+    ...acceptsStorageOf({ role: 'input', acceptsStorage: entry['acceptsStorage'] }, where),
+    ...acceptsStreamOf({ role: 'input', ...(Object.hasOwn(entry, 'acceptsStream') ? { acceptsStream: entry['acceptsStream'] } : {}) }, where),
+    ...acceptsListOf({ role: 'input', ...(Object.hasOwn(entry, 'acceptsList') ? { acceptsList: entry['acceptsList'] } : {}) }, where),
     ...mediaPolicyOf(entry, where),
+  }
+}
+
+const OUTPUT_FIELDS = [
+  'kind', 'id', 'type', 'optional', 'tooltip', 'label', 'preview', 'represents', 'knownValue',
+  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible',
+]
+
+function decodeBodyOutput(nodeType: string, entry: Record<string, unknown>, where: string, diags: Diagnostic[]): OutputSpec {
+  rejectUnknownFields(entry, OUTPUT_FIELDS, where)
+  const id = wireRowId(entry['id'], `${where}.id`)
+  const tooltip = wireOptionalString(entry['tooltip'], `${where}.tooltip`)
+  return {
+    ...decodeOutput(nodeType, { ...entry, id, ...(tooltip !== undefined ? { doc: tooltip } : {}) } as WireEntry, diags, wireType(entry['type'], `${where}.type`)),
+    ...wirePortCommon(entry, where),
+    ...(wireBoolean(entry['optional'], `${where}.optional`, false) ? { optional: true } : {}),
+    ...wirePreview(entry, where),
+    ...mediaPolicyOf(entry, where),
+  }
+}
+
+function decodeKeys(value: unknown, where: string): GroupKeysSpec {
+  const data = wireObject(value, where)
+  if (Object.keys(data).length === 1 && Array.isArray(data['named'])) {
+    const names = data['named'].map((name, index) => {
+      if (!isMemberKey(name)) throw new Error(`${where}.named[${index}] must match [A-Za-z0-9_]+`)
+      return name
+    })
+    if (names.length === 0 || new Set(names).size !== names.length) throw new Error(`${where}.named must be unique names`)
+    return { kind: 'named', names }
+  }
+  if (Object.keys(data).length !== 1 || data['numbered'] === undefined) {
+    throw new Error(`${where} is {numbered: {...}} or {named: [...]}`)
+  }
+  const numbered = wireObject(data['numbered'], `${where}.numbered`)
+  rejectUnknownFields(numbered, ['prefix', 'start', 'pad'], `${where}.numbered`)
+  const prefix = wireString(numbered['prefix'] ?? '', `${where}.numbered.prefix`)
+  if (prefix !== '' && !isMemberKey(prefix)) throw new Error(`${where}.numbered.prefix must match [A-Za-z0-9_]+`)
+  const start = wireBound(numbered['start'] ?? 1, `${where}.numbered.start`)!
+  const pad = wireBound(numbered['pad'] ?? 0, `${where}.numbered.pad`)!
+  if (pad > 8) throw new Error(`${where}.numbered.pad is from 0 to 8`)
+  return { kind: 'numbered', prefix, start, pad }
+}
+
+function decodeGrows(value: unknown, where: string): GroupGrowsSpec {
+  if (value === undefined) return 'link'
+  if (value === 'link' || value === 'filled' || value === 'button') return value
+  const data = wireObject(value, where)
+  if (Object.keys(data).length === 1 && typeof data['count'] === 'string') return { count: data['count'] }
+  if (Object.keys(data).length === 1 && data['followList'] !== undefined) {
+    return { followList: wireRowId(data['followList'], `${where}.followList`) }
+  }
+  throw new Error(`${where} is "link", "filled", "button", {count: formula} or {followList: field}`)
+}
+
+/**
+ * A Use's field is decoded against the type of the shared row it places,
+ * found among `scope`, the rows the Use may name.
+ */
+function decodeUse(nodeType: string, entry: Record<string, unknown>, where: string, diags: Diagnostic[], scope: readonly OptionRow[]): UseSpec {
+  rejectUnknownFields(entry, ['kind', 'id', 'label', 'tooltip', 'widget', 'default', 'required', 'only', 'inside'], where)
+  const id = wireRowId(entry['id'], `${where}.id`)
+  wireJson(entry['default'], `${where}.default`)
+  const target = scope.find((row) => row.kind !== 'row' && row.kind !== 'use' && row.id === id)
+  let widget: WidgetSpec | null | undefined
+  if (entry['widget'] === null) widget = null
+  else if (entry['widget'] !== undefined) {
+    const type: TypeExpr = target?.kind === 'input' ? target.type : { kind: 'wildcard' }
+    widget = widgetFor(nodeType, id, type, entry['default'], entry['widget'], diags)
+  }
+  const inner = target?.kind === 'choice' ? scopeRowsOf([...target.shared, ...target.options.flatMap((option) => option.rows)]) : []
+  return {
+    kind: 'use',
+    id,
+    ...(entry['label'] !== undefined ? { displayName: wireString(entry['label'], `${where}.label`) } : {}),
+    ...(entry['tooltip'] !== undefined ? { tooltip: wireString(entry['tooltip'], `${where}.tooltip`) } : {}),
+    ...(widget !== undefined ? { widget } : {}),
+    ...(entry['default'] !== undefined ? { default: entry['default'] } : {}),
+    ...(entry['required'] !== undefined ? { required: wireBoolean(entry['required'], `${where}.required`, false) } : {}),
+    ...(entry['only'] !== undefined
+      ? { only: wireList(entry['only'], `${where}.only`).map((key, index) => wireString(key, `${where}.only[${index}]`)) }
+      : {}),
+    ...(entry['inside'] !== undefined
+      ? {
+          inside: wireList(entry['inside'], `${where}.inside`).map((raw, index) =>
+            decodeUse(nodeType, wireObject(raw, `${where}.inside[${index}]`), `${where}.inside[${index}]`, diags, inner)),
+        }
+      : {}),
+  }
+}
+
+function decodeRows(nodeType: string, value: unknown, where: string, diags: Diagnostic[]): readonly BodyRow[] {
+  return wireList(value, where).map((raw, index) => {
+    const row = decodeOptionRow(nodeType, raw, `${where}[${index}]`, diags, [])
+    if (row.kind === 'use') throw new Error(`${where}[${index}]: a Use belongs under a choice's option`)
+    return row
+  })
+}
+
+function decodeOptionRows(nodeType: string, value: unknown, where: string, diags: Diagnostic[], scope: readonly OptionRow[]): readonly OptionRow[] {
+  return wireList(value, where).map((raw, index) => decodeOptionRow(nodeType, raw, `${where}[${index}]`, diags, scope))
+}
+
+/** One body row (engine `body_row_from_wire`). */
+function decodeOptionRow(nodeType: string, raw: unknown, where: string, diags: Diagnostic[], scope: readonly OptionRow[]): OptionRow {
+  const entry = wireObject(raw, where)
+  switch (entry['kind']) {
+    case 'use':
+      return decodeUse(nodeType, entry, where, diags, scope)
+    case 'input':
+      return decodeBodyInput(nodeType, entry, where, diags)
+    case 'output':
+      return decodeBodyOutput(nodeType, entry, where, diags)
+    case 'state': {
+      rejectUnknownFields(entry, ['kind', 'id', 'type', 'default', 'partOfRun'], where)
+      wireJson(entry['default'], `${where}.default`)
+      return {
+        kind: 'state',
+        id: wireRowId(entry['id'], `${where}.id`),
+        type: wireType(entry['type'], `${where}.type`),
+        ...(entry['default'] !== undefined && entry['default'] !== null ? { default: entry['default'] } : {}),
+        partOfRun: wireBoolean(entry['partOfRun'], `${where}.partOfRun`, true),
+      }
+    }
+    case 'row': {
+      rejectUnknownFields(entry, ['kind', 'rows'], where)
+      const rows = decodeRows(nodeType, entry['rows'], `${where}.rows`, diags)
+      if (rows.length < 2 || rows.length > 4 || rows.some((row) => row.kind !== 'input' && row.kind !== 'button' && row.kind !== 'note')) {
+        throw new Error(`${where}: a Row holds two to four of Input, Button and Note`)
+      }
+      return { kind: 'row', rows: rows as RowSpec['rows'] }
+    }
+    case 'section': {
+      rejectUnknownFields(entry, ['kind', 'id', 'rows', 'collapsed', 'openName', ...COMMON_FIELDS], where)
+      return {
+        kind: 'section',
+        id: wireLayoutId(entry['id'], `${where}.id`),
+        ...wireCommon(entry, where),
+        rows: decodeOptionRows(nodeType, entry['rows'], `${where}.rows`, diags, scope),
+        ...(wireBoolean(entry['collapsed'], `${where}.collapsed`, false) ? { collapsedByDefault: true } : {}),
+        ...(!wireBoolean(entry['openName'], `${where}.openName`, true) ? { openName: false as const } : {}),
+      }
+    }
+    case 'note': {
+      rejectUnknownFields(entry, ['kind', 'id', 'text', 'unknown', 'visible'], where)
+      const unknown = wireOptionalString(entry['unknown'], `${where}.unknown`)
+      return {
+        kind: 'note',
+        id: wireLayoutId(entry['id'], `${where}.id`),
+        text: wireLooked(entry['text'], `${where}.text`),
+        ...(unknown !== undefined ? { unknown } : {}),
+        ...(entry['visible'] !== undefined ? { visible: wireFormulated<boolean>(entry['visible'], `${where}.visible`, 'boolean') } : {}),
+      }
+    }
+    case 'editor': {
+      rejectUnknownFields(entry, ['kind', 'id', 'widget', 'visible'], where)
+      const id = wireLayoutId(entry['id'], `${where}.id`)
+      const descriptor = wireObject(entry['widget'], `${where}.widget`)
+      // A custom or compositor widget; the compositor binds as on its own input type.
+      const type: TypeExpr = descriptor['type'] === 'COMPOSITOR' ? { kind: 'concrete', name: 'COMPOSITOR' } : { kind: 'wildcard' }
+      const widget = widgetFor(nodeType, id, type, undefined, descriptor, diags)
+      if (widget === undefined || (widget.writes === undefined && widget.reads === undefined)) {
+        throw new Error(`${where}.widget must name at least one row it writes or reads`)
+      }
+      return {
+        kind: 'editor',
+        id,
+        widget,
+        ...(entry['visible'] !== undefined ? { visible: wireFormulated<boolean>(entry['visible'], `${where}.visible`, 'boolean') } : {}),
+      }
+    }
+    case 'button': {
+      rejectUnknownFields(entry, ['kind', 'id', 'steps', 'enabled', 'disabledReason', 'icon', ...COMMON_FIELDS], where)
+      const common = wireCommon(entry, where)
+      if (typeof common.displayName !== 'string' || common.displayName === '') throw new Error(`${where}.label is required text`)
+      const { displayName: label, ...rest } = common
+      return {
+        kind: 'button',
+        id: wireLayoutId(entry['id'], `${where}.id`),
+        label,
+        ...(rest.tooltip !== undefined ? { tooltip: rest.tooltip } : {}),
+        ...(rest.visible !== undefined ? { visible: rest.visible } : {}),
+        steps: wireSteps(entry['steps'], `${where}.steps`),
+        ...(entry['enabled'] !== undefined ? { enabled: wireFormulated<boolean>(entry['enabled'], `${where}.enabled`, 'boolean') } : {}),
+        ...(entry['disabledReason'] !== undefined
+          ? { disabledReason: wireFormulated<string>(entry['disabledReason'], `${where}.disabledReason`, 'string') }
+          : {}),
+        ...(entry['icon'] !== undefined ? { icon: wireString(entry['icon'], `${where}.icon`) } : {}),
+      }
+    }
+    case 'group': {
+      rejectUnknownFields(entry, [
+        'kind', 'id', 'member', 'value', 'keys', 'grows', 'minMembers', 'maxMembers', 'independentTypes',
+        'optionalAfterMinimum', 'reorderable', 'addLabel', 'memberLabel', 'openName', ...COMMON_FIELDS,
+      ], where)
+      const id = wireRowId(entry['id'], `${where}.id`)
+      if ((entry['member'] === undefined) === (entry['value'] === undefined)) {
+        throw new Error(`${where}: group ${id} declares exactly one of member and value`)
+      }
+      let value: InputSpec | OutputSpec | undefined
+      if (entry['value'] !== undefined) {
+        const row = decodeOptionRow(nodeType, entry['value'], `${where}.value`, diags, [])
+        if (row.kind !== 'input' && row.kind !== 'output') throw new Error(`${where}.value is one Input or one Output`)
+        value = row
+      }
+      const member = entry['member'] === undefined ? undefined : decodeRows(nodeType, entry['member'], `${where}.member`, diags)
+      if (member !== undefined && member.length === 0) throw new Error(`${where}: group ${id} member needs at least one row`)
+      const minMembers = wireBound(entry['minMembers'] ?? 0, `${where}.minMembers`)!
+      const maxMembers = wireBound(entry['maxMembers'], `${where}.maxMembers`)
+      if (minMembers > MAX_GROUP_MEMBERS) throw new Error(`${where}.minMembers is from 0 to ${MAX_GROUP_MEMBERS}`)
+      if (maxMembers !== undefined && (maxMembers < Math.max(1, minMembers) || maxMembers > MAX_GROUP_MEMBERS)) {
+        throw new Error(`${where}.maxMembers is from minMembers (and 1) to ${MAX_GROUP_MEMBERS}`)
+      }
+      const keys = decodeKeys(entry['keys'], `${where}.keys`)
+      if (keys.kind === 'named' && maxMembers !== undefined && maxMembers > keys.names.length) {
+        throw new Error(`${where}.maxMembers exceeds the declared names`)
+      }
+      const flag = (name: string): boolean => wireBoolean(entry[name], `${where}.${name}`, false)
+      return {
+        kind: 'group',
+        id,
+        ...wireCommon(entry, where),
+        ...(value !== undefined ? { value } : {}),
+        ...(member !== undefined ? { member } : {}),
+        keys,
+        grows: decodeGrows(entry['grows'], `${where}.grows`),
+        minMembers,
+        ...(maxMembers !== undefined ? { maxMembers } : {}),
+        ...(flag('independentTypes') ? { independentTypes: true as const } : {}),
+        ...(flag('optionalAfterMinimum') ? { optionalAfterMinimum: true as const } : {}),
+        ...(flag('reorderable') ? { reorderable: true as const } : {}),
+        ...(wireOptionalString(entry['addLabel'], `${where}.addLabel`) !== undefined ? { addLabel: entry['addLabel'] as string } : {}),
+        ...(entry['memberLabel'] !== undefined && entry['memberLabel'] !== ''
+          ? { memberLabel: wireFormulated<string>(entry['memberLabel'], `${where}.memberLabel`, 'string') }
+          : {}),
+        ...(!wireBoolean(entry['openName'], `${where}.openName`, true) ? { openName: false as const } : {}),
+      }
+    }
+    case 'choice': {
+      rejectUnknownFields(entry, ['kind', 'id', 'options', 'shared', 'leader', 'default', 'required', 'hidden', 'onEdit', ...COMMON_FIELDS], where)
+      const id = wireRowId(entry['id'], `${where}.id`)
+      const shared = decodeRows(nodeType, entry['shared'] ?? [], `${where}.shared`, diags)
+      const sharedScope = scopeRowsOf(shared)
+      const keys = new Set<string>()
+      const options = wireList(entry['options'], `${where}.options`).map((raw, index) => {
+        const optionWhere = `${where}.options[${index}]`
+        const option = wireObject(raw, optionWhere)
+        rejectUnknownFields(option, ['key', 'rows', 'label'], optionWhere)
+        const key = option['key']
+        if (!isOptionKey(key)) throw new Error(`${optionWhere}.key must be printable ASCII words separated by single spaces`)
+        if (keys.has(key)) throw new Error(`${where}: choice ${id} declares option '${key}' twice`)
+        keys.add(key)
+        const label = wireOptionalString(option['label'], `${optionWhere}.label`)
+        return {
+          key,
+          ...(label !== undefined ? { label } : {}),
+          rows: decodeOptionRows(nodeType, option['rows'] ?? [], `${optionWhere}.rows`, diags, sharedScope),
+        }
+      })
+      if (options.length === 0) throw new Error(`${where}: choice ${id} needs at least one option`)
+      const defaultKey = entry['default'] === undefined ? undefined : wireString(entry['default'], `${where}.default`)
+      if (defaultKey !== undefined && !keys.has(defaultKey)) throw new Error(`${where}.default must name an option`)
+      const onEdit = entry['onEdit'] === undefined ? [] : wireSteps(entry['onEdit'], `${where}.onEdit`)
+      return {
+        kind: 'choice',
+        id,
+        ...wireCommon(entry, where),
+        options,
+        shared,
+        ...(entry['leader'] !== undefined ? { leader: wireString(entry['leader'], `${where}.leader`) } : {}),
+        ...(defaultKey !== undefined ? { default: defaultKey } : {}),
+        required: wireBoolean(entry['required'], `${where}.required`, true),
+        ...(wireBoolean(entry['hidden'], `${where}.hidden`, false) ? { hidden: true as const } : {}),
+        ...(onEdit.length > 0 ? { onEdit } : {}),
+      }
+    }
+    case 'typeChoice': {
+      rejectUnknownFields(entry, ['kind', 'id', 'variants', 'type', 'rows', 'required', 'typeVariable', ...COMMON_FIELDS], where)
+      const id = wireRowId(entry['id'], `${where}.id`)
+      if ((entry['variants'] === undefined) === (entry['type'] === undefined)) {
+        throw new Error(`${where}: type choice ${id} declares exactly one of variants and type`)
+      }
+      const keys = new Set<string>()
+      const variants = entry['variants'] === undefined ? undefined : wireList(entry['variants'], `${where}.variants`).map((raw, index) => {
+        const variantWhere = `${where}.variants[${index}]`
+        const variant = wireObject(raw, variantWhere)
+        rejectUnknownFields(variant, ['key', 'type', 'rows', 'tooltip'], variantWhere)
+        const key = variant['key']
+        if (!isVariantKey(key)) throw new Error(`${variantWhere}.key must match [A-Za-z0-9_-]+`)
+        if (keys.has(key)) throw new Error(`${where}: type choice ${id} declares variant '${key}' twice`)
+        keys.add(key)
+        const tooltip = wireOptionalString(variant['tooltip'], `${variantWhere}.tooltip`)
+        return {
+          key,
+          type: wireType(variant['type'], `${variantWhere}.type`),
+          rows: decodeRows(nodeType, variant['rows'] ?? [], `${variantWhere}.rows`, diags),
+          ...(tooltip !== undefined ? { tooltip } : {}),
+        }
+      })
+      if (variants !== undefined && variants.length === 0) throw new Error(`${where}: type choice ${id} needs at least one variant`)
+      const typeVariable = wireOptionalString(entry['typeVariable'], `${where}.typeVariable`)
+      if (typeof entry['required'] !== 'boolean') throw new Error(`${where}.required must be a boolean`)
+      return {
+        kind: 'typeChoice',
+        id,
+        ...wireCommon(entry, where),
+        ...(variants !== undefined ? { variants } : { type: wireType(entry['type'], `${where}.type`) }),
+        rows: decodeRows(nodeType, entry['rows'] ?? [], `${where}.rows`, diags),
+        required: entry['required'],
+        ...(typeVariable !== undefined ? { typeVariable } : {}),
+      }
+    }
+    case 'described': {
+      rejectUnknownFields(entry, ['kind', 'id', 'kinds', 'maxEntries', 'minEntries', 'fixedIds', 'probe', ...COMMON_FIELDS], where)
+      const id = wireRowId(entry['id'], `${where}.id`)
+      const kinds = decodeRows(nodeType, entry['kinds'], `${where}.kinds`, diags).map((row, index) => {
+        if (row.kind !== 'input' && row.kind !== 'output') throw new Error(`${where}.kinds[${index}] is an Input or an Output`)
+        return row
+      })
+      const kindIds = kinds.map((kind) => kind.id)
+      if (kinds.length === 0 || new Set(kindIds).size !== kindIds.length) {
+        throw new Error(`${where}: described ${id} needs kinds with unique ids across inputs and outputs`)
+      }
+      const maxEntries = wireBound(entry['maxEntries'], `${where}.maxEntries`)
+      if (maxEntries === undefined) throw new Error(`${where}.maxEntries is required`)
+      const minEntries = wireBound(entry['minEntries'] ?? 0, `${where}.minEntries`)!
+      let probe: DescribedSpec['probe']
+      if (entry['probe'] !== undefined) {
+        const raw = wireObject(entry['probe'], `${where}.probe`)
+        rejectUnknownFields(raw, ['input', 'kind', 'revision'], `${where}.probe`)
+        if (raw['kind'] !== 'model') throw new Error(`${where}.probe.kind must be 'model'`)
+        probe = { input: wireRowId(raw['input'], `${where}.probe.input`), kind: 'model', revision: wireString(raw['revision'], `${where}.probe.revision`) }
+      }
+      return {
+        kind: 'described',
+        id,
+        ...wireCommon(entry, where),
+        kinds,
+        minEntries,
+        maxEntries,
+        fixedIds: wireBoolean(entry['fixedIds'], `${where}.fixedIds`, false),
+        ...(probe !== undefined ? { probe } : {}),
+      }
+    }
+    default:
+      throw new Error(`${where} has unknown row kind '${String(entry['kind'])}'`)
+  }
+}
+
+/**
+ * Tables as formulas read them: whole JSON numbers are whole numbers, `{float: n}` a whole float,
+ * `{table: [[k, v]]}` a dictionary.
+ */
+function decodeTable(value: unknown, where: string): unknown {
+  if (Array.isArray(value)) return value.map((item, index) => decodeTable(item, `${where}[${index}]`))
+  if (typeof value === 'object' && value !== null) {
+    const data = value as Record<string, unknown>
+    if (Object.keys(data).length === 1 && Object.hasOwn(data, 'float')) {
+      if (typeof data['float'] !== 'number' || !Number.isInteger(data['float'])) throw new Error(`${where}: a marked table float is {float: whole number}`)
+      return value
+    }
+    if (Object.keys(data).length !== 1 || !Array.isArray(data['table'])) throw new Error(`${where}: a table dictionary is {table: [[key, value], ...]}`)
+    return {
+      table: data['table'].map((pair, index) => {
+        if (!Array.isArray(pair) || pair.length !== 2 || !(typeof pair[0] === 'string' || (typeof pair[0] === 'number' && Number.isSafeInteger(pair[0])))) {
+          throw new Error(`${where}.table[${index}] is [text or whole-number key, value]`)
+        }
+        return [pair[0], decodeTable(pair[1], `${where}.table[${index}][1]`)]
+      }),
+    }
+  }
+  wireJson(value, where)
+  return value
+}
+
+/** The body and the node-level formula fields of a version 2 schema, checked as the engine checks them. */
+function decodeBodySchema(nodeType: string, wire: DinksterWireSchema, diags: Diagnostic[]): Pick<NodeSchema, 'body' | 'tables' | 'derived' | 'validate' | 'titleSuffix' | 'menu'> {
+  const body = decodeRows(nodeType, wire.body, 'body', diags)
+  const tables = wire.tables === undefined ? {} : Object.fromEntries(
+    Object.entries(wireObject(wire.tables, 'tables')).map(([name, value]) => [wireRowId(name, `tables.${name}`), decodeTable(value, `tables.${name}`)]),
+  )
+  const derived = wire.derived === undefined ? {} : Object.fromEntries(
+    Object.entries(wireObject(wire.derived, 'derived')).map(([name, text]) => [wireRowId(name, `derived.${name}`), wireString(text, `derived.${name}`)]),
+  )
+  const validate = wire.validate === undefined ? [] : wireList(wire.validate, 'validate').map((rule, index) => wireRule(rule, `validate[${index}]`))
+  const menu = wire.menu === undefined ? [] : decodeRows(nodeType, wire.menu, 'menu', diags).map((row, index) => {
+    if (row.kind !== 'button') throw new Error(`menu[${index}] is a Button`)
+    return row
+  })
+  const titleSuffix = wire.titleSuffix !== undefined && wire.titleSuffix !== '' ? wireFormulated<string>(wire.titleSuffix, 'titleSuffix', 'string') : undefined
+  checkBody(body, { tables: formulaTablesOf(tables), derived: new Map(Object.entries(derived)) }, {
+    validate, menu, ...(titleSuffix === undefined ? {} : { titleSuffix }),
+  })
+  return {
+    body,
+    ...(Object.keys(tables).length > 0 ? { tables } : {}),
+    ...(Object.keys(derived).length > 0 ? { derived } : {}),
+    ...(validate.length > 0 ? { validate } : {}),
+    ...(titleSuffix === undefined ? {} : { titleSuffix }),
+    ...(menu.length > 0 ? { menu } : {}),
   }
 }
 
@@ -1929,84 +2104,16 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     if (wire.schemaVersion !== undefined && wire.schemaVersion !== DINKSTER_SCHEMA_WIRE_VERSION) {
       throw new Error(`expected schema wire version ${DINKSTER_SCHEMA_WIRE_VERSION}, received ${String(wire.schemaVersion)}`)
     }
-    if (!Array.isArray(wire.interface)) throw new Error('interface must be an array')
-    const items: InterfaceItem[] = []
-    const inputIds = new Set<string>()
-    const outputIds = new Set<string>()
-    const budget: WireDecodeBudget = { remaining: MAX_DYNAMIC_ITEMS }
-    for (const [index, raw] of wire.interface.entries()) {
-      const where = `interface[${index}]`
-      const entry = wireObject(raw, where)
-      if (entry['role'] !== 'input') acceptsStorageOf(entry, where)
-      if (entry['role'] !== 'input') acceptsStreamOf(entry, where)
-      if (entry['role'] !== 'input') acceptsListOf(entry, where)
-      if (entry['count'] !== undefined && entry['role'] !== 'outputFamily') {
-        throw new Error(`${where}.count is only valid on outputFamily`)
-      }
-      if (entry['role'] === 'outputDescriptors') {
-        const descriptors = decodeOutputDescriptors(entry, where)
-        if (outputIds.has(descriptors.input)) throw new Error(`duplicate output construct '${descriptors.input}'`)
-        outputIds.add(descriptors.input)
-        items.push({
-          kind: 'output',
-          id: descriptors.input,
-          type: descriptors.choices[0]!.type,
-          outputDescriptors: descriptors,
-        })
-        continue
-      }
-      if (entry['role'] === 'output' || entry['role'] === 'outputFamily') {
-        // outputFamily ids are construct ids (structural); ordinary output
-        // ids keep top-level leniency.
-        const id = entry['role'] === 'outputFamily' ? wireSegment(entry['id'], `${where}.id`) : wireEntryId(entry['id'], `${where}.id`)
-        if (outputIds.has(id)) throw new Error(`interface declares duplicate output id '${id}'`)
-        outputIds.add(id)
-        if (entry['role'] === 'output') {
-          items.push({
-            ...decodeOutput(nodeType, entry as WireEntry, diags, wireType(entry['type'], `${where}.type`)),
-            ...wirePreview(entry, where),
-            ...mediaPolicyOf(entry, where),
-          })
-        } else {
-          const type = wireType(entry['type'], `${where}.type`)
-          let count: { input: string; suffix: 'index' } | undefined
-          if (entry['count'] !== undefined) {
-            const rawCount = wireObject(entry['count'], `${where}.count`)
-            const keys = Object.keys(rawCount).sort()
-            if (keys.length !== 2 || keys[0] !== 'input' || keys[1] !== 'suffix') throw new Error(`${where}.count must contain exactly input and suffix`)
-            const input = wireSegment(rawCount['input'], `${where}.count.input`)
-            if (rawCount['suffix'] !== 'index') throw new Error(`${where}.count.suffix must be 'index'`)
-            count = { input, suffix: 'index' }
-          }
-          items.push({
-            kind: 'output',
-            id,
-            type,
-            ...wirePreview(entry, where),
-            ...mediaPolicyOf(entry, where),
-            dynamic: {
-              ...familyDynamic(id, type, entry as WireEntry),
-              ...(count !== undefined ? { count } : {}),
-            },
-          })
-        }
-        continue
-      }
-      // Duplicate tracking only needs a well-formed string here; construct
-      // decoders (inputFamily/dynamicCombo/dynamicSlot) enforce the strict
-      // structural segment grammar on their own ids.
-      const id = wireEntryId(entry['id'], `${where}.id`)
-      if (inputIds.has(id)) throw new Error(`interface declares duplicate input id '${id}'`)
-      inputIds.add(id)
-      items.push(decodeWireEntry(nodeType, entry, where, diags, budget, 0))
+    if (wire.interface !== undefined && (!Array.isArray(wire.interface) || wire.interface.length > 0)) {
+      throw new Error('schema wire version 2 carries the node body, not an interface list')
     }
+    const bodySchema = decodeBodySchema(nodeType, wire, diags)
     const idempotent = wire.idempotent !== false
     const additionalInputs = wire.additionalInputs === undefined ? undefined : wireType(wire.additionalInputs, 'additionalInputs')
     const deprecation = decodeDeprecation(nodeType, wire.deprecation, diags)
     const replacements = decodeReplacements(nodeType, wire.replacements, diags)
     const searchVisibility = decodeSearchVisibility(nodeType, wire.searchVisibility, diags)
     const searchTerms = Array.isArray(wire.searchTerms) && wire.searchTerms.every((term) => typeof term === 'string') ? ([...wire.searchTerms] as string[]) : []
-    const aliases = Array.isArray(wire.aliases) ? wire.aliases.filter((alias): alias is string => typeof alias === 'string' && alias !== '') : []
     const executionArms = Array.isArray(wire.executionArms)
       ? wire.executionArms.filter((arm): arm is 'native' | 'comfyui' => arm === 'native' || arm === 'comfyui')
       : []
@@ -2042,7 +2149,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
         ? { unavailableReason: wire.unavailableReason } : {}),
       ...(typeof wire.description === 'string' && wire.description !== '' ? { description: wire.description } : {}),
       source: 'v3',
-      items: [],
+      ...bodySchema,
       ...(additionalInputs !== undefined ? { additionalInputs } : {}),
       isOutputNode: wire.outputNode === true || !idempotent,
       ...(wire.emitsPreviews === true ? { emitsPreviews: true } : {}),
@@ -2052,7 +2159,6 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       ...(replacements !== undefined ? { replacements } : {}),
       ...(searchVisibility !== undefined ? { searchVisibility } : {}),
       searchTerms,
-      ...(aliases.length > 0 ? { aliases } : {}),
       ext: {
         dinkster: {
           version: typeof wire.version === 'number' ? wire.version : 1,
@@ -2062,71 +2168,77 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
         },
       },
     }
-    const decodedInputs = new Map(items.filter((item): item is InputSpec => item.kind === 'input').map((item) => [item.id, item]))
-    validateInputAdjacency([...decodedInputs.values()])
-    const decodedOutputs = items.filter((item): item is OutputSpec => item.kind === 'output')
+    const decodedInputs = new Map(inputsOf(baseSchema).map((item) => [item.id, item]))
+    const decodedOutputs = outputsOf(baseSchema)
     const validateTupleDeclaration = (type: TypeExpr, output: boolean): void => {
-      if (type.kind === 'family_tuple') {
-        const family = decodedInputs.get(type.input)?.dynamic
-        if (!output || family?.kind !== 'autogrow' || !family.independentTypes || family.template.length !== 1) throw new Error('family_tuple requires an independent single-input family and an output declaration')
-      } else if (type.kind === 'tuple_element') {
+      if (type.kind === 'tuple_element') {
         const source = type.input === undefined ? undefined : decodedInputs.get(type.input)
         const selector = typeof type.index === 'string' ? decodedInputs.get(type.index) : undefined
-        if (!output || (type.input !== undefined && (source === undefined || source.dynamic !== undefined))) throw new Error('tuple_element requires an ordinary tuple input and an output declaration')
-        if (typeof type.index === 'string' && (selector === undefined || selector.dynamic !== undefined || selector.optional || selector.type.kind !== 'concrete' || selector.type.name !== 'INT')) throw new Error('tuple_element requires an ordinary required INT selector')
+        if (!output || (type.input !== undefined && source === undefined)) throw new Error('tuple_element requires a tuple input of the node and an output declaration')
+        if (typeof type.index === 'string' && (selector === undefined || selector.optional || selector.type.kind !== 'concrete' || selector.type.name !== 'INT')) throw new Error('tuple_element requires a required INT selector of the node')
       } else if (type.kind === 'tuple') {
         type.elements.forEach((element) => validateTupleDeclaration(element, output))
       } else if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') validateTupleDeclaration(type.element, output)
     }
-    for (const item of items) if (item.kind !== 'section') validateTupleDeclaration(item.type, item.kind === 'output')
+    for (const row of allRowsOf(baseSchema.body)) {
+      if (row.kind === 'input' || row.kind === 'output') validateTupleDeclaration(row.type, row.kind === 'output')
+    }
     if (additionalInputs !== undefined) validateTupleDeclaration(additionalInputs, false)
-    if (decodedOutputs.filter((output) => output.outputDescriptors !== undefined).length > 1) {
-      throw new Error('a schema may declare only one outputDescriptors construct')
-    }
-    for (const output of decodedOutputs) {
-      const spec = output.outputDescriptors
-      if (spec === undefined) continue
-      const input = decodedInputs.get(spec.input)
-      if (!input || input.dynamic || input.optional || input.type.kind !== 'concrete' || input.type.name !== 'STRING') {
-        throw new Error(`output descriptors '${spec.input}' require an ordinary required STRING input`)
-      }
-      if (spec.probe) {
-        const asset = decodedInputs.get(spec.probe.input)
-        if (!spec.fixedIds || !asset || asset.dynamic || asset.optional || asset.type.kind !== 'concrete' || asset.type.name !== 'ASSET') {
-          throw new Error(`output descriptor probe requires fixedIds and an ordinary required ASSET input`)
-        }
-      }
-    }
     for (const output of decodedOutputs) {
       const knownValue = output.knownValue
       if (knownValue === undefined) continue
       const input = decodedInputs.get(knownValue.input)
-      const primitive = output.type.kind === 'concrete' && PRIMITIVE_WIDGETS[output.type.name] !== undefined
-      if (input === undefined || input.dynamic !== undefined || !primitive || input.type.kind !== 'concrete' || input.type.name !== output.type.name) {
-        throw new Error(`output '${output.id}' knownValue must name an ordinary input with the same concrete primitive type`)
+      const inputType = input?.type.kind === 'concrete' ? input.type.name : undefined
+      const outputType = output.type.kind === 'concrete' ? output.type.name : undefined
+      const samePrimitive = outputType !== undefined && PRIMITIVE_WIDGETS[outputType] !== undefined && inputType === outputType
+      // A chosen option is its text, so a choice may also be known as a STRING.
+      const fromChoice = inputType === 'COMBO' && (outputType === 'COMBO' || outputType === 'STRING')
+      // A variable's known value applies once the variable is bound to a primitive or COMBO.
+      const sameVariable = input?.type.kind === 'variable' && output.type.kind === 'variable' &&
+        JSON.stringify(input.type) === JSON.stringify(output.type)
+      if (!samePrimitive && !fromChoice && !sameVariable) {
+        throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type or type variable, or a COMBO input for a COMBO or STRING output`)
+      }
+      const named = new Set<string>()
+      for (const [limit, target] of Object.entries(knownValue.limits ?? {})) {
+        const holder = decodedInputs.get(target)
+        if (limit !== 'default' && inputType !== 'INT' && inputType !== 'FLOAT') {
+          throw new Error(`output '${output.id}' knownValue limit '${limit}' needs an INT or FLOAT value`)
+        }
+        if (holder === undefined || target === knownValue.input || !holder.optional || named.has(target) ||
+          JSON.stringify(holder.type) !== JSON.stringify(input?.type)) {
+          throw new Error(`output '${output.id}' knownValue limit '${limit}' must name another optional input of the value's type, once`)
+        }
+        named.add(target)
       }
     }
-    for (const output of decodedOutputs) {
-      const dynamic = output.dynamic
-      if (dynamic?.kind !== 'autogrow' || !('count' in dynamic)) continue
-      const count = (dynamic as CountBoundOutputAutogrowSpec).count
-      const input = decodedInputs.get(count.input)
-      if (input === undefined) throw new Error(`output family '${output.id}' count names unknown input '${count.input}'`)
-      if (input.dynamic !== undefined || input.optional || input.type.kind !== 'concrete' || input.type.name !== 'INT') {
-        throw new Error(`output family '${output.id}' count input must be an ordinary required INT input`)
+    for (const row of allRowsOf(baseSchema.body)) {
+      if (row.kind !== 'input' || row.widget === undefined) continue
+      const widgets = [row.widget, ...(row.widget.representations?.representations.map((item) => item.widget) ?? [])]
+      for (const widget of widgets) {
+        if (widget.optionsInput === undefined) continue
+        const target = decodedInputs.get(widget.optionsInput)
+        const stringList = target?.type.kind === 'list' && target.type.element.kind === 'concrete' && target.type.element.name === 'STRING'
+        if (target === undefined || target.hidden !== true || !target.optional || target.widget !== undefined || !stringList) {
+          throw new Error(`input '${row.id}' optionsInput '${widget.optionsInput}' must name a top-level hidden, optional list<STRING> input with no widget`)
+        }
       }
     }
-    validateSlotTypeBindings([...decodedInputs.values()], decodedOutputs)
-    const selector = decodeWireSelector(wire.selector, decodedInputs, decodedOutputs)
-    const widgetGroups = decodeWidgetGroups(wire.widgetGroups, decodedInputs)
+    const selector = decodeWireSelector(wire.selector, decodedInputs, baseSchema.body, decodedOutputs)
+    if (wire.widgetGroups !== undefined) throw new Error('widgetGroups is not part of a body node; a Choice or a visible formula shows and hides rows')
     const mirror = decodeMirror(wire.mirror)
-    const chunkSafe = decodeChunkSafe(wire, decodedInputs, decodedOutputs)
+    const topChoices = new Map(scopeRowsOf(baseSchema.body).filter((row): row is ChoiceSpec => row.kind === 'choice').map((row) => [row.id, row]))
+    const chunkSafe = decodeChunkSafe(wire, decodedInputs, decodedOutputs, topChoices)
+    if (mirror?.applies !== undefined) checkAppliesChoices(mirror.applies, topChoices, 'mirror')
+    for (const row of allRowsOf(baseSchema.body)) {
+      if (row.kind === 'output' && row.represents?.applies !== undefined) {
+        checkAppliesChoices(row.represents.applies, topChoices, `output '${row.id}' represents`)
+      }
+    }
     return {
       schema: {
         ...baseSchema,
-        items,
         ...(selector !== undefined ? { selector } : {}),
-        ...(widgetGroups !== undefined ? { widgetGroups } : {}),
         ...(mirror !== undefined ? { mirror } : {}),
         ...(chunkSafe !== undefined ? { chunkSafe } : {}),
       },
@@ -2141,86 +2253,6 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       ],
     }
   }
-}
-
-function decodeWidgetGroups(raw: unknown, inputs: ReadonlyMap<string, InputSpec>): readonly ConditionalWidgetGroup[] | undefined {
-  if (raw === undefined) return undefined
-  if (!Array.isArray(raw) || raw.length === 0) {
-    throw new Error('widgetGroups must be a non-empty array')
-  }
-  const widgetInputs = new Map(
-    [...inputs.values()].filter((input) => input.dynamic === undefined && input.widget !== undefined).map((input) => [input.id, input]),
-  )
-  const decodeCondition = (rawCondition: unknown, where: string): ConditionalWidgetCondition => {
-    const condition = wireObject(rawCondition, where)
-    if (Object.keys(condition).sort().join(',') !== 'input,values') {
-      throw new Error(`${where} must contain exactly input and values`)
-    }
-    const input = condition['input']
-    const values = condition['values']
-    if (typeof input !== 'string' || input === '') {
-      throw new Error(`${where}.input must be a non-empty string`)
-    }
-    if (
-      !Array.isArray(values) ||
-      values.length === 0 ||
-      !values.every(
-        (value) =>
-          value === null ||
-          typeof value === 'string' ||
-          typeof value === 'boolean' ||
-          (typeof value === 'number' && Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value))),
-      )
-    ) {
-      throw new Error(`${where}.values must be non-empty JSON scalars`)
-    }
-    if (new Set(values).size !== values.length) {
-      throw new Error(`${where}.values must be unique`)
-    }
-    if (!widgetInputs.has(input)) {
-      throw new Error(`${where}.input must name a top-level widget input`)
-    }
-    return { input, values }
-  }
-  return raw.map((entry, index) => {
-    const group = wireObject(entry, `widgetGroups[${index}]`)
-    const keys = Object.keys(group).sort().join(',')
-    if (keys !== 'input,members,values' && keys !== 'input,members,requires,values') {
-      throw new Error(`widgetGroups[${index}] must contain input, values, members, and optional requires`)
-    }
-    const condition = decodeCondition({ input: group['input'], values: group['values'] }, `widgetGroups[${index}]`)
-    const { input, values } = condition
-    const members = group['members']
-    if (
-      !Array.isArray(members) ||
-      members.length === 0 ||
-      !members.every((member) => typeof member === 'string' && member !== '') ||
-      new Set(members).size !== members.length
-    )
-      throw new Error(`widgetGroups[${index}].members must be unique non-empty strings`)
-    const rawRequires = group['requires']
-    if (rawRequires !== undefined && (!Array.isArray(rawRequires) || rawRequires.length === 0)) {
-      throw new Error(`widgetGroups[${index}].requires must be a non-empty array`)
-    }
-    const requires =
-      rawRequires === undefined
-        ? []
-        : rawRequires.map((required, requiredIndex) => decodeCondition(required, `widgetGroups[${index}].requires[${requiredIndex}]`))
-    const drivers = [input, ...requires.map((required) => required.input)]
-    if (new Set(drivers).size !== drivers.length) {
-      throw new Error(`widgetGroups[${index}] condition inputs must be unique`)
-    }
-    for (const member of members) {
-      if (!widgetInputs.has(member)) throw new Error(`widgetGroups[${index}].members must name top-level widget inputs`)
-      if (drivers.includes(member)) throw new Error(`widgetGroups[${index}] conditions cannot control themselves`)
-    }
-    return {
-      input,
-      values,
-      members,
-      ...(requires.length > 0 ? { requires } : {}),
-    } as ConditionalWidgetGroup
-  })
 }
 
 const MIRROR_KINDS: ReadonlySet<string> = new Set(['expression', 'glsl'])
@@ -2261,6 +2293,21 @@ function decodeMirrorTolerance(raw: unknown): MirrorTolerance {
  * scope fails the node rather than decoding into an over- or under-applied
  * mirror.
  */
+/** An applies key names a required choice of the body's top scope, and its values are option keys. */
+function checkAppliesChoices(
+  applies: Readonly<Record<string, readonly string[]>>,
+  choices: ReadonlyMap<string, ChoiceSpec>,
+  subject: string,
+): void {
+  for (const [id, keys] of Object.entries(applies)) {
+    const choice = choices.get(id)
+    if (choice === undefined) throw new Error(`${subject} applies key '${id}' does not name a declared choice`)
+    if (!choice.required) throw new Error(`${subject} applies key '${id}' must name a required choice`)
+    const undeclared = keys.filter((key) => !choice.options.some((option) => option.key === key))
+    if (undeclared.length > 0) throw new Error(`${subject} applies['${id}'] covers undeclared option(s): ${[...undeclared].sort().join(', ')}`)
+  }
+}
+
 function decodeApplies(raw: unknown, subject: string): Readonly<Record<string, readonly string[]>> {
   const entries = Object.entries(wireObject(raw, subject))
   if (entries.length === 0) throw new Error(`${subject} must not be empty`)
@@ -2305,13 +2352,22 @@ function decodeOutputKnownValue(raw: unknown): OutputKnownValue | undefined {
   if (raw === undefined) return undefined
   const knownValue = wireObject(raw, 'output.knownValue')
   for (const key of Object.keys(knownValue)) {
-    if (key !== 'input') throw new Error(`output.knownValue has unknown field '${key}'`)
+    if (key !== 'input' && key !== 'limits') throw new Error(`output.knownValue has unknown field '${key}'`)
   }
   const input = knownValue['input']
   if (typeof input !== 'string' || input === '') {
     throw new Error('output.knownValue.input must be a non-empty string')
   }
-  return { input }
+  if (knownValue['limits'] === undefined) return { input }
+  const rawLimits = wireObject(knownValue['limits'], 'output.knownValue.limits')
+  if (Object.keys(rawLimits).length === 0) throw new Error('output.knownValue.limits must name at least one limit')
+  const limits: Partial<Record<KnownValueLimit, string>> = {}
+  for (const [key, target] of Object.entries(rawLimits)) {
+    if (!(KNOWN_VALUE_LIMITS as readonly string[]).includes(key)) throw new Error(`output.knownValue.limits has unknown limit '${key}'`)
+    if (typeof target !== 'string' || target === '') throw new Error(`output.knownValue.limits.${key} must be a non-empty string`)
+    limits[key as KnownValueLimit] = target
+  }
+  return { input, limits }
 }
 
 function decodeMirror(raw: unknown): MirrorSpec | undefined {
@@ -2362,75 +2418,12 @@ function decodeMirror(raw: unknown): MirrorSpec | undefined {
   }
 }
 
-function decodeOutputDescriptors(entry: Record<string, unknown>, where: string): OutputDescriptorsSpec {
-  const allowed = new Set(['role', 'input', 'choices', 'minEntries', 'maxEntries', 'fixedIds', 'probe'])
-  if (Object.keys(entry).some((key) => !allowed.has(key))) throw new Error(`${where} has unknown output descriptor fields`)
-  const input = wireSegment(entry['input'], `${where}.input`)
-  const minEntries = entry['minEntries']
-  const maxEntries = entry['maxEntries']
-  if (
-    typeof minEntries !== 'number' ||
-    typeof maxEntries !== 'number' ||
-    !Number.isInteger(minEntries) ||
-    !Number.isInteger(maxEntries) ||
-    minEntries < 0 ||
-    maxEntries < minEntries ||
-    maxEntries > 512
-  ) {
-    throw new Error(`${where} requires 0 <= minEntries <= maxEntries <= 512`)
-  }
-  if (typeof entry['fixedIds'] !== 'boolean') throw new Error(`${where}.fixedIds must be boolean`)
-  const rawChoices = entry['choices']
-  if (!Array.isArray(rawChoices) || rawChoices.length === 0 || rawChoices.length > 512) throw new Error(`${where}.choices must contain 1..512 concrete choices`)
-  const ids = new Set<string>()
-  const choices = rawChoices.map((raw, index) => {
-    const choice = wireObject(raw, `${where}.choices[${index}]`)
-    if (
-      Object.keys(choice).some(
-        (key) => !['id', 'type', 'displayName', 'optional', 'preview', 'doc', 'alphaPolicy', 'maskPolarity', 'maskSemantic'].includes(key),
-      )
-    )
-      throw new Error(`${where}.choices has unknown fields`)
-    const id = wireSegment(choice['id'], `${where}.choices.id`)
-    if (ids.has(id)) throw new Error(`${where}.choices IDs must be unique`)
-    ids.add(id)
-    const type = wireType(choice['type'], `${where}.choices.type`)
-    if (type.kind !== 'concrete') throw new Error(`${where}.choices types must be concrete`)
-    for (const key of ['displayName', 'doc']) {
-      if (choice[key] !== undefined && typeof choice[key] !== 'string') throw new Error(`${where}.choices.${key} must be a string`)
-    }
-    return {
-      id,
-      type,
-      ...mediaPolicyOf(choice, `${where}.choices[${index}]`),
-      ...(choice['displayName'] !== undefined ? { displayName: choice['displayName'] as string } : {}),
-      ...(choice['doc'] !== undefined ? { doc: choice['doc'] as string } : {}),
-      ...(wireBoolean(choice['optional'], `${where}.choices.optional`, false) ? { optional: true } : {}),
-      ...(wireBoolean(choice['preview'], `${where}.choices.preview`, false) ? { preview: true as const } : {}),
-    }
-  })
-  let probe: OutputDescriptorsSpec['probe']
-  if (entry['probe'] !== undefined) {
-    const raw = wireObject(entry['probe'], `${where}.probe`)
-    if (Object.keys(raw).sort().join(',') !== 'input,kind,revision' || raw['kind'] !== 'model' || typeof raw['revision'] !== 'string' || raw['revision'] === '')
-      throw new Error(`${where}.probe requires input, model kind, and revision`)
-    probe = {
-      input: wireSegment(raw['input'], `${where}.probe.input`),
-      kind: 'model',
-      revision: raw['revision'],
-    }
-  }
-  return {
-    input,
-    choices,
-    minEntries,
-    maxEntries,
-    fixedIds: entry['fixedIds'],
-    ...(probe ? { probe } : {}),
-  }
-}
-
-function decodeChunkSafe(wire: DinksterWireSchema, inputs: ReadonlyMap<string, InputSpec>, outputs: readonly OutputSpec[]): NodeSchema['chunkSafe'] {
+function decodeChunkSafe(
+  wire: DinksterWireSchema,
+  inputs: ReadonlyMap<string, InputSpec>,
+  outputs: readonly OutputSpec[],
+  choices: ReadonlyMap<string, ChoiceSpec>,
+): NodeSchema['chunkSafe'] {
   if (!Object.hasOwn(wire, 'chunkSafe')) return undefined
   const raw = wireObject(wire.chunkSafe, 'chunkSafe')
   if (Object.keys(raw).some((key) => !['inputs', 'outputs', 'applies'].includes(key))) throw new Error('chunkSafe has unknown fields')
@@ -2445,19 +2438,14 @@ function decodeChunkSafe(wire: DinksterWireSchema, inputs: ReadonlyMap<string, I
   const outputIds = ids('outputs')
   for (const id of inputIds) {
     const input = inputs.get(id)
-    if (!input || (input.dynamic !== undefined && input.dynamic.kind !== 'dynamicSlot')) throw new Error(`chunkSafe.inputs names invalid input '${id}'`)
+    if (!input) throw new Error(`chunkSafe.inputs names invalid input '${id}'`)
   }
   for (const id of outputIds) {
-    if (!outputs.some((output) => output.id === id && !output.dynamic && !output.outputDescriptors))
+    if (!outputs.some((output) => output.id === id))
       throw new Error(`chunkSafe.outputs names invalid output '${id}'`)
   }
   const applies = Object.hasOwn(raw, 'applies') ? decodeApplies(raw['applies'], 'chunkSafe.applies') : undefined
-  for (const [id, keys] of Object.entries(applies ?? {})) {
-    const input = inputs.get(id)
-    const combo = input?.dynamic
-    if (input?.optional || combo?.kind !== 'dynamicCombo' || keys.some((key) => !combo.options.some((option) => option.key === key)))
-      throw new Error(`chunkSafe.applies names invalid combo or option '${id}'`)
-  }
+  if (applies !== undefined) checkAppliesChoices(applies, choices, 'chunk_safe')
   return {
     inputs: inputIds,
     outputs: outputIds,

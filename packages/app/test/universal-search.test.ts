@@ -1,9 +1,6 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { parseDinksterSchema, type DinksterNodesPayload, type SearchResult } from '@dinkster/core'
+import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterSchema, type DinksterNodesPayload, type SearchResult } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { SettingsRegistry } from '../src/settings.js'
@@ -98,6 +95,49 @@ describe('universal search model', () => {
     expect(app.activeTabId.get()).toBe(after.id)
     expect(runSearchAction(app, { kind: 'host', action: 'tab.activate', params: { id: 'gone' } })).toBe(false)
   })
+  it('workflows provider lists saved workflows without loading them and opens the chosen one', async () => {
+    const app = prepareWorkflowApp(new AppState())
+    const listLibrary = vi.fn(async () => ({ records: [
+      { id: 'wf-b', name: 'Portrait upscale', folder: 'clients/acme' },
+      { id: 'wf-a', name: 'Portrait base' },
+    ] }))
+    vi.spyOn(app, 'libraryBackend').mockReturnValue({ id: 'engine-1', connection: { listLibrary } } as never)
+    const openFromLibrary = vi.spyOn(app, 'openFromLibrary').mockResolvedValue(true)
+    const dispose = registerCoreSearchProviders(app)
+    const provider = app.searchRegistry.list().find((item) => item.id === 'core.workflows')!
+    const context = { selection: { nodes: [] }, signal: new AbortController().signal }
+    expect(await provider.query('', context)).toEqual([])
+    expect(listLibrary).not.toHaveBeenCalled()
+    const rows = await provider.query('portrait', context) as readonly SearchResult[]
+    expect(listLibrary).toHaveBeenCalledWith({ scope: 'local', query: 'portrait', label: 'workflow', limit: 20 })
+    expect(rows.map((item) => [item.title, item.detail])).toEqual([['Portrait upscale', 'clients/acme'], ['Portrait base', undefined]])
+    expect(rows[0]!.score).toBeGreaterThan(rows[1]!.score)
+    expect(await runSearchAction(app, rows[1]!.action)).toBe(true)
+    expect(openFromLibrary).toHaveBeenCalledWith('wf-a', 'engine-1')
+    dispose.forEach((fn) => fn())
+  })
+  it('blueprints provider lists the blueprints node search lists and arms the chosen one, not a node', () => {
+    const app = prepareWorkflowApp(new AppState())
+    const entry = (type: string, name: string, pack: string) => ({
+      type, name, category: pack, pack, kind: 'blueprint' as const, fields: [{ text: name, weight: 3 }, { text: pack, weight: 1 }],
+    })
+    const armBlueprintPlacement = vi.fn(() => true)
+    const armNodePlacement = vi.fn(() => true)
+    app.canvasBridge.set({
+      blueprintEntries: () => [entry('blueprint:dev/upscale-2x', 'Upscale 2x', 'Dev'), entry('blueprint:saved/wf-9', 'Upscale and sharpen', 'This project')],
+      armBlueprintPlacement, armNodePlacement, selectedNodes: () => [],
+    } as never)
+    const dispose = registerCoreSearchProviders(app)
+    const provider = app.searchRegistry.list().find((item) => item.id === 'core.blueprints')!
+    const rows = provider.query('upscale', { selection: { nodes: [] }, signal: new AbortController().signal }) as readonly SearchResult[]
+    expect(rows.map((row) => row.title).sort()).toEqual(['Upscale 2x', 'Upscale and sharpen'])
+    const saved = rows.find((row) => row.title === 'Upscale and sharpen')!
+    expect(saved.preview?.fields).toEqual([{ label: 'Where', value: 'Blueprint - This project' }])
+    expect(runSearchAction(app, saved.action)).toBe(true)
+    expect(armBlueprintPlacement).toHaveBeenCalledWith('blueprint:saved/wf-9', app.backendForTab(app.activeTab()!).id)
+    expect(armNodePlacement).not.toHaveBeenCalled()
+    dispose.forEach((fn) => fn())
+  })
   it('closes a requested template gallery when workspaces change or reload', async () => {
     const app = prepareWorkflowApp(new AppState()); const before = app.createWorkflow(); const after = app.createWorkflow()
     app.activeTabId.set(before.id)
@@ -113,9 +153,20 @@ describe('universal search model', () => {
     // Real catalog schemas serialize far past the search contract's string
     // param cap; the emitted schemaKey must stay a short digest or every
     // activation dies inside decodeSearchHostAction.
-    const nodesPayload = JSON.parse(readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), '../../core/fixtures/dinkster-nodes-comfy.json'), 'utf8',
-    )) as DinksterNodesPayload
+    const INT = { kind: 'concrete', types: ['INT'] }
+    const nodesPayload: DinksterNodesPayload = {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      nodes: {
+        'comfy.EmptyImage': {
+          nodeType: 'comfy.EmptyImage', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1, displayName: 'Empty Image',
+          category: 'comfy/image', description: '', idempotent: true, aliases: ['EmptyImage'], pack: 'comfy',
+          body: [
+            ...['width', 'height', 'batch_size', 'color'].map((id) => ({ kind: 'input', id, type: INT, required: false, default: id === 'batch_size' ? 1 : id === 'color' ? 0 : 512 })),
+            { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
+          ],
+        },
+      },
+    }
     const app = prepareWorkflowApp(new AppState())
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
@@ -166,17 +217,18 @@ describe('universal search model', () => {
   it('searches preview-only catalog nodes, rejects stale actions, and gives installed schemas precedence', () => {
     const app = new AppState()
     const backend = app.backends.get()[0]!
-    backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: 1, nodes: {}, packs: {} }))
+    backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {}, packs: {} }))
     const armNodePlacement = vi.fn(() => true)
     app.canvasBridge.set({ armNodePlacement } as never)
-    const schema = parseDinksterSchema('image.resize', { schemaVersion: 1, interface: [], displayName: 'Resize', searchTerms: ['resample'], pack: 'image-tools' }).schema!
+    const schema = parseDinksterSchema('image.resize', { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [], displayName: 'Resize', searchTerms: ['resample'], pack: 'image-tools' }).schema!
     const pack = { name: 'image-tools', publisher: 'dinkster' as const, version: '1.10.0', displayName: 'Image Tools', platforms: ['linux'], url: '', digest: '' }
     const dispose = registerCoreSearchProviders(app)
     const query = () => app.searchRegistry.list().find((provider) => provider.id === 'core.nodes')!.query('resample', { selection: { nodes: [] }, signal: new AbortController().signal }) as readonly SearchResult[]
     expect(query()).toEqual([])
     app.searchCatalog.set([{ schema, pack }])
     const row = query()[0]!
-    expect(row.detail).toContain('Image Tools - Not installed')
+    expect(row.detail).toBe('Not installed')
+    expect(row.preview?.fields?.[0]?.value).toContain('Image Tools')
     expect(backend.registry.get()!.resolve(schema.type)).toBeUndefined()
     expect(runSearchAction(app, row.action)).toBe(true)
     expect(app.nodeInstallRequest.get()?.pack.name).toBe('image-tools')

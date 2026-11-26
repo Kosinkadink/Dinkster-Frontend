@@ -16,7 +16,6 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import { isValidActorId } from '../ids.js'
 import {
   FORMAT_VERSION,
-  MAX_DYNAMIC_STATE_DEPTH,
   regionContractShapeProblems,
   suppressedDeliveryKey,
   type SuppressedDelivery,
@@ -92,14 +91,6 @@ function checkPortRef(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   c.str(v['node'], `${path}.node`, { nonEmpty: true })
   c.str(v['port'], `${path}.port`, { nonEmpty: true })
-  // Retired pre-release scalar; loadDocument canonicalizes it away before
-  // validation, so its presence here means the pipeline was bypassed.
-  if (v['member'] !== undefined) c.fail(`${path}.member`, "retired field; use 'members' (member-id path, outermost first)")
-  // Member-id path (outermost first). Canonical: present iff non-empty.
-  if (v['members'] !== undefined && c.arr(v['members'], `${path}.members`)) {
-    if (v['members'].length === 0) c.fail(`${path}.members`, 'must be non-empty when present (omit for static ports)')
-    v['members'].forEach((m, i) => c.str(m, `${path}.members[${i}]`, { nonEmpty: true }))
-  }
 }
 
 function checkTypeExpr(c: ShapeChecker, v: unknown, path: string): void {
@@ -121,7 +112,6 @@ function checkTypeExpr(c: ShapeChecker, v: unknown, path: string): void {
     case 'tuple':
       if (c.arr(v['elements'], `${path}.elements`)) v['elements'].forEach((type, i) => checkTypeExpr(c, type, `${path}.elements[${i}]`))
       return
-    case 'family_tuple': c.str(v['input'], `${path}.input`, { nonEmpty: true }); return
     case 'tuple_element':
       c.optStr(v['input'], `${path}.input`)
       if (v['element'] !== undefined) checkTypeExpr(c, v['element'], `${path}.element`)
@@ -136,10 +126,9 @@ function checkBoundaryBinding(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   const binding = v as Record<string, unknown>
   const kind = binding['kind']
-  if (kind === 'unbound' || kind === 'valueSource') {
-    if (kind === 'valueSource') c.str(binding['valueSource'], `${path}.valueSource`, { nonEmpty: true })
+  if (kind === 'unbound') {
     checkTypeExpr(c, binding['type'], `${path}.type`)
-    for (const field of ['node', 'port', 'tap', 'members', 'slots', 'viaReroute']) {
+    for (const field of ['node', 'port', 'tap', 'viaReroute']) {
       if (binding[field] !== undefined) c.fail(`${path}.${field}`, `invalid on kind '${kind}'`)
     }
     return
@@ -152,49 +141,12 @@ function checkBoundaryBinding(c: ShapeChecker, v: unknown, path: string): void {
     c.str(binding['node'], `${path}.node`, { nonEmpty: true })
     c.str(binding['tap'], `${path}.tap`, { nonEmpty: true })
     if (binding['port'] !== undefined) c.fail(`${path}.port`, "invalid on kind 'widgetTap'")
-    if (binding['members'] !== undefined) c.fail(`${path}.members`, "invalid on kind 'widgetTap'")
-    if (binding['slots'] !== undefined) c.fail(`${path}.slots`, "invalid on kind 'widgetTap'")
     return
   }
   checkPortRef(c, v, path)
-  if (binding['tap'] !== undefined) c.fail(`${path}.tap`, "invalid on kind 'port' or 'family'")
-  if (kind !== 'port' && kind !== 'family' && kind !== 'slot' && kind !== 'dynamicCombo') {
-    c.fail(`${path}.kind`, "must be 'port', 'family', 'slot', 'dynamicCombo', or 'widgetTap'")
-  }
-  // Slot-selective forwarding (hazard F10): family bindings only, non-empty,
-  // duplicate-free. Entries are dotted paths over template slot ids ('sub'
-  // = whole subtree, 'sub.s' = narrowed); segments must be non-empty, and
-  // an entry must not be a strict path-prefix of another (whole-subtree and
-  // narrowed selection of the same construct are mutually exclusive). Order
-  // is irrelevant (derived template keeps template order) but duplicates
-  // would suggest a meaning that does not exist.
-  const slots = (v as Record<string, unknown>)['slots']
-  if (slots !== undefined) {
-    if (kind !== 'family') {
-      c.fail(`${path}.slots`, "invalid on kind 'port' (slot selection applies to family forwarding only)")
-    }
-    if (c.arr(slots, `${path}.slots`)) {
-      if (slots.length === 0) c.fail(`${path}.slots`, 'must be non-empty when present (omit to expose the whole template)')
-      const seen = new Set<string>()
-      slots.forEach((s, i) => {
-        if (!c.str(s, `${path}.slots[${i}]`, { nonEmpty: true })) return
-        if (s.split('.').some((seg) => seg === '')) {
-          c.fail(`${path}.slots[${i}]`, `slot path '${s}' has an empty segment`)
-          return
-        }
-        if (seen.has(s)) c.fail(`${path}.slots[${i}]`, `duplicate slot path '${s}'`)
-        seen.add(s)
-      })
-      slots.forEach((s, i) => {
-        if (typeof s !== 'string' || !seen.has(s)) return
-        for (const other of seen) {
-          if (other.startsWith(`${s}.`)) {
-            c.fail(`${path}.slots[${i}]`, `slot path '${s}' (whole subtree) conflicts with narrower '${other}'; list one or the other`)
-            break
-          }
-        }
-      })
-    }
+  if (binding['tap'] !== undefined) c.fail(`${path}.tap`, `invalid on kind '${String(kind)}'`)
+  if (kind !== 'port' && kind !== 'construct') {
+    c.fail(`${path}.kind`, "must be 'port', 'construct', 'widgetTap', or 'unbound'")
   }
 }
 
@@ -210,19 +162,11 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
     if (v['alsoBinds'] !== undefined) c.fail(`${path}.alsoBinds`, 'an unattached boundary cannot fan out')
     if (v['promoted'] !== undefined) c.fail(`${path}.promoted`, 'an unattached boundary has no widget to promote')
   }
-  if (primaryBinding?.['kind'] === 'valueSource') {
-    if (v['alsoBinds'] !== undefined) c.fail(`${path}.alsoBinds`, 'a value source boundary cannot fan out')
-    if (side === 'outputs' && v['promoted'] !== undefined) c.fail(`${path}.promoted`, 'a value source output cannot promote a widget')
-  }
   if (primaryBinding?.['kind'] === 'widgetTap' && side === 'inputs') {
     c.fail(`${path}.binds.kind`, "kind 'widgetTap' is output-side only")
   }
   if (primaryBinding?.['viaReroute'] !== undefined) {
     if (side !== 'inputs') c.fail(`${path}.binds.viaReroute`, 'junction attachments are input-side only')
-  }
-  if (primaryBinding?.['kind'] === 'slot' || primaryBinding?.['kind'] === 'dynamicCombo') {
-    if (side === 'outputs') c.fail(`${path}.binds.kind`, 'conditional constructs are input-side only')
-    if (v['alsoBinds'] !== undefined) c.fail(`${path}.alsoBinds`, 'conditional constructs cannot fan out')
   }
   // Fan-out (alsoBinds): input-side only, entries match the primary binding
   // kind, are non-empty when present (canonical form omits an empty list),
@@ -242,8 +186,7 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
         if (typeof b !== 'object' || b === null) return undefined
         const o = b as Record<string, unknown>
         if (typeof o['node'] !== 'string' || typeof o['port'] !== 'string') return undefined
-        const members = Array.isArray(o['members']) ? o['members'].join('.') : ''
-        return `${o['node']}\u0000${o['port']}\u0000${members}`
+        return `${o['node']}\u0000${o['port']}`
       }
       const seen = new Set<string>()
       const primaryKey = targetKey(primary)
@@ -255,38 +198,84 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
         }
         const key = targetKey(b)
         if (key === undefined) return
-        if (seen.has(key)) c.fail(`${path}.alsoBinds[${i}]`, 'duplicate fan-out target (same node/port/members as the primary or a previous entry)')
+        if (seen.has(key)) c.fail(`${path}.alsoBinds[${i}]`, 'duplicate fan-out target (same node/port as the primary or a previous entry)')
         seen.add(key)
       })
     }
   }
   c.optBool(v['promoted'], `${path}.promoted`)
-  // A forwarded family's template always carries its widgets; 'promoted'
-  // has no meaning there and canonical form allows only ONE spelling.
+  if (v['wireHidden'] !== undefined && v['wireHidden'] !== true) c.fail(`${path}.wireHidden`, 'must be true when present')
+  if (v['tooltip'] !== undefined) c.str(v['tooltip'], `${path}.tooltip`, { nonEmpty: true })
+  const limits = v['limits']
+  if (limits !== undefined && c.obj(limits, `${path}.limits`)) {
+    const bounds = limits as Record<string, unknown>
+    if (Object.keys(bounds).some((key) => key !== 'min' && key !== 'max')) c.fail(`${path}.limits`, 'only min and max are allowed')
+    if (bounds['min'] === undefined && bounds['max'] === undefined) c.fail(`${path}.limits`, 'must set min, max or both (omit for no limits)')
+    if (bounds['min'] !== undefined) c.num(bounds['min'], `${path}.limits.min`)
+    if (bounds['max'] !== undefined) c.num(bounds['max'], `${path}.limits.max`)
+    if (side === 'outputs') c.fail(`${path}.limits`, 'invalid on boundary outputs')
+  }
+  const visible = v['visible']
+  if (visible !== undefined && c.obj(visible, `${path}.visible`)) {
+    const formula = visible as Record<string, unknown>
+    if (Object.keys(formula).some((key) => key !== 'formula')) c.fail(`${path}.visible`, 'only formula is allowed')
+    c.str(formula['formula'], `${path}.visible.formula`, { nonEmpty: true })
+    if (side === 'outputs') c.fail(`${path}.visible`, 'invalid on boundary outputs')
+  }
   const binds = v['binds']
   if (
     v['promoted'] !== undefined &&
     typeof binds === 'object' &&
     binds !== null &&
-    (binds as Record<string, unknown>)['kind'] !== 'port' &&
-    (binds as Record<string, unknown>)['kind'] !== 'valueSource'
+    (binds as Record<string, unknown>)['kind'] !== 'port'
   ) {
-    c.fail(`${path}.promoted`, 'invalid unless the boundary binds a concrete input port or value source')
+    c.fail(`${path}.promoted`, 'invalid unless the boundary binds a concrete input port; a forwarded construct always carries its fields')
   }
   c.optExt(v['ext'], `${path}.ext`)
 }
 
 /**
- * Hard nesting budget for dynamic state (hazard N5): one level per family
- * crossed, shared with the JSON Schema's bounded unrolling (schema.ts).
- * State deeper than the elaborator would ever read is malformed, and the
- * validator fails it deterministically instead of recursing without bound.
+ * The boundary body: inputs and outputs at their places among sections and
+ * lines. A line holds two to four inputs; section ids are unique.
  */
-function checkDynamicPortState(c: ShapeChecker, st: unknown, p: string, depth: number): void {
-  if (depth > MAX_DYNAMIC_STATE_DEPTH) {
-    c.fail(p, `dynamic state nested deeper than ${MAX_DYNAMIC_STATE_DEPTH} levels`)
-    return
-  }
+function checkBoundaryEntries(c: ShapeChecker, entries: readonly unknown[], path: string, sectionIds: Set<string>): void {
+  entries.forEach((entry, i) => {
+    const p = `${path}[${i}]`
+    if (!c.obj(entry, p)) return
+    const kind = entry['kind']
+    if (kind === 'input' || kind === 'output') {
+      checkBoundaryItem(c, entry, p, kind === 'input' ? 'inputs' : 'outputs')
+      if (entry['ownRow'] !== undefined && (kind !== 'output' || entry['ownRow'] !== true))
+        c.fail(`${p}.ownRow`, 'must be true when present, and only on an output')
+    } else if (kind === 'section') {
+      if (c.str(entry['id'], `${p}.id`, { nonEmpty: true })) {
+        if (sectionIds.has(entry['id'])) c.fail(`${p}.id`, `duplicate section id '${entry['id']}'`)
+        sectionIds.add(entry['id'])
+      }
+      c.optStr(entry['displayName'], `${p}.displayName`)
+      if (entry['collapsedByDefault'] !== undefined && entry['collapsedByDefault'] !== true)
+        c.fail(`${p}.collapsedByDefault`, 'must be true when present')
+      if (entry['openName'] !== undefined && entry['openName'] !== false) c.fail(`${p}.openName`, 'must be false when present')
+      if (c.arr(entry['rows'], `${p}.rows`)) checkBoundaryEntries(c, entry['rows'], `${p}.rows`, sectionIds)
+    } else if (kind === 'line') {
+      if (c.arr(entry['rows'], `${p}.rows`)) {
+        if (entry['rows'].length < 2 || entry['rows'].length > 4) c.fail(`${p}.rows`, 'a line holds two to four inputs')
+        entry['rows'].forEach((row, j) => {
+          const rp = `${p}.rows[${j}]`
+          if (!c.obj(row, rp)) return
+          if (row['kind'] !== 'input') c.fail(`${rp}.kind`, "a line holds only inputs ('input')")
+          else checkBoundaryItem(c, row, rp, 'inputs')
+          if ((row['binds'] as Record<string, unknown> | undefined)?.['kind'] === 'construct')
+            c.fail(`${rp}.binds`, 'a whole group, choice, type choice or described row takes a line of its own')
+        })
+      }
+    } else {
+      c.fail(`${p}.kind`, "must be 'input', 'output', 'section' or 'line'")
+    }
+  })
+}
+
+function checkDynamicPortState(c: ShapeChecker, st: unknown, p: string): void {
   if (!c.obj(st, p)) return
   if (st['members'] !== undefined && c.arr(st['members'], `${p}.members`)) {
     st['members'].forEach((m, i) => c.str(m, `${p}.members[${i}]`, { nonEmpty: true }))
@@ -315,15 +304,6 @@ function checkDynamicPortState(c: ShapeChecker, st: unknown, p: string, depth: n
     }
   }
   if (st['seq'] !== undefined) c.int(st['seq'], `${p}.seq`, 0)
-  if (st['memberState'] !== undefined && c.obj(st['memberState'], `${p}.memberState`)) {
-    for (const [member, constructs] of Object.entries(st['memberState'])) {
-      const mp = `${p}.memberState.${member}`
-      if (!c.obj(constructs, mp)) continue
-      for (const [construct, nested] of Object.entries(constructs)) {
-        checkDynamicPortState(c, nested, `${mp}.${construct}`, depth + 1)
-      }
-    }
-  }
 }
 
 function checkRegion(c: ShapeChecker, v: unknown, path: string): void {
@@ -357,7 +337,7 @@ function checkNode(c: ShapeChecker, v: unknown, path: string): void {
   }
   if (v['dynamic'] !== undefined && c.obj(v['dynamic'], `${path}.dynamic`)) {
     for (const [k, st] of Object.entries(v['dynamic'])) {
-      checkDynamicPortState(c, st, `${path}.dynamic.${k}`, 0)
+      checkDynamicPortState(c, st, `${path}.dynamic.${k}`)
     }
   }
   if (v['region'] !== undefined) checkRegion(c, v['region'], `${path}.region`)
@@ -369,20 +349,11 @@ function checkNode(c: ShapeChecker, v: unknown, path: string): void {
   c.optExt(v['ext'], `${path}.ext`)
 }
 
-/** A link endpoint: a PortRef, a `{reroute}`, a `{valueSource}`, or a `{selector, candidate?}` reference. */
+/** A link endpoint: a PortRef, a `{reroute}`, or a `{node, tap}` widget tap. */
 function checkLinkEndpoint(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   if ('reroute' in v) {
     c.str(v['reroute'], `${path}.reroute`, { nonEmpty: true })
-    return
-  }
-  if ('valueSource' in v) {
-    c.str(v['valueSource'], `${path}.valueSource`, { nonEmpty: true })
-    return
-  }
-  if ('selector' in v) {
-    c.str(v['selector'], `${path}.selector`, { nonEmpty: true })
-    if (v['candidate'] !== undefined) c.str(v['candidate'], `${path}.candidate`, { nonEmpty: true })
     return
   }
   if ('tap' in v) {
@@ -443,13 +414,6 @@ function checkOccurrenceEndpoint(
   checkOccurrenceRef(c, v['occurrence'], `${path}.occurrence`)
   if (c.obj(v['address'], `${path}.address`)) {
     c.str(v['address']['port'], `${path}.address.port`, { nonEmpty: true })
-    const members = v['address']['members']
-    if (members !== undefined && c.arr(members, `${path}.address.members`)) {
-      if (members.length === 0)
-        c.fail(`${path}.address.members`, 'must be non-empty when present')
-      members.forEach((member, index) =>
-        c.str(member, `${path}.address.members[${index}]`, { nonEmpty: true }))
-    }
   }
   checkBoundaryRoute(c, v['route'], `${path}.route`)
 }
@@ -545,54 +509,6 @@ function checkReroute(c: ShapeChecker, v: unknown, path: string): void {
   c.optExt(v['ext'], `${path}.ext`)
 }
 
-const VS_CONTROLLER_SLOTS = new Set(['after_generate', 'after_refresh'])
-
-/** Declared partial widget spec on a value source (all fields optional). */
-function checkDeclaredSpec(c: ShapeChecker, v: unknown, path: string): void {
-  if (!c.obj(v, path)) return
-  c.optStr(v['widgetType'], `${path}.widgetType`)
-  if (v['options'] !== undefined) c.obj(v['options'], `${path}.options`)
-  if (v['controller'] !== undefined && (typeof v['controller'] !== 'string' || !VS_CONTROLLER_SLOTS.has(v['controller']))) {
-    c.fail(`${path}.controller`, `expected one of ${[...VS_CONTROLLER_SLOTS].join('|')}`)
-  }
-}
-
-function checkValueSource(c: ShapeChecker, v: unknown, path: string): void {
-  if (!c.obj(v, path)) return
-  c.str(v['id'], `${path}.id`, { nonEmpty: true })
-  if (!('value' in v)) c.fail(`${path}.value`, 'expected a JSON value (may be null, never absent)')
-  if (v['spec'] !== undefined) checkDeclaredSpec(c, v['spec'], `${path}.spec`)
-  if (v['controller'] !== undefined && (typeof v['controller'] !== 'string' || !CONTROLLER_MODES.has(v['controller']))) {
-    c.fail(`${path}.controller`, `expected one of ${[...CONTROLLER_MODES].join('|')}`)
-  }
-  c.optStr(v['title'], `${path}.title`)
-  c.optExt(v['ext'], `${path}.ext`)
-}
-
-function checkSelector(c: ShapeChecker, v: unknown, path: string): void {
-  if (!c.obj(v, path)) return
-  c.str(v['id'], `${path}.id`, { nonEmpty: true })
-  if (c.arr(v['candidates'], `${path}.candidates`)) {
-    v['candidates'].forEach((cand, i) => {
-      const p = `${path}.candidates[${i}]`
-      if (!c.obj(cand, p)) return
-      c.str(cand['id'], `${p}.id`, { nonEmpty: true })
-      c.optStr(cand['title'], `${p}.title`)
-    })
-  }
-  const policy = v['policy']
-  if (c.obj(policy, `${path}.policy`)) {
-    const kind = policy['kind']
-    if (kind === 'fixed') {
-      c.str(policy['candidate'], `${path}.policy.candidate`, { nonEmpty: true })
-    } else if (kind !== 'random') {
-      c.fail(`${path}.policy.kind`, `expected 'fixed' or 'random', got '${String(kind)}'`)
-    }
-  }
-  c.optStr(v['title'], `${path}.title`)
-  c.optExt(v['ext'], `${path}.ext`)
-}
-
 function checkNet(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   c.str(v['id'], `${path}.id`, { nonEmpty: true })
@@ -620,18 +536,14 @@ function checkGraphDef(c: ShapeChecker, v: unknown, path: string): void {
   if (c.obj(v['reroutes'], `${path}.reroutes`)) {
     for (const [k, r] of Object.entries(v['reroutes'])) checkReroute(c, r, `${path}.reroutes.${k}`)
   }
-  if (v['valueSources'] !== undefined && c.obj(v['valueSources'], `${path}.valueSources`)) {
-    for (const [k, s] of Object.entries(v['valueSources'])) checkValueSource(c, s, `${path}.valueSources.${k}`)
-  }
-  if (v['selectors'] !== undefined && c.obj(v['selectors'], `${path}.selectors`)) {
-    for (const [k, s] of Object.entries(v['selectors'])) checkSelector(c, s, `${path}.selectors.${k}`)
-  }
+  if (v['valueSources'] !== undefined) c.fail(`${path}.valueSources`, 'value sources are no longer supported; use primitive nodes')
+  if (v['selectors'] !== undefined) c.fail(`${path}.selectors`, 'selectors are no longer supported; use a Switch node')
   if (v['boundary'] !== undefined && c.obj(v['boundary'], `${path}.boundary`)) {
-    for (const side of ['inputs', 'outputs'] as const) {
-      const items = v['boundary'][side]
-      if (c.arr(items, `${path}.boundary.${side}`)) {
-        items.forEach((it, i) => checkBoundaryItem(c, it, `${path}.boundary.${side}[${i}]`, side))
-      }
+    const boundary = v['boundary']
+    if (boundary['body'] === undefined && (boundary['inputs'] !== undefined || boundary['outputs'] !== undefined)) {
+      c.fail(`${path}.boundary`, `subgraph '${String(v['name'] ?? v['id'])}' stores its inputs and outputs as two separate lists, which this version does not read; its boundary must be one ordered body`)
+    } else if (c.arr(boundary['body'], `${path}.boundary.body`)) {
+      checkBoundaryEntries(c, boundary['body'], `${path}.boundary.body`, new Set())
     }
   }
   c.int(v['nextOrdinal'], `${path}.nextOrdinal`, 0)
@@ -660,6 +572,18 @@ function checkVec2(c: ShapeChecker, v: unknown, path: string): void {
   c.num(v['y'], `${path}.y`)
 }
 
+/** A node's or the Inputs panel's per-editor folds and dragged picture heights. */
+function checkEditorViews(c: ShapeChecker, v: Record<string, unknown>, path: string): void {
+  if (v['editors'] !== undefined && c.obj(v['editors'], `${path}.editors`)) {
+    for (const [k, e] of Object.entries(v['editors'])) {
+      if (c.obj(e, `${path}.editors.${k}`)) c.bool(e['unfolded'], `${path}.editors.${k}.unfolded`)
+    }
+  }
+  if (v['pictureHeights'] !== undefined && c.obj(v['pictureHeights'], `${path}.pictureHeights`)) {
+    for (const [k, height] of Object.entries(v['pictureHeights'])) c.num(height, `${path}.pictureHeights.${k}`)
+  }
+}
+
 function checkNodeView(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   if (v['position'] !== undefined) checkVec2(c, v['position'], `${path}.position`)
@@ -671,11 +595,20 @@ function checkNodeView(c: ShapeChecker, v: unknown, path: string): void {
   if (v['views'] !== undefined && c.obj(v['views'], `${path}.views`)) {
     for (const [k, view] of Object.entries(v['views'])) c.str(view, `${path}.views.${k}`)
   }
+  if (v['textLines'] !== undefined && c.obj(v['textLines'], `${path}.textLines`)) {
+    for (const [k, lines] of Object.entries(v['textLines'])) c.num(lines, `${path}.textLines.${k}`)
+  }
+  c.optBool(v['previewFolded'], `${path}.previewFolded`)
+  c.optBool(v['minimizedPreviewOpen'], `${path}.minimizedPreviewOpen`)
+  if (v['histogramVisibility'] !== undefined && c.obj(v['histogramVisibility'], `${path}.histogramVisibility`)) {
+    for (const [k, visible] of Object.entries(v['histogramVisibility'])) c.bool(visible, `${path}.histogramVisibility.${k}`)
+  }
   if (v['sections'] !== undefined && c.obj(v['sections'], `${path}.sections`)) {
     for (const [k, s] of Object.entries(v['sections'])) {
       if (c.obj(s, `${path}.sections.${k}`)) c.bool(s['collapsed'], `${path}.sections.${k}.collapsed`)
     }
   }
+  checkEditorViews(c, v, path)
   c.optStr(v['color'], `${path}.color`)
   c.optExt(v['ext'], `${path}.ext`)
 }
@@ -702,19 +635,6 @@ function checkRerouteView(c: ShapeChecker, v: unknown, path: string): void {
   c.optExt(v['ext'], `${path}.ext`)
 }
 
-function checkValueSourceView(c: ShapeChecker, v: unknown, path: string): void {
-  if (!c.obj(v, path)) return
-  checkVec2(c, v['position'], `${path}.position`)
-  c.optStr(v['view'], `${path}.view`)
-  c.optExt(v['ext'], `${path}.ext`)
-}
-
-function checkSelectorView(c: ShapeChecker, v: unknown, path: string): void {
-  if (!c.obj(v, path)) return
-  checkVec2(c, v['position'], `${path}.position`)
-  c.optExt(v['ext'], `${path}.ext`)
-}
-
 function checkGraphView(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   if (c.obj(v['nodes'], `${path}.nodes`)) {
@@ -722,12 +642,6 @@ function checkGraphView(c: ShapeChecker, v: unknown, path: string): void {
   }
   if (v['reroutes'] !== undefined && c.obj(v['reroutes'], `${path}.reroutes`)) {
     for (const [k, r] of Object.entries(v['reroutes'])) checkRerouteView(c, r, `${path}.reroutes.${k}`)
-  }
-  if (v['valueSources'] !== undefined && c.obj(v['valueSources'], `${path}.valueSources`)) {
-    for (const [k, s] of Object.entries(v['valueSources'])) checkValueSourceView(c, s, `${path}.valueSources.${k}`)
-  }
-  if (v['selectors'] !== undefined && c.obj(v['selectors'], `${path}.selectors`)) {
-    for (const [k, s] of Object.entries(v['selectors'])) checkSelectorView(c, s, `${path}.selectors.${k}`)
   }
   if (v['groups'] !== undefined && c.obj(v['groups'], `${path}.groups`)) {
     for (const [k, g] of Object.entries(v['groups'])) checkGroupView(c, k, g, `${path}.groups.${k}`)
@@ -751,6 +665,7 @@ function checkGraphView(c: ShapeChecker, v: unknown, path: string): void {
       c.optExt(b['ext'], `${p}.ext`)
     }
   }
+  if (v['inputsPanel'] !== undefined && c.obj(v['inputsPanel'], `${path}.inputsPanel`)) checkEditorViews(c, v['inputsPanel'], `${path}.inputsPanel`)
   c.optExt(v['ext'], `${path}.ext`)
 }
 

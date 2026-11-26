@@ -137,8 +137,6 @@ export async function benchDinkster(page, { url, chains, chainLength, flags = {}
       nodes: s.nodes.length,
       links: s.links.length,
       reroutes: s.reroutes.length,
-      valueSources: s.valueSources.length,
-      selectors: s.selectors.length,
       groups: s.groups.length,
     }
   })

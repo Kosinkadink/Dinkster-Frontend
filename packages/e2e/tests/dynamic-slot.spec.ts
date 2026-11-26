@@ -66,7 +66,7 @@ const selectedVariant = (doc: Awaited<ReturnType<typeof activeDoc>>) =>
   }).dynamic?.slot?.selected
 
 async function setStrength(page: Page, value: string): Promise<void> {
-  const point = await rowPoint(page, 'slot.[image].strength')
+  const point = await rowPoint(page, 'slot.strength')
   await page.mouse.click(point.x, point.y)
   const input = page.getByTestId('widget-editor').locator('input')
   await input.fill(value)
@@ -90,24 +90,21 @@ test.beforeEach(async ({ page }) => {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'DynamicSlotE2E', displayName: 'Dynamic Slot', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{
-          kind: 'input', id: 'slot', type: wildcard, optional: true,
-          dynamic: {
-            kind: 'dynamicSlot', slotType: wildcard, inputs: [],
-            variants: [
-              { key: 'image', type: concrete('IMAGE'), inputs: [widget('strength', 'FLOAT', 1)] },
-              { key: 'latent', type: concrete('LATENT'), inputs: [widget('samples', 'INT', 20)] },
-            ],
-          },
+        body: [{
+          kind: 'typeChoice', id: 'slot', rows: [], required: false,
+          variants: [
+            { key: 'image', type: concrete('IMAGE'), rows: [widget('strength', 'FLOAT', 1)] },
+            { key: 'latent', type: concrete('LATENT'), rows: [widget('samples', 'INT', 20)] },
+          ],
         }],
       },
       {
         type: 'ImageProducerE2E', displayName: 'Image Producer', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: concrete('IMAGE') }],
+        body: [{ kind: 'output', id: 'out', type: concrete('IMAGE') }],
       },
       {
         type: 'GenericProducerE2E', displayName: 'Generic Producer', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: wildcard }],
+        body: [{ kind: 'output', id: 'out', type: wildcard }],
       },
     ])
     await window.__dinksterTest!.app.openDocument({
@@ -128,7 +125,7 @@ test.beforeEach(async ({ page }) => {
 
 test('concrete fresh connect auto-specializes atomically and one undo restores the base form', async ({ page }) => {
   await connect(page)
-  expect(await visibleWidgetIds(page)).toContain('slot.[image].strength')
+  expect(await visibleWidgetIds(page)).toContain('slot.strength')
   let doc = await activeDoc(page)
   expect(selectedVariant(doc)).toBe('image')
   expect(Object.keys(doc.graphs.g0!.links)).toHaveLength(1)
@@ -151,15 +148,15 @@ test('generic producer connects without selecting a variant', async ({ page }) =
 test('manual specialization switches variants and preserves branch-local values', async ({ page }) => {
   await connect(page, 'generic')
   await specialize(page, 'image')
-  expect(await visibleWidgetIds(page)).toContain('slot.[image].strength')
+  expect(await visibleWidgetIds(page)).toContain('slot.strength')
   await setStrength(page, '2.75')
 
   await specialize(page, 'latent')
-  expect(await visibleWidgetIds(page)).toContain('slot.[latent].samples')
-  expect(await visibleWidgetIds(page)).not.toContain('slot.[image].strength')
+  expect(await visibleWidgetIds(page)).toContain('slot.samples')
+  expect(await visibleWidgetIds(page)).not.toContain('slot.strength')
   await specialize(page, 'image')
-  expect(await visibleWidgetIds(page)).toContain('slot.[image].strength')
-  expect((await activeDoc(page)).graphs.g0!.nodes.slot!.values['slot.[image].strength']).toBe(2.75)
+  expect(await visibleWidgetIds(page)).toContain('slot.strength')
+  expect((await activeDoc(page)).graphs.g0!.nodes.slot!.values['slot.strength']).toBe(2.75)
 })
 
 test('disconnect hides dependents and reconnect restores selection and value', async ({ page }) => {
@@ -170,12 +167,12 @@ test('disconnect hides dependents and reconnect restores selection and value', a
   expect(await visibleWidgetIds(page)).toEqual([])
   let doc = await activeDoc(page)
   expect(selectedVariant(doc)).toBe('image')
-  expect(doc.graphs.g0!.nodes.slot!.values['slot.[image].strength']).toBe(3.5)
+  expect(doc.graphs.g0!.nodes.slot!.values['slot.strength']).toBe(3.5)
 
   await connect(page, 'generic')
-  expect(await visibleWidgetIds(page)).toContain('slot.[image].strength')
+  expect(await visibleWidgetIds(page)).toContain('slot.strength')
   doc = await activeDoc(page)
-  expect(doc.graphs.g0!.nodes.slot!.values['slot.[image].strength']).toBe(3.5)
+  expect(doc.graphs.g0!.nodes.slot!.values['slot.strength']).toBe(3.5)
 })
 
 test('clear specialization returns a connected slot to its base form', async ({ page }) => {
@@ -194,19 +191,12 @@ test('a stale specialization is marked in the Problems panel and clears when res
   // user-visible, not just a core diagnostic.
   await connect(page, 'image')
   await specialize(page, 'latent')
+  await page.getByRole('tab', { name: /^Problems/ }).click()
   await expect(problems).toContainText('solve.slot.staleSpecialization')
-  // Canvas-visible, not only panel-visible: the live renderer's scene must
-  // carry the warn flag on the slot pin (the renderer paints an error ring
-  // for it - paint itself is pinned by canvas unit tests).
-  const slotPinWarn = () =>
-    page.evaluate(
-      () =>
-        window.__dinksterTest!.renderer!.getScene().nodes.find((n) => n.id === 'slot')!
-          .layout.pins.find((p) => p.portId === 'slot' && p.direction === 'in')?.warn,
-    )
-  await expect.poll(slotPinWarn).toBe(true)
+  const slotRowMark = () => page.evaluate(() => window.__dinksterTest!.renderer!.getRowMarks()['slot']?.['slot'])
+  await expect.poll(slotRowMark).toBe('warning')
   // Derived, not logged: fixing the choice removes the entry on the next build.
   await specialize(page, 'image')
   await expect(problems).not.toContainText('solve.slot.staleSpecialization')
-  await expect.poll(slotPinWarn).toBeUndefined()
+  await expect.poll(slotRowMark).toBeUndefined()
 })

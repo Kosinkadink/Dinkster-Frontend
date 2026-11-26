@@ -1,4 +1,4 @@
-import { expect, mockProjectPacks, waitForWorkspaceReady, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
+import { expect, inspectRun, mockProjectPacks, waitForWorkspaceReady, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const descriptors = {
@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
   await page.route(/\/api\//, (route) => route.fulfill({ status: 404, json: { error: 'Not part of this isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated test' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'media-test', schemaWire: 1 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'media-test', schemaWire: 2 }, nodes: {} } }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await mockProjectPacks(page)
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
@@ -43,7 +43,7 @@ test('inspects every media kind through the owning value API without mutating th
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'MediaMetadataTest', displayName: 'Media metadata', category: 'test', source: 'v3', isOutputNode: true,
-      items: Object.entries(outputs).map(([id, value]) => ({ kind: 'output', id, type: { kind: 'concrete', name: value.typeId } })),
+      body: Object.entries(outputs).map(([id, value]) => ({ kind: 'output', id, type: { kind: 'concrete', name: value.typeId } })),
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'media-metadata', root: 'g0',
@@ -63,7 +63,7 @@ test('inspects every media kind through the owning value API without mutating th
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
   }, descriptors)
   await page.locator('.dock-zone').getByRole('tab', { name: 'Runs', exact: true }).click()
-  await page.getByTestId('runs-panel').locator('.runs-details > summary').click()
+  await inspectRun(page.getByTestId('runs-panel').getByTestId('execution-row').first())
   await expect(page.locator('.media-value-inspector')).toHaveCount(4)
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const outputs = await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'media-metadata-run')!.outputs)
@@ -229,7 +229,7 @@ test(`shows transparent pixels without changing source bytes, server conversion 
     app.registerSchemas([{
       type: 'TransparentMediaTest', displayName: 'Transparent image', category: 'test', source: 'v3', isOutputNode: true,
       emitsPreviews: true,
-      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: descriptor.typeId }, preview: true }],
+      body: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: descriptor.typeId }, preview: true }],
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'transparent-media', root: 'g0',
@@ -254,7 +254,7 @@ test(`shows transparent pixels without changing source bytes, server conversion 
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const outputs = await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'transparent-media-run')!.outputs)
   await page.locator('.dock-zone').getByRole('tab', { name: 'Runs', exact: true }).click()
-  await page.getByTestId('runs-panel').locator('.runs-details > summary').click()
+  await inspectRun(page.getByTestId('runs-panel').getByTestId('execution-row').first())
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews()['image']?.width)).toBe(320)
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews()['image']?.colorTransform)).toBe(colorTransform)
   await page.screenshot({ path: testInfo.outputPath('transparent-canvas-output.png') })
@@ -266,7 +266,7 @@ test(`shows transparent pixels without changing source bytes, server conversion 
     await page.keyboard.press('Escape')
   }
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const preview = page.getByTestId('app-preview-image')
   await expect(preview).toBeVisible()
   await expect(preview).toHaveCSS('background-image', /conic-gradient/)

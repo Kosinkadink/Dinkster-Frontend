@@ -1,14 +1,3 @@
-.search-dialog-help kbd {
-  padding-inline: var(--dinkster-space-4);
-  color: var(--dinkster-text-secondary);
-  background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-strong);
-  border-radius: var(--dinkster-radius-small);
-  font: inherit;
-  font-size: var(--dinkster-type-metadata-size);
-  line-height: var(--dinkster-type-metadata-line);
-}
-
 .search-dialog-host {
   position: fixed;
   inset: 0;
@@ -18,7 +7,8 @@
   max-width: none;
   max-height: none;
   margin: 0;
-  padding: calc(var(--dinkster-space-32) * 2) var(--dinkster-space-16) var(--dinkster-space-16);
+  /* UniversalSearch sets --search-top and --search-shift so the panel opens over the top bar's search box. */
+  padding: var(--search-top, var(--dinkster-space-8)) var(--dinkster-space-16) var(--dinkster-space-16);
   border: 0;
   background: transparent;
   justify-content: center;
@@ -27,13 +17,11 @@
 .search-dialog-host[open] { display: flex; }
 .search-dialog-host::backdrop { background: color-mix(in srgb, var(--dinkster-surface-canvas) 72%, transparent); }
 .search-dialog {
-  position: relative;
   display: flex;
-  width: min(calc(var(--dinkster-space-32) * 24), calc(100vw - var(--dinkster-space-32)));
-  max-height: calc(100vh - var(--dinkster-space-32) * 4);
-  flex-direction: column;
-  overflow: hidden;
+  width: min(620px, calc(100vw - var(--dinkster-space-32)));
+  translate: var(--search-shift, 0) 0;
 }
+.search-dialog > .dinkster-search { width: 100%; max-height: calc(100vh - var(--search-top, var(--dinkster-space-8)) - var(--dinkster-space-16)); }
 
 .search-input-shell {
   display: flex;
@@ -46,7 +34,7 @@
   background: var(--dinkster-surface-inset);
   border-bottom: 1px solid var(--dinkster-border-subtle);
 }
-.search-input-shell:focus-within { color: var(--dinkster-border-focus); box-shadow: inset 0 calc(var(--dinkster-focus-ring-width) * -1) var(--dinkster-border-focus); }
+.search-input-shell:focus-within { color: var(--dinkster-border-focus); box-shadow: inset 0 calc(var(--dinkster-indicator-width) * -1) var(--dinkster-border-focus); }
 .search-input-shell .search-input {
   appearance: none;
   width: 100%;
@@ -86,7 +74,7 @@
   gap: var(--dinkster-space-8);
   padding-inline: var(--dinkster-space-8);
   background: var(--dinkster-surface-inset);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
 }
 .search-input-shell[data-variant='toolbar']:focus-within {
@@ -95,23 +83,6 @@
 }
 .search-input-shell[data-variant='toolbar'] .search-input { min-height: calc(var(--dinkster-control-compact-height) - 2px); font-size: inherit; }
 
-.search-dialog-content {
-  display: grid;
-  flex: 1 1 auto;
-  min-height: 0;
-  grid-template-columns: minmax(0, 1fr);
-}
-.search-dialog-content.has-preview {
-  grid-template-columns: minmax(0, 1fr) minmax(calc(var(--dinkster-space-32) * 7), calc(var(--dinkster-space-32) * 9));
-}
-.search-results {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  padding: var(--dinkster-space-8);
-  scrollbar-gutter: stable;
-}
 .search-result-preview {
   min-width: 0;
   overflow: auto;
@@ -194,47 +165,17 @@
   line-height: var(--dinkster-type-metadata-line);
 }
 .search-result-row.active .search-result-row-badge { color: inherit; background: var(--dinkster-interaction-selected); border-color: currentColor; }
-.search-show-more {
-  appearance: none;
-  min-height: var(--dinkster-control-compact-height);
-  margin: var(--dinkster-space-4) var(--dinkster-space-8) 0;
-  padding-inline: var(--dinkster-space-8);
-  color: var(--dinkster-accent-foreground);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--dinkster-radius-control);
-  font: inherit;
-  cursor: pointer;
-}
-.search-show-more:hover { background: var(--dinkster-interaction-hover); }
-.search-show-more.active { color: var(--dinkster-text-on-selected); background: var(--dinkster-surface-selected); border-color: var(--dinkster-border-selected); }
-.search-show-more:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); }
 .modal-surface[data-modal='node-install'] { width: min(760px, 90vw); }
 .modal-surface[data-modal='node-install'] .search-result-preview { min-height: 0; max-height: none; }
 .node-install-review { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
 .search-feedback { margin: var(--dinkster-space-8); }
 .search-progress { display: inline-flex; animation: search-progress-spin var(--dinkster-motion-standard) linear infinite; }
 @keyframes search-progress-spin { to { transform: rotate(360deg); } }
-.search-dialog-help {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--dinkster-space-16);
-  padding: var(--dinkster-space-8) var(--dinkster-space-12);
-  color: var(--dinkster-text-muted);
-  background: var(--dinkster-surface-inset);
-  border-top: 1px solid var(--dinkster-border-subtle);
-  font-size: var(--dinkster-type-metadata-size);
-  line-height: var(--dinkster-type-metadata-line);
-}
-.search-dialog-help > span { min-width: 0; overflow-wrap: anywhere; }
 .search-announcement { position: absolute; inset-inline: var(--dinkster-space-8); width: auto; height: 1px; overflow: hidden; clip-path: inset(50%); overflow-wrap: anywhere; }
 
 @media (max-width: 720px) {
   .search-dialog-host { padding: var(--dinkster-space-8); align-items: stretch; }
   .search-dialog { width: 100%; max-height: calc(100vh - var(--dinkster-space-16)); }
-  .search-dialog-content.has-preview { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .search-result-preview {
     max-height: calc(var(--dinkster-space-32) * 8);
     font-size: var(--dinkster-type-metadata-size);
@@ -243,7 +184,6 @@
   .search-result-preview p { line-height: inherit; }
   .search-result-preview dl > div { display: grid; grid-template-columns: calc(var(--dinkster-space-32) * 3) minmax(0, 1fr); gap: var(--dinkster-space-8); }
   .search-result-preview dd { margin-top: 0; }
-  .search-dialog-help { align-items: flex-start; flex-direction: column; gap: var(--dinkster-space-4); }
 }
 @media (prefers-reduced-motion: reduce) {
   .search-progress { animation-duration: var(--dinkster-motion-reduced); }

@@ -44,9 +44,9 @@ async function exposureAffordancePoint(page: Page, inputId: string): Promise<{ x
 
 const menuItem = (page: Page, id: string) => page.locator(`[data-item-id="${id}"]`)
 
-async function selectView(page: Page, name: 'Graph' | 'App view'): Promise<void> {
+async function selectView(page: Page, name: 'Graph' | 'App'): Promise<void> {
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name }).click()
+  await page.getByRole('menuitemradio', { name, exact: true }).click()
 }
 
 async function enterArrange(page: Page): Promise<void> {
@@ -66,7 +66,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   if (mockRename) {
     await page.route(/\/api\/.*/, (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'rename-fixture', schemaWire: 1 }, nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'rename-fixture', schemaWire: 2 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
   }
@@ -87,7 +87,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AppViewTest', displayName: 'App View Test', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         widget('count', 'INT', 5, { min: 0, max: 100, step: 5 }),
         widget('title', 'STRING', 'old'),
         widget('enabled', 'BOOLEAN', false),
@@ -130,7 +130,7 @@ test('expose -> app view -> edit -> the same document write; remove restores emp
   await page.keyboard.press('Escape')
 
   // Switch the tab to the app projection: same tab, no canvas.
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await expect(page.getByTestId('app-view')).toBeVisible()
   await expect(page.getByTestId('graph-canvas')).toHaveCount(0)
   await expect(page.getByTestId('app-view-row')).toHaveCount(1)
@@ -163,7 +163,7 @@ test('expose -> app view -> edit -> the same document write; remove restores emp
 
 test('use mode is the default clean form; arrange mode reveals the row tools per tab', async ({ page }) => {
   await exposeViaMenu(page, 'count')
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
 
   // Use mode by default: no authoring tools, values still editable.
   await expect(page.getByTestId('app-view-arrange-toggle')).toHaveAttribute('aria-pressed', 'false')
@@ -185,7 +185,7 @@ test('use mode is the default clean form; arrange mode reveals the row tools per
   // The mode is tab state, not layout data: it survives an editor-kind
   // round trip and never lands in the document.
   await selectView(page, 'Graph')
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await expect(page.getByTestId('app-view-arrange-toggle')).toHaveAttribute('aria-pressed', 'true')
   expect(Object.keys((await activeDoc(page)).ext ?? {})).toEqual(['dinkster.exposed'])
 
@@ -210,7 +210,7 @@ test('use mode is the default clean form; arrange mode reveals the row tools per
     const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === 'app-view-second')
     return tab !== undefined && 'status' in tab.store
   })
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await expect(page.getByTestId('app-view-arrange-toggle')).toHaveAttribute('aria-pressed', 'false')
   await page.evaluate(() => window.__dinksterTest!.app.activeTabId.set('app-view-test'))
   await expect(page.getByTestId('app-view-arrange-toggle')).toHaveAttribute('aria-pressed', 'true')
@@ -249,14 +249,14 @@ test('exposure lens marks the exposed set and toggles App view rows', async ({ p
   await titleToggle.focus()
   await titleToggle.press('Enter')
   expect((await exposedList(page))!.map((entry) => entry.inputId)).toEqual(['count', 'title'])
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await expect(page.getByTestId('app-view-row')).toHaveCount(2)
 
   await selectView(page, 'Graph')
   const point = await exposureAffordancePoint(page, 'title')
   await page.mouse.click(point.x, point.y)
   expect((await exposedList(page))!.map((entry) => entry.inputId)).toEqual(['count'])
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await expect(page.getByTestId('app-view-row')).toHaveCount(1)
 })
 
@@ -291,7 +291,7 @@ test('custom WidgetView drawCompact renders in the graph and App view adapter', 
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     app.registerSchemas([{
       type: 'AppViewLiteralTest', displayName: 'App View Literal Test', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'literal', type: { kind: 'concrete', name: 'app-view-literal-proof.kind' }, optional: false,
         widget: { widgetType: 'app-view-literal-proof.kind', options: {}, default: 7 },
       }],
@@ -312,7 +312,7 @@ test('custom WidgetView drawCompact renders in the graph and App view adapter', 
   const graphDraws = await page.evaluate(() => (window as unknown as { __appViewDraws: number }).__appViewDraws)
 
   await exposeViaMenu(page, 'literal')
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await expect(page.getByTestId('app-view-widget-preview')).toHaveAttribute('data-widget-view', 'app-view-literal-proof.view')
   await expect.poll(() => page.evaluate(() => (window as unknown as { __appViewDraws: number }).__appViewDraws)).toBeGreaterThan(graphDraws)
   await page.evaluate(() => window.__dinksterTest!.app.extensions.setContributionEnabled('app-view-literal-proof.view', false))
@@ -326,7 +326,7 @@ test('control coverage: string/boolean/combo edit inline; ASSET renders read-onl
   await exposeViaMenu(page, 'enabled')
   await exposeViaMenu(page, 'choice')
   await exposeViaMenu(page, 'asset')
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await expect(page.getByTestId('app-view-row')).toHaveCount(4)
 
   // Initial combo selection shows the stored typed value before interaction.
@@ -385,7 +385,7 @@ test('control coverage: string/boolean/combo edit inline; ASSET renders read-onl
 test('rename and reorder are document commands; stale rows stay removable', async ({ page }) => {
   await exposeViaMenu(page, 'count')
   await exposeViaMenu(page, 'title')
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await enterArrange(page)
 
   // Rename the first entry; the label override persists in the document.
@@ -416,7 +416,7 @@ test('drag reorder dispatches params.move with the dragged row and drop index', 
   await exposeViaMenu(page, 'count')
   await exposeViaMenu(page, 'title')
   await exposeViaMenu(page, 'enabled')
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
   await enterArrange(page)
 
   await page.getByTestId('app-view-drag-handle').nth(2).dragTo(page.getByTestId('app-view-row').first())
@@ -431,7 +431,7 @@ test('drag reorder dispatches params.move with the dragged row and drop index', 
 
 test('COLOR edits inline through the shared document commit path', async ({ page }) => {
   await exposeViaMenu(page, 'color')
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
 
   await page.getByTestId('app-view-color').click()
   await page.getByRole('textbox', { name: 'Hex color' }).fill('#336699')
@@ -445,7 +445,7 @@ test('remote COMBO fetches on open, preserves an OOV placeholder, and commits a 
   await page.route(`**${REMOTE_ROUTE}*`, (route) =>
     void route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(['alpha', 'beta']) }))
   await exposeViaMenu(page, 'remoteChoice')
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
 
   const combo = page.getByTestId('app-view-combo')
   await combo.click()
@@ -463,7 +463,7 @@ test('remote COMBO fetches on open, preserves an OOV placeholder, and commits a 
 test('remote COMBO failure stays editable with the authoritative OOV value and fetch error', async ({ page }) => {
   await page.route(`**${REMOTE_ROUTE}*`, (route) => void route.fulfill({ status: 500, body: 'nope' }))
   await exposeViaMenu(page, 'remoteChoice')
-  await selectView(page, 'App view')
+  await selectView(page, 'App')
 
   const combo = page.getByTestId('app-view-combo')
   await combo.click()

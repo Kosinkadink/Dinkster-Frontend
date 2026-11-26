@@ -1,12 +1,12 @@
 # Save video controls
 
 Video inputs and codec choices come from the selected backend's ordinary
-registered schema. DynamicCombo controls show the selected branch and retain
-stored branch data through selection changes, save and reopen. The frontend
+registered schema. Choice dropdowns show the chosen option's rows; values of
+other options stay stored through option changes, save and reopen. The frontend
 does not invent an encoder, codec range or bit-depth conversion.
 
 Historical flat or nested SaveVideo carrier documents are not automatically
-migrated. Opening them preserves authored classes, values, DynamicCombo state
+migrated. Opening them preserves authored classes, values, stored choice keys
 and links; invalid ports or absent classes prevent compilation rather than
 inserting an assembly helper or rewriting output links. Embedded historical
 replacement metadata does not authorize a graph edit.

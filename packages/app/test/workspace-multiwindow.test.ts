@@ -22,7 +22,7 @@ import {
 } from '../src/shared-worker-connection.js'
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 import { SharedWorkerTabConnection, type WorkspaceWorkerPortFactory } from '../src/workspace-worker-connection.js'
-import { CURVE_EDITOR_KIND } from '../src/editors.js'
+import { GLSL_EDITOR_KIND } from '../src/editors.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { preparePersistenceValue } from '../src/workflow-persistence-value.js'
 
@@ -130,7 +130,7 @@ const primitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema => ({
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input', id: 'value', type: { kind: 'concrete', name }, optional: false,
       ...(name === 'FLOAT' ? { widget: { widgetType: 'NUMBER', options: { step: 0.1 }, default: 0 } } : {}),
@@ -302,30 +302,38 @@ describe('AppState multi-window workspace', () => {
 
   it('converges create, reorder, close, and persistence snapshots across windows', async () => {
     const factory = authorityFactories()
-    const first = prepareWorkflowApp(new AppState())
-    const second = prepareWorkflowApp(new AppState())
+    const first = createEditableApp()
+    const second = createEditableApp()
+    first.pages.register({ id: 'example', title: 'Example', icon: () => undefined, component: () => null })
+    const page = first.pages.open('example')!
     await Promise.all([
       first.enableWorkspaceAuthority(factory.document, factory.workspace),
       second.enableWorkspaceAuthority(factory.document, factory.workspace),
     ])
+    expect(first.activeTabId.get()).toBe(page.id)
+    expect(second.pages.tabs().every((tab) => tab.editorKind !== 'page')).toBe(true)
 
     const created = first.createWorkflow()
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(second.tabs.get().map((tab) => tab.id)).toContain(created.id)
+    first.pages.open('example')
 
     second.tabs.set([...second.tabs.get()].reverse())
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(first.tabs.get().map((tab) => tab.id)).toEqual(second.tabs.get().map((tab) => tab.id))
+    expect(first.activeTabId.get()).toBe(page.id)
+    expect(first.pages.tabs().filter((tab) => tab.editorKind !== 'page').map((tab) => tab.id)).toEqual(second.tabs.get().map((tab) => tab.id))
 
     second.closeTab(created.id)
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(first.tabs.get().some((tab) => tab.id === created.id)).toBe(false)
+    expect(first.activeTabId.get()).toBe(page.id)
     first.flushPersistTabs()
     second.flushPersistTabs()
     expect(first.tabs.get().map((tab) => tab.id)).toEqual(second.tabs.get().map((tab) => tab.id))
   })
 
-  it('preserves a local curve editor when another window publishes tab metadata', async () => {
+  it('preserves a local GLSL editor when another window publishes tab metadata', async () => {
     const factory = authorityFactories()
     const first = prepareWorkflowApp(new AppState())
     const second = prepareWorkflowApp(new AppState())
@@ -340,20 +348,20 @@ describe('AppState multi-window workspace', () => {
       tabId: tab.id,
       graphId: 'g0',
       nodeId: 'n1',
-      inputId: 'curve',
+      inputId: 'fragment_shader' as const,
       instancePath: [],
       openedStoredValue: undefined,
-      openedSchemaDefault: undefined,
-      openedValue: { points: [{ position: 0, value: 0 }] },
+      openedSchemaDefault: '',
+      openedValue: '',
     }
-    first.curveEditorTarget.set(target)
-    first.setTabEditorKind(tab.id, CURVE_EDITOR_KIND)
+    first.glslEditorTarget.set(target)
+    first.setTabEditorKind(tab.id, GLSL_EDITOR_KIND)
 
     second.createWorkflow()
     await drainTasks()
 
-    expect(first.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(CURVE_EDITOR_KIND)
-    expect(first.curveEditorTarget.get()).toBe(target)
+    expect(first.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(GLSL_EDITOR_KIND)
+    expect(first.glslEditorTarget.get()).toBe(target)
   })
 
 
@@ -434,11 +442,11 @@ describe('AppState multi-window workspace', () => {
     const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
     const registry = buildDinksterRegistry(asConnectionId('local'), {
       schemaVersion: 1,
-      dinkster: { version: 'test', schemaWire: 1 },
+      dinkster: { version: 'test', schemaWire: 2 },
       nodes: {
         X: {
-          schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
+          schemaVersion: 2, displayName: 'X', outputNode: true,
+          body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
         },
       },
     })
@@ -921,7 +929,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
   // the promoted session instead of silently dropping.
   const seedSchema: NodeSchema = {
     type: 'SeedTest', displayName: 'Seed Test', category: 'test', source: 'v3', isOutputNode: true,
-    items: [
+    body: [
       { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } },
       { kind: 'input', id: 'up', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: { min: 10, max: 20, step: 3 }, default: 10, controller: 'after_generate' } },
@@ -960,7 +968,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     expect(promoted.store).not.toBe(tab.store)
 
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 9 })
+    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 13, down: 10 })
   })
 
   it('preserves editor-role schema resolution in the promoted command registry', async () => {
@@ -968,7 +976,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
       ...seedSchema,
       type: 'SyntheticCompositor',
       editorRole: 'compositor',
-      items: [
+      body: [
         { kind: 'input', id: 'recipe', type: { kind: 'concrete', name: 'COMPOSITOR' }, optional: true,
           widget: { widgetType: 'COMPOSITOR', options: {} } },
       ],
@@ -1028,7 +1036,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     promoted.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 11 } })
     await drainTasks()
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
+    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 10 })
   })
 
   const comboRoute = '/remote/options'
@@ -1044,7 +1052,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
   })
   const comboSchema: NodeSchema = {
     type: 'RefreshCombo', displayName: 'Refresh Combo', category: 'test', source: 'v3', isOutputNode: false,
-    items: [comboInput('up'), comboInput('down')],
+    body: [comboInput('up'), comboInput('down')],
   }
   const comboFixture = () => ({
     format: 'dinkster-workflow' as const, formatVersion: 1 as const, lineage: 'promotion-combo-test', root: 'g0',

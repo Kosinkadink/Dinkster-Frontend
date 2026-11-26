@@ -26,7 +26,7 @@ runs:
         clean: true
         persist-credentials: false
         repository: Kosinkadink/dinkster-nodes
-        ref: e3cc2acb32b0fdef6dcb104cd7d11a9ed75b904c
+        ref: 99da4d54d260ec72fef944f358f006846f2383ef
         path: .ci/dinkster-nodes
     - name: Prepare captured pack sources and interpreter
       if: inputs.artifact == ''

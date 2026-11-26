@@ -10,7 +10,7 @@ test('inspects simple and nested region iterations by exact retained runtime ide
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'region-inspector-proof', schemaWire: 1 },
+    dinkster: { version: 'region-inspector-proof', schemaWire: 2 },
     packs: {},
     nodes: {},
   } }))
@@ -48,8 +48,10 @@ test('inspects simple and nested region iterations by exact retained runtime ide
         },
         body: {
           id: 'body', name: 'Body', links: {}, nets: {}, reroutes: {}, boundary: {
-            inputs: [{ id: 'item', binds: { kind: 'port', node: 'source', port: 'in' } }],
-            outputs: [{ id: 'value', binds: { kind: 'port', node: 'source', port: 'value' } }],
+            body: [
+              { kind: 'input', id: 'item', binds: { kind: 'port', node: 'source', port: 'in' } },
+              { kind: 'output', id: 'value', binds: { kind: 'port', node: 'source', port: 'value' } },
+            ],
           }, nextOrdinal: 4,
           nodes: {
             source: { id: 'source', type: 'ProofSource', title: 'Renamed selector', values: {} },
@@ -59,8 +61,10 @@ test('inspects simple and nested region iterations by exact retained runtime ide
         },
         nested: {
           id: 'nested', name: 'Nested', links: {}, nets: {}, reroutes: {}, boundary: {
-            inputs: [{ id: 'item', binds: { kind: 'port', node: 'leaf', port: 'in' } }],
-            outputs: [{ id: 'value', binds: { kind: 'port', node: 'leaf', port: 'value' } }],
+            body: [
+              { kind: 'input', id: 'item', binds: { kind: 'port', node: 'leaf', port: 'in' } },
+              { kind: 'output', id: 'value', binds: { kind: 'port', node: 'leaf', port: 'value' } },
+            ],
           }, nextOrdinal: 2,
           nodes: { leaf: { id: 'leaf', type: 'ProofSource', title: 'Nested result', values: {} } },
         },
@@ -72,11 +76,11 @@ test('inspects simple and nested region iterations by exact retained runtime ide
     }
     app.registerSchemas([
       { type: 'ProofSource', displayName: 'Proof Source', category: 'proof', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'in', type: { kind: 'concrete', name: 'INT' }, optional: false },
           { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'INT' } },
         ] },
-      { type: 'ProofSink', displayName: 'No-output step', category: 'proof', source: 'v3', isOutputNode: false, items: [] },
+      { type: 'ProofSink', displayName: 'No-output step', category: 'proof', source: 'v3', isOutputNode: false, body: [] },
     ] as never)
     const diagnostics = (await app.openDocument(workflow as never, 'Iteration inspector proof'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))

@@ -7,15 +7,15 @@ if (proofDir) mkdirSync(proofDir, { recursive: true })
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'virtual-note-e2e', schemaWire: 1 },
+  dinkster: { version: 'virtual-note-e2e', schemaWire: 2 },
   packs: { test: { displayName: 'Test' } },
   nodes: {
     'test.Output': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.Output',
       displayName: 'Output',
       category: 'test',
-      interface: [],
+      body: [],
       isOutputNode: true,
       signature: 'virtual-note-output',
     },
@@ -73,8 +73,8 @@ test('notes render, persist, copy atomically, and never reach the backend', asyn
 
   await page.mouse.dblclick(700, 600)
   await page.getByTestId('palette-search').fill('Markdown Note')
-  await expect(page.locator('[data-node-type="dinkster.markdown_note"]')).toBeVisible()
-  await page.locator('[data-node-type="dinkster.markdown_note"]').click()
+  await expect(page.locator('[data-key="entry:dinkster.markdown_note"]')).toBeVisible()
+  await page.locator('[data-key="entry:dinkster.markdown_note"]').click()
   await page.mouse.click(700, 600)
   await expect
     .poll(() =>

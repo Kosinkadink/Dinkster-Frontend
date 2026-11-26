@@ -14,10 +14,11 @@
  * - Reroute nodes: preserved as first-class reroutes (topology + position);
  *   chains fed by GetNodes collapse into net sinks since nets are port-only
  * - KJNodes SetNode/GetNode pairs: converted to named nets (first-class here)
- * - frontend PrimitiveNode: converted to a value source (value + controller
- *   from widgets_values; the effective spec derives from consumers, exactly
- *   how the legacy node adopted its widget - architecture 5b). Backend
- *   PrimitiveInt/Float/... are ordinary compute nodes and import as nodes.
+ * - frontend PrimitiveNode: converted to the primitive node a wire dragged
+ *   off its first consumer's field makes (Int, Float, Text, Boolean, Choice,
+ *   or the general Primitive), with value and controller from
+ *   widgets_values. Backend PrimitiveInt/Float/... are ordinary compute
+ *   nodes and import as nodes.
  * - Note/MarkdownNote nodes: translated to frontend virtual nodes
  * - groups: imported as view groups
  * - node sizes are not imported for executable nodes; note geometry is
@@ -25,23 +26,22 @@
  */
 
 import { canonicalJson } from '../compile/hash.js'
-import { typedLiteralWire } from '../compile/dinkster-graph.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
-  comboBranchValuePath,
-  effectiveComboOption,
+  allRowsOf,
   inputsOf,
   isAssetWidgetInput,
-  joinValuePath,
   outputsOf,
-  type AutogrowSpec,
-  type CountBoundOutputAutogrowSpec,
+  scopeRowsOf,
+  type BodyRow,
+  type ChoiceSpec,
+  type GroupSpec,
   type InputSpec,
-  type InterfaceItem,
   type NodeSchema,
-  type OutputSpec,
+  type OptionRow,
 } from '../schema/model.js'
-import { DEFAULT_ELAB_BUDGET, elaborateInterface, elabInputsOf } from '../schema/elaborate.js'
+import { applyUse, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf } from '../schema/body.js'
+import { EMPTY_CONNECTIVITY, elaborateInterface, elabInputsOf, elabOutputsOf } from '../schema/elaborate.js'
 import {
   FORMAT_VERSION,
   type ControllerMode,
@@ -50,7 +50,6 @@ import {
   type GroupViewState,
   type Json,
   type JsonObject,
-  type NodeData,
   type NodeViewState,
   type WorkflowDocument,
 } from './document.js'
@@ -59,6 +58,7 @@ import { validateDocumentShape } from './validate.js'
 import { checkDocument } from '../invariants.js'
 import { isPortEndpoint } from '../ids.js'
 import { isAssetRefValue } from '../schema/widget-defaults.js'
+import { primitiveForField, primitiveOf } from '../primitive.js'
 import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
 import { convertLitegraphListConsumers } from './import-litegraph-loops.js'
 import { createTransactionBuilder } from '../commands/contract.js'
@@ -224,21 +224,25 @@ interface PositionalWidgetDecode {
   stopped: boolean
 }
 
-interface AutogrowFamilyImport {
-  readonly statePath: string
-  readonly wirePath: string
-  readonly spec: AutogrowSpec
+/**
+ * A group of an active scope. Its flattened id is also its ComfyUI wire
+ * scope: a member of a group of values is `<group>.<key>` and a row of a
+ * member of records `<group>.<key>.<row>` on both sides.
+ */
+interface GroupImport {
+  readonly path: string
+  readonly group: GroupSpec
 }
 
-interface AutogrowWireMatch {
-  readonly family: AutogrowFamilyImport
+interface GroupWireMatch {
+  readonly family: GroupImport
   readonly memberKey: string
   readonly slot: InputSpec
 }
 
-interface DiscoveredAutogrowMembers {
+interface DiscoveredGroupMembers {
   readonly order: ReadonlyMap<string, readonly string[]>
-  readonly slots: ReadonlyMap<number, { readonly match: AutogrowWireMatch; readonly memberId: string }>
+  readonly slots: ReadonlyMap<number, { readonly match: GroupWireMatch; readonly memberId: string }>
 }
 
 function normalizeLegacyWidgetValue(
@@ -262,234 +266,200 @@ function normalizeLegacyWidgetValue(
   return value
 }
 
+/** A choice's shared rows by id, for the Use rows of its options. */
+const sharedRowsOf = (choice: ChoiceSpec): ReadonlyMap<string, BodyRow> =>
+  new Map(scopeRowsOf(choice.shared).flatMap((item) =>
+    item.kind === 'use' || item.kind === 'row' || item.kind === 'section' ? [] : [[item.id, item as BodyRow] as const]))
+
+/** A row of a scope that is not layout. */
+type PlacedRow = Exclude<BodyRow, { readonly kind: 'row' } | { readonly kind: 'section' }>
+
+/** The rows of one scope in declared order, with each Use placed from the shared rows. */
+const placedRows = (rows: readonly OptionRow[], shared?: ReadonlyMap<string, BodyRow>): readonly PlacedRow[] =>
+  scopeRowsOf(rows).flatMap((raw): PlacedRow[] => {
+    if (raw.kind === 'use') {
+      const row = shared?.get(raw.id)
+      const placed = row === undefined ? undefined : applyUse(row, raw)
+      return placed === undefined || placed.kind === 'row' || placed.kind === 'section' ? [] : [placed]
+    }
+    return raw.kind === 'row' || raw.kind === 'section' ? [] : [raw]
+  })
+
+/** A row that is a box holding other rows. */
+const isBox = (row: PlacedRow): boolean =>
+  row.kind === 'group' || row.kind === 'choice' || row.kind === 'typeChoice' || row.kind === 'described'
+
+/** Member state for imported members: their keys, and the next number a numbered group hands out. */
+const importedGroupState = (group: GroupSpec, members: readonly string[]): DynamicPortState & JsonObject => {
+  const positions = group.keys.kind === 'numbered'
+    ? members.map((member) => keyPosition(group.keys, member)).filter((position): position is number => position !== undefined)
+    : []
+  return { members, ...(positions.length > 0 ? { seq: Math.max(...positions) + 1 } : {}) }
+}
+
 function decodeKeyedWidgets(
-  items: readonly InterfaceItem[] | readonly InputSpec[],
+  rows: readonly PlacedRow[],
   raw: Readonly<Record<string, Json>>,
   state: PositionalWidgetDecode,
-  statePrefix: string,
-  wirePrefix: string,
-  nodeLabel: string,
-  diags: Diagnostic[],
+  prefix: string,
   known: Set<string>,
 ): void {
-  for (const item of items) {
-    if (item.kind !== 'input') continue
-    const stateKey = joinValuePath(statePrefix, item.id)
-    const wireKey = joinValuePath(wirePrefix, item.id)
-    if (item.dynamic?.kind === 'dynamicCombo') {
-      const selected = raw[wireKey]
-      const branch = typeof selected === 'string'
-        ? item.dynamic.options.find((option) => option.key === selected)
+  for (const row of rows) {
+    const path = prefix + row.id
+    if (row.kind === 'input') {
+      if (row.widget === undefined || !Object.prototype.hasOwnProperty.call(raw, path)) continue
+      known.add(path)
+      const value = normalizeLegacyWidgetValue(row, raw[path]!)
+      if (value !== undefined) state.values[path] = value
+    } else if (row.kind === 'choice' && row.leader === undefined) {
+      const selected = raw[path]
+      const option = typeof selected === 'string'
+        ? row.options.find((candidate) => candidate.key === selected)
         : undefined
-      if (branch !== undefined) {
-        known.add(wireKey)
-        state.dynamic[stateKey] = { selected: branch.key }
-        decodeKeyedWidgets(
-          branch.inputs,
-          raw,
-          state,
-          item.dynamic.materialization === 'wire15' ? stateKey : comboBranchValuePath(stateKey, branch.key),
-          item.dynamic.materialization === 'wire15' ? wireKey : comboBranchValuePath(wireKey, branch.key),
-          nodeLabel,
-          diags,
-          known,
-        )
-      }
-      continue
-    }
-    if (item.dynamic?.kind === 'autogrow') {
-      const members = (state.dynamic[stateKey] as { readonly members?: readonly string[] } | undefined)?.members ?? []
+      if (option === undefined) continue
+      known.add(path)
+      state.dynamic[path] = { selected: option.key }
+      decodeKeyedWidgets(placedRows(option.rows, sharedRowsOf(row)), raw, state, `${path}.`, known)
+    } else if (row.kind === 'group') {
+      const members = (state.dynamic[path] as { readonly members?: readonly string[] } | undefined)?.members ?? []
       for (const member of members) {
-        for (const slot of item.dynamic.template) {
-          if (slot.dynamic !== undefined || slot.widget === undefined || slot.forceInput === true) continue
-          const stateMember = joinValuePath(stateKey, member)
-          const wireMember = joinValuePath(wireKey, member)
-          const stateInput = item.dynamic.template.length === 1
-            ? stateMember
-            : joinValuePath(stateMember, slot.id)
-          const wireInput = item.dynamic.template.length === 1
-            ? wireMember
-            : joinValuePath(wireMember, slot.id)
-          if (!Object.prototype.hasOwnProperty.call(raw, wireInput)) continue
-          known.add(wireInput)
-          const value = normalizeLegacyWidgetValue(slot, raw[wireInput]!)
-          if (value !== undefined) state.values[stateInput] = value
+        if (row.value === undefined) {
+          decodeKeyedWidgets(placedRows(row.member ?? []), raw, state, `${path}.${member}.`, known)
+          continue
         }
+        const key = `${path}.${member}`
+        if (row.value.kind !== 'input' || row.value.widget === undefined || row.value.forceInput === true ||
+          !Object.prototype.hasOwnProperty.call(raw, key)) continue
+        known.add(key)
+        const value = normalizeLegacyWidgetValue(row.value, raw[key]!)
+        if (value !== undefined) state.values[key] = value
       }
-      continue
-    }
-    if (item.widget !== undefined && Object.prototype.hasOwnProperty.call(raw, wireKey)) {
-      known.add(wireKey)
-      const value = normalizeLegacyWidgetValue(item, raw[wireKey]!)
-      if (value !== undefined) state.values[stateKey] = value
     }
   }
 }
 
-/** Active Autogrow families and their ComfyUI wire scopes. */
-function activeAutogrowFamilies(
-  items: readonly InterfaceItem[] | readonly InputSpec[],
+/** The groups of the scopes a node's stored choices make active. */
+function activeGroups(
+  rows: readonly PlacedRow[],
   dynamic: Readonly<Record<string, Json>>,
-  statePrefix = '',
-  wirePrefix = '',
-): AutogrowFamilyImport[] {
-  const families: AutogrowFamilyImport[] = []
-  for (const item of items) {
-    if (item.kind !== 'input' || item.dynamic === undefined) continue
-    const statePath = joinValuePath(statePrefix, item.id)
-    const wirePath = joinValuePath(wirePrefix, item.id)
-    if (item.dynamic.kind === 'autogrow') {
-      if (item.dynamic.naming.kind !== 'native') families.push({ statePath, wirePath, spec: item.dynamic })
+  prefix = '',
+): GroupImport[] {
+  const groups: GroupImport[] = []
+  for (const row of rows) {
+    const path = prefix + row.id
+    if (row.kind === 'group') {
+      groups.push({ path, group: row })
       continue
     }
-    if (item.dynamic.kind !== 'dynamicCombo') continue
-    const selected = (dynamic[statePath] as { readonly selected?: unknown } | undefined)?.selected
+    if (row.kind !== 'choice' || row.leader !== undefined) continue
+    const selected = (dynamic[path] as { readonly selected?: unknown } | undefined)?.selected
     const option = typeof selected === 'string'
-      ? item.dynamic.options.find((candidate) => candidate.key === selected)
+      ? row.options.find((candidate) => candidate.key === selected)
       : undefined
-    if (option === undefined) continue
-    families.push(...activeAutogrowFamilies(
-      option.inputs,
-      dynamic,
-      item.dynamic.materialization === 'wire15' ? statePath : comboBranchValuePath(statePath, option.key),
-      wirePath,
-    ))
+    if (option !== undefined) groups.push(...activeGroups(placedRows(option.rows, sharedRowsOf(row)), dynamic, `${path}.`))
   }
-  return families
+  return groups
 }
 
-/** Match only names derivable from the family's declared vocabulary/template. */
-function matchAutogrowWire(
+/** Match only names the group's naming rule and member rows can make. */
+function matchGroupWire(
   name: string,
-  family: AutogrowFamilyImport,
-): AutogrowWireMatch | undefined {
-  const prefix = `${family.wirePath}.`
+  family: GroupImport,
+): GroupWireMatch | undefined {
+  const prefix = `${family.path}.`
   if (!name.startsWith(prefix)) return undefined
   const relative = name.slice(prefix.length)
-  const { naming, template } = family.spec
-  if (naming.kind === 'native') return undefined
-
-  if (naming.kind === 'names') {
-    for (const member of naming.names) {
-      if (template.length === 1 && relative === member) {
-        return { family, memberKey: member, slot: template[0]! }
-      }
-      if (template.length > 1 && family.spec.materialization === 'wire15') {
-        for (const slot of template) {
-          if (relative === `${member}.${slot.id}`) return { family, memberKey: member, slot }
-        }
-      }
-    }
-    return undefined
+  const { group } = family
+  const limit = memberLimitOf(group)
+  const memberAt = (key: string): boolean => {
+    const position = keyPosition(group.keys, key)
+    return position !== undefined && position < limit
   }
-
-  const max = naming.max ?? 10
-  const offset = family.spec.ordinalOffset ?? 0
-  for (const slot of template) {
-    const grouped = template.length > 1
-      ? new RegExp(`^${escapeRegExp(naming.prefix)}([0-9]+)\\.${escapeRegExp(slot.id)}$`).exec(relative)
-      : null
-    const flat = template.length > 1
-      ? new RegExp(`^${escapeRegExp(slot.id)}([0-9]+)$`).exec(relative)
-      : new RegExp(`^${escapeRegExp(naming.prefix)}([0-9]+)$`).exec(relative)
-    const ordinalText = grouped?.[1] ?? flat?.[1]
+  if (group.value !== undefined) {
+    return group.value.kind === 'input' && !relative.includes('.') && memberAt(relative)
+      ? { family, memberKey: relative, slot: group.value }
+      : undefined
+  }
+  const inputs = placedRows(group.member ?? []).filter((row): row is InputSpec => row.kind === 'input')
+  const dot = relative.indexOf('.')
+  if (dot > 0) {
+    const key = relative.slice(0, dot)
+    const slot = inputs.find((input) => input.id === relative.slice(dot + 1))
+    return slot !== undefined && memberAt(key) ? { family, memberKey: key, slot } : undefined
+  }
+  // The flat ComfyUI form `<row><N>` names the member at number N.
+  if (group.keys.kind !== 'numbered') return undefined
+  for (const slot of inputs) {
+    const ordinalText = new RegExp(`^${escapeRegExp(slot.id)}([0-9]+)$`).exec(relative)?.[1]
     if (ordinalText === undefined) continue
-    const ordinal = Number(ordinalText)
-    if (ordinalText !== String(ordinal) || !Number.isSafeInteger(ordinal) || ordinal < offset || ordinal >= offset + max) return undefined
-    return { family, memberKey: `${naming.prefix}${ordinalText}`, slot }
+    const position = Number(ordinalText) - group.keys.start
+    if (ordinalText !== String(Number(ordinalText)) || !Number.isSafeInteger(position) || position < 0 || position >= limit) return undefined
+    return { family, memberKey: memberKeyAt(group.keys, position)!, slot }
   }
   return undefined
 }
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-const discoverAutogrowMembers = (
+/**
+ * Members in the order the serialized inputs first name them: a member's
+ * shown number is its position, so a foreign number is a key, never a sort
+ * key. Then each group gets its minimum of members.
+ */
+const discoverGroupMembers = (
   inputs: readonly { readonly name?: string }[],
-  families: readonly AutogrowFamilyImport[],
+  families: readonly GroupImport[],
   targetedSlots: ReadonlySet<number>,
-): DiscoveredAutogrowMembers => {
-  const allocated = new Map<string, Map<string, string>>()
+): DiscoveredGroupMembers => {
   const order = new Map<string, string[]>()
-  const slots = new Map<number, { match: AutogrowWireMatch; memberId: string }>()
-  const allocate = (match: AutogrowWireMatch): string => {
-    let familyMembers = allocated.get(match.family.statePath)
-    if (familyMembers === undefined) {
-      familyMembers = new Map()
-      allocated.set(match.family.statePath, familyMembers)
-      order.set(match.family.statePath, [])
-    }
-    const existing = familyMembers.get(match.memberKey)
-    if (existing !== undefined) return existing
-    const memberId = match.family.spec.optionalAfterMinimum || match.family.spec.naming.kind === 'names'
-      ? match.memberKey
-      : `m${familyMembers.size}`
-    familyMembers.set(match.memberKey, memberId)
-    order.get(match.family.statePath)!.push(memberId)
-    return memberId
-  }
+  const slots = new Map<number, { match: GroupWireMatch; memberId: string }>()
   for (const [slotIndex, input] of inputs.entries()) {
     if (typeof input.name !== 'string') continue
     const candidates = families
-      .map((family) => matchAutogrowWire(input.name!, family))
-      .filter((candidate): candidate is AutogrowWireMatch => candidate !== undefined)
+      .map((family) => matchGroupWire(input.name!, family))
+      .filter((candidate): candidate is GroupWireMatch => candidate !== undefined)
     if (candidates.length !== 1) continue
     const match = candidates[0]!
-    if (!targetedSlots.has(slotIndex) && !match.family.spec.template.some((item) =>
-      item.kind === 'input' && (item.widget !== undefined || item.dynamic !== undefined))) continue
-    slots.set(slotIndex, { match, memberId: allocate(match) })
+    const rows = placedRows(memberRowsOf(match.family.group))
+    if (!targetedSlots.has(slotIndex) && !rows.some((row) => isBox(row) || (row.kind === 'input' && row.widget !== undefined))) continue
+    let members = order.get(match.family.path)
+    if (members === undefined) order.set(match.family.path, (members = []))
+    if (!members.includes(match.memberKey)) members.push(match.memberKey)
+    slots.set(slotIndex, { match, memberId: match.memberKey })
   }
-  for (const family of families) {
-    let members = order.get(family.statePath)
-    if (members === undefined) {
-      members = []
-      order.set(family.statePath, members)
-    }
-    const minimum = family.spec.naming.min ?? 0
-    if (family.spec.optionalAfterMinimum) {
-      if (family.spec.template[0]?.optional) continue
-      for (let index = 0; index < minimum; index++) {
-        const member = family.spec.naming.kind === 'names'
-          ? family.spec.naming.names[index]!
-          : family.spec.naming.kind === 'prefix'
-            ? `${family.spec.naming.prefix}${index + (family.spec.ordinalOffset ?? 0)}` : undefined
-        if (member !== undefined && !members.includes(member)) members.push(member)
-      }
-      continue
-    }
-    if (family.spec.naming.kind === 'names') {
-      for (const name of family.spec.naming.names) {
-        if (members.length >= minimum) break
-        if (!members.includes(name)) members.push(name)
-      }
-    } else if (family.spec.naming.kind === 'prefix') {
-      while (members.length < minimum) {
-        const member = `m${members.length}`
-        if (!members.includes(member)) members.push(member)
-      }
+  for (const { path, group } of families) {
+    let members = order.get(path)
+    if (members === undefined) order.set(path, (members = []))
+    const first = placedRows(memberRowsOf(group))[0]
+    if (group.optionalAfterMinimum === true && first?.kind === 'input' && first.optional) continue
+    for (let index = 0; members.length < group.minMembers && index < memberLimitOf(group); index++) {
+      const key = memberKeyAt(group.keys, index)
+      if (key !== undefined && !members.includes(key)) members.push(key)
     }
   }
   return { order, slots }
 }
 
 const decodePositionalFamilyWidgets = (
-  family: AutogrowFamilyImport,
+  family: GroupImport,
   members: readonly string[],
   raw: readonly Json[],
   state: PositionalWidgetDecode,
   nodeLabel: string,
   diags: Diagnostic[],
 ): void => {
+  const { group } = family
   for (const member of members) {
-    for (const item of family.spec.template) {
-      if (item.type.kind === 'concrete' && item.type.name === 'RESOLUTION_PREVIEW') continue
-      if (item.dynamic !== undefined) {
+    const rows = group.value !== undefined ? [group.value] : placedRows(group.member ?? [])
+    for (const item of rows) {
+      if (isBox(item)) {
         state.stopped = true
-        diags.push(imp('warning', 'import.dynamic.autogrowUnsupported', `${nodeLabel}: dynamic autogrow '${family.statePath}' has a nested dynamic template; remaining positional values kept for review`))
+        diags.push(imp('warning', 'import.dynamic.autogrowUnsupported', `${nodeLabel}: group '${family.path}' has a box inside its members; remaining positional values kept for review`))
         return
       }
+      if (item.kind !== 'input') continue
       if (item.widget === undefined || item.forceInput === true) continue
-      const memberPath = joinValuePath(family.statePath, member)
-      const key = family.spec.template.length === 1 ? memberPath : joinValuePath(memberPath, item.id)
+      const key = group.value !== undefined ? `${family.path}.${member}` : `${family.path}.${member}.${item.id}`
       if (state.index >= raw.length) {
         diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
         continue
@@ -507,70 +477,80 @@ const decodePositionalFamilyWidgets = (
   }
 }
 
+/** A row that takes positions in ComfyUI's ordered widget stream. */
+/**
+ * The top-level rows in positional widget order. A save mount was appended
+ * after the node's original widgets, so it takes the last position even
+ * where the body draws it beside the filename prefix.
+ */
+const positionalRowsOf = (schema: NodeSchema): PlacedRow[] => {
+  const rows = placedRows(schema.body)
+  const mount = (row: PlacedRow): boolean => row.kind === 'input' && row.id === 'mount'
+  return [...rows.filter((row) => !mount(row)), ...rows.filter(mount)]
+}
+
+const takesPositions = (row: PlacedRow): boolean =>
+  (row.kind === 'choice' || (row.kind === 'input' && row.widget !== undefined && row.forceInput !== true) ||
+    // A group of outputs or pins has no widgets to take positions.
+    (row.kind === 'group' && placedRows(memberRowsOf(row)).some((item) => isBox(item) || takesPositions(item))))
+
 /**
  * Decode ComfyUI's ordered widget stream without elaborating a partial node.
- * A DynamicCombo selector determines which schema subtree owns the following
- * positions. Top-level static Autogrow families consume the members already
- * reconstructed from the serialized LiteGraph input order.
+ * A choice's stored key determines which option's rows own the following
+ * positions. Groups consume the members already reconstructed from the
+ * serialized LiteGraph input order.
  */
 function decodePositionalWidgets(
-  items: readonly InterfaceItem[] | readonly InputSpec[],
+  rows: readonly PlacedRow[],
   raw: readonly Json[],
   state: PositionalWidgetDecode,
   prefix: string,
   nodeLabel: string,
   diags: Diagnostic[],
-  following: readonly InterfaceItem[] = [],
+  following: readonly PlacedRow[] = [],
 ): void {
-  for (const [index, item] of items.entries()) {
+  for (const [index, row] of rows.entries()) {
     if (state.stopped) return
-    if (item.kind !== 'input') continue
-    // ComfyUI's resolution preview is display-only and serializes no value.
-    if (item.type.kind === 'concrete' && item.type.name === 'RESOLUTION_PREVIEW') continue
-    const key = joinValuePath(prefix, item.id)
-    const dynamic = item.dynamic
+    const key = prefix + row.id
 
-    // DynamicCombo's widget describes its selector but does not own a second
-    // positional value. Consume the selector once, before ordinary widgets.
-    if (dynamic?.kind === 'dynamicCombo') {
+    // A choice's dropdown owns one position, before the chosen option's rows.
+    if (row.kind === 'choice') {
+      if (row.leader !== undefined) {
+        state.stopped = true
+        diags.push(imp('warning', 'import.dynamic.ledChoice', `${nodeLabel}: choice '${key}' is led by a formula, which a positional widget stream cannot follow; remaining positional values kept for review`))
+        return
+      }
+      const rest = [...rows.slice(index + 1), ...following]
       if (state.index >= raw.length) {
         diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for dynamic selector '${key}'; schema default applies`))
-        const fallback = effectiveComboOption(dynamic, undefined)
-        const branch = dynamic.options.find((option) => option.key === fallback)
-        if (branch) {
-          decodePositionalWidgets(
-            branch.inputs,
-            raw,
-            state,
-            dynamic.materialization === 'wire15' ? key : comboBranchValuePath(key, branch.key),
-            nodeLabel,
-            diags,
-            [...items.slice(index + 1), ...following],
-          )
-        }
+        const fallback = row.default ?? row.options[0]?.key
+        const branch = row.options.find((option) => option.key === fallback)
+        if (branch) decodePositionalWidgets(placedRows(branch.rows, sharedRowsOf(row)), raw, state, `${key}.`, nodeLabel, diags, rest)
         continue
       }
-
       const selected = raw[state.index++]
       const branch = typeof selected === 'string'
-        ? dynamic.options.find((option) => option.key === selected)
+        ? row.options.find((option) => option.key === selected)
         : undefined
       if (branch === undefined) {
         state.stopped = true
         diags.push(imp('warning', 'import.dynamic.unknownSelector', `${nodeLabel}: dynamic selector '${key}' has unknown option ${JSON.stringify(selected)}; schema default applies and remaining positional values were kept for review`))
         return
       }
-
       state.dynamic[key] = { selected: branch.key }
-      decodePositionalWidgets(
-        branch.inputs,
-        raw,
-        state,
-        dynamic.materialization === 'wire15' ? key : comboBranchValuePath(key, branch.key),
-        nodeLabel,
-        diags,
-        [...items.slice(index + 1), ...following],
-      )
+      decodePositionalWidgets(placedRows(branch.rows, sharedRowsOf(row)), raw, state, `${key}.`, nodeLabel, diags, rest)
+      continue
+    }
+
+    if (row.kind === 'group') {
+      if (!takesPositions(row)) continue
+      const members = (state.dynamic[key] as { readonly members?: readonly string[] } | undefined)?.members
+      if (members === undefined) {
+        state.stopped = true
+        diags.push(imp('warning', 'import.dynamic.autogrowUnsupported', `${nodeLabel}: group '${key}' cannot be reconstructed; remaining positional values kept for review`))
+        return
+      }
+      decodePositionalFamilyWidgets({ path: key, group: row }, members, raw, state, nodeLabel, diags)
       continue
     }
 
@@ -578,44 +558,80 @@ function decodePositionalWidgets(
     // so they consume no positional widgets_values entry. Older workflows
     // that serialized one remain loud as excess rather than shifting every
     // later widget onto the wrong semantic input.
-    if (item.widget !== undefined && item.forceInput !== true) {
-      if (state.index >= raw.length) {
-        diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
-      } else {
-        const value = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
-        if (value !== undefined) state.values[key] = value
-        if (item.widget.controller !== undefined && state.index < raw.length) {
-          const mode = raw[state.index]
-          if (typeof mode === 'boolean') {
-            const next = [...items.slice(index + 1), ...following].find((candidate) => candidate.kind === 'input' &&
-              !(candidate.type.kind === 'concrete' && candidate.type.name === 'RESOLUTION_PREVIEW') &&
-              (candidate.dynamic !== undefined || (candidate.widget !== undefined && candidate.forceInput !== true)))
-            if (next?.kind === 'input' && (next.dynamic !== undefined || next.type.kind !== 'concrete' || next.type.name === 'BOOLEAN')) {
-              state.stopped = true
-              diags.push(imp('error', 'import.controller.ambiguousBoolean', `${nodeLabel}: boolean after '${key}' could be a controller or the next widget value; use an explicit controller mode or a versioned widget upgrade`))
-              return
-            }
-          }
-          if (typeof mode === 'boolean' || (typeof mode === 'string' && CONTROLLER_MODES.has(mode))) {
-            state.controllers[key] = typeof mode === 'boolean' ? (mode ? 'randomize' : 'fixed') : mode as ControllerMode
-            state.index++
-          }
-          // Not a controller value: leave it for the next widget rather than
-          // guessing, including for widgets nested under a combo branch.
+    if (row.kind !== 'input' || !takesPositions(row) || row.widget === undefined) continue
+    if (state.index >= raw.length) {
+      diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
+      continue
+    }
+    const value = normalizeLegacyWidgetValue(row, raw[state.index++] as Json)
+    if (value !== undefined) state.values[key] = value
+    if (row.widget.controller !== undefined && state.index < raw.length) {
+      const mode = raw[state.index]
+      if (typeof mode === 'boolean') {
+        const next = [...rows.slice(index + 1), ...following].find(takesPositions)
+        if (next !== undefined && (next.kind !== 'input' || next.type.kind !== 'concrete' || next.type.name === 'BOOLEAN')) {
+          state.stopped = true
+          diags.push(imp('error', 'import.controller.ambiguousBoolean', `${nodeLabel}: boolean after '${key}' could be a controller or the next widget value; use an explicit controller mode or a versioned widget upgrade`))
+          return
         }
       }
-    }
-
-    if (dynamic === undefined) continue
-    if (dynamic.kind === 'autogrow') {
-      const members = (state.dynamic[key] as { readonly members?: readonly string[] } | undefined)?.members
-      if (members === undefined || dynamic.materialization !== 'wire15' || dynamic.naming.kind === 'native') {
-        state.stopped = true
-        diags.push(imp('warning', 'import.dynamic.autogrowUnsupported', `${nodeLabel}: dynamic autogrow '${key}' cannot be reconstructed; remaining positional values kept for review`))
-        return
+      if (typeof mode === 'boolean' || (typeof mode === 'string' && CONTROLLER_MODES.has(mode))) {
+        state.controllers[key] = typeof mode === 'boolean' ? (mode ? 'randomize' : 'fixed') : mode as ControllerMode
+        state.index++
       }
-      decodePositionalFamilyWidgets({ statePath: key, wirePath: key, spec: dynamic }, members, raw, state, nodeLabel, diags)
+      // Not a controller value: leave it for the next widget rather than
+      // guessing, including for widgets nested under a choice's option.
     }
+  }
+}
+
+/** Save Video's rows that ComfyUI's widget stream fills, found by id. */
+interface SaveVideoRows {
+  readonly prefix: PlacedRow
+  readonly format: ChoiceSpec
+  readonly mount?: PlacedRow
+}
+
+/**
+ * Save Video's rows when the served node has exactly the filename prefix,
+ * the format choice and an optional save mount taking positions; any other
+ * layout decodes in plain order.
+ */
+const saveVideoRowsOf = (schema: NodeSchema): SaveVideoRows | undefined => {
+  const rows = positionalRowsOf(schema).filter(takesPositions)
+  const prefix = rows.find((row) => row.id === 'filename_prefix')
+  const format = rows.find((row) => row.id === 'format')
+  const mount = rows.find((row) => row.id === 'mount')
+  if (prefix?.kind !== 'input' || prefix.type.kind !== 'concrete' || prefix.type.name !== 'STRING' ||
+    prefix.widget?.widgetType !== 'STRING' || prefix.widget.controller !== undefined) return undefined
+  if (format?.kind !== 'choice' || format.leader !== undefined) return undefined
+  if (mount !== undefined && (mount.kind !== 'input' || !mount.optional || mount.widget?.controller !== undefined)) return undefined
+  if (rows.length !== (mount === undefined ? 2 : 3)) return undefined
+  return { prefix, format, ...(mount !== undefined ? { mount } : {}) }
+}
+
+/**
+ * ComfyUI's Save Video stream holds the filename prefix, the format with its
+ * rows, and then a hidden top-level codec with its rows, which this node does
+ * not have. The hidden codec's values are read past and stored nowhere, so a
+ * save mount appended after them still takes the last position.
+ */
+function decodeSaveVideoWidgets(
+  rows: SaveVideoRows,
+  raw: readonly Json[],
+  state: PositionalWidgetDecode,
+  nodeLabel: string,
+  diags: Diagnostic[],
+): void {
+  decodePositionalWidgets([rows.prefix, rows.format], raw, state, '', nodeLabel, diags)
+  const codec = sharedRowsOf(rows.format).get('codec')
+  if (!state.stopped && codec?.kind === 'choice' && codec.options.some((option) => option.key === raw[state.index])) {
+    const skipped: PositionalWidgetDecode = { values: {}, controllers: {}, dynamic: {}, index: state.index, stopped: false }
+    decodePositionalWidgets([codec], raw, skipped, '', nodeLabel, [])
+    state.index = skipped.index
+  }
+  if (!state.stopped && rows.mount !== undefined && state.index < raw.length) {
+    decodePositionalWidgets([rows.mount], raw, state, '', nodeLabel, diags)
   }
 }
 
@@ -649,7 +665,7 @@ const staticOutputPortForSchema = (
   const occurrence = (node.outputs ?? [])
     .slice(0, slot)
     .filter((output) => output.name === foreignName).length
-  const outputs = outputsOf(schema).filter((output) => output.dynamic === undefined)
+  const outputs = outputsOf(schema)
   const exact = outputs.filter((output) => output.id === foreignName)
   if (exact.length > 0) return exact[occurrence]?.id
   if (schema.source === 'subgraph') return undefined
@@ -659,7 +675,8 @@ const staticOutputPortForSchema = (
   const folded = outputs.filter((output) =>
     output.id.toLowerCase() === foldedName || output.displayName?.toLowerCase() === foldedName)
   if (folded.length > 0) return folded[occurrence]?.id
-  if (!allowPositional || outputsOf(schema).some((output) => output.dynamic !== undefined)) return undefined
+  // An output inside a box shifts the positions of the ones after it.
+  if (!allowPositional || allRowsOf(schema.body).filter((row) => row.kind === 'output').length !== outputs.length) return undefined
   const positional = outputsOf(schema)[slot]
   return positional?.id
 }
@@ -678,7 +695,7 @@ const fnv1a = (s: string): string => {
 function freshImportHelpers(rule: ReplacementRule, graph: GraphDef, nodeId: string): ReplacementRule {
   if (!rule.cases.some((branch) => Object.keys(branch.nodes ?? {}).length > 0)) return rule
   const occupied = new Set([
-    graph.nodes, graph.links, graph.nets, graph.reroutes, graph.valueSources ?? {}, graph.selectors ?? {},
+    graph.nodes, graph.links, graph.nets, graph.reroutes,
   ].flatMap((entities) => Object.keys(entities)))
   return { ...rule, cases: rule.cases.map((branch) => {
     if (branch.nodes === undefined) return branch
@@ -725,7 +742,10 @@ export function importLitegraph(
   resolve: (type: string) => NodeSchema | undefined,
   upgrades: ComfyNodeUpgradeTable = COMFY_NODE_UPGRADES,
   translations: readonly ComfyTranslation[] = [],
+  /** Installed schemas; a frontend PrimitiveNode becomes one of their primitives. */
+  schemas: Iterable<NodeSchema> = [],
 ): ImportLitegraphResult {
+  const primitives = [...schemas].filter((schema) => primitiveOf(schema) !== undefined)
   const ingress = ownJson(input)
   if (!ingress.ok) return { diagnostics: [imp('error', 'import.notJson', `workflow rejected: ${ingress.reason}`)] }
   const ambiguous = new Set<string>()
@@ -736,8 +756,9 @@ export function importLitegraph(
     bySource.set(source, record)
   }
   for (const source of ambiguous) bySource.delete(source)
+  const historical = historicalSourcesOf(ingress.value as JsonObject, bySource, resolve)
   const importSchemas = new Map([...bySource].flatMap(([source, record]) => [
-    [source, { ...record.schema, type: source }] as const,
+    [source, historical.interfaces.get(source) ?? { ...record.schema, type: source }] as const,
     ...(record.interfaces ?? [record.schema]).map((schema) => [schema.type, schema] as const),
   ]))
   const resolveForImport = (type: string): NodeSchema | undefined => {
@@ -748,7 +769,7 @@ export function importLitegraph(
     const schema = resolveForImport(type)
     return schema?.type === type ? schema : undefined
   }, (graph, localResolve, definitions) =>
-    importLitegraphGraph(graph, localResolve, definitions, upgrades))
+    importLitegraphGraph(graph, localResolve, definitions, upgrades, primitives))
   if (!result.document) return result
   let document = result.document
   const diagnostics = [...result.diagnostics]
@@ -763,6 +784,10 @@ export function importLitegraph(
       if (node === undefined) continue
       const record = bySource.get(node.type)
       if (record === undefined) continue
+      if (historical.unmarked.has(`${graphId}:${nodeId}`)) {
+        diagnostics.push(imp('warning', 'import.translation.unmarkedWidgets', `node ${nodeId} ('${node.type}') in ${graphId}: its saved inputs do not say which ones hold its widget values; node kept for review`))
+        continue
+      }
       // Helpers inherit ancestry too: fresh helper IDs must not evade cycle detection.
       if (sources.includes(node.type)) {
         diagnostics.push(imp('warning', 'import.translation.cycle', `translation cycle at '${node.type}' in ${graphId}/${nodeId}; node kept for review`))
@@ -805,6 +830,73 @@ export function importLitegraph(
   return { diagnostics, document: retained.value as unknown as WorkflowDocument }
 }
 
+/**
+ * Import-only interfaces for sources that only a rule's historical inputs
+ * describe: no installed schema has the source's type and no registry
+ * interface does. Its inputs are the historical inputs in order; one is a
+ * widget when a saved node of that type marks it as one, with the saved
+ * input type as its widget type. Its outputs are the source outputs the
+ * rule's cases map. A saved node with widget values whose inputs mark none
+ * cannot say which input holds which value, so it is listed as unmarked.
+ */
+function historicalSourcesOf(
+  workflow: JsonObject,
+  bySource: ReadonlyMap<string, ComfyTranslation>,
+  resolve: (type: string) => NodeSchema | undefined,
+): { readonly interfaces: ReadonlyMap<string, NodeSchema>; readonly unmarked: ReadonlySet<string> } {
+  const rules = new Map<string, ReplacementRule & { readonly migration: NonNullable<ReplacementRule['migration']> }>()
+  for (const [source, record] of bySource) {
+    const { migration } = record.rule
+    if (migration === undefined || resolve(source)?.type === source ||
+      (record.interfaces ?? []).some((schema) => schema.type === source)) continue
+    rules.set(source, { ...record.rule, migration })
+  }
+  const interfaces = new Map<string, NodeSchema>()
+  const unmarked = new Set<string>()
+  if (rules.size === 0) return { interfaces, unmarked }
+  const object = (value: unknown): value is JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value)
+  const definitions = object(workflow['definitions']) && Array.isArray(workflow['definitions']['subgraphs'])
+    ? workflow['definitions']['subgraphs'].filter(object) : []
+  const graphs: [string, unknown][] = [['g0', workflow['nodes']], ...definitions.map((def): [string, unknown] => [String(def['id']), def['nodes']])]
+  const widgets = new Map<string, Map<string, string>>()
+  for (const [graphId, nodes] of graphs) {
+    for (const node of Array.isArray(nodes) ? nodes.filter(object) : []) {
+      const rule = typeof node['type'] === 'string' ? rules.get(node['type']) : undefined
+      if (rule === undefined) continue
+      const marked = widgets.get(rule.from) ?? new Map<string, string>()
+      widgets.set(rule.from, marked)
+      let marks = 0
+      for (const input of Array.isArray(node['inputs']) ? node['inputs'].filter(object) : []) {
+        const widget = input['widget']
+        const name = object(widget) && typeof widget['name'] === 'string' ? widget['name'] : undefined
+        if (name === undefined || !rule.migration.historicalInputs.includes(name) || typeof input['type'] !== 'string') continue
+        marks++
+        marked.set(name, input['type'])
+      }
+      const stored = node['widgets_values']
+      const holdsValues = Array.isArray(stored) ? stored.length > 0 : object(stored) && Object.keys(stored).length > 0
+      if (holdsValues && marks === 0) unmarked.add(`${graphId}:n${String(node['id'])}`)
+    }
+  }
+  for (const [source, rule] of rules) {
+    const marked = widgets.get(source) ?? new Map<string, string>()
+    const outputs = [...new Set(rule.cases.flatMap((candidate) => Object.values(candidate.outputs ?? {})))]
+    interfaces.set(source, {
+      type: source, displayName: source, category: 'imported', source: 'v3', isOutputNode: false,
+      body: [
+        ...rule.migration.historicalInputs.map((id): InputSpec => {
+          const widgetType = marked.get(id)
+          return widgetType === undefined
+            ? { kind: 'input', id, type: { kind: 'variable', templateId: id }, optional: true }
+            : { kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: true, widget: { widgetType, options: {} } }
+        }),
+        ...outputs.map((id) => ({ kind: 'output' as const, id, type: { kind: 'variable' as const, templateId: id } })),
+      ],
+    })
+  }
+  return { interfaces, unmarked }
+}
+
 export interface ImportedAssetLiteral {
   readonly graphId: string
   readonly nodeId: string
@@ -829,8 +921,8 @@ export function resolveImportedAssetLiterals(
       const schema = resolve(node.type)
       if (!schema) return [nodeId, node]
       let values: Record<string, Json> | undefined
-      for (const item of schema.items) {
-        if (item.kind !== 'input' || !isAssetWidgetInput(item) || item.widget?.selection === true) continue
+      for (const item of inputsOf(schema)) {
+        if (!isAssetWidgetInput(item) || item.widget?.selection === true) continue
         const value = node.values[item.id]
         if (typeof value !== 'string') continue
         const asset = assetForName(value)
@@ -842,31 +934,34 @@ export function resolveImportedAssetLiterals(
         values[item.id] = asset as Json
       }
       return [nodeId, values === undefined ? node : { ...node, values }]
-    })) as GraphDef['nodes']
-    let valueSources = graph.valueSources
-    for (const [sourceId, source] of Object.entries(graph.valueSources ?? {})) {
-      if (typeof source.value !== 'string') continue
-      const targets = Object.values(graph.links).flatMap((link) => {
-        if (!('valueSource' in link.from) || link.from.valueSource !== sourceId || !isPortEndpoint(link.to)) return []
+    })) as Record<string, GraphDef['nodes'][string]>
+    // A primitive's value names an asset when every wire it drives ends on an asset field.
+    for (const [nodeId, node] of Object.entries(nodes)) {
+      const schema = resolve(node.type)
+      const shape = schema && primitiveOf(schema)
+      const value = shape && node.values[shape.value.id]
+      if (shape === undefined || isAssetWidgetInput(shape.value) || typeof value !== 'string') continue
+      const outgoing = Object.values(graph.links).filter((link) =>
+        isPortEndpoint(link.from) && link.from.node === nodeId && link.from.port === shape.output.id)
+      const targets = outgoing.flatMap((link) => {
+        if (!isPortEndpoint(link.to)) return []
         const target = link.to
-        const node = nodes[target.node]
-        const schema = node === undefined ? undefined : resolve(node.type)
-        const input = schema?.items.find((item) => item.kind === 'input' && item.id === target.port)
-        return input?.kind === 'input' && isAssetWidgetInput(input) && input.widget?.selection !== true
+        const consumer = nodes[target.node]
+        const consumerSchema = consumer === undefined ? undefined : resolve(consumer.type)
+        const input = consumerSchema === undefined ? undefined : inputsOf(consumerSchema).find((item) => item.id === target.port)
+        return input !== undefined && isAssetWidgetInput(input) && input.widget?.selection !== true
           ? [{ nodeId: target.node, inputId: target.port }]
           : []
       })
-      const outgoing = Object.values(graph.links).filter((link) =>
-        'valueSource' in link.from && link.from.valueSource === sourceId)
       if (targets.length === 0 || targets.length !== outgoing.length) continue
-      const asset = assetForName(source.value)
+      const asset = assetForName(value)
       if (!isAssetRefValue(asset)) {
-        unresolved.push(...targets.map((target) => ({ graphId, ...target, name: source.value as string })))
+        unresolved.push(...targets.map((target) => ({ graphId, ...target, name: value })))
         continue
       }
-      valueSources = { ...valueSources, [sourceId]: { ...source, value: asset as Json } }
+      nodes[nodeId] = { ...node, values: { ...node.values, [shape.value.id]: asset as Json } }
     }
-    return [graphId, { ...graph, nodes, ...(valueSources === undefined ? {} : { valueSources }) }]
+    return [graphId, { ...graph, nodes }]
   })) as WorkflowDocument['graphs']
   return { document: { ...document, graphs }, unresolved }
 }
@@ -876,6 +971,7 @@ function importLitegraphGraph(
   resolve: (type: string) => NodeSchema | undefined,
   definitions: WorkflowDocument['graphs'],
   upgrades: ComfyNodeUpgradeTable,
+  primitives: readonly NodeSchema[],
 ): ImportLitegraphResult {
   // Ownership boundary (CO1/CO9): the workflow is foreign input. Owning it
   // up front rejects accessors/proxies/cycles/non-finite numbers (e.g. an
@@ -1221,8 +1317,11 @@ function importLitegraphGraph(
     }
     ueTargets.set(key, entry)
   }
+  // A frontend PrimitiveNode becomes the primitive chosen below, before the nodes are built.
+  const primitiveSchemas = new Map<number, NodeSchema>()
   const importedNodeType = (node: LgNode): string =>
-    node.type === UE_SEED_CONTROLLER_TYPE && ueControllerIds.has(node.id) ? 'PrimitiveInt' : node.type
+    node.type === UE_SEED_CONTROLLER_TYPE && ueControllerIds.has(node.id) ? 'PrimitiveInt'
+      : primitiveSchemas.get(node.id)?.type ?? node.type
   const resolveImported = (node: LgNode): NodeSchema | undefined =>
     resolve(importedNodeType(node))
 
@@ -1235,7 +1334,6 @@ function importLitegraphGraph(
   type Upstream =
     | { kind: 'origin'; node: number; slot: number }
     | { kind: 'net'; name: string }
-    | { kind: 'valueSource'; id: number }
 
   const netName = (n: LgNode): string | undefined => {
     const v = Array.isArray(n.widgets_values) ? n.widgets_values[0] : undefined
@@ -1251,9 +1349,6 @@ function importLitegraphGraph(
       const name = getNames.get(src.id)
       if (name === undefined) return undefined
       return { kind: 'net', name }
-    }
-    if (PRIMITIVE_TYPES.has(src.type)) {
-      return { kind: 'valueSource', id: src.id }
     }
     if (!REROUTE_TYPES.has(src.type) && !SET_TYPES.has(src.type)) {
       return { kind: 'origin', node: wire.fromNode, slot: wire.fromSlot }
@@ -1354,13 +1449,9 @@ function importLitegraphGraph(
   }
 
   const setSources = new Map<string, { node: number; slot: number }>()
-  // Nets are port-only: a net fed by a PrimitiveNode instead collapses into
-  // direct value-source links to every sink (same delivered value).
-  const netPrimitiveSources = new Map<string, number>() // name -> lg primitive id
   const resolveNetSource = (name: string, chain: Set<string>): { node: number; slot: number } | undefined => {
     const cached = setSources.get(name)
     if (cached) return cached
-    if (netPrimitiveSources.has(name)) return undefined
     const inLink = setInputs.get(name)
     if (inLink === undefined) return undefined
     const up = resolveUpstream(inLink)
@@ -1373,12 +1464,7 @@ function importLitegraphGraph(
       chain.add(name)
       const src = resolveNetSource(up.name, chain)
       if (src) setSources.set(name, src)
-      else if (netPrimitiveSources.has(up.name)) netPrimitiveSources.set(name, netPrimitiveSources.get(up.name)!)
       return src
-    }
-    if (up.kind === 'valueSource') {
-      netPrimitiveSources.set(name, up.id)
-      return undefined
     }
     const src = { node: up.node, slot: up.slot }
     setSources.set(name, src)
@@ -1440,8 +1526,6 @@ function importLitegraphGraph(
     }
     const source = setSources.get(name)
     if (source !== undefined) addType(byId.get(source.node)?.outputs?.[source.slot]?.type)
-    const primitive = netPrimitiveSources.get(name)
-    if (primitive !== undefined) addType(byId.get(primitive)?.outputs?.[0]?.type)
     if (malformedType) {
       diags.push(imp('error', 'import.net.typeMismatch', `Set/Get net '${name}' has a malformed serialized type`))
     } else if (types.size > 1) {
@@ -1459,7 +1543,6 @@ function importLitegraphGraph(
     | { kind: 'port'; node: number; slot: number }
     | { kind: 'reroute'; id: number }
     | { kind: 'net'; name: string }
-    | { kind: 'valueSource'; id: number }
 
   const droppedCycleLinks = new Set<number>()
   const rerouteFeed = new Map<number, Feed | undefined>()
@@ -1476,9 +1559,6 @@ function importLitegraphGraph(
       const name = getNames.get(src.id)
       if (name === undefined) return undefined
       return { kind: 'net', name }
-    }
-    if (PRIMITIVE_TYPES.has(src.type)) {
-      return { kind: 'valueSource', id: src.id }
     }
     if (REROUTE_TYPES.has(src.type)) {
       const feed = classifyReroute(src.id)
@@ -1589,10 +1669,85 @@ function importLitegraphGraph(
     return { x: 0, y: 0 }
   }
 
+  // A PrimitiveNode takes the widget of the first field it feeds, through
+  // reroutes and Set/Get nets, so it becomes the primitive a wire dragged off
+  // that field makes.
+  const originOf = (linkId: number): number | undefined => {
+    const seen = new Set<number>()
+    for (let current: number | null | undefined = linkId; current !== null && current !== undefined;) {
+      const src = byId.get(wires.get(current)?.fromNode ?? -1)
+      if (src === undefined) return undefined
+      if (GET_TYPES.has(src.type)) {
+        const name = getNames.get(src.id)
+        return name === undefined ? undefined : setSources.get(name)?.node
+      }
+      if (!REROUTE_TYPES.has(src.type) && !SET_TYPES.has(src.type)) return src.id
+      if (seen.has(src.id)) return undefined
+      seen.add(src.id)
+      current = src.inputs?.[0]?.link
+    }
+    return undefined
+  }
+  const fedField = new Map<number, InputSpec | undefined>()
+  for (const [lgId, wire] of [...wires].sort(([a], [b]) => a - b)) {
+    const consumer = byId.get(wire.toNode)
+    if (consumer === undefined || REROUTE_TYPES.has(consumer.type) || SET_TYPES.has(consumer.type) ||
+      GET_TYPES.has(consumer.type) || NOTE_TYPES.has(consumer.type) || PRIMITIVE_TYPES.has(consumer.type)) continue
+    const origin = originOf(lgId)
+    if (origin === undefined || !PRIMITIVE_TYPES.has(byId.get(origin)?.type ?? '') || fedField.has(origin)) continue
+    const schema = resolveImported(consumer)
+    const port = schema === undefined ? undefined : inputPortForSchema(consumer, wire.toSlot, schema)
+    fedField.set(origin, port === undefined ? undefined : inputsOf(schema!).find((item) => item.id === port))
+  }
+  const generalPrimitive = primitives.find((schema) => primitiveOf(schema)!.value.type.kind === 'variable')
+  for (const n of byId.values()) {
+    if (!PRIMITIVE_TYPES.has(n.type)) continue
+    // When the fed field names no type, as a subgraph boundary does, the
+    // output type the adopted widget gave the PrimitiveNode chooses instead.
+    const fed = fedField.get(n.id)
+    const outputType = n.outputs?.[0]?.type
+    const field = fed?.widget !== undefined || fed?.type.kind === 'concrete' || typeof outputType !== 'string' || outputType === '*'
+      ? fed
+      : { kind: 'input', id: 'value', type: { kind: 'concrete', name: outputType }, optional: false } satisfies InputSpec
+    const schema = field === undefined ? generalPrimitive : primitiveForField(primitives, field)
+    if (schema !== undefined) primitiveSchemas.set(n.id, schema)
+  }
+  const wiredSources = new Set<number>()
+  for (const w of wires.values()) wiredSources.add(w.fromNode)
+  let convertedPrimitives = 0
+  let droppedPrimitives = 0
+
   for (const n of byId.values()) {
     maxOrdinal = Math.max(maxOrdinal, n.id)
     if (REROUTE_TYPES.has(n.type) || SET_TYPES.has(n.type) || GET_TYPES.has(n.type) || droppedUeControllerIds.has(n.id)) continue
-    if (PRIMITIVE_TYPES.has(n.type)) continue // materialized as value sources below
+    if (PRIMITIVE_TYPES.has(n.type)) {
+      // widgets_values = [value, controllerMode?] once a widget was adopted.
+      const raw = Array.isArray(n.widgets_values) ? n.widgets_values : []
+      const schema = primitiveSchemas.get(n.id)
+      const shape = schema && primitiveOf(schema)
+      if (shape === undefined || (raw.length === 0 && !wiredSources.has(n.id))) {
+        // Never adopted a widget and drives nothing, or no primitive node is installed.
+        droppedPrimitives++
+        continue
+      }
+      const id = `n${n.id}`
+      const mode = raw[1]
+      const controller = typeof mode === 'string' && CONTROLLER_MODES.has(mode) ? (mode as ControllerMode) : undefined
+      const nodeMode = n.mode === 2 ? 'muted' : n.mode === 4 ? 'bypassed' : undefined
+      const title = typeof n.title === 'string' && n.title !== n.type && n.title !== 'Primitive' && n.title !== schema!.displayName ? n.title : undefined
+      nodes[id] = {
+        id,
+        type: schema!.type,
+        values: raw.length > 0 ? { [shape.value.id]: raw[0] as Json } : {},
+        ...(controller ? { controllers: { [shape.value.id]: controller } } : {}),
+        ...(nodeMode ? { mode: nodeMode } : {}),
+        ...(title !== undefined ? { title } : {}),
+      }
+      viewNodes[id] = { position: posOf(n), ...(n.flags?.collapsed === true ? { collapsed: true } : {}) }
+      importedOutputEndpoints.set(n.id, new Map([[0, { node: id, port: shape.output.id }]]))
+      convertedPrimitives++
+      continue
+    }
     if (NOTE_TYPES.has(n.type)) {
       const text = Array.isArray(n.widgets_values) ? n.widgets_values[0] : undefined
       const id = `n${n.id}`
@@ -1637,17 +1792,12 @@ function importLitegraphGraph(
       if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
 
     if (schema !== undefined) {
-      const families = activeAutogrowFamilies(schema.items, dynamic)
-      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, targetedSlots)
+      const families = activeGroups(placedRows(schema.body), dynamic)
+      const discovered = discoverGroupMembers(n.inputs ?? [], families, targetedSlots)
       for (const [familyPath, members] of discovered.order) {
-        const minted = members
-          .map((member) => /^m(\d{1,15})$/.exec(member)?.[1])
-          .filter((suffix): suffix is string => suffix !== undefined)
-          .map(Number)
-        dynamic[familyPath] = {
-          members,
-          ...(minted.length > 0 ? { seq: Math.max(...minted) + 1 } : {}),
-        }
+        const { group } = families.find((family) => family.path === familyPath)!
+        // A count group's members follow its count; it stores no member list.
+        if (typeof group.grows === 'string') dynamic[familyPath] = importedGroupState(group, members)
       }
     }
 
@@ -1669,13 +1819,9 @@ function importLitegraphGraph(
         : Object.entries(raw ?? {}).filter(([name]) => name.startsWith('option')).map(([, value]) => value)
       dynamic['choice'] = { options: authored.filter((value) =>
         typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) }
+      // INDEX is the choice's position among the authored options, so a stored index is not kept.
       if (index !== undefined) {
-        if (typeof index === 'number' && Number.isSafeInteger(index)) {
-          values['index'] = typedLiteralWire('INT', index) as Json
-          additionalInputs.push('index')
-        } else {
-          diags.push(imp('error', 'import.combo.index', `node ${n.id} ('${n.type}'): authored index must be an integer`))
-        }
+        diags.push(imp('info', 'import.combo.index', `node ${n.id} ('${n.type}'): its stored index is not kept; INDEX is the choice's position among its options`))
       }
       if (raw !== undefined) {
         if (Array.isArray(raw)) ext['importer.rawWidgetValues'] = raw
@@ -1690,34 +1836,27 @@ function importLitegraphGraph(
       let raw = n.widgets_values
       const sourceVersion = n.properties?.['ver']
       const hasExactUpgrade = typeof sourceVersion === 'string' && upgrades.get(n.type)?.has(sourceVersion) === true
-      if (n.type === 'SaveVideo' && !hasExactUpgrade && raw.length === 3 &&
+      const saveVideo = n.type === 'SaveVideo' ? saveVideoRowsOf(schema) : undefined
+      if (saveVideo !== undefined && !hasExactUpgrade && raw.length === 3 &&
         typeof raw[0] === 'string' && typeof raw[1] === 'string' && typeof raw[2] === 'string') {
-        const positional = schema.items.filter((item): item is InputSpec => item.kind === 'input' &&
-          (item.dynamic !== undefined || item.widget !== undefined && item.forceInput !== true))
-        const [prefix, format, codec, mount] = positional
-        const layoutMatches = prefix?.id === 'filename_prefix' && prefix.type.kind === 'concrete' && prefix.type.name === 'STRING' &&
-          prefix.widget?.widgetType === 'STRING' && prefix.widget.controller === undefined && prefix.dynamic === undefined &&
-          format?.id === 'format' && codec?.id === 'codec' &&
-          (positional.length === 3 || positional.length === 4 && mount?.id === 'mount' && mount.optional &&
-            mount.type.kind === 'concrete' && mount.type.name === 'STRING' && mount.widget !== undefined &&
-            mount.widget.controller === undefined && mount.adjacentTo === 'filename_prefix' && mount.dynamic === undefined)
-        const branch = layoutMatches && format?.dynamic?.kind === 'dynamicCombo' && format.dynamic.materialization === 'wire15'
-          ? format.dynamic.options.find((option) => option.key === raw[1]) : undefined
-        const nestedCodec = branch?.inputs.find((item) => item.id === 'codec')
-        if (codec?.dynamic?.kind === 'dynamicCombo' && codec.dynamic.materialization === 'wire15' &&
-          codec.dynamic.options.some((option) => option.key === raw[2]) &&
-          nestedCodec?.dynamic?.kind === 'dynamicCombo' && nestedCodec.dynamic.materialization === 'wire15' &&
-          nestedCodec.dynamic.options.some((option) => option.key === raw[2])) {
-          // The served layout, not an unlisted version, establishes the two
-          // codec choices. Preserve the authored version in the import record.
-          const encoding = raw[2] === 'auto' ? [] : ['auto']
-          raw = [...raw, ...encoding, raw[2], ...encoding]
+        const branch = saveVideo.format.options.find((option) => option.key === raw[1])
+        const codec = branch === undefined
+          ? undefined
+          : placedRows(branch.rows, sharedRowsOf(saveVideo.format)).find((item) => item.id === 'codec')
+        if (codec?.kind === 'choice' && codec.leader === undefined && codec.options.some((option) => option.key === raw[2])) {
+          // The served layout, not an unlisted version, establishes the
+          // three-widget stream, which predates the encoding mode: a codec
+          // other than auto then encoded automatically. Preserve the authored
+          // version in the import record.
+          raw = [...raw, ...(raw[2] === 'auto' ? [] : ['auto'])]
           ext['importer.inferredWidgetLayout'] = { layout: 'SaveVideo:filename_prefix,format,codec', sourceVersion: sourceVersion ?? null }
           diags.push(imp('info', 'import.widgets.layoutInferred', `node ${n.id} ('SaveVideo'): recognized the three-widget layout; stored version ${sourceVersion === undefined ? 'absent' : JSON.stringify(sourceVersion)}`))
         }
       }
       const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
-      decodePositionalWidgets(schema.items, raw, state, '', `node ${n.id} ('${n.type}')`, diags)
+      const nodeLabel = `node ${n.id} ('${n.type}')`
+      if (saveVideo !== undefined) decodeSaveVideoWidgets(saveVideo, raw, state, nodeLabel, diags)
+      else decodePositionalWidgets(positionalRowsOf(schema), raw, state, '', nodeLabel, diags)
       if (state.index < raw.length) {
         diags.push(imp('warning', 'import.widgets.excess', `node ${n.id} ('${n.type}'): ${raw.length - state.index} positional widget value(s) beyond the current schema; kept raw for review`))
         ext['importer.excessWidgetValues'] = raw.slice(state.index) as Json
@@ -1729,16 +1868,11 @@ function importLitegraphGraph(
       const known = new Set<string>()
       const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
       const keyed = n.widgets_values as Readonly<Record<string, Json>>
-      decodeKeyedWidgets(
-        schema.items,
-        keyed,
-        state,
-        '',
-        '',
-        `node ${n.id} ('${n.type}')`,
-        diags,
-        known,
-      )
+      decodeKeyedWidgets(placedRows(schema.body), keyed, state, '', known)
+      if (n.type === 'SaveVideo' && saveVideoRowsOf(schema) !== undefined) {
+        // ComfyUI's hidden top-level codec has no row here; its values are stored nowhere.
+        for (const key of Object.keys(keyed)) if (key === 'codec' || key.startsWith('codec.')) known.add(key)
+      }
       const unknown: Record<string, Json> = {}
       for (const [k, v] of Object.entries(keyed)) {
         if (!known.has(k)) unknown[k] = v as Json
@@ -1750,23 +1884,23 @@ function importLitegraphGraph(
     }
 
     if (schema !== undefined) {
-      const families = activeAutogrowFamilies(schema.items, dynamic)
+      const families = activeGroups(placedRows(schema.body), dynamic)
       const endpoints = new Map<number, JsonObject>()
-      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, targetedSlots)
+      const discovered = discoverGroupMembers(n.inputs ?? [], families, targetedSlots)
 
       // LiteGraph inputs are an ordered array. This first-observation walk is
-      // the identity policy: sparse/out-of-order foreign ordinals are labels,
-      // never sorting keys (image2 before image0 becomes m0 then m1).
+      // the identity policy: sparse or out-of-order foreign names keep their
+      // member keys in the order observed, never sorted (image2 before image0
+      // stays image2, then image0).
       for (const [slotIndex, input] of (n.inputs ?? []).entries()) {
         if (!targetedSlots.has(slotIndex) || typeof input.name !== 'string') continue
         const found = discovered.slots.get(slotIndex)
         if (found === undefined) {
           const candidates = families
-            .map((family) => matchAutogrowWire(input.name!, family))
-            .filter((candidate): candidate is AutogrowWireMatch => candidate !== undefined)
-          const staticInput = schema.items.some((item) =>
-            item.kind === 'input' && item.dynamic === undefined && item.id === input.name)
-          const familyScoped = families.some((family) => input.name!.startsWith(`${family.wirePath}.`))
+            .map((family) => matchGroupWire(input.name!, family))
+            .filter((candidate): candidate is GroupWireMatch => candidate !== undefined)
+          const staticInput = inputsOf(schema).some((item) => item.id === input.name)
+          const familyScoped = families.some((family) => input.name!.startsWith(`${family.path}.`))
           const scoped = !staticInput && familyScoped
           if (scoped) {
             diags.push(imp(
@@ -1780,45 +1914,22 @@ function importLitegraphGraph(
         }
 
         const { match, memberId } = found
-        const grouped = match.family.spec.template.length !== 1 || match.family.spec.template[0]!.dynamic !== undefined
-        endpoints.set(slotIndex, match.family.spec.materialization === 'wire15'
-          ? {
-              node: `n${n.id}`,
-              port: grouped
-                ? joinValuePath(joinValuePath(match.family.statePath, memberId), match.slot.id)
-                : joinValuePath(match.family.statePath, memberId),
-            }
-          : { node: `n${n.id}`, port: joinValuePath(match.family.statePath, match.slot.id), members: [memberId] })
+        endpoints.set(slotIndex, {
+          node: `n${n.id}`,
+          port: match.family.group.value !== undefined
+            ? `${match.family.path}.${memberId}`
+            : `${match.family.path}.${memberId}.${match.slot.id}`,
+        })
       }
 
-      for (const [familyPath, observedMembers] of discovered.order) {
-        const family = families.find((candidate) => candidate.statePath === familyPath)!
-        let members = [...observedMembers]
-        if (family.spec.naming.kind === 'names' && family.spec.materialization !== 'wire15') {
-          // Legacy elaboration derives API names from member ordinal. Retain
-          // the declaration prefix through the furthest observed name so an
-          // out-of-order 'right' link cannot silently lower as 'left'.
-          const furthest = Math.max(...observedMembers.map((member) => family.spec.naming.kind === 'names'
-            ? family.spec.naming.names.indexOf(member)
-            : -1))
-          members = family.spec.naming.names.slice(0, furthest + 1)
-        }
-        // Prefix-family members use the same minted m<N> identity namespace
-        // as native documents. Persist its high-water mark at import time:
-        // after every imported link is disconnected and the user explicitly
-        // compacts, the next ghost must not recycle an imported member id.
-        const mintedSuffixes = members
-          .map((member) => /^m(\d{1,15})$/.exec(member)?.[1])
-          .filter((suffix): suffix is string => suffix !== undefined)
-          .map(Number)
-        dynamic[familyPath] = {
-          members,
-          ...(mintedSuffixes.length > 0 ? { seq: Math.max(...mintedSuffixes) + 1 } : {}),
-        }
+      for (const [familyPath, members] of discovered.order) {
+        const { group } = families.find((family) => family.path === familyPath)!
+        // A count group's members follow its count; it stores no member list.
+        if (typeof group.grows === 'string') dynamic[familyPath] = importedGroupState(group, members)
       }
       if (schema.additionalInputs !== undefined) {
         const declared = elabInputsOf(elaborateInterface(schema, { values, dynamic }))
-        const roots = schema.items.filter((item) => item.kind === 'input').map((item) => item.id)
+        const roots = placedRows(schema.body).map((item) => item.id)
         const linkedNames = (n.inputs ?? []).flatMap((input, slot) => {
           const name = input.widget?.name ?? input.name
           return targetedSlots.has(slot) && typeof name === 'string' &&
@@ -1841,38 +1952,22 @@ function importLitegraphGraph(
     for (const wire of wires.values()) if (wire.fromNode === n.id) linkedOutputSlots.add(wire.fromSlot)
     for (const entry of ueLinks) if (entry.upstream === n.id) linkedOutputSlots.add(entry.upstreamSlot)
     const outputEndpoints = new Map<number, JsonObject>()
-    const countFamilies = schema === undefined
+    // Member outputs of groups exist as the imported state elaborates them,
+    // with its wired inputs: a count read from a wire is not known, and an
+    // elaboration that fails makes no members.
+    const wiredInputs = new Set((n.inputs ?? []).flatMap((input, slot) => {
+      const name = input.widget?.name ?? input.name
+      return targetedSlots.has(slot) && typeof name === 'string' ? [name] : []
+    }))
+    const memberElaboration = schema === undefined ? undefined : elaborateInterface(schema, { values, dynamic }, {
+      ...EMPTY_CONNECTIVITY, isInputConnected: (port) => wiredInputs.has(port),
+    })
+    const memberOutputs = new Set(memberElaboration === undefined ||
+      memberElaboration.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
       ? []
-      : outputsOf(schema).filter((output): output is OutputSpec & { readonly dynamic: CountBoundOutputAutogrowSpec } =>
-          output.dynamic?.kind === 'autogrow' && 'count' in output.dynamic)
-    const familyCounts = new Map<string, number>()
-    let familyMembers = 0
-    let validFamilyCounts = true
-    for (const family of countFamilies) {
-      const count = values[family.dynamic.count.input]
-      const min = family.dynamic.naming.min ?? 0
-      const max = family.dynamic.naming.kind === 'prefix'
-        ? family.dynamic.naming.max ?? DEFAULT_ELAB_BUDGET.maxMembers
-        : DEFAULT_ELAB_BUDGET.maxMembers
-      const countIsLinked = [...wires.values()].some((wire) =>
-        wire.toNode === n.id && inputPortForSchema(n, wire.toSlot, schema!) === family.dynamic.count.input)
-      if (
-        !Number.isSafeInteger(count) ||
-        (count as number) < 0 ||
-        (count as number) < min ||
-        (count as number) > max ||
-        (count as number) > DEFAULT_ELAB_BUDGET.maxMembers ||
-        countIsLinked ||
-        family.dynamic.template.length !== 1 ||
-        family.dynamic.template[0]!.dynamic !== undefined
-      ) {
-        validFamilyCounts = false
-        continue
-      }
-      familyCounts.set(family.id, count as number)
-      familyMembers += count as number
-      if (familyMembers > DEFAULT_ELAB_BUDGET.maxMembers) validFamilyCounts = false
-    }
+      : elabOutputsOf(memberElaboration)
+          .filter((output) => output.wireable !== false && output.address.port.includes('.'))
+          .map((output) => output.address.port))
     for (const slot of linkedOutputSlots) {
       const foreignOutput = n.outputs?.[slot]
       const foreignName = foreignOutput?.name
@@ -1897,28 +1992,17 @@ function importLitegraphGraph(
         outputEndpoints.set(slot, { node: id, port: foreignName })
         continue
       }
-      const family = outputsOf(schema).find((output): output is OutputSpec & { readonly dynamic: CountBoundOutputAutogrowSpec } =>
-        output.dynamic?.kind === 'autogrow' &&
-        'count' in output.dynamic &&
-        foreignName.startsWith(`${output.id}.`))
-      if (family !== undefined) {
-        const suffix = foreignName.slice(family.id.length + 1)
-        const canonical = /^(0|[1-9][0-9]*)$/.test(suffix) && Number.isSafeInteger(Number(suffix))
-        const count = familyCounts.get(family.id)
-        if (
-          !canonical ||
-          !validFamilyCounts ||
-          count === undefined ||
-          Number(suffix) >= count
-        ) {
-          diags.push(imp(
-            'error',
-            'import.link.outputSlot',
-            `node ${n.id} ('${n.type}'): linked output '${foreignName}' is not a current member of '${family.id}'`,
-          ))
-          continue
-        }
-        outputEndpoints.set(slot, { node: id, port: family.id, members: [suffix] })
+      if (memberOutputs.has(foreignName)) {
+        outputEndpoints.set(slot, { node: id, port: foreignName })
+        continue
+      }
+      const group = scopeRowsOf(schema.body).find((row): row is GroupSpec => row.kind === 'group' && foreignName.startsWith(`${row.id}.`))
+      if (group !== undefined) {
+        diags.push(imp(
+          'error',
+          'import.link.outputSlot',
+          `node ${n.id} ('${n.type}'): linked output '${foreignName}' is not a current member of '${group.id}'`,
+        ))
         continue
       }
       const staticPort = staticOutputPortForSchema(n, slot, schema, true)
@@ -1984,40 +2068,11 @@ function importLitegraphGraph(
     diags.push(imp('warning', 'import.reroute.absorbed', `${absorbedReroutes.size} Reroute node(s) feeding only SetNodes absorbed into their nets (nets deliver straight from the producing output)`))
   }
 
-  // -- Value sources (legacy frontend PrimitiveNode) ------------------------------
-  // widgets_values = [value, controllerMode?] once a widget was adopted. The
-  // declared spec stays empty: the effective spec derives from consumers,
-  // which is exactly the legacy adoption semantics - minus the mutation.
-  const valueSources: Record<string, Json> = {}
-  const viewValueSources: Record<string, Json> = {}
-  const wiredSources = new Set<number>()
-  for (const w of wires.values()) wiredSources.add(w.fromNode)
-  let droppedPrimitives = 0
-  for (const n of byId.values()) {
-    if (!PRIMITIVE_TYPES.has(n.type)) continue
-    const raw = Array.isArray(n.widgets_values) ? n.widgets_values : []
-    if (raw.length === 0 && !wiredSources.has(n.id)) {
-      // Never adopted a widget and drives nothing: there is no value to keep.
-      droppedPrimitives++
-      continue
-    }
-    const id = `v${n.id}`
-    const mode = raw[1]
-    const controller = typeof mode === 'string' && CONTROLLER_MODES.has(mode) ? (mode as ControllerMode) : undefined
-    const title = typeof n.title === 'string' && n.title !== n.type && n.title !== 'Primitive' ? n.title : undefined
-    valueSources[id] = {
-      id,
-      value: (raw.length > 0 ? raw[0] : null) as Json,
-      ...(controller ? { controller } : {}),
-      ...(title !== undefined ? { title } : {}),
-    }
-    viewValueSources[id] = { position: posOf(n) }
-  }
-  if (Object.keys(valueSources).length > 0) {
-    diags.push(imp('info', 'import.primitive.converted', `${Object.keys(valueSources).length} PrimitiveNode(s) imported as value sources`))
+  if (convertedPrimitives > 0) {
+    diags.push(imp('info', 'import.primitive.converted', `${convertedPrimitives} PrimitiveNode(s) imported as primitive nodes`))
   }
   if (droppedPrimitives > 0) {
-    diags.push(imp('warning', 'import.primitive.dropped', `${droppedPrimitives} never-connected PrimitiveNode(s) had no value to keep; dropped`))
+    diags.push(imp('warning', 'import.primitive.dropped', `${droppedPrimitives} PrimitiveNode(s) had no value to keep or no installed primitive to become; dropped`))
   }
 
   // -- Links --------------------------------------------------------------------
@@ -2035,9 +2090,7 @@ function importLitegraphGraph(
   const fromEndpoint = (feed: Exclude<Feed, { kind: 'net' }>): JsonObject | undefined =>
     feed.kind === 'reroute'
       ? { reroute: `r${feed.id}` }
-      : feed.kind === 'valueSource'
-        ? { valueSource: `v${feed.id}` }
-        : importedOutputEndpoints.get(feed.node)?.get(feed.slot)
+      : importedOutputEndpoints.get(feed.node)?.get(feed.slot)
 
   const links: Record<string, Json> = {}
   const netSinks = new Map<string, JsonObject[]>()
@@ -2084,14 +2137,6 @@ function importLitegraphGraph(
     if (feed === undefined) continue // dangling sugar chain: nothing to connect
 
     if (feed.kind === 'net') {
-      // Primitive-sourced nets collapse into direct value-source links
-      // (nets are port-only; the delivered value is identical).
-      const prim = netPrimitiveSources.get(feed.name)
-      if (prim !== undefined) {
-        const id = `l${lgId}`
-        links[id] = { id, from: { valueSource: `v${prim}` }, to: toEndpoint }
-        continue
-      }
       // A sink of the named net (if its Set half resolved).
       if (!setSources.has(feed.name)) {
         continue
@@ -2112,12 +2157,9 @@ function importLitegraphGraph(
   const nets: Record<string, Json> = {}
   let netCount = 0
   for (const name of setInputs.keys()) {
-    if (!setSources.has(name) && !netPrimitiveSources.has(name)) {
+    if (!setSources.has(name)) {
       diags.push(imp('error', 'import.net.unresolved', `net '${name}' has no resolvable source`))
     }
-  }
-  if (netPrimitiveSources.size > 0) {
-    diags.push(imp('info', 'import.net.primitiveSource', `${netPrimitiveSources.size} PrimitiveNode-fed Set/Get net(s) collapsed into direct value-source connections (nets are port-only)`))
   }
   for (const [name, src] of setSources) {
     const source = importedOutputEndpoints.get(src.node)?.get(src.slot)
@@ -2215,7 +2257,6 @@ function importLitegraphGraph(
         links,
         nets,
         reroutes,
-        ...(Object.keys(valueSources).length > 0 ? { valueSources } : {}),
         nextOrdinal: maxOrdinal + 1,
       },
     },
@@ -2225,9 +2266,6 @@ function importLitegraphGraph(
           nodes: viewNodes,
           ...(Object.keys(viewReroutes).length > 0
             ? { reroutes: viewReroutes }
-            : {}),
-          ...(Object.keys(viewValueSources).length > 0
-            ? { valueSources: viewValueSources }
             : {}),
           ...(Object.keys(groups).length > 0 ? { groups } : {}),
         },

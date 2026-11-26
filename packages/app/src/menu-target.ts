@@ -6,8 +6,8 @@
  * Solid transform) can pin them directly - same split as combo-search.ts.
  */
 
-import type { Hit } from '@dinkster/canvas'
-import { outputsOf, supportsExpressionMirror, supportsGlslMirror, supportsOutputRepresentation, widgetRepresentationsOf, type MenuContext, type MenuItem, type MenuRegistry, type MenuTarget, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import type { Hit, OccurrenceMutationPlanner, Scene } from '@dinkster/canvas'
+import { boundaryItems, coreCommandRegistry, createTransactionBuilder, effectiveOccurrenceTopology, executeCommand, isPortEndpoint, outputsOf, supportsExpressionMirror, supportsGlslMirror, supportsOutputRepresentation, widgetRepresentationsOf, type CommandInvocation, type Json, type MenuContext, type MenuItem, type MenuRegistry, type MenuTarget, type NodeSchema, type ResolvedMenuGroup, type SchemaResolver, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 
 /** Where and on what the menu opened; anchored in canvas-pane CSS px. */
 export interface MenuAnchor {
@@ -33,14 +33,16 @@ export function resolveNodeMenuGroups(
   ctx: MenuContext,
   queueUpToAvailable: boolean,
   createSubgraphAvailable = true,
+  queueUpToReason?: string,
 ): readonly ResolvedMenuGroup[] {
   return registry.resolve(ctx).map((group) => ({
     ...group,
     items: group.items.map((item) =>
-      (item.id === 'core.node.queueSelection' && !queueUpToAvailable) ||
-      ((item.id === 'core.canvas.createSubgraph' || item.id.startsWith('core.canvas.create') && item.id.endsWith('Region')) && !createSubgraphAvailable)
-        ? { ...item, disabled: true }
-        : item),
+      item.id === 'core.node.queueSelection' && !queueUpToAvailable
+        ? { ...item, disabled: true, ...(queueUpToReason === undefined ? {} : { disabledReason: queueUpToReason }) }
+        : (item.id === 'core.canvas.createSubgraph' || item.id.startsWith('core.canvas.create') && item.id.endsWith('Region')) && !createSubgraphAvailable
+          ? { ...item, disabled: true }
+          : item),
   }))
 }
 
@@ -53,8 +55,6 @@ export function selectionLifecycleMenuGroups(
     case 'node':
     case 'group':
     case 'reroute':
-    case 'valueSource':
-    case 'selector':
       return [group]
     default:
       return []
@@ -105,8 +105,9 @@ export function widgetRepresentationMenuGroup(input: {
 
 /**
  * Document address for representation view state. Dynamic widgets key view
- * state by their elaborated value key, and a forwarded family row belongs to
- * its occurrence-view owner rather than the visible instance node.
+ * state by their elaborated value key, and a row whose value is stored by a
+ * promoted boundary input belongs to that owning instance node rather than
+ * the visible node.
  */
 export function widgetRepresentationAddress(
   hit: Extract<Hit, { kind: 'widget' }>,
@@ -116,6 +117,78 @@ export function widgetRepresentationAddress(
     graphId: hit.row.familyOwner?.graphId ?? graphId,
     nodeId: hit.row.familyOwner?.nodeId ?? hit.node.id,
     inputId: hit.row.familyOwner?.valueKey ?? hit.row.valueKey,
+  }
+}
+
+/** A curve owns its histogram visibility, independently of its value's owner. */
+export function curveHistogramMenuGroup(input: {
+  readonly document: WorkflowDocument
+  readonly scene: Scene
+  readonly hit: Pick<Extract<Hit, { kind: 'widget' }>, 'node' | 'row' | 'bnode'>
+  readonly resolve: SchemaResolver
+  readonly planner?: OccurrenceMutationPlanner
+  readonly disabled: boolean
+}): ResolvedMenuGroup | undefined {
+  const { document, scene, hit } = input
+  const histogram = hit.row.histogram
+  if (hit.bnode !== undefined || histogram === undefined) return undefined
+  const graphId = scene.graphId
+  const nodeId = hit.node.id
+  const valueKey = hit.row.valueKey
+  const shown = histogram.connected ||
+    (document.view.graphs[graphId]?.nodes[nodeId]?.histogramVisibility?.[valueKey] ?? hit.row.spec.options['histogramVisible']) !== false
+  const invocations: CommandInvocation[] = []
+  let disabledReason: string | undefined
+  if (shown && histogram.connected) {
+    if (scene.occurrence !== undefined) {
+      const effective = effectiveOccurrenceTopology(document, input.resolve, scene.occurrence.owner)
+      const links = [...effective.links, ...effective.projectedParentLinks].filter((link) =>
+        link.to.graphId === graphId && isPortEndpoint(link.to.endpoint) && link.to.endpoint.node === nodeId && link.to.endpoint.port === histogram.portId)
+      // Each trusted plan fingerprints the document after earlier removals.
+      // Nothing is published until the complete batch is dispatched.
+      const tx = createTransactionBuilder(document)
+      const registry = coreCommandRegistry([], input.resolve)
+      disabledReason = effective.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message
+      if (links.length === 0) disabledReason ??= 'The histogram connection cannot be resolved.'
+      for (const link of links) {
+        if (disabledReason !== undefined) break
+        const planned = input.planner?.planOccurrenceLinkMutation(tx.current, input.resolve, {
+          kind: 'disconnect', ...scene.occurrence, link: link.identity,
+        })
+        if (planned === undefined || !planned.ok) {
+          disabledReason = planned === undefined ? 'Occurrence-local link editing is unavailable.' : planned.diagnostics[0]?.message ?? 'The histogram connection cannot be resolved.'
+          break
+        }
+        const diagnostics = executeCommand(registry.get(planned.invocation.command)!, tx.current, planned.invocation.params, tx, { kind: 'initial' })
+        disabledReason = diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message
+        invocations.push(planned.invocation)
+      }
+    } else {
+      const graph = document.graphs[graphId]!
+      const targetsHistogram = (end: { readonly node: string; readonly port: string }) => end.node === nodeId && end.port === histogram.portId
+      for (const link of Object.values(graph.links)) {
+        if (isPortEndpoint(link.to) && targetsHistogram(link.to)) invocations.push({ command: 'link.disconnect', params: { graphId, linkId: link.id } })
+      }
+      if (Object.values(graph.nets).some((net) => net.sinks.some(targetsHistogram))) {
+        invocations.push({ command: 'net.disconnectInput', params: { graphId, to: { node: nodeId, port: histogram.portId } } })
+      }
+      for (const item of boundaryItems(graph.boundary, 'inputs')) {
+        if ([item.binds, ...(item.alsoBinds ?? [])].some((binding) => binding.kind === 'port' && targetsHistogram(binding))) {
+          invocations.push({ command: 'boundary.unbind', params: { graphId, side: 'inputs', itemId: item.id, node: nodeId, port: histogram.portId } })
+        }
+      }
+      if (invocations.length === 0) disabledReason = 'The histogram connection cannot be resolved.'
+    }
+  }
+  invocations.push({ command: 'view.setHistogramVisible', params: { graphId, nodeId, valueKey, visible: !shown } })
+  return {
+    group: '45-curve-histogram',
+    items: [{
+      id: 'core.widget.histogramVisibility', label: shown ? 'Hide histogram input' : 'Show histogram input',
+      disabled: input.disabled || disabledReason !== undefined,
+      ...(disabledReason === undefined ? {} : { disabledReason }),
+      action: { kind: 'command', invocation: invocations.length === 1 ? invocations[0]! : { command: 'batch', params: { invocations: invocations as unknown as Json } } },
+    }],
   }
 }
 
@@ -168,6 +241,8 @@ export function canvasMenuContext(input: {
   readonly previewCapable?: (nodeType: string) => boolean
   /** Mirror-estimate capability by node type; omitted = unknown (menu hidden). */
   readonly mirrorCapable?: (nodeType: string) => boolean
+  /** Node schemas by type, for items that read a node's rows. */
+  readonly resolve?: (nodeType: string) => NodeSchema | undefined
   readonly shortcuts?: Readonly<Record<string, string>>
 }): MenuContext {
   return {
@@ -177,6 +252,7 @@ export function canvasMenuContext(input: {
     ...(input.nodeHasDocs !== undefined ? { nodeHasDocs: input.nodeHasDocs } : {}),
     ...(input.previewCapable !== undefined ? { previewCapable: input.previewCapable } : {}),
     ...(input.mirrorCapable !== undefined ? { mirrorCapable: input.mirrorCapable } : {}),
+    ...(input.resolve !== undefined ? { resolve: input.resolve } : {}),
     ...(input.shortcuts !== undefined ? { shortcuts: input.shortcuts } : {}),
     graphId: input.graphId,
     target: input.target,
@@ -191,12 +267,9 @@ export function widgetMenuTarget(
   nodeId: string,
   row: Extract<Hit, { kind: 'widget' }>['row'],
 ): MenuTarget {
-  const synthetic =
-    row.ghost === true ||
-    row.materialize !== undefined ||
-    (row.familyOwner !== undefined && row.familyOwner.valueKey === undefined)
+  const synthetic = row.ghost === true || row.materialize !== undefined
   const owner =
-    !synthetic && row.familyOwner?.valueKey !== undefined
+    !synthetic && row.familyOwner !== undefined
       ? {
           owner: {
             graphId: row.familyOwner.graphId,
@@ -209,8 +282,10 @@ export function widgetMenuTarget(
     kind: 'widget',
     nodeId,
     inputId: row.inputId,
+    address: { port: row.address.port },
     ...owner,
     ...(synthetic ? { synthetic: true as const } : {}),
+    ...(row.selector !== undefined || row.dynamicSlot !== undefined ? { construct: true as const } : {}),
   }
 }
 
@@ -229,30 +304,18 @@ export function menuTargetOf(hit: Hit): MenuTarget {
             ? {
                 node: hit.link.to.node,
                 port: hit.link.to.port,
-                ...(hit.link.to.members !== undefined ? { members: hit.link.to.members } : {}),
               }
             : hit.link.to.kind === 'reroute'
               ? { reroute: hit.link.to.reroute }
-              : hit.link.to.kind === 'selector' && hit.link.to.candidate !== undefined
-                ? { selector: hit.link.to.selector, candidate: hit.link.to.candidate }
-                : // 'boundary' ends are unreachable: boundary noodles are
-                  // excluded from link hit-testing.
-                  { reroute: '' },
+              : // 'boundary' ends are unreachable: boundary noodles are
+                // excluded from link hit-testing.
+                { reroute: '' },
       }
     case 'reroute':
     // Ghost sockets never reach the context menu (its hitTest does not
     // reveal them), but the junction menu is the right fallback anyway.
     case 'rerouteSocket':
       return { kind: 'reroute', rerouteId: hit.reroute.id }
-    case 'valueSource':
-    case 'valueSourceOut':
-    case 'valueSourceBadge':
-      return { kind: 'valueSource', valueSourceId: hit.valueSource.id }
-    case 'selector':
-    case 'selectorIn':
-    case 'selectorOut':
-    case 'selectorBadge':
-      return { kind: 'selector', selectorId: hit.selector.id }
     case 'pin':
       // Structural identity (address), not the elab view key: menu items
       // build command endpoints from this.
@@ -260,7 +323,6 @@ export function menuTargetOf(hit: Hit): MenuTarget {
         kind: 'pin',
         nodeId: hit.node.id,
         portId: hit.pin.address.port,
-        ...(hit.pin.address.members !== undefined ? { members: hit.pin.address.members } : {}),
         direction: hit.direction,
       }
     case 'widgetTap':
@@ -268,14 +330,20 @@ export function menuTargetOf(hit: Hit): MenuTarget {
         kind: 'widget',
         nodeId: hit.node.id,
         inputId: hit.input,
-        // Tap pins carry no owner value key, so forwarded/unpersisted taps
-        // can only be flagged, never redirected.
-        ...(hit.pin.ghost === true || hit.pin.materialize !== undefined || hit.pin.familyOwner !== undefined
+        // Tap pins carry no owner value key, so unpersisted taps can only
+        // be flagged, never redirected.
+        ...(hit.pin.ghost === true || hit.pin.materialize !== undefined
           ? { synthetic: true as const }
           : {}),
       }
     case 'widget':
-      return widgetMenuTarget(hit.node.id, hit.row)
+      // A field on a subgraph's Inputs panel belongs to the panel, which has
+      // no menu of its own. An editor row stores nothing of its own: it opens
+      // the node's menu.
+      if (hit.bnode !== undefined) return { kind: 'canvas' }
+      return hit.row.editor === true ? { kind: 'node', nodeId: hit.node.id } : widgetMenuTarget(hit.node.id, hit.row)
+    case 'growth':
+      return { kind: 'growth', nodeId: hit.node.id, construct: hit.row.construct }
     case 'section':
       return {
         kind: 'section',
@@ -290,7 +358,6 @@ export function menuTargetOf(hit: Hit): MenuTarget {
         role: hit.stub.role,
         nodeId: hit.stub.nodeId,
         portId: hit.stub.portId,
-        ...(hit.stub.members !== undefined ? { members: hit.stub.members } : {}),
       }
     case 'group-header':
     case 'group-resize':

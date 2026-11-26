@@ -14,7 +14,7 @@ import { planClipboardPaste, serializeSelection } from '../src/clipboard.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
-import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asSelectorCandidateId, asSelectorId } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
@@ -153,33 +153,6 @@ describe('I6 invariant: actor-suffixed ids check against their actor cursor', ()
       }),
     })
     expect(checkDocument(d).some((d2) => d2.code === 'doc.id.aboveCursor')).toBe(false)
-  })
-
-  it('candidate identity stays selector-scoped: cross-selector reuse is legal, same-selector repeats are not', () => {
-    // Legitimate producers (format/synthetic.ts among them) reuse candidate
-    // ids across selectors - candidates are addressed as (selector,
-    // candidate) pairs, so this is NOT a duplicate.
-    const sel = (sid: string) => ({
-      id: asSelectorId(sid),
-      candidates: [{ id: asSelectorCandidateId('ca') }],
-      policy: { kind: 'fixed', candidate: asSelectorCandidateId('ca') } as const,
-    })
-    const shared = doc({ g0: graph({ id: 'g0', selectors: { sel1: sel('sel1'), sel2: sel('sel2') } }) })
-    expect(checkDocument(shared).filter((d) => d.severity === 'error')).toEqual([])
-    // Same-selector repeats stay flagged.
-    const duped = doc({
-      g0: graph({
-        id: 'g0',
-        selectors: {
-          sel1: {
-            id: asSelectorId('sel1'),
-            candidates: [{ id: asSelectorCandidateId('ca') }, { id: asSelectorCandidateId('ca') }],
-            policy: { kind: 'fixed', candidate: asSelectorCandidateId('ca') } as const,
-          },
-        },
-      }),
-    })
-    expect(checkDocument(duped).some((d) => d.code === 'doc.selector.candidateDuplicate')).toBe(true)
   })
 
   it("an actor named 'constructor' allocates from zero and advances its OWN cursor", () => {

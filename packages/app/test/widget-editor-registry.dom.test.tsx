@@ -5,12 +5,89 @@ import { asLinkId, asNodeId, asPortId, coreCommandRegistry, createSignal, Docume
 import type { ExecutionState } from '@dinkster/client'
 import type { AppState, Tab } from '../src/app-state.js'
 import { WidgetEditor, type WidgetEditorProps, type WidgetEditorState } from '../src/WidgetEditor.js'
+import { CurveSpace } from '../src/InNodeEditorSpaces.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it('stores Step interpolation without changing points', async () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'linear' as const, points: [
+    { position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.9, value: 0.3 },
+  ] }
+  const commit = vi.fn()
+  const root = document.createElement('div'); document.body.append(root)
+  const mount = (interpolation: 'linear' | 'step') => render(() => <CurveSpace
+    value={{ ...value, interpolation }} options={{}} histogram={undefined} histogramInput="none" commit={commit}
+  />, root)
+  let dispose = mount('linear')
+  try {
+    const choice = root.querySelector('.dinkster-canvas-editor-field-slot')!
+    ;(choice.querySelector('button') as HTMLButtonElement).click()
+    const step = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent?.trim() === 'Step')!
+    expect(step).toBeDefined()
+    step.click()
+    expect(commit).toHaveBeenCalledExactlyOnceWith({ ...value, interpolation: 'step' })
+    dispose()
+    dispose = mount('step')
+    expect(root.textContent).toContain('Step')
+    expect(root.textContent).not.toContain('Histogram')
+  } finally { dispose() }
+})
+
+it('draws a Step-only curve without a selector or a ramp even for an incoming linear value', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'linear' as const, points: [
+    { position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.9, value: 0.3 },
+  ] }
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn()
+  const dispose = render(() => <CurveSpace value={value} options={{ interpolations: ['step'] }}
+    histogram={undefined} histogramInput="none" commit={commit} />, root)
+  try {
+    expect(root.textContent).not.toContain('Interpolation')
+    expect(root.textContent).not.toContain('Histogram')
+    const vertices = root.querySelector('.dinkster-canvas-curve-line[data-held="false"]')!.getAttribute('points')!
+      .split(' ').map((point) => point.split(',').map(Number))
+    let jumps = 0
+    for (let index = 1; index < vertices.length; index++) {
+      const [x, y] = vertices[index]!
+      const [beforeX, beforeY] = vertices[index - 1]!
+      expect(x === beforeX || y === beforeY).toBe(true)
+      if (y !== beforeY) { expect(x).toBe(beforeX); jumps++ }
+    }
+    expect(jumps).toBe(2)
+    expect(commit).not.toHaveBeenCalled()
+    expect(value.interpolation).toBe('linear')
+  } finally { dispose() }
+})
+
+it('bounds an expanded Step plot without changing extreme source points', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'step' as const, points: [
+    { position: -1e308, value: -2 }, { position: 0.25, value: 0.4 },
+    { position: 0.75, value: 2 }, { position: 1e308, value: 0.8 },
+  ] }
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn()
+  const dispose = render(() => <CurveSpace value={value} options={{}} histogram={undefined} histogramInput="none" commit={commit} />, root)
+  try {
+    const vertices = Array.from(root.querySelectorAll('.dinkster-canvas-curve-line')).flatMap((line) =>
+      line.getAttribute('points')!.split(' ').map((point) => point.split(',').map(Number)))
+    const expected = [[8.5, 171.5], [84.25, 171.5], [84.25, 106.3], [235.75, 106.3], [235.75, 8.5], [311.5, 8.5]]
+    expect(vertices).toHaveLength(expected.length)
+    vertices.forEach((point, index) => point.forEach((coordinate, axis) => expect(coordinate).toBeCloseTo(expected[index]![axis]!)))
+    const handles = root.querySelectorAll('.dinkster-canvas-curve-point')
+    expect(handles).toHaveLength(1)
+    expect(Number(handles[0]!.getAttribute('cx'))).toBeCloseTo(84.25)
+    expect(Number(handles[0]!.getAttribute('cy'))).toBeCloseTo(106.3)
+    expect(commit).not.toHaveBeenCalled()
+    expect(value.points[0]!.position).toBe(-1e308)
+  } finally { dispose() }
+})
+
 it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {
-  const schema = parseDinksterSchema('SaveTargetFixture', { interface: [
-    { role: 'input', id: 'target', type: { kind: 'concrete', types: ['dinkster.save_target'] }, required: !optional, widget: { type: 'SAVE_TARGET', suffix: '.pgm' } },
+  const schema = parseDinksterSchema('SaveTargetFixture', { body: [
+    { kind: 'input', id: 'target', type: { kind: 'concrete', types: ['dinkster.save_target'] }, required: !optional, widget: { type: 'SAVE_TARGET', suffix: '.pgm' } },
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
   const store = new DocumentStore(imported.document!, coreCommandRegistry())
@@ -65,100 +142,52 @@ it.each([false, true])('edits structured save destinations with writable grants 
   }
 })
 
-it('previews resolution with half-even rounding and edits descriptor-named siblings as one undo', async () => {
-  const schema = parseDinksterSchema('ResolutionFixture', { interface: [
-    { role: 'input', id: 'ratio', type: { kind: 'concrete', types: ['COMBO'] }, default: '1:1 (Square)', widget: { type: 'COMBO', options: ['1:1 (Square)', '16:9 (Widescreen)'] } },
-    { role: 'input', id: 'mp', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
-    { role: 'input', id: 'step', type: { kind: 'concrete', types: ['INT'] }, default: 8 },
-    { role: 'input', id: 'preview', type: { kind: 'concrete', types: ['RESOLUTION_PREVIEW'] }, default: null, widget: { type: 'RESOLUTION_PREVIEW', ratio_widget: 'ratio', megapixels_widget: 'mp', multiple_widget: 'step' } },
-  ] }).schema!
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
-  const store = new DocumentStore(imported.document!, coreCommandRegistry())
+it.each([
+  { node: 'dinkster.video.video_trim', id: 'trim', feature: 'trim', stored: { trim: { start_time: 2, duration: 3 } },
+    shown: { 'video-trim-start-seconds': '2', 'video-trim-duration-seconds': '3' } },
+  { node: 'dinkster.video.video_crop', id: 'crop', feature: 'crop', stored: { crop: { x: 16, y: 8, width: 320, height: 240 } },
+    shown: { 'video-crop-x': '16', 'video-crop-y': '8', 'video-crop-width': '320', 'video-crop-height': '240' } },
+])('opens $node at its stored value and closing unchanged writes nothing', async ({ node, id, feature, stored, shown }) => {
+  // The rows these nodes declare: the edit is the input the widget sits on, and Trim writes a strict duration row.
+  const schema = parseDinksterSchema(node, { body: [
+    { kind: 'input', id: 'video', type: { kind: 'concrete', types: ['VIDEO'] } },
+    { kind: 'input', id, type: { kind: 'concrete', types: ['VIDEO_EDIT'] }, default: {},
+      widget: { type: 'VIDEO_EDIT', features: [feature], ...(feature === 'trim' ? { writes: { strict_duration: 'strict_duration' } } : {}) } },
+    ...(feature === 'trim' ? [{ kind: 'input', id: 'strict_duration', type: { kind: 'concrete', types: ['BOOLEAN'] }, default: false }] : []),
+  ] } as never).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema).document!
+  const store = new DocumentStore(imported, coreCommandRegistry())
+  store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: id, value: stored } })
   const before = store.doc.graphs.g0!.nodes.n1!.values
+  const revision = store.revision
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
   const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    registryForTab: () => ({ resolve: () => schema }),
+    registryForTab: () => ({ resolve: () => schema }), executionForTab: () => undefined,
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
+  const input = inputsOf(schema).find((row) => row.id === id)!
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'preview' }, label: 'Preview',
-    spec: inputsOf(schema)[3]!.widget, multiline: false, initial: null,
-    rect: { x: 0, y: 0, width: 180, height: 24 },
+    tab, graphId: 'g0', label: id, spec: input.widget, declaredType: input.type, multiline: false,
+    target: { kind: 'input', nodeId: 'n1', valueKey: id, parts: { reads: {}, writes: input.widget!.writes ?? {} } },
+    rect: { x: 0, y: 0, width: 180, height: 24 }, initial: stored,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  const input = (field: string, value: string) => {
-    const element = root.querySelector<HTMLInputElement>(`#resolution-${field}`)!
-    expect(element.getAttribute('aria-labelledby')).toBeTruthy()
-    element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
-  }
-  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply resolution')!
-  expect(root.querySelector('output')!.textContent).toBe('1,024 x 1,024 pixels')
-  input('megapixels', '0.2539215087890625')
-  expect(root.querySelector('output')!.textContent).toBe('512 x 512 pixels')
-  input('megapixels', '0.2618560791015625')
-  expect(root.querySelector('output')!.textContent).toBe('528 x 528 pixels')
-  for (const value of ['', '0.09', '16.1', 'NaN']) { input('megapixels', value); expect(apply.disabled).toBe(true) }
-  input('megapixels', '1.3')
-  for (const value of ['', '7', '129', '8.5']) { input('multiple', value); expect(apply.disabled).toBe(true) }
-  input('multiple', '64')
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  apply.click()
-  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, ratio: '1:1 (Square)', mp: 1.3, step: 64 }))
-  expect(store.undo()).toBe(true)
+  for (const [testId, value] of Object.entries(shown))
+    expect(root.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`)?.value, testId).toBe(value)
+  root.querySelector<HTMLButtonElement>('[data-testid="video-edit-apply"]')!.click()
+  await Promise.resolve()
+  expect(store.revision).toBe(revision)
   expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
   dispose()
 })
 
-it('edits camera siblings atomically with schema defaults, validation and undo without changing view', async () => {
-  const schema = parseDinksterSchema('CameraFixture', { interface: [
-    { role: 'input', id: 'horizontal_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
-    { role: 'input', id: 'vertical_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
-    { role: 'input', id: 'zoom', type: { kind: 'concrete', types: ['FLOAT'] }, default: 5 },
-    { role: 'input', id: 'view', type: { kind: 'concrete', types: ['STRING'] }, default: '', widget: { type: 'CAMERA_ANGLE_VIEW' } },
-  ] }).schema!
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
-  const store = new DocumentStore(imported.document!, coreCommandRegistry())
-  const before = store.doc.graphs.g0!.nodes.n1!.values
-  const tab = { store } as unknown as Tab
-  const registry = createWidgetRegistry()
-  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    registryForTab: () => ({ resolve: () => schema }),
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
-  } as unknown as AppState
-  const root = document.createElement('div'); document.body.append(root)
-  const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'view' }, label: 'View',
-    spec: inputsOf(schema)[3]!.widget, multiline: false, initial: '',
-    rect: { x: 0, y: 0, width: 180, height: 24 },
-  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  const input = (field: string, value: string) => {
-    const element = root.querySelector<HTMLInputElement>(`#camera-angle-${field}`)!
-    expect(element.getAttribute('aria-labelledby')).toBeTruthy()
-    element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
-  }
-  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply camera angle')!
-  expect(root.querySelector<HTMLInputElement>('#camera-angle-zoom')!.value).toBe('5')
-  for (const value of ['', '-1', '361', '90.5']) { input('horizontal_angle', value); expect(apply.disabled).toBe(true) }
-  input('horizontal_angle', '90')
-  input('vertical_angle', '30')
-  input('zoom', '7.5')
-  expect(apply.disabled).toBe(false)
-  expect(root.querySelector('output')!.textContent).toContain('X 5.20, Y 3.00, Z 0.00')
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  apply.click()
-  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, horizontal_angle: 90, vertical_angle: 30, zoom: 7.5 }))
-  expect(store.undo()).toBe(true)
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  dispose()
-})
-
-it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews and releases late results', async (kind) => {
-  const inputId = kind === 'BOUNDING_BOX' ? 'crop_region' : 'compare_view'
-  const initial = kind === 'BOUNDING_BOX' ? { x: 0, y: 0, width: 12, height: 7 } : null
-  const schema = parseDinksterSchema('PreviewFixture', { interface: [
-    { role: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-    { role: 'input', id: inputId, type: { kind: 'concrete', types: [kind] }, default: initial, widget: { type: kind } },
+it('bounds decoded crop previews and releases late results', async () => {
+  const inputId = 'crop_region'
+  const initial = { x: 0, y: 0, width: 12, height: 7 }
+  const schema = parseDinksterSchema('PreviewFixture', { body: [
+    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
+    { kind: 'input', id: inputId, type: { kind: 'concrete', types: ['BOUNDING_BOX'] }, default: initial, widget: { type: 'BOUNDING_BOX' } },
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [initial] }], links: [] }, () => schema).document!
   const graph = imported.graphs.g0!
@@ -174,7 +203,7 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
   } as unknown as CompileArtifact
   const execution = { key: 'preview', status: 'completed', ref: { connection: 'native', prompt: 'job' },
     artifact, nodes: {}, outputs: { source: {} },
-    previews: { n1: { image_a: { channel: 'image/png', payload: new ArrayBuffer(1), timestamp: 1 } } },
+    previews: {},
   } as unknown as ExecutionState
   const registry = createWidgetRegistry()
   const backend = { id: 'native', protocol: 'dinkster', connection: { values: () => ({
@@ -200,7 +229,8 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
     vi.stubGlobal('createImageBitmap', decode)
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <WidgetEditor app={app} ed={{
-      tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: inputId }, label: 'Preview',
+      tab, graphId: 'g0', label: 'Preview', target: { kind: 'input', nodeId: 'n1', valueKey: inputId,
+        parts: { writes: {}, reads: { image: 'image' } } },
       spec: inputsOf(schema)[1]!.widget, multiline: false, initial,
       rect: { x: 0, y: 0, width: 180, height: 24 },
     }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -213,7 +243,7 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
       if (accepted) {
         await vi.waitFor(() => expect(context.drawImage).toHaveBeenCalled())
         expect(bitmap.close).not.toHaveBeenCalled()
-        if (kind === 'BOUNDING_BOX') expect([canvas.width, canvas.height]).toEqual([width, height])
+        expect([canvas.width, canvas.height]).toEqual([width, height])
       } else {
         await vi.waitFor(() => expect(bitmap.close).toHaveBeenCalledOnce())
         expect(context.drawImage).not.toHaveBeenCalled()
@@ -226,8 +256,8 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
 
 it('edits a crop region atomically, rejects invalid drafts and supports undo', async () => {
   const initial = { x: 3, y: 7, width: 91, height: 23 }
-  const schema = parseDinksterSchema('CropFixture', { interface: [
-    { role: 'input', id: 'crop_region', type: { kind: 'concrete', types: ['BOUNDING_BOX'] }, default: initial, widget: { type: 'BOUNDING_BOX', component: 'ImageCrop' } },
+  const schema = parseDinksterSchema('CropFixture', { body: [
+    { kind: 'input', id: 'crop_region', type: { kind: 'concrete', types: ['BOUNDING_BOX'] }, default: initial, widget: { type: 'BOUNDING_BOX', component: 'ImageCrop' } },
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [initial] }], links: [] }, () => schema)
   const store = new DocumentStore(imported.document!, coreCommandRegistry())
@@ -266,10 +296,10 @@ it('edits a crop region atomically, rejects invalid drafts and supports undo', a
 })
 
 it('edits only the schema-backed mount string, preserving prefix and undoable default selection', async () => {
-  const schema = parseDinksterSchema('SaveFixture', { interface: [
-    { role: 'input', id: 'filename_prefix', type: { kind: 'concrete', types: ['STRING'] }, default: 'frames/session' },
-    { role: 'input', id: 'mount', type: { kind: 'concrete', types: ['STRING'] }, required: false, default: null, widget: { type: 'MOUNT' }, adjacentTo: 'filename_prefix' },
-  ] }).schema!
+  const schema = parseDinksterSchema('SaveFixture', { body: [{ kind: 'row', rows: [
+    { kind: 'input', id: 'filename_prefix', type: { kind: 'concrete', types: ['STRING'] }, default: 'frames/session' },
+    { kind: 'input', id: 'mount', type: { kind: 'concrete', types: ['STRING'] }, required: false, default: null, widget: { type: 'MOUNT' } },
+  ] }] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: ['frames/session', null] }], links: [] }, () => schema)
   const store = new DocumentStore(imported.document!, coreCommandRegistry())
   const tab = { store } as unknown as Tab

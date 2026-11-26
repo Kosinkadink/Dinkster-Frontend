@@ -18,6 +18,11 @@ async function identityViewport(page: Page): Promise<void> {
 
 type Part = { kind: 'header' } | { kind: 'widget'; inputId: string } | { kind: 'badge'; index: number }
 
+/** The run states the canvas is drawing, as {nodeId: state}. */
+const drawnStates = (page: Page) => page.evaluate(() => Object.fromEntries(
+  Object.entries((window.__dinksterTest!.renderer! as unknown as { nodeStates: Record<string, { state: string }> }).nodeStates)
+    .map(([id, progress]) => [id, progress.state])))
+
 const settlePaint = (page: Page): Promise<void> => page.evaluate(() =>
   new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 
@@ -43,9 +48,12 @@ async function pointOn(page: Page, nodeId: string, part: Part): Promise<{ x: num
           if (!row) throw new Error(`no widget row '${part.inputId}' on '${nodeId}'`)
           return toPage(node.x + l.width / 2, node.y + row.y + row.height / 2)
         }
-        case 'badge':
-          // Runtime badges use the left-aligned lane below the node.
-          return toPage(node.x + 8 + part.index * 18, node.y + l.height + 7)
+        case 'badge': {
+          // Runtime badges are tabs below the node.
+          const tab = r.getNodeBadgeLayout(node).filter((entry) => entry.badge.placement === 'below')[part.index]
+          if (!tab) throw new Error(`no bottom tab ${part.index} on '${nodeId}'`)
+          return toPage(tab.x + tab.width / 2, tab.y + tab.height / 2)
+        }
       }
     },
     { nodeId, part },
@@ -108,6 +116,26 @@ test.beforeEach(async ({ page }) => {
   await waitForWorkspaceReady(page)
 })
 
+test('a finished run menu remains usable after a late log', async ({ page }, info) => {
+  await queueAndComplete(page)
+  const execution = await latestExecution(page)
+  const row = page.getByTestId('execution-row').first()
+  await row.getByRole('button', { name: /^More for / }).click()
+  const inspect = page.getByRole('menuitem', { name: 'Inspect run', exact: true })
+  await expect(inspect).toBeVisible()
+  await page.screenshot({ path: info.outputPath('run-menu-before-log.png') })
+  await page.evaluate((execution) => {
+    const store = window.__dinksterTest!.app.store as Pick<import('@dinkster/client').ExecutionStore, 'apply'>
+    store.apply({ kind: 'log', execution: execution.ref as import('@dinkster/core').ExecutionRef, timestamp: Date.now(),
+      level: 'info', message: 'Late completed-run diagnostic', seq: 1000000 })
+  }, execution)
+  await page.screenshot({ path: info.outputPath('run-menu-after-log.png') })
+  await expect(inspect).toBeVisible()
+  await inspect.click()
+  await expect(row.getByTestId('run-inspection')).toBeVisible()
+  await expect(row.getByTestId('run-details').locator('.execution-status')).toHaveText('Completed')
+})
+
 test('execution row opens a frozen view pinned to that execution', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
@@ -120,10 +148,11 @@ test('execution row opens a frozen view pinned to that execution', async ({ page
   const banner = page.getByTestId('frozen-banner')
   await expect(banner).toBeVisible()
   await expect(banner).toHaveAttribute('data-sync', 'in-sync')
-  await expect(banner).toContainText('completed')
+  await expect(banner).toContainText('Matches the live workflow.')
+  await expect(banner.locator('.frozen-words')).toHaveAttribute('data-tooltip-label', /^Frozen run .+, completed$/)
 
   // Frozen views never queue and never edit.
-  await expect(page.getByTestId('queue-button')).toBeDisabled()
+  await expect(page.getByTestId('queue-button')).toHaveCount(0)
   await identityViewport(page)
   await page.mouse.click(...xy(await pointOn(page, 'n0', { kind: 'widget', inputId: 'width' })))
   await expect(page.getByTestId('widget-editor')).not.toBeVisible()
@@ -135,15 +164,25 @@ test('execution row opens a frozen view pinned to that execution', async ({ page
   await expect(tabs).toHaveCount(3)
 })
 
-test('frozen snapshot survives live edits and both sides report divergence', async ({ page }) => {
+test('frozen snapshot survives live edits and reports the divergence', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(page.getByTestId('tab-bar').locator('.tab.frozen.active')).toHaveCount(1)
+  await expect(page.getByTestId('frozen-banner')).toHaveAttribute('data-sync', 'in-sync')
   const frozenTabId = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.id)
+  // The frozen view draws what the run did; the engine may serve it from cache.
+  await expect.poll(async () => {
+    const states = Object.values(await drawnStates(page))
+    return states.length > 0 && states.every((state) => state === 'done' || state === 'cached')
+  }).toBe(true)
 
-  // Back to live; the sync chip matches the execution before any edit.
+  // The live editor carries no execution chip once the run has finished,
+  // and leaves what ran, came from cache or was skipped to the frozen view.
   await page.getByTestId('frozen-go-live').click()
-  await expect(page.getByTestId('sync-chip')).toHaveAttribute('data-sync', 'in-sync')
+  await expect(page.getByTestId('tab-bar').locator('.tab.frozen.active')).toHaveCount(0)
+  await expect(page.getByTestId('sync-chip')).toHaveCount(0)
+  await settlePaint(page)
+  expect(Object.values(await drawnStates(page)).filter((state) => state !== 'error')).toEqual([])
 
   // Edit a semantic value on the live workflow.
   await identityViewport(page)
@@ -153,13 +192,12 @@ test('frozen snapshot survives live edits and both sides report divergence', asy
   await editor.fill('128')
   await editor.press('Enter')
 
-  await expect(page.getByTestId('sync-chip')).toHaveAttribute('data-sync', 'diverged')
   expect((await rootValues(page))['n0']!['width']).toBe(128)
   // The frozen document is the compile-time snapshot: untouched by the edit.
   expect((await rootValues(page, frozenTabId))['n0']!['width']).toBe(64)
 
-  // The chip links to the SAME frozen tab, now reporting divergence too.
-  await page.getByTestId('sync-chip-open').click()
+  // Reopening the run returns to the SAME frozen tab, now reporting divergence.
+  await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(3)
   await expect(page.getByTestId('frozen-banner')).toHaveAttribute('data-sync', 'diverged')
 
@@ -258,6 +296,43 @@ test('runtime error surfaces as a node badge with the exact traceback', async ({
   await expect(page.getByTestId('problems-panel')).toContainText('preview exploded')
 })
 
+test('a run error loses its color once the failed node changes, and undo brings it back', async ({ page }) => {
+  // A synthetic error on a registered run of the current document, as above.
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const result = app.compileTab(app.activeTab()!)
+    if (!result?.ok) throw new Error('compile failed')
+    const ref = { connection: result.artifact.connection, prompt: 'synthetic-runtime-error-changed' }
+    app.store.register(ref, result.artifact, Date.now())
+    app.store.apply({
+      kind: 'error', execution: ref, timestamp: Date.now(), runtimeNodeId: 'n1',
+      detail: { exceptionType: 'BoomError', exceptionMessage: 'preview exploded', traceback: ['BoomError: preview exploded'] },
+    })
+  })
+  const badgeIds = () => page.evaluate(() => (window.__dinksterTest!.renderer!.getBadges()['n1'] ?? []).map((b) => b.id))
+  await expect.poll(badgeIds).toContain('core.error')
+
+  // Changing the failed node's upstream: a Last run tab instead of Error.
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+    command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'width', value: 128 },
+  }))
+  await expect.poll(badgeIds).toContain('core.error.lastRun')
+  expect(await badgeIds()).not.toContain('core.error')
+  await identityViewport(page)
+  await settlePaint(page)
+  await page.mouse.click(...xy(await pointOn(page, 'n1', { kind: 'badge', index: 0 })))
+  const popover = page.getByTestId('badge-popover')
+  await expect(popover).toHaveAttribute('data-badge', 'core.error.lastRun')
+  await expect(popover.getByTestId('badge-last-run')).toHaveText('From the last run. Changed since.')
+  await expect(popover.getByTestId('badge-error-detail')).toContainText('BoomError: preview exploded')
+  await page.keyboard.press('Escape')
+
+  // Undo back to the document that ran.
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  await expect.poll(badgeIds).toContain('core.error')
+  expect(await badgeIds()).not.toContain('core.error.lastRun')
+})
+
 test('queue-up-to-here toolbox hover previews and click submits the partial closure', async ({ page }) => {
   const highlight = () =>
     page.evaluate(() => {
@@ -352,7 +427,7 @@ test('data lens toggles via the lens menu and D hotkey; panels are presentation 
   })
   // Off by default: no panels and the menu reports Standard.
   await expect(page.getByTestId('lens-toggle')).toHaveCount(0)
-  await expect(page.getByTestId('lens-switcher')).toContainText('Standard')
+  await expect(page.getByTestId('lens-switcher')).toHaveAttribute('aria-label', 'Lens: Standard')
   expect(await panels()).toBeNull()
   const revisionBefore = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
 
@@ -370,6 +445,6 @@ test('data lens toggles via the lens menu and D hotkey; panels are presentation 
   // D hotkey off again (canvas focus, not a text field).
   await page.getByTestId('graph-canvas').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('d')
-  await expect(page.getByTestId('lens-switcher')).toContainText('Standard')
+  await expect(page.getByTestId('lens-switcher')).toHaveAttribute('aria-label', 'Lens: Standard')
   await expect.poll(panels).toBeNull()
 })

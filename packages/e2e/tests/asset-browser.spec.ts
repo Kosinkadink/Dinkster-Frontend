@@ -52,7 +52,7 @@ async function installMockBackend(page: Page, requests: Request[]): Promise<void
   await page.route('**/api/nodes*', (route) => void route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'test', schemaWire: 1 },
+    dinkster: { version: 'test', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('**/api/mounts**', async (route) => {
@@ -169,7 +169,7 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AssetBrowserTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+      body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: ['image/png', 'application/x-safetensors'] }, default: null } }],
     }])
     await window.__dinksterTest!.app.openDocument({
@@ -182,7 +182,7 @@ test.beforeEach(async ({ page }) => {
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'AssetBrowserTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+    body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
       widget: { widgetType: 'ASSET', options: { accept: ['image/png', 'application/x-safetensors'] }, default: null } }],
   }]))
   await ensureDockClosed(page)
@@ -378,7 +378,7 @@ test('selected image assets preview immediately inside the node and follow impor
   await page.evaluate(async (images) => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AssetBrowserListTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'image', type: { kind: 'list', element: { kind: 'concrete', name: 'ASSET' } }, optional: false,
+      body: [{ kind: 'input', id: 'image', type: { kind: 'list', element: { kind: 'concrete', name: 'ASSET' } }, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: ['image/png', 'application/x-safetensors'] }, default: [] } }],
     }])
     await window.__dinksterTest!.app.openDocument({
@@ -449,11 +449,11 @@ test('selected image assets preview immediately inside the node and follow impor
   })).toBe(true)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'AssetBrowserListTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'image', type: { kind: 'list', element: { kind: 'concrete', name: 'ASSET' } }, optional: false,
+    body: [{ kind: 'input', id: 'image', type: { kind: 'list', element: { kind: 'concrete', name: 'ASSET' } }, optional: false,
       widget: { widgetType: 'ASSET', options: { accept: ['image/png', 'application/x-safetensors'] }, default: [] } }],
   }, {
     type: 'AssetBrowserTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+    body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
       widget: { widgetType: 'ASSET', options: { accept: ['image/png', 'application/x-safetensors'] }, default: null } }],
   }]))
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
