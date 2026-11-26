@@ -291,6 +291,7 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
       label={message('projects.logoMenu')}
       icon={() => <ProductBrandMark />}
       iconOnly
+      windowAction
       items={[{ label: message('projects.new.title'), onSelect: () => props.shell.showProjects({ newProject: true }) }]}
     />
   )

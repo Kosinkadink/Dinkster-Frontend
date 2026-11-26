@@ -83,6 +83,7 @@ function Menu(props: {
   rail?: boolean | undefined
   project?: boolean
   iconOnly?: boolean | undefined
+  windowAction?: boolean | undefined
   fill?: 'quiet' | undefined
   align?: 'start' | 'end' | undefined
   busy?: boolean
@@ -231,7 +232,7 @@ function Menu(props: {
   })
   return (
     <div
-      class="dinkster-menu-anchor"
+      class={props.windowAction ? 'dinkster-menu-anchor dinkster-window-action' : 'dinkster-menu-anchor'}
       data-project={props.project ? '' : undefined}
       ref={root}
       onFocusOut={(event) => {
@@ -486,6 +487,8 @@ export function ProductMenu(props: {
   identity?: MenuIdentity
   icon?: LucideIcon
   iconOnly?: boolean
+  /** Uses the same chrome wrapper as ProductWindowAction. */
+  windowAction?: boolean
   /** A borderless text trigger; absent keeps the outlined trigger. */
   fill?: 'quiet'
   /** The preferred trigger edge, before viewport clamping. */
@@ -502,6 +505,7 @@ export function ProductMenu(props: {
       items={props.items}
       identity={props.identity}
       iconOnly={props.iconOnly}
+      windowAction={props.windowAction}
       fill={props.fill}
       align={props.align}
       attention={props.attention}
