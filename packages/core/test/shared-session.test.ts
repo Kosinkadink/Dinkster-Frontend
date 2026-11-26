@@ -1029,6 +1029,34 @@ describe('shared DocumentSession', () => {
     expect(detached).toBe(1)
   })
 
+  it.each([false, true])('keeps a wire arrival folded through a shared rebase without consulting changed schemas (batch=%s)', async (batch) => {
+    const schema: NodeSchema = { type: 'KSampler', displayName: 'Editor', category: '', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'curve', optional: true, type: { kind: 'concrete', name: 'CURVE' },
+        widget: { widgetType: 'CURVE', options: { unfolded: true } } }] }
+    let available = true
+    const { conn, session } = await makeShared('actorA', baseDoc(), () => () => available ? schema : undefined)
+    const gate = deferred()
+    conn.postHook = () => { conn.postHook = undefined; return gate.promise }
+    const connect = { command: 'link.connect', params: { graphId: 'g0',
+      from: { node: 'n1', port: 'out' }, to: { node: 'n2', port: 'curve' } } }
+    expect(session.dispatch(batch ? { command: 'batch', params: { invocations: [connect] } } : connect).ok).toBe(true)
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    await until(() => conn.postedOps.length === 1)
+    available = false
+    conn.appendForeign('peer', foreignAddNode('n9-peer'))
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    gate.resolve()
+    await session.settle()
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(session.undo()).toBe(true)
+    await session.settle()
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toBeUndefined()
+    expect(session.redo()).toBe(true)
+    await session.settle()
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    session.close()
+  })
+
   it('rebases pending intentions over a foreign op and wins the stale-base race', async () => {
     const { conn, session, ops } = await makeShared('actorA')
     const gate = deferred()
