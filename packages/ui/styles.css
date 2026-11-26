@@ -276,6 +276,22 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-row-status { min-width: 0; }
 .dinkster-row-details { display: grid; min-width: 0; gap: var(--dinkster-space-12); }
 .dinkster-row-details[hidden] { display: none; }
+.dinkster-models { min-width: 0; }
+.dinkster-models .dinkster-row[data-expanded='true'] { background: var(--dinkster-surface-raised); border-radius: var(--dinkster-radius-control); }
+.dinkster-models .dinkster-row-main { position: relative; }
+.dinkster-models .dinkster-row-main:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: var(--dinkster-space-4); }
+.dinkster-models .dinkster-row-main[aria-pressed='true']::before { position: absolute; top: 0; bottom: 0; left: calc(-1 * var(--dinkster-space-8)); width: var(--dinkster-space-4); border-radius: var(--dinkster-radius-small); background: var(--dinkster-accent-foreground); content: ''; }
+.dinkster-model-name { font-weight: var(--dinkster-weight-bold); }
+.dinkster-models .dinkster-row-details .dinkster-model-name { font-weight: var(--dinkster-weight-regular); }
+.dinkster-model-size { color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
+.dinkster-model-download .dinkster-text-button { font: inherit; font-size: var(--dinkster-type-metadata-size); text-decoration: none; }
+.dinkster-model-progress .dinkster-product-progress { background: var(--dinkster-border-subtle); }
+.dinkster-model-summary { display: grid; gap: var(--dinkster-space-4); }
+.dinkster-model-summary:is([data-state='failed'], [data-state='unavailable']) { color: var(--dinkster-warning-foreground); }
+.dinkster-model-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-12); }
+.dinkster-model-hide { margin-left: auto; }
+.dinkster-models .dinkster-row-details > .dinkster-list { margin-right: calc(-1 * var(--dinkster-space-12)); }
+.dinkster-model-gallery { width: min(380px, 100%); }
 .dinkster-table-scroll { max-width: 100%; overflow: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
 .dinkster-table { width: 100%; border-collapse: collapse; text-align: left; }
 .dinkster-table :is(th, td) { padding: var(--dinkster-space-12) var(--dinkster-space-16); }
