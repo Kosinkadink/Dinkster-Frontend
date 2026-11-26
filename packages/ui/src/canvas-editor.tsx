@@ -520,10 +520,12 @@ export function CanvasCurvePlot(props: {
       }).join(' ')
       return { held, points }
     }
+    const start = Math.max(0, Math.min(1, first.position))
+    const end = Math.max(0, Math.min(1, last.position))
     return [
-      ...(first.position > 0 ? [run(0, first.position, true)] : []),
-      run(first.position, last.position, false),
-      ...(last.position < 1 ? [run(last.position, 1, true)] : []),
+      ...(start > 0 ? [run(0, start, true)] : []),
+      run(start, end, false),
+      ...(end < 1 ? [run(end, 1, true)] : []),
     ]
   }
   const [hover, setHover] = createSignal(untrack(() => props.hover))
@@ -661,8 +663,10 @@ export function CanvasCurvePlot(props: {
       </For>
       <For each={props.points}>
         {(point, index) => (
-          <circle class="dinkster-canvas-curve-point" data-selected={index() === props.selected ? 'true' : 'false'}
-            cx={x(point.position)} cy={y(point.value)} r="5" />
+          <Show when={point.position >= 0 && point.position <= 1 && point.value >= 0 && point.value <= 1}>
+            <circle class="dinkster-canvas-curve-point" data-selected={index() === props.selected ? 'true' : 'false'}
+              cx={x(point.position)} cy={y(point.value)} r="5" />
+          </Show>
         )}
       </For>
       <Show when={hover()}>

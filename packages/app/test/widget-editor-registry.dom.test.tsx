@@ -61,6 +61,30 @@ it('draws a Step-only curve without a selector or a ramp even for an incoming li
   } finally { dispose() }
 })
 
+it('bounds an expanded Step plot without changing extreme source points', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'step' as const, points: [
+    { position: -1e308, value: -2 }, { position: 0.25, value: 0.4 },
+    { position: 0.75, value: 2 }, { position: 1e308, value: 0.8 },
+  ] }
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn()
+  const dispose = render(() => <CurveSpace value={value} options={{}} histogram={undefined} histogramInput="none" commit={commit} />, root)
+  try {
+    const vertices = Array.from(root.querySelectorAll('.dinkster-canvas-curve-line')).flatMap((line) =>
+      line.getAttribute('points')!.split(' ').map((point) => point.split(',').map(Number)))
+    const expected = [[8.5, 171.5], [84.25, 171.5], [84.25, 106.3], [235.75, 106.3], [235.75, 8.5], [311.5, 8.5]]
+    expect(vertices).toHaveLength(expected.length)
+    vertices.forEach((point, index) => point.forEach((coordinate, axis) => expect(coordinate).toBeCloseTo(expected[index]![axis]!)))
+    const handles = root.querySelectorAll('.dinkster-canvas-curve-point')
+    expect(handles).toHaveLength(1)
+    expect(Number(handles[0]!.getAttribute('cx'))).toBeCloseTo(84.25)
+    expect(Number(handles[0]!.getAttribute('cy'))).toBeCloseTo(106.3)
+    expect(commit).not.toHaveBeenCalled()
+    expect(value.points[0]!.position).toBe(-1e308)
+  } finally { dispose() }
+})
+
 it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {
   const schema = parseDinksterSchema('SaveTargetFixture', { body: [
     { kind: 'input', id: 'target', type: { kind: 'concrete', types: ['dinkster.save_target'] }, required: !optional, widget: { type: 'SAVE_TARGET', suffix: '.pgm' } },
