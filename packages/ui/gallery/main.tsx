@@ -206,7 +206,7 @@ function Gallery() {
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
             <Match when={route() === '#page-loading'}>
-              <PageLoadingGallery />
+              <PageLoadingGallery activity={activity()} />
             </Match>
             <Match when={route() === '#setup-components'}>
               <Section title="Progress" components="ProductProgress">
@@ -1115,7 +1115,7 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <Show when={route() !== '#canvas'}>
+        <Show when={route() !== '#canvas' && route() !== '#page-loading'}>
           <p class="dinkster-metadata" role="status">
             {activity()}
           </p>

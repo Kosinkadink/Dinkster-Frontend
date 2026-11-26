@@ -76,6 +76,8 @@ test('a slow page waits 200ms to show loading and holds it until 500ms', async (
   const summary = page.getByRole('region', { name: 'Account summary' })
   const heading = summary.getByRole('heading', { name: 'Account summary' })
   const headingBounds = await heading.boundingBox()
+  const activity = page.getByText('No action yet', { exact: true })
+  const activityBounds = await activity.boundingBox()
   await section.getByRole('button', { name: 'Load briefly' }).click()
   await page.clock.runFor(199)
   await expect(section.getByRole('status')).toHaveCount(0)
@@ -94,6 +96,7 @@ test('a slow page waits 200ms to show loading and holds it until 500ms', async (
     section.getByText('alex@example.test', { exact: true }),
   ).toBeVisible()
   expect(await heading.boundingBox()).toEqual(headingBounds)
+  expect(await activity.boundingBox()).toEqual(activityBounds)
 })
 
 test('failure observes the same minimum and a superseded failure cannot replace a newer answer', async ({

@@ -8,7 +8,7 @@ import {
   ProductSegmented,
 } from '../src/index.js'
 
-export function PageLoadingGallery() {
+export function PageLoadingGallery(props: { activity: string }) {
   const page = createPageLoad<[string, string]>()
   const [arrival, setArrival] = createSignal<'fade' | 'rise'>('fade')
   let request: () => Promise<[string, string]>
@@ -85,6 +85,9 @@ export function PageLoadingGallery() {
           </ProductPageLoad>
         </div>
       </ProductSection>
+      <p class="dinkster-metadata" role="status">
+        {props.activity}
+      </p>
       <ProductSection title="Account summary">
         <ProductPageAnswer page={page}>
           {(account) => (
