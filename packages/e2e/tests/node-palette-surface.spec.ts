@@ -295,7 +295,10 @@ test('semantic result ownership, filters, focus, and placement stay mutation fre
   await page.keyboard.press('Escape')
   await expect(canvas).not.toHaveAttribute('data-placement-ghost', 'visible')
 
-  await openPalette(page)
+  await canvas.click({ button: 'right', position: { x: 200, y: 180 } })
+  await page.getByRole('menuitem', { name: 'Add node...', exact: true }).click()
+  await expect(palette).toBeVisible()
+  await expect(input).toBeFocused()
   await palette.getByRole('tab', { name: 'Blueprints', exact: true }).focus()
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('node-palette')).toHaveCount(0)
@@ -468,6 +471,11 @@ test('type-menu selections require every input and output type and agree with ty
   await field.fill('Palette in:IMAGE in:MODEL out:IMAGE out:LATENT')
   await expect(palette.getByRole('option')).toHaveCount(1)
   await expect(palette.getByRole('option')).toHaveAttribute('data-key', 'entry:PaletteBothDirections')
+  await field.fill('Palette image consumer in:asset<image>')
+  await expect(palette.getByRole('option')).toHaveCount(1)
+  await expect(palette.getByRole('option')).toHaveAttribute('data-key', 'entry:PaletteImageConsumer')
+  await field.fill('Palette image consumer in:asset<latent>')
+  await expect(palette.getByRole('option')).toHaveCount(0)
 })
 
 test('a dropped list wire offers either-value inputs, excludes scalar-only inputs and connects in one undo step', async ({ page }) => {

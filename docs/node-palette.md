@@ -43,7 +43,11 @@ List and file forms appear directly beneath their type with plain names.
 Menu and chip markers use a circle or list diamond. The either-input shape
 appears only on nodes and previews. A list
 filter or dropped list wire also finds matching inputs that accept a whole
-list; scalar-only inputs remain incompatible with list wires.
+list; scalar-only inputs remain incompatible with list wires. File input
+requirements include inputs reachable through the engine's single decoding
+step, so an image file also finds a plain image input. Output requirements
+do not invent file outputs from plain values. Blueprint boundary hints use
+the same file-decoding and type-discovery rules.
 
 Browsing and highlighting never mutate the workflow. Ordinary node,
 subgraph, and blueprint choices arm the existing pointer-following placement

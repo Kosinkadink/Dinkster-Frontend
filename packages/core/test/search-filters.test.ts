@@ -233,6 +233,29 @@ describe('schemaMatchesLinkDrop (noodle-drop compatibility)', () => {
     expect(schemaMatchesPortFilters(decode, { inputs: ['list<image>'] })).toBe(false)
   })
 
+  it('input file requirements include the same one-step decoding as a dropped file wire', () => {
+    const image = schema([input('image', concrete('IMAGE'))])
+    const file: TypeExpr = { kind: 'asset', element: concrete('IMAGE') }
+    expect(schemaMatchesLinkDrop(image, file, 'in')).toBe(true)
+    expect(hintsMatchLinkDrop({ inputs: ['IMAGE'] }, file, 'in')).toBe(true)
+    expect(schemaMatchesPortFilters(image, { inputs: ['asset<image>'] })).toBe(true)
+    expect(hintsMatchPortFilters({ inputs: ['IMAGE'] }, { inputs: ['asset<image>'] })).toBe(true)
+    expect(schemaMatchesPortFilters(image, { inputs: ['list<asset<image>>'] })).toBe(true)
+    expect(schemaMatchesPortFilters(image, { inputs: ['asset<latent>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(image, { inputs: ['asset<asset<image>>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(image, { inputs: ['list<image>'] })).toBe(false)
+    const batch = schema([input('images', { kind: 'list', element: concrete('IMAGE') })])
+    expect(schemaMatchesPortFilters(batch, { inputs: ['asset<image>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(batch, { inputs: ['list<asset<image>>'] })).toBe(true)
+    const batchFile = schema([input('images', { kind: 'asset', element: { kind: 'list', element: concrete('IMAGE') } })])
+    expect(schemaMatchesPortFilters(batchFile, { inputs: ['asset<image>'] })).toBe(false)
+    expect(hintsMatchLinkDrop({ inputs: ['list<IMAGE>'] }, concrete('IMAGE'), 'in')).toBe(false)
+    const output = schema([{ kind: 'output', id: 'image', type: concrete('IMAGE') }])
+    expect(schemaMatchesPortFilters(output, { outputs: ['asset<image>'] })).toBe(false)
+    expect(hintsMatchPortFilters({ outputs: ['asset<IMAGE>'] }, { outputs: ['image'] })).toBe(true)
+    expect(hintsMatchLinkDrop({ outputs: ['asset<IMAGE>'] }, concrete('IMAGE'), 'out')).toBe(true)
+  })
+
   it('matches concrete batch families and a constrained shared family exactly', () => {
     const group = (type: TypeExpr) => ({
       kind: 'group' as const,

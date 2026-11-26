@@ -15,7 +15,7 @@
  * elaborations still make the node findable.
  */
 
-import { admittedInputType, atomNamesOf, typesCompatible } from './schema/type-relations.js'
+import { admittedInputType, atomNamesOf, coercionTargetsOf, typesCompatible } from './schema/type-relations.js'
 import { elaborateInterface, materializeFramesOf, type MaterializeFrame } from './schema/elaborate.js'
 import { defaultValuesOf, initialDynamicStateOf } from './schema/body.js'
 import {
@@ -24,6 +24,7 @@ import {
   parseAssetTypeId,
   parseStreamTypeId,
   parseListTypeId,
+  typeExprFromTypeId,
   type InputSpec,
   type NodeSchema,
   type OutputSpec,
@@ -107,6 +108,10 @@ const nameMatchesToken = (name: string, token: string): boolean => {
  * This is a discovery rule only; it does not weaken connection compatibility.
  */
 export function typeMatchesToken(t: TypeExpr, token: string): boolean {
+  return matchesTypeToken(t, token, true)
+}
+
+function matchesTypeToken(t: TypeExpr, token: string, discoverWrapped: boolean): boolean {
   const listInner = parseListTypeId(token)
   const assetInner = parseAssetTypeId(token)
   const streamInner = parseStreamTypeId(token)
@@ -114,9 +119,9 @@ export function typeMatchesToken(t: TypeExpr, token: string): boolean {
     case 'wildcard':
       return true
     case 'variable':
-      return t.allowedTypes === undefined || t.allowedTypes.some((a) => typeMatchesToken(a, token))
+      return t.allowedTypes === undefined || t.allowedTypes.some((a) => matchesTypeToken(a, token, discoverWrapped))
     case 'tuple':
-      return t.elements.some((element) => typeMatchesToken(element, token))
+      return t.elements.some((element) => matchesTypeToken(element, token, discoverWrapped))
     case 'tuple_element':
       return false
     case 'concrete':
@@ -125,17 +130,22 @@ export function typeMatchesToken(t: TypeExpr, token: string): boolean {
       return listInner === undefined && assetInner === undefined && streamInner === undefined && t.names.some((n) => nameMatchesToken(n, token))
     case 'list':
       return listInner !== undefined
-        ? typeMatchesToken(t.element, listInner)
-        : assetInner === undefined && streamInner === undefined && typeMatchesToken(t.element, token)
+        ? matchesTypeToken(t.element, listInner, false)
+        : discoverWrapped && assetInner === undefined && streamInner === undefined && matchesTypeToken(t.element, token, true)
     case 'asset':
       return assetInner !== undefined
-        ? typeMatchesToken(t.element, assetInner)
-        : listInner === undefined && streamInner === undefined && typeMatchesToken(t.element, token)
+        ? matchesTypeToken(t.element, assetInner, false)
+        : discoverWrapped && listInner === undefined && streamInner === undefined && matchesTypeToken(t.element, token, true)
     case 'stream':
       return streamInner !== undefined
-        ? typeMatchesToken(t.element, streamInner)
-        : listInner === undefined && assetInner === undefined && typeMatchesToken(t.element, token)
+        ? matchesTypeToken(t.element, streamInner, false)
+        : discoverWrapped && listInner === undefined && assetInner === undefined && matchesTypeToken(t.element, token, true)
   }
+}
+
+/** Decode once, without rediscovering wrappers that the decoded value cannot feed. */
+function inputTypeMatchesToken(t: TypeExpr, token: string, discoverWrapped = true): boolean {
+  return matchesTypeToken(t, token, discoverWrapped) || coercionTargetsOf(token).some((decoded) => matchesTypeToken(t, decoded, false))
 }
 
 // ---------------------------------------------------------------------------
@@ -170,9 +180,9 @@ export function* schemaOutputTypes(schema: NodeSchema): Generator<TypeExpr> {
  * Whether declared type-id HINTS satisfy the port filters - the blueprint
  * path, where descriptors carry author-declared boundaryInputs/
  * boundaryOutputs strings instead of a schema. Hints are untrusted
- * declarations passed through verbatim by the backend, so matching is the
- * same tolerant name rule as concrete types (full id or last dot-segment,
- * case-insensitive). No hints declared = unknown interface = excluded
+ * declarations passed through verbatim by the backend. They use the same
+ * structural discovery, tolerant names and one-step input file decoding as
+ * schemas. No hints declared = unknown interface = excluded
  * when a port filter is active (declaring hints is how a blueprint opts
  * into port search).
  */
@@ -181,10 +191,10 @@ export function hintsMatchPortFilters(
   filters: Pick<SearchFilters, 'inputs' | 'outputs'>,
 ): boolean {
   for (const token of filters.inputs ?? []) {
-    if (!(hints.inputs ?? []).some((h) => nameMatchesToken(h, token))) return false
+    if (!(hints.inputs ?? []).some((h) => inputTypeMatchesToken(typeExprFromTypeId(h), token))) return false
   }
   for (const token of filters.outputs ?? []) {
-    if (!(hints.outputs ?? []).some((h) => nameMatchesToken(h, token))) return false
+    if (!(hints.outputs ?? []).some((h) => typeMatchesToken(typeExprFromTypeId(h), token))) return false
   }
   return true
 }
@@ -306,10 +316,9 @@ const lastSegment = (n: string): string => {
 
 /**
  * Whether blueprint boundary HINTS can terminate a dangling noodle - the
- * descriptor path, where only author-declared type-id strings exist. The
- * anchor's atom set is
- * compared against the relevant hint list by the same tolerant name rule
- * as port filters: full id or last dot-segment, case-insensitive. No
+ * descriptor path, where only author-declared type-id strings exist.
+ * Matching preserves wrappers and the engine's one-step file coercion,
+ * with the same tolerant atom-name rule as port filters. No
  * hints on the seeking side = unknown interface = excluded, mirroring
  * hintsMatchPortFilters (declaring hints is how a blueprint opts into
  * port-constrained search).
@@ -325,7 +334,10 @@ export function hintsMatchLinkDrop(
   const atoms = atomNamesOf(anchorType)
   if (atoms === undefined) return false
   return declared.some((h) =>
-    atoms.some((a) => h.toLowerCase() === a.toLowerCase() || lastSegment(h) === lastSegment(a)),
+    atoms.some((a) => h.toLowerCase() === a.toLowerCase() || lastSegment(h) === lastSegment(a)) ||
+    (seeking === 'in'
+      ? atoms.some((a) => inputTypeMatchesToken(typeExprFromTypeId(h), a, false))
+      : inputTypeMatchesToken(anchorType, h, false)),
   )
 }
 
@@ -342,7 +354,7 @@ export function schemaMatchesPortFilters(
   for (const token of filters.inputs ?? []) {
     let hit = false
     for (const t of schemaInputTypes(schema)) {
-      if (typeMatchesToken(t, token)) {
+      if (inputTypeMatchesToken(t, token)) {
         hit = true
         break
       }
