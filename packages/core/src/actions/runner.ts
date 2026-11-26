@@ -737,12 +737,13 @@ interface Locals {
   readonly values: Map<string, Value>
 }
 
-function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?: (name: string, availability: boolean) => Value | typeof UNKNOWN | undefined, onRead?: (name: string) => void): FormulaOutcome {
+function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?: (name: string, availability: boolean) => Value | typeof UNKNOWN | undefined, onRead?: (name: string) => void, inspectReads = false): FormulaOutcome {
   const scope = { ...context.scope, names: new Map([...context.scope.names, ...locals.kinds]) }
   const values = { ...context.values, read: (name: string, availability: boolean) =>
     locals.values.has(name) ? locals.values.get(name) : read === undefined ? context.values.values?.get(name) : read(name, availability), ...(onRead === undefined ? {} : { onRead }) }
   try {
-    return Formula.parse(text, scope).evaluate(values)
+    const formula = Formula.parse(text, scope)
+    return inspectReads ? formula.inspectReads(values) : formula.evaluate(values)
   } catch (error) {
     if (error instanceof FormulaRefused) return { kind: 'failed', reason: error.message }
     throw error
@@ -1848,20 +1849,28 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
         else texts.push(arg.formula)
       }
     }
-    try {
-      for (const scope of scopes) {
-        const needed = [...names.filter((name) => {
-          if (locals.kinds.has(name) || !wiredName(name, scope)) return false
-          const value = read(scope, name)
-          if (value !== undefined) return value === UNKNOWN
-          const path = scope.paths.get(name)
-          return path === undefined || view.incomingValue(path) === undefined
-        }), ...texts.flatMap((text) => unknownWired(scope, locals, text, (name) => wiredName(name, scope), (name) => read(scope, name), (name) => checkRead(scope, name)))]
-        if (needed.length > 0) return { enabled: false, reason: `Needs ${needed[0]}, which is not known until a run.` }
+    for (const scope of scopes) {
+      const needed: string[] = []
+      const requiredRead = (name: string, availability = false): Value | typeof UNKNOWN | undefined => {
+        const value = read(scope, name)
+        if (!availability && !locals.kinds.has(name) && wiredName(name, scope) && (value === UNKNOWN || value === undefined)) needed.push(name)
+        return value
       }
-    } catch (error) {
-      if (error !== pending) throw error
-      return { enabled: true }
+      for (const name of names) {
+        try {
+          requiredRead(name)
+        } catch (error) {
+          if (error !== pending) throw error
+        }
+      }
+      for (const text of texts) {
+        try {
+          evaluateIn(scope, locals, text, requiredRead, (name) => checkRead(scope, name), true)
+        } catch (error) {
+          if (error !== pending) throw error
+        }
+      }
+      if (needed.length > 0) return { enabled: false, reason: `Needs ${needed[0]}, which is not known until a run.` }
     }
     // Only deterministic values are staged here. No host effect runs during a repaint.
     try {
@@ -1937,8 +1946,11 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
         context = view.contexts.get(button.prefix)!
       }
     } catch {
-      // Runtime owns write validation; a failed preview must not invoke any host work.
-      return { enabled: true }
+      // An uncertain preview cannot decide later lazy branches, but independent reads still matter.
+      for (const scope of scopes) for (const field of writes.fields) {
+        const path = scope.paths.get(field)
+        if (path !== undefined && !view.connectivity.isInputConnected(path)) unknown.add(path)
+      }
     }
   }
 

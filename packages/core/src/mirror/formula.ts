@@ -1329,6 +1329,11 @@ export class Formula {
     return new Evaluator(this.scope, values, new Map()).outcome(this)
   }
 
+  /** Inspect all required operands, even when an earlier strict operand is unavailable. Lazy branches stay lazy. */
+  inspectReads(values: FormulaValues): FormulaOutcome {
+    return new Evaluator(this.scope, values, new Map(), new Map(), true).outcome(this)
+  }
+
   /**
    * The row names and the functions this formula reads, its derived formulas
    * included. Comprehension names and table names are not rows.
@@ -1432,6 +1437,7 @@ class Evaluator {
     private readonly values: FormulaValues,
     private readonly derivedResults: Map<string, FormulaOutcome>,
     private readonly availabilityResults = new Map<string, FormulaOutcome>(),
+    private readonly inspectingReads = false,
   ) {}
 
   outcome(formula: Formula): FormulaOutcome {
@@ -1453,7 +1459,7 @@ class Evaluator {
     if (derived !== undefined) {
       const results = this.checkingAvailability ? this.availabilityResults : this.derivedResults
       if (!results.has(name)) {
-        const evaluator = new Evaluator(this.scope, this.values, this.derivedResults, this.availabilityResults)
+        const evaluator = new Evaluator(this.scope, this.values, this.derivedResults, this.availabilityResults, this.inspectingReads)
         evaluator.checkingAvailability = this.checkingAvailability
         results.set(name, evaluator.outcome(derived))
       }
@@ -1472,6 +1478,21 @@ class Evaluator {
     return check(value)
   }
 
+  private operands<T, R>(items: readonly T[], evaluate: (item: T) => R): R[] {
+    let failure: { error: unknown } | undefined
+    const values: R[] = []
+    for (const item of items) {
+      try {
+        values.push(evaluate(item))
+      } catch (error) {
+        if (!this.inspectingReads) throw error
+        if (failure === undefined || (failure.error instanceof Stop && !(error instanceof Stop))) failure = { error }
+      }
+    }
+    if (failure !== undefined) throw failure.error
+    return values
+  }
+
   private eval(node: Node, formula: Formula): Value {
     const path = dotted(node)
     if (path !== undefined) return this.lookup(path, formula)
@@ -1479,9 +1500,8 @@ class Evaluator {
       case 'constant':
         return check(node.value)
       case 'binary': {
-        const left = this.eval(node.left, formula)
-        const right = this.eval(node.right, formula)
-        return check(arith(node.op, left, right))
+        const [left, right] = this.operands([node.left, node.right], (item) => this.eval(item, formula))
+        return check(arith(node.op, left!, right!))
       }
       case 'unary': {
         const operand = this.eval(node.operand, formula)
@@ -1503,9 +1523,10 @@ class Evaluator {
         return result
       }
       case 'compare': {
-        let left = this.eval(node.left, formula)
+        const first = this.operands([node.left, node.comparators[0]!], (item) => this.eval(item, formula))
+        let left: Value = first[0]!
         for (let index = 0; index < node.ops.length; index += 1) {
-          const right = this.eval(node.comparators[index]!, formula)
+          const right = index === 0 ? first[1]! : this.eval(node.comparators[index]!, formula)
           const op = node.ops[index]!
           let holds: boolean
           if (op === '==' || op === '!=') {
@@ -1522,16 +1543,15 @@ class Evaluator {
       case 'if':
         return this.eval(truthy(this.eval(node.test, formula)) ? node.body : node.orelse, formula)
       case 'subscript': {
-        const container = this.eval(node.value, formula)
-        const index = this.eval(node.index, formula)
-        return check(subscript(container, index))
+        const [container, index] = this.operands([node.value, node.index], (item) => this.eval(item, formula))
+        return check(subscript(container!, index!))
       }
       case 'list':
-        return check(Object.freeze(node.items.map((item) => listItem(this.eval(item, formula)))))
+        return check(Object.freeze(this.operands(node.items, (item) => listItem(this.eval(item, formula)))))
       case 'comprehension': {
         const items = list(this.eval(node.iterable, formula), 'a comprehension')
         const results: FormulaScalar[] = []
-        for (const item of items) {
+        this.operands(items, (item) => {
           this.locals.set(node.target, item)
           try {
             if (node.conditions.every((condition) => truthy(this.eval(condition, formula)))) {
@@ -1540,7 +1560,7 @@ class Evaluator {
           } finally {
             this.locals.delete(node.target)
           }
-        }
+        })
         return check(Object.freeze(results))
       }
       case 'call':
@@ -1569,7 +1589,7 @@ class Evaluator {
     }
     if (name === 'previous') {
       if (this.values.previous === undefined) throw STOP_UNKNOWN
-      const before = new Evaluator(this.scope, this.values.previous, new Map())
+      const before = new Evaluator(this.scope, this.values.previous, new Map(), new Map(), this.inspectingReads)
       for (const [local, value] of this.locals) before.locals.set(local, value)
       return before.eval(node.args[0]!, formula)
     }
@@ -1596,7 +1616,7 @@ class Evaluator {
         return BigInt(size)
       }
     }
-    const args = node.args.map((argument) => this.eval(argument, formula))
+    const args = this.operands(node.args, (argument) => this.eval(argument, formula))
     return check(FUNCTIONS[name]!(...args))
   }
 }

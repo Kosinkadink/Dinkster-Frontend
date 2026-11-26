@@ -848,6 +848,50 @@ describe('what a press may write', () => {
     expect(calls).toBe(0)
   })
 
+  it('checks independent required inputs even after uncertain Call results', async () => {
+    const set = (formula: string) => ({ step: 'set', field: 'result', value: { formula } })
+    const cases = [
+      { id: 'later', steps: [set('marker + 1'), set('upstream + 1')], enabled: false },
+      { id: 'left', steps: [set('marker + upstream')], enabled: false },
+      { id: 'right', steps: [set('upstream + marker')], enabled: false },
+      { id: 'argument', steps: [set('min(marker, upstream)')], enabled: false },
+      { id: 'comparison', steps: [set('1 if marker < upstream else 0')], enabled: false },
+      { id: 'list', steps: [set('sum([marker, upstream])')], enabled: false },
+      { id: 'index', steps: [set('[marker][upstream]')], enabled: false },
+      { id: 'members', steps: [set('sum([marker if x else upstream for x in [1, 0]])')], enabled: false },
+      { id: 'lazy', steps: [set('upstream if marker else 23')], enabled: true },
+      { id: 'known', steps: [set('upstream if known(marker) else 23')], enabled: true },
+    ]
+    addSchema('test.uncertain_reads', [
+      ...['upstream', 'marker', 'result'].map((id) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 7 })),
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+      ...cases.map(({ id, steps }) => ({ kind: 'button', id, label: id, steps: [
+        { step: 'call', function: 'probe', args: [], writes: ['marker'] }, ...steps,
+      ] })),
+    ])
+    const doc = documentOf({ n1: { type: 'test.uncertain_reads', values: { upstream: 97, marker: 41, result: 3 } }, src: { type: 'test.uncertain_reads' } }, link('l1', ['src', 'out'], ['n1', 'upstream']))
+    for (const item of cases) {
+      let calls = 0
+      const host = hostOf({ call: async () => { calls++; return { kind: 'answer', fields: { marker: 0n }, notes: [] } } })
+      const session = sessionOf(doc)
+      expect(buttonAvailability(doc, at(item.id), host), item.id).toEqual(item.enabled
+        ? { enabled: true } : { enabled: false, reason: 'Needs upstream, which is not known until a run.' })
+      expect(calls).toBe(0)
+      const outcome = await runPress(session, at(item.id), host)
+      expect(calls, item.id).toBe(item.enabled ? 1 : 0)
+      if (item.id === 'lazy') {
+        expect(outcome.kind).toBe('done')
+        expect(valuesOf(session)).toEqual({ upstream: 97, marker: 0, result: 23 })
+        expect(session.undo()).toBe(true)
+        expect(session.doc).toEqual(doc)
+      } else {
+        expect(outcome.kind).toBe('failed')
+        expect(session.doc).toEqual(doc)
+      }
+      expect(session.canUndo).toBe(false)
+    }
+  })
+
   it('checks nested Lookup arguments before making a Call or changing topology', async () => {
     addSchema('test.nested_lookup', [
       { kind: 'input', id: 'upstream', type: { kind: 'concrete', types: ['INT'] }, default: 13 },
