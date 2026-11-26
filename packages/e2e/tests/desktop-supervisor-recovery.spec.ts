@@ -47,6 +47,7 @@ test('cold project opening keeps its authoritative name while the engine refuses
   await expect(page.getByTestId('app-shell')).toHaveAttribute('data-view', 'editor')
   await expect(page.locator('html')).toHaveAttribute('data-editor-project-names', '["Bookshop diorama"]')
   expect(await page.evaluate(async () => (await fetch('/api/projects/scene-0')).status)).toBe(503)
+  await expect(page.getByTestId('app-shell-page')).toHaveCount(0)
   await page.screenshot({ path: evidencePath('issue-1424', 'cold-open-named.png') })
 
   state = 'ready'
