@@ -138,6 +138,58 @@ function localConnect(doc: WorkflowDocument, target: OccurrenceRef, from = direc
 
 describe('occurrence-local link commands', () => {
 
+  it('refuses runtime deliveries to pinless fields through either boundary depth while keeping pinful deliveries editable', () => {
+    const resolveCount = (type: string): NodeSchema | undefined => type === 'NumberSink'
+      ? { ...schemas.NumberSink!, body: [
+          { kind: 'input', id: 'in', type: { kind: 'concrete', name: 'INT' }, optional: false, socketless: true,
+            widget: { widgetType: 'INT', options: {}, default: 3 } },
+          { kind: 'input', id: 'other', type: { kind: 'concrete', name: 'INT' }, optional: false,
+            widget: { widgetType: 'INT', options: {}, default: 0 } },
+        ] }
+      : type === 'Src' ? { ...schemas.Src!, body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } }] } : resolve(type)
+    for (const nested of [false, true]) {
+      const initial = document()
+      const counted = {
+        ...initial.graphs.body!, id: 'counted', nodes: { counter: { id: 'counter', type: 'NumberSink', values: { in: 3 } } },
+        links: {}, nets: {}, boundary: { body: ['in', 'other'].map((id) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'counter', port: id } })) },
+      }
+      const doc = { ...initial, graphs: {
+        ...initial.graphs, ...(nested ? { counted } : {}),
+        body: { ...initial.graphs.body!, links: {}, nets: {}, nodes: {
+          ...initial.graphs.body!.nodes,
+          sink: { id: 'sink', type: nested ? '#counted' : 'NumberSink', values: { in: 3 } },
+        } },
+      } } as unknown as WorkflowDocument
+      const store = new DocumentStore(doc, coreCommandRegistry())
+      const intention = {
+        kind: 'connect' as const, owner: owner('a'), bodyGraph: 'body', from: directBoundary(owner('a')),
+        to: body({ node: 'sink', port: 'other' }),
+      }
+      const control = planOccurrenceLinkMutation(store.doc, resolveCount, intention)
+      expect(control.ok).toBe(true)
+      if (!control.ok) throw new Error('pinful connection refused')
+      expect(store.dispatch(control.invocation).ok).toBe(true)
+      const before = store.doc
+      expect(planOccurrenceLinkMutation(store.doc, resolveCount, { ...intention, to: body({ node: 'sink', port: 'in' }) }).ok).toBe(false)
+      const link: EffectiveLinkIdentity = { kind: 'occurrence', owner: owner('a'), linkId: 'l0' as never }
+      expect(planOccurrenceLinkMutation(store.doc, resolveCount, {
+        kind: 'rewire', owner: owner('a'), bodyGraph: 'body', link, to: body({ node: 'sink', port: 'in' }),
+      }).ok).toBe(false)
+      expect(store.doc).toBe(before)
+      const source = planOccurrenceLinkMutation(store.doc, resolveCount, {
+        kind: 'rewireSource', owner: owner('a'), bodyGraph: 'body', links: [link], from: directBoundary(owner('a'), 'feed1'),
+      })
+      expect(source.ok).toBe(true)
+      if (!source.ok) throw new Error('pinful source rewire refused')
+      expect(store.dispatch(source.invocation).ok).toBe(true)
+      const compiled = compile({ document: store.doc, revision: 1, resolve: resolveCount, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'h' })
+      expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('compile refused')
+      expect(compiled.artifact.prompt[nested ? 'a.sink.counter' : 'a.sink']!.inputs.in).toBe(3)
+      expect(compiled.artifact.prompt[nested ? 'a.sink.counter' : 'a.sink']!.inputs.other).toEqual(['a.producerOne', 0])
+    }
+  })
+
   it.each([
     ['root direct', document(), owner('a'), directBoundary(owner('a'))],
     ['nested direct', document(true), owner('inner', ['outer']), directBoundary(owner('inner', ['outer']))],

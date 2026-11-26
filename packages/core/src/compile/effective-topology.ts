@@ -495,7 +495,7 @@ function buildEffectiveOccurrenceTopology(
       const state = node && values && { values, ...(dynamic ? { dynamic } : {}), ...(node.additionalInputs !== undefined ? { additionalInputs: node.additionalInputs } : {}) }
       const elaborated = schema && state && elaborateInterface(schema, state, connectivity(nodeId), { promoteGhosts: false, nodeId })
       const result = {
-        inputs: new Set(elaborated ? elabInputsOf(elaborated).map((input) => portAddressKey(input.address.port)) : []),
+        inputs: new Set(elaborated ? elabInputsOf(elaborated).filter((input) => input.spec.socketless !== true).map((input) => portAddressKey(input.address.port)) : []),
         outputs: new Set(elaborated ? elabOutputsOf(elaborated).map((output) => portAddressKey(output.address.port)) : []),
       }
       ports.set(nodeId, result)
