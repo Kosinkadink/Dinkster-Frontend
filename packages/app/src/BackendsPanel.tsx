@@ -10,6 +10,18 @@ import { ProductField, productFieldIds } from './ProductForm.js'
 import { ProductTextInput } from './ProductControls.js'
 import { useSignal } from './solid-adapter.js'
 
+function BackendAddress(props: { readonly value: string }) {
+  const address = createMemo(() => props.value.match(/^(https?:\/\/)(\[[^\]]+\]|[^/:]+)(:\d+)?(.*)$/i))
+  const path = () => (address()?.[4] ?? props.value).split(/(?=\/)/).filter(Boolean)
+  return <code class="backend-address">
+    <Show when={address()}>{(parts) => <>
+      <span class="backend-address-host"><For each={`${parts()[1]}${parts()[2]}`.split(/(?<=\.)/)}>{(part) => <span>{part}</span>}</For></span>
+      <Show when={parts()[3]}>{(port) => <span>{port()}</span>}</Show>
+    </>}</Show>
+    <For each={path()}>{(part) => <span>{part}</span>}</For>
+  </code>
+}
+
 function BackendRow(props: {
   readonly app: AppState
   readonly url: string
@@ -81,7 +93,7 @@ function BackendRow(props: {
             <ProductTextButton disabled={busy()} onClick={() => { void perform(() => props.app.refreshBackendSchemas(props.backend!)) }} data-testid="backend-schema-retry" label={message('backendsPanel.action.retrySchemas')} />
           </ProductNotice></Show>
           <ProductFacts label={props.name} items={[
-            { label: message('backendsPanel.fact.address'), value: props.url ? <code class="backend-address">{props.url}</code> : message('backendsPanel.sameOrigin') },
+            { label: message('backendsPanel.fact.address'), value: props.url ? <BackendAddress value={props.url} /> : message('backendsPanel.sameOrigin') },
             ...(supervisor() ? [{ label: message('backendsPanel.engine.label'), value: <><span>{message(`backendsPanel.engine.${supervisor()!.state}`)}</span><Show when={supervisor()!.detail}><span class="dinkster-metadata">{supervisor()!.detail}</span></Show></> }] : []),
           ]} />
           <div class="backend-row-actions">
