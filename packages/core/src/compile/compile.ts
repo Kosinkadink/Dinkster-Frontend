@@ -1484,7 +1484,7 @@ function compileImpl(
               tapsAbsentRow(at.defId, endpoint.node, endpoint.tap)
             if (absent) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `field '${endpoint.node}.${endpoint.tap}' is no longer part of its node`, absent: true } }] }
             const tapped = tapValue(at.path, at.defId, endpoint.node, endpoint.tap, sink)
-            if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `widget tap '${endpoint.node}.${endpoint.tap}' reaches a muted occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
+            if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: lastMutedReason ?? `widget tap '${endpoint.node}.${endpoint.tap}' reaches a muted occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
             if (tapped === undefined) {
               if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.tap.novalue', `${endpoint.node}.${endpoint.tap}: tapped input has no value`))
               return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `widget tap '${endpoint.node}.${endpoint.tap}' has no value` } }] }

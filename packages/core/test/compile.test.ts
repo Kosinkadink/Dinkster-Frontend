@@ -2041,6 +2041,7 @@ describe('dynamic interfaces', () => {
       class_type: 'CountSplitter',
       inputs: { count: 3 },
       outputIds: ['images.0', 'images.1', 'images.2'],
+      outputMembers: { images: ['0', '1', '2'] },
     })
     expect(result.artifact.prompt.k!.inputs).toEqual({ in: ['s', 1] })
     const restored = dynCompile(loadDocument(JSON.parse(JSON.stringify(result.artifact.snapshot))).document!)
@@ -2067,7 +2068,7 @@ describe('dynamic interfaces', () => {
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt.source?.outputIds).toEqual(['before', 'images.0', 'images.1', 'after', 'masks.0', 'masks.1'])
-    expect(result.artifact.prompt.source?.outputMembers).toBeUndefined()
+    expect(result.artifact.prompt.source?.outputMembers).toEqual({ images: ['0', '1'], masks: ['0', '1'] })
     expect(result.artifact.prompt.before?.inputs.in).toEqual(['source', 0])
     expect(result.artifact.prompt.image?.inputs.in).toEqual(['source', 2])
     expect(result.artifact.prompt.after?.inputs.in).toEqual(['source', 3])
