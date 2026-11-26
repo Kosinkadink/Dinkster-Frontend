@@ -202,7 +202,7 @@ import type { CanvasLens } from './data-lens.js'
 import { registerLocaleSetting } from './locale.js'
 import { runClock } from './execution-activity.js'
 import { registerThemeSetting } from './theme.js'
-import { ModelDownloadsController, type ModelDownloadTask } from './model-downloads.js'
+import { ModelDownloadsController, type ModelDownloadState, type ModelDownloadTask } from './model-downloads.js'
 import {
   assetGuessCandidateToRef,
   installAssetConsent,
@@ -2874,6 +2874,7 @@ export class AppState {
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
   private readonly modelDownloadControllers = new Map<Backend, Map<string, ModelDownloadsController>>()
   private readonly observedModelDownloads = new Map<Backend, readonly ModelDownloadJob[]>()
+  private readonly modelDownloadsChanged = createSignal(0)
   readonly modelDownloadTasks = createSignal<ReadonlyMap<Backend, readonly ModelDownloadTask[]>>(new Map())
 
   modelDownloadsFor(backend: Backend, project = activeProjectId()): ModelDownloadsController {
@@ -2889,6 +2890,29 @@ export class AppState {
       controller.rows.subscribe(() => this.publishModelDownloadTasks(backend))
     }
     return controller
+  }
+
+  /** Exact per-variant state, including transfers discovered outside this window. */
+  modelDownloadStateFor(backend: Backend, requirement: ModelDownloadRequirement, project = activeProjectId()): ReadonlySignal<ModelDownloadState | undefined> {
+    const get = (): ModelDownloadState | undefined => {
+      const row = this.modelDownloadControllers.get(backend)?.get(project)?.rows.get().find((entry) =>
+        entry.requirement.name === requirement.name && entry.requirement.kind === requirement.kind &&
+        entry.requirement.asset?.digest === requirement.asset?.digest)
+      const job = [...(this.observedModelDownloads.get(backend) ?? [])].reverse().find((entry) =>
+        entry.project === project && entry.name === requirement.name && entry.kind === requirement.kind &&
+        entry.digest === requirement.asset?.digest)
+      if (!job) return row
+      if (row && row.job?.jobId !== job.jobId && ['completed', 'cancelled', 'failed'].includes(job.status)) return row
+      if (row?.job?.jobId === job.jobId && !['completed', 'cancelled', 'failed'].includes(job.status) &&
+        (['completed', 'cancelled', 'failed'].includes(row.job.status) || row.job.received > job.received)) return row
+      return { requirement, pending: row?.pending ?? false, job }
+    }
+    return { get, subscribe: (listener) => {
+      const unsubscribe = this.modelDownloadsChanged.subscribe(() => listener(get()))
+      const stop = !this.disposed && this.backends.get().includes(backend)
+        ? this.modelDownloadsFor(backend, project).observe() : () => {}
+      return () => { unsubscribe(); stop() }
+    } }
   }
 
   private publishModelDownloadTasks(backend: Backend): void {
@@ -2917,6 +2941,7 @@ export class AppState {
       if (tasks.size) next.set(backend, [...tasks.values()]); else next.delete(backend)
       return next
     })
+    this.modelDownloadsChanged.update((revision) => revision + 1)
   }
 
   private releaseModelDownloads(backend: Backend): void {
@@ -3633,6 +3658,7 @@ export class AppState {
     this.modelDownloadControllers.clear()
     this.observedModelDownloads.clear()
     this.modelDownloadTasks.set(new Map())
+    this.modelDownloadsChanged.update((revision) => revision + 1)
     this.pages.dispose()
     for (const request of this.pendingComparisonCompiles.values()) {
       if (request.frame !== undefined) cancelAnimationFrame(request.frame)
@@ -4298,18 +4324,42 @@ export class AppState {
       return true
     })
     if (models.length === 0) return
+    this.openModelDownloads(backend, models, tab.title, tab)
+  }
+
+  /** Review without submitting a run; supplied sources must come from authoritative model metadata. */
+  openModelDownloads(backend: Backend, models: readonly (ModelDownloadRequirement & { readonly source?: string })[], workflowTitle?: string, tab?: Tab): void {
+    if (this.disposed || backend.protocol !== 'dinkster' || !this.backends.get().includes(backend) || models.length === 0) return
+    const document = tab?.store.doc
+    const registry = tab && this.registryForTab(tab)
+    const project = activeProjectId()
+    const current = (): boolean => !this.disposed && activeProjectId() === project && this.backends.get().includes(backend) &&
+      (!tab || (this.tabs.get().includes(tab) && this.backendForTab(tab) === backend &&
+        tab.store.doc === document && this.registryForTab(tab) === registry))
+    if (!current()) return
     this.modelReview?.abort()
     const controller = new AbortController()
     this.modelReview = controller
-    const project = activeProjectId()
-    const invalidate = (): void => { if (!current() || activeProjectId() !== project) controller.abort() }
-    const unsubscribe = [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate), this.backendsTick.subscribe(invalidate)]
+    const transfers = this.modelDownloadsFor(backend, project)
+    transfers.ensure(models)
+    for (const requirement of models) {
+      const row = this.modelDownloadStateFor(backend, requirement, project).get()
+      if (requirement.source !== undefined && !row?.source && !row?.plan && !row?.job)
+        transfers.setSource(requirement, requirement.source)
+    }
+    const invalidate = (): void => { if (!current()) controller.abort() }
+    const unsubscribe = [this.backendsTick.subscribe(invalidate),
+      ...(tab ? [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate)] : [])]
     installAssetConsent({
-      models, workflowTitle: tab.title, slot: this.assetConsent, signal: controller.signal,
-      modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+      models, ...(workflowTitle === undefined ? {} : { workflowTitle }), slot: this.assetConsent, signal: controller.signal,
+      beforeRetry: current,
+      modelDownloads: { connection: backend.connection, controller: transfers, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
       unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
-      locateModel: (requirement, status) => this.locateModelDownload(tab, backend, requirement, status),
+      locateModel: (requirement, status) => {
+        if (tab) this.locateModelDownload(tab, backend, requirement, status)
+        else if (status === 'destination-required' && current()) this.storageOpenRequest.set({ id: backend.id, hiddenModels: false })
+      },
       onSettled: () => {
         unsubscribe.forEach((dispose) => dispose())
         if (this.modelReview === controller) this.modelReview = undefined

@@ -10,7 +10,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, resolveImportedNodePacks, setLocale, type ComfyTranslation, type DinksterNodesPayload, type ExecutionRef, type NodeSchema } from '@dinkster/core'
-import { buildDinksterRegistry, EngineNotReadyError, type DinksterJobRecord, type SchemaRegistry, type WorkerInfo } from '@dinkster/client'
+import { buildDinksterRegistry, EngineNotReadyError, type DinksterJobRecord, type ModelDownloadJob, type SchemaRegistry, type WorkerInfo } from '@dinkster/client'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
 import { installAssetConsent } from '../src/dialog-requests.js'
@@ -171,6 +171,66 @@ describe('compileInputForTab capabilities', () => {
 })
 
 describe('addBackend / removeBackend', () => {
+
+  it('reviews standalone exact models and observes only the captured variant and backend', async () => {
+    const name = 'weights.safetensors'
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name, size: 8192,
+      mediaType: 'application/octet-stream', virtualPath: `models/${name}` }
+    const requirement = { name, kind: 'model/vae', asset }
+    const source = 'https://huggingface.co/example/model/resolve/main/weights.safetensors'
+    const selection = { name, kind: requirement.kind, digest: asset.digest, project: 'default',
+      provider: 'huggingface' as const, source, repo: 'example/model', revision: 'c'.repeat(40), file: name,
+      sha256: 'd'.repeat(64), size: asset.size, license: 'apache-2.0', destination: `/models/${name}`, mount: 'models' }
+    let jobs: ModelDownloadJob[] = [{ ...selection, jobId: 'external', status: 'downloading', received: 317 },
+      { ...selection, jobId: 'wrong-hash', digest: `blake3:${'b'.repeat(64)}`, status: 'downloading', received: 701 },
+      { ...selection, jobId: 'wrong-kind', kind: 'model/checkpoints', status: 'downloading', received: 1031 },
+      { ...selection, jobId: 'wrong-project', project: 'elsewhere', status: 'downloading', received: 2017 }]
+    const requests: { url: string; body: unknown }[] = []
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      requests.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      return new Response(JSON.stringify(String(url).includes('/plan?')
+        ? { ...selection, status: 'consent-required', planId: 'exact-plan' }
+        : { instance: 'engine', jobs }))
+    })
+    const backend = addOffline('http://model-owner:8188')
+    const state = app.modelDownloadStateFor(backend, requirement)
+    const values: (number | undefined)[] = []
+    const unsubscribe = state.subscribe((row) => values.push(row?.job?.received))
+    try {
+      await vi.waitFor(() => expect(state.get()?.job?.received).toBe(317))
+      expect(state.get()?.job?.jobId).toBe('external')
+      expect(app.modelDownloadStateFor(backend, { name, kind: requirement.kind }).get()).toBeUndefined()
+      expect(app.modelDownloadStateFor(app.backends.get()[0]!, requirement).get()).toBeUndefined()
+      jobs = []
+      await app.modelDownloadsFor(backend).refresh()
+      app.openModelDownloads(backend, [{ ...requirement, source }], 'Example')
+      await app.assetConsent.get()!.reviewModel!(0)
+      expect(requests.find((request) => request.url.includes('/plan?'))?.body).toEqual({
+        name, kind: requirement.kind, asset, source, project: 'default', scope: 'local',
+      })
+      expect(app.assetConsent.get()?.retry).toBeUndefined()
+      expect(state.get()?.plan?.status).toBe('consent-required')
+      app.assetConsent.set(undefined)
+      jobs = [{ ...selection, jobId: 'external-new', status: 'downloading', received: 4093 }]
+      await app.modelDownloadsFor(backend).refresh()
+      app.openModelDownloads(backend, [requirement])
+      await app.assetConsent.get()!.reviewModel!(0)
+      expect(app.assetConsent.get()?.models?.[0]?.job?.received).toBe(4093)
+      jobs = [{ ...jobs[0]!, status: 'completed', received: 8192, asset,
+        path: selection.destination, reused: false, renamed: false }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.status).toBe('completed')
+      app.removeBackend(backend.id)
+      expect(app.assetConsent.get()).toBeUndefined()
+      expect(state.get()).toBeUndefined()
+      expect(values.at(-1)).toBeUndefined()
+      const replacement = addOffline('http://model-owner:8188')
+      app.openModelDownloads(backend, [requirement])
+      expect(app.assetConsent.get()).toBeUndefined()
+      expect(app.modelDownloadStateFor(replacement, requirement).get()).toBeUndefined()
+      expect(requests.some((request) => request.url.includes('/start') || request.url.includes('/api/jobs'))).toBe(false)
+    } finally { unsubscribe() }
+  })
 
   it('disconnect retires only its own download dialog and permits a fresh review', async () => {
     const first = addOffline('http://first:8188')

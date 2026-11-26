@@ -58,9 +58,23 @@ export class ModelDownloadsController {
   private pumping = false
   private poll: ReturnType<typeof setTimeout> | undefined
   private disposed = false
+  private observers = 0
 
   constructor(private readonly connection: Connection, private readonly project: string,
     private readonly onJobs?: (jobs: readonly ModelDownloadJob[]) => void) {}
+
+  /** Watch engine-owned transfers without planning a model or consenting to a download. */
+  observe(): () => void {
+    if (this.disposed) return () => {}
+    if (++this.observers === 1) void this.refresh()
+    let subscribed = true
+    return () => {
+      if (!subscribed) return
+      subscribed = false
+      this.observers--
+      this.schedulePoll()
+    }
+  }
 
   private async discover(): Promise<readonly ModelDownloadJob[]> {
     const { jobs } = await this.connection.fetchModelDownloads(this.observation.signal)
@@ -281,7 +295,7 @@ export class ModelDownloadsController {
 
   private schedulePoll(): void {
     clearTimeout(this.poll)
-    if (!this.disposed && this.state.get().some((row) => row.queued || (row.job && active(row.job))))
+    if (!this.disposed && (this.observers > 0 || this.state.get().some((row) => row.queued || (row.job && active(row.job)))))
       this.poll = setTimeout(() => { void this.refresh() }, 1000)
   }
 
