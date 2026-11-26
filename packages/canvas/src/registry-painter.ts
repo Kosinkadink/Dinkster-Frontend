@@ -13,7 +13,7 @@ import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, ed
 import { widgetChromeRect } from './layout.js'
 import { companionWords, defaultWidgetPainter, drawsPassedValueAsEditor, fitSummary, fitSummaryParts, summaryPartsWidth, summaryThumbnailReserve, paintSummaryParts, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type SummaryFit, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
 import type { DesignTokens } from './tokens.js'
-import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
+import { fitText, measureWidth, paintCenteredText, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
 import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
 import type { ToolboxButton } from './toolbox.js'
@@ -239,7 +239,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       const lead = labelMarkReserve(row)
       const picturesWidth = summaryThumbnailReserve(ctx, summary?.thumbnails)
       const companionZone = shareRowWidth(field.right - field.left, lead + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + picturesWidth + paint.labelWidthPadding)
-      ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - lead - paint.labelClipPadding)), x + field.left + lead + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
+      paintCenteredText(ctx, fitText(ctx, row.label, Math.max(0, companionZone - lead - paint.labelClipPadding)), x + field.left + lead + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2, tokens.fontSize)
       paintLabelMarks(args, true, numeric)
       paintCompanionValue(args, summary, field)
       return
@@ -363,10 +363,11 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const paintLabel = () => {
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
-      ctx.fillText(
+      paintCenteredText(ctx,
         ellipsize(ctx, row.label, Math.max(0, (multiline ? width : labelWidth) - lead - paint.labelClipPadding)),
         x + lead + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
         multiline ? chrome.y + multilineLabelHeight / 2 : nameY,
+        tokens.fontSize,
       )
       paintLabelMarks({ ...args, value: resolved }, false, numeric)
     }
@@ -503,8 +504,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const joinLeft = x + lead + leftControl + paint.labelInset
             ctx.fillStyle = tokens.colors.valueMark
             ctx.textAlign = 'left'
-            ctx.fillText(ellipsize(ctx, viewRun, Math.max(0, sketchLeft - joinLeft - paint.labelValueGap)),
-              joinLeft, nameY + paint.curve.lineStep)
+            paintCenteredText(ctx, ellipsize(ctx, viewRun, Math.max(0, sketchLeft - joinLeft - paint.labelValueGap)),
+              joinLeft, nameY + paint.curve.lineStep, tokens.fontSize)
             return
           }
           const summary = viewStyle['role'] === 'widgetValue' ? args.editorSummary : undefined
@@ -570,7 +571,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + before
               const textY = centered ? chrome.y + chrome.height / 2 : y + (ty + 0.5) * rowHeight
               if (parts !== undefined) paintSummaryParts(ctx, parts, textX, textY, tokens)
-              else if (!(alignRight && paintValueParts(ctx, style['parts'], textX, textY, fitWidth, tokens))) ctx.fillText(text, textX, textY)
+              else if (!(alignRight && paintValueParts(ctx, style['parts'], textX, textY, fitWidth, tokens))) paintCenteredText(ctx, text, textX, textY, tokens.fontSize)
               if (centered && sketchStyle !== undefined) {
                 sketchLeft = textX - measureWidth(ctx, text) - paint.curve.gap - sketch.size
                 paintCurveSketch(ctx, { ...sketch, x: sketchLeft }, sketchStyle, tokens)
@@ -602,7 +603,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
                 ctx.fillStyle = tokens.colors.label
                 const codeFont = ctx.font
                 ctx.font = valueFont
-                ctx.fillText(valueWord!, wordRight, textY)
+                paintCenteredText(ctx, valueWord!, wordRight, textY, tokens.fontSize)
                 if (automaticDot > 0) {
                   const radius = paint.automaticDot.radius
                   ctx.fillStyle = tokens.colors.warningMark
@@ -838,7 +839,7 @@ function paintValueParts(
     if (part.look === 'gone') x -= gap
     ctx.font = fontOf(part)
     ctx.fillStyle = part.look === 'gone' ? tokens.colors.label : valueColor
-    ctx.fillText(index === last ? tail : part.text, x, y)
+    paintCenteredText(ctx, index === last ? tail : part.text, x, y, tokens.fontSize)
     if (part.look === 'gone') paintStaleValueStrikethrough(ctx, part.text, x, y, 'right', tokens.colors.label)
     x -= widths[index]!
   }

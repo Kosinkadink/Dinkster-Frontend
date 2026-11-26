@@ -27,17 +27,32 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
-test('Editor problem details open by keyboard, return focus and resolve through their action', async ({ page }) => {
+test('Editor problem details open by keyboard, return focus and resolve through their action', async ({
+  page,
+}) => {
   await openPage(page, 'save-target-box')
-  const warning = page.getByTestId('save-target-box-foldout-missing').locator('..')
+  const warning = page
+    .getByTestId('save-target-box-foldout-missing')
+    .locator('..')
   const details = warning.getByRole('button', { name: 'Details', exact: true })
-  await expect(warning.locator('.dinkster-canvas-editor-note')).toContainText('usb1 not found.')
-  await expect(warning.getByRole('button', { name: 'Use project default' })).toHaveCount(0)
+  await expect(warning.locator('.dinkster-canvas-editor-note')).toContainText(
+    'usb1 not found.',
+  )
+  await expect(
+    warning.getByRole('button', { name: 'Use project default' }),
+  ).toHaveCount(0)
   await details.focus()
   await details.press('Enter')
-  const note = page.getByRole('dialog', { name: 'usb1 is not on this machine.', exact: true })
-  await expect(note.getByRole('button', { name: 'Use project default' })).toBeFocused()
-  await expect(note.getByRole('button', { name: 'Use project default' })).toHaveCSS('outline-style', 'solid')
+  const note = page.getByRole('dialog', {
+    name: 'usb1 is not on this machine.',
+    exact: true,
+  })
+  await expect(
+    note.getByRole('button', { name: 'Use project default' }),
+  ).toBeFocused()
+  await expect(
+    note.getByRole('button', { name: 'Use project default' }),
+  ).toHaveCSS('outline-style', 'solid')
   await expect(note).toContainText('Runs save to this project')
   await page.keyboard.press('Escape')
   await expect(note).toHaveCount(0)
@@ -47,161 +62,332 @@ test('Editor problem details open by keyboard, return focus and resolve through 
   await note.getByRole('button', { name: 'Use project default' }).click()
   await expect(note).toHaveCount(0)
   await expect(details).toHaveCount(0)
-  await expect(warning.locator('.dinkster-canvas-target-choice')).toContainText('Project default')
-  const error = page.getByTestId('save-target-box-foldout-missing-no-default').locator('..')
-  await expect(error.locator('.dinkster-canvas-editor-note')).toContainText('No output mount.')
+  await expect(warning.locator('.dinkster-canvas-target-choice')).toContainText(
+    'Project default',
+  )
+  const error = page
+    .getByTestId('save-target-box-foldout-missing-no-default')
+    .locator('..')
+  await expect(error.locator('.dinkster-canvas-editor-note')).toContainText(
+    'No output mount.',
+  )
   await error.getByRole('button', { name: 'Details', exact: true }).click()
-  const errorNote = page.getByRole('dialog', { name: 'usb1 is missing and this project has no default output mount.', exact: true })
+  const errorNote = page.getByRole('dialog', {
+    name: 'usb1 is missing and this project has no default output mount.',
+    exact: true,
+  })
   await expect(errorNote).toBeVisible()
-  await expect(errorNote.getByRole('button', { name: 'Open Storage' })).toBeVisible()
-  await expect(errorNote.getByRole('button', { name: 'Open Storage' })).toBeFocused()
-  await expect(errorNote.getByRole('button', { name: 'Open Storage' })).toHaveCSS('outline-style', 'none')
-  await page.getByRole('heading', { name: 'Shared fold-out editor', exact: true }).click()
+  await expect(
+    errorNote.getByRole('button', { name: 'Open Storage' }),
+  ).toBeVisible()
+  await expect(
+    errorNote.getByRole('button', { name: 'Open Storage' }),
+  ).toBeFocused()
+  await expect(
+    errorNote.getByRole('button', { name: 'Open Storage' }),
+  ).toHaveCSS('outline-style', 'none')
+  await page
+    .getByRole('heading', { name: 'Shared fold-out editor', exact: true })
+    .click()
   await expect(errorNote).toHaveCount(0)
 })
 
-test('Controls inside an open row use ordinary borders and a secondary-text keyboard border', async ({ page }) => {
-  const tokenColor = async (token: string) => page.evaluate((token) => {
-    const probe = document.createElement('span')
-    probe.style.color = `var(${token})`
-    document.body.append(probe)
-    const color = getComputedStyle(probe).color
-    probe.remove()
-    return color
-  }, token)
+test('Controls inside an open row use ordinary borders and a secondary-text keyboard border', async ({
+  page,
+}) => {
+  const tokenColor = async (token: string) =>
+    page.evaluate((token) => {
+      const probe = document.createElement('span')
+      probe.style.color = `var(${token})`
+      document.body.append(probe)
+      const color = getComputedStyle(probe).color
+      probe.remove()
+      return color
+    }, token)
   await openPage(page, 'save-target-box')
   const card = page.getByTestId('save-target-box-foldout-typing').locator('..')
   const mount = card.locator('.dinkster-canvas-target-choice')
   const prefix = card.locator('.dinkster-canvas-target-input')
   await expect(mount).toBeVisible()
-  await expect(mount).toHaveCSS('border-color', await tokenColor('--dinkster-border-subtle'))
-  const resting = page.getByTestId('save-target-box-foldout-rest').locator('..').locator('.dinkster-canvas-target-input')
-  await expect(resting).toHaveCSS('border-color', await tokenColor('--dinkster-border-subtle'))
+  await expect(mount).toHaveCSS(
+    'border-color',
+    await tokenColor('--dinkster-border-subtle'),
+  )
+  const resting = page
+    .getByTestId('save-target-box-foldout-rest')
+    .locator('..')
+    .locator('.dinkster-canvas-target-input')
+  await expect(resting).toHaveCSS(
+    'border-color',
+    await tokenColor('--dinkster-border-subtle'),
+  )
   await prefix.focus()
   await expect(prefix).toBeFocused()
-  await expect(prefix).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
+  await expect(prefix).toHaveCSS(
+    'border-color',
+    await tokenColor('--dinkster-text-secondary'),
+  )
   await expect(prefix).toHaveCSS('border-width', '1px')
   await expect(prefix).toHaveCSS('outline-style', 'none')
   await expect(card).toHaveScreenshot('side-controls-prefix-focused-dark.png')
-  const invalid = page.getByTestId('save-target-box-foldout-invalid').locator('..').locator('.dinkster-canvas-target-input')
+  const invalid = page
+    .getByTestId('save-target-box-foldout-invalid')
+    .locator('..')
+    .locator('.dinkster-canvas-target-input')
   await invalid.focus()
-  await expect(invalid).toHaveCSS('outline-color', await tokenColor('--dinkster-danger-foreground'))
-  for (const [id, token] of [['foldout-missing', '--dinkster-warning-foreground'], ['foldout-no-default', '--dinkster-danger-foreground']]) {
-    const warnedMount = page.getByTestId(`save-target-box-${id}`).locator('..').locator('.dinkster-canvas-target-choice')
+  await expect(invalid).toHaveCSS(
+    'outline-color',
+    await tokenColor('--dinkster-danger-foreground'),
+  )
+  for (const [id, token] of [
+    ['foldout-missing', '--dinkster-warning-foreground'],
+    ['foldout-no-default', '--dinkster-danger-foreground'],
+  ]) {
+    const warnedMount = page
+      .getByTestId(`save-target-box-${id}`)
+      .locator('..')
+      .locator('.dinkster-canvas-target-choice')
     await warnedMount.focus()
-    await expect(warnedMount).toHaveCSS('outline-color', await tokenColor(token!))
+    await expect(warnedMount).toHaveCSS(
+      'outline-color',
+      await tokenColor(token!),
+    )
   }
   await openPage(page, 'row-editing')
   const seed = page.getByTestId('row-editing-seed-right').locator('..')
-  for (const control of [seed.locator('.dinkster-canvas-side-mode').first(), seed.locator('.dinkster-canvas-side-link').first()]) {
+  for (const control of [
+    seed.locator('.dinkster-canvas-side-mode').first(),
+    seed.locator('.dinkster-canvas-side-link').first(),
+  ]) {
     await control.focus()
     await expect(control).toBeFocused()
     await expect(control).toHaveCSS('outline-style', 'none')
     await expect(control).toHaveCSS('border-width', '1px')
-    await expect(control).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
+    await expect(control).toHaveCSS(
+      'border-color',
+      await tokenColor('--dinkster-text-secondary'),
+    )
   }
   await openPage(page, 'color-editing')
-  const area = page.getByTestId('color-editing-open').locator('..').locator('.dinkster-canvas-color-area')
+  const area = page
+    .getByTestId('color-editing-open')
+    .locator('..')
+    .locator('.dinkster-canvas-color-area')
   await area.focus()
   await expect(area).toBeFocused()
   await expect(area).toHaveCSS('outline-style', 'none')
   await expect(area).toHaveCSS('border-width', '1px')
-  await expect(area).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
-  const swatches = page.getByTestId('color-editing-eight').locator('..').locator('.dinkster-canvas-color-swatches')
+  await expect(area).toHaveCSS(
+    'border-color',
+    await tokenColor('--dinkster-text-secondary'),
+  )
+  const swatches = page
+    .getByTestId('color-editing-eight')
+    .locator('..')
+    .locator('.dinkster-canvas-color-swatches')
   await swatches.focus()
   await expect(swatches).toBeFocused()
   await expect(swatches).toHaveCSS('outline-style', 'none')
-  await expect(swatches.locator('[data-candidate="true"]')).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
+  await expect(swatches.locator('[data-candidate="true"]')).toHaveCSS(
+    'border-color',
+    await tokenColor('--dinkster-text-secondary'),
+  )
   await openPage(page, 'row-states')
   const stage = page.getByTestId('row-states-representation-open').locator('..')
   const filter = stage.getByRole('combobox', { name: 'Display', exact: true })
-  const nestedOutline = stage.locator('.dinkster-canvas-side-representation-list .dinkster-canvas-field-outline path')
+  const nestedOutline = stage.locator(
+    '.dinkster-canvas-side-representation-list .dinkster-canvas-field-outline path',
+  )
   await filter.focus()
   await expect(filter).toBeFocused()
   await expect(filter).toHaveCSS('outline-style', 'none')
-  await expect(nestedOutline).toHaveCSS('stroke', await tokenColor('--dinkster-text-secondary'))
+  await expect(nestedOutline).toHaveCSS(
+    'stroke',
+    await tokenColor('--dinkster-text-secondary'),
+  )
   await expect(nestedOutline).toHaveCSS('stroke-width', '1px')
   await filter.press('Escape')
-  const trigger = stage.getByRole('button', { name: 'Display Number', exact: true })
+  const trigger = stage.getByRole('button', {
+    name: 'Display Number',
+    exact: true,
+  })
   await expect(trigger).toBeFocused()
   await expect(trigger).toHaveCSS('outline-style', 'none')
-  await expect(trigger).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
+  await expect(trigger).toHaveCSS(
+    'border-color',
+    await tokenColor('--dinkster-text-secondary'),
+  )
 })
 
-test('Save target shared fold-out distinguishes rest, typing and a reopened wired value', async ({ playwright, baseURL, viewport }) => {
+test('Save target shared fold-out distinguishes rest, typing and a reopened wired value', async ({
+  playwright,
+  baseURL,
+  viewport,
+}) => {
   // The tall comparison page otherwise switches between LCD and grayscale text on different raster backends.
-  const browser = await playwright.chromium.launch({ args: ['--disable-accelerated-2d-canvas', '--disable-lcd-text'] })
-  const page = await browser.newPage({ baseURL: baseURL!, viewport: viewport!, reducedMotion: 'reduce' })
+  const browser = await playwright.chromium.launch({
+    args: ['--disable-accelerated-2d-canvas', '--disable-lcd-text'],
+  })
+  const page = await browser.newPage({
+    baseURL: baseURL!,
+    viewport: viewport!,
+    reducedMotion: 'reduce',
+  })
   try {
-  for (const theme of ['dark', 'light'] as const) {
-    await openPage(page, 'save-target-box', theme)
-    const section = page.getByRole('heading', { name: 'Shared fold-out editor', exact: true }).locator('..')
-    const stage = (id: string) => page.getByTestId(`save-target-box-foldout-${id}`).locator('..')
-    const typing = stage('typing').locator('.dinkster-canvas-target-input')
-    await expect(stage('folded').locator('.dinkster-canvas-editor')).toHaveCount(0)
-    await expect(stage('rest').locator('.dinkster-canvas-editor')).toBeVisible()
-    await expect(stage('wired').locator('input')).toHaveCount(0)
-    const wiredName = stage('wired-open').locator('input')
-    await expect(wiredName).toHaveValue('from/upstream')
-    await expect(wiredName).toHaveAttribute('readonly', '')
-    await expect(stage('wired-open').locator('.dinkster-canvas-target-choice')).toHaveCSS('opacity', '1')
-    await expect(wiredName).toHaveCSS('opacity', '1')
-    await expect(stage('invalid').getByText('Mount', { exact: true })).toBeVisible()
-    const labels = await stage('rest').locator('.dinkster-canvas-target-label, .dinkster-canvas-target-caption').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().left))
-    expect(labels[0]).toBe(labels[1])
-    const restPadding = await stage('rest').locator('.dinkster-canvas-editor').evaluate((element) =>
-      element.clientHeight - element.querySelector<HTMLElement>('.dinkster-canvas-target-box')!.offsetHeight,
-    )
-    await expect.poll(() => stage('invalid').locator('.dinkster-canvas-editor').evaluate((element) =>
-      element.clientHeight - element.querySelector<HTMLElement>('.dinkster-canvas-target-box')!.offsetHeight,
-    )).toBe(restPadding)
-    const restInput = stage('rest').locator('.dinkster-canvas-target-input')
-    const ordinary = await restInput.evaluate((element) => getComputedStyle(element).borderColor)
-    await typing.focus()
-    await expect(typing).toBeFocused()
-    await expect(typing).toHaveCSS('border-width', '1px')
-    await expect(typing).toHaveCSS('outline-style', 'none')
-    await expect(typing).toHaveCSS('border-color', theme === 'dark' ? 'rgb(164, 181, 183)' : 'rgb(88, 99, 109)')
-    expect(ordinary).toBe(theme === 'dark' ? 'rgb(50, 65, 67)' : 'rgb(211, 217, 222)')
-    await expect(restInput).toHaveCSS('border-color', ordinary)
-    const chrome = await page.addStyleTag({ content: '.dinkster-topbar { visibility: hidden; }' })
-    await expect(section).toHaveScreenshot(`save-target-foldout-${theme}.png`)
-    await chrome.evaluate((element) => element.parentNode?.removeChild(element))
-    const missing = stage('missing')
-    await expect(missing.locator('.dinkster-canvas-editor-note')).toHaveText('usb1 not found.Details')
-    await missing.getByRole('button', { name: 'Details', exact: true }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Use project default', exact: true }).click()
-    await expect(missing.locator('.dinkster-canvas-editor-note')).toHaveCount(0)
-    await expect(missing.locator('.dinkster-canvas-target-value-text')).toHaveText('Project default')
-    const changed = stage('changed')
-    const expandedHeight = await changed.locator('.dinkster-canvas-editor').evaluate((element) => element.clientHeight)
-    await changed.getByRole('button', { name: 'Reset to default', exact: true }).click()
-    await expect(changed.locator('input')).toHaveValue('ComfyUI')
-    await expect(changed.getByRole('button', { name: 'Reset to default', exact: true })).toHaveCount(0)
-    await expect.poll(() => changed.locator('.dinkster-canvas-editor').evaluate((element) => element.clientHeight)).toBeLessThan(expandedHeight)
+    for (const theme of ['dark', 'light'] as const) {
+      await openPage(page, 'save-target-box', theme)
+      const section = page
+        .getByRole('heading', { name: 'Shared fold-out editor', exact: true })
+        .locator('..')
+      const stage = (id: string) =>
+        page.getByTestId(`save-target-box-foldout-${id}`).locator('..')
+      const typing = stage('typing').locator('.dinkster-canvas-target-input')
+      await expect(
+        stage('folded').locator('.dinkster-canvas-editor'),
+      ).toHaveCount(0)
+      await expect(
+        stage('rest').locator('.dinkster-canvas-editor'),
+      ).toBeVisible()
+      await expect(stage('wired').locator('input')).toHaveCount(0)
+      const wiredName = stage('wired-open').locator('input')
+      await expect(wiredName).toHaveValue('from/upstream')
+      await expect(wiredName).toHaveAttribute('readonly', '')
+      await expect(
+        stage('wired-open').locator('.dinkster-canvas-target-choice'),
+      ).toHaveCSS('opacity', '1')
+      await expect(wiredName).toHaveCSS('opacity', '1')
+      await expect(
+        stage('invalid').getByText('Mount', { exact: true }),
+      ).toBeVisible()
+      const labels = await stage('rest')
+        .locator(
+          '.dinkster-canvas-target-label, .dinkster-canvas-target-caption',
+        )
+        .evaluateAll((elements) =>
+          elements.map((element) => element.getBoundingClientRect().left),
+        )
+      expect(labels[0]).toBe(labels[1])
+      const restPadding = await stage('rest')
+        .locator('.dinkster-canvas-editor')
+        .evaluate(
+          (element) =>
+            element.clientHeight -
+            element.querySelector<HTMLElement>('.dinkster-canvas-target-box')!
+              .offsetHeight,
+        )
+      await expect
+        .poll(() =>
+          stage('invalid')
+            .locator('.dinkster-canvas-editor')
+            .evaluate(
+              (element) =>
+                element.clientHeight -
+                element.querySelector<HTMLElement>(
+                  '.dinkster-canvas-target-box',
+                )!.offsetHeight,
+            ),
+        )
+        .toBe(restPadding)
+      const restInput = stage('rest').locator('.dinkster-canvas-target-input')
+      const ordinary = await restInput.evaluate(
+        (element) => getComputedStyle(element).borderColor,
+      )
+      await typing.focus()
+      await expect(typing).toBeFocused()
+      await expect(typing).toHaveCSS('border-width', '1px')
+      await expect(typing).toHaveCSS('outline-style', 'none')
+      await expect(typing).toHaveCSS(
+        'border-color',
+        theme === 'dark' ? 'rgb(164, 181, 183)' : 'rgb(88, 99, 109)',
+      )
+      expect(ordinary).toBe(
+        theme === 'dark' ? 'rgb(50, 65, 67)' : 'rgb(211, 217, 222)',
+      )
+      await expect(restInput).toHaveCSS('border-color', ordinary)
+      const chrome = await page.addStyleTag({
+        content: '.dinkster-topbar { visibility: hidden; }',
+      })
+      await expect(section).toHaveScreenshot(`save-target-foldout-${theme}.png`)
+      await chrome.evaluate((element) =>
+        element.parentNode?.removeChild(element),
+      )
+      const missing = stage('missing')
+      await expect(missing.locator('.dinkster-canvas-editor-note')).toHaveText(
+        'usb1 not found.Details',
+      )
+      await missing
+        .getByRole('button', { name: 'Details', exact: true })
+        .click()
+      await page
+        .getByRole('dialog')
+        .getByRole('button', { name: 'Use project default', exact: true })
+        .click()
+      await expect(missing.locator('.dinkster-canvas-editor-note')).toHaveCount(
+        0,
+      )
+      await expect(
+        missing.locator('.dinkster-canvas-target-value-text'),
+      ).toHaveText('Project default')
+      const changed = stage('changed')
+      const expandedHeight = await changed
+        .locator('.dinkster-canvas-editor')
+        .evaluate((element) => element.clientHeight)
+      await changed
+        .getByRole('button', { name: 'Reset to default', exact: true })
+        .click()
+      await expect(changed.locator('input')).toHaveValue('ComfyUI')
+      await expect(
+        changed.getByRole('button', { name: 'Reset to default', exact: true }),
+      ).toHaveCount(0)
+      await expect
+        .poll(() =>
+          changed
+            .locator('.dinkster-canvas-editor')
+            .evaluate((element) => element.clientHeight),
+        )
+        .toBeLessThan(expandedHeight)
 
-    const mapped = (id: string) => page.getByTestId(`save-target-box-mapped-${id}`).locator('..')
-    const inputs = page.getByRole('heading', { name: 'Ordinary Save inputs', exact: true }).locator('..')
-    await expect(inputs).toHaveScreenshot(`save-target-mapped-${theme}.png`)
-    const wiredMount = mapped('mount-wired')
-    await expect(wiredMount.locator('.dinkster-canvas-target-mount')).toHaveAttribute('inert', '')
-    await wiredMount.locator('input').fill('edited/name')
-    await wiredMount.getByRole('button', { name: 'Reset to default', exact: true }).click()
-    await expect(wiredMount.locator('input')).toHaveValue('ComfyUI')
-    await expect(wiredMount.locator('.dinkster-canvas-target-value-text')).toHaveText('archive')
-    const mappedName = mapped('name-wired')
-    await expect(mappedName.locator('input')).toHaveAttribute('readonly', '')
-    await mappedName.locator('.dinkster-canvas-target-choice').click()
-    await page.getByRole('option', { name: 'archive', exact: true }).click()
-    await expect(mappedName.locator('.dinkster-canvas-target-value-text')).toHaveText('archive')
-    await expect(mappedName.locator('input')).toHaveValue('from/upstream')
+      const mapped = (id: string) =>
+        page.getByTestId(`save-target-box-mapped-${id}`).locator('..')
+      const inputs = page
+        .getByRole('heading', { name: 'Ordinary Save inputs', exact: true })
+        .locator('..')
+      await expect(inputs).toHaveScreenshot(`save-target-mapped-${theme}.png`)
+      const wiredMount = mapped('mount-wired')
+      await expect(
+        wiredMount.locator('.dinkster-canvas-target-mount'),
+      ).toHaveAttribute('inert', '')
+      await wiredMount.locator('input').fill('edited/name')
+      await wiredMount
+        .getByRole('button', { name: 'Reset to default', exact: true })
+        .click()
+      await expect(wiredMount.locator('input')).toHaveValue('ComfyUI')
+      await expect(
+        wiredMount.locator('.dinkster-canvas-target-value-text'),
+      ).toHaveText('archive')
+      const mappedName = mapped('name-wired')
+      await expect(mappedName.locator('input')).toHaveAttribute('readonly', '')
+      await mappedName.locator('.dinkster-canvas-target-choice').click()
+      await page.getByRole('option', { name: 'archive', exact: true }).click()
+      await expect(
+        mappedName.locator('.dinkster-canvas-target-value-text'),
+      ).toHaveText('archive')
+      await expect(mappedName.locator('input')).toHaveValue('from/upstream')
+    }
+  } finally {
+    await browser.close()
   }
-  } finally { await browser.close() }
 })
 
-test('Shared-line fields join exposed ends and keep the middle side part detached', async ({ page }) => {
+test('Shared-line fields join exposed ends and keep the middle side part detached', async ({
+  page,
+}) => {
   await openPage(page, 'row-states')
-  for (const [id, place, value] of [['middle-field', 'below-node', '12'], ['last-field', 'right', '24'], ['first-field', 'left', '8']]) {
+  for (const [id, place, value] of [
+    ['middle-field', 'below-node', '12'],
+    ['last-field', 'right', '24'],
+    ['first-field', 'left', '8'],
+  ]) {
     const card = page.getByTestId(`row-states-${id}`).locator('..')
     const side = card.locator('.dinkster-canvas-field-side')
     await expect(side).toHaveAttribute('data-place', place!)
@@ -210,34 +396,69 @@ test('Shared-line fields join exposed ends and keep the middle side part detache
     const sideBox = await side.boundingBox()
     expect(fieldBox).not.toBeNull()
     expect(sideBox).not.toBeNull()
-    if (place === 'below-node') expect(sideBox!.y).toBeGreaterThan(fieldBox!.y + fieldBox!.height)
-    else if (place === 'right') expect(sideBox!.x).toBeGreaterThanOrEqual(fieldBox!.x + fieldBox!.width - 1)
-    else expect(sideBox!.x + sideBox!.width).toBeLessThanOrEqual(fieldBox!.x + 1)
+    if (place === 'below-node')
+      expect(sideBox!.y).toBeGreaterThan(fieldBox!.y + fieldBox!.height)
+    else if (place === 'right')
+      expect(sideBox!.x).toBeGreaterThanOrEqual(
+        fieldBox!.x + fieldBox!.width - 1,
+      )
+    else
+      expect(sideBox!.x + sideBox!.width).toBeLessThanOrEqual(fieldBox!.x + 1)
   }
 })
 
-test('Display filters declared looks and dismisses without changing the field', async ({ page }) => {
+test('Display filters declared looks and dismisses without changing the field', async ({
+  page,
+}) => {
   await openPage(page, 'row-states')
-  const labels = page.locator('.dinkster-canvas-side-representation-line .dinkster-canvas-field-label')
+  const labels = page.locator(
+    '.dinkster-canvas-side-representation-line .dinkster-canvas-field-label',
+  )
   await expect(labels.first()).toBeVisible()
-  await expect.poll(() => labels.evaluateAll((elements) => elements.every((element) =>
-    element.scrollWidth <= element.clientWidth))).toBe(true)
+  await expect
+    .poll(() =>
+      labels.evaluateAll((elements) =>
+        elements.every((element) => element.scrollWidth <= element.clientWidth),
+      ),
+    )
+    .toBe(true)
   const stage = page.getByTestId('row-states-representation-open').locator('..')
   const popup = stage.locator('.dinkster-canvas-side-representation-list')
   const filter = popup.getByRole('combobox', { name: 'Display', exact: true })
-  await expect(popup.locator('.dinkster-canvas-field')).toHaveAttribute('data-panel', 'below')
-  const above = page.getByTestId('row-states-representation-open-above').locator('..')
-  await expect(above.locator('.dinkster-canvas-side-representation-list .dinkster-canvas-field')).toHaveAttribute('data-panel', 'above')
+  await expect(popup.locator('.dinkster-canvas-field')).toHaveAttribute(
+    'data-panel',
+    'below',
+  )
+  const above = page
+    .getByTestId('row-states-representation-open-above')
+    .locator('..')
+  await expect(
+    above.locator(
+      '.dinkster-canvas-side-representation-list .dinkster-canvas-field',
+    ),
+  ).toHaveAttribute('data-panel', 'above')
   const draft = stage.locator('input:not([role="combobox"])')
-  const trigger = stage.getByRole('button', { name: 'Display Number', exact: true })
+  const trigger = stage.getByRole('button', {
+    name: 'Display Number',
+    exact: true,
+  })
   await expect(draft).toHaveValue('0.65')
   await filter.press('Escape')
-  await expect.poll(() => trigger.evaluate((element) => {
-    const style = getComputedStyle(element)
-    return style.borderTopLeftRadius !== '0px' &&
-      [style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius]
-        .every((radius) => radius === style.borderTopLeftRadius)
-  })).toBe(true)
+  await expect
+    .poll(() =>
+      trigger.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return (
+          style.borderTopLeftRadius !== '0px' &&
+          [
+            style.borderTopRightRadius,
+            style.borderBottomLeftRadius,
+            style.borderBottomRightRadius,
+          ].every((radius) => radius === style.borderTopLeftRadius)
+        )
+      }),
+    )
+    .toBe(true)
   await draft.fill('0.73')
   await trigger.click()
   await expect(popup.getByRole('option')).toHaveText(['Number', 'Slider'])
@@ -253,39 +474,70 @@ test('Display filters declared looks and dismisses without changing the field', 
   await expect(trigger).toBeVisible()
   await expect(draft).toHaveValue('0.73')
   await trigger.press('Enter')
-  await page.getByRole('heading', { name: 'Declaration row states: Display, nothing and skipped', exact: true }).click()
+  await page
+    .getByRole('heading', {
+      name: 'Declaration row states: Display, nothing and skipped',
+      exact: true,
+    })
+    .click()
   await expect(popup).toHaveCount(0)
 })
 
-test('Curve and Save target choices escape clipped editors and stay inside the canvas', async ({ page }) => {
+test('Curve and Save target choices escape clipped editors and stay inside the canvas', async ({
+  page,
+}) => {
   await openPage(page, 'editor-choice-placement')
   const stage = page.locator('.dinkster-canvas-choice-example')
   const popup = page.locator('.dinkster-canvas-editor-choice-list')
   const list = popup.getByRole('listbox')
   const checkBounds = async () => {
-    await expect.poll(async () => {
-      const bounds = (await stage.boundingBox())!
-      const field = (await popup.locator('.dinkster-canvas-field').boundingBox())!
-      const panel = (await list.boundingBox())!
-      return field.x >= bounds.x && field.y >= bounds.y &&
-        field.x + field.width <= bounds.x + bounds.width + 0.1 && field.y + field.height <= bounds.y + bounds.height + 0.1 &&
-        panel.y >= bounds.y && panel.y + panel.height <= bounds.y + bounds.height + 0.1
-    }).toBe(true)
+    await expect
+      .poll(async () => {
+        const bounds = (await stage.boundingBox())!
+        const field = (await popup
+          .locator('.dinkster-canvas-field')
+          .boundingBox())!
+        const panel = (await list.boundingBox())!
+        return (
+          field.x >= bounds.x &&
+          field.y >= bounds.y &&
+          field.x + field.width <= bounds.x + bounds.width + 0.1 &&
+          field.y + field.height <= bounds.y + bounds.height + 0.1 &&
+          panel.y >= bounds.y &&
+          panel.y + panel.height <= bounds.y + bounds.height + 0.1
+        )
+      })
+      .toBe(true)
     for (const option of await list.getByRole('option').all()) {
-      expect(await option.evaluate((element) => {
-        const rect = element.getBoundingClientRect()
-        return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
-      })).toBe(true)
+      expect(
+        await option.evaluate((element) => {
+          const rect = element.getBoundingClientRect()
+          return element.contains(
+            document.elementFromPoint(
+              rect.x + rect.width / 2,
+              rect.y + rect.height / 2,
+            ),
+          )
+        }),
+      ).toBe(true)
     }
   }
-  const curve = stage.getByRole('button', { name: 'Interpolation Linear', exact: true })
+  const curve = stage.getByRole('button', {
+    name: 'Interpolation Linear',
+    exact: true,
+  })
   await curve.click()
   await expect(list.getByRole('option')).toHaveCount(3)
   await checkBounds()
   const input = popup.getByRole('combobox')
   await input.fill('mono')
   await input.press('Enter')
-  await expect(stage.getByRole('button', { name: 'Interpolation Monotone cubic', exact: true })).toBeFocused()
+  await expect(
+    stage.getByRole('button', {
+      name: 'Interpolation Monotone cubic',
+      exact: true,
+    }),
+  ).toBeFocused()
   const mount = stage.getByRole('button', { name: 'Mount output', exact: true })
   await mount.click()
   await expect(list.getByRole('option')).toHaveCount(6)
@@ -293,67 +545,93 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
   const unavailable = list.getByRole('option', { name: 'usb1', exact: true })
   await expect(unavailable).toBeDisabled()
   const unavailableBox = (await unavailable.boundingBox())!
-  await page.mouse.click(unavailableBox.x + unavailableBox.width / 2, unavailableBox.y + unavailableBox.height / 2)
+  await page.mouse.click(
+    unavailableBox.x + unavailableBox.width / 2,
+    unavailableBox.y + unavailableBox.height / 2,
+  )
   await expect(list).toBeVisible()
   await expect(mount).toHaveText('Mountoutput')
   await popup.getByRole('combobox').fill('arch')
   await popup.getByRole('combobox').press('Enter')
-  await expect(stage.getByRole('button', { name: 'Mount archive', exact: true })).toBeFocused()
-  await stage.getByRole('button', { name: 'Interpolation Monotone cubic', exact: true }).click()
+  await expect(
+    stage.getByRole('button', { name: 'Mount archive', exact: true }),
+  ).toBeFocused()
+  await stage
+    .getByRole('button', { name: 'Interpolation Monotone cubic', exact: true })
+    .click()
   await popup.getByRole('combobox').press('Escape')
   await expect(popup).toHaveCount(0)
-  await stage.getByRole('button', { name: 'Mount archive', exact: true }).click()
-  await page.getByRole('heading', { name: 'Choice lists stay on the canvas' }).click()
+  await stage
+    .getByRole('button', { name: 'Mount archive', exact: true })
+    .click()
+  await page
+    .getByRole('heading', { name: 'Choice lists stay on the canvas' })
+    .click()
   await expect(popup).toHaveCount(0)
   // A below-opening list must budget its own filter height at canvas zoom.
   for (const scale of [0.75, 1.5]) {
     await stage.evaluate((element, zoom) => {
       element.style.height = '160px'
-      const editor = element.querySelectorAll<HTMLElement>('.dinkster-canvas-editor')[1]!
+      const editor = element.querySelectorAll<HTMLElement>(
+        '.dinkster-canvas-editor',
+      )[1]!
       editor.style.top = '10px'
       editor.style.transformOrigin = 'top right'
       editor.style.transform = `scale(${zoom})`
     }, scale)
-    await stage.getByRole('button', { name: 'Mount archive', exact: true }).click()
-    await expect(popup.locator('.dinkster-canvas-field')).toHaveAttribute('data-panel', 'below')
-    await expect.poll(async () => {
-      const bounds = (await stage.boundingBox())!
-      const panel = (await list.boundingBox())!
-      return panel.y + panel.height <= bounds.y + bounds.height + 0.1
-    }).toBe(true)
+    await stage
+      .getByRole('button', { name: 'Mount archive', exact: true })
+      .click()
+    await expect(popup.locator('.dinkster-canvas-field')).toHaveAttribute(
+      'data-panel',
+      'below',
+    )
+    await expect
+      .poll(async () => {
+        const bounds = (await stage.boundingBox())!
+        const panel = (await list.boundingBox())!
+        return panel.y + panel.height <= bounds.y + bounds.height + 0.1
+      })
+      .toBe(true)
     await popup.getByRole('combobox').press('Escape')
   }
 })
 
-test('Node title capitals are within half a pixel of the title bar center', async ({
+test('Node title and widget capitals are within half a pixel of their row center', async ({
   page,
 }) => {
   await page.addInitScript(() => {
-    const measurements: { text: string; error: number }[] = []
+    const measurements: { text: string; error: number; widget: boolean }[] = []
     Object.assign(window, { headerCapitalMeasurements: measurements })
     for (const prototype of [
       CanvasRenderingContext2D.prototype,
       OffscreenCanvasRenderingContext2D.prototype,
     ]) {
       const headers = new WeakMap<object, { top: number; height: number }>()
+      const rows = new WeakMap<object, { top: number; height: number }>()
       const roundRect = prototype.roundRect
       prototype.roundRect = function (x, y, width, height, radii) {
         if (Array.isArray(radii) && radii[2] === 0 && radii[3] === 0)
           headers.set(this, { top: y, height })
+        else if (width > 100 && height >= 20 && height <= 26)
+          rows.set(this, { top: y, height })
         return roundRect.call(this, x, y, width, height, radii)
       }
       const fillText = prototype.fillText
       prototype.fillText = function (text, x, y, maxWidth) {
-        const header = headers.get(this)
+        const widget = !this.font.startsWith('600 ')
+        const header = widget ? rows.get(this) : headers.get(this)
         if (
           header &&
-          this.font.startsWith('600 ') &&
+          (!widget ||
+            ['seed', '42', 'steps', '20', 'cfg', '7.5'].includes(text)) &&
           y > header.top &&
           y < header.top + header.height
         ) {
           const capitals = this.measureText('H')
           measurements.push({
             text,
+            widget,
             error:
               y +
               (capitals.actualBoundingBoxDescent -
@@ -373,11 +651,21 @@ test('Node title capitals are within half a pixel of the title bar center', asyn
     () =>
       (
         window as unknown as {
-          headerCapitalMeasurements: { text: string; error: number }[]
+          headerCapitalMeasurements: {
+            text: string
+            error: number
+            widget: boolean
+          }[]
         }
       ).headerCapitalMeasurements,
   )
   expect(measurements.some(({ text }) => text === 'Sampler')).toBe(true)
+  expect(
+    measurements.some(({ text, widget }) => widget && text === 'seed'),
+  ).toBe(true)
+  expect(measurements.some(({ text, widget }) => widget && text === '42')).toBe(
+    true,
+  )
   for (const { text, error } of measurements)
     expect(Math.abs(error), text).toBeLessThanOrEqual(0.5)
 })
@@ -431,7 +719,9 @@ test('Step curves draw exact horizontal holds and vertical jumps without a histo
 async function cardsReady(page: Page, id: string, theme: string) {
   const cards = page.locator('figure.dinkster-canvas-example canvas')
   if (id === 'editor-choice-placement') {
-    await expect(page.getByRole('button', { name: 'Interpolation Linear', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Interpolation Linear', exact: true }),
+    ).toBeVisible()
     return cards
   }
   await expect(cards.first()).toBeVisible()
@@ -994,10 +1284,24 @@ for (const theme of ['dark', 'light'] as const) {
         const filters = page.locator(
           'input.dinkster-canvas-field-input[role="combobox"]:not(.dinkster-canvas-side-representation-list *)',
         )
-        await expect(filters).toHaveCount(id === 'row-lists' ? 23 : id === 'row-states' ? 3 : id === 'save-target-box' ? 1 : 0)
-        await expect(page.getByRole('combobox').and(
-          page.locator(':not(.dinkster-canvas-side-representation *, .dinkster-canvas-side-representation-list *)'),
-        )).toHaveCount(
+        await expect(filters).toHaveCount(
+          id === 'row-lists'
+            ? 23
+            : id === 'row-states'
+              ? 3
+              : id === 'save-target-box'
+                ? 1
+                : 0,
+        )
+        await expect(
+          page
+            .getByRole('combobox')
+            .and(
+              page.locator(
+                ':not(.dinkster-canvas-side-representation *, .dinkster-canvas-side-representation-list *)',
+              ),
+            ),
+        ).toHaveCount(
           (id === 'widget-states' ? 1 : 0) + (await filters.count()),
         )
         const cards = await cardsReady(page, id, theme)
