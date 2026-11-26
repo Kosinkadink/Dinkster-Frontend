@@ -757,6 +757,12 @@ describe('while a press waits', () => {
   })
 
   it('rolls back when a formula source disappears during Call, but permits ordinary edits', async () => {
+    const reads = [
+      { formula: 'items.value[0] + 11', option: false, result: 40 },
+      { formula: 'len(items) + 11', option: false, result: 12 },
+      { formula: '11 if linked(mode.value) else 12', option: true, result: 12 },
+      { formula: '11 if linked_type(mode.value) == None else 12', option: true, result: 11 },
+    ]
     addSchema('test.removed-read-member', [
       { kind: 'input', id: 'result', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
       { kind: 'input', id: 'answer', type: { kind: 'concrete', types: ['INT'] }, default: 5 },
@@ -764,35 +770,41 @@ describe('while a press waits', () => {
         keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: [
           { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
         ] },
-      { kind: 'button', id: 'apply', label: 'Apply', steps: [
-        { step: 'set', field: 'result', value: { formula: 'items.value[0] + 11' } },
-        { step: 'call', function: 'probe.wait', args: [], writes: ['answer'] },
+      { kind: 'choice', id: 'mode', required: true, default: 'a', options: [
+        { key: 'a', rows: [{ kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 23 }] },
+        { key: 'b', rows: [] },
       ] },
+      ...reads.map(({ formula }, index) => ({ kind: 'button', id: `apply_${index}`, label: 'Apply', steps: [
+        { step: 'set', field: 'result', value: { formula } },
+        { step: 'call', function: 'probe.wait', args: [], writes: ['answer'] },
+      ] })),
     ])
-    for (const remove of [true, false]) {
+    for (const [index, { option, result }] of reads.entries()) for (const remove of [true, false]) {
       const session = sessionOf(documentOf({ n1: {
-        type: 'test.removed-read-member', values: { result: 3, answer: 5, 'items.m0.value': 29 },
-        dynamic: { items: { members: ['m0'], seq: 1 } },
+        type: 'test.removed-read-member', values: { result: 3, answer: 5, 'items.m0.value': 29, 'mode.value': 23 },
+        dynamic: { items: { members: ['m0'], seq: 1 }, mode: { selected: 'a' } },
       } }))
       const entered = later<void>()
       const answer = later<CallAnswer>()
-      const pressing = runPress(session, at('apply'), hostOf({ call: () => { entered.settle(); return answer.promise } }))
+      const pressing = runPress(session, at(`apply_${index}`), hostOf({ call: () => { entered.settle(); return answer.promise } }))
       await entered.promise
       expect(valuesOf(session)).toMatchObject({ result: 3, answer: 5 })
       expect(session.dispatch(remove
-        ? { command: 'dynamic.removeMember', params: { graphId: 'g0', nodeId: 'n1', construct: 'items', member: 'm0' } }
+        ? option
+          ? { command: 'dynamic.selectOption', params: { graphId: 'g0', nodeId: 'n1', construct: 'mode', option: 'b' } }
+          : { command: 'dynamic.removeMember', params: { graphId: 'g0', nodeId: 'n1', construct: 'items', member: 'm0' } }
         : { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'items.m0.value', value: 83 } }).ok).toBe(true)
       const beforeReply = structuredClone(session.doc)
       answer.settle({ kind: 'answer', fields: { answer: 71n }, notes: [] })
       expect((await pressing).kind).toBe(remove ? 'failed' : 'done')
       if (remove) expect(session.doc).toEqual(beforeReply)
       else {
-        expect(valuesOf(session)).toEqual({ result: 40, answer: 71, 'items.m0.value': 83 })
+        expect(valuesOf(session)).toEqual({ result, answer: 71, 'items.m0.value': 83, 'mode.value': 23 })
         expect(session.undo()).toBe(true)
         expect(session.doc).toEqual(beforeReply)
       }
       expect(session.undo()).toBe(true)
-      expect(valuesOf(session)).toEqual({ result: 3, answer: 5, 'items.m0.value': 29 })
+      expect(valuesOf(session)).toEqual({ result: 3, answer: 5, 'items.m0.value': 29, 'mode.value': 23 })
       expect(session.canUndo).toBe(false)
     }
   })

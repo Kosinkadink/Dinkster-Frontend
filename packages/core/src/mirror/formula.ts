@@ -87,6 +87,8 @@ export interface FormulaValues {
   readonly values?: ReadonlyMap<string, FormulaValue | Unknown>
   /** A lazy read; availability checks must not start work to obtain a value. */
   readonly read?: (name: string, availability: boolean) => FormulaValue | Unknown | undefined
+  /** Observe an evaluated row or fact dependency without requesting its scalar value. */
+  readonly onRead?: (name: string) => void
   readonly linked?: ReadonlyMap<string, boolean>
   readonly linkedTypes?: ReadonlyMap<string, string | null>
   readonly groupSizes?: ReadonlyMap<string, number>
@@ -1462,6 +1464,7 @@ class Evaluator {
     const table = this.scope.tables?.get(name)
     if (table !== undefined) return table
     const kind = this.scope.names.get(name)!
+    this.values.onRead?.(name)
     // A stored None is a value; only a missing name is unknown.
     const stored = this.values.read === undefined ? this.values.values?.get(name) : this.values.read(name, this.checkingAvailability)
     const value = bind(kind, stored === undefined ? UNKNOWN : stored)
@@ -1552,6 +1555,7 @@ class Evaluator {
     const name = (node.func as Extract<Node, { type: 'name' }>).name
     if (NAME_FACTS.has(name)) {
       const target = dotted(node.args[0]!)!
+      this.values.onRead?.(target)
       if (name === 'linked') return this.values.linked?.get(target) ?? false
       if (name === 'linked_type') return this.values.linkedTypes?.get(target) ?? null
       const fact = this.values.facts?.get(`${name}(${target})`)
@@ -1586,6 +1590,7 @@ class Evaluator {
     if (name === 'len') {
       const target = dotted(node.args[0]!)
       if (target !== undefined && this.scope.names.get(target) === 'group') {
+        this.values.onRead?.(target)
         const size = this.values.groupSizes?.get(target)
         if (size === undefined) throw STOP_UNKNOWN
         return BigInt(size)

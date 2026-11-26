@@ -654,18 +654,10 @@ interface Locals {
   readonly values: Map<string, Value>
 }
 
-function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?: (name: string, availability: boolean) => Value | typeof UNKNOWN | undefined): FormulaOutcome {
+function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?: (name: string, availability: boolean) => Value | typeof UNKNOWN | undefined, onRead?: (name: string) => void): FormulaOutcome {
   const scope = { ...context.scope, names: new Map([...context.scope.names, ...locals.kinds]) }
-  const groupSizes = context.values.groupSizes === undefined ? undefined : new Map(context.values.groupSizes)
-  if (groupSizes !== undefined && read !== undefined) {
-    // len(group) reads the size map directly, bypassing scalar reads and their structural checks.
-    groupSizes.get = (name) => {
-      read(name, true)
-      return context.values.groupSizes!.get(name)
-    }
-  }
   const values = { ...context.values, read: (name: string, availability: boolean) =>
-    locals.values.has(name) ? locals.values.get(name) : read === undefined ? context.values.values?.get(name) : read(name, availability), ...(groupSizes === undefined ? {} : { groupSizes }) }
+    locals.values.has(name) ? locals.values.get(name) : read === undefined ? context.values.values?.get(name) : read(name, availability), ...(onRead === undefined ? {} : { onRead }) }
   try {
     return Formula.parse(text, scope).evaluate(values)
   } catch (error) {
@@ -793,7 +785,6 @@ class Press {
   formulaRead(name: string, context: FormulaContext, availability: boolean): Value | typeof UNKNOWN | undefined {
     const path = context.paths.get(name)
     if (path === undefined) return context.values.values?.get(name)
-    this.retainRead(path, context.scope.names.get(name) === 'group')
     if (this.automaticValues.has(path)) return this.automaticValues.get(path)
     const field = inputAt(this.view, path)
     if (field?.spec.automatic !== undefined && !this.wired(path) && !Object.hasOwn(this.view.node.values, path)) {
@@ -810,6 +801,8 @@ class Press {
         const values: Exclude<Value, readonly unknown[]>[] = []
         for (const member of members) {
           const scope = this.view.contexts.get(`${group}.${member}.`)
+          const memberPath = scope?.paths.get(row)
+          if (memberPath !== undefined) this.retainRead(memberPath)
           const value = scope && this.formulaRead(row, scope, availability)
           if (value === undefined || value === UNKNOWN || Array.isArray(value)) return UNKNOWN
           values.push(value as Exclude<Value, readonly unknown[]>)
@@ -824,7 +817,11 @@ class Press {
     for (;;) {
       let pending: ElaboratedInput
       try {
-        const outcome = evaluateIn(context, locals, text, (name, availability) => this.formulaRead(name, context, availability))
+        const outcome = evaluateIn(context, locals, text, (name, availability) => this.formulaRead(name, context, availability), (name) => {
+          if (locals.values.has(name)) return
+          const path = context.paths.get(name)
+          if (path !== undefined) this.retainRead(path, context.scope.names.get(name) === 'group')
+        })
         if (outcome.kind === 'value') return outcome.value
         if (fallback !== undefined) return fallback
         if (outcome.kind === 'failed') return refuse(`A formula of this button failed: ${outcome.reason}`)
