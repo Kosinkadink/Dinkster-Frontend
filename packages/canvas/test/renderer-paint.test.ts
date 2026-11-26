@@ -3025,7 +3025,6 @@ describe('badge and toolbox paint on the live renderer', () => {
     const n = { ...plain, layout: { ...plain.layout, title: 'A title long enough to run under the subgraph mark' } }
     const scene = emptyScene({ nodes: [n] })
     const header = { top: n.y, bottom: n.y + n.layout.headerHeight }
-    const titleY = n.y + n.layout.headerHeight / 2
     const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [ERROR_BADGE, MUTED_BADGE, BYPASSED_BADGE, subgraphBadge(12)] }))
     for (const [word, side] of [['Error', 'below'], ['Muted', 'above'], ['Bypassed', 'above']] as const) {
       const call = calls.find((candidate) => candidate.method === 'fillText' && candidate.args[0] === word)!
@@ -3037,12 +3036,12 @@ describe('badge and toolbox paint on the live renderer', () => {
     expect(count.args[1]).toBe(markX + 3 + 14 + 3)
     expect(Number(count.args[2])).toBeGreaterThan(header.top)
     expect(Number(count.args[2])).toBeLessThan(header.bottom)
-    const title = calls.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
+    const title = calls.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && fitted(call.args[0], n.layout.title))!
     expect(title.args[0]).not.toBe(n.layout.title)
     expect(String(title.args[0]).length * 6).toBeLessThanOrEqual(markX - n.x - TITLE_START - canvasPaintTokens.node.titleBadgeGap)
 
     const unmarked = paintWith(scene, (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, ERROR_BADGE] }))
-    const fullWidth = unmarked.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
+    const fullWidth = unmarked.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && fitted(call.args[0], n.layout.title))!
     expect(String(fullWidth.args[0]).length).toBeGreaterThan(String(title.args[0]).length)
   })
 
