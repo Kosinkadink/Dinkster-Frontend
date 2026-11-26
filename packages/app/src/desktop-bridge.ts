@@ -1,4 +1,5 @@
 import type { AssetRef } from '@dinkster/core'
+import { uuidv4 } from '@dinkster/client'
 
 export const DESKTOP_ENGINE_ACCELERATORS = ['cpu', 'cuda', 'mps', 'rocm', 'xpu'] as const
 export type DesktopEngineAccelerator = typeof DESKTOP_ENGINE_ACCELERATORS[number]
@@ -169,7 +170,7 @@ export async function importNativeAsset(backendUrl: string, file: File, destinat
     const url = new URL(backendUrl || '/', window.location.href).href
     let pending: ReturnType<NonNullable<DesktopFileBridge['importFile']>>
     if (transfer && bridge.cancelFileImport) {
-      const id = crypto.randomUUID()
+      const id = uuidv4()
       pending = bridge.importFile(url, file, destination, {
         id,
         onProgress: (progress) => {

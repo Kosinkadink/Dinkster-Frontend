@@ -1,4 +1,4 @@
-import type { AssetUploadDestination, DinksterConnection, MediaAssetRef } from '@dinkster/client'
+import type { AssetUploadDestination, AssetUploadProgress, DinksterConnection, MediaAssetRef } from '@dinkster/client'
 import { importNativeAsset, resolveDroppedAsset, type DesktopFileImportProgress } from '../desktop-bridge.js'
 import { model3dMimeFor } from '../model3d-mime.js'
 import { assetUploadPolicy, formatSize, mediaAcceptsFile } from './helpers.js'
@@ -52,11 +52,17 @@ export async function importAssetFile(file: File, options: {
   }, current, { signal, ...(options.onProgress ? { onProgress: options.onProgress } : {}) })
   signal.throwIfAborted()
   if (!current()) return undefined
+  const transfer = {
+    signal,
+    ...(options.onProgress ? { onProgress: ({ sent, total }: AssetUploadProgress) => {
+      if (!signal.aborted && current()) options.onProgress?.({ phase: 'copying', received: sent, total })
+    } } : {}),
+  }
   const asset = existing ?? imported ?? (media !== undefined
-    ? await connection.uploadMediaAsset(file, { scope: 'local', kind: media, name, ...destination, signal })
+    ? await connection.uploadMediaAsset(file, { scope: 'local', kind: media, name, ...destination, ...transfer })
     : latent
-      ? await connection.uploadLatentAsset(file, { scope: 'local', name, signal })
-      : await connection.uploadNamedAsset(file, { scope: 'local', name, ...destination, signal }))
+      ? await connection.uploadLatentAsset(file, { scope: 'local', name, ...transfer })
+      : await connection.uploadNamedAsset(file, { scope: 'local', name, ...destination, ...transfer }))
   signal.throwIfAborted()
   return current() ? { asset, existing: existing !== undefined } : undefined
 }

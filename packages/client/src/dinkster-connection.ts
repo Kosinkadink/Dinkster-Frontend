@@ -1144,6 +1144,12 @@ export interface AssetUploadDestination {
   readonly folder?: string
 }
 
+/** Browser-transmitted bytes, not server validation or publication progress. */
+export interface AssetUploadProgress {
+  readonly sent: number
+  readonly total: number | null
+}
+
 /** Ingest history is advisory metadata, not authority to resolve a location. */
 export interface AssetObservation {
   readonly id: string
@@ -1944,6 +1950,7 @@ export class DinksterConnection {
   private readonly project: string | undefined
   private readonly keepSchemas: ((payload: DinksterNodesPayload) => void) | undefined
   private readonly fetchFn: FetchLike
+  private readonly browserUploadProgress: boolean
   private readonly registryFetchFn: FetchLike
   private readonly registryStaticUrl: () => string
   private readonly normalizer: DinksterNormalizer
@@ -2000,6 +2007,8 @@ export class DinksterConnection {
     this.fetchFn = config.token !== undefined || config.actorKind !== undefined
       ? credentialFetch(config, fetchFn)
       : fetchFn
+    // XHR cannot enforce redirect:error or replace a caller's transport.
+    this.browserUploadProgress = config.fetchFn === undefined && config.token === undefined && config.actorKind === undefined
     this.jobIdFactory = config.jobIdFactory ?? uuidv4
     // Malformed KNOWN events (recognized type, missing required fields) are
     // protocol errors, never silent drops; unknown kinds and uncorrelated
@@ -3112,20 +3121,71 @@ export class DinksterConnection {
     return requested.map((digest) => assets.get(digest)!)
   }
 
+  private async uploadAssetBytes(url: string, file: File, headers: HeadersInit, options: {
+    readonly signal?: AbortSignal
+    readonly onProgress?: (progress: AssetUploadProgress) => void
+  }): Promise<Response> {
+    options.signal?.throwIfAborted()
+    if (!options.onProgress || !this.browserUploadProgress || typeof XMLHttpRequest === 'undefined') {
+      return this.fetchFn(url, {
+        method: 'POST', headers, body: file,
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      })
+    }
+    return new Promise<Response>((resolve, reject) => {
+      const request = new XMLHttpRequest()
+      const abort = () => request.abort()
+      const cleanup = () => {
+        options.signal?.removeEventListener('abort', abort)
+        request.onload = request.onerror = request.onabort = null
+        request.upload.onprogress = null
+      }
+      const fail = (error: unknown) => { cleanup(); reject(error) }
+      request.onload = () => {
+        try {
+          const response = new Response(request.responseText || null, {
+            status: request.status,
+            headers: { 'Content-Type': request.getResponseHeader('Content-Type') ?? 'application/json' },
+          })
+          cleanup()
+          resolve(response)
+        } catch (error) { fail(error) }
+      }
+      request.onerror = () => fail(new Error('File upload failed'))
+      request.onabort = () => fail(options.signal?.reason ?? new DOMException('File upload cancelled', 'AbortError'))
+      request.upload.onprogress = (event) => {
+        if (options.signal?.aborted) return
+        try { options.onProgress?.({ sent: event.loaded, total: event.lengthComputable ? event.total : null }) }
+        catch (error) { fail(error); request.abort() }
+      }
+      try {
+        request.open('POST', url)
+        new Headers(headers).forEach((value, name) => request.setRequestHeader(name, value))
+        options.signal?.addEventListener('abort', abort, { once: true })
+        options.signal?.throwIfAborted()
+        request.send(file)
+      } catch (error) { fail(error) }
+    })
+  }
+
   /** Import a named file into the current project's writable folder, not the workflow vault. */
   async uploadNamedAsset(
     file: File,
-    options: AssetUploadDestination & { readonly scope: string; readonly name: string; readonly signal?: AbortSignal },
+    options: AssetUploadDestination & {
+      readonly scope: string
+      readonly name: string
+      readonly signal?: AbortSignal
+      /** Available on the default browser transport; absent events mean indeterminate progress. */
+      readonly onProgress?: (progress: AssetUploadProgress) => void
+    },
   ): Promise<MediaAssetRef> {
     const query = new URLSearchParams({ scope: options.scope, name: options.name,
       ...(this.project !== undefined ? { project: this.project } : {}),
       ...(options.mount !== undefined ? { mount: options.mount } : {}),
       ...(options.folder !== undefined ? { folder: options.folder } : {}),
     })
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets?${query}`, {
-      method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
-      ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    })
+    const res = await this.uploadAssetBytes(`${this.baseUrl}/api/assets?${query}`, file,
+      { 'Content-Type': file.type || 'application/octet-stream' }, options)
     if (!res.ok) throw new Error(`POST /api/assets failed: ${res.status}`)
     const payload: unknown = await res.json()
     const asset = uploadedAssetRef(payload, undefined, 'POST /api/assets')
@@ -3219,6 +3279,8 @@ export class DinksterConnection {
       readonly name: string
       readonly expectedDigest?: string
       readonly signal?: AbortSignal
+      /** Available on the default browser transport; absent events mean indeterminate progress. */
+      readonly onProgress?: (progress: AssetUploadProgress) => void
     },
   ): Promise<MediaAssetRef> {
     const query = new URLSearchParams({ scope: options.scope, kind: options.kind, name: options.name,
@@ -3228,12 +3290,7 @@ export class DinksterConnection {
     })
     const headers = new Headers({ 'Content-Type': file.type })
     if (options.expectedDigest !== undefined) headers.set('X-Dinkster-Digest', options.expectedDigest)
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets/media?${query}`, {
-      method: 'POST',
-      headers,
-      body: file,
-      ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    })
+    const res = await this.uploadAssetBytes(`${this.baseUrl}/api/assets/media?${query}`, file, headers, options)
     if (!res.ok) throw new Error(`POST /api/assets/media failed: ${res.status}`)
     return uploadedAssetRef(await res.json(), options.kind, 'POST /api/assets/media')
   }
@@ -3241,15 +3298,17 @@ export class DinksterConnection {
   /** Upload a validated safetensors latent and adopt the server-authored AssetRef. */
   async uploadLatentAsset(
     file: File,
-    options: { readonly scope: string; readonly name: string; readonly signal?: AbortSignal },
+    options: {
+      readonly scope: string
+      readonly name: string
+      readonly signal?: AbortSignal
+      /** Available on the default browser transport; absent events mean indeterminate progress. */
+      readonly onProgress?: (progress: AssetUploadProgress) => void
+    },
   ): Promise<MediaAssetRef> {
     const query = new URLSearchParams({ scope: options.scope, name: options.name })
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets/latent?${query}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-comfy-latent' },
-      body: file,
-      ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    })
+    const res = await this.uploadAssetBytes(`${this.baseUrl}/api/assets/latent?${query}`, file,
+      { 'Content-Type': 'application/x-comfy-latent' }, options)
     if (!res.ok) throw new Error(`POST /api/assets/latent failed: ${res.status}`)
     return uploadedAssetRef(await res.json(), 'data/latent', 'POST /api/assets/latent')
   }
