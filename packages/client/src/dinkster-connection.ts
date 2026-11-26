@@ -3818,7 +3818,10 @@ export class DinksterConnection {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id, path, mode, ...(this.project !== undefined ? { project: this.project } : {}), ...options }),
     })
-    if (!res.ok) throw new Error(`POST /api/mounts failed: ${res.status}`)
+    if (!res.ok) {
+      const body = await res.json().catch(() => undefined) as { error?: unknown } | undefined
+      throw new Error(typeof body?.error === 'string' ? body.error : `POST /api/mounts failed: ${res.status}`)
+    }
     const value = await res.json() as Record<string, unknown>
     if (typeof value['id'] !== 'string' || (value['mode'] !== 'read' && value['mode'] !== 'readwrite') ||
       typeof value['state'] !== 'string') throw new Error('POST /api/mounts: malformed response')

@@ -66,7 +66,7 @@
 @media (prefers-reduced-motion: reduce) { .dinkster-page-load-answer[data-arrival] { animation: none; } }
 .dinkster-page-load-example { height: calc(var(--dinkster-space-32) * 10); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-frame); }
 .dinkster-project-detail-load-example { height: calc(var(--dinkster-space-32) * 18); }
-.storage-folders { display: grid; gap: var(--dinkster-space-8); min-width: 0; }
+.storage-folders { display: grid; gap: var(--dinkster-space-8); min-width: 0; padding: var(--dinkster-space-12); }
 .storage-group-heading, .storage-folder-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--dinkster-space-8); min-width: 0; }
 .storage-group-heading { margin-top: var(--dinkster-space-12); }
 .storage-group-heading h3 { margin: 0; font-size: var(--dinkster-type-body-size); }

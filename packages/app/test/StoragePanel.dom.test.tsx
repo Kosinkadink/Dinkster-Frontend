@@ -8,6 +8,45 @@ import { AppState } from '../src/app-state.js'
 const disposers: (() => void)[] = []
 afterEach(() => { for (const dispose of disposers.splice(0)) dispose(); document.body.replaceChildren(); vi.restoreAllMocks() })
 
+it.each([true, false])('keeps a refused mount form and adds with saving allowed: %s', async (writable) => {
+  const mounts: MountDescriptor[] = []
+  let refused = true
+  const connection = {
+    fetchMountSettings: async () => ({ mounts, mountChangesAllowed: true }),
+    fetchMountLocations: async () => ({ mounts }),
+    fetchModelSettings: async () => ({ locations: [], settings: { locations: [] }, changesAllowed: true }),
+    onMountsChanged: () => () => {},
+    addMount: async (id: string, path: string, mode: 'read' | 'readwrite') => {
+      if (refused) throw new Error('Folder cannot be written to')
+      const mount: MountDescriptor = { id, path, mode, state: 'ready' }
+      mounts.push(mount)
+      return mount
+    },
+  } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
+  await vi.waitFor(() => expect(root.querySelectorAll('.storage-group-heading')).toHaveLength(2))
+  root.querySelectorAll<HTMLButtonElement>('.storage-group-heading button')[1]!.click()
+  expect(root.textContent).toContain('Add a mount')
+  const field = (label: string) => root.querySelector<HTMLInputElement>(`#${[...root.querySelectorAll('label')].find((row) => row.textContent === label)!.htmlFor}`)!
+  const folder = field('Folder'); folder.value = '/archive/plates'; folder.dispatchEvent(new Event('input', { bubbles: true }))
+  const name = field('Name'); name.value = 'footage'; name.dispatchEvent(new Event('input', { bubbles: true }))
+  const saving = root.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+  expect(saving.checked).toBe(true)
+  expect(saving.closest('label')?.textContent).toBe('Allow saving to this folder')
+  if (!writable) saving.click()
+  root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('Folder cannot be written to'))
+  expect(folder.value).toBe('/archive/plates')
+  expect(name.value).toBe('footage')
+  expect(saving.checked).toBe(writable)
+  refused = false
+  root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="footage"]')).not.toBeNull())
+  expect(root.querySelector('[data-mount-id="footage"]')?.textContent?.includes('Read only')).toBe(!writable)
+  expect(root.querySelector('[data-mount-id="footage"]')?.textContent).toContain('/archive/plates')
+})
+
 it('shows live file and byte reading progress for mounts and grouped model folders', async () => {
   let mounts: MountDescriptor[] = [
     { id: 'models-lora', mode: 'read', state: 'scanning', source: 'shared-models', kind: 'model/lora', scanProgress: { filesDone: 3, filesTotal: 12, bytesDone: 1024, bytesTotal: 8192, elapsedSeconds: 1 } },

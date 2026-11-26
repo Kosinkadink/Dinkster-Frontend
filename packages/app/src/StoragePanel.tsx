@@ -1,7 +1,8 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import type { DinksterConnection, ModelSettingsState, MountDescriptor, MountLocations, MountSettings, MountScanProgress } from '@dinkster/client'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
-import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductLoading, ProductMenu, ProductNotice, ProductProgress, ProductSection, ProductToast } from '@dinkster/ui'
+import ChevronLeft from 'lucide-solid/icons/chevron-left'
+import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductLoading, ProductMenu, ProductNotice, ProductProgress, ProductSection, ProductTextButton, ProductToast } from '@dinkster/ui'
 import type { AppState, Backend } from './app-state.js'
 import { useSignal } from './solid-adapter.js'
 import { useAppMessage } from './locale.js'
@@ -245,10 +246,10 @@ export function StorageFolders(props: {
         </ProductDisclosure></Show>
       </>}>
         {(editor) => <>
-          <ProductButton onClick={() => { setEditing(undefined); void load() }}>{message('storagePanel.back')}</ProductButton>
+          <ProductTextButton icon={ChevronLeft} label={message('storagePanel.title')} onClick={() => { setEditing(undefined); void load() }} />
           <Show when={editor() === 'model'}><ModelSettings connection={props.connection} backendLabel="" backendUrl={props.backendUrl} editLocation={editModel()} onChanged={() => { setEditing(undefined); void load() }} /></Show>
           <Show when={editor() === 'models'}><ModelSettings connection={props.connection} providerConnection={props.connection} visibilityConnection={props.connection} backendLabel="" backendUrl={props.backendUrl} focusHiddenModels={props.focus?.hiddenModels === true} onChanged={() => { void load() }} /></Show>
-          <Show when={editor() === 'folders'}><ProductSection title={message('storagePanel.addFolder')}><MountFolderForm connection={props.connection} backendUrl={props.backendUrl} onGranted={() => { setEditing(undefined); void load() }} /></ProductSection></Show>
+          <Show when={editor() === 'folders'}><ProductSection title={message('storagePanel.addMount')}><MountFolderForm variant="storage" connection={props.connection} backendUrl={props.backendUrl} onCancel={() => setEditing(undefined)} onGranted={() => { setEditing(undefined); void load() }} /></ProductSection></Show>
         </>}
       </Show>}>
         {(target) => <>

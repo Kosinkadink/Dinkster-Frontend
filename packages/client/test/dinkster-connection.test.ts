@@ -659,6 +659,14 @@ describe('shared model management', () => {
 })
 
 describe('mount listing decode', () => {
+  it.each([
+    [{ error: 'not a directory: /archive/plates' }, 'not a directory: /archive/plates'],
+    [{ error: { message: 'not a supported refusal' } }, 'POST /api/mounts failed: 400'],
+  ])('retains a mount grant refusal with a status fallback', async (body, expected) => {
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => jsonResponse(400, body) })
+    await expect(connection.addMount('plates', '/archive/plates', 'readwrite')).rejects.toThrow(expected)
+  })
+
   const connectionWith = (mounts: unknown, outputMount?: unknown, mountChangesAllowed: unknown = true): DinksterConnection =>
     new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, mountChangesAllowed, ...(outputMount === undefined ? {} : { outputMount }) }) })
 
