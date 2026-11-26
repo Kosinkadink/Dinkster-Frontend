@@ -285,7 +285,7 @@ seededTest('canvas pin and widget tooltips use scene coordinates and hide on mou
   await page.keyboard.up('Alt')
 })
 
-test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagnostic', async ({ page }) => {
+test('mismatch noodle midpoint grab-dot tooltip names the shown nodes and types', async ({ page }) => {
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   const point = await page.evaluate(async () => {
     const test = window.__dinksterTest!
@@ -323,5 +323,5 @@ test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagno
   await page.mouse.move(point.x, point.y)
   const tooltip = page.getByTestId('app-tooltip')
   await expect(tooltip).toContainText('Type mismatch', { timeout: 1_500 })
-  await expect(tooltip).toContainText('target.input: IMAGE cannot feed LATENT')
+  await expect(tooltip).toContainText('Latent sink: Input needs latent data, but Image source sends an image.')
 })
