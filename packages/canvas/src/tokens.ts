@@ -802,6 +802,7 @@ export interface DesignTokens {
   readonly pinRadius: number
   readonly cornerRadius: number
   readonly fontFamily: string
+  readonly fontMono: string
   readonly fontSize: number
   readonly titleFontSize: number
   /**
@@ -1014,6 +1015,7 @@ export const defaultTokens: DesignTokens = {
   pinRadius: 5.5,
   cornerRadius: 6,
   fontFamily: canvasSemanticTokens.type.fontFamily,
+  fontMono: canvasSemanticTokens.type.fontMono,
   fontSize: 12,
   titleFontSize: 13,
   widgetRowLook: 'raised-editors',

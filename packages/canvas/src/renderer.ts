@@ -5567,8 +5567,12 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   // The subgraph mark before the name widens the name's share, as the painter lays it out.
   const mark = (row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap)
     + (row.readOnly ? canvasPaintTokens.widget.readOnlyMark.size + canvasPaintTokens.widget.readOnlyMark.gap : 0)
+  const labelWidth = measureWidth(ctx, row.label)
+  const valueFont = words === undefined && summary !== undefined && (row.viewId === 'core.color' || swatch !== undefined)
+    ? `${tokens.fontSize}px ${tokens.fontMono}` : prevFont
+  ctx.font = valueFont
   const picturesWidth = summaryThumbnailReserve(ctx, summary?.thumbnails)
-  const labelZone = shareRowWidth(field.right - field.left, mark + measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + picturesWidth + canvasPaintTokens.widget.labelWidthPadding)
+  const labelZone = shareRowWidth(field.right - field.left, mark + labelWidth + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + picturesWidth + canvasPaintTokens.widget.labelWidthPadding)
   const availableWidth = Math.max(0, field.right - field.left - labelZone - swatchReserve)
   const unproven = companion.state === 'stale' || (companion.state === undefined && companion.stale === true)
   // No value arrives: quiet upright words, never the italic of a value.
@@ -5577,7 +5581,7 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
     : unproven
       ? tokens.colors.companionUnproven
       : estimate ? tokens.colors.companionEstimate : tokens.colors.companionValue
-  if (words === undefined) ctx.font = `italic ${prevFont}`
+  if (words === undefined) ctx.font = `italic ${valueFont}`
   ctx.globalAlpha = companionAlpha ?? prevAlpha
   const textY = y + rowHeight / 2
   const textRight = x + field.right

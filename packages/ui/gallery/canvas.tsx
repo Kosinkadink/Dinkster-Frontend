@@ -628,10 +628,11 @@ function ExampleCard(props: {
 // Every face the canvas paints with, loaded as the editor does before its
 // first paint.
 const canvasFontsLoaded = () => {
-  const { fontSize, titleFontSize, fontFamily } = defaultTokens
+  const { fontSize, titleFontSize, fontFamily, fontMono } = defaultTokens
   const semibold = canvasPaintTokens.type.semiboldWeight
   return Promise.all([
     document.fonts.load(`${fontSize}px ${fontFamily}`),
+    document.fonts.load(`${fontSize}px ${fontMono}`),
     document.fonts.load(`${semibold} ${titleFontSize}px ${fontFamily}`),
     document.fonts.load(`italic ${semibold} ${titleFontSize}px ${fontFamily}`),
   ])
