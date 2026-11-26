@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, on, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, on, Show } from 'solid-js'
 import { ArrowLeft, Download, Folder, PanelTop, Wrench } from 'lucide-solid'
 import {
   defaultTokens, presentedType, typeColor, typeExprCanonicalLabel, typeIdDisplayLabel,
@@ -278,12 +278,13 @@ export function NodePalette(props: {
   }
   const filters = <>{typeMenu('takes')}{typeMenu('gives')}</>
   let panel!: HTMLDivElement
-  let observer: ResizeObserver | undefined
   const place = () => {
     if (!panel) return
     const bounds = props.bounds()
+    panel.style.maxWidth = ''
     const placement = placeFloatingSurface({
-      surface: { width: panel.offsetWidth, height: panel.offsetHeight },
+      // Reserve the full available height so changing results cannot move the field.
+      surface: { width: panel.offsetWidth, height: bounds.height },
       anchor: { left: props.anchor.x, right: props.anchor.x, top: props.anchor.y, bottom: props.anchor.y },
       bounds: { left: 0, top: 0, right: bounds.width, bottom: bounds.height },
       direction: 'point', align: 'center', margin: semanticDesignTokens.space[4], gap: 0,
@@ -293,8 +294,7 @@ export function NodePalette(props: {
     panel.style.maxWidth = `${placement.maxWidth}px`
     panel.style.maxHeight = `${placement.maxHeight}px`
   }
-  createEffect(() => { props.anchor; props.bounds(); groups(); queueMicrotask(place) })
-  onCleanup(() => observer?.disconnect())
+  createEffect(() => { props.bounds(); queueMicrotask(place) })
   return <div class="palette-layer node-palette-layer" data-testid="palette-backdrop">
     <div class="node-palette" data-testid="node-palette" role="dialog" aria-modal="true"
       aria-label={message(props.anchor.linkDrop === undefined ? 'palette.action.addNode' : 'palette.dialog.addCompatibleNode')}
@@ -307,7 +307,7 @@ export function NodePalette(props: {
         if (event.shiftKey && index <= 0) { event.preventDefault(); controls.at(-1)?.focus() }
         else if (!event.shiftKey && index === controls.length - 1) { event.preventDefault(); controls[0]?.focus() }
       }}
-      ref={(element) => { panel = element; if (typeof ResizeObserver !== 'undefined') { observer = new ResizeObserver(place); observer.observe(element) } queueMicrotask(place) }}>
+      ref={panel}>
       <Show when={category() !== undefined}>
         <ProductButton onClick={() => { setCategory(undefined); setCurrent(undefined) }}><ProductIcon icon={ArrowLeft} />{message('palette.category.back')}</ProductButton>
       </Show>

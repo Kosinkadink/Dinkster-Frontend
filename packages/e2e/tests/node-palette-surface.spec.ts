@@ -205,6 +205,10 @@ test('palette insertion awaits acceptance without stealing newer selection or na
 
 test('semantic result ownership, filters, focus, and placement stay mutation free until activation', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 950 })
+  await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
+    type: 'PalettePositionSingle', displayName: 'Palette position single', category: 'Type filters', source: 'v3', isOutputNode: false,
+    body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+  }]))
   const canvas = page.getByTestId('graph-canvas')
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   await openPalette(page, true)
@@ -213,6 +217,22 @@ test('semantic result ownership, filters, focus, and placement stay mutation fre
   const input = page.getByTestId('palette-search')
   const listbox = palette.getByRole('listbox', { name: 'Add a node' })
   await expect(input).toBeFocused()
+  const openingTop = (await palette.boundingBox())!.y
+  const openingFieldTop = (await input.boundingBox())!.y
+  await input.fill('Palette in:IMAGE')
+  await expect(listbox.getByRole('option')).toHaveCount(31)
+  const fullBounds = (await palette.boundingBox())!
+  expect(fullBounds.y).toBe(openingTop)
+  expect((await input.boundingBox())!.y).toBe(openingFieldTop)
+  await capture(page, 'app-low-canvas-31-results')
+  await input.fill('Palette position single')
+  await expect(listbox.getByRole('option')).toHaveCount(1)
+  const shortBounds = (await palette.boundingBox())!
+  expect(shortBounds.y).toBe(fullBounds.y)
+  expect((await input.boundingBox())!.y).toBe(openingFieldTop)
+  expect(shortBounds.height).toBeLessThan(fullBounds.height)
+  await capture(page, 'app-low-canvas-one-result')
+  await input.fill('')
   expect(await listbox.ariaSnapshot()).toContain('group "Node categories"')
   await expect(listbox.locator('[data-key="category:Image"]')).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
