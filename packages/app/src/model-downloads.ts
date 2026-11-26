@@ -79,6 +79,24 @@ export class ModelDownloadsController {
     })
   }
 
+  async enableLocation(requirement: ModelRequirement, location: string, enable: (location: string) => Promise<void>): Promise<void> {
+    const row = this.row(requirement)
+    if (!row || row.pending || row.queued || this.disposed || row.plan?.status !== 'folder-disabled' ||
+      !row.plan.disabledLocations.includes(location) || (row.job && active(row.job))) return
+    const pending = { ...row, pending: true }
+    if (!this.update(row, pending)) return
+    try {
+      await enable(location)
+      if (this.update(pending, { requirement: row.requirement, pending: false,
+        ...(row.source === undefined ? {} : { source: row.source }),
+      })) await this.review(requirement)
+    } catch (error) {
+      this.update(pending, { ...row, pending: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   /** Plans serialize because the engine admits only one provider lookup at a time. */
   review(requirement: ModelRequirement): Promise<void> {
     const row = this.row(requirement)

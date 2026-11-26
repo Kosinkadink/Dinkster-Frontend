@@ -87,6 +87,8 @@ describe('installAssetConsent ownership', () => {
     }
     let lastStartBusy = true
     let discoveryFails = false
+    let disabledFolder = false
+    let folderEnabled = false
     let acceptStart!: () => void
     let observeStart!: () => void
     const startObserved = new Promise<void>((resolve) => { observeStart = resolve })
@@ -101,6 +103,10 @@ describe('installAssetConsent ownership', () => {
         const path = new URL(url, 'http://localhost').pathname
         if (path.endsWith('/plan')) {
           const requested = JSON.parse(String(init?.body)) as { name: string; kind: string }
+          if (disabledFolder && requested.name === requirements[1]!.name && requested.kind === requirements[1]!.kind)
+            return new Response(JSON.stringify(folderEnabled ? { ...requested, status: 'local' } : {
+              status: 'folder-disabled', disabledLocations: ['existing-models'], detail: 'Folder is disabled',
+            }))
           return new Response(JSON.stringify(selections.find((selection) => selection.name === requested.name && selection.kind === requested.kind)))
         }
         if (path.endsWith('/start')) {
@@ -134,6 +140,7 @@ describe('installAssetConsent ownership', () => {
     const controller = new ModelDownloadsController(connection, 'studio')
     const slot = slotOf<AssetConsentRequest>()
     const open = () => installAssetConsent({ models: requirements, slot,
+      enableLocation: async (location) => { if (location === 'existing-models') folderEnabled = true },
       modelDownloads: { connection, project: 'studio', controller } })
     try {
       open()
@@ -199,6 +206,22 @@ describe('installAssetConsent ownership', () => {
       expect(submitted.retries).toHaveLength(0)
       await slot.value!.reviewModel!(0)
       expect(slot.value!.models![0]!.plan?.status).toBe('consent-required')
+
+      disabledFolder = true
+      controller.invalidate(requirements[1]!)
+      open()
+      await slot.value!.reviewModel!(1)
+      await slot.value!.enableModelLocation!(1, 'unrelated-folder')
+      expect(slot.value!.models![1]!.plan?.status).toBe('folder-disabled')
+      const staleFolderReview = slot.value!
+      open()
+      await staleFolderReview.enableModelLocation!(1, 'existing-models')
+      expect(slot.value!.models![1]!.plan?.status).toBe('folder-disabled')
+      await slot.value!.enableModelLocation!(1, 'existing-models')
+      expect(slot.value!.models![1]!.plan?.status).toBe('local')
+      expect(slot.value!.models![1]!.job).toBeUndefined()
+      expect(submitted.retries).toHaveLength(0)
+      expect(jobs.has('plan-1')).toBe(false)
     } finally { slot.set(undefined); controller.dispose() }
   })
 

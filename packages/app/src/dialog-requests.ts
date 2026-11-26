@@ -48,6 +48,7 @@ export interface AssetConsentRequest {
   readonly downloadModel?: (index: number) => Promise<void>
   readonly downloadModels?: (indices: readonly number[]) => Promise<void>
   readonly cancelModel?: (index: number) => Promise<void>
+  readonly enableModelLocation?: (index: number, location: string) => Promise<void>
   readonly assets: readonly MissingAsset[]
   readonly busy: boolean
   readonly retry?: (digests: readonly string[]) => Promise<void>
@@ -183,6 +184,7 @@ export function installAssetConsent(p: {
         downloadModel: (i) => modelAction(i, 'download', next),
         downloadModels: (indices) => downloadModels(indices, next),
         cancelModel: (i) => modelAction(i, 'cancel', next),
+        ...(p.enableLocation ? { enableModelLocation: (i: number, location: string) => modelAction(i, 'enable', next, location) } : {}),
         ...(p.modelDownloads?.providerConnection ? { providerChanged: () => providerChanged(next) } : {}),
       }
       owner = next
@@ -201,12 +203,15 @@ export function installAssetConsent(p: {
       if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
       for (const entry of owner.models ?? []) transfers?.invalidate(entry.requirement)
     }
-    const modelAction = async (index: number, action: 'review' | 'download' | 'cancel', expected = owner): Promise<void> => {
+    const modelAction = async (index: number, action: 'review' | 'download' | 'cancel' | 'enable', expected = owner, location?: string): Promise<void> => {
       const state = owner.models?.[index]
       if (!transfers || settled || !owned() || chain !== owner || expected !== owner || owner.busy || !state || state.pending) return
       if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
       if (action === 'review') await transfers.review(state.requirement)
       else if (action === 'download') await transfers.download([state.requirement])
+      else if (action === 'enable') {
+        if (p.enableLocation && location !== undefined) await transfers.enableLocation(state.requirement, location, p.enableLocation)
+      }
       else await transfers.cancel(state.requirement)
       if (owned() && p.beforeRetry && !p.beforeRetry()) clearIfOwned()
     }
@@ -279,6 +284,7 @@ export function installAssetConsent(p: {
         downloadModel: (index: number) => modelAction(index, 'download', request),
         downloadModels: (indices: readonly number[]) => downloadModels(indices, request),
         cancelModel: (index: number) => modelAction(index, 'cancel', request),
+        ...(p.enableLocation ? { enableModelLocation: (index: number, location: string) => modelAction(index, 'enable', request, location) } : {}),
       } : {}),
       ...(p.enableLocation && result ? { enableLocation: (location: string) => retry([], location) } : {}),
     }
