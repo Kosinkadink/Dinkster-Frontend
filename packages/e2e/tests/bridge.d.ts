@@ -282,6 +282,7 @@ interface DinksterTestBridge {
             ref: DinksterBridgeExecutionRef
             status: string
             errors: readonly unknown[]
+            warnings?: readonly { readonly message: string }[]
             artifactsHydrated: boolean
             artifact?: {
               prompt: Record<string, unknown>

@@ -1260,7 +1260,7 @@ describe('promptToDinksterGraph', () => {
     expect(compiled.artifact.prompt.source).toEqual({
       class_type: 'Splitter', inputs: count === undefined ? {} : { count },
       outputIds: ['before', ...members.map((member) => `parts.${member}`), 'after'],
-      ...(count === undefined && members.length > 0 ? { outputMembers: { parts: members } } : {}),
+      ...(count !== undefined || members.length > 0 ? { outputMembers: { parts: members } } : {}),
     })
     expect(compiled.artifact.prompt.sink?.inputs.a).toEqual(['source', members.length + 1])
     const native = promptToDinksterGraph(compiled.artifact.prompt, resolve)
@@ -2752,6 +2752,7 @@ describe('execution log backfill', () => {
     seq: number,
     level: 'info' | 'warning',
     message: string,
+    code?: string,
   ): Readonly<Record<string, unknown>> & { type: string } => ({
     type: 'node_event',
     event: 'log',
@@ -2760,7 +2761,7 @@ describe('execution log backfill', () => {
     nodeId: 'n1',
     seq,
     clientId: 'cid',
-    data: { level, message, ts: 1000 + seq },
+    data: { level, message, ts: 1000 + seq, ...(code === undefined ? {} : { code }) },
   })
   const journalRecord = (seq: number, name: string, payload: unknown): Record<string, unknown> =>
     ({ seq, name, payload, durable: true, timestamp: 50 + seq })
@@ -2789,7 +2790,7 @@ describe('execution log backfill', () => {
           journalRecord(1, 'run_started', { type: 'run_started', jobId: 'j1', runId: 'r1', seq: 1 }),
           journalRecord(2, 'log', logWire('j1', 'r1', 2, 'info', 'loading model')),
           journalRecord(3, 'progress', { type: 'node_event', event: 'progress', jobId: 'j1', nodeId: 'n1', seq: 3, data: { step: 1, total: 4 } }),
-          journalRecord(4, 'log', logWire('j1', 'r1', 4, 'warning', 'fallback vae')),
+          journalRecord(4, 'log', logWire('j1', 'r1', 4, 'warning', 'Expected 3 items; received 1', 'unpack_count_mismatch')),
         ],
         latestSeq: 4,
         coalescedBelow: 0,
@@ -2799,8 +2800,11 @@ describe('execution log backfill', () => {
     const logs = store.get(ref('j1'))!.logs
     expect(logs.map((l) => [l.seq, l.level, l.message])).toEqual([
       [2, 'info', 'loading model'],
-      [4, 'warning', 'fallback vae'],
+      [4, 'warning', 'Expected 3 items; received 1'],
     ])
+    expect(store.get(ref('j1'))!.warnings).toEqual([expect.objectContaining({
+      runtimeNodeId: 'n1', code: 'unpack_count_mismatch', message: 'Expected 3 items; received 1',
+    })])
     // Replayed lifecycle/progress records are NOT re-applied here: only the
     // journal's log records flow, job state reconciles through replayJob.
     expect(store.get(ref('j1'))!.status).toBe('queued')
