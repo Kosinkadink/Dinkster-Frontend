@@ -24,6 +24,7 @@ import {
 } from 'lucide-solid'
 import { ProductIcon, ProductTextInput, type ProductRole } from './controls.js'
 import { useProductStrings } from './strings.js'
+import { ProductShortcut } from './shortcut.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import tokens from '@dinkster/branding/components' with { type: 'json' }
 
@@ -426,7 +427,7 @@ function Menu(props: {
                           {(attention) => <Attention attention={attention()} />}
                         </Show>
                         <Show when={item().keys}>
-                          {(keys) => <span class="dinkster-menu-item-keys" aria-hidden="true"><For each={keys()}>{(key) => <kbd class="dinkster-key">{key}</kbd>}</For></span>}
+                          {(keys) => <span class="dinkster-menu-item-keys" aria-hidden="true"><ProductShortcut keys={keys()} /></span>}
                         </Show>
                       </button>
                     )
