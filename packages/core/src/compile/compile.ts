@@ -1751,6 +1751,9 @@ function compileImpl(
       const v = node.values[item.id]
       const ownerInput = item.promoted === true ? parentElab?.inputsByValueKey.get(item.id) : undefined
       if (v === undefined && ownerInput === undefined) continue
+      // Unsent controls have already reached the inner formula scope through
+      // occurrence projection; they have no execution input to override.
+      if (ownerInput?.spec.sent === false) continue
       // Fan-out: a promoted value bakes into EVERY bound target (primary
       // and alsoBinds alike) - targets must never diverge under one
       // boundary value.

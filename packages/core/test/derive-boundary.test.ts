@@ -930,6 +930,48 @@ describe('Boundary sample acceptance compilation', () => {
     expect(prompt(loaded.document!)).toEqual(prompt(after))
   }
 
+  it('boundary/row-flags carries leaf formulas, pinless unsent fields and port policies through renamed rows', () => {
+    const resolve: SchemaResolver = (type) => type === 'Boundary sample' ? {
+      ...boundarySampleSchema, body: boundarySampleSchema.body.map((row) =>
+        row.kind === 'input' && row.id === 'strength'
+          ? { ...row, visible: { formula: 'radius > 0.5' }, labelFormula: { formula: '"Mix " + fixed(radius, 1)' } }
+          : row.kind === 'input' && row.id === 'radius' ? { ...row, sent: false, socketless: true }
+            : row.kind === 'input' && row.id === 'mask' ? { ...row, onAbsent: 'fail', acceptsStorage: true, acceptsStream: true, maskPolarity: 'transparency' }
+              : row.kind === 'output' && row.id === 'result' ? { ...row, alphaPolicy: 'drop', tooltip: 'Result help' } : row),
+    } : resolveBoundarySample(type)
+    const source = boundarySample(2)
+    const detail = source.graphs.detail!
+    const portrait = source.graphs.portrait!
+    const doc: WorkflowDocument = { ...source, graphs: { ...source.graphs,
+      detail: { ...detail, boundary: { body: detail.boundary!.body.map((row) => row.kind === 'input' && row.id === 'radius'
+        ? { ...row, id: 'threshold' } : row) } },
+      portrait: { ...portrait, boundary: { body: portrait.boundary!.body.map((row) => row.kind === 'input' && row.id === 'radius'
+        ? { ...row, id: 'control', binds: { kind: 'port' as const, node: asNodeId('detail'), port: asPortId('threshold') } } : row) } },
+    } }
+    const schema = documentResolver(doc, resolve)('#portrait')!
+    for (const control of [0.2, 0.8]) {
+      const elab = elaborateInterface(schema, { values: { control, strength: 0.9 } })
+      const fields = elabInputsOf(elab)
+      const mix = fields.find((row) => row.spec.id === 'strength')!
+      expect(mix.spec.hidden === true).toBe(control < 0.5)
+      expect(mix.spec.displayName).toBe(`Mix ${control}`)
+      expect(fields.find((row) => row.spec.id === 'control')).toMatchObject({ spec: { socketless: true, sent: false } })
+      expect(fields.find((row) => row.spec.id === 'mask')).toMatchObject({ spec: {
+        onAbsent: 'fail', acceptsStorage: true, acceptsStream: true, maskPolarity: 'transparency',
+      } })
+      const output = elab.items.find((row) => row.kind === 'output' && row.spec.id === 'result')
+      expect(output).toMatchObject({ spec: { alphaPolicy: 'drop', tooltip: 'Result help' } })
+    }
+    const first = doc.graphs.root!.nodes.first!
+    const compiled = compile({ document: { ...doc, graphs: { ...doc.graphs, root: { ...doc.graphs.root!, nodes: {
+      ...doc.graphs.root!.nodes, first: { ...first, values: { ...first.values, control: 0.8 } },
+    } } } }, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('boundary-grid'), schemaHash: 'boundary-sample' })
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (!compiled.ok) throw new Error('complete row fixture did not compile')
+    expect(compiled.artifact.prompt['first.detail.sample']!.inputs).not.toHaveProperty('radius')
+    expect(compiled.artifact.prompt['first.detail.sample']!.inputs.strength).toBe(0.2)
+  })
+
   it('boundary/show-hide uses boundary names for a whole choice through renamed nested boundaries', () => {
     const source = boundarySample(2)
     const detail = source.graphs.detail!

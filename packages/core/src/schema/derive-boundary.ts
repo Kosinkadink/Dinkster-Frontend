@@ -840,6 +840,13 @@ export function deriveBoundarySchema(
   if (region !== undefined && constructOwners.length > 0) fail('boundary.constructRegion', 'a repeated region shows single rows only, not a whole group, choice, type choice or described row')
   if (diags.length) return { diagnostics: diags }
 
+  const exposedPathOf = (node: string, path: string): string | undefined => {
+    const exact = shownRows.get(JSON.stringify([node, path]))
+    if (exact !== undefined) return exact
+    const owner = constructOwners.find((candidate) => candidate.node === node && path.startsWith(`${candidate.path}.`))
+    return owner === undefined ? undefined : owner.item + path.slice(owner.path.length)
+  }
+
   /**
    * The row a subgraph node shows for a whole construct: the inner row with
    * its types named by its inner node, its fields starting where the
@@ -906,10 +913,7 @@ export function deriveBoundarySchema(
       id: item.id,
       ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
       ...(item.tooltip !== undefined ? { tooltip: item.tooltip } : {}),
-      outer: outerScopeOf(binds, node, path, item.id, row.outer),
-      ...(row.visibleWhen !== undefined ? { visibleWhen: row.visibleWhen.map((condition) => ({
-        ...condition, scope: outerScopeOf(binds, node, path, item.id, condition.scope),
-      })) } : {}),
+      ...outerScopesOf(row, binds, node, path, item.id),
     } as BodyRow
   }
 
@@ -929,10 +933,8 @@ export function deriveBoundarySchema(
    */
   const outerScopeOf = (binds: RouteBoundaryBinding, node: NodeData, path: string, shownAs: string, carried?: OuterScope): OuterScope => {
     const meaningOf = (flat: string, row: () => unknown): OuterName | undefined => {
-      const shown = flat === path ? shownAs : shownRows.get(JSON.stringify([binds.node, flat]))
+      const shown = flat === path ? shownAs : exposedPathOf(binds.node, flat)
       if (shown !== undefined) return { row: shown }
-      const owner = constructOwners.find((candidate) => candidate.node === binds.node && flat.startsWith(`${candidate.path}.`))
-      if (owner !== undefined) return { row: owner.item + flat.slice(owner.path.length) }
       const value = Object.hasOwn(node.values, flat) ? node.values[flat] : row()
       return value === undefined ? undefined : { value, ...(isInternallyConnected(binds, flat) ? { linked: true as const } : {}) }
     }
@@ -963,6 +965,13 @@ export function deriveBoundarySchema(
     })
     return { frames }
   }
+
+  const outerScopesOf = (row: Pick<InputSpec, 'outer' | 'visibleWhen'>, binds: RouteBoundaryBinding, node: NodeData, path: string, shownAs: string) => ({
+    outer: outerScopeOf(binds, node, path, shownAs, row.outer),
+    ...(row.visibleWhen !== undefined ? { visibleWhen: row.visibleWhen.map((condition) => ({
+      ...condition, scope: outerScopeOf(binds, node, path, shownAs, condition.scope),
+    })) } : {}),
+  })
 
   /** The row's own help text wins over the inner row's tooltip. */
   const tooltipOf = (item: BoundaryItem, inner?: InputSpec | OutputSpec): { tooltip?: string } => {
@@ -1083,23 +1092,25 @@ export function deriveBoundarySchema(
     // An automatic field the definition stores nothing for stays automatic on
     // the subgraph node; a stored value is the row's default instead.
     const automatic = promoted && !Object.hasOwn(node.values, item.binds.port as string) ? inner.automatic : undefined
+    const { widget: _widget, forceInput: _forceInput, acceptsList: _acceptsList, automatic: _automatic,
+      lookupScope: _lookupScope, section: _section, adjacentTo: _adjacentTo, labelFormula: _labelFormula, ...inherited } = inner
     items.push({
-      kind: 'input',
+      ...inherited,
       id: item.id,
       ...displayNameOf(item, inner),
       ...tooltipOf(item, inner),
+      ...(item.displayName === undefined && inner.labelFormula !== undefined ? { labelFormula: inner.labelFormula } : {}),
+      ...outerScopesOf(inner, item.binds as RouteBoundaryBinding, node, item.binds.port as string, item.id),
       type: primaryType,
       // A widget-backed inner input has a stored value, so the boundary
       // input is satisfiable without a connection.
       optional: satisfiable,
       ...(acceptsList ? { acceptsList: true as const } : {}),
-      ...(promoted && inner.socketless === true ? { socketless: true as const } : {}),
       ...(promotedWidget !== undefined
         ? { widget: promotedWidget }
         : inner.widget !== undefined
           ? { forceInput: true }
           : {}),
-      ...(inner.lazy !== undefined ? { lazy: inner.lazy } : {}),
       ...(automatic !== undefined ? { automatic } : {}),
       ...(promotedWidget?.looked !== undefined || automatic !== undefined
         ? { lookupScope: unwired(outerScopeOf(item.binds as RouteBoundaryBinding, node, item.binds.port as string, item.id, inner.lookupScope)) }
@@ -1167,16 +1178,31 @@ export function deriveBoundarySchema(
     }
     if (route.terminal.kind !== 'port') continue
     const inner = route.terminal.slot as OutputSpec
+    const { section: _section, labelFormula: _labelFormula, knownValue, represents, ...inherited } = inner
+    const knownInput = knownValue === undefined ? undefined : exposedPathOf(node.id, knownValue.input)
+    const representedInput = represents === undefined ? undefined : exposedPathOf(node.id, represents.input)
+    const applies = Object.entries(represents?.applies ?? {}).flatMap(([path, values]) => {
+      const shown = exposedPathOf(node.id, path)
+      return shown === undefined ? [] : [[shown, values] as const]
+    })
     items.push({
-      kind: 'output',
+      ...inherited,
       id: item.id,
       ...displayNameOf(item, inner),
       ...tooltipOf(item, inner),
+      ...(item.displayName === undefined && inner.labelFormula !== undefined ? { labelFormula: inner.labelFormula } : {}),
+      ...outerScopesOf(inner, item.binds as RouteBoundaryBinding, node, item.binds.port as string, item.id),
       type: freshenType(inner.type, item.binds.node, typeBindingsFor(node)),
-      ...(inner.isList !== undefined ? { isList: inner.isList } : {}),
-      ...(inner.preview !== undefined ? { preview: inner.preview } : {}),
-      // An output fed by one that may give nothing may give nothing too.
-      ...(inner.optional === true ? { optional: true } : {}),
+      ...(knownValue !== undefined && knownInput !== undefined ? { knownValue: {
+        ...knownValue, input: knownInput,
+        ...(knownValue.limits !== undefined ? { limits: Object.fromEntries(Object.entries(knownValue.limits).flatMap(([limit, path]) => {
+          const shown = exposedPathOf(node.id, path)
+          return shown === undefined ? [] : [[limit, shown]]
+        })) } : {}),
+      } } : {}),
+      ...(represents !== undefined && representedInput !== undefined && applies.length === Object.keys(represents.applies ?? {}).length
+        ? { represents: { ...represents, input: representedInput,
+          ...(represents.applies !== undefined ? { applies: Object.fromEntries(applies) } : {}) } } : {}),
     })
   }
 

@@ -510,6 +510,8 @@ interface PortSpecBase {
   readonly tooltip?: string
   /** Whether the row shows. A hidden row is still stored and sent to the run. */
   readonly visible?: Formulated<boolean>
+  readonly outer?: OuterScope
+  readonly visibleWhen?: readonly ScopedVisibility[]
   /** Alpha handling at this port; undefined is the default 'preserve'. */
   readonly alphaPolicy?: AlphaPolicy
   readonly maskPolarity?: MaskPolarity
@@ -743,13 +745,13 @@ export type GroupGrowsSpec =
   | { readonly followList: string }
 
 /**
- * On a construct a subgraph node shows whole: what each name its formulas
- * read outside the construct means on that node. The formulas keep the inner
+ * On a row a subgraph node exposes: what each name its formulas
+ * read in the inner scope means on that node. The formulas keep the inner
  * node's scope; a name the subgraph also shows reads that row of the subgraph
  * node, and any other name reads the definition's fixed value.
  */
 export interface OuterScope {
-  /** The inner node's scopes around the construct, outermost first, each with what its names mean. */
+  /** The inner node's scopes around the row, outermost first, each with what its names mean. */
   readonly frames: readonly { readonly rows: readonly OptionRow[]; readonly names: Readonly<Record<string, OuterName>> }[]
 }
 
