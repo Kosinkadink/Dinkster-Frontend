@@ -94,6 +94,7 @@ function mount(options: {
     collabTabs,
     boards: { entries: createCoreSignal([]) },
     backends: createCoreSignal([]),
+    backendsTick: createCoreSignal(0),
     collabActorId: 'local-actor-with-a-deliberately-long-identity',
     collabBackend: () => options.backend === false ? undefined : {},
     listCollabSessions: list,
@@ -208,6 +209,64 @@ afterEach(() => {
 })
 
 describe('CollabPanel', () => {
+  it('discards the old backend discovery after retargeting and joins only the new backend Board', async () => {
+    localStorage.clear()
+    sessionStorage.clear()
+    const oldList = deferred<void>()
+    const boardA = emptyBoard()
+    const boardB = emptyBoard()
+    let scope = ''
+    const sessionFor = (baseUrl: string): CollabSessionDescriptor => ({
+      ...descriptor(baseUrl === 'http://discovery-a' ? 'board-a' : 'board-b',
+        baseUrl === 'http://discovery-a' ? boardA.lineage : boardB.lineage),
+      documentKind: 'board', scope, revision: 0, snapshotRevision: 0,
+    })
+    const transport: CollabTransport = {
+      list: async (baseUrl, requestedScope) => {
+        if (baseUrl === 'http://discovery-a') await oldList.promise
+        return requestedScope === scope ? [sessionFor(baseUrl)] : []
+      },
+      get: async (baseUrl, sessionId) => baseUrl === 'http://discovery-b' && sessionId === 'board-b'
+        ? sessionFor(baseUrl) : undefined,
+      create: async () => { throw new Error('Unexpected publication') },
+      end: async () => {},
+      connect: () => ({
+        sessionId: 'board-b',
+        fetchSnapshot: async () => ({ revision: 0, document: boardB }),
+        fetchOps: async () => ({ kind: 'ops', ops: [] }),
+        putSnapshot: async () => ({ kind: 'ok' }),
+        postOp: async () => ({ kind: 'error', message: 'Unexpected edit' }),
+        sendPresence: () => {},
+        onEvent: (listener) => {
+          queueMicrotask(() => listener({ kind: 'connected', descriptor: sessionFor('http://discovery-b') }))
+          return () => {}
+        },
+        close: () => {},
+      }),
+    }
+    const app = new AppState({ collabTransport: transport })
+    productionApps.push(app)
+    scope = app.boards.scope
+    const a = app.addBackend('http://discovery-a', 'A', false, 'dinkster')!
+    const b = app.addBackend('http://discovery-b', 'B', false, 'dinkster')!
+    const workflow = app.activeTab()!
+    app.setTabTarget(workflow.id, a.id)
+    app.settings.set('features.board.enabled', true)
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <CollabPanel app={app} requestClose={() => {}} />, root)
+    try {
+      await flush()
+      app.setTabTarget(workflow.id, b.id)
+      oldList.resolve()
+      await vi.waitFor(() => expect(root.querySelector('[data-session-id="board-b"]')).not.toBeNull())
+      expect(root.querySelector('[data-session-id="board-a"]')).toBeNull()
+      root.querySelector<HTMLButtonElement>('[data-session-id="board-b"] [data-testid="collab-join"]')!.click()
+      await vi.waitFor(() => expect(app.activeTabId.get()).toBe(`page:board:${boardB.lineage}`))
+      expect(app.boards.entries.get().map((entry) => entry.session.doc)).toEqual([boardB])
+    } finally { oldList.resolve(); unmount() }
+  })
+
   it('discovers, joins, leaves and ends a session-backed Board without workflow presence', async () => {
     const mounted = mountProductionRace()
     const { app, root } = mounted
