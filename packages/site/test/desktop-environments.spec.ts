@@ -1,4 +1,5 @@
 import { expect, test } from '../../e2e/visual.js'
+import { chooseOption } from '../../e2e/choices.js'
 import type {
   DesktopEnvironment,
   EnvironmentBridge,
@@ -178,10 +179,14 @@ test('advanced controls stay collapsed, preserve saved device choices and invali
   await expect(
     page.getByText('Saved sandbox unavailable; no fallback.'),
   ).toBeVisible()
-  await page.getByLabel('Operation', { exact: true }).selectOption('cleanup')
-  await page
-    .getByLabel('Automatic cleanup', { exact: false })
-    .selectOption('off')
+  await chooseOption(
+    page.getByLabel('Operation', { exact: true }),
+    'Snapshot cleanup / retry',
+  )
+  await chooseOption(
+    page.getByLabel('Automatic cleanup', { exact: false }),
+    'Off; do not collect',
+  )
   await page
     .getByLabel('Previous snapshots to keep', { exact: false })
     .fill('7')
@@ -298,7 +303,7 @@ for (const selection of [
       .click()
     await expect(
       page.getByLabel('Hardware variant', { exact: true }),
-    ).toHaveValue(selection.variant)
+    ).toHaveText(selection.variant)
     await page
       .getByLabel('Assigned NVIDIA devices', { exact: true })
       .evaluate((input) => {
@@ -394,7 +399,7 @@ for (const subset of [false, true]) {
       ['win-nvidia', subset ? ['GPU-second'] : ['GPU-first', 'GPU-second']],
       ['win-nvidia-older', ['GPU-second']],
     ] as const) {
-      await variant.selectOption(build)
+      await chooseOption(variant, build)
       await assignment.evaluate((input) =>
         window.scrollTo(
           0,
@@ -447,9 +452,9 @@ test('a refused inspection preserves the explicit device assignment', async ({
   await expect(
     page.getByLabel('Assigned NVIDIA devices', { exact: true }),
   ).toHaveValue('GPU-second')
-  await expect(
-    page.getByLabel('Hardware variant', { exact: true }),
-  ).toHaveValue('')
+  await expect(page.getByLabel('Hardware variant', { exact: true })).toHaveText(
+    'Keep current / inspect first',
+  )
 })
 
 test('install requires explicit variant and shows field errors without a native request', async ({
@@ -471,16 +476,19 @@ test('install requires explicit variant and shows field errors without a native 
   await page
     .getByRole('button', { name: 'Inspect hardware and variants' })
     .click()
-  await expect(
-    page.getByLabel('Hardware variant', { exact: true }),
-  ).toHaveValue('')
+  await expect(page.getByLabel('Hardware variant', { exact: true })).toHaveText(
+    'Keep current / inspect first',
+  )
   await page
     .getByRole('button', { name: 'Review environment plan', exact: true })
     .click()
   await expect(
     page.getByLabel('Hardware variant', { exact: true }),
   ).toHaveAttribute('aria-invalid', 'true')
-  await page.getByLabel('Hardware variant', { exact: true }).selectOption('cpu')
+  await chooseOption(
+    page.getByLabel('Hardware variant', { exact: true }),
+    'cpu',
+  )
   await page.getByLabel('Supervisor port', { exact: true }).fill('65536')
   await page
     .getByRole('button', { name: 'Review environment plan', exact: true })
@@ -532,8 +540,14 @@ test('read-only source review never offers Apply and source/development intent s
 }) => {
   await page.goto('/desktop-environments.html')
   await page.getByRole('button', { name: 'Manage Render', exact: true }).click()
-  await page.getByLabel('Operation', { exact: true }).selectOption('source')
-  await page.getByLabel('Source action', { exact: true }).selectOption('refs')
+  await chooseOption(
+    page.getByLabel('Operation', { exact: true }),
+    'Managed Git sources',
+  )
+  await chooseOption(
+    page.getByLabel('Source action', { exact: true }),
+    'List repository refs and tags (read-only)',
+  )
   await page
     .getByLabel('Public HTTPS repository URL', { exact: false })
     .fill('https://github.com/Kosinkadink/Dinkster')
@@ -541,9 +555,10 @@ test('read-only source review never offers Apply and source/development intent s
   await expect(
     page.getByRole('button', { name: 'Confirm and apply' }),
   ).toHaveCount(0)
-  await page
-    .getByLabel('Source kind', { exact: true })
-    .selectOption('development')
+  await chooseOption(
+    page.getByLabel('Source kind', { exact: true }),
+    'Development - unpublished sources',
+  )
   await page
     .getByLabel('Engine source', { exact: true })
     .fill('/sources/engine')
@@ -554,9 +569,10 @@ test('read-only source review never offers Apply and source/development intent s
   await page
     .getByRole('button', { name: 'Inspect hardware and variants' })
     .click()
-  await page
-    .getByLabel('Hardware variant', { exact: true })
-    .selectOption('cuda')
+  await chooseOption(
+    page.getByLabel('Hardware variant', { exact: true }),
+    'cuda (override)',
+  )
   await page.getByRole('button', { name: 'Review environment plan' }).click()
   await expect(
     page.getByRole('button', { name: 'Confirm and apply' }),
@@ -608,9 +624,10 @@ test('remote saves remain remote-only and WSL selection requires a matching priv
   await page
     .getByLabel('Server URL', { exact: true })
     .fill('https://studio.example.test:8443')
-  await page
-    .getByLabel('Remote channel', { exact: true })
-    .selectOption('nightly')
+  await chooseOption(
+    page.getByLabel('Remote channel', { exact: true }),
+    'Nightly',
+  )
   await page
     .getByRole('button', { name: 'Save remote binding', exact: true })
     .click()
@@ -622,7 +639,10 @@ test('remote saves remain remote-only and WSL selection requires a matching priv
   ).toHaveValue('')
   await page.getByRole('button', { name: 'Manage Render', exact: true }).click()
   await page.getByText('Advanced settings', { exact: true }).click()
-  await page.getByLabel('Engine host', { exact: true }).selectOption('wsl2')
+  await chooseOption(
+    page.getByLabel('Engine host', { exact: true }),
+    'WSL2 - private Linux disk (Windows x64)',
+  )
   await expect(
     page.getByLabel('Install location', { exact: true }),
   ).toHaveValue('')
@@ -767,7 +787,10 @@ test('cleanup bounds and engine identifiers validate before review while read-on
   await page.goto('/desktop-environments.html')
   await page.getByRole('button', { name: 'Manage Render', exact: true }).click()
   await page.getByText('Advanced settings', { exact: true }).click()
-  await page.getByLabel('Operation', { exact: true }).selectOption('cleanup')
+  await chooseOption(
+    page.getByLabel('Operation', { exact: true }),
+    'Snapshot cleanup / retry',
+  )
   for (const invalid of ['0', '101', '1.5']) {
     await page
       .getByLabel('Previous snapshots to keep', { exact: false })
@@ -861,7 +884,10 @@ test('cleanup bounds and engine identifiers validate before review while read-on
       },
     }),
   )
-  await page.getByLabel('Operation', { exact: true }).selectOption('space')
+  await chooseOption(
+    page.getByLabel('Operation', { exact: true }),
+    'Disk space (read-only)',
+  )
   await page
     .getByRole('button', { name: 'Review environment plan', exact: true })
     .click()

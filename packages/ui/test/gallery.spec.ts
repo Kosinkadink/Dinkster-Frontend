@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '../../e2e/visual.js'
+import { chooseOption } from '../../e2e/choices.js'
 import axe from 'axe-core'
 
 declare global {
@@ -657,10 +658,8 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await page.getByLabel('First choice').focus()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByLabel('Second choice')).toBeChecked()
-  await page
-    .getByLabel('Access', { exact: true })
-    .selectOption({ label: 'Mint only' })
-  await expect(page.getByLabel('Access', { exact: true })).toHaveValue(
+  await chooseOption(page.getByLabel('Access', { exact: true }), 'Mint only')
+  await expect(page.getByLabel('Access', { exact: true })).toHaveText(
     'Mint only',
   )
   await page.getByLabel('Selected unavailable radio').scrollIntoViewIfNeeded()
