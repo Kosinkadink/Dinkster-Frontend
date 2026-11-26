@@ -369,14 +369,14 @@ undo step.
 - **Subgraphs.** A button writes a field where a hand edit writes it.
   Promoted fields belong to that use; other fields belong to the shared
   subgraph and change in every use. With two uses, the result says
-  "Also changed in the other use of <subgraph name>." With more, it says
-  "Also changed in the other N uses of <subgraph name>.", counting only the
+  `Also changed in the other use of "<subgraph name>".` With more, it says
+  `Also changed in the other N uses of "<subgraph name>".`, counting only the
   other uses; with one use, it says nothing.
   AddNode adds its node and wires to the shared definition, so every use
   gets the same insertion. It skips a field whose effective driver in the
   pressing use is not a definition wire. It never makes an instance unique.
-  With two uses, its result says "Also added in the other use of <subgraph name>."
-  With more, it says "Also added in the other N uses of <subgraph name>.",
+  With two uses, its result says `Also added in the other use of "<subgraph name>".`
+  With more, it says `Also added in the other N uses of "<subgraph name>".`,
   counting only the other uses; with one use, it says nothing.
   When a press does both, the AddNode sentence comes first.
   A subgraph node does not show its inner buttons yet: a shown

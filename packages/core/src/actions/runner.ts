@@ -1738,7 +1738,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
         }, 0)
       }
       const uses = count(session.doc.root, new Set())
-      if (uses > 1) press.notes.push(`Also ${verb} in the other ${uses === 2 ? 'use' : `${uses - 1} uses`} of ${session.doc.graphs[graphId]!.name}.`)
+      if (uses > 1) press.notes.push(`Also ${verb} in the other ${uses === 2 ? 'use' : `${uses - 1} uses`} of "${session.doc.graphs[graphId]!.name}".`)
     }
     const part = parts[index]!
     const committed = viewOf(session.doc, part, host)

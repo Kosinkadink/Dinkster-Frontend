@@ -738,13 +738,13 @@ describe('each step', () => {
           { step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} },
           { step: 'addNode', nodeType: 'test.add_processor', to: 'other', values: {} },
         ]) }], host)
-        expect(mixed).toMatchObject({ kind: 'done', message: 'Also added in the other use of Shared body.\nSkipped value: it is wired from outside this subgraph.' })
+        expect(mixed).toMatchObject({ kind: 'done', message: 'Also added in the other use of "Shared body".\nSkipped value: it is wired from outside this subgraph.' })
         expect(Object.keys(session.doc.graphs['g1']!.nodes)).toHaveLength(3)
         expect(session.undo()).toBe(true)
         expect(session.canUndo).toBe(false)
         continue
       }
-      expect(outcome.message).toBe('Also added in the other use of Shared body.')
+      expect(outcome.message).toBe('Also added in the other use of "Shared body".')
       const fresh = Object.values(session.doc.graphs['g1']!.nodes).find((node) => !Object.hasOwn(body.nodes, node.id))!
       expect(fresh.type).toBe('test.add_processor')
       expect(Object.keys(session.doc.graphs['g1']!.nodes)).toHaveLength(3)
@@ -782,7 +782,7 @@ describe('each step', () => {
           const varied = createLocalSession({ ...doc, graphs: { ...doc.graphs, g0: { ...doc.graphs['g0']!, nodes } } }, host.commands, { schemaResolverFor: host.schemaResolverFor! })
           const result = await runPress(varied, { graphId: 'g1', nodeId: 'inner', instancePath: path('left'), button: 'add' }, host)
           expect(result.kind).toBe('done')
-          expect(result.notes).toEqual(uses === 1 ? [] : ['Also added in the other 2 uses of Shared body.'])
+          expect(result.notes).toEqual(uses === 1 ? [] : ['Also added in the other 2 uses of "Shared body".'])
         }
       }
       if (driver === 'reroute') {
@@ -1591,7 +1591,7 @@ describe('steps inside a subgraph occurrence', () => {
       const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
       const outcome = await runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: ['left'], button: 'increase' }, host)
       expect(outcome).toMatchObject({ kind: 'done', notes: !promoted && uses > 1
-        ? [`Also changed in the other ${uses === 2 ? 'use' : '2 uses'} of shared.`] : [] })
+        ? [`Also changed in the other ${uses === 2 ? 'use' : '2 uses'} of "shared".`] : [] })
       expect(valuesOf(session, 'left')).toEqual({ shown: 42, ...(promoted ? { ownShared: 4 } : {}) })
       expect(session.doc.graphs['g1']!.nodes['inner']!.values).toEqual({ shared: promoted ? 3 : 4 })
       for (const id of ['right', 'third']) if (root.graphs['g0']!.nodes[id]) {
