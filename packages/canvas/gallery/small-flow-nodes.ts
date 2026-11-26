@@ -707,7 +707,7 @@ export function smallFlowNodesGallery(
 
   cards.push({
     caption:
-      'Unpack starts with no outputs and offers Set count. With no list wire it says "Connect a list or record", including after a count has been saved. Here the left node is new and the right has a saved count of 2; each keeps its own count. A whole count from 0 to 512 is accepted in one undo step; a count outside that range is refused without changing anything.',
+      'Unpack starts with no outputs and offers Set count. With no list wire it says "Connect a list or record", including after a count has been saved. Here the left node is new and the right has a saved count of 2; each keeps its own count. The number field explains a typed correction to 0 through 512 before Enter chooses it. A count arriving another way outside that range is refused whole, without changing anything.',
     scene: scene({
       root: {
         nodes: {
