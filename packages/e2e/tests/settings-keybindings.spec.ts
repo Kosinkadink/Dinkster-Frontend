@@ -1,11 +1,12 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, setShellRegion, waitForWorkspaceReady } from './fixtures.js'
+import { expect, test, setShellRegion, waitForWorkspaceReady, mockProjectPacks } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_I18N_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
 
 test.beforeEach(async ({ page }) => {
+  await mockProjectPacks(page)
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 2 }, packs: {}, nodes: {},
   } }))
