@@ -21,7 +21,7 @@ import {
   User,
   type LucideIcon,
 } from 'lucide-solid'
-import { ProductIcon, type ProductRole } from './controls.js'
+import { ProductIcon, ProductTextInput, type ProductRole } from './controls.js'
 import { useProductStrings } from './strings.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import tokens from '@dinkster/branding/components' with { type: 'json' }
@@ -82,19 +82,30 @@ function Menu(props: {
   project?: boolean
   iconOnly?: boolean | undefined
   fill?: 'quiet' | undefined
+  align?: 'start' | 'end' | undefined
   busy?: boolean
   title?: string
   attention?: ProductAttention | undefined
+  filter?: { label: string; placeholder?: string } | undefined
   onTrigger?: (() => void) | undefined
   onOpen?: (() => void) | undefined
   children: JSX.Element
 }) {
   const strings = useProductStrings()
   const [open, setOpen] = createSignal(false)
+  const [query, setQuery] = createSignal('')
+  const [activeItem, setActiveItem] = createSignal<HTMLButtonElement>()
+  const entries = createMemo(() => {
+    const search = props.filter ? query().trim().toLocaleLowerCase() : ''
+    return search
+      ? props.items.filter((entry) => menuItem(entry)?.label.toLocaleLowerCase().includes(search))
+      : props.items
+  })
   const id = createUniqueId()
   let root!: HTMLDivElement
   let trigger!: HTMLButtonElement
   let menu!: HTMLDivElement
+  let filterInput: HTMLInputElement | undefined
   const close = (restoreFocus = false) => {
     setOpen(false)
     if (restoreFocus) trigger.focus()
@@ -108,7 +119,24 @@ function Menu(props: {
       '[role^="menuitem"]:not(:disabled)',
     ),
   ]
+  createEffect(() => {
+    entries()
+    if (open() && props.filter) queueMicrotask(() => {
+      if (!open()) return
+      const item = enabledItems()[0]
+      setActiveItem(item)
+      if (item) revealItem(item)
+    })
+  })
+  const revealItem = (item: HTMLButtonElement) => {
+    const bounds = item.getBoundingClientRect()
+    const top = filterInput?.parentElement?.getBoundingClientRect().bottom ?? menu.getBoundingClientRect().top
+    const bottom = menu.getBoundingClientRect().top + menu.clientHeight
+    if (bounds.top < top) menu.scrollTop += bounds.top - top
+    else if (bounds.bottom > bottom) menu.scrollTop += bounds.bottom - bottom
+  }
   const show = (last = false) => {
+    setQuery('')
     setOpen(true)
     props.onOpen?.()
     queueMicrotask(() => {
@@ -136,17 +164,18 @@ function Menu(props: {
         menu.style.top = `${placement.top}px`
         menu.style.maxHeight = `${placement.maxHeight}px`
         const items = enabledItems()
-        ;(items[last ? items.length - 1 : 0] ?? menu).focus()
+        ;(props.filter ? filterInput : items[last ? items.length - 1 : 0] ?? menu)?.focus({ preventScroll: !!props.filter })
         return
       }
-      // Left edges align; a trigger too near the right edge of the window
-      // aligns right edges instead, before the shared clamp applies.
+      // Explicit end alignment and triggers near the window's right edge
+      // align right edges before the shared clamp applies.
       const fitsFromLeft =
         anchor.left + surface.width <= window.innerWidth - margin
       const placement = placeFloatingSurface({
         surface,
         anchor: {
           left:
+            props.align !== 'end' &&
             fitsFromLeft &&
             !(props.account && trigger.closest('[data-density="site"]'))
               ? anchor.left
@@ -165,7 +194,7 @@ function Menu(props: {
       menu.style.top = `${placement.top}px`
       menu.style.maxHeight = `${placement.maxHeight}px`
       const items = enabledItems()
-      ;(items[last ? items.length - 1 : 0] ?? menu).focus()
+      ;(props.filter ? filterInput : items[last ? items.length - 1 : 0] ?? menu)?.focus({ preventScroll: !!props.filter })
     })
   }
   // Dismissal listeners exist only while the menu is open, so a page with
@@ -238,25 +267,35 @@ function Menu(props: {
       <Show when={open()}>
         <div
           ref={menu}
-          id={id}
+          id={props.filter ? `${id}-surface` : id}
           class="dinkster-menu dinkster-menu-popover"
           data-account={props.account ? '' : undefined}
           data-project={props.project ? '' : undefined}
-          role="menu"
+          role={props.filter ? 'group' : 'menu'}
           tabindex="-1"
           aria-label={props.menuName}
           aria-describedby={props.identity ? `${id}-identity` : undefined}
+          onPointerMove={(event) => {
+            if (!props.filter) return
+            const item = (event.target as Element).closest<HTMLButtonElement>('.dinkster-menu-item:not(:disabled)')
+            if (item) setActiveItem(item)
+          }}
+          onFocusIn={(event) => {
+            if (props.filter && event.target.matches('.dinkster-menu-item:not(:disabled)')) setActiveItem(event.target as HTMLButtonElement)
+          }}
           onKeyDown={(event) => {
+            if (event.isComposing) return
             if (event.key === 'Escape') {
               event.preventDefault()
               event.stopPropagation()
               close(true)
             }
             if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+              if (event.target === filterInput && (event.key === 'Home' || event.key === 'End')) return
               event.preventDefault()
               const items = enabledItems()
               const current = items.indexOf(
-                document.activeElement as HTMLButtonElement,
+                event.target === filterInput ? activeItem()! : document.activeElement as HTMLButtonElement,
               )
               const last = items.length - 1
               const next =
@@ -271,10 +310,35 @@ function Menu(props: {
                       : current <= 0
                         ? last
                         : current - 1
-              items[next]?.focus()
+              const item = items[next]
+              if (event.target === filterInput) {
+                setActiveItem(item)
+                if (item) revealItem(item)
+              } else item?.focus()
             }
           }}
         >
+          <Show when={props.filter}>
+            {(filter) => (
+              <div class="dinkster-menu-filter">
+                <ProductTextInput
+                  ref={filterInput}
+                  aria-label={filter().label}
+                  aria-controls={id}
+                  aria-activedescendant={activeItem()?.id}
+                  placeholder={filter().placeholder}
+                  value={query()}
+                  onInput={(event) => setQuery(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.isComposing) {
+                      event.preventDefault()
+                      activeItem()?.click()
+                    }
+                  }}
+                />
+              </div>
+            )}
+          </Show>
           <Show when={props.identity}>
             {(identity) => (
               <div
@@ -291,7 +355,8 @@ function Menu(props: {
           </Show>
           {/* Index keeps each item's button when the host passes new item objects, so an open
               menu whose items update (a count arriving) keeps focus and stays open. */}
-          <Index each={props.items}>
+          <div id={props.filter ? id : undefined} role={props.filter ? 'menu' : undefined} aria-label={props.filter ? props.menuName : undefined}>
+          <Index each={entries()}>
             {(entry) => (
               <Switch>
                 <Match when={entry() === 'separator'}>
@@ -310,6 +375,7 @@ function Menu(props: {
                     // A function, so the row and the plain item each get their own element.
                     const button = () => (
                       <button
+                        id={`${descriptionId}-item`}
                         type="button"
                         role={
                           item().checked === undefined
@@ -326,6 +392,7 @@ function Menu(props: {
                             : item().description ? item().label : undefined
                         })()}
                         class="dinkster-menu-item"
+                        data-active={props.filter && activeItem()?.id === `${descriptionId}-item` ? '' : undefined}
                         data-description={item().description ? '' : undefined}
                         data-role={item().intent ?? 'neutral'}
                         disabled={item().disabled}
@@ -363,10 +430,12 @@ function Menu(props: {
                           <div class="dinkster-menu-row" role="none">
                             {button()}
                             <button
+                              id={`${descriptionId}-action`}
                               type="button"
                               role="menuitem"
                               tabindex="-1"
                               class="dinkster-menu-item dinkster-menu-row-action"
+                              data-active={props.filter && activeItem()?.id === `${descriptionId}-action` ? '' : undefined}
                               aria-label={`${action().label}: ${item().label}`}
                               title={action().label}
                               onClick={() => {
@@ -385,6 +454,10 @@ function Menu(props: {
               </Switch>
             )}
           </Index>
+          </div>
+          <Show when={props.filter && !entries().some((entry) => menuItem(entry))}>
+            <div class="dinkster-menu-note" role="status">{strings.noMenuMatches}</div>
+          </Show>
         </div>
       </Show>
     </div>
@@ -400,8 +473,12 @@ export function ProductMenu(props: {
   iconOnly?: boolean
   /** A borderless text trigger; absent keeps the outlined trigger. */
   fill?: 'quiet'
+  /** The preferred trigger edge, before viewport clamping. */
+  align?: 'start' | 'end'
   /** Shown on the trigger's corner and read after its name. */
   attention?: ProductAttention | undefined
+  /** Filters canonical item labels; descriptions and custom presentation do not affect matches. */
+  filter?: { label: string; placeholder?: string }
 }) {
   return (
     <Menu
@@ -411,7 +488,9 @@ export function ProductMenu(props: {
       identity={props.identity}
       iconOnly={props.iconOnly}
       fill={props.fill}
+      align={props.align}
       attention={props.attention}
+      filter={props.filter}
     >
       <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
       <Show when={!props.iconOnly}><span class="dinkster-menu-label" data-compact={!!props.icon}>
