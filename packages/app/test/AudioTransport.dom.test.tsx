@@ -83,7 +83,7 @@ describe('shared audio transport lifecycle', () => {
     position.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: 87, bubbles: true }))
     await next()
     expect(position.getAttribute('aria-valuenow')).toBe('3.7')
-    expect(root.textContent).toContain('3.7 / 10.0s')
+    expect(root.textContent).toContain('0:03 / 0:10')
     position.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
     await next()
     expect(position.getAttribute('aria-valuenow')).toBe('3.69')
@@ -142,7 +142,7 @@ describe('shared audio transport lifecycle', () => {
     Object.defineProperty(audio, 'duration', { value: 3 })
     audio.dispatchEvent(new Event('loadedmetadata'))
     expect(root.querySelector('[aria-label="Audio position"]')?.getAttribute('aria-disabled')).toBe('true')
-    expect(root.textContent).toContain('0.0 / ?s')
+    expect(root.textContent).toContain('0:00 / --:--')
     expect(root.textContent).toContain('Duration (s): Not reported')
     expect(root.textContent).not.toMatch(/NaN|Infinity/)
     const requests = load.mock.calls.length

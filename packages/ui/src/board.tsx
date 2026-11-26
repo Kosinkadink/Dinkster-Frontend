@@ -39,6 +39,7 @@ import {
   ProductTextInput,
 } from './controls.js'
 import { ProductAudioWaveform } from './audio-waveform.js'
+import { useFieldFocus } from './field-focus.js'
 
 export interface ProductBoardProps {
   readonly store: BoardStore
@@ -253,15 +254,6 @@ function BoardMedia(props: {
               }}
               onEnded={() => setPlaying(false)}
             />
-            <Show when={!unreadable()}>
-              <ProductAudioWaveform
-                path={waveform()}
-                ariaLabel={`Waveform of ${props.item.asset.name}`}
-                duration={duration() ?? 0}
-                value={elapsed()}
-                onSeek={seek}
-              />
-            </Show>
           </>
         }
       >
@@ -305,6 +297,15 @@ function BoardMedia(props: {
               void toggle()
             }}
           />
+          <Show when={props.item.kind === 'sound'}>
+            <ProductAudioWaveform
+              path={waveform()}
+              ariaLabel={`Waveform of ${props.item.asset.name}`}
+              duration={duration() ?? 0}
+              value={elapsed()}
+              onSeek={seek}
+            />
+          </Show>
           <Show when={props.item.kind === 'video'}>
             <div
               class="dinkster-board-video-track"
@@ -316,6 +317,9 @@ function BoardMedia(props: {
               aria-valuenow={elapsed()}
               onPointerDown={scrubStart}
               onPointerMove={scrubMove}
+              onPointerUp={(event) =>
+                event.currentTarget.releasePointerCapture(event.pointerId)
+              }
               onKeyDown={scrubKey}
             >
               <span
@@ -327,7 +331,7 @@ function BoardMedia(props: {
               />
             </div>
           </Show>
-          <Show when={mediaLength(duration())}>
+          <Show when={props.item.kind === 'video' && mediaLength(duration())}>
             {(length) => (
               <span class="dinkster-board-media-time">
                 {mediaLength(Math.floor(elapsed()))} / {length()}
@@ -342,6 +346,7 @@ function BoardMedia(props: {
 
 /** A board owns its camera and selection; every document edit goes through its store. */
 export function ProductBoard(props: ProductBoardProps) {
+  useFieldFocus()
   const [document, setDocument] = createSignal(props.store.doc)
   const [selected, setSelected] = createSignal<string>()
   const [editingSection, setEditingSection] = createSignal<string>()
@@ -862,7 +867,11 @@ export function ProductBoard(props: ProductBoardProps) {
                         </div>
                       )}
                     </Show>
-                    <Show when={selected() === item.id}>
+                    <Show
+                      when={
+                        selected() === item.id && editingNote() !== item.id
+                      }
+                    >
                       <Show when={'asset' in item && item}>
                         {(media) => (
                           <div class="dinkster-board-caption">

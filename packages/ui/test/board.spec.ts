@@ -40,9 +40,7 @@ test('pictures move and resize without changing their shape, and edits undo and 
   await page.keyboard.press('ArrowLeft')
   const expanded = (await picture.boundingBox())!
   expect(expanded.width).toBeCloseTo(anchored.width + 10)
-  expect(expanded.x + expanded.width).toBeCloseTo(
-    anchored.x + anchored.width,
-  )
+  expect(expanded.x + expanded.width).toBeCloseTo(anchored.x + anchored.width)
   expect(expanded.y + expanded.height).toBeCloseTo(
     anchored.y + anchored.height,
   )
@@ -95,8 +93,32 @@ test('moving a section moves its contents, notes edit, and a new note is undoabl
   const noteItem = page.locator('[data-board-item="note-1"]')
   await noteItem.click()
   await expect(noteItem.getByRole('textbox')).toHaveCount(0)
+  const text = await noteItem
+    .locator('.dinkster-board-note-text')
+    .evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      return {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        font: getComputedStyle(element).font,
+      }
+    })
   await page.keyboard.press('Enter')
   const note = page.getByRole('textbox', { name: 'Note text' })
+  const editor = await note.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      font: getComputedStyle(element).font,
+    }
+  })
+  expect(editor).toEqual(text)
+  await expect(note).toHaveCSS('padding', '0px')
+  await expect(note).toHaveCSS('outline-style', 'none')
+  await expect(noteItem.getByRole('separator')).toHaveCount(0)
   await note.fill('Keep the reflections, not the camera angle.')
   await note.press('Tab')
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
@@ -166,9 +188,7 @@ test('sound and video play in place, and media can move, resize and undo removal
       name: id === 'sound-1' ? `Waveform of ${name}` : `Seek ${name}`,
     })
     await expect(progress).toHaveAttribute('aria-valuenow', String(elapsed))
-    await expect(
-      item.locator('.dinkster-board-media-control'),
-    ).toContainText(
+    await expect(item.locator('.dinkster-board-media-control')).toContainText(
       `0:${Math.floor(elapsed).toString().padStart(2, '0')} / 0:04`,
     )
     await page.waitForTimeout(300)

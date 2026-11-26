@@ -165,7 +165,6 @@ export function AudioTransport(props: {
           else if (element?.ended && props.media.audio) void load(0, batch(), true)
           else void play()
         }}>{playing() ? 'Pause' : 'Play'}</button>
-        <span>{time().toFixed(1)} / {duration() > 0 ? duration().toFixed(1) : '?'}s</span>
       </div>
       <div class="audio-transport-row">
         <label><input type="checkbox" checked={loop()} onChange={(event) => setLoop(event.currentTarget.checked)} /> Loop</label>
