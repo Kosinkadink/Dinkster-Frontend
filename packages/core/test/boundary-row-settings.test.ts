@@ -164,6 +164,37 @@ describe('boundary row settings', () => {
     expect(hidden(0.8)).toBe(true)
   })
 
+  it('refuses named-net deliveries to promoted pinless fields through either wrapper depth without changing drivers', () => {
+    const inner = schemasWith({ min: 0, max: 1 })('Blend')!
+    const resolve = (type: string): NodeSchema | undefined => type === 'Blend'
+      ? { ...inner, body: [...inner.body.map((row) => row.kind === 'input' && row.id === 'strength' ? { ...row, socketless: true } : row), { ...strengthInput(0, 1), id: 'other' }] }
+      : type === 'Source' ? schemaOf('Source', [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }]) : undefined
+    for (const nested of [false, true]) {
+      const inputs = [...baseInputs(), item('other', 'other', { promoted: true })]
+      const initial = soften(inputs)
+      const doc = { ...initial, graphs: {
+        ...initial.graphs,
+        ...(nested ? { middle: {
+          ...initial.graphs.g0!, id: 'middle',
+          boundary: { body: inputs.map((entry) => ({ ...entry, kind: 'input', binds: { kind: 'port', node: 'soft', port: entry.id } })) },
+        } } : {}),
+        g0: { ...initial.graphs.g0!, nodes: {
+          soft: { id: 'soft', type: nested ? '#middle' : '#sub', values: {} },
+          source: { id: 'source', type: 'Source', values: {} },
+        } },
+      } } as unknown as WorkflowDocument
+      const store = storeFor(doc, resolve)
+      expect(store.dispatch({ command: 'net.create', params: { graphId: 'g0', name: 'Shared strength', source: { node: 'source', port: 'out' } } }).ok).toBe(true)
+      const netId = Object.keys(store.doc.graphs.g0!.nets)[0]!
+      expect(store.dispatch({ command: 'net.connectInput', params: { graphId: 'g0', netId, to: { node: 'soft', port: 'other' } } }).ok).toBe(true)
+      const before = store.doc
+      const result = store.dispatch({ command: 'net.connectInput', params: { graphId: 'g0', netId, to: { node: 'soft', port: 'strength' } } })
+      expect(result.ok).toBe(false)
+      expect(store.doc).toBe(before)
+      expect(store.doc.graphs.g0!.nets[netId]!.sinks).toEqual([{ node: 'soft', port: 'other' }])
+    }
+  })
+
   it('refuses a condition that names something other than an input, and reports one whose input was removed', () => {
     const store = storeFor(soften(baseInputs()))
     const refused = store.dispatch({ command: 'boundary.setVisible', params: { graphId: 'sub', itemId: 'strength', formula: 'linked(nope)' } })

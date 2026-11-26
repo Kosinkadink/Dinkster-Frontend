@@ -75,8 +75,8 @@ stored value, a wire, a cache key or what a run sends.
   language can name are offered; when some cannot be, a quiet line says that
   inputs from an imported workflow cannot be used in a condition yet. A
   condition whose input was removed is a problem on the row, and the row
-  shows. The condition is stored and checked; the subgraph node does not hide
-  rows by it.
+  shows. A valid condition hides the row on each subgraph node when false,
+  including a field that shares a line; its stored value is kept.
 - An input pin also says whether it may be left empty. The nodes inside
   decide that; it is not a setting.
 - **Remove from subgraph node** opens a confirmation that says how many places

@@ -1434,7 +1434,7 @@ const netCreate: CommandDefinition = {
 
 const netConnectInput: CommandDefinition = {
   id: 'net.connectInput',
-  run(doc, params, tx) {
+  run(doc, params, tx, context) {
     if (!isObj(params) || typeof params.netId !== 'string' || !isPortRef(params.to))
       return [err('params.invalid', 'net.connectInput: params must be {graphId, netId, to: PortRef}')]
     const def = graphOf(doc, params.graphId)
@@ -1449,6 +1449,8 @@ const netConnectInput: CommandDefinition = {
     if (net.sinks.some((s) => samePortRef(s, target))) return [] // already a sink: no-op
 
     const graphId = params.graphId as string
+    const connErr = connectError(doc, def, graphId, net.source, target, 'net.connectInput', context)
+    if (connErr) return [connErr]
     if (occurrenceDriverConflict(doc, graphId, target))
       return [err('occurrence.topology.definitionReferenced', 'net.connectInput: an occurrence-local link already drives this input')]
     removeDriver(def, graphId, target, tx)
