@@ -512,6 +512,29 @@ describe('each step', () => {
     expect((await press('test.sum_each', 'sum', start.values, hostOf(), start.extra)).values).toMatchObject({
       'loras.lora_1.strength': 0.75, 'loras.lora_2.strength': 0.75, 'loras.lora_3.strength': 0.75,
     })
+    addSchema('test.minimum_each', [
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 2, maxMembers: 4,
+        keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: [
+          { kind: 'input', id: 'source', type: { kind: 'concrete', types: ['INT'] }, default: 13 },
+          { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+        ] },
+      { kind: 'button', id: 'copy', label: 'Copy', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: 'items.source[0] + index()' } }] },
+    ])
+    for (const members of [[], ['m0']]) {
+      const before = documentOf({ n1: { type: 'test.minimum_each', values: members.length === 0 ? {} : { 'items.m0.source': 31, 'items.m0.value': 43 },
+        ...(members.length === 0 ? {} : { dynamic: { items: { members, seq: 1 } } }) } })
+      const session = sessionOf(before)
+      expect((await runPress(session, at('copy'), hostOf())).kind).toBe('done')
+      const first = members.length === 0 ? 13 : 31
+      expect(valuesOf(session)).toMatchObject({ 'items.m0.value': first, 'items.m1.value': first + 1 })
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(valuesOf(session)).toEqual(before.graphs['g0']!.nodes['n1']!.values)
+      expect(session.doc.graphs['g0']!.nodes['n1']!.dynamic?.['items']?.members ?? []).toEqual(members)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+    }
   })
 
   it.each([1, 2])('AddNode shares the node and definition wires at depth %s', async (depth) => {
@@ -745,6 +768,52 @@ describe('what a press may write', () => {
     })
     const mask = documentOf({ n1: { type: 'dev.buttons.ask_steps' } })
     expect(buttonAvailability(mask, at('mask'), host)).toEqual({ enabled: false, reason: 'This editor is not available yet.' })
+  })
+
+  it('checks nested Lookup arguments before making a Call or changing topology', async () => {
+    addSchema('test.nested_lookup', [
+      { kind: 'input', id: 'upstream', type: { kind: 'concrete', types: ['INT'] }, default: 13 },
+      { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+        keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+        ] },
+      ...['addMember', 'addNode'].flatMap((step) => ['upstream', { formula: 'upstream' }, { formula: '37 if True else upstream' }, 'amount'].map((arg, index) => ({
+        kind: 'button', id: `${step}_${index}`, label: 'Add', steps: [
+          { step: 'pick', name: 'amount', options: { value: [19] } },
+          { step: 'call', function: 'probe.wait', args: [], writes: ['marker'] },
+          { step, ...(step === 'addMember' ? { group: 'items' } : { nodeType: 'test.nested_lookup', to: 'upstream' }),
+            values: { [step === 'addMember' ? 'value' : 'marker']: { lookup: 'probe.value', args: [arg] } } },
+        ],
+      }))),
+    ])
+    let calls = 0, lookups = 0
+    const host = hostOf({ pick: async () => 19, call: async () => { calls++; return { kind: 'answer', fields: { marker: 29n }, notes: [] } },
+      lookup: async ({ args }) => { lookups++; return { state: 'ready', value: args[0] } } })
+    for (const step of ['addMember', 'addNode']) {
+      const before = documentOf({ n1: { type: 'test.nested_lookup', values: { marker: 41 } }, src: { type: 'test.nested_lookup' } },
+        link('l1', ['src', 'out'], ['n1', 'upstream']))
+      for (const index of [0, 1]) {
+        const session = sessionOf(before)
+        expect(buttonAvailability(before, at(`${step}_${index}`), host)).toEqual({ enabled: false, reason: 'Needs upstream, which is not known until a run.' })
+        expect((await runPress(session, at(`${step}_${index}`), host)).kind).toBe('failed')
+        expect(session.doc).toEqual(before)
+        expect(session.canUndo).toBe(false)
+      }
+      expect(calls).toBe(0)
+      expect(lookups).toBe(0)
+    }
+    for (const step of ['addMember', 'addNode']) for (const [index, value] of [[2, 37], [3, 19]]) {
+      const session = sessionOf(documentOf({ n1: { type: 'test.nested_lookup' }, src: { type: 'test.nested_lookup' } },
+        link('l1', ['src', 'out'], ['n1', 'upstream'])))
+      expect(buttonAvailability(session.doc, at(`${step}_${index}`), host)).toEqual({ enabled: true })
+      expect((await runPress(session, at(`${step}_${index}`), host)).kind).toBe('done')
+      if (step === 'addMember') expect(valuesOf(session)['items.m0.value']).toBe(value)
+      else expect(Object.values(session.doc.graphs['g0']!.nodes).find((node) => node.id !== 'n1' && node.id !== 'src')?.values['marker']).toBe(value)
+    }
+    expect(calls).toBe(4)
+    expect(lookups).toBe(4)
   })
 })
 

@@ -796,9 +796,10 @@ class Press {
       const group = path.slice(0, dot), row = path.slice(dot + 1)
       this.retainRead(group, true)
       const members = this.view.node.dynamic?.[group]?.members
-      if (members !== undefined) {
+      const minimums = this.view.elaborated.unstoredMinimums?.[group]?.members
+      if (members !== undefined || minimums !== undefined) {
         const values: Exclude<Value, readonly unknown[]>[] = []
-        for (const member of members) {
+        for (const member of [...(members ?? []), ...(minimums ?? [])]) {
           const scope = this.view.contexts.get(`${group}.${member}.`)
           const memberPath = scope?.paths.get(row)
           if (memberPath !== undefined) this.retainRead(memberPath)
@@ -1723,13 +1724,13 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
     targets.push(...scopes.flatMap((scope) => target.fields.map((name) => wiredName(name, scope))))
     const texts: string[] = []
     const names: string[] = []
-    for (const key of ['value', 'low', 'high', 'options', 'url'] as const) texts.push(...formulasOf((step as Record<string, unknown>)[key] as StepValue | undefined))
-    if (step.step === 'addMember' || step.step === 'addNode') for (const value of Object.values(step.values)) texts.push(...formulasOf(value))
-    if (step.step === 'removeMember' && typeof step.which === 'object') texts.push(step.which.formula)
-    for (const key of ['value', 'low', 'high', 'options', 'url'] as const) {
-      const value = (step as Record<string, unknown>)[key] as StepValue | undefined
+    const values = ['value', 'low', 'high', 'options', 'url'].map((key) => (step as Record<string, unknown>)[key] as StepValue | undefined)
+    if (step.step === 'addMember' || step.step === 'addNode') values.push(...Object.values(step.values))
+    for (const value of values) {
+      texts.push(...formulasOf(value))
       if (value?.kind === 'lookup') names.push(...value.args.filter((arg): arg is string => typeof arg === 'string'))
     }
+    if (step.step === 'removeMember' && typeof step.which === 'object') texts.push(step.which.formula)
     if (step.step === 'call') {
       for (const arg of step.args) {
         if (typeof arg === 'string') names.push(arg)
