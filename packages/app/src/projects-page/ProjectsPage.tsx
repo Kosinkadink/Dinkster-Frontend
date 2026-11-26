@@ -7,7 +7,7 @@
  */
 import { createEffect, createMemo, createSignal, createUniqueId, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
-import { AudioLines, BookOpen, Database, Ellipsis, Eye, EyeOff, LayoutGrid, Search, Server, Workflow } from 'lucide-solid'
+import { AudioLines, BookOpen, Database, Ellipsis, Eye, EyeOff, File, Image as ImageIcon, LayoutGrid, Search, Server, Workflow } from 'lucide-solid'
 import { activeLocale, asConnectionId, loadDocument, type SchemaResolver, type WorkflowDocument } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import {
@@ -749,21 +749,27 @@ export function ProjectsView(props: {
             <Show when={!outputsHidden(project().id)}>
               <ProductTileGrid size="narrow">
                 <For each={outputs()}>
-                  {(output) => (
-                    <ProductTile
-                      label={output.asset.name}
-                      disabled={!installation()}
-                      tooltip={installation() ? undefined : unavailable()}
-                      empty={
-                        <>
-                          <ProductIcon icon={AudioLines} />
-                          <span>{output.asset.name}</span>
-                          <span>{output.asset.mediaType.split('/')[0]}</span>
-                        </>
-                      }
-                      onClick={() => open(project())}
-                    />
-                  )}
+                  {(output) => {
+                    const [pictureFailed, setPictureFailed] = createSignal(false)
+                    return (
+                      <ProductTile
+                        label={output.asset.name}
+                        disabled={!installation()}
+                        tooltip={installation() ? undefined : unavailable()}
+                        picture={output.asset.mediaType.startsWith('image/') && !pictureFailed()
+                          ? <img src={`/api/assets/${encodeURIComponent(output.asset.digest)}/preview`} alt="" loading="lazy" onError={() => setPictureFailed(true)} />
+                          : undefined}
+                        empty={
+                          <>
+                            <ProductIcon icon={output.asset.mediaType.startsWith('image/') ? ImageIcon : output.asset.mediaType.startsWith('audio/') ? AudioLines : File} />
+                            <span>{output.asset.name}</span>
+                            <span>{output.asset.mediaType.split('/')[0]}</span>
+                          </>
+                        }
+                        onClick={() => open(project())}
+                      />
+                    )
+                  }}
                 </For>
               </ProductTileGrid>
             </Show>

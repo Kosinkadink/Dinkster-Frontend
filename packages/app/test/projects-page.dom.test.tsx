@@ -260,6 +260,11 @@ it('keeps outputs hidden for one project only, across page loads', async () => {
   await settle()
   const button = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent === label)
   expect(document.querySelector('[aria-label="valley.png"]')).not.toBeNull()
+  const picture = document.querySelector<HTMLImageElement>('[aria-label="valley.png"] img')!
+  expect(picture.getAttribute('src')).toBe('/api/assets/blake3%3A1/preview')
+  picture.dispatchEvent(new Event('error'))
+  expect(document.querySelector('[aria-label="valley.png"] img')).toBeNull()
+  expect(document.querySelector('[aria-label="valley.png"]')?.textContent).toContain('valley.png')
   button('Hide')!.click()
   expect(document.querySelector('[aria-label="valley.png"]')).toBeNull()
   expect(document.body.textContent).toContain('Hidden on this page')
