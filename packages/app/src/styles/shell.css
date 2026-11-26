@@ -732,15 +732,13 @@ section.editor-group:not(:only-of-type):not([data-focused='true']) .tab.active {
 }
 .editor-split-divider[data-direction='row'] { cursor: col-resize; }
 .editor-split-divider[data-direction='column'] { cursor: row-resize; }
-.editor-split-divider:hover,
-.editor-split-divider:focus-visible { background: var(--dinkster-border-focus); outline: none; }
 
 .editor-split-drop-preview {
   position: absolute;
   z-index: 9;
   pointer-events: none;
-  background: color-mix(in srgb, var(--dinkster-border-focus) 18%, transparent);
-  box-shadow: inset 0 0 0 2px var(--dinkster-border-focus);
+  background: var(--dinkster-interaction-hover);
+  box-shadow: inset 0 0 0 var(--dinkster-border-width) var(--dinkster-border-hover);
 }
 
 .activity-log {

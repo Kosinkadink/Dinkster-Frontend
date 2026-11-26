@@ -98,6 +98,7 @@ import {
   FloatingPanelHost,
   IconBar,
   PanelIndicatorBadge,
+  positionResizeGrip,
   ShellRegionIcon,
   ShellResizeHandle,
   ShellTooltip,
@@ -981,9 +982,11 @@ export function App(props: {
     paneEntriesPrev = next
     return next
   })
-  const beginDividerDrag = (divider: SplitDividerRect, down: PointerEvent): void => {
+  const beginDividerDrag = (divider: SplitDividerRect, down: PointerEvent & { currentTarget: HTMLDivElement }): void => {
     if (down.button !== 0 || regionElement === undefined) return
     down.preventDefault()
+    positionResizeGrip(down)
+    down.currentTarget.setPointerCapture(down.pointerId)
     const region = regionElement.getBoundingClientRect()
     // The divider's area (its split node's box) is fixed for the whole
     // drag: only this split's own ratio changes.
@@ -3307,7 +3310,7 @@ export function App(props: {
             <Index each={regionRects().dividers}>
               {(divider) => (
                 <div
-                  class="editor-split-divider"
+                  class="editor-split-divider panel-resize-handle"
                   data-testid="editor-split-divider"
                   role="separator"
                   tabindex="0"
@@ -3318,6 +3321,7 @@ export function App(props: {
                   aria-valuenow={Math.round(divider().ratio * 100)}
                   data-direction={divider().direction}
                   style={rectStyle(divider().rect)}
+                  onPointerMove={positionResizeGrip}
                   onPointerDown={(event) => beginDividerDrag(divider(), event)}
                   onKeyDown={(event) => onDividerKeyDown(divider(), event)}
                 />

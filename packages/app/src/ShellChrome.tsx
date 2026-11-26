@@ -322,7 +322,7 @@ export interface DockZoneSectionView {
 /** Keyboard resize step for the section divider, as a share of the zone. */
 export const DOCK_SECTION_SPLIT_STEP = 0.05
 
-function positionResizeGrip(event: PointerEvent & { currentTarget: HTMLDivElement }): void {
+export function positionResizeGrip(event: PointerEvent & { currentTarget: HTMLDivElement }): void {
   const element = event.currentTarget
   const rect = element.getBoundingClientRect()
   const horizontal = element.getAttribute('aria-orientation') === 'horizontal'
