@@ -98,16 +98,28 @@ export function editorSpaceItems(nodes: readonly {
  */
 export function wiredEditorSummaries(nodes: readonly {
   readonly id: string
-  readonly layout: { readonly rows: readonly LayoutRow[] }
-}[], wires: EditorWires, notKnown: string): EditorSummaryMap {
+  readonly layout: { readonly width?: number; readonly rows: readonly LayoutRow[] }
+  readonly node?: { readonly values?: Readonly<Record<string, Json>> }
+}[], wires: EditorWires, notKnown: string, thumbnails?: (value: Json, width: number) => EditorSummary['thumbnails']): EditorSummaryMap {
   return Object.fromEntries(nodes.flatMap((node) => {
     const summaries = Object.fromEntries(node.layout.rows.flatMap((row): [string, EditorSummary][] => {
-      if (row.kind !== 'widget' || IN_NODE_EDITORS[row.viewId] === undefined || !wires.wired(node.id, row.inputId)) return []
+      if (row.kind !== 'widget') return []
+      const wired = wires.wired(node.id, row.inputId)
+      if (!wired) {
+        const value = node.node?.values?.[row.valueKey]
+        const pictures = row.viewId === 'core.asset' && !row.unfolded && value !== undefined ? thumbnails?.(value, node.layout.width ?? Infinity) : undefined
+        return pictures === undefined ? [] : [[row.valueKey, { thumbnails: pictures }]]
+      }
+      if (IN_NODE_EDITORS[row.viewId] === undefined && row.viewId !== 'core.asset') return []
       const carried = wires.carried(node.id, row.valueKey)
       if (carried === undefined) return [[row.valueKey, { text: notKnown, placeholder: true, value: null }]]
       const named = typeof carried === 'object' && carried !== null && !Array.isArray(carried) ? (carried as JsonObject)['name'] : undefined
       const name = typeof carried === 'string' ? carried : typeof named === 'string' ? named : undefined
-      return [[row.valueKey, name === undefined || name === '' ? { value: carried } : { text: name, value: carried }]]
+      const pictures = row.viewId === 'core.asset' && !row.unfolded ? thumbnails?.(carried, node.layout.width ?? Infinity) : undefined
+      return [[row.valueKey, {
+        ...(name === undefined || name === '' ? {} : { text: name }), value: carried,
+        ...(pictures === undefined ? {} : { thumbnails: pictures }),
+      }]]
     }))
     return Object.keys(summaries).length === 0 ? [] : [[node.id, summaries]]
   }))

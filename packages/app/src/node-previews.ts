@@ -8,7 +8,7 @@
  * anything and touches no reactive state.
  */
 
-import type { NodePreview, NodePreviewAnimation } from '@dinkster/canvas'
+import { canvasPaintTokens, type EditorSummary, type NodePreview, type NodePreviewAnimation } from '@dinkster/canvas'
 import type { DinksterValuesClient, ExecutionState, PreviewData, PreviewRing } from '@dinkster/client'
 import {
   parseListTypeId,
@@ -225,6 +225,21 @@ export function selectedPreviewAssetForRows(
     }
   }
   return undefined
+}
+
+/** Pictures for a row's own names, in value order; pending previews keep their place. */
+export function assetRowThumbnails(value: Json, loader: PreviewLoader, registry: WidgetRegistry, width = Infinity): EditorSummary['thumbnails'] {
+  // Even an empty name needs this much room with its picture. Files beyond
+  // this bound cannot be visible and must not churn the shared decode cache.
+  let remaining = Math.ceil(width / (canvasPaintTokens.widget.valueThumbnail.size + canvasPaintTokens.widget.valueThumbnail.gap))
+  const pictures = (Array.isArray(value) ? value : [value]).map((asset) => {
+    const selected = selectedPreviewAssetForRows({ asset }, [{ widgetType: 'ASSET', valueKey: 'asset' }], registry.previewRendererFor.bind(registry))
+    if (selected === undefined || selected.name.trim() === '' || (selected.mediaKind !== 'image' && selected.mediaKind !== 'video')) return undefined
+    if (remaining-- <= 0) return null
+    const source = loader.inputAssetSource?.(selected.digest, selected.mediaType, selected.mediaKind)
+    return source === undefined ? null : loader.resolve(source)?.image ?? null
+  })
+  return pictures.some((picture) => picture !== undefined) ? pictures : undefined
 }
 
 export interface NodePreviewExecutionOutput {
@@ -573,6 +588,42 @@ export function createPreviewLoader(deps: {
     return img.decode().then(() => ({ image: img, width: img.naturalWidth, height: img.naturalHeight }))
   }
 
+  const decodeVideo = async (src: string, mime: string, signal?: AbortSignal): Promise<NodePreview> => {
+    const video = document.createElement('video')
+    video.preload = 'auto'
+    video.muted = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let abort: (() => void) | undefined
+    try {
+      await new Promise<void>((resolve, reject) => {
+        abort = () => reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
+        timer = setTimeout(() => reject(new Error('Video frame unavailable')), MEDIA_VALIDATION_BUDGET_MS)
+        signal?.addEventListener('abort', abort, { once: true })
+        video.onerror = () => reject(new Error('Video frame unavailable'))
+        video.onloadeddata = () => resolve()
+        video.src = src
+        video.load()
+        if (signal?.aborted) abort()
+      })
+      const frame = document.createElement('canvas')
+      frame.width = video.videoWidth
+      frame.height = video.videoHeight
+      const context = frame.getContext('2d')
+      if (context === null || frame.width === 0 || frame.height === 0) throw new Error('Video frame unavailable')
+      context.drawImage(video, 0, 0)
+      const image = await createImageBitmap(frame)
+      if (signal?.aborted) { image.close(); signal.throwIfAborted() }
+      return { kind: 'video', mime, src, image, width: image.width, height: image.height }
+    } finally {
+      clearTimeout(timer)
+      if (abort !== undefined) signal?.removeEventListener('abort', abort)
+      video.onerror = null
+      video.onloadeddata = null
+      video.removeAttribute('src')
+      video.load()
+    }
+  }
+
   const decodeFrame = (payload: Blob | ArrayBuffer): Promise<NodePreview> =>
     createImageBitmap(payload instanceof Blob ? payload : new Blob([payload])).then((bitmap) => ({
       image: bitmap,
@@ -892,13 +943,6 @@ export function createPreviewLoader(deps: {
     },
 
     inputAssetSource(digest, mediaType, mediaKind) {
-      if (mediaKind === 'video') {
-        return {
-          key: `video-input:${digest}`,
-          mediaKind,
-          load: async () => ({ kind: 'video', status: 'unavailable', statusMessage: 'Video input preview pending server route' }),
-        }
-      }
       const url = deps.assetUrlForInput(digest)
       if (url === undefined) return undefined
       const key = mediaKind !== 'image' ? directMediaKey(digest, mediaType, url) : `asset:${digest}`
@@ -919,6 +963,7 @@ export function createPreviewLoader(deps: {
             try {
               preview = mediaKind === 'audio'
                 ? { kind: mediaKind, mime: mediaType, src } as const
+                : mediaKind === 'video' ? await decodeVideo(src, mediaType, signal)
                 : mediaKind === 'model3d' ? await model3dPreview(src, mediaType) : { ...await decodeUrl(src), src }
               signal?.throwIfAborted()
               return preview
