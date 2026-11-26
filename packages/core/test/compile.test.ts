@@ -1783,6 +1783,25 @@ describe('dynamic interfaces', () => {
     })
   })
 
+  it('omits a disconnected stored type choice from a run but still refuses a required pin', () => {
+    const doc = dynDoc({ nodes: {
+      target: { type: 'SpecializedSlot', dynamic: { slot: { selected: 'selected' } }, values: { 'slot.x': 7 } },
+    } })
+    const optional = dynCompile(doc)
+    expect(optional.ok, JSON.stringify(!optional.ok && optional.diagnostics)).toBe(true)
+    if (optional.ok) expect(optional.artifact.prompt['target']).toEqual({
+      class_type: 'SpecializedSlot', inputs: {}, outputIds: [],
+    })
+    const schema = dynSchemas['SpecializedSlot']!
+    const required = compile({ ...compileInput(doc), resolve: (type) => type === schema.type ? {
+      ...schema, body: schema.body.map((row) => row.kind === 'typeChoice' ? { ...row, required: true } : row),
+    } : dynSchemas[type] })
+    expect(required.ok ? required.artifact.diagnostics : required.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'compile.input.missing', blocksExecution: true,
+      anchor: expect.objectContaining({ port: expect.objectContaining({ port: 'slot' }) }),
+    }))
+  })
+
   it('emits slotVariants for a connected variant with no rows (the key travels even with no dependents)', () => {
     // Settled contract (c2ac572): the elaborated schema's slotChoices join
     // the backend schema signature, so switching variants is a cache miss
@@ -2686,7 +2705,7 @@ describe('a type variable fed two different types', () => {
       nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pair: { type: 'Pair' } },
       links: [[['img', 'out'], ['pair', 'first']], [['lat', 'out'], ['pair', 'second']]],
     }), 'pair')
-    expect(refusals(result)).toEqual([['These inputs must be the same type: first is IMAGE, second is LATENT.', 'pair']])
+    expect(refusals(result)).toEqual([['Pair: The inputs must be the same type, but the input first is an image and the input second is latent data.', 'pair']])
   })
 
   it.each([
@@ -2707,6 +2726,6 @@ describe('a type variable fed two different types', () => {
       ],
     }), 'sw')
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(ok)
-    if (!ok) expect(refusals(result)).toEqual([['These inputs must be the same type: a is IMAGE, b is LATENT.', 'sw']])
+    if (!ok) expect(refusals(result)).toEqual([['AnySwitch: The inputs must be the same type, but the input a is an image and the input b is latent data.', 'sw']])
   })
 })

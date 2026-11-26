@@ -15,6 +15,7 @@ export function ModelSettings(props: {
   readonly backendUrl?: string
   readonly onChanged?: () => void
   readonly editLocation?: string | undefined
+  readonly focusHiddenModels?: boolean
 }) {
   const message = useAppMessage()
   const [state, setState] = createSignal<ModelSettingsState>()
@@ -176,7 +177,9 @@ export function ModelSettings(props: {
         <Show when={props.editLocation === undefined}>
         <p>{message('modelSettings.project', { project: current().project })}</p>
         <Show when={props.visibilityConnection}>
-          <section data-testid="hidden-models">
+          <section data-testid="hidden-models" ref={(element) => {
+            if (props.focusHiddenModels) queueMicrotask(() => { if (element.isConnected) element.scrollIntoView({ block: 'start' }) })
+          }}>
             <h4>{message('modelVisibility.title')}</h4>
             <p>{message('modelVisibility.description')}</p>
             <Show when={current().hiddenModels?.length} fallback={<p>{message('modelVisibility.empty')}</p>}>

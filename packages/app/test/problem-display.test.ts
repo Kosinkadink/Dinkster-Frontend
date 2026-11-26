@@ -11,6 +11,7 @@ import {
 } from '@dinkster/core'
 import { outputRowKey } from '@dinkster/canvas'
 import { composeCanvasProblemDiagnostics, deriveNodeProblems, deriveProblemProjection, groupProblemDiagnostics, problemDisplay } from '../src/problem-display.js'
+import { problemBoxLines } from '../src/problem-box.js'
 
 const schema: NodeSchema = {
   type: 'Sampler',
@@ -92,9 +93,55 @@ describe('problemDisplay', () => {
     expect(shown).toContain('output "Generated image" (image)')
   })
 
+  it('keeps a solver sentence already named for the reader without adding ids or a second title', () => {
+    const d = diag('warning', 'schema', 'solve.linkMismatch', 'My sampler: Model input needs MODEL, but Load image sends an image.', {
+      refs: [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'model', direction: 'input' }],
+      data: { nodeMessage: 'Model input needs MODEL, but Load image sends an image.' },
+    })
+    expect(problemDisplay(d, document('My sampler'), registry)).toBe(d.message)
+    const ordinary = diag('error', 'validation', 'field.invalid', 'Model is missing.', { refs: d.refs!, data: { nodeMessage: 3 } })
+    const projection = deriveProblemProjection({ diagnostics: [d, ordinary], graphId: 'g0', instancePath: [] })
+    expect(deriveProblemProjection({ diagnostics: [d], graphId: 'g0', instancePath: [] }).rows)
+      .toEqual({ 'n5-a1b2': { model: 'warning' } })
+    const lines = problemBoxLines(projection.nodes['n5-a1b2']!, [{ key: 'model', name: 'Model input', field: true }], (row) => row,
+      (line) => problemDisplay(line.diagnostic, document('My sampler'), registry))
+    expect(lines).toMatchObject([
+      { kind: 'error', row: 'model', rowName: 'Model input', message: problemDisplay(ordinary, document('My sampler'), registry), actions: ['edit-field'] },
+      { kind: 'warning', row: 'model', message: d.data!['nodeMessage'], actions: ['edit-field'] },
+    ])
+    expect(lines[1]?.rowName).toBeUndefined()
+  })
+
 })
 
 describe('groupProblemDiagnostics', () => {
+  it.each([false, true])('shows one selected-type cause on both surfaces, reversed=%s', (reversed) => {
+    const refs = [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'model', direction: 'input' as const }]
+    const data = { sourceNode: 'producer', sourcePort: 'latent' }
+    const mismatch = diag('warning', 'schema', 'solve.linkMismatch', 'Choose model: Source needs an image, but Load latent sends latent data.', {
+      refs, data: { ...data, nodeMessage: 'Source needs an image, but Load latent sends latent data.' },
+    })
+    const selected = diag('warning', 'schema', 'solve.slot.staleSpecialization', 'Choose model: Source is set to image, but Load latent sends latent data.', {
+      refs, data: { ...data, nodeMessage: 'Source is set to image, but Load latent sends latent data.' },
+    })
+    const diagnostics = reversed ? [selected, mismatch] : [mismatch, selected]
+    expect(groupProblemDiagnostics(diagnostics)[0]?.diagnostics).toEqual([selected])
+    const projection = deriveProblemProjection({ diagnostics, graphId: 'g0', instancePath: [] })
+    expect(projection.nodes['n5-a1b2']).toEqual([{ kind: 'warning', row: 'model', diagnostic: selected }])
+    expect(projection.rows).toEqual({ 'n5-a1b2': { model: 'warning' } })
+    expect(problemBoxLines(projection.nodes['n5-a1b2']!, [{ key: 'model', name: 'source', field: true }], (row) => row))
+      .toMatchObject([{ row: 'model', message: selected.data!['nodeMessage'], actions: ['edit-field'], problem: { diagnostic: selected } }])
+    expect(diagnostics).toHaveLength(2)
+    for (const other of [
+      { ...mismatch, data: { ...mismatch.data, sourceNode: 'other' } },
+      { ...mismatch, data: { ...mismatch.data, sourcePort: 'other' } },
+      { ...mismatch, refs: [{ ...refs[0]!, portId: 'other' }] },
+      { ...mismatch, refs: [{ ...refs[0]!, graphId: 'other' }] },
+      { ...mismatch, anchor: { occurrence: { node: asNodeId('n5-a1b2'), instancePath: [asNodeId('other')] } } },
+      { ...mismatch, severity: 'error' as const },
+    ]) expect(groupProblemDiagnostics([other, selected])[0]?.diagnostics).toEqual([other, selected])
+  })
+
   it('maps every origin to the five ordered user actions, including information notices', () => {
     const expected = {
       runtime: 'execution', validation: 'execution',

@@ -9,7 +9,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack, type JSX } from 'solid-js'
-import type { ExecutionLogEntry, ExecutionState, LookupClient } from '@dinkster/client'
+import type { ExecutionLogEntry, ExecutionState, LookupClient, PreviewData } from '@dinkster/client'
 import {
   buildScene,
   boundarySceneId,
@@ -19,6 +19,7 @@ import {
   canvasTypePaintForTheme,
   canvasPaintTokens,
   createRegistryPainter,
+  widgetValueText,
   defaultTokens,
   hitTest,
   InteractionController,
@@ -69,6 +70,8 @@ import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type C
 import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
+  buildRerouteIndex,
+  portRefKey,
   initialDynamicStateOf,
   ruleProblemRefs,
   documentResolver,
@@ -143,7 +146,7 @@ import { liveExactnessFor } from './companion-display.js'
 import { drawnAnewInputs, RunStandingMemory, runStandingFor } from './run-problem-standing.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
-import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
+import { assetRowThumbnails, createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
 import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
@@ -165,7 +168,7 @@ import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap
 import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
 import { ContextMenu } from './ContextMenu.js'
-import { canvasMenuContext, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
+import { canvasMenuContext, curveHistogramMenuGroup, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
 import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
 import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
@@ -195,7 +198,8 @@ import {
 import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
 import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
-import { imageCompareFrames } from './image-compare-frames.js'
+import { imageCompareFrames, IMAGE_COMPARE_SIDES, readImageCompareInput, type ImageCompareSide } from './image-compare-frames.js'
+import { readEditorCurve } from './in-node-editor-source.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
@@ -428,6 +432,8 @@ export function storedValueProblems(
   if (value === undefined) return []
   const where = `${row.nodeId}.${row.valueKey}`
   if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
+    // Model names are valid bindings; the backend presence read owns their availability.
+    if (row.spec.kind?.startsWith('model/')) return []
     return [unresolvedAssetImportDiagnostic({
       graphId,
       nodeId: row.nodeId,
@@ -3260,7 +3266,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           )
           props.tooltips?.show(
             tooltipTarget,
-            { x: target.x + 12, y: target.y + 14 },
+            { x: target.x + 12, y: target.y + 14, above: target.y - 14 },
             activeLens().detailedPinTooltips === true && target.kind === 'pin',
             immediateHeader,
             tooltipOwner,
@@ -3302,7 +3308,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         props.tooltips?.show(
           { ...target, ...(tooltip ? { tooltip } : {}) },
-          { x: target.x + 12, y: target.y + 14 },
+          { x: target.x + 12, y: target.y + 14, above: target.y - 14 },
           undefined,
           false,
           tooltipOwner,
@@ -3421,6 +3427,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             disabled: tab.execution !== undefined || hit.row.ghost === true || hit.row.materialize !== undefined,
           })
           if (representationGroup !== undefined) additionalGroups.push(representationGroup)
+          const registry = props.app.registryForTab(tab)
+          if (registry !== undefined) {
+            const histogramGroup = curveHistogramMenuGroup({
+              document: tab.store.doc, scene: renderer.getScene(), hit,
+              resolve: documentResolver(tab.store.doc, registry.resolve),
+              ...(occurrencePlanner() === undefined ? {} : { planner: occurrencePlanner()! }),
+              disabled: tab.execution !== undefined || hit.row.ghost === true || hit.row.materialize !== undefined,
+            })
+            if (histogramGroup !== undefined) additionalGroups.push(histogramGroup)
+          }
         }
         openCanvasMenu(menuTargetOf(hit), worldX, worldY, additionalGroups)
       },
@@ -4887,7 +4903,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       setEditorSpaces(editorSpaceItems([...renderer.getScene().nodes, ...(panelFace === undefined ? [] : [panelFace])], editorWires))
       setNodeBoxes(renderer.getScene().nodes.map((node) => ({ id: node.id, box: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height } })))
-      renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown')))
+      renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown'),
+        (value, width) => assetRowThumbnails(value, previewLoader, widgetRegistry(), width)))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
         if (node.layout.minimized) return []
         const media = model.previews[node.id]
@@ -5016,9 +5033,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }),
       ]
       const rows: ToolboxRow[] = []
-      if (currentGraphId(tab) === tab.store.doc.root && registry()) {
-        const scopes = props.app.previewSelectionExecutionScopes(tab, sel)
-        rows.push(partialExecutionButtons(scopes === undefined ? {
+      if (currentGraphId(tab) === tab.store.doc.root) {
+        backendsTick()
+        const blockedReason = props.app.engineOffReason(tab, message)
+        const scopes = blockedReason === undefined ? props.app.previewSelectionExecutionScopes(tab, sel) : undefined
+        rows.push(partialExecutionButtons(blockedReason !== undefined ? {
+          upTo: blockedReason,
+          between: blockedReason,
+          fromOnwards: blockedReason,
+        } : scopes === undefined ? {
           upTo: message('execution.scopes.checking'),
           between: message('execution.scopes.checking'),
           fromOnwards: message('execution.scopes.checking'),
@@ -5335,6 +5358,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const item = schema?.body.find((candidate) => candidate.kind === 'input' && candidate.id === row.inputId)
       const help = item?.kind === 'input' ? item.tooltip : undefined
       const declared = effectiveWidgetDefault(row.spec)
+      // The default reads as the closed row would read it, in full.
+      let defaultText = declared === undefined
+        ? undefined
+        : widgetValueText(widgetRegistry(), row.viewId, declared, row.spec)
+      if (defaultText === undefined && declared !== undefined) defaultText = formatWidgetValue(declared, row.spec)
       return {
         tabId: tab.id,
         graphId: currentGraphId(tab),
@@ -5344,7 +5372,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         look: tokens.nodeLook,
         nodeTop: node.y,
         nodeBottom: node.y + node.layout.height,
-        ...(declared === undefined ? {} : { defaultText: formatWidgetValue(declared, row.spec) }),
+        ...(defaultText == null ? {} : { defaultText }),
         ...(help === undefined ? {} : { help }),
       }
     }
@@ -6735,10 +6763,52 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const graphId = currentGraphId(tab)
           const owner = current.field.familyOwner
           const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.valueKey }
-          const commit = (value: Json): void => void props.app.dispatchTo(tab,
-            withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+          const commit = (value: Json): void => {
+            // A capture started before wiring must not write the now-dormant value.
+            const graph = tab.store.doc.graphs[target.graphId]
+            if (graph === undefined) return
+            const index = buildRerouteIndex(graph)
+            const port = portRefKey({ node: asNodeId(target.nodeId), port: asPortId(target.inputId) })
+            if (item()?.wired === true || index.inputDriverOf.has(port) || index.netSourceOf.has(port)) return
+            void props.app.dispatchTo(tab,
+              withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+          }
           return { tab, graphId, current, target, commit }
         }
+        const [arrivingCurve, setArrivingCurve] = createSolidSignal<Json>()
+        const [arrivingImages, setArrivingImages] = createSolidSignal<Readonly<Record<ImageCompareSide, readonly PreviewData[]>>>({ image_a: [], image_b: [] })
+        const arrivalKey = createMemo(() => {
+          docTick()
+          executions()
+          const at = valueTarget()
+          if (at === undefined) return ''
+          const execution = props.app.executionForTab(at.tab)
+          return JSON.stringify([at.tab.id, at.tab.store.doc.lineage, at.tab.store.revision, at.target, viewInstancePath(at.tab),
+            props.app.backendForTab(at.tab).id, at.current.key, at.current.wired, [...at.current.wiredParts],
+            execution?.key, execution?.status, execution?.nodes])
+        })
+        createEffect(on(arrivalKey, () => {
+          const at = valueTarget()
+          setArrivingCurve(undefined)
+          setArrivingImages({ image_a: [], image_b: [] })
+          if (at === undefined) return
+          const abort = new AbortController()
+          onCleanup(() => abort.abort())
+          if (at.current.row.viewId === 'core.curve' && at.current.wired) {
+            void readEditorCurve(props.app, at.tab, at.target, abort.signal).then((value) => {
+              if (!abort.signal.aborted) setArrivingCurve(value)
+            }).catch(() => undefined)
+          } else if (at.current.row.viewId === 'core.imageCompare') {
+            const parts = at.current.field.parts
+            for (const side of IMAGE_COMPARE_SIDES) {
+              const inputId = parts?.reads[side] ?? parts?.writes[side]
+              if (inputId === undefined) continue
+              void readImageCompareInput(props.app, at.tab, { ...at.target, inputId }, abort.signal).then((frames) => {
+                if (!abort.signal.aborted) setArrivingImages((previous) => ({ ...previous, [side]: frames }))
+              }).catch(() => undefined)
+            }
+          }
+        }))
         const recorder = () => {
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.audioRecord') return undefined
@@ -6755,13 +6825,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.curve') return undefined
           const fallback = effectiveWidgetDefault(at.current.field.spec)
-          const value = isCurveValue(at.current.value) ? at.current.value : isCurveValue(fallback) ? fallback : undefined
-          if (value === undefined) return undefined
+          const carried = at.current.value ?? arrivingCurve()
+          const value = isCurveValue(carried) ? carried : !at.current.wired && isCurveValue(fallback) ? fallback : undefined
+          if (value === undefined && !at.current.wired) return undefined
           executions()
           return {
             value,
             commit: (next: CurveValue) => at.commit(next as unknown as Json),
-            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId),
+            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId, at.current.row.inputId),
           }
         }
         const webcam = () => {
@@ -6797,7 +6868,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const sourceKey = JSON.stringify([backend.id, ['model_file', 'model_3d'].map((part) => {
             const at = row(part)
             return at === undefined ? null : node?.values[at] ?? null
-          }), at.current.wiredParts.size > 0 ? props.app.executionForTab(at.tab)?.key ?? null : null])
+          }), at.current.carriedParts, at.current.value, at.current.wired,
+          at.current.wiredParts.size > 0 ? props.app.executionForTab(at.tab)?.key ?? null : null])
           return {
             sourceKey,
             captures: parts === undefined || !Object.hasOwn(parts.writes, 'state'),
@@ -6815,7 +6887,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.imageCompare') return undefined
           executions()
-          return imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+          const streamed = imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+          return { image_a: streamed.image_a.length > 0 ? streamed.image_a : arrivingImages().image_a,
+            image_b: streamed.image_b.length > 0 ? streamed.image_b : arrivingImages().image_b }
         }
         const cameraAngle = () => {
           const at = valueTarget()
@@ -6859,24 +6933,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 commit: (height) => editorPictureHeights?.commitPictureHeight(item()!.nodeId, item()!.row.valueKey, height),
               }}>
               <Show when={recorder()}>
-                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
+                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} wired={item()?.wired === true} />}
               </Show>
               <Show when={webcam()}>
                 {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
                   wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
               </Show>
               <Show when={curve()}>
-                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wired={item()?.wired === true}
+                  histogramInput={item()?.row.histogram === undefined ? 'none' : item()!.row.histogram!.connected ? 'wired' : 'unwired'}
                   options={item()?.field.spec.options ?? {}} />}
               </Show>
               <Show when={load3d()}>
-                {(at) => <Load3dSpace value={item()?.value}
+                {(at) => <Load3dSpace value={item()?.value} wired={item()?.wired === true}
                   sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
                   live={liveModelViews().has(key) && !covered()}
                   onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}
                   openSections={item()?.row.openSections ?? []}
-                  cameraWired={item()?.wiredParts.has('camera_info') === true}
-                  placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
+                  cameraWired={item()?.wired === true || item()?.wiredParts.has('camera_info') === true}
+                  placementWired={item()?.wired === true || item()?.wiredParts.has('model_3d_info') === true} />}
               </Show>
               <Show when={cameraAngle()}>
                 {(at) => <CameraAngleSpace fields={at().fields} commit={at().commit} />}
@@ -6980,7 +7055,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 const target = item().target
                 if (target === undefined) return
                 const rect = event.currentTarget.getBoundingClientRect()
-                props.tooltips?.show(target, { x: rect.left, y: rect.bottom + 8 }, undefined, true, tooltipOwner)
+                props.tooltips?.show(target, { x: rect.left, y: rect.bottom + 8, above: rect.top - 8 }, undefined, true, tooltipOwner)
               }}
               onBlur={() => props.tooltips?.hide()}
             >{item().label}</ProductButton>
@@ -7271,6 +7346,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, data!['input'] as string,
                         typeof data?.['digest'] === 'string' ? data['digest'] : undefined)
+                    } else {
+                      const tab = activeTab()
+                      if (tab === undefined) return
+                      closeProblemBox()
+                      if (action === 'review-model') props.app.reviewModelDownload(tab, line.problem.diagnostic)
+                      else props.app.openModelStorage(tab, line.problem.diagnostic)
                     }
                   }}
                 />

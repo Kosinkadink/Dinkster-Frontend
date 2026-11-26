@@ -340,6 +340,8 @@ export interface EditorSummary {
   readonly placeholder?: boolean
   /** A small picture before the text, such as the stored frame or the last 3D view. */
   readonly thumbnail?: CanvasImageSource
+  /** Pictures before each asset name; null reserves a pending picture, undefined needs no picture. */
+  readonly thumbnails?: readonly (CanvasImageSource | null | undefined)[]
 }
 
 /** node id -> value key -> what that folded editor row reads. Derived by the host, never stored. */
@@ -2177,6 +2179,10 @@ export class CanvasRenderer {
     // Visible world rect for culling.
     const view = { x: -vx / scale, y: -vy / scale, w: w / scale, h: h / scale }
     this.drawCanvasLayers('background', ctx, view, scale)
+    if (this.graphTileSurface?.getContext('2d')?.isContextLost()) {
+      this.clearGraphTiles()
+      this.graphTileSurface = undefined
+    }
     if (
       typeof OffscreenCanvas !== 'undefined' &&
       typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function' &&
@@ -2445,13 +2451,11 @@ export class CanvasRenderer {
       // producer); every other wire, including one being dragged, is solid.
       const dashed = link.maybeAbsent === true
       if (dashed) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
-      // A PROVEN type conflict paints the noodle in error red, overriding
-      // the type color: the break must be visible where it is, not hunted
-      // down from a Problems entry. Slightly wider so red never hides
-      // between densely packed ok noodles.
+      // A proven conflict takes its strongest problem's color at the
+      // wider mismatch stroke, without changing absence or mute hints.
       if (link.mismatch === true) {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName, {
-          color: this.tokens.colors.error,
+          color: link.mismatchKind === 'warning' ? PROBLEM_WARNING_BADGE.color : t.colors.error,
           width: canvasPaintTokens.link.mismatchStroke,
           minScreenWidth: canvasPaintTokens.link.mismatchMinScreenStroke,
         })
@@ -2473,11 +2477,10 @@ export class CanvasRenderer {
         ctx.beginPath()
         const midpointHovered = this.overlay.hoveredLinkMidpoint === link.id
         ctx.arc(mx, my, midpointHovered ? canvasPaintTokens.link.hoveredMidpointRadius : canvasPaintTokens.link.midpointRadius, 0, Math.PI * 2)
-        // The grab dot follows the noodle's paint, so a mismatch reads red
-        // end to end rather than showing a healthy-looking handle mid-error.
+        // The grab dot follows the noodle's problem color.
         ctx.fillStyle =
           link.mismatch === true
-            ? t.colors.error
+            ? link.mismatchKind === 'warning' ? PROBLEM_WARNING_BADGE.color : t.colors.error
             : link.typeName
               ? presentedType(t, { kind: 'concrete', name: link.typeName }).color
               : t.colors.linkDefault
@@ -2616,7 +2619,7 @@ export class CanvasRenderer {
       }
       if (this.scopeHighlight && !this.scopeHighlight.nodes.has(stub.nodeId)) ctx.globalAlpha = SCOPE_DIM
       const color = stub.mismatch === true
-        ? t.colors.error
+        ? stub.mismatchKind === 'warning' ? PROBLEM_WARNING_BADGE.color : t.colors.error
         : stub.typeName ? typeColor(t, stub.typeName) : t.colors.linkDefault
       // Lead line pin -> tag edge.
       ctx.strokeStyle = color
@@ -3514,12 +3517,24 @@ export class CanvasRenderer {
           ? t.colors.error
           : running
             ? t.stateColors.running
-            : progress
-              ? t.stateColors[progress.state]
-              : t.colors.nodeIdleOutline
-    const strongOutline = unrecognized || runtimeError || hasDocumentError || running || progress?.state === 'done'
+            : progress?.state === 'cached'
+              ? t.colors.nodeOutline
+              : progress
+                ? t.stateColors[progress.state]
+                : t.colors.nodeIdleOutline
+    // Running and, in the frozen view, done and cached draw quieter than an
+    // error: 2 px, the running colour at 90%, done at half strength, cached
+    // dashed in the neutral outline.
+    const errorOutline = unrecognized || runtimeError || hasDocumentError
+    const ran = !errorOutline && (running || progress?.state === 'done' || progress?.state === 'cached')
+    const strongOutline = errorOutline || ran
     const outline = canvasPaintTokens.node.outline
-    const outlineWidth = unrecognized ? outline.idle * outline.unrecognizedFactor : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
+    const ranOutline = canvasPaintTokens.node.ranOutline
+    const outlineWidth = unrecognized
+      ? outline.idle * outline.unrecognizedFactor
+      : ran ? (running ? canvasPaintTokens.running.outlineStroke : ranOutline.stroke)
+      : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
+    const outlineOpacity = !ran ? 1 : running ? canvasPaintTokens.running.outlineOpacity : progress?.state === 'done' ? ranOutline.opacity : 1
     const outlineDash = unrecognized || runtimeError
       ? nodeStateDash('error', scale)
       : running
@@ -3537,7 +3552,10 @@ export class CanvasRenderer {
     ctx.roundRect(node.x + outlineInset, node.y + outlineInset, l.width - outlineInset * 2, l.height - outlineInset * 2, Math.max(0, t.cornerRadius - outlineInset))
     ctx.strokeStyle = outlineColor
     ctx.lineWidth = outlineStroke
+    const restingAlpha = ctx.globalAlpha
+    ctx.globalAlpha = restingAlpha * outlineOpacity
     ctx.stroke()
+    ctx.globalAlpha = restingAlpha
     if (dash !== undefined) ctx.setLineDash([])
     if (running && !this.reducedMotion) this.drawRunningAccent(ctx, node.x, node.y, l.width, l.height)
     if (node.regionKind !== undefined) {
@@ -4600,15 +4618,26 @@ export class CanvasRenderer {
     const pulse = this.reducedMotion
       ? paint.reducedMotionPulse
       : (Math.sin((this.animationTimeMs / paint.pulsePeriodMs) * Math.PI * 2) + 1) / 2
+    const scale = finiteScale(this.viewport.scale)
+    const radius = this.tokens.cornerRadius
+    // As a CSS box-shadow draws it: the node's box grown by the spread and
+    // blurred, painted only outside the node. Canvas blur is in device
+    // pixels, so it is scaled to read as the same CSS pixels on any screen.
+    const cssBlur = paint.glowBlur + pulse * paint.glowPulseBlur
+    const blur = cssBlur * (globalThis.devicePixelRatio ?? 1)
+    const reach = (paint.glowSpread + cssBlur * 2) / scale
     ctx.save()
+    ctx.beginPath()
+    ctx.rect(x - reach, y - reach, width + reach * 2, height + reach * 2)
+    ctx.roundRect(x, y, width, height, radius)
+    ctx.clip('evenodd')
     ctx.globalAlpha *= paint.glowOpacity + pulse * paint.glowPulseOpacity
     ctx.beginPath()
-    ctx.roundRect(x - paint.glowOutset, y - paint.glowOutset, width + paint.glowOutset * 2, height + paint.glowOutset * 2, this.tokens.cornerRadius + paint.glowOutset)
-    ctx.strokeStyle = this.tokens.stateColors.running
-    ctx.lineWidth = screenAwareStroke(paint.glowStroke, this.viewport.scale, paint.glowMinScreenStroke)
+    ctx.roundRect(x - paint.glowSpread, y - paint.glowSpread, width + paint.glowSpread * 2, height + paint.glowSpread * 2, radius + paint.glowSpread)
+    ctx.fillStyle = this.tokens.stateColors.running
     ctx.shadowColor = this.tokens.stateColors.running
-    ctx.shadowBlur = paint.glowBlur + pulse * paint.glowPulseBlur
-    ctx.stroke()
+    ctx.shadowBlur = blur
+    ctx.fill()
     ctx.restore()
   }
 
@@ -5092,10 +5121,21 @@ export function paintValueSwatch(ctx: CanvasRenderingContext2D, color: string, l
 }
 
 /**
- * As many of `items` as fit in `maxWidth`, separated by a comma and a space,
- * then "+N" for the rest. The first item always shows, cut if it must be.
+ * Whether a cut text still says more than `count` would: the part of it
+ * left before the ellipsis is at least as wide as the count.
  */
-export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[], maxWidth: number): string {
+function cutSaysMore(ctx: CanvasRenderingContext2D, cut: string, whole: string, count: string): boolean {
+  if (cut === whole) return true
+  const kept = cut.endsWith('...') ? cut.slice(0, -'...'.length) : cut
+  return measureWidth(ctx, kept) >= measureWidth(ctx, count)
+}
+
+/**
+ * As many of `items` as fit in `maxWidth`, separated by a comma and a space,
+ * then "+N" for the rest. When none fits whole the first is cut, unless
+ * what is left of it is narrower than `count`, which then stands alone.
+ */
+export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[], maxWidth: number, count?: string): string {
   const more = (shown: number) => shown < items.length ? ` +${items.length - shown}` : ''
   // Items past the row's width cannot fit, so the search starts below them.
   let candidate = 0
@@ -5106,17 +5146,144 @@ export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[]
     const text = items.slice(0, shown).join(', ') + more(shown)
     if (measureWidth(ctx, text) <= maxWidth) return text
   }
-  return fitText(ctx, items[0] ?? '', Math.max(0, maxWidth - measureWidth(ctx, more(1)))) + more(1)
+  const first = items[0] ?? ''
+  const cut = fitText(ctx, first, Math.max(0, maxWidth - measureWidth(ctx, more(1))))
+  return count === undefined || cutSaysMore(ctx, cut, first, count) ? cut + more(1) : fitText(ctx, count, maxWidth)
+}
+
+/**
+ * A row's value summary as its view draws it, with what the view allows the
+ * painter to do when the whole text does not fit.
+ */
+export interface SummaryFit {
+  readonly text: string
+  /** Shown as many as fit, then "+N" for the rest. */
+  readonly items?: readonly string[]
+  /** One picture per name, with null reserving its space while it loads. */
+  readonly thumbnails?: readonly (CanvasImageSource | null | undefined)[]
+  /** Kept whole at the end of `text` while the rest of it is cut. */
+  readonly suffix?: string
+  /** Shown alone when too little of the text or of the first item would remain. */
+  readonly count?: string
+  /** Shorter forms of `text`, tried in order; the last is cut if none fits. */
+  readonly shorter?: readonly string[]
+}
+
+/** The text of `summary` that fits in `maxWidth`. */
+export function fitSummary(ctx: CanvasRenderingContext2D, summary: SummaryFit, maxWidth: number): string {
+  const { text, suffix, count } = summary
+  if (summary.items !== undefined) return fitItems(ctx, summary.items, maxWidth, count)
+  if (fitText(ctx, text, maxWidth) === text) return text
+  for (const form of summary.shorter ?? []) {
+    if (fitText(ctx, form, maxWidth) === form) return form
+  }
+  if (suffix !== undefined && suffix !== '' && text.endsWith(suffix)) {
+    const lead = text.slice(0, -suffix.length)
+    const cut = fitText(ctx, lead, Math.max(0, maxWidth - measureWidth(ctx, suffix)))
+    if (count === undefined || cutSaysMore(ctx, cut, lead, count)) return cut + suffix
+  }
+  if (count !== undefined && suffix !== undefined) return fitText(ctx, count, maxWidth)
+  return fitText(ctx, summary.shorter?.at(-1) ?? text, maxWidth)
+}
+
+interface SummaryPart {
+  readonly text: string
+  readonly separator?: string
+  readonly thumbnail?: CanvasImageSource | null
+}
+
+/** Extra width pictures add to a summary whose names are joined with comma-space. */
+export function summaryThumbnailReserve(ctx: CanvasRenderingContext2D, thumbnails: SummaryFit['thumbnails']): number {
+  const { size, fileNameGap, entryGap } = canvasPaintTokens.widget.valueThumbnail
+  return thumbnails?.reduce((width, picture, index) => width + (picture === undefined ? 0
+    : size + fileNameGap + (index > 0 ? entryGap - measureWidth(ctx, ' ') : 0)), 0) ?? 0
+}
+
+/** Fit names and their pictures together; a count stands alone without a picture. */
+export function fitSummaryParts(ctx: CanvasRenderingContext2D, summary: SummaryFit, maxWidth: number): readonly SummaryPart[] {
+  if (summary.thumbnails === undefined) return [{ text: fitSummary(ctx, summary, maxWidth) }]
+  const items = summary.items ?? [summary.text]
+  const { size, fileNameGap, entryGap } = canvasPaintTokens.widget.valueThumbnail
+  const reserve = size + fileNameGap
+  const more = (shown: number) => shown < items.length ? ` +${items.length - shown}` : ''
+  const parts = (shown: number, first?: string): SummaryPart[] => [
+    ...items.slice(0, shown).map((name, index) => ({
+      text: first ?? name,
+      ...(index > 0 ? { separator: ', ' } : {}),
+      ...(summary.thumbnails![index] !== undefined ? { thumbnail: summary.thumbnails![index]! } : {}),
+    })),
+    { text: more(shown) },
+  ]
+  let width = 0
+  let shown = 0
+  for (let index = 0; index < items.length; index++) {
+    const pictured = summary.thumbnails[index] !== undefined
+    width += measureWidth(ctx, items[index]!) + (index > 0 ? pictured ? measureWidth(ctx, ',') + entryGap : measureWidth(ctx, ', ') : 0)
+      + (summary.thumbnails[index] !== undefined ? reserve : 0)
+    if (width + measureWidth(ctx, more(index + 1)) <= maxWidth) shown = index + 1
+    if (width > maxWidth) break
+  }
+  if (shown > 0) return parts(shown)
+  const first = items[0] ?? ''
+  const cut = fitText(ctx, first, Math.max(0, maxWidth - measureWidth(ctx, more(1))
+    - (summary.thumbnails[0] !== undefined ? reserve : 0)))
+  if (summary.count !== undefined && !cutSaysMore(ctx, cut, first, summary.count)) return [{ text: fitText(ctx, summary.count, maxWidth) }]
+  return cut === '' ? [{ text: fitText(ctx, summary.count ?? '', maxWidth) }] : parts(1, cut)
+}
+
+export function summaryPartsWidth(ctx: CanvasRenderingContext2D, parts: readonly SummaryPart[]): number {
+  return parts.reduce((width, part) => width + measureWidth(ctx, (part.separator ?? '') + part.text)
+    + (part.thumbnail !== undefined ? canvasPaintTokens.widget.valueThumbnail.size + canvasPaintTokens.widget.valueThumbnail.fileNameGap
+      + (part.separator !== undefined ? canvasPaintTokens.widget.valueThumbnail.entryGap - measureWidth(ctx, ' ') : 0) : 0), 0)
+}
+
+/** Right-aligned value text, with a picture directly before each name that survived fitting. */
+export function paintSummaryParts(ctx: CanvasRenderingContext2D, parts: readonly SummaryPart[], right: number, y: number, tokens: DesignTokens): void {
+  let left = right - summaryPartsWidth(ctx, parts)
+  const align = ctx.textAlign
+  if (parts.every((part) => part.thumbnail === undefined)) {
+    ctx.textAlign = 'right'
+    ctx.fillText(parts.map((part) => (part.separator ?? '') + part.text).join(''), right, y)
+    ctx.textAlign = align
+    return
+  }
+  ctx.textAlign = 'left'
+  for (const part of parts) {
+    // The separator belongs before the next picture, not between that picture and its name.
+    const separator = part.separator ?? ''
+    if (separator !== '') {
+      ctx.fillText(separator, left, y)
+      left += measureWidth(ctx, separator)
+    }
+    if (part.thumbnail !== undefined) {
+      const { size, radius, fileNameGap, entryGap } = canvasPaintTokens.widget.valueThumbnail
+      if (part.separator !== undefined) left += entryGap - measureWidth(ctx, ' ')
+      const top = Math.round(y - size / 2)
+      ctx.save()
+      ctx.beginPath()
+      ctx.roundRect(Math.round(left), top, size, size, radius)
+      if (part.thumbnail === null) {
+        ctx.strokeStyle = tokens.colors.nodeIdleOutline
+        ctx.stroke()
+      } else {
+        ctx.clip()
+        ctx.drawImage(part.thumbnail, Math.round(left), top, size, size)
+      }
+      ctx.restore()
+      left += size + fileNameGap
+    }
+    if (part.text !== '') ctx.fillText(part.text, left, y)
+    left += measureWidth(ctx, part.text)
+  }
+  ctx.textAlign = align
 }
 
 /**
  * The text a row's own view shows for a value, with the color square before
  * it or the list items it fits.
  */
-export interface CompanionSummary {
-  readonly text: string
+export interface CompanionSummary extends SummaryFit {
   readonly swatch?: string
-  readonly items?: readonly string[]
 }
 
 /**
@@ -5128,7 +5295,7 @@ export interface CompanionSummary {
  * the state distinguishable without color. `summary`, when given, is the
  * text the row's own view shows for the value, used instead of its code.
  */
-export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y, width, rowHeight, tokens }: WidgetPaintArgs, summary?: CompanionSummary): void {
+export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y, width, rowHeight, tokens }: WidgetPaintArgs, summary?: CompanionSummary, bounds?: { readonly left: number; readonly right: number }): void {
   if (companion === undefined) return
   const prevFont = ctx.font
   const prevAlpha = ctx.globalAlpha
@@ -5140,10 +5307,11 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const swatch = summary?.swatch
   const swatchReserve = swatch === undefined ? 0 : canvasPaintTokens.widget.valueSwatch.size + canvasPaintTokens.widget.valueSwatch.gap
   const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-  const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
+  const field = bounds ?? widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
   // The subgraph mark before the name widens the name's share, as the painter lays it out.
   const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
-  const labelZone = shareRowWidth(field.right - field.left, mark + measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + canvasPaintTokens.widget.labelWidthPadding)
+  const picturesWidth = summaryThumbnailReserve(ctx, summary?.thumbnails)
+  const labelZone = shareRowWidth(field.right - field.left, mark + measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + picturesWidth + canvasPaintTokens.widget.labelWidthPadding)
   const availableWidth = Math.max(0, field.right - field.left - labelZone - swatchReserve)
   const unproven = companion.state === 'stale' || (companion.state === undefined && companion.stale === true)
   const color = unproven
@@ -5153,23 +5321,22 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   ctx.globalAlpha = companionAlpha ?? prevAlpha
   const textY = y + rowHeight / 2
   const textRight = x + field.right
-  const displayText = summary?.items !== undefined
-    ? prefix + fitItems(ctx, summary.items, Math.max(0, availableWidth - measureWidth(ctx, prefix)))
-    : fitText(ctx, text, availableWidth)
+  const parts = summary === undefined ? [{ text: fitText(ctx, text, availableWidth) }]
+    : [{ text: prefix }, ...fitSummaryParts(ctx, summary, Math.max(0, availableWidth - measureWidth(ctx, prefix)))]
+  const displayWidth = summaryPartsWidth(ctx, parts)
   ctx.fillStyle = color
-  ctx.textAlign = 'right'
-  ctx.fillText(displayText, textRight, textY)
+  paintSummaryParts(ctx, parts, textRight, textY, tokens)
   if (swatch !== undefined) {
     const { size, gap } = canvasPaintTokens.widget.valueSwatch
-    paintValueSwatch(ctx, swatch, textRight - measureWidth(ctx, displayText) - gap - size, textY - size / 2, tokens)
+    paintValueSwatch(ctx, swatch, textRight - displayWidth - gap - size, textY - size / 2, tokens)
   }
-  if (unproven && displayText.length > 0) {
+  if (unproven && displayWidth > 0) {
     ctx.save()
     ctx.strokeStyle = color
     ctx.lineWidth = canvasPaintTokens.widget.companion.stroke
     ctx.setLineDash([...canvasPaintTokens.dash.companionUnderline])
     ctx.beginPath()
-    ctx.moveTo(textRight - measureWidth(ctx, displayText), textY + canvasPaintTokens.widget.companion.underlineOffset)
+    ctx.moveTo(textRight - displayWidth, textY + canvasPaintTokens.widget.companion.underlineOffset)
     ctx.lineTo(x + field.right, textY + canvasPaintTokens.widget.companion.underlineOffset)
     ctx.stroke()
     ctx.restore()

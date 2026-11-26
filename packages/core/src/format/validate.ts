@@ -542,6 +542,9 @@ function checkNodeView(c: ShapeChecker, v: unknown, path: string): void {
   }
   c.optBool(v['previewFolded'], `${path}.previewFolded`)
   c.optBool(v['minimizedPreviewOpen'], `${path}.minimizedPreviewOpen`)
+  if (v['histogramVisibility'] !== undefined && c.obj(v['histogramVisibility'], `${path}.histogramVisibility`)) {
+    for (const [k, visible] of Object.entries(v['histogramVisibility'])) c.bool(visible, `${path}.histogramVisibility.${k}`)
+  }
   if (v['sections'] !== undefined && c.obj(v['sections'], `${path}.sections`)) {
     for (const [k, s] of Object.entries(v['sections'])) {
       if (c.obj(s, `${path}.sections.${k}`)) c.bool(s['collapsed'], `${path}.sections.${k}.collapsed`)

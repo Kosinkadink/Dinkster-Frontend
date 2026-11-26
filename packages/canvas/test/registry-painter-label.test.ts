@@ -8,7 +8,7 @@
 import { registerCatalog, setLocale, type WidgetKind, type WidgetRegistry, type WidgetView } from '@dinkster/core'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createRegistryPainter, subgraphMarkRect } from '../src/registry-painter.js'
-import { fitItems } from '../src/renderer.js'
+import { fitItems, fitSummary } from '../src/renderer.js'
 import type { WidgetPaintArgs } from '../src/renderer.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import { widgetChromeRect, type LayoutRow } from '../src/layout.js'
@@ -57,6 +57,8 @@ function fakeCtx(charWidth = 6) {
     fillRect(x: number, y: number, width: number, height: number) {
       fills.push({ x, y, width, height, fillStyle: String(this.fillStyle) })
     },
+    strokeRect: () => {},
+    setLineDash: () => {},
     measureText: (t: string) => ({ width: t.length * charWidth }),
     drawImage: (image: unknown, x: number, y: number, width: number, height: number) => { images.push({ image, x, y, width, height }) },
     fillText(text: string, x: number, y: number) {
@@ -530,6 +532,45 @@ describe('registry painter label/value split', () => {
     expect(paintSummary({ text: 'No model', placeholder: true }).images).toEqual([])
   })
 
+  it.each([200, 360])('keeps a Curve header fixed when folded and puts its picture before the count at width %s', (width) => {
+    const curveKind: WidgetKind = { ...stubKind, type: 'CURVE', defaultValue: () => ({ points: [] }), defaultView: () => 'core.curve' }
+    const curveView: WidgetView = {
+      ...stubView, id: 'core.curve', kind: 'CURVE',
+      drawCompact: (scene) => {
+        scene.rect(0, 0, 1, 2, { role: 'curveSketch', samples: [], points: [], held: [] })
+        scene.text(1, 0, '3 points', { role: 'widgetValue', align: 'right', width: 1 })
+        scene.text(0, 1, 'Monotone cubic', { role: 'curveJoin' })
+      },
+    }
+    const painter = createRegistryPainter({ ...registry,
+      kind: (type) => type === 'CURVE' ? curveKind : undefined,
+      viewsFor: (type) => type === 'CURVE' ? [curveView] : [],
+    })
+    const draw = (unfolded: boolean) => {
+      const painted = fakeCtx()
+      painter({ ctx: painted.ctx, row: { ...rowWith(null), label: 'Curve', viewId: 'core.curve',
+        height: unfolded ? 24 : 48, rows: unfolded ? 1 : 2, ...(unfolded ? { unfolded: true as const } : {}),
+        spec: { widgetType: 'CURVE', options: {} } },
+      value: { points: [] }, x: 37, y: 61, width, rowHeight: 24, connected: false,
+      tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' } })
+      return painted
+    }
+    const folded = draw(false)
+    const open = draw(true)
+    const name = folded.textCalls.find((call) => call.text === 'Curve')!
+    const header = open.textCalls.find((call) => call.text === 'Curve')!
+    expect([name.x, name.y]).toEqual([header.x, header.y])
+    expect(folded.transforms[0]).toEqual(open.transforms[0])
+    const picture = folded.fills.find((fill) => fill.width === fill.height && fill.width > 16)!
+    const count = folded.textCalls.find((call) => call.text === '3 points')!
+    expect(picture.x).toBeGreaterThan(name.x + name.text.length * 6)
+    expect(picture.x + picture.width).toBeLessThan(count.x - count.text.length * 6)
+    const interpolation = folded.textCalls.find((call) => call.align === 'left' && call.y > name.y)!
+    expect(interpolation.x).toBe(name.x)
+    expect(interpolation.y).toBeGreaterThan(name.y)
+    expect(interpolation.x + interpolation.text.length * 6).toBeLessThan(picture.x)
+  })
+
   it('measures a custom BOOLEAN label from the text the view paints', () => {
     const booleanKind: WidgetKind = {
       ...stubKind, type: 'BOOLEAN', defaultValue: () => false, defaultView: () => 'core.toggle',
@@ -722,5 +763,35 @@ describe('a row of items shows as many as fit and counts the rest', () => {
     const cut = fitItems(ctx, ['checkpoint-name', 'x'], 60)
     expect(cut.endsWith('... +1')).toBe(true)
     expect(cut.length * 6).toBeLessThanOrEqual(60)
+  })
+
+  it('keeps whole items, then cuts the first, and shows the count only when the cut name would say less', () => {
+    const { ctx } = fakeCtx()
+    const items = ['dpmpp_2m_sde', 'euler', 'dpmpp_2m']
+    // 'dpmpp_2m_sde, euler +1' is 132 px; 'dpmpp_2m_sde +2' is 90 px.
+    expect(fitItems(ctx, items, 132, '3 selected')).toBe('dpmpp_2m_sde, euler +1')
+    expect(fitItems(ctx, items, 100, '3 selected')).toBe('dpmpp_2m_sde +2')
+    // At 84 px the cut 'dpmpp_2m... +2' keeps 8 characters (48 px), less
+    // than the 60 px count, so the count stands alone.
+    expect(fitItems(ctx, items, 84, '3 selected')).toBe('3 selected')
+    // A long first name keeps enough of itself to beat the count.
+    expect(fitItems(ctx, ['a-very-long-checkpoint-name', 'x', 'y'], 120, '3 assets')).toBe('a-very-long-ch... +2')
+    // Below the count's own width, the count is cut like any text.
+    expect(fitItems(ctx, items, 42, '3 selected')).toBe('3 se...')
+    // Without a count the first item is always cut as before.
+    expect(fitItems(ctx, items, 84)).toBe('dpmpp_2m... +2')
+  })
+
+  it('tries shorter forms, keeps a suffix while cutting, and falls to the count last', () => {
+    const { ctx } = fakeCtx()
+    const box = { text: 'x 8, y 12; 512 x 768', shorter: ['8, 12 / 512 x 768'] }
+    expect(fitSummary(ctx, box, 120)).toBe('x 8, y 12; 512 x 768')
+    expect(fitSummary(ctx, box, 110)).toBe('8, 12 / 512 x 768')
+    expect(fitSummary(ctx, box, 60)).toBe('8, 12 /...')
+    const markdown = { text: '# A long heading line (4 lines)', suffix: ' (4 lines)', count: '4 lines' }
+    expect(fitSummary(ctx, markdown, 186)).toBe('# A long heading line (4 lines)')
+    expect(fitSummary(ctx, markdown, 120)).toBe('# A lon... (4 lines)')
+    // The cut '# ...' would keep 2 characters, less than '4 lines'.
+    expect(fitSummary(ctx, markdown, 90)).toBe('4 lines')
   })
 })

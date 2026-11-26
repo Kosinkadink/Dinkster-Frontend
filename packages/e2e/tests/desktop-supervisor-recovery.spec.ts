@@ -19,6 +19,9 @@ test('a post-ready engine death surfaces restart and returns to ready', async ({
     await route.fulfill({ status: 202 })
     setTimeout(() => { state = 'ready' }, 100)
   })
+  await page.route('**/supervisor/engine/log', (route) => route.fulfill({ json: {
+    available: true, text: 'Earlier engine output\n'.repeat(180) + 'Final engine failure', truncated: true,
+  } }))
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
@@ -29,15 +32,50 @@ test('a post-ready engine death surfaces restart and returns to ready', async ({
 
   await page.goto('/')
   await expect.poll(() => probes).toBeGreaterThan(0)
+  const editor = page.locator('.canvas-stage').first()
+  await expect(editor).toBeVisible()
+  const readyBounds = await editor.boundingBox()
   state = 'failed'
 
-  const banner = page.getByTestId('engine-banner')
-  await expect(banner).toHaveAttribute('data-state', 'failed', { timeout: 7000 })
-  await expect(banner).toContainText('Engine failed - engine exited with code 3')
+  const engine = page.getByTestId('engine-run-control')
+  await expect(engine).toHaveAttribute('data-state', 'failed', { timeout: 7000 })
+  await expect(page.getByTestId('engine-banner')).toHaveCount(0)
+  expect(await editor.boundingBox()).toEqual(readyBounds)
+  const failureColors = await page.getByTestId('status-connection').evaluate((element) => ({
+    words: getComputedStyle(element).color,
+    dot: getComputedStyle(element.querySelector('.status-connection-dot')!).backgroundColor,
+    actionWords: getComputedStyle(document.querySelector('[data-testid="engine-failed"]')!).color,
+    actionFace: getComputedStyle(document.querySelector('[data-testid="engine-failed"]')!).backgroundColor,
+    restart: getComputedStyle(document.querySelector('[data-testid="engine-restart"]')!).backgroundColor,
+  }))
+  expect(failureColors.words).toBe('rgb(255, 116, 104)')
+  expect(failureColors.dot).toBe(failureColors.words)
+  expect(failureColors.actionWords).toBe(failureColors.words)
+  expect(failureColors.actionFace).toBe('rgb(20, 28, 29)')
+  expect(failureColors.restart).toBe('rgb(30, 41, 42)')
+  await page.getByTestId('engine-failed').click()
+  await expect(page.getByRole('dialog', { name: 'Engine failed' })).toContainText('Engine exited with code 3')
   await page.screenshot({ path: evidencePath('issue-92', 'desktop-engine-recovery.png'), fullPage: true })
+  await page.getByRole('button', { name: 'Show log', exact: true }).click()
+  const log = page.getByTestId('engine-log-content')
+  await expect.poll(() => log.evaluate((element) => element.scrollTop > 0 && element.scrollHeight - element.scrollTop - element.clientHeight <= 1)).toBe(true)
+  const dialog = page.getByRole('dialog', { name: 'Engine log', exact: true })
+  const heading = dialog.getByRole('heading', { name: 'Engine log', exact: true })
+  const headingBounds = await heading.boundingBox()
+  await log.evaluate((element) => { element.scrollTop = 0 })
+  expect(await heading.boundingBox()).toEqual(headingBounds)
+  expect(await dialog.evaluate((element) => element.scrollTop)).toBe(0)
+  const dialogBounds = (await dialog.boundingBox())!
+  expect(dialogBounds.width).toBe(Math.min(960, page.viewportSize()!.width - 32))
+  expect(dialogBounds.x).toBeGreaterThanOrEqual(16)
+  expect(dialogBounds.y).toBeGreaterThanOrEqual(16)
+  expect(dialogBounds.y + dialogBounds.height).toBeLessThanOrEqual(page.viewportSize()!.height - 16)
+  await page.keyboard.press('Escape')
   await page.getByTestId('engine-restart').click()
   await expect.poll(() => restarts).toBe(1)
-  await expect(banner).toBeHidden({ timeout: 7000 })
+  await expect(engine).toHaveCount(0, { timeout: 7000 })
+  await expect(page.getByTestId('queue-button')).toBeVisible()
+  expect(await editor.boundingBox()).toEqual(readyBounds)
   expect(state).toBe('ready')
 })
 
@@ -45,20 +83,42 @@ test('with no engine open the status bar and Run say so until an engine opens', 
   let status: Record<string, unknown> = { protocol: 1, state: 'stopped', role: 'home', installations: 1 }
   await page.route('**/supervisor/status', (route) => route.fulfill({ json: status }))
   await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: { error: 'engine-not-ready', state: 'stopped', status: '/supervisor/status' } }))
+  await page.route('**/api/projects/default', (route) => route.fulfill({ json: { project: {
+    id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Bookshop diorama',
+    created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
+    packs: { extra: [] }, environment: null, accountProject: null,
+  } } }))
+  await page.addInitScript(() => {
+    const firstShell = new MutationObserver(() => {
+      if (!document.querySelector('[data-testid="learn-toggle"]')) return
+      document.documentElement.dataset.firstProjectName = document.querySelector('.dinkster-project-name')?.textContent ?? ''
+      firstShell.disconnect()
+    })
+    firstShell.observe(document, { childList: true, subtree: true })
+  })
 
   await page.goto('/')
+  await expect(page.locator('html')).toHaveAttribute('data-first-project-name', 'Bookshop diorama')
+  await expect(page.getByTestId('learn-toggle')).toBeVisible()
   const connection = page.getByTestId('status-connection')
   await expect(connection).toHaveAttribute('data-state', 'no-engine')
-  await expect(connection).toHaveAttribute('aria-label', 'Local: no engine')
-  await expect(connection).toContainText('no engine')
+  await expect(connection).toHaveAttribute('aria-label', 'Local: No engine is running')
+  await expect(connection).toContainText('No engine is running')
   await expect(page.getByTestId('status-bar')).not.toContainText('Loading schemas')
-  const run = page.getByTestId('queue-button')
-  await expect(run).toHaveAttribute('data-tooltip-label', 'No engine is running')
-  await run.hover()
-  await expect(page.getByText('No engine is running')).toBeVisible()
+  await expect(page.getByTestId('engine-start')).toHaveText('Start engine')
+  expect(await page.getByTestId('engine-start').evaluate((element) => ({
+    face: getComputedStyle(element).backgroundColor,
+    words: getComputedStyle(element).color,
+  }))).toEqual({ face: 'rgb(20, 28, 29)', words: 'rgb(50, 230, 165)' })
+  await expect(page.getByTestId('queue-button')).toHaveCount(0)
+  await expect(page.getByTestId('workflow-queue-toggle')).toBeVisible()
 
   status = { protocol: 1, state: 'starting', role: 'home', installations: 1, open: { root: '/installs/a', engine: 'main' } }
   await expect(connection).not.toHaveAttribute('data-state', 'no-engine', { timeout: 7000 })
-  await expect(run).toHaveAttribute('data-tooltip-label', 'The engine is still starting')
-  await expect(page.getByTestId('status-bar')).toContainText('Loading schemas')
+  await expect(page.getByTestId('engine-run-control')).toContainText('Starting engine')
+  await expect(page.getByTestId('workflow-queue-toggle')).toBeVisible()
+  await expect(page.locator('.dinkster-project-name')).toHaveText('Bookshop diorama')
+  await expect(page.getByTestId('learn-toggle')).toBeVisible()
+  await expect(connection).toContainText('Dinkster is starting...')
+  await expect(page.getByTestId('status-bar')).not.toContainText('Loading schemas')
 })
