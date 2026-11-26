@@ -88,7 +88,7 @@ import { ResourcesPanel } from './ResourcesPanel.js'
 import { LearnPanel } from './help/LearnPanel.js'
 import { NodeHelpPanel } from './help/NodeHelpPanel.js'
 import { useAppMessage } from './locale.js'
-import { UniversalSearch, UniversalSearchTrigger } from './UniversalSearch.js'
+import { shortcutKeys, UniversalSearch, UniversalSearchTrigger } from './UniversalSearch.js'
 import { bindSearchCatalog, registerCoreSearchProviders } from './universal-search.js'
 import { NodeInstallPrompt } from './NodeInstallPrompt.js'
 import { ProjectNeedsPrompt } from './ProjectNeedsPrompt.js'
@@ -366,7 +366,7 @@ export function dispatchAppCommandKey(
   }
   const commandId = app.keybindings.match(event)
   if (shortcutSuppressed(event)) return
-  if (commandId !== 'search.open' && !hasActiveTab) return
+  if (!hasActiveTab && commandId !== 'search.open' && commandId !== 'workflow.new' && commandId !== 'workflow.openTemplateGallery') return
   const command = commandId ? app.commands.get(commandId) : undefined
   if (!command) return
   if (command.enabled?.() !== false) {
@@ -1930,6 +1930,17 @@ export function App(props: {
   const openTemplates = (backend: Backend | undefined = app.libraryBackend()): void => {
     if (backend?.templatesEnabled.get()) app.pages.open('templates', backend.id)
   }
+  const documentModifier = /Mac/i.test(navigator.platform) ? 'Cmd' : 'Ctrl'
+  onCleanup(app.frontendDoors.command('workflow.new', {
+    get label() { return message('templatesEntry.blank') },
+    run: () => { app.createWorkflow() },
+  }))
+  onCleanup(app.keybindings.register({ command: 'workflow.new', combo: `${documentModifier}+Shift+1` }))
+  const documentKeys = (command: string): readonly string[] | undefined => {
+    settingsTick()
+    const combo = app.keybindings.combo(command)
+    return combo === undefined ? undefined : shortcutKeys(combo)
+  }
   onCleanup(app.pages.register({
     id: 'templates',
     get title() { return message('templatesPage.title') },
@@ -1970,11 +1981,12 @@ export function App(props: {
       category: 'templates', type: 'string', defaultValue: '',
     })
     const unregisterCommand = app.frontendDoors.command('workflow.openTemplateGallery', {
-      get label() { return t('command.workflow.openTemplateGallery') },
+      get label() { return message('templatesEntry.fromTemplate') },
       run: () => openTemplates(),
       enabled: () => app.libraryBackend()?.templatesEnabled.get() === true,
     })
-    onCleanup(() => { unregisterCommand(); unregisterSetting() })
+    const unregisterKeybinding = app.keybindings.register({ command: 'workflow.openTemplateGallery', combo: `${documentModifier}+Shift+2` })
+    onCleanup(() => { unregisterKeybinding(); unregisterCommand(); unregisterSetting() })
   })
   // The center region resolves every editor through EditorRegistry rather
   // than shell JSX branches.
@@ -2871,10 +2883,13 @@ export function App(props: {
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
             newItems={[
-              { label: message('templatesEntry.blank'), icon: Workflow, visible: true, onSelect: () => { app.createWorkflow() } },
+              { label: message('templatesEntry.blank'), icon: Workflow, visible: true,
+                get keys() { return documentKeys('workflow.new') },
+                onSelect: () => { app.commands.get('workflow.new')!.run() } },
               { label: message('templatesEntry.fromTemplate'), icon: LayoutTemplate,
                 get visible() { backendsTick(); return activeBackend().templatesEnabled.get() },
-                onSelect: () => openTemplates() },
+                get keys() { return documentKeys('workflow.openTemplateGallery') },
+                onSelect: () => { app.commands.get('workflow.openTemplateGallery')?.run() } },
             ]}
             canShare={(tab) => !isPageTab(tab) && tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
             onShare={(tab) => {

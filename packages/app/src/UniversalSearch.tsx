@@ -38,7 +38,7 @@ const moreKey = (group: SearchGroup): string => `more\u0000${group.id}`
 
 /** "ctrl+shift+o" as the key chips "Ctrl", "Shift", "O". */
 export function shortcutKeys(combo: string): readonly string[] {
-  return combo.split('+').filter(Boolean).map((key) => key.length === 1 ? key.toUpperCase() : `${key[0]!.toUpperCase()}${key.slice(1)}`)
+  return combo.split('+').filter(Boolean).map((key) => key === 'meta' ? 'Cmd' : key.length === 1 ? key.toUpperCase() : `${key[0]!.toUpperCase()}${key.slice(1)}`)
 }
 
 export function UniversalSearchTrigger(props: { readonly shortcut?: string | undefined; readonly open?: boolean; readonly onOpen: () => void }) {

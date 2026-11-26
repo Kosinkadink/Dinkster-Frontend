@@ -552,6 +552,7 @@
 .dinkster-project-name { flex: 0 1 auto; margin-inline-start: var(--dinkster-space-4); min-width: var(--dinkster-toolbar-project-name-min-width); max-width: var(--dinkster-toolbar-project-name-max-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dinkster-menu[data-project] { max-width: min(var(--dinkster-project-menu-max-width), calc(100vw - var(--dinkster-space-32))); }
 .dinkster-menu-item-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dinkster-menu-item-keys { display: inline-flex; flex: none; gap: var(--dinkster-space-4); margin-left: auto; }
 .dinkster-menu-separator { margin-block: var(--dinkster-space-4); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 .dinkster-menu-note { padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .dinkster-menu-row { display: flex; align-items: center; border-radius: var(--dinkster-radius-small); }

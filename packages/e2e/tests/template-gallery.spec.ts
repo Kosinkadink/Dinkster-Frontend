@@ -33,10 +33,10 @@ const digest = `sha256:${createHash('sha256').update(body).digest('hex')}`
 
 async function openGalleryFromSearch(page: import('@playwright/test').Page): Promise<void> {
   await page.getByTestId('topbar-search').click()
-  await page.getByTestId('universal-search-input').fill('> Open template gallery')
+  await page.getByTestId('universal-search-input').fill('> From a template')
   await page
     .locator('[data-group="core.commands"]')
-    .getByRole('option', { name: 'Open template gallery' })
+    .getByRole('option', { name: /From a template/ })
     .click()
 }
 
@@ -82,10 +82,22 @@ test('renders a local template thumbnail from owned bytes and cancels it when th
   await expect(page.getByRole('tab')).toHaveCount(beforeMenu)
   await page.mouse.move(0, 0)
   await expect(newTabMenu).toHaveCSS('background-color', hoverFill)
-  await expect(page.getByRole('menuitem')).toHaveText(['Blank workflow', 'From a template'])
+  await expect(page.getByRole('menuitem').locator('.dinkster-menu-item-label')).toHaveText(['Blank workflow', 'From a template'])
+  await expect(page.getByRole('menuitem', { name: 'Blank workflow', exact: true }).locator('kbd')).toHaveText(['Ctrl', 'Shift', '1'])
+  await expect(page.getByRole('menuitem', { name: 'From a template', exact: true }).locator('kbd')).toHaveText(['Ctrl', 'Shift', '2'])
   await captureProof(page, 'plus-menu-open.png')
   await page.keyboard.press('Escape')
   await expect(page.getByRole('menuitem')).toHaveCount(0)
+  const beforeShortcut = await page.getByRole('tab').count()
+  await page.keyboard.press('Control+Shift+Digit1')
+  await expect(page.getByRole('tab')).toHaveCount(beforeShortcut + 1)
+  await expect(page.getByTestId('templates-page')).toHaveCount(0)
+  await page.keyboard.press('Control+Shift+Digit2')
+  await expect(page.getByTestId('templates-page')).toBeVisible()
+  await page.keyboard.press('Control+Shift+Digit1')
+  await expect(page.getByRole('tab')).toHaveCount(beforeShortcut + 3)
+  await expect(page.getByTestId('templates-page')).toBeHidden()
+  await page.getByRole('button', { name: 'Close Templates', exact: true }).click()
   await newTabMenu.click()
   await page.getByTestId('graph-canvas').click({ position: { x: 20, y: 100 } })
   await expect(page.getByRole('menuitem')).toHaveCount(0)

@@ -898,6 +898,7 @@ function Gallery() {
                     items={[
                       {
                         label: 'View package',
+                        keys: ['Ctrl', 'Shift', '1'],
                         onSelect: () => complete('Package viewed'),
                       },
                       {

@@ -83,10 +83,10 @@ async function openTemplateGallery(page: Page): Promise<void> {
   await page.getByTestId("topbar-search").click();
   await page
     .getByTestId("universal-search-input")
-    .fill("> Open template gallery");
+    .fill("> From a template");
   await page
     .locator('[data-group="core.commands"]')
-    .getByRole("option", { name: "Open template gallery" })
+    .getByRole("option", { name: /From a template/ })
     .click();
 }
 

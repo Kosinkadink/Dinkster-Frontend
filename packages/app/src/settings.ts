@@ -208,8 +208,9 @@ export function normalizeCombo(combo: string): string {
   return [...(['ctrl', 'meta', 'alt', 'shift'] as const).filter((m) => modifiers.has(m)), key].join('+')
 }
 
-export function comboFromEvent(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): string {
-  let key = event.key.toLowerCase()
+export function comboFromEvent(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'> & Partial<Pick<KeyboardEvent, 'code'>>): string {
+  // Number-row shortcuts keep their digit when Shift produces punctuation or a different layout changes the character.
+  let key = /^Digit[0-9]$/.test(event.code ?? '') ? event.code!.slice(5) : event.key.toLowerCase()
   if (key === ' ') key = 'space'
   const modifiers = [event.ctrlKey && 'ctrl', event.metaKey && 'meta', event.altKey && 'alt', event.shiftKey && 'shift'].filter(Boolean)
   return [...modifiers, key].join('+')
@@ -220,7 +221,7 @@ export type KeyCaptureResult =
   | { readonly kind: 'complete'; readonly combo: string }
   | { readonly kind: 'cancel' }
 
-export function captureKeydown(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): KeyCaptureResult {
+export function captureKeydown(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'> & Partial<Pick<KeyboardEvent, 'code'>>): KeyCaptureResult {
   // Escape is reserved for leaving capture so a mistaken click never traps keyboard users.
   if (event.key === 'Escape') return { kind: 'cancel' }
   const modifier = ['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)
@@ -228,6 +229,7 @@ export function captureKeydown(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'm
   const combo = comboFromEvent({
     ...event,
     key: modifier ? '' : event.key,
+    code: event.code ?? '',
     ctrlKey: event.ctrlKey || event.key === 'Control',
     shiftKey: event.shiftKey || event.key === 'Shift',
     altKey: event.altKey || event.key === 'Alt',

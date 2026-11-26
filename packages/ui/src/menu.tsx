@@ -1,4 +1,5 @@
 import {
+  For,
   Index,
   Match,
   Show,
@@ -42,6 +43,8 @@ export interface ProductMenuItem {
   disabled?: boolean
   checked?: boolean
   attention?: ProductAttention | undefined
+  /** Shortcut keys rendered with the shared key chips at the row's end. */
+  keys?: readonly string[] | undefined
   /** A second action at the row's end, shown on hover and keyboard focus. */
   rowAction?: { label: string; icon: LucideIcon; onSelect: () => void }
   onSelect: () => void
@@ -354,6 +357,9 @@ function Menu(props: {
                         </Show>
                         <Show when={item().attention}>
                           {(attention) => <Attention attention={attention()} />}
+                        </Show>
+                        <Show when={item().keys}>
+                          {(keys) => <span class="dinkster-menu-item-keys" aria-hidden="true"><For each={keys()}>{(key) => <kbd class="dinkster-key">{key}</kbd>}</For></span>}
                         </Show>
                       </button>
                     )
