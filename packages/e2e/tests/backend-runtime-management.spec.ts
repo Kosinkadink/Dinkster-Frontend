@@ -174,6 +174,39 @@ test('backend and runtime management remains truthful and usable across wide, na
   await page.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent-top.png') })
 })
 
+test('backend removal menu stays clickable above the narrow inspector dock', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openFixture(page)
+  await page.getByTestId('backends-sidebar-toggle').click()
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app as any
+    for (const backend of app.backends.get().slice(1)) app.removeBackend(backend.id)
+    ;(window as unknown as { dinksterDesktop: unknown }).dinksterDesktop = {
+      connectionCredentials: async () => ({ custody: true, profiles: [] }),
+      retireConnectionProfile: async () => {},
+    }
+    const path = '/src/connection-profiles.ts'
+    const { createConnectionProfile } = await import(/* @vite-ignore */ path)
+    createConnectionProfile('Saved studio', 'https://studio.example.test:9000')
+    const backend = app.addBackend('https://connected.example.test:9000', 'Connected studio', false, 'dinkster')!
+    backend.connection.status.set('connected')
+    backend.schemaState.set({ status: 'ready' })
+    backend.supervisor.set({ protocol: 1, state: 'ready', detail: 'Engine healthy' })
+  })
+  await page.getByTestId('backends-sidebar-toggle').click()
+  await setShellRegion(page, 'right', true)
+  const row = page.getByTestId('backend-row').filter({ hasText: 'Connected studio' })
+  await row.locator('button[aria-controls]').click()
+  const actions = row.getByRole('button', { name: 'Actions for Connected studio', exact: true })
+  await actions.scrollIntoViewIfNeeded()
+  await actions.click()
+  await page.getByRole('menuitem', { name: 'Remove backend', exact: true }).click()
+  await expect(row).toContainText('No files will be deleted')
+  await row.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(row).not.toContainText('No files will be deleted')
+  await expect(row).toBeVisible()
+})
+
 test('mounted agent permission chrome relabels without refetching or changing authority', async ({ page, request }) => {
   await page.setViewportSize({ width: 1600, height: 950 })
   await openFixture(page)
