@@ -59,6 +59,19 @@ afterEach(() => {
 })
 
 describe('SettingsDialog search', () => {
+  it('renders shortcuts within localized descriptions as key chips without changing the prose', () => {
+    const settings = isolatedSettings()
+    settings.register({ id: 'canvas.scrollBehavior', name: t('settings.canvas.scrollBehavior.name'), category: 'canvas', description: t('settings.canvas.scrollBehavior.description'), type: 'boolean', defaultValue: false })
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} />, root)
+    const description = root.querySelector('#setting-canvas\\.scrollBehavior-description')!
+    expect([...description.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Ctrl', 'Wheel'])
+    expect(description.textContent).toBe(t('settings.canvas.scrollBehavior.description').replace('Ctrl+wheel', 'CtrlWheel'))
+    expect(root.querySelector('#setting-canvas\\.scrollBehavior')?.getAttribute('aria-describedby')).toContain(description.id)
+    unmount()
+  })
+
   it('discards pending accounting from a replaced backend', async () => {
     const settings = isolatedSettings()
     const status: LibraryStorage = { temporaryBytes: 37, vaultBytes: 313, adoptedBytes: 211,

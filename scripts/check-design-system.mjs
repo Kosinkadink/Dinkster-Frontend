@@ -153,6 +153,29 @@ export async function checkDesignSystem(args = []) {
     const line = (node) =>
       source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
     const shortcutSource = resolve(repository, 'packages/ui/src/shortcut.tsx')
+    const checkRenderedShortcut = (node) => {
+      if (ts.isStringLiteralLike(node) || ts.isJsxText(node)) {
+        if (/\b(?:Ctrl|Cmd|Alt|Shift|Meta)\+/iu.test(node.text))
+          report(path, line(node), 'Shortcut text must use ProductShortcut')
+      } else if (ts.isConditionalExpression(node)) {
+        checkRenderedShortcut(node.whenTrue)
+        checkRenderedShortcut(node.whenFalse)
+      } else if (ts.isParenthesizedExpression(node)) {
+        checkRenderedShortcut(node.expression)
+      } else if (
+        ts.isBinaryExpression(node) &&
+        [
+          ts.SyntaxKind.AmpersandAmpersandToken,
+          ts.SyntaxKind.BarBarToken,
+          ts.SyntaxKind.QuestionQuestionToken,
+          ts.SyntaxKind.PlusToken,
+        ].includes(node.operatorToken.kind)
+      ) {
+        if (node.operatorToken.kind !== ts.SyntaxKind.AmpersandAmpersandToken)
+          checkRenderedShortcut(node.left)
+        checkRenderedShortcut(node.right)
+      }
+    }
     const visitShortcut = (node) => {
       if (path !== shortcutSource) {
         if (
@@ -165,16 +188,13 @@ export async function checkDesignSystem(args = []) {
           /\bdinkster-(?:key|window-action-shortcut)\b/u.test(node.text)
         )
           report(path, line(node), 'Shortcut chips belong to ProductShortcut')
-        const renderedText = ts.isJsxText(node)
-          ? node.text
-          : ts.isJsxExpression(node) &&
-              (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent)) &&
-              node.expression &&
-              ts.isStringLiteralLike(node.expression)
-            ? node.expression.text
-            : ''
-        if (/\b(?:Ctrl|Cmd|Alt|Shift|Meta)\+/iu.test(renderedText))
-          report(path, line(node), 'Shortcut text must use ProductShortcut')
+        if (ts.isJsxText(node)) checkRenderedShortcut(node)
+        else if (
+          ts.isJsxExpression(node) &&
+          (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent)) &&
+          node.expression
+        )
+          checkRenderedShortcut(node.expression)
       }
       ts.forEachChild(node, visitShortcut)
     }

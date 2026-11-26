@@ -26,6 +26,8 @@ test('design check accepts shared classes and geometry but rejects screen-local 
       const view = <section class={invalid ? 'dinkster-field-error' : 'dinkster-description'}><ProductButton>Save</ProductButton></section>
       const binding = { combo: 'Ctrl+K' }
       const shortcut = <ProductShortcut keys={'Ctrl+K'} />
+      const conditionalShortcut = <ProductShortcut keys={mac ? 'Cmd+K' : 'Ctrl+K'} />
+      const comparison = <span>{binding.combo === 'Ctrl+K' ? 'Search' : 'Changed'}</span>
       menu.style.left = anchor.left + 'px'
     `,
     )
@@ -43,6 +45,14 @@ test('design check accepts shared classes and geometry but rejects screen-local 
       ],
       [
         'const view = <span>{`Alt+N`}</span>',
+        'Shortcut text must use ProductShortcut',
+      ],
+      [
+        'const view = <span>{ed.spec ? "Ctrl+Enter to commit" : "JSON"}</span>',
+        'Shortcut text must use ProductShortcut',
+      ],
+      [
+        'const view = <span>{enabled && (mac ? "Cmd+K" : "Ctrl+K")}</span>',
         'Shortcut text must use ProductShortcut',
       ],
       ['const color = "#F2F4F5"', 'Literal color'],

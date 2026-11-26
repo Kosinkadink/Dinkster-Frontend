@@ -28,3 +28,18 @@ export function ProductShortcut(props: { keys: string | readonly string[] }) {
     </span>
   )
 }
+
+/** Keep help prose intact while drawing embedded key combinations consistently. */
+export function ProductShortcutText(props: { text: string }) {
+  const parts = () =>
+    props.text.split(
+      /(\b(?:(?:Ctrl|Cmd|Alt|Shift|Meta)\+)+(?:[a-z\d]+|[^\s\w]))/giu,
+    )
+  return (
+    <For each={parts()}>
+      {(part, index) =>
+        index() % 2 === 1 ? <ProductShortcut keys={part} /> : part
+      }
+    </For>
+  )
+}
