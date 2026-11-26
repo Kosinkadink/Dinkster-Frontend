@@ -116,6 +116,26 @@ test.beforeEach(async ({ page }) => {
   await waitForWorkspaceReady(page)
 })
 
+test('a finished run menu remains usable after a late log', async ({ page }, info) => {
+  await queueAndComplete(page)
+  const row = page.getByTestId('execution-row').first()
+  await row.getByRole('button', { name: /^More for / }).click()
+  const inspect = page.getByRole('menuitem', { name: 'Inspect run', exact: true })
+  await expect(inspect).toBeVisible()
+  await page.screenshot({ path: info.outputPath('run-menu-before-log.png') })
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const execution = app.executionList()[0]!
+    app.store.apply({ kind: 'log', execution: execution.ref, timestamp: Date.now(),
+      level: 'info', message: 'Late completed-run diagnostic', seq: 1000000 })
+  })
+  await page.screenshot({ path: info.outputPath('run-menu-after-log.png') })
+  await expect(inspect).toBeVisible()
+  await inspect.click()
+  await expect(row.getByTestId('run-inspection')).toBeVisible()
+  await expect(row.locator('.execution-status')).toHaveText('Completed')
+})
+
 test('execution row opens a frozen view pinned to that execution', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
