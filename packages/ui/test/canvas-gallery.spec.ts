@@ -263,14 +263,21 @@ test('Color picker handles stay wholly inside every control', async ({
       .locator('svg:has(> .dinkster-canvas-color-handle)')
       .evaluateAll((controls) =>
         controls.map((svg) => {
-          const handle = svg.querySelector<SVGGElement>('.dinkster-canvas-color-handle')!
+          const handle = svg.querySelector<SVGGElement>(
+            '.dinkster-canvas-color-handle',
+          )!
           const box = handle.getBBox()
           const at = (value: number) => Math.round(value * 100) / 100
           return {
             shape: handle.getAttribute('data-shape'),
             x: Number(handle.getAttribute('data-x')),
             y: Number(handle.getAttribute('data-y')),
-            box: { left: at(box.x), top: at(box.y), right: at(box.x + box.width), bottom: at(box.y + box.height) },
+            box: {
+              left: at(box.x),
+              top: at(box.y),
+              right: at(box.x + box.width),
+              bottom: at(box.y + box.height),
+            },
             width: Number(svg.getAttribute('width')),
             height: Number(svg.getAttribute('height')),
           }
@@ -279,10 +286,24 @@ test('Color picker handles stay wholly inside every control', async ({
   // Every open example draws a ring on the square and an upright bar on the
   // hue strip, and on the opacity strip when the field has one. Each stays
   // inside its control; a bar spans its strip's full height.
-  for (const id of ['open', 'pick', 'invalid', 'empty', 'alpha', 'clear', 'black', 'white']) {
+  for (const id of [
+    'open',
+    'pick',
+    'invalid',
+    'empty',
+    'alpha',
+    'clear',
+    'black',
+    'white',
+  ]) {
     const handles = await handlesOf(id)
-    expect(handles.map((handle) => handle.shape), id).toEqual(
-      id === 'alpha' || id === 'clear' ? ['ring', 'bar', 'bar'] : ['ring', 'bar'],
+    expect(
+      handles.map((handle) => handle.shape),
+      id,
+    ).toEqual(
+      id === 'alpha' || id === 'clear'
+        ? ['ring', 'bar', 'bar']
+        : ['ring', 'bar'],
     )
     for (const handle of handles) {
       expect(handle.width, id).toBeGreaterThan(12)
@@ -291,7 +312,10 @@ test('Color picker handles stay wholly inside every control', async ({
       expect(handle.box.right, id).toBeLessThanOrEqual(handle.width)
       expect(handle.box.bottom, id).toBeLessThanOrEqual(handle.height)
       if (handle.shape === 'bar') {
-        expect([handle.box.top, handle.box.bottom], id).toEqual([0, handle.height])
+        expect([handle.box.top, handle.box.bottom], id).toEqual([
+          0,
+          handle.height,
+        ])
         expect(handle.box.right - handle.box.left, id).toBeCloseTo(6, 2)
       }
     }
@@ -311,7 +335,7 @@ test('Color picker handles stay wholly inside every control', async ({
   expect(hue!.x).toBeCloseTo((220 / 360) * hue!.width, 0)
 })
 
-test('An open row\'s side part draws its rules and keys in the node\'s divider and label colors', async ({
+test('Open rows use a quiet outline and preserve keyboard focus and side-part colors', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -331,9 +355,50 @@ test('An open row\'s side part draws its rules and keys in the node\'s divider a
   expect(
     await help.evaluate((element) => getComputedStyle(element).borderTopColor),
   ).toBe(await palette('--dinkster-border-divider'))
-  expect(
-    await key.evaluate((element) => getComputedStyle(element).color),
-  ).toBe(await palette('--dinkster-text-secondary'))
+  expect(await key.evaluate((element) => getComputedStyle(element).color)).toBe(
+    await palette('--dinkster-text-secondary'),
+  )
+  for (const theme of ['dark', 'light'] as const) {
+    await openPage(page, 'row-editing', theme)
+    await cardsReady(page, 'row-editing', theme)
+    for (const id of ['number-right', 'text-right', 'focus-number']) {
+      const outline = page
+        .getByTestId(`row-editing-${id}`)
+        .locator('..')
+        .locator('.dinkster-canvas-field-outline path')
+      await expect(outline).toHaveCSS(
+        'stroke',
+        await palette(
+          id === 'focus-number'
+            ? '--dinkster-border-focus'
+            : '--dinkster-accent-rest-border',
+        ),
+      )
+      await expect(outline).toHaveCSS('stroke-width', '2px')
+    }
+    await openPage(page, 'save-target-box', theme)
+    await cardsReady(page, 'save-target-box', theme)
+    const target = page
+      .getByTestId('save-target-box-open')
+      .locator('..')
+      .locator('.dinkster-canvas-field-outline path')
+    await expect(target).toHaveCSS(
+      'stroke',
+      await palette('--dinkster-accent-rest-border'),
+    )
+    await expect(target).toHaveCSS('stroke-width', '2px')
+    await openPage(page, 'color-editing', theme)
+    await cardsReady(page, 'color-editing', theme)
+    const neutral = page
+      .getByTestId('color-editing-wired')
+      .locator('..')
+      .locator('.dinkster-canvas-field-outline path')
+    await expect(neutral).toHaveCSS(
+      'stroke',
+      await palette('--dinkster-border-subtle'),
+    )
+    await expect(neutral).toHaveCSS('stroke-width', '1px')
+  }
 })
 
 for (const theme of ['dark', 'light'] as const) {
