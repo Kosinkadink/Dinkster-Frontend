@@ -241,6 +241,7 @@ export function resolveBoundaryRoute(
   expectedSide?: 'input' | 'output',
   values?: Readonly<Record<string, unknown>>,
   _dynamic?: NodeData['dynamic'],
+  choices?: Readonly<Record<string, string>>,
 ): RouteResult {
   if (binding.kind === 'unbound') return { ok: false, code: 'boundary.unboundRoute', message: 'a structural boundary has no node port route' }
   if (binding.kind === 'widgetTap') {
@@ -315,13 +316,14 @@ export function resolveBoundaryRoute(
             const sharedRows = new Map(row.shared.filter((item) => item.kind !== 'row').map((item) => [(item as { id: string }).id, item]))
             const options: string[] = []
             let reached: BoundaryRoute | undefined
+            const selected = choices?.[full] ?? _dynamic?.[full]?.selected ?? row.default
             for (const option of row.options) {
               found = undefined
               walk(option.rows, index + 1, `${full}.`, [...hops, { kind: 'combo', constructPath: full, options: [], spec: row }], top, sharedRows)
               const here = found as BoundaryRoute | undefined
               if (here !== undefined) {
                 options.push(option.key)
-                reached ??= here
+                if (reached === undefined || option.key === selected) reached = here
               }
             }
             found = reached === undefined ? undefined : {
@@ -716,17 +718,22 @@ export function deriveBoundarySchema(
     }
     if (route === undefined || route.hops.length === 0) return active.bindings
     const bindings = new Map(active.bindings)
+    const choices = Object.fromEntries(route.hops.flatMap((hop) => {
+      if (hop.kind !== 'combo') return []
+      const selected = active.choices[hop.constructPath] ?? node.dynamic?.[hop.constructPath]?.selected ?? hop.spec.default
+      const option = selected !== undefined && hop.options.includes(selected) ? selected : hop.options[0]
+      return option === undefined ? [] : [[hop.constructPath, option]]
+    }))
     for (const [port, state] of schema === undefined ? [] : Object.entries(node.dynamic ?? {})) {
       if (state.selected === undefined) continue
-      const resolved = resolveBoundaryRoute(schema!, { kind: 'construct', node: node.id, port: asPortId(port) }, 'input', node.values, node.dynamic)
+      const resolved = resolveBoundaryRoute(schema!, { kind: 'construct', node: node.id, port: asPortId(port) }, 'input', node.values, node.dynamic, choices)
       if (!resolved.ok || resolved.route.terminal.kind !== 'construct') continue
       const sameScope = resolved.route.hops.every((hop) => route.hops.some((target) => {
         switch (hop.kind) {
           case 'member': return target.kind === 'member' && hop.familyPath === target.familyPath && hop.member === target.member
           case 'combo': {
             if (target.kind !== 'combo' || hop.constructPath !== target.constructPath) return false
-            const selected = active.choices[target.constructPath] ?? node.dynamic?.[target.constructPath]?.selected ?? target.spec.default
-            const option = selected !== undefined && target.options.includes(selected) ? selected : target.options[0]
+            const option = choices[target.constructPath]
             return option !== undefined && hop.options.includes(option)
           }
           case 'slot': return (target.kind === 'slot' || target.kind === 'slotVariant') && hop.constructPath === target.constructPath

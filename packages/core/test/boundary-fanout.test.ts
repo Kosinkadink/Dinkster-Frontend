@@ -419,7 +419,7 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
 
   const params = (node: string, port = 'in') => ({ graphId: 'sub', itemId: 'in', node, port })
 
-  it.each(['variable', 'inactive', 'nested', 'competing', 'competing-reordered', 'competing-shared', 'competing-shared-reordered'])('uses boundary-facing types even when inner ports are solved or inactive: %s', (scenario) => {
+  it.each(['variable', 'inactive', 'nested', 'nested-shared-selector', 'competing', 'competing-reordered', 'competing-shared', 'competing-shared-reordered'])('uses boundary-facing types even when inner ports are solved or inactive: %s', (scenario) => {
     const competing = scenario.startsWith('competing')
     const inactive = !competing && scenario !== 'variable'
     const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
@@ -429,10 +429,10 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
       Target: inactive ? {
         ...schemaOf('Target', []),
         body: [{ kind: 'choice', id: 'mode', required: true, shared: [], options: [
-          { key: 'a', rows: [] },
+          { key: 'a', rows: scenario === 'nested-shared-selector' ? [{ kind: 'typeChoice', id: 'source', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'float', type: IMAGE, rows: [] }] }] : [] },
           { key: 'b', rows: [
             { kind: 'typeChoice', id: 'source', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'float', type: FLOAT, rows: [] }] },
-            input('amount', { type: scenario === 'nested' ? variable : FLOAT }),
+            input('amount', { type: scenario.startsWith('nested') ? variable : FLOAT }),
           ] },
         ] }],
       } : schemaOf('Target', [input('value', { type: competing ? IMAGE : { kind: 'concrete', name: 'STRING' } })]),
@@ -449,7 +449,7 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
     const doc = docOf({ g0: { nodes: {} }, sub: {
       nodes: { primary: { type: 'Primary', ...(competing ? { dynamic: { mode: { selected: 'a' }, ...Object.fromEntries(scenario.endsWith('reordered') ? [...selections].reverse() : selections) } } : {}) }, consumer: { type: 'Consumer' }, target: { type: 'Target', values: { 'mode.source': 0.5 }, dynamic: { mode: { selected: 'a' }, 'mode.source': { selected: 'float' } } } },
       links: competing ? [] : [[['primary', 'out'], ['consumer', 'value']]],
-      boundary: { inputs: [{ id: 'in', binds: bind('primary', scenario.includes('shared') ? 'mode.value' : 'value') }] },
+      boundary: { inputs: [{ id: 'in', binds: bind('primary', competing && scenario.includes('shared') ? 'mode.value' : 'value') }] },
     } })
     const store = new DocumentStore(doc, coreCommandRegistry([], resolve), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
     const before = store.doc
