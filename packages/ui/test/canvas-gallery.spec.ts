@@ -180,10 +180,6 @@ test('Save target shared fold-out distinguishes rest, typing and a reopened wire
     await expect(changed.locator('input')).toHaveValue('ComfyUI')
     await expect(changed.getByRole('button', { name: 'Reset to default', exact: true })).toHaveCount(0)
     await expect.poll(() => changed.locator('.dinkster-canvas-editor').evaluate((element) => element.clientHeight)).toBeLessThan(expandedHeight)
-    await expect(stage('mount-wired').getByRole('button', { name: 'Reset to default', exact: true })).toHaveCount(0)
-    await expect(stage('mount-wired').locator('.dinkster-canvas-target-value-text')).toHaveText('archive')
-    await expect(stage('name-wired').getByRole('button', { name: 'Reset to default', exact: true })).toHaveCount(0)
-    await expect(stage('name-wired').locator('input')).toHaveValue('shots/shot_042')
   }
   } finally { await browser.close() }
 })

@@ -1,5 +1,4 @@
 import {
-  asPortId,
   defaultValuesOf,
   loadDocument,
   type Json,
@@ -7,11 +6,9 @@ import {
 } from '@dinkster/core'
 import {
   buildScene,
-  canvasPaintTokens,
   type CompanionMap,
   type DesignTokens,
   type Scene,
-  type PinLayout,
   type TextMeasurer,
   type WidgetMeasure,
 } from '../src/index.js'
@@ -71,7 +68,7 @@ export function createSaveTargetScene(
   widgetMeasure: WidgetMeasure,
   position: { x: number; y: number },
   stored: Json,
-  options: { readonly optional?: boolean; readonly wired?: boolean; readonly unfolded?: boolean; readonly wiredParts?: readonly string[]; readonly nameOffset?: number } = {},
+  options: { readonly optional?: boolean; readonly wired?: boolean; readonly unfolded?: boolean } = {},
 ): Scene {
   const schema = options.optional === true ? optionalSaveTargetSchema : saveTargetSchema
   const id = schema.type
@@ -110,7 +107,7 @@ export function createSaveTargetScene(
   })
   if (!loaded.document)
     throw new Error(`Invalid gallery document: ${JSON.stringify(loaded)}`)
-  const scene = buildScene({
+  return buildScene({
     document: loaded.document,
     graphId: 'gallery',
     resolve: (type) => (type === id ? schema : type === SOURCE ? sourceSchema : undefined),
@@ -118,29 +115,6 @@ export function createSaveTargetScene(
     measure,
     widgetMeasure,
   })
-  if (options.unfolded === undefined) return scene
-  const node = scene.nodes.find((item) => item.id === id)!
-  const header = node.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'target')!
-  const space = node.layout.rows.find((row) => row.kind === 'editorSpace' && row.valueKey === 'target')
-  const parts = ['mount', 'name'].filter((part) => space !== undefined || options.wiredParts?.includes(part))
-  const pins: PinLayout[] = parts.map((part, index) => ({
-    portId: part, address: { port: asPortId(part) }, direction: 'in', label: part === 'mount' ? 'Mount' : 'Name', optional: true,
-    type: { kind: 'concrete', name: part === 'mount' ? 'MOUNT' : 'STRING' },
-    y: space === undefined
-      ? header.y + tokens.rowHeight / 2 + (index - (parts.length - 1) / 2) * canvasPaintTokens.node.box.clusterPitch.two
-      : space.y + canvasPaintTokens.node.editorSpace.pad + (part === 'name' ? options.nameOffset ?? tokens.rowHeight : 0) + tokens.rowHeight / 2,
-    ...(space === undefined ? { collapsedSection: 'target' } : {}),
-  }))
-  // These two example pins do not declare engine inputs. The engine contract is separate.
-  return {
-    ...scene,
-    nodes: scene.nodes.map((item) => item.id === id ? { ...item, layout: { ...item.layout, pins: [...item.layout.pins, ...pins] } } : item),
-    links: [...scene.links, ...pins.filter((pin) => options.wiredParts?.includes(pin.portId)).map((pin) => ({
-      id: `part-${pin.portId}`, from: { kind: 'port' as const, node: SOURCE, port: pin.portId }, to: { kind: 'port' as const, node: id, port: pin.portId },
-      x1: -100, y1: node.y + pin.y, x2: node.x, y2: node.y + pin.y,
-      typeName: pin.type.kind === 'concrete' ? pin.type.name : 'STRING',
-    }))],
-  }
 }
 
 /** The target a wire brings to the wired example. */
@@ -171,7 +145,6 @@ export interface SaveTargetExample {
   readonly foldout?: true
   /** Show the text field without a host-managed keyboard highlight. */
   readonly resting?: true
-  readonly wiredParts?: readonly ('mount' | 'name')[]
 }
 
 /** A target on Project default names only the prefix. */
@@ -200,9 +173,6 @@ export const saveTargetGroups: readonly {
       { id: 'foldout-wired', caption: 'Whole target wired: folded, quiet, with the shared frame, icon and opener retained.', stored: portrait, arriving: { mount: 'archive', prefix: 'from/upstream' }, foldout: true },
       { id: 'foldout-wired-open', caption: 'Whole target wired, reopened to read what arrives. Neither Mount nor Name can change.', stored: portrait, arriving: { mount: 'archive', prefix: 'from/upstream' }, open: { mount: 'archive', prefix: 'from/upstream' }, foldout: true, resting: true },
       { id: 'foldout-invalid', caption: 'A refused Name keeps the Mount row visible. The name cannot leave the mount.', stored: portrait, open: { mount: null, prefix: '../escape' }, foldout: true },
-      { id: 'foldout-mount-wired', caption: 'Example data only: Mount wired while Name stays editable. No engine input is added.', stored: portrait, open: { mount: 'archive', prefix: 'renders/portrait' }, foldout: true, resting: true, wiredParts: ['mount'] },
-      { id: 'foldout-name-wired', caption: 'Example data only: Name wired while Mount stays editable.', stored: portrait, open: { mount: null, prefix: 'shots/shot_042' }, foldout: true, resting: true, wiredParts: ['name'] },
-      { id: 'foldout-both-folded', caption: 'Example data only: connected Mount and Name pins gather at the closed header on the node edge.', stored: portrait, foldout: true, wiredParts: ['mount', 'name'] },
       { id: 'foldout-missing', caption: 'A missing mount stays stored. Details opens the explanation and project-default action.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, foldout: true, resting: true },
       { id: 'foldout-no-default', caption: 'Project default has no output mount. The error stays inside the editor.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, noDefault: true, foldout: true, resting: true },
       { id: 'foldout-missing-no-default', caption: 'The stored mount is missing and this project has no default output mount.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, noDefault: true, foldout: true, resting: true },

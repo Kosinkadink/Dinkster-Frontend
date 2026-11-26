@@ -65,7 +65,6 @@ function SaveTargetExampleCard(props: {
   const [fieldInsetY, setFieldInsetY] = createSignal(0)
   const [sideSize, setSideSize] = createSignal({ width: SIDE_ROOM - MARGIN, height: 0 })
   const [boxHeight, setBoxHeight] = createSignal(0)
-  const [nameOffset, setNameOffset] = createSignal(0)
   const example = () => props.example
   const schema = () => (example().optional === true ? optionalSaveTargetSchema : saveTargetSchema)
   const nodeAt = { x: MARGIN, y: MARGIN }
@@ -75,7 +74,6 @@ function SaveTargetExampleCard(props: {
     const current = example()
     const currentOpen = open()
     const controlsHeight = boxHeight()
-    const nameY = nameOffset()
     let disposed = false
     let renderer: CanvasRenderer | undefined
     void document.fonts
@@ -111,8 +109,6 @@ function SaveTargetExampleCard(props: {
           ...(current.optional === true ? { optional: true } : {}),
           ...(current.arriving === undefined ? {} : { wired: true }),
           ...(current.foldout ? { unfolded: current.open !== undefined } : {}),
-          ...(current.wiredParts === undefined ? {} : { wiredParts: current.wiredParts }),
-          ...(current.foldout && current.open ? { nameOffset: nameY } : {}),
         })
         const node = built.nodes.find((item) => item.id === schema().type)!
         canvas.style.width = `${current.foldout ? node.layout.width + MARGIN * 2 : MARGIN + NODE_WIDTH + SIDE_ROOM}px`
@@ -261,8 +257,6 @@ function SaveTargetExampleCard(props: {
       ref={(element) => {
         const observer = new ResizeObserver(() => {
           setBoxHeight(element.scrollHeight)
-          const name = element.querySelector<HTMLElement>('.dinkster-canvas-target-name')
-          if (name) setNameOffset(name.getBoundingClientRect().top - element.getBoundingClientRect().top)
         })
         observer.observe(element)
         onCleanup(() => observer.disconnect())
@@ -271,8 +265,6 @@ function SaveTargetExampleCard(props: {
       <CanvasTargetBox
         inNode={example().foldout === true}
         frozen={example().arriving !== undefined}
-        mountWired={example().wiredParts?.includes('mount') === true}
-        prefixWired={example().wiredParts?.includes('name') === true}
         words={{
           mount: example().foldout ? 'Mount' : t('saveTargetWidget.mount'),
           prefix: example().foldout ? 'Name' : t('saveTargetWidget.prefix'),
@@ -301,7 +293,7 @@ function SaveTargetExampleCard(props: {
           }}>{t(noDefault() ? 'saveTargetWidget.noDefaultShort' : draft().mountGone ? 'saveTargetWidget.missingShort'
             : 'saveTargetWidget.noMountsShort', { id: open()?.mount ?? '' })}</CanvasEditorNote>,
         } : {})}
-        {...(example().foldout && example().arriving === undefined && !example().wiredParts?.length &&
+        {...(example().foldout && example().arriving === undefined &&
           (open()?.mount !== null || open()?.prefix !== galleryDefault.prefix) ? {
             reset: { label: t('saveTargetWidget.reset'), onClick: () => setEdited({ mount: null, prefix: galleryDefault.prefix }) },
           } : {})}
