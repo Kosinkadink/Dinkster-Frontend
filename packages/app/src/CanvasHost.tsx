@@ -157,6 +157,7 @@ import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { pendingClipboardText, writeClipboardText } from './clipboard-text.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
+import { catalogNodeKey, runSearchAction } from './universal-search.js'
 import { isNativeTextScopeTarget, shortcutSuppressed } from './settings.js'
 import { bookmarkJumpMode, bookmarkJumpPlan, bookmarkMarkerWorldPoint, bookmarkSaveMode, bookmarkViewFromViewport, bookmarkViewportForView, createCameraAnimator, viewportCenteredOnNode, type BookmarkJumpPlan } from './bookmark-camera.js'
 import { Icon } from './Icon.js'
@@ -2176,6 +2177,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // (query, highlight, filters, clamping) lives in NodePalette and dies
   // with it when the anchor clears.
   const [palette, setPalette] = createSolidSignal<PaletteAnchor | undefined>(undefined)
+  const searchCatalog = useSignal(props.app.searchCatalog)
+  createEffect(on(() => palette() !== undefined, (open) => {
+    if (open) props.app.searchCatalogRequests.set(props.app.searchCatalogRequests.get() + 1)
+  }))
   const [linkDoubleClickMenu, setLinkDoubleClickMenu] = createSolidSignal<{ x: number; y: number; context: LinkDoubleClickContext } | undefined>(undefined)
   /**
    * When the link menu opened. A midpoint single click opens it on release,
@@ -2319,6 +2324,22 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
       }
     }
+    if (tab !== undefined && tab.execution === undefined) {
+      const installed = new Set(entries.map((entry) => entry.type))
+      for (const entry of searchCatalog()) {
+        const schema = entry.schema
+        if (installed.has(schema.type) || reg?.packs?.has(entry.pack.name) || searchVisibilityOf(schema) !== 'normal') continue
+        installed.add(schema.type)
+        entries.push({
+          type: schema.type, name: schema.displayName, category: schema.category, kind: 'node', schema,
+          ...(schema.description === undefined ? {} : { description: schema.description }),
+          pack: entry.pack.displayName, fields: nodeSearchFields(schema),
+          install: { kind: 'host', action: 'node.previewInstall', params: {
+            type: schema.type, backendId: props.app.backendForTab(tab).id, schemaKey: catalogNodeKey(entry),
+          } },
+        })
+      }
+    }
     return entries.sort((a, b) => a.name.localeCompare(b.name))
   }
 
@@ -2435,8 +2456,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (editorOpen && isInside(event, '.product-select[aria-expanded="true"]')) return
       // So does the open mount list in a save target's box: it closes before the box.
       if (editorOpen && isInside(event, '.dinkster-canvas-target-choice[aria-expanded="true"]')) return
-      // An expanded palette type filter owns the first Escape and restores its trigger focus.
-      if (paletteOpen && isInside(event, '.palette-type-filter[data-expanded="true"]')) return
+      // A shared type menu owns the first Escape and restores its trigger focus.
+      if (paletteOpen && isInside(event, '.dinkster-menu-popover')) return
       // A suggestion surface is part of the live text editor, not a
       // request to close that editor. Let its target handler close only the
       // surface; the ordinary host-owned editor Escape path resumes once the
@@ -5542,7 +5563,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     armPaletteEntry = (entry): boolean => {
       const tab = activeTab()
-      if (!tab || frozen() || entry.type === '__dinkster.reroute') {
+      if (!tab || frozen() || entry.install !== undefined || entry.type === '__dinkster.reroute') {
         clearArmedPlacement()
         return false
       }
@@ -6299,6 +6320,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const entry = paletteEntries().find((candidate) =>
           candidate.type === type &&
           candidate.kind === 'node' &&
+          candidate.install === undefined &&
           candidate.schema !== undefined &&
           (expected === undefined || placementSchemaKey(candidate.schema) === expected.schemaKey))
         if (
@@ -7197,7 +7219,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             recentTypes={recentNodeTypes}
             widgetRegistry={widgetRegistry()}
             bounds={() => canvasClientRect()}
-            onCommit={(entry) => paletteCommit(entry)}
+            onCommit={async (entry) => {
+              if (entry.install !== undefined) {
+                const anchor = palette()
+                if (await runSearchAction(props.app, entry.install) && palette() === anchor) closePalette()
+              } else paletteCommit(entry)
+            }}
+            onRemoveLinkDrop={() => {
+              const anchor = palette()
+              if (anchor === undefined) return
+              const { linkDrop: _drop, ...ordinary } = anchor
+              clearPaletteGhost()
+              setPalette(ordinary)
+            }}
             onHelp={(entry) => {
               const tab = activeTab()
               if (tab && props.app.openNodeHelp(tab, entry.type)) closePalette()

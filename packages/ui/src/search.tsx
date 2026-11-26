@@ -506,17 +506,17 @@ export function ProductSearch(props: {
                 )
               }}
             </For>
-            <Show when={keys().length === 0 && props.empty}>
-              {(empty) => (
-                <div class="dinkster-search-empty">
-                  <p class="dinkster-search-empty-title">{empty().title}</p>
-                  <Show when={empty().detail}>
-                    {(detail) => <p class="dinkster-search-note">{detail()}</p>}
-                  </Show>
-                </div>
-              )}
-            </Show>
           </div>
+          <Show when={keys().length === 0 && props.empty}>
+            {(empty) => (
+              <div class="dinkster-search-empty">
+                <p class="dinkster-search-empty-title">{empty().title}</p>
+                <Show when={empty().detail}>
+                  {(detail) => <p class="dinkster-search-note">{detail()}</p>}
+                </Show>
+              </div>
+            )}
+          </Show>
           <Show when={props.preview !== undefined && props.previewPlace !== 'floating'}>
             <aside class="dinkster-search-preview" data-testid="search-preview">
               {props.preview}

@@ -130,11 +130,14 @@ test('palette insertion awaits acceptance without stealing newer selection or na
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     const dispatch = app.dispatchTo.bind(app)
-    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
-      ;(window as any).__completePalette = (accepted: boolean) => resolve(accepted
-        ? dispatch(tab, invocation)
-        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.rejected', message: 'Palette insertion refused for test' }] })
-    })
+    app.dispatchTo = (tab: any, invocation: any) => {
+      if (invocation.command !== 'node.add') return dispatch(tab, invocation)
+      return new Promise((resolve) => {
+        ;(window as any).__completePalette = (accepted: boolean) => resolve(accepted
+          ? dispatch(tab, invocation)
+          : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.rejected', message: 'Palette insertion refused for test' }] })
+      })
+    }
   })
   const state = () => page.evaluate(() => ({
     nodes: Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes),
@@ -143,6 +146,8 @@ test('palette insertion awaits acceptance without stealing newer selection or na
   const insert = async () => {
     await openPalette(page, true)
     await page.getByTestId('palette-search').fill('Palette image producer')
+    await expect(page.locator('canvas.palette-node-preview')).toHaveAttribute('data-preview-ready', 'PaletteImageProducer')
+    await capture(page, 'app-node-search-typed')
     await page.getByTestId('palette-search').press('Enter')
     const canvas = page.getByTestId('graph-canvas')
     const box = (await canvas.boundingBox())!
@@ -206,58 +211,53 @@ test('semantic result ownership, filters, focus, and placement stay mutation fre
 
   const palette = page.getByRole('dialog', { name: 'Add a node', exact: true })
   const input = page.getByTestId('palette-search')
-  const listbox = page.getByRole('listbox', { name: 'Node results' })
+  const listbox = palette.getByRole('listbox', { name: 'Add a node' })
   await expect(input).toBeFocused()
-  await expect(palette).toHaveClass(/floating-surface/)
-  expect(await listbox.ariaSnapshot()).toContain('group "Available nodes"')
-  expect(await listbox.ariaSnapshot()).toContain('option "Palette')
-  await expect(page.getByTestId('palette-preview')).toBeVisible()
+  expect(await listbox.ariaSnapshot()).toContain('group "Node categories"')
+  await expect(listbox.locator('[data-key="category:Image"]')).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   await capture(page, '01-after-zero-query-edge-1600x950')
 
   await input.fill('Palette schema preview')
-  await expect(page.locator('[data-node-type="PaletteRichPreview"]')).toBeVisible()
-  await expect(page.getByTestId('palette-preview')).toContainText('required')
-  await expect(page.getByTestId('palette-preview')).toContainText('optional')
-  await expect(page.getByTestId('palette-preview')).toContainText('IMAGE')
-  await expect(page.getByTestId('palette-preview')).toContainText('MODEL')
+  await expect(listbox.locator('[data-key="entry:PaletteRichPreview"]')).toBeVisible()
+  await expect(page.getByTestId('search-preview')).toContainText(schemas[0]!.displayName)
+  await expect(page.getByTestId('search-preview')).toContainText(schemas[0]!.description)
+  await expect(page.locator('canvas.palette-node-preview')).toHaveAttribute('data-preview-ready', 'PaletteRichPreview')
   const activeId = await input.getAttribute('aria-activedescendant')
   expect(activeId).not.toBeNull()
   await expect(page.locator(`#${activeId}`)).toHaveAttribute('role', 'option')
   await capture(page, '02-after-long-schema-preview-1600x950')
 
   await input.fill('no node can match this query')
-  await expect(page.locator('[data-search-state="empty"]')).toContainText('No matching nodes')
+  await expect(palette.locator('.dinkster-search-empty')).toContainText('No matching nodes')
   expect(await listbox.ariaSnapshot()).not.toContain('No matching nodes')
   await expect(input).not.toHaveAttribute('aria-activedescendant')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   await capture(page, '03-after-no-matches-1600x950')
 
-  await input.fill('Palette transform')
-  const categories = page.getByRole('navigation', { name: 'Node categories' })
-  const imageCategory = categories.getByTestId('palette-category').filter({ hasText: /^Image\d+$/ })
+  await input.fill('')
+  const imageCategory = listbox.locator('[data-key="category:Image"]')
   await imageCategory.click()
-  await expect(imageCategory).toHaveAttribute('aria-pressed', 'true')
-  const inputFilter = page.getByTestId('palette-input-filter').locator('.palette-type-trigger')
+  await expect(palette.getByRole('button', { name: 'All categories' })).toBeVisible()
+  await input.fill('Palette transform')
+  const inputFilter = palette.getByRole('button', { name: /^Takes:/ })
   await inputFilter.click()
-  const filterDialog = page.getByRole('dialog', { name: 'Input type filters' })
-  await expect(filterDialog).toHaveClass(/floating-surface/)
-  await filterDialog.getByRole('searchbox').fill('image')
-  await expect(filterDialog.getByRole('checkbox', { name: 'IMAGE' })).toBeVisible()
+  const filterMenu = palette.getByRole('menu')
+  await expect(filterMenu.getByRole('menuitemcheckbox', { name: 'Takes IMAGE', exact: true })).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   await capture(page, '04-after-category-type-filter-1600x950')
-  await filterDialog.getByRole('searchbox').press('Escape')
+  await page.keyboard.press('Escape')
+  await expect(filterMenu).toHaveCount(0)
+  await expect(palette).toBeVisible()
   await expect(inputFilter).toBeFocused()
 
-  await categories.getByRole('button', { name: 'Most relevant' }).click()
+  await palette.getByRole('button', { name: 'All categories' }).click()
   await input.fill('Palette image')
   await inputFilter.click()
-  await filterDialog.getByRole('searchbox').fill('image')
-  await filterDialog.getByRole('checkbox', { name: 'IMAGE', exact: true }).click()
-  await expect(page.locator('[data-node-type="PaletteImageConsumer"]')).toBeVisible()
-  await expect(page.locator('[data-node-type="PaletteImageProducer"]')).toHaveCount(0)
+  await filterMenu.getByRole('menuitemcheckbox', { name: 'Takes IMAGE', exact: true }).click()
+  await expect(listbox.locator('[data-key="entry:PaletteImageConsumer"]')).toBeVisible()
+  await expect(listbox.locator('[data-key="entry:PaletteImageProducer"]')).toHaveCount(0)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-  await filterDialog.getByRole('searchbox').press('Escape')
   await input.fill('Palette transform')
   await input.focus()
 
@@ -269,7 +269,7 @@ test('semantic result ownership, filters, focus, and placement stay mutation fre
   await expect(activeTail).toBeInViewport()
   const [activeTailBox, groupHeaderBox, resultListboxBox] = await Promise.all([
     activeTail.boundingBox(),
-    listbox.locator('.search-result-group-header').boundingBox(),
+    listbox.locator('.dinkster-search-group-heading').boundingBox(),
     listbox.boundingBox(),
   ])
   expect(activeTailBox).not.toBeNull()
@@ -296,8 +296,7 @@ test('semantic result ownership, filters, focus, and placement stay mutation fre
   await expect(canvas).not.toHaveAttribute('data-placement-ghost', 'visible')
 
   await openPalette(page)
-  const category = page.getByTestId('palette-category').first()
-  await category.focus()
+  await palette.getByRole('tab', { name: 'Blueprints', exact: true }).focus()
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('node-palette')).toHaveCount(0)
   await expect(canvas).toBeFocused()
@@ -323,37 +322,45 @@ test('result hierarchy, preview, scrolling, and popovers remain contained at des
     const active = page.locator(`#${activeId}`)
     await expect(active).toBeInViewport()
     const activeBox = (await active.boundingBox())!
-    const resultBox = (await page.getByRole('listbox', { name: 'Node results' }).boundingBox())!
+    const resultBox = (await palette.getByRole('listbox', { name: 'Add a node' }).boundingBox())!
     expect(activeBox.y).toBeGreaterThanOrEqual(resultBox.y)
     expect(activeBox.y + activeBox.height).toBeLessThanOrEqual(resultBox.y + resultBox.height)
 
-    const inputFilter = page.getByTestId('palette-input-filter').locator('.palette-type-trigger')
-    await inputFilter.click()
-    const filterDialog = page.getByRole('dialog', { name: 'Input type filters' })
-    await expect(filterDialog).toBeVisible()
+    const outputFilter = palette.getByRole('button', { name: /^Gives:/ })
+    await outputFilter.click()
+    const filterMenu = palette.getByRole('menu')
+    await expect(filterMenu).toBeVisible()
     const paletteBox = (await palette.boundingBox())!
-    const filterBox = (await filterDialog.boundingBox())!
+    const filterBox = (await filterMenu.boundingBox())!
     expect(filterBox.x).toBeGreaterThanOrEqual(paletteBox.x)
     expect(filterBox.y).toBeGreaterThanOrEqual(paletteBox.y)
     expect(filterBox.x + filterBox.width).toBeLessThanOrEqual(paletteBox.x + paletteBox.width)
     expect(filterBox.y + filterBox.height).toBeLessThanOrEqual(paletteBox.y + paletteBox.height)
     if (viewport.width === 360) {
       await page.setViewportSize({ width: 240, height: viewport.height })
-      await expect.poll(async () => (await filterDialog.boundingBox())?.width ?? Number.POSITIVE_INFINITY).toBeLessThan(filterBox.width)
+      await expect(filterMenu).toHaveCount(0)
+      await outputFilter.click()
+      await expect.poll(async () => (await filterMenu.boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0)
+      expect((await filterMenu.boundingBox())!.x + (await filterMenu.boundingBox())!.width).toBeLessThanOrEqual(240)
       await page.setViewportSize({ width: 600, height: viewport.height })
-      await expect.poll(async () => (await filterDialog.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(filterBox.width)
+      await expect(filterMenu).toHaveCount(0)
+      await outputFilter.click()
+      await expect.poll(async () => (await filterMenu.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(filterBox.width)
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
-      await expect.poll(async () => (await filterDialog.boundingBox())?.width ?? 0).toBe(filterBox.width)
+      await expect(filterMenu).toHaveCount(0)
+      await outputFilter.click()
+      await expect.poll(async () => (await filterMenu.boundingBox())?.width ?? 0).toBe(filterBox.width)
     }
-    await filterDialog.getByRole('searchbox').press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(outputFilter).toBeFocused()
+    await expect(palette).toBeVisible()
 
     if (viewport.width === 360) {
-      const lastVisibleCategory = palette.getByTestId('palette-category').last()
-      await lastVisibleCategory.focus()
+      await expect(page.getByTestId('search-preview')).toBeHidden()
+      await outputFilter.focus()
       await page.keyboard.press('Tab')
       await expect(input).toBeFocused()
-      await input.press('Shift+Tab')
-      await expect(lastVisibleCategory).toBeFocused()
+      await expect(input).toHaveAttribute('aria-controls', await palette.getByRole('listbox').getAttribute('id') as string)
     }
 
     const box = (await palette.boundingBox())!
@@ -365,4 +372,65 @@ test('result hierarchy, preview, scrolling, and popovers remain contained at des
     await capture(page, viewport.name)
     await input.press('Escape')
   }
+})
+
+test('a dropped wire keeps compatible results and atomic insertion while its chip can cancel only the constraint', async ({ page }) => {
+  const canvas = page.getByTestId('graph-canvas')
+  const sourceId = await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const outcome = await app.dispatchTo(tab, { command: 'node.add', params: {
+      graphId: 'g0', type: 'PaletteImageProducer', position: { x: 80, y: 80 }, values: {},
+    } })
+    if (!outcome.ok) throw new Error(JSON.stringify(outcome.diagnostics))
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return Object.keys(tab.store.doc.graphs.g0!.nodes)[0]!
+  })
+  await expect.poll(() => page.evaluate((id) => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === id), sourceId)).toBe(true)
+  const dropWire = async () => {
+    const start = await page.evaluate((id) => {
+      const renderer = window.__dinksterTest!.renderer!
+      const node = renderer.getScene().nodes.find((node) => node.id === id)!
+      const pin = node.layout.pins.find((pin) => pin.direction === 'out' && pin.portId === 'image')!
+      const rect = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+      return { x: rect.left + node.x + node.layout.width, y: rect.top + node.y + pin.y }
+    }, sourceId)
+    const box = (await canvas.boundingBox())!
+    await page.mouse.move(start.x, start.y)
+    await page.mouse.down()
+    await page.mouse.move(start.x + 30, start.y + 30)
+    await page.mouse.move(box.x + box.width - 30, box.y + box.height - 30)
+    await page.mouse.up()
+    await expect(page.getByTestId('node-palette')).toHaveAttribute('data-link-drop', 'in')
+  }
+  const input = page.getByTestId('palette-search')
+  const palette = page.getByTestId('node-palette')
+  const nodes = () => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes))
+  await dropWire()
+  await input.fill('Palette image')
+  await expect(palette.locator('[data-key="entry:PaletteImageConsumer"]')).toBeVisible()
+  await expect(palette.locator('[data-key="entry:PaletteImageProducer"]')).toHaveCount(0)
+  await expect(palette.getByRole('group', { name: 'Takes IMAGE', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().ghostLink !== undefined)).toBe(true)
+  await capture(page, 'app-wire-compatible')
+  await palette.getByRole('button', { name: 'Remove connection constraint' }).click()
+  expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().ghostLink)).toBeUndefined()
+  await expect(palette).not.toHaveAttribute('data-link-drop')
+  await expect(input).toHaveValue('Palette image')
+  await expect(palette.locator('[data-key="entry:PaletteImageProducer"]')).toBeVisible()
+  expect(await nodes()).toEqual([sourceId])
+  await input.press('Escape')
+
+  await dropWire()
+  await input.fill('Palette image consumer')
+  await input.press('Enter')
+  await expect(palette).toHaveCount(0)
+  await expect.poll(nodes).toHaveLength(2)
+  const added = (await nodes()).find((id) => id !== sourceId)!
+  expect(await page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links))).toEqual([
+    expect.objectContaining({ from: { node: sourceId, port: 'image' }, to: { node: added, port: 'image' } }),
+  ])
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  await expect.poll(nodes).toEqual([sourceId])
+  expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links))).toEqual([])
 })
