@@ -3067,6 +3067,16 @@ export class AppState {
     ;(this.workspaceEvents as WorkspaceEventChannel & { unref?: () => void } | undefined)?.unref?.()
     this.workspaceEvents?.addEventListener('message', this.receiveWorkspaceEvent)
     this.settings.register({ id: 'canvas.grid.visible', get name() { return t('settings.canvas.grid.visible') }, type: 'boolean', defaultValue: true })
+    this.settings.register({
+      id: 'canvas.detailMinPercent',
+      get name() { return t('settings.canvas.detailMinPercent.name') },
+      get description() { return t('settings.canvas.detailMinPercent.description') },
+      type: 'number',
+      defaultValue: defaultTokens.detailMinScale * 100,
+      min: 10,
+      max: 75,
+      step: 1,
+    })
     registerLocaleSetting(this.settings)
     registerThemeSetting(this.settings)
     this.settings.register({
@@ -6046,7 +6056,7 @@ export class AppState {
     }
     return [
       'node.move', 'selection.move', 'reroute.move',
-      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed', 'view.setEditorUnfolded',
+      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed', 'view.setLineFolded', 'view.setEditorUnfolded',
       'view.moveBoundaryNode', 'view.moveGroup', 'view.setGroupBounds',
       'view.setNetCollapsed', 'view.setNetDisplay', 'view.setAllNetsDisplay',
       'view.setNodeVideo', 'view.setNodeColor', 'view.setGroupColor', 'view.setWidgetRepresentation',
@@ -7790,7 +7800,7 @@ export class AppState {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'history.deleteFailed', `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`),
       ])
-      return false
+      throw e
     } finally {
       await this.confirmRemovedHistoryExecutions(backend, runId)
       this.backendsTick.update((v) => v + 1)
@@ -7804,7 +7814,7 @@ export class AppState {
    */
   async clearRunHistory(owner: string): Promise<number> {
     const backend = this.ownedLibraryBackend(owner)
-    if (!backend) return 0
+    if (!backend) throw new Error('The backend is no longer available.')
     try {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
@@ -7813,7 +7823,7 @@ export class AppState {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
       ])
-      return 0
+      throw e
     } finally {
       await this.confirmRemovedHistoryExecutions(backend)
       this.backendsTick.update((v) => v + 1)

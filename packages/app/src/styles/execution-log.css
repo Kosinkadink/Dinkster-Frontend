@@ -115,7 +115,7 @@
 }
 
 .execution-log-list:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: -2px;
 }
 
@@ -271,4 +271,3 @@
   .execution-log-node-empty,
   .execution-log-message { grid-column: 1 / -1; }
 }
-

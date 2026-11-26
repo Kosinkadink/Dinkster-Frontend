@@ -1,6 +1,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
   isNodeBoundaryBinding,
+  resolveDynamicAddress,
   boundaryBindingKey,
   boundaryRouteKey,
   suppressedDeliveryKey,
@@ -93,6 +94,39 @@ export function occurrenceEndpointReferencesDefinition(
   if (endpoint.kind === 'body')
     return endpoint.endpoint && 'node' in endpoint.endpoint && endpoint.endpoint.node === nodeId
   return endpoint.route.some((leg) => leg.graph === graphId && leg.binding.node === nodeId)
+}
+
+export function occurrenceMemberReferenced(
+  document: WorkflowDocument,
+  graphId: string,
+  nodeId: string,
+  construct: string,
+  member: string,
+): boolean {
+  const node = document.graphs[graphId]?.nodes[nodeId]
+  const referencesMember = (ref: { readonly node: string; readonly port: string }): boolean => {
+    if (ref.node !== nodeId) return false
+    const resolved = resolveDynamicAddress(ref, node?.dynamic)
+    return resolved.kind === 'resolved' && resolved.references.some((item) =>
+      item.construct === construct && item.member === member)
+  }
+  return Object.values(document.occurrenceTopologies ?? {}).some((topology) =>
+    Object.values(topology.links).some((link) => [link.from, link.to].some((endpoint) => {
+      if (endpoint.kind === 'body') {
+        const end = endpoint.endpoint
+        return topology.bodyGraph === graphId && 'node' in end &&
+          referencesMember({ node: end.node, port: 'tap' in end ? end.tap : end.port })
+      }
+      let parent = document.graphs[document.root]
+      for (const hop of endpoint.occurrence.instancePath) {
+        const instance = parent?.nodes[hop]
+        const childId = instance && subgraphDefIdOf(instance.type)
+        parent = childId === undefined ? undefined : document.graphs[childId]
+      }
+      return parent?.id === graphId && referencesMember({ node: endpoint.occurrence.node, port: endpoint.address.port }) ||
+        endpoint.route.some((leg) => leg.graph === graphId && isNodeBoundaryBinding(leg.binding) &&
+          referencesMember({ node: leg.binding.node, port: leg.binding.kind === 'widgetTap' ? leg.binding.tap : leg.binding.port }))
+    })))
 }
 
 const portsOverlap = (a: string, b: string): boolean =>

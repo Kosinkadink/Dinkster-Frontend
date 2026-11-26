@@ -8,9 +8,12 @@ export interface RowBox {
   /** World y of the node's top and bottom edges, for a side part placed over or under the node. */
   readonly nodeTop: number
   readonly nodeBottom: number
+  /** Ends of the horizontal line that can join a side part without crossing another cell. */
+  readonly sideEdges?: { readonly left: boolean; readonly right: boolean }
 }
 
 export interface RowPlacement extends CanvasSideLayout {
+  readonly sideEdges?: RowBox['sideEdges']
   /** Width of the box at normal size. */
   readonly rowWidth: number
   readonly screen: CanvasBox
@@ -45,12 +48,14 @@ export function rowPlacement(
   // From the box's top to the node's edges, at the box's normal size.
   const local = scale / zoom
   return {
+    ...(row.sideEdges === undefined ? {} : { sideEdges: row.sideEdges }),
     rowWidth,
     screen,
     scale,
     ...canvasSideLayout(screen, bounds, side, scale,
       (row.nodeBottom - row.rect.y) * local + grow,
-      (row.rect.y - row.nodeTop) * local - grow),
+      (row.rect.y - row.nodeTop) * local - grow,
+      row.sideEdges),
   }
 }
 

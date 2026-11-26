@@ -434,6 +434,9 @@ export interface InteractionHost {
   onWidgetActivate?(hit: Extract<Hit, { kind: 'widget' }>, screenX: number, screenY: number): void
   /** Click on a widget row a wire drives; nothing opens, but the host may explain the row. */
   onWiredWidgetActivate?(hit: Extract<Hit, { kind: 'widget' }>): void
+  /** Click on a declared button; the client point is where the press happened. */
+  onButtonActivate?(hit: Extract<Hit, { kind: 'button' }>, screenX: number, screenY: number): void
+  onMemberRemove?(hit: Extract<Hit, { kind: 'memberRemove' }>): void
   /** Click on the active lens's registered widget-row affordance. */
   onWidgetRowAffordanceActivate?(hit: Extract<Hit, { kind: 'widget' }>): void
   /** Click on the active lens's preview-surface affordance. */
@@ -510,6 +513,9 @@ export type CanvasHoverTarget =
   | { readonly kind: 'pin'; readonly hit: Extract<Hit, { kind: 'pin' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'widgetTap'; readonly hit: Extract<Hit, { kind: 'widgetTap' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
+  | { readonly kind: 'button'; readonly hit: Extract<Hit, { kind: 'button' }>; readonly x: number; readonly y: number }
+  | { readonly kind: 'note'; readonly row: Extract<LayoutRow, { kind: 'note' }>; readonly x: number; readonly y: number }
+  | { readonly kind: 'memberRemove'; readonly hit: Extract<Hit, { kind: 'memberRemove' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'controller'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'subgraphMark'; readonly mark: { readonly item: string; readonly label: string }; readonly x: number; readonly y: number }
   | { readonly kind: 'header'; readonly hit: Extract<Hit, { kind: 'header' }>; readonly x: number; readonly y: number }
@@ -711,6 +717,7 @@ type Gesture =
   /** A press on a title-bar control: the minimize arrow, or the title mark when `badge` is set. */
   | { readonly kind: 'title-press'; readonly node: SceneNode; readonly badge?: BadgeHit; readonly startWX: number; readonly startWY: number }
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
+  | { readonly kind: 'line'; readonly hit: Extract<Hit, { kind: 'line' }>; moved: boolean }
   | { readonly kind: 'preview-caption'; readonly node: SceneNode; moved: boolean }
   | { readonly kind: 'growth'; readonly hit: Extract<Hit, { kind: 'growth' }>; moved: boolean }
   /** A member dragged by its grip; `index` is where a release puts it in the stored order. */
@@ -725,6 +732,8 @@ type Gesture =
       lines: number
       moved: boolean
     }
+  | { readonly kind: 'button'; readonly hit: Extract<Hit, { kind: 'button' }>; moved: boolean }
+  | { readonly kind: 'memberRemove'; readonly hit: Extract<Hit, { kind: 'memberRemove' }>; moved: boolean }
   | {
       readonly kind: 'resize'
       readonly nodeId: string
@@ -871,6 +880,7 @@ export class InteractionController {
   private hoveredBadge: { readonly nodeId: string; readonly badgeId: string } | undefined
   private hoveredBoxNode: string | undefined
   private hoveredBoxId: string | undefined
+  private hoveredLine: { readonly nodeId: string; readonly key: string } | undefined
   private hoveredGrip: { readonly nodeId: string; readonly construct: string; readonly member: string } | undefined
   private hoveredButton: { readonly nodeId: string; readonly key: string } | undefined
   private hoveredToolboxButton: string | undefined
@@ -1161,7 +1171,7 @@ export class InteractionController {
       // hover on every replacement, even when an identity happens to recur.
       const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined ||
         this.hoveredMinimize !== undefined || this.hoveredBadge !== undefined ||
-        this.hoveredBoxNode !== undefined || this.hoveredGrip !== undefined || this.hoveredButton !== undefined
+        this.hoveredBoxNode !== undefined || this.hoveredLine !== undefined || this.hoveredGrip !== undefined || this.hoveredButton !== undefined
       if (staleNode) {
         this.hoveredNode = undefined
         this.host.onNodeHover?.(undefined)
@@ -1805,12 +1815,22 @@ export class InteractionController {
       case 'section':
         this.gesture = { kind: 'section', hit, moved: false }
         return
+      case 'line':
+        this.gesture = { kind: 'line', hit, moved: false }
+        return
       case 'preview-caption':
         this.gesture = { kind: 'preview-caption', node: hit.node, moved: false }
         return
       case 'growth':
         this.gesture = { kind: 'growth', hit, moved: false }
         this.pushOverlay({ pressedButton: { nodeId: hit.node.id, key: `growth:${hit.row.construct}` } })
+        return
+      case 'button':
+        this.gesture = { kind: 'button', hit, moved: false }
+        this.pushOverlay({ pressedButton: { nodeId: hit.node.id, key: `button:${hit.row.buttonId}` } })
+        return
+      case 'memberRemove':
+        this.gesture = { kind: 'memberRemove', hit, moved: false }
         return
       case 'lookupRetry':
         this.host.retryLookup?.(hit.node, hit.row.lookup!.retry!)
@@ -1851,9 +1871,14 @@ export class InteractionController {
         return
       case 'boundary-header':
       case 'boundary-body': {
-        const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
+        const wiredPanelMark = this.wiredPanelFieldAt(hit, w.x, w.y)
         if (wiredPanelMark !== undefined) {
           this.host.onSubgraphMarkActivate?.(wiredPanelMark.row.subgraphMark!.item)
+          return
+        }
+        const wiredPanelField = this.wiredPanelFieldAt(hit, w.x, w.y, false)
+        if (wiredPanelField !== undefined) {
+          this.gesture = { kind: 'widget', hit: wiredPanelField, moved: false }
           return
         }
         const id = boundarySceneId(hit.bnode.side)
@@ -2821,7 +2846,7 @@ export class InteractionController {
   private nodeOfBodyHit(hit: Hit): SceneNode | undefined {
     if (hit.kind === 'widget' && hit.bnode !== undefined) return undefined
     return hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'widget' ||
-      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize' || hit.kind === 'text-box-edge' ||
+      hit.kind === 'section' || hit.kind === 'line' || hit.kind === 'growth' || hit.kind === 'button' || hit.kind === 'resize' || hit.kind === 'text-box-edge' ||
       hit.kind === 'preview-caption'
       ? hit.node
       : undefined
@@ -2892,7 +2917,8 @@ export class InteractionController {
     if (this.renderer.getDesignTokens().widgetEditing !== 'in-row' || pointerType === 'touch') return undefined
     const row = hit.row
     if (row.viewId !== 'core.number' && row.viewId !== 'core.slider') return undefined
-    if (row.derivedValue !== undefined || row.ghost) return undefined
+    if (row.derivedValue !== undefined || row.ghost || row.readOnly || row.disabled) return undefined
+    if (Object.hasOwn(hit.bnode?.fields?.wired ?? {}, row.valueKey)) return undefined
     const scene = this.renderer.getScene()
     if (scene.links.some((link) => link.to.kind === 'port' && link.to.node === hit.node.id && link.to.port === row.inputId)) return undefined
     const start = this.numberRowValue(hit)
@@ -2935,16 +2961,18 @@ export class InteractionController {
   private subgraphMarkContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     if (hit.row.subgraphMark === undefined) return false
     const tokens = this.renderer.getDesignTokens()
-    const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, this.renderer.showsArrivingValue(hit.node.id, hit.row), isNumberRow(hit.row))
+    const display = this.renderer.widgetPaintState(hit.node, hit.row, hit.bnode?.fields?.wired[hit.row.valueKey])
+    const arriving = display.companion !== undefined && !drawsPassedValueAsEditor(hit.row, display.companion, tokens)
+    const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, arriving, isNumberRow(hit.row))
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.size && hit.localY >= rect.y && hit.localY <= rect.y + rect.size
   }
 
   /**
    * An Inputs panel field wired outside the subgraph hits as panel body, but
-   * its subgraph mark still names and selects its input: the mark's row as a
-   * widget hit when the point is on the mark.
+   * its subgraph mark still names and selects its input. The rest of its row
+   * opens inspection without allowing a value edit.
    */
-  private wiredPanelMarkAt(hit: Hit | undefined, wx: number, wy: number): Extract<Hit, { kind: 'widget' }> | undefined {
+  private wiredPanelFieldAt(hit: Hit | undefined, wx: number, wy: number, markOnly = true): Extract<Hit, { kind: 'widget' }> | undefined {
     if (hit?.kind !== 'boundary-body' || hit.bnode.fields === undefined) return undefined
     const { bnode } = hit
     const face = boundaryFieldNode(bnode)
@@ -2952,10 +2980,15 @@ export class InteractionController {
     const tokens = this.renderer.getDesignTokens()
     for (const row of bnode.layout.rows) {
       const driven = row.kind === 'widget' && Object.hasOwn(bnode.fields!.wired, row.valueKey) ? bnode.fields!.wired[row.valueKey] : undefined
-      if (row.kind !== 'widget' || row.subgraphMark === undefined || driven === undefined) continue
+      if (row.kind !== 'widget' || (markOnly && row.subgraphMark === undefined) || driven === undefined) continue
       const width = row.width ?? bnode.layout.width - row.inset * 2
       const localX = wx - bnode.x - row.inset
       const localY = wy - bnode.y - row.y
+      if (!markOnly) {
+        if (localX >= 0 && localX <= width && localY >= 0 && localY <= row.height)
+          return { kind: 'widget', node: face, row, bnode, x: bnode.x + row.inset, y: bnode.y + row.y, width, height: row.height, localX, localY }
+        continue
+      }
       const arriving = driven.value !== undefined && !drawsPassedValueAsEditor(row, { value: driven.value }, tokens)
       const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, arriving, isNumberRow(row))
       if (localX >= rect.x && localX <= rect.x + rect.size && localY >= rect.y && localY <= rect.y + rect.size)
@@ -3072,12 +3105,17 @@ export class InteractionController {
         ? 'nwse-resize'
         : 'nesw-resize'
       : hit?.kind === 'text-box-edge' ? 'ns-resize'
+      : hit?.kind === 'line' ? 'pointer'
       : hit?.kind === 'grip' && hit.grip.alone !== true ? 'grab' : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
-    const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
+    const wiredPanelMark = this.wiredPanelFieldAt(hit, w.x, w.y)
     const subgraphMark = hit?.kind === 'widget' && this.subgraphMarkContains(hit) ? hit.row.subgraphMark
       : wiredPanelMark?.row.subgraphMark
+    const note = !overview && hit?.kind === 'body' ? hit.node.layout.rows.find((row): row is Extract<LayoutRow, { kind: 'note' }> =>
+      row.kind === 'note' && row.text !== '' &&
+      w.y >= hit.node.y + row.y && w.y < hit.node.y + row.y + row.height &&
+      w.x >= hit.node.x + row.inset && w.x < hit.node.x + row.inset + (row.width ?? hit.node.layout.width - row.inset * 2)) : undefined
     this.host.onHoverTarget?.(toolboxButton
       ? { kind: 'toolbox', button: toolboxButton, x: clientX, y: clientY }
       : badge
@@ -3086,7 +3124,9 @@ export class InteractionController {
         ? { kind: 'controller', hit, x: clientX, y: clientY }
       : subgraphMark
         ? { kind: 'subgraphMark', mark: subgraphMark, x: clientX, y: clientY }
-      : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'header' || hit.kind === 'reroute' ||
+      : note
+        ? { kind: 'note', row: note, x: clientX, y: clientY }
+      : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'button' || hit.kind === 'memberRemove' || hit.kind === 'header' || hit.kind === 'reroute' ||
         hit.kind === 'link' && hit.link.mismatch === true)
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
         : undefined)
@@ -3264,11 +3304,14 @@ export class InteractionController {
       case 'widget-affordance':
       case 'preview-affordance':
       case 'section':
+      case 'line':
       case 'preview-caption':
         if (passed) g.moved = true
         return
       case 'growth':
-        // A press that moves away does not add: the button stops looking pressed.
+      case 'button':
+      case 'memberRemove':
+        // A press that moves away does not add or press: the button stops looking pressed.
         if (passed && !g.moved) {
           g.moved = true
           this.pushOverlay()
@@ -3464,7 +3507,7 @@ export class InteractionController {
             return
           }
           const bindingOk = (link: SceneLink) => g.hit.row.selector === undefined || link.boundary !== true
-          const connected = scene.links.some(
+          const connected = Object.hasOwn(g.hit.bnode?.fields?.wired ?? {}, g.hit.row.valueKey) || scene.links.some(
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,
           )
           // Folding changes the view, not the value the wire supplies.
@@ -3474,6 +3517,10 @@ export class InteractionController {
             return
           }
           const row = g.hit.row
+          if (row.readOnly || row.disabled) {
+            this.host.onWidgetActivate?.(g.hit, clientX, clientY)
+            return
+          }
           // Paint and interaction share the same row-local chip rectangle;
           // the rightmost numeric stepper remains outside it.
           if (row.controllerMode !== undefined && this.controllerChipContains(g.hit)) {
@@ -3552,6 +3599,13 @@ export class InteractionController {
           })
         }
         return
+      case 'line':
+        this.pushOverlay()
+        if (!g.moved) this.host.dispatch({
+          command: 'view.setLineFolded',
+          params: { graphId: scene.graphId, nodeId: g.hit.node.id, lineKey: g.hit.line.key, folded: true },
+        })
+        return
       case 'grip':
         this.pushOverlay()
         if (g.index !== undefined) {
@@ -3582,6 +3636,14 @@ export class InteractionController {
             },
           })
         }
+        return
+      case 'button':
+        this.pushOverlay()
+        if (!g.moved) this.host.onButtonActivate?.(g.hit, clientX, clientY)
+        return
+      case 'memberRemove':
+        this.pushOverlay()
+        if (!g.moved && g.hit.remove.disabledReason === undefined) this.host.onMemberRemove?.(g.hit)
         return
       case 'node': {
         if (!g.moved) {
@@ -4368,12 +4430,18 @@ export class InteractionController {
         return j('widget', hit.node.id, hit.row.inputId)
       case 'section':
         return j('section', hit.node.id, hit.row.sectionId)
+      case 'line':
+        return j('line', hit.node.id, hit.line.key)
       case 'growth':
         return j('growth', hit.node.id, hit.row.construct)
       case 'lookupRetry':
         return j('lookupRetry', hit.node.id, hit.row.noteId)
       case 'grip':
         return j('grip', hit.node.id, hit.grip.construct, hit.grip.member)
+      case 'memberRemove':
+        return j('memberRemove', hit.node.id, hit.remove.construct, hit.remove.member)
+      case 'button':
+        return j('button', hit.node.id, hit.row.buttonId)
       case 'header':
       case 'body':
       case 'preview-caption':
@@ -4427,7 +4495,29 @@ export class InteractionController {
     const scene = this.renderer.getScene()
     const toolbox = this.renderer.getToolboxLayout()
     if (toolbox && insideToolbox(toolbox, w.x, w.y)) return
-    const hit = hitTest(scene, w.x, w.y, this.hitOptions({ pinRevealed: this.pinRevealed(scene) }))
+    const menuHitAt = (scene: Scene, x: number, y: number): Hit => {
+      const hit = hitTest(scene, x, y, this.hitOptions({ pinRevealed: this.pinRevealed(scene) }))
+      const bnode = hit.kind === 'boundary-body' ? hit.bnode : undefined
+      const node = hit.kind === 'body' ? hit.node : bnode === undefined ? undefined : boundaryFieldNode(bnode)
+      if (node === undefined) return hit
+      if (hit.kind === 'body') {
+        const index = node.layout.rows.findIndex((row) => row.kind === 'note' &&
+          y >= node.y + row.y && y <= node.y + row.y + row.height &&
+          x >= node.x + row.inset && x <= node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2))
+        const line = node.layout.lines?.find((line) => index >= line.first && index <= line.last)
+        if (line !== undefined) return { kind: 'line', node, line }
+      }
+      const space = node.layout.rows.find((row) => row.kind === 'editorSpace' &&
+        y >= node.y + row.y && y <= node.y + row.y + row.height &&
+        x >= node.x + row.inset && x <= node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2))
+      if (space?.kind !== 'editorSpace') return hit
+      const row = node.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === space.valueKey)
+      if (row?.kind !== 'widget') return hit
+      return { kind: 'widget', node, row, ...(bnode === undefined ? {} : { bnode }),
+        x: node.x + row.inset, y: node.y + row.y, width: row.width ?? node.layout.width - row.inset * 2,
+        height: row.height, localX: x - node.x - row.inset, localY: y - node.y - row.y }
+    }
+    const hit = menuHitAt(scene, w.x, w.y)
     switch (hit.kind) {
       case 'header':
       case 'body':
@@ -4436,7 +4526,9 @@ export class InteractionController {
       case 'text-box-edge':
       case 'preview-caption':
       case 'section':
+      case 'line':
       case 'growth':
+      case 'button':
       case 'pin':
         if (!this.selection.has(hit.node.id)) {
           this.selection = new Set([hit.node.id])
@@ -4523,7 +4615,7 @@ export class InteractionController {
         // nor the clicked node's body can be trusted - no menu opens.
         menuHit = { kind: 'empty' }
       } else {
-        const re = hitTest(current, w2.x, w2.y, this.hitOptions({ pinRevealed: this.pinRevealed(current) }))
+        const re = menuHitAt(current, w2.x, w2.y)
         if (hit.kind === re.kind && this.menuTargetIdentity(hit) === this.menuTargetIdentity(re)) {
           menuHit = re
         } else {
@@ -4678,6 +4770,7 @@ export class InteractionController {
       ...(this.hoveredBoxNode !== undefined ? {
         hoveredBox: { nodeId: this.hoveredBoxNode, boxId: this.hoveredBoxId! },
       } : {}),
+      ...(this.hoveredLine !== undefined ? { hoveredLine: this.hoveredLine } : {}),
       ...(this.hoveredGrip !== undefined ? { hoveredGrip: this.hoveredGrip } : {}),
       ...(this.hoveredButton !== undefined ? { hoveredButton: this.hoveredButton } : {}),
       ...extra,
@@ -4990,10 +5083,12 @@ export class InteractionController {
     const widget = hit?.kind === 'widget' ? hit : undefined
     const boxNode = hit?.kind === 'section' ? hit.node.id : undefined
     const boxId = hit?.kind === 'section' ? hit.row.sectionId : undefined
+    const line = hit?.kind === 'line' ? { nodeId: hit.node.id, key: hit.line.key } : undefined
     const grip = hit?.kind === 'grip' && hit.grip.alone !== true
       ? { nodeId: hit.node.id, construct: hit.grip.construct, member: hit.grip.member }
       : undefined
     const button = hit?.kind === 'growth' ? { nodeId: hit.node.id, key: `growth:${hit.row.construct}` }
+      : hit?.kind === 'button' ? { nodeId: hit.node.id, key: `button:${hit.row.buttonId}` }
       : hit?.kind === 'lookupRetry' ? { nodeId: hit.node.id, key: `lookup:${hit.row.noteId}` } : undefined
     const pinNode = pin?.node.id
     const pinPort = pin?.kind === 'widgetTap' ? pin.pin.portId : pin?.portId
@@ -5013,6 +5108,8 @@ export class InteractionController {
       titleControl.badge?.badgeId === this.hoveredBadge?.badgeId &&
       boxNode === this.hoveredBoxNode &&
       boxId === this.hoveredBoxId &&
+      line?.nodeId === this.hoveredLine?.nodeId &&
+      line?.key === this.hoveredLine?.key &&
       grip?.nodeId === this.hoveredGrip?.nodeId &&
       grip?.construct === this.hoveredGrip?.construct &&
       grip?.member === this.hoveredGrip?.member &&
@@ -5029,6 +5126,7 @@ export class InteractionController {
     this.hoveredBadge = titleControl.badge
     this.hoveredBoxNode = boxNode
     this.hoveredBoxId = boxId
+    this.hoveredLine = line
     this.hoveredGrip = grip
     this.hoveredButton = button
     this.pushOverlay()
@@ -5045,6 +5143,7 @@ export class InteractionController {
     this.hoveredBadge = undefined
     this.hoveredBoxNode = undefined
     this.hoveredBoxId = undefined
+    this.hoveredLine = undefined
     this.hoveredGrip = undefined
     this.hoveredButton = undefined
   }

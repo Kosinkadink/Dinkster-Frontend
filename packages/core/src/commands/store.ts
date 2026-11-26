@@ -533,7 +533,8 @@ export class DocumentStore implements DocumentStoreContract {
           for (const [nodeId, view] of Object.entries(graph.nodes)) {
             const before = this.doc.view.graphs[graphId]?.nodes[nodeId]
             if (!view.size || !before?.size || !jsonSameValue(view.size, before.size) ||
-              (jsonSameValue(view.editors, before.editors) && jsonSameValue(view.sections, before.sections))) continue
+              (jsonSameValue(view.editors, before.editors) && jsonSameValue(view.sections, before.sections) &&
+                jsonSameValue(view.lines, before.lines))) continue
             const oldHeight = this.nodeHeightFor(this.doc, graphId, nodeId)
             const newHeight = this.nodeHeightFor(tx.current, graphId, nodeId)
             if (oldHeight === undefined || newHeight === undefined || oldHeight === newHeight) continue

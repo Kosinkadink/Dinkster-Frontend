@@ -128,7 +128,7 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole('button', { name: 'Hide minimap' }).click()
 })
 
-test('menus and selects share contained semantic chrome, and a choice row stays in the canvas', async ({ page }, testInfo) => {
+test('menus and selects share contained semantic chrome, and a choice row list stays in the canvas', async ({ page }, testInfo) => {
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     if (viewport.width === 360) {

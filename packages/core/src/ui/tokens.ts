@@ -111,6 +111,8 @@ export interface SemanticDesignTokens {
     readonly hover: string
     readonly strong: string
     readonly focus: string
+    /** The keyboard location, distinct from selected or open controls. */
+    readonly keyboardFocus: string
     readonly selected: string
     /** A quiet line between two parts of one shape, such as a title bar and its body. */
     readonly divider: string
@@ -229,6 +231,7 @@ export const semanticTokensForTheme = (
       hover: colors.border.hover,
       strong: colors.text.muted,
       focus: colors.status.info,
+      keyboardFocus: colors.text.secondary,
       selected: colors.text.primary,
       // Looks are decided in the dark theme; the light theme keeps its border.
       divider: colors.border.divider,
@@ -394,6 +397,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-border-hover': semanticDesignTokens.border.hover,
     '--dinkster-border-strong': semanticDesignTokens.border.strong,
     '--dinkster-border-focus': semanticDesignTokens.border.focus,
+    '--dinkster-border-keyboard-focus': semanticDesignTokens.border.keyboardFocus,
     '--dinkster-border-selected': semanticDesignTokens.border.selected,
     '--dinkster-border-divider': semanticDesignTokens.border.divider,
     '--dinkster-border-faint': semanticDesignTokens.border.faint,
@@ -521,6 +525,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-motion-easing': semanticDesignTokens.motion.easing,
     '--dinkster-elevation-low': semanticDesignTokens.elevation.low,
     '--dinkster-elevation-high': semanticDesignTokens.elevation.high,
+    '--dinkster-modal-backdrop': components.modalBackdrop,
   } as const satisfies Readonly<Record<SemanticCssVariableName, string>>)
 
 export const semanticCssVariables =

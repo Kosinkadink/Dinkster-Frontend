@@ -7,7 +7,7 @@
  */
 
 import type { Hit, OccurrenceMutationPlanner, Scene } from '@dinkster/canvas'
-import { boundaryItems, coreCommandRegistry, createTransactionBuilder, effectiveOccurrenceTopology, executeCommand, isPortEndpoint, outputsOf, supportsExpressionMirror, supportsGlslMirror, supportsOutputRepresentation, widgetRepresentationsOf, type CommandInvocation, type Json, type MenuContext, type MenuItem, type MenuRegistry, type MenuTarget, type NodeSchema, type ResolvedMenuGroup, type SchemaResolver, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { boundaryItems, constructsOf, coreCommandRegistry, createTransactionBuilder, effectiveOccurrenceTopology, executeCommand, isPortEndpoint, outputsOf, supportsExpressionMirror, supportsGlslMirror, supportsOutputRepresentation, widgetRepresentationsOf, type BoundaryBinding, type CommandInvocation, type Json, type LinkEndpoint, type MenuContext, type MenuItem, type MenuRegistry, type MenuTarget, type NodeSchema, type ResolvedMenuGroup, type SchemaResolver, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 
 /** Where and on what the menu opened; anchored in canvas-pane CSS px. */
 export interface MenuAnchor {
@@ -16,6 +16,49 @@ export interface MenuAnchor {
   readonly worldX: number
   readonly worldY: number
   readonly groups: readonly ResolvedMenuGroup[]
+}
+
+/** Direct removal takes the member's wires with it; pack steps deliberately do not. */
+export function memberRemovalInvocation(
+  doc: WorkflowDocument,
+  schema: NodeSchema,
+  graphId: string,
+  nodeId: string,
+  construct: string,
+  member: string,
+): CommandInvocation | undefined {
+  const graph = doc.graphs[graphId]
+  if (graph === undefined) return undefined
+  const node = graph.nodes[nodeId]
+  if (node === undefined) return undefined
+  const spec = constructsOf(schema, node.dynamic).get(construct)
+  const members = node.dynamic?.[construct]?.members ?? []
+  if (spec?.kind !== 'group' || typeof spec.grows !== 'string' || !members.includes(member) || members.length <= spec.minMembers) return undefined
+  const prefix = `${construct}.${member}`
+  const touches = (end: LinkEndpoint | BoundaryBinding): boolean => {
+    if (!('node' in end) || end.node !== nodeId) return false
+    const port = 'tap' in end ? end.tap : 'port' in end ? end.port : undefined
+    return typeof port === 'string' && (port === prefix || port.startsWith(`${prefix}.`))
+  }
+  const invocations: CommandInvocation[] = []
+  for (const [linkId, link] of Object.entries(graph.links)) {
+    if (touches(link.from) || touches(link.to)) invocations.push({ command: 'link.disconnect', params: { graphId, linkId } })
+  }
+  for (const [netId, net] of Object.entries(graph.nets)) {
+    if (touches(net.source)) invocations.push({ command: 'net.remove', params: { graphId, netId } })
+    else for (const sink of net.sinks) {
+      if (touches(sink)) invocations.push({ command: 'net.disconnectInput', params: { graphId, to: { ...sink } } })
+    }
+  }
+  for (const side of ['inputs', 'outputs'] as const) {
+    for (const item of boundaryItems(graph.boundary, side)) {
+      for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+        if (touches(binding)) invocations.push({ command: 'boundary.unbind', params: { graphId, side, itemId: item.id, ...binding } })
+      }
+    }
+  }
+  invocations.push({ command: 'dynamic.removeMember', params: { graphId, nodeId, construct, member } })
+  return { command: 'batch', params: { invocations } as unknown as Json }
 }
 
 /** Flat item list (for keyboard nav); sep marks the first item of a later group. */
@@ -79,7 +122,7 @@ export function widgetRepresentationMenuGroup(input: {
     group: '45-widget-representation',
     items: [{
       id: 'core.widget.representation',
-      label: 'Representation',
+      label: 'Display',
       ...(input.disabled === undefined ? {} : { disabled: input.disabled }),
       children: set.representations.map((representation) => ({
         id: `core.widget.representation.${representation.id}`,
@@ -336,12 +379,27 @@ export function menuTargetOf(hit: Hit): MenuTarget {
           ? { synthetic: true as const }
           : {}),
       }
-    case 'widget':
+    case 'widget': {
       // A field on a subgraph's Inputs panel belongs to the panel, which has
       // no menu of its own. An editor row stores nothing of its own: it opens
       // the node's menu.
       if (hit.bnode !== undefined) return { kind: 'canvas' }
-      return hit.row.editor === true ? { kind: 'node', nodeId: hit.node.id } : widgetMenuTarget(hit.node.id, hit.row)
+      if (hit.row.editor === true) return { kind: 'node', nodeId: hit.node.id }
+      const index = hit.node.layout.rows.indexOf(hit.row)
+      const line = hit.node.layout.lines?.find((line) => index >= line.first && index <= line.last)
+      return {
+        ...widgetMenuTarget(hit.node.id, hit.row),
+        ...(line === undefined ? {} : { line: { key: line.key, folded: line.folded } }),
+      }
+    }
+    case 'line':
+      return { kind: 'line', nodeId: hit.node.id, key: hit.line.key, folded: hit.line.folded }
+    case 'button': {
+      const index = hit.node.layout.rows.indexOf(hit.row)
+      const line = hit.node.layout.lines?.find((line) => index >= line.first && index <= line.last)
+      return line === undefined ? { kind: 'node', nodeId: hit.node.id }
+        : { kind: 'line', nodeId: hit.node.id, key: line.key, folded: line.folded }
+    }
     case 'growth':
       return { kind: 'growth', nodeId: hit.node.id, construct: hit.row.construct }
     case 'section':

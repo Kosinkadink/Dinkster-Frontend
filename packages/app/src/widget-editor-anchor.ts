@@ -41,10 +41,12 @@ export function widgetEditorAnchorAlive(
   if (ed === undefined) return false
   if (ed.tab.id !== tabId || ed.graphId !== graphId) return false
   const target = ed.target
+  if (target.kind === 'local') return true
   const node = nodes.find((item) => item.id === target.nodeId)
   if (node === undefined) return false
   const row = node.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === target.valueKey)
   if (row === undefined || row.kind !== 'widget') return false
+  if (row.readOnly || row.disabled) return false
   const sameContract = JSON.stringify(row.spec) === JSON.stringify(ed.anchorSpec ?? ed.spec) &&
     JSON.stringify(row.type) === JSON.stringify(ed.declaredType) &&
     JSON.stringify(row.familyOwner ?? null) === JSON.stringify(target.familyOwner ?? null) &&
@@ -75,6 +77,8 @@ export function widgetEditorAnchorAlive(
 export function inRowValueKept(ed: WidgetEditorState | undefined, doc: WorkflowDocument): boolean {
   if (ed?.inRow === undefined) return true
   const target = ed.target
+  // A press's list or form row stores nothing in the document.
+  if (target.kind !== 'input') return true
   const stored = doc.graphs[target.familyOwner?.graphId ?? ed.graphId]?.nodes[target.familyOwner?.nodeId ?? target.nodeId]
     ?.values[target.familyOwner?.valueKey ?? target.valueKey]
   return jsonSameValue((stored ?? null) as Json, ed.inRow.storedAtOpen)
