@@ -260,6 +260,8 @@ export interface ElaboratedInput {
    * what it would be sent if shown, unlike a field declared `hidden`.
    */
   readonly hiddenByScope?: true
+  /** A containing choice is declared hidden, so a problem cannot reveal this field. */
+  readonly hiddenByDeclaration?: true
 }
 
 /**
@@ -776,6 +778,7 @@ interface Scope {
   /** Inside an option or variant that is not chosen (dormant census only). */
   readonly dormant: boolean
   readonly hidden: boolean
+  readonly hiddenByDeclaration?: true
   readonly origin: ElaboratedOrigin
   readonly ancestry: readonly DynamicAncestor[]
   readonly frames?: readonly MaterializeFrame[]
@@ -1684,6 +1687,7 @@ function elaboratePass(
       ...(boxedLabel ? { ownLabel: own } : {}),
       ...(looked !== undefined && Object.keys(looked.states).length > 0 ? { looked: looked.states } : {}),
       ...(hiddenByScope ? { hiddenByScope: true as const } : {}),
+      ...(scope.hiddenByDeclaration ? { hiddenByDeclaration: true as const } : {}),
       ...extra,
     })
     if (row.automatic !== undefined && !scope.dormant && !linked(path)) {
@@ -2284,6 +2288,7 @@ function elaboratePass(
         prefix: `${path}.`,
         // A hidden choice hides its option's rows too; they are still stored and run.
         hidden: scope.hidden || row.hidden === true,
+        ...(row.hidden === true ? { hiddenByDeclaration: true as const } : {}),
         dormant: scope.dormant || !active,
         origin: { kind: 'branch', construct: path, option: option.key },
         shared,

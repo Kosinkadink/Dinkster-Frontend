@@ -718,11 +718,15 @@ describe('graph image reuse', () => {
     const fallback = globalThis.OffscreenCanvas
     const images: { close: ReturnType<typeof vi.fn> }[] = []
     const painted = recordingCtx()
+    let lost = false
+    painted.ctx.isContextLost = () => lost
     vi.stubGlobal('OffscreenCanvas', class {
       width = 0
       height = 0
+      constructor() { lost = false }
       getContext() { return painted.ctx }
       transferToImageBitmap() {
+        if (lost) throw new DOMException('ImageBitmap construction failed', 'InvalidStateError')
         const image = { close: vi.fn() }
         images.push(image)
         return image
@@ -832,6 +836,14 @@ describe('graph image reuse', () => {
       renderer.renderNow()
       expect(images.length - beforeCommit).toBeGreaterThan(0)
       expect(images.length - beforeCommit).toBeLessThan(12)
+      const beforeLoss = images.length
+      painted.calls.length = 0
+      lost = true
+      renderer.setViewport({ x: -1025, y: -1, scale: 1 })
+      renderer.renderNow()
+      expect(painted.calls.some((call) => call.method === 'fillText')).toBe(true)
+      expect(images.length).toBeGreaterThan(beforeLoss)
+      expect(images.slice(0, beforeLoss).every((image) => image.close.mock.calls.length === 1)).toBe(true)
       const beforeZoom = images.length
       renderer.setViewport({ x: -513.25, y: -1, scale: 1.1 })
       renderer.renderNow()

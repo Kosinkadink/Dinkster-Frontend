@@ -1094,6 +1094,8 @@ export interface LayoutOptions {
   readonly textBoxLines?: Readonly<Record<string, number>>
   /** Per-editor fold overrides by value key (view.setEditorUnfolded). */
   readonly editorUnfolded?: Readonly<Record<string, boolean>>
+  /** Per-curve histogram visibility overrides; connected inputs are always visible. */
+  readonly histogramVisibility?: Readonly<Record<string, boolean>>
   /** Editors start folded whatever their declaration says, as on the Inputs panel. */
   readonly editorsStartFolded?: true
   /** Height of each unfolded editor's picture the user dragged, by value key (view.setPictureHeight). */
@@ -1753,7 +1755,9 @@ export function layoutNode(
           : editor.picture
       const openSections = (editor.sections ?? []).filter((section) =>
         options.sectionOverrides?.[`${w.valueKey}.${section.id}`] === false)
-      const histogram = editor.histogramLine !== undefined ? w.histogram : undefined
+      const histogram = editor.histogramLine !== undefined &&
+        (w.histogram?.connected === true || (options.histogramVisibility?.[w.valueKey] ?? w.spec.options['histogramVisible']) !== false)
+        ? w.histogram : undefined
       const controls = editorControlHeights.get(w.valueKey) ??
         (editor.controlRows + (histogram !== undefined ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
       const spaceRow: PendingRow = {

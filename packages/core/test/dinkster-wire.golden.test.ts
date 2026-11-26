@@ -676,6 +676,22 @@ describe('Dinkster schema wire', () => {
     const [tied, plain] = inputsOf(decoded.schema!)
     expect(tied!.widget!.options).toEqual({ inputStrip: ['#000000', '#ffffff'], histogram: 'bins' })
     expect(plain!.widget!.options).toEqual({})
+    for (const histogramVisible of [false, true]) {
+      const visible = parseDinksterSchema('Curves', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+        body: [curve('curve', { histogram: 'bins', histogramVisible }),
+          { kind: 'input', id: 'bins', type: concrete('HISTOGRAM'), required: false }],
+      })
+      expect(visible.diagnostics).toEqual([])
+      expect(inputsOf(visible.schema!)[0]!.widget!.options).toEqual({ histogram: 'bins', histogramVisible })
+    }
+    for (const histogramVisible of [null, 0, 1, 'false']) {
+      const rejected = parseDinksterSchema('BadCurve', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('curve', { histogramVisible })],
+      })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('histogramVisible must be a boolean') })])
+    }
     for (const bad of ['', 3]) {
       const rejected = parseDinksterSchema('BadCurve', { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('c', { histogram: bad })] })
       expect(rejected.schema).toBeUndefined()

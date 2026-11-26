@@ -1,11 +1,13 @@
 import { defaultTokens, presentedType, typeIdDisplayLabel } from '@dinkster/canvas'
 import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, t as translate } from '@dinkster/core'
-import type { InputSpec, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr } from '@dinkster/core'
+import type { InputSpec, Json, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr, WidgetSpec } from '@dinkster/core'
 
 export interface TooltipContent {
   readonly title?: string
   readonly lines: readonly string[]
   readonly detail?: readonly string[]
+  /** Refit whole readout items using the rendered width and available height. */
+  readonly fit?: (lines: number, measure: (text: string) => number) => TooltipContent
 }
 
 export interface TooltipResolveOptions { readonly detailed: boolean }
@@ -13,7 +15,12 @@ export interface TooltipProvider {
   readonly id: string
   resolve(target: unknown, opts: TooltipResolveOptions): TooltipContent | undefined
 }
-export interface TooltipAnchor { readonly x: number; readonly y: number; readonly element?: HTMLElement }
+/**
+ * Where a tooltip opens. `element` is the target it sits beside; a painted
+ * target has none, and gives `above`, the y the tooltip's bottom edge takes
+ * when it does not fit below `y`.
+ */
+export interface TooltipAnchor { readonly x: number; readonly y: number; readonly above?: number; readonly element?: HTMLElement }
 export interface VisibleTooltip extends TooltipContent, TooltipAnchor { readonly detailed: boolean }
 
 /** One tooltip policy boundary shared by DOM chrome and the painted canvas. */
@@ -130,6 +137,39 @@ const isDomTooltipTarget = (target: unknown): target is DomTooltipTarget =>
 export interface CanvasTooltipContext {
   readonly resolveSchema?: (type: string) => any
   readonly resolvePack?: (id: string) => any
+  /** The row view's whole-value readout lines, when the view writes one. */
+  readonly widgetReadout?: (row: { readonly viewId: string; readonly spec: WidgetSpec }, value: Json) => readonly string[] | undefined
+  /** Text lines the tooltip holds while staying wholly on screen. */
+  readonly tooltipLines?: number
+  readonly measureLine?: (text: string) => number
+}
+
+/** Items a widget readout lists before it says how many more there are. */
+export const WIDGET_READOUT_ITEMS = 20
+
+/**
+ * A row value's readout: its summary line, then up to WIDGET_READOUT_ITEMS
+ * more lines and a count of the rest, using at most `room` lines in all so
+ * a long list never runs off screen. Empty when the row has no value of its
+ * own to read.
+ */
+function widgetValueLines(readout: readonly string[], context: CanvasTooltipContext, room: number, prefix: string): readonly string[] {
+  const measure = context.measureLine ?? (() => 1)
+  const [head, ...items] = readout
+  if (head === undefined) return []
+  const heading = `${prefix}${head}`
+  let used = measure(heading)
+  if (used > room) return []
+  let shown = 0
+  while (shown < Math.min(items.length, WIDGET_READOUT_ITEMS)) {
+    const next = measure(items[shown]!)
+    const remainder = shown + 1 < items.length ? measure(translate('widgetSummary.more', { count: items.length - shown - 1 })) : 0
+    if (used + next + remainder > room) break
+    used += next
+    shown++
+  }
+  const more = translate('widgetSummary.more', { count: items.length - shown })
+  return [heading, ...items.slice(0, shown), ...(shown < items.length && used + measure(more) <= room ? [more] : [])]
 }
 
 const joinedPorts = (ports: readonly string[] | undefined): string => ports?.join(', ') || 'its inputs'
@@ -322,27 +362,45 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ...['min', 'max', 'step'].filter((key) => options[key] !== undefined).map((key) => `${key}: ${options[key]}`),
       ...(input?.tooltip ? [input.tooltip] : []),
     ]
-    const text = formatWidgetValue(t.companion?.value ?? value, row.spec)
+    const measure = context.measureLine ?? (() => 1)
+    const room = (context.tooltipLines ?? Infinity) - measure(row.name ?? row.label) -
+      (opts.detailed ? detail.reduce((sum, line) => sum + measure(line), 0) : 0)
     const state = t.companion?.state ?? (t.companion?.stale ? 'stale' : t.companion ? 'expected' : undefined)
-    const line = state === 'nothing'
-      ? 'Nothing: the node feeding this wire was skipped'
-      : state === 'unknown'
-        ? 'The wire has no known value yet'
-        : state === 'expected'
-          ? `Current expected value: ${text}`
-          : state === 'cached'
-            ? `Retained last-resolved value: ${text}`
-            : state === 'stale'
-              ? `Stale/unproven value: ${text}`
-              : state === 'estimate'
-                ? `Mirrored estimate (computed locally, not executed): ${text}`
-                : t.connected
-                  ? `Dormant stored value under connection: ${text}`
-                  : `Value: ${text}`
+    const absence = state === 'nothing' ? 'Nothing: the node feeding this wire was skipped'
+      : state === 'unknown' ? 'The wire has no known value yet' : undefined
+    const prefix = absence !== undefined ? '' : state === 'expected'
+      ? 'Current expected value: '
+      : state === 'cached'
+        ? 'Retained last-resolved value: '
+        : state === 'stale'
+          ? 'Stale/unproven value: '
+          : state === 'estimate'
+            ? 'Mirrored estimate (computed locally, not executed): '
+            : t.connected
+              ? 'Dormant stored value under connection: '
+              : 'Value: '
+    const storedPrefix = 'Dormant stored value under connection: '
+    const incomingValue = t.companion?.value ?? value
+    const incomingReadout = absence === undefined
+      ? context.widgetReadout?.(row, incomingValue) ?? [formatWidgetValue(incomingValue, row.spec)] : [absence]
+    const storedReadout = t.companion && t.connected
+      ? (context.widgetReadout?.(row, value) ?? [formatWidgetValue(value, row.spec)])
+        .map((text, index) => index === 0 ? `${text}, used again when the wire is removed` : text) : []
+    const storedMinimum = storedReadout.length === 0 ? 0 : measure(`${storedPrefix}${storedReadout[0]}`) +
+      (storedReadout.length > 1 ? measure(translate('widgetSummary.more', { count: storedReadout.length - 1 })) : 0)
+    const incomingMinimum = incomingReadout.length === 0 ? 0 : measure(`${prefix}${incomingReadout[0]}`)
+    // Reserve the stored summary and remainder before spending room on incoming items.
+    const storedRoom = Math.min(storedMinimum, Math.max(0, room - incomingMinimum))
+    const incoming = widgetValueLines(incomingReadout, context, room - storedRoom, prefix)
     const stored = t.companion && t.connected
-      ? [`Dormant stored value under connection: ${formatWidgetValue(value, row.spec)}, used again when the wire is removed`]
-      : []
-    return { title: row.name ?? row.label, lines: [line, ...stored], ...(opts.detailed && detail.length ? { detail } : {}) }
+      ? widgetValueLines(storedReadout, context, room - incoming.reduce((sum, line) => sum + measure(line), 0), storedPrefix) : []
+    return {
+      title: row.name ?? row.label,
+      lines: [...incoming, ...stored],
+      ...(opts.detailed && detail.length ? { detail } : {}),
+      ...(context.measureLine === undefined && (incomingReadout.length > 1 || storedReadout.length > 1) ? { fit: (lines: number, measureLine: (text: string) => number) =>
+        resolveCanvasTooltip(target, opts, { ...context, tooltipLines: lines, measureLine })! } : {}),
+    }
   }
   if (t.kind === 'header') {
     if (t.hit.node.node.region !== undefined) return regionContractTooltip(t.hit.node.node.region)

@@ -52,6 +52,14 @@
 .dinkster-content { max-width: var(--dinkster-content-max-width); margin-inline: auto; }
 .dinkster-content[data-width='table'] { max-width: var(--dinkster-table-max-width); }
 .dinkster-stack { display: grid; gap: var(--dinkster-space-16); }
+.dinkster-page-load { position: relative; height: 100%; min-height: 0; overflow: auto; }
+.dinkster-page-load-loading { display: grid; place-items: center; height: 100%; }
+.dinkster-page-load-loading > .dinkster-actions { justify-content: center; }
+.dinkster-page-load-content { display: grid; align-content: start; gap: var(--dinkster-space-16); }
+.dinkster-page-load-answer { animation: dinkster-page-arrival 200ms var(--dinkster-motion-easing); }
+@keyframes dinkster-page-arrival { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .dinkster-page-load-answer { animation: none; } }
+.dinkster-page-load-example { height: calc(var(--dinkster-space-32) * 10); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-frame); }
 .storage-folders { display: grid; gap: var(--dinkster-space-8); min-width: 0; }
 .storage-group-heading, .storage-folder-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--dinkster-space-8); min-width: 0; }
 .storage-group-heading { margin-top: var(--dinkster-space-12); }
@@ -199,6 +207,13 @@
 .dinkster-menu-item[data-role='remove'] { color: var(--dinkster-danger-foreground); }
 .dinkster-menu-item[data-role='add'] { color: var(--dinkster-accent-foreground); }
 .dinkster-menu-item:not(:disabled):hover, .dinkster-menu-item:focus-visible { background: var(--dinkster-interaction-hover); }
+.dinkster-menu-item-copy { display: grid; min-width: 0; }
+.dinkster-menu-item-description { white-space: normal; overflow-wrap: anywhere; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.dinkster-product-progress { height: 4px; overflow: hidden; border-radius: 2px; background: var(--dinkster-surface-raised); }
+.dinkster-product-progress > svg { display: block; width: 100%; height: 100%; border-radius: inherit; fill: var(--dinkster-accent-foreground); }
+.dinkster-product-progress[data-indeterminate] > svg { width: 36%; animation: dinkster-progress-sweep 1.4s ease-in-out infinite alternate; }
+@keyframes dinkster-progress-sweep { from { transform: translateX(-100%); } to { transform: translateX(280%); } }
+@media (prefers-reduced-motion: reduce) { .dinkster-product-progress[data-indeterminate] > svg { width: 100%; animation: none; opacity: var(--dinkster-interaction-disabled-opacity); } }
 /* A message is coloured by what it means, quietly: text and icon in the meaning's colour, over that colour at 7% inside a 1 px outline of it at 38%. A link inside stays primary and the close button secondary, so the strip is not one colour. */
 .dinkster-message { display: flex; align-items: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-info-quiet-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-info-quiet-background); color: var(--dinkster-info-foreground); }
 .dinkster-message > .dinkster-icon, .dinkster-field-error > .dinkster-icon { margin-block: calc((var(--dinkster-type-body-line) - var(--dinkster-icon-size)) / 2); }
@@ -543,8 +558,9 @@
 .dinkster-menu-row:hover { background: var(--dinkster-interaction-hover); }
 .dinkster-menu-row > .dinkster-menu-item:not(:focus-visible):hover { background: transparent; }
 .dinkster-menu-row > .dinkster-menu-item:first-child { flex: 1; min-width: 0; }
-/* Other projects line up with the checked current project's name. */
-.dinkster-menu[data-project] :is(.dinkster-menu-row > .dinkster-menu-item:first-child, .dinkster-menu-note) { padding-inline-start: calc(var(--dinkster-space-8) * 2 + var(--dinkster-icon-size)); }
+/* An empty check column keeps ordinary labels level with checkable labels. */
+.dinkster-menu:has([role='menuitemcheckbox']) .dinkster-menu-item:not([aria-checked]):not(:has(> .dinkster-icon))::before { flex: none; width: var(--dinkster-icon-size); content: ''; }
+.dinkster-menu[data-project] .dinkster-menu-note { padding-inline-start: calc(var(--dinkster-space-8) * 2 + var(--dinkster-icon-size)); }
 .dinkster-menu-row-action { flex: none; justify-content: center; width: var(--dinkster-menu-row-height); padding: 0; color: var(--dinkster-text-secondary); opacity: 0; }
 .dinkster-menu-row:is(:hover, :focus-within) > .dinkster-menu-row-action { opacity: 1; }
 .dinkster-menu-item[aria-checked='false'] > .dinkster-icon { visibility: hidden; }
@@ -615,6 +631,7 @@
 [data-density='site'] .dinkster-menu-identity { gap: 0; padding: var(--dinkster-site-menu-identity-padding-top) var(--dinkster-site-menu-identity-padding-inline) calc(var(--dinkster-site-menu-identity-padding-bottom) + var(--dinkster-space-4)); margin-bottom: var(--dinkster-space-4); }
 [data-density='site'] .dinkster-menu-identity strong { font-weight: var(--dinkster-weight-regular); }
 [data-density='site'] .dinkster-menu-item { height: var(--dinkster-site-menu-row-height); padding-inline: var(--dinkster-space-12); }
+[data-density='site'] .dinkster-menu-item[data-description] { height: auto; min-height: var(--dinkster-site-menu-row-height); }
 [data-density='site'] .dinkster-menu-item:hover, [data-density='site'] .dinkster-menu-item:focus-visible { background: var(--dinkster-surface-raised); }
 [data-density='site'] .dinkster-menu-trigger[data-account] { width: var(--dinkster-site-account-button-size); height: var(--dinkster-site-account-button-size); padding: 0; border: 0; background: transparent; }
 [data-density='site'] .dinkster-menu-trigger[data-account]:is(:hover, [aria-expanded='true']) { background: var(--dinkster-surface-raised); }
@@ -1101,6 +1118,8 @@
 /* The node's problem box hangs below the node, as wide as its longest line up to a limit set by the screen, where lines wrap, at one type size, and is drawn as a part of the node: the node's small radius, its resting 1 px edge, the panel fill and the canvas row type. A problem's color is only on its icon and message. A line is one row high, with its action at the right end drawn as a list status line's action; under a narrow node the action wraps to its own line, still at the right end, so the message keeps at least half the line. */
 .problem-box { position: absolute; z-index: 11; box-sizing: border-box; width: max-content; max-height: var(--dinkster-problem-box-max-height); overflow-y: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
 .problem-box-line { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--dinkster-space-4); box-sizing: border-box; min-height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); padding: calc(var(--dinkster-space-4) / 2) calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2 + var(--dinkster-border-width)); }
+.problem-box-line[data-stacked-actions='true'] { flex-wrap: nowrap; }
+.problem-box-actions { display: flex; flex: none; flex-direction: column; align-items: flex-end; margin-left: auto; }
 .problem-box-line + .problem-box-line { border-top: var(--dinkster-border-width) solid var(--dinkster-border-faint); }
 .problem-box-line[data-highlighted='true'] { background: var(--dinkster-surface-selected); }
 .problem-box-icon { flex: none; width: var(--dinkster-space-12); height: var(--dinkster-space-12); margin-top: calc((var(--dinkster-input-canvas-height) - var(--dinkster-space-12)) / 2); stroke-width: 2; }

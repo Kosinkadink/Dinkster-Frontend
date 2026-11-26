@@ -19,6 +19,7 @@ import {
   canvasTypePaintForTheme,
   canvasPaintTokens,
   createRegistryPainter,
+  widgetValueText,
   defaultTokens,
   hitTest,
   InteractionController,
@@ -175,7 +176,7 @@ import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap
 import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
 import { ContextMenu } from './ContextMenu.js'
-import { canvasMenuContext, memberRemovalInvocation, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
+import { canvasMenuContext, curveHistogramMenuGroup, memberRemovalInvocation, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
 import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
 import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
@@ -438,6 +439,8 @@ export function storedValueProblems(
   if (value === undefined) return []
   const where = `${row.nodeId}.${row.valueKey}`
   if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
+    // Model names are valid bindings; the backend presence read owns their availability.
+    if (row.spec.kind?.startsWith('model/')) return []
     return [unresolvedAssetImportDiagnostic({
       graphId,
       nodeId: row.nodeId,
@@ -3486,7 +3489,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           )
           props.tooltips?.show(
             tooltipTarget,
-            { x: target.x + 12, y: target.y + 14 },
+            { x: target.x + 12, y: target.y + 14, above: target.y - 14 },
             activeLens().detailedPinTooltips === true && target.kind === 'pin',
             immediateHeader,
             tooltipOwner,
@@ -3528,7 +3531,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         props.tooltips?.show(
           { ...target, ...(tooltip ? { tooltip } : {}) },
-          { x: target.x + 12, y: target.y + 14 },
+          { x: target.x + 12, y: target.y + 14, above: target.y - 14 },
           undefined,
           false,
           tooltipOwner,
@@ -3655,6 +3658,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             disabled: tab.execution !== undefined || hit.row.ghost === true || hit.row.materialize !== undefined,
           })
           if (representationGroup !== undefined) additionalGroups.push(representationGroup)
+          const registry = props.app.registryForTab(tab)
+          if (registry !== undefined) {
+            const histogramGroup = curveHistogramMenuGroup({
+              document: tab.store.doc, scene: renderer.getScene(), hit,
+              resolve: documentResolver(tab.store.doc, registry.resolve),
+              ...(occurrencePlanner() === undefined ? {} : { planner: occurrencePlanner()! }),
+              disabled: tab.execution !== undefined || hit.row.ghost === true || hit.row.materialize !== undefined,
+            })
+            if (histogramGroup !== undefined) additionalGroups.push(histogramGroup)
+          }
         }
         openCanvasMenu(menuTargetOf(hit), worldX, worldY, additionalGroups)
       },
@@ -5743,6 +5756,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ? <CanvasRowAbsence state={companion?.state === 'nothing' ? 'nothing' : 'unknown'} stored={stored} />
           : <><CanvasSidePart result={`The wire brings ${formatWidgetValue(companion.value, row.spec)}.`} />
             <CanvasSidePart result={`Stored ${stored}, used again when the wire is removed.`} /></>
+      // The default reads as the closed row would read it, in full.
+      let defaultText = declared === undefined
+        ? undefined
+        : widgetValueText(widgetRegistry(), row.viewId, declared, row.spec)
+      if (defaultText === undefined && declared !== undefined) defaultText = formatWidgetValue(declared, row.spec)
       return {
         tabId: tab.id,
         graphId: currentGraphId(tab),
@@ -5753,7 +5771,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         nodeTop: node.y,
         nodeBottom: node.y + node.layout.height,
         sideEdges: rowSideEdges(node.layout.rows, row),
-        ...(declared === undefined ? {} : { defaultText: formatWidgetValue(declared, row.spec) }),
+        ...(defaultText == null ? {} : { defaultText }),
         ...(help === undefined ? {} : { help }),
         ...(arriving === undefined ? {} : { arriving }),
         ...(rowRepresentationOf(tab, node, row) === undefined ? {} : { representation: rowRepresentationOf(tab, node, row)! }),
@@ -7413,7 +7431,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 const target = item().target
                 if (target === undefined) return
                 const rect = event.currentTarget.getBoundingClientRect()
-                props.tooltips?.show(target, { x: rect.left, y: rect.bottom + 8 }, undefined, true, tooltipOwner)
+                props.tooltips?.show(target, { x: rect.left, y: rect.bottom + 8, above: rect.top - 8 }, undefined, true, tooltipOwner)
               }}
               onBlur={() => props.tooltips?.hide()}
             >{item().label}</ProductButton>
@@ -7704,6 +7722,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, data!['input'] as string,
                         typeof data?.['digest'] === 'string' ? data['digest'] : undefined)
+                    } else {
+                      const tab = activeTab()
+                      if (tab === undefined) return
+                      closeProblemBox()
+                      if (action === 'review-model') props.app.reviewModelDownload(tab, line.problem.diagnostic)
+                      else props.app.openModelStorage(tab, line.problem.diagnostic)
                     }
                   }}
                 />
