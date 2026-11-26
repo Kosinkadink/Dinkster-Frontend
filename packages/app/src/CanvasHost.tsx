@@ -5727,17 +5727,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const reg = registry()
       const schema = reg ? documentResolver(tab.store.doc, reg.resolve)(node.node.type) : undefined
       const item = schema?.body.find((candidate) => candidate.kind === 'input' && candidate.id === row.inputId)
+      const driven = rowIsDriven(node.id, row)
       const help = [
         ...(row.readOnly ? ['Read-only'] : []),
         ...(row.disabled ? [row.disabledReason || 'Disabled'] : []),
-        ...(item?.kind === 'input' && item.tooltip ? [item.tooltip] : []),
+        ...(!driven && item?.kind === 'input' && item.tooltip ? [item.tooltip] : []),
       ].join('. ') || undefined
       const declared = effectiveWidgetDefault(row.spec)
       const panelWire = rowNodeOf(node.id)?.wired?.[row.valueKey]
       const companion = renderer.fieldCompanion(node.id, row.valueKey) ?? (panelWire === undefined ? undefined
         : panelWire.value === undefined ? { value: null, state: 'unknown' as const } : { value: panelWire.value })
       const stored = formatWidgetValue(Object.hasOwn(node.node.values, row.valueKey) ? node.node.values[row.valueKey] : declared, row.spec)
-      const arriving = !rowIsDriven(node.id, row) ? undefined
+      const arriving = !driven ? undefined
         : companion === undefined || companion.state === 'nothing' || companion.state === 'unknown'
           ? <CanvasRowAbsence state={companion?.state === 'nothing' ? 'nothing' : 'unknown'} stored={stored} />
           : <><CanvasSidePart result={`The wire brings ${formatWidgetValue(companion.value, row.spec)}.`} />

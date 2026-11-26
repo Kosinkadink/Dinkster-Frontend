@@ -34,6 +34,7 @@ async function openSampler(page: Page, access?: 'readOnly' | 'disabled'): Promis
       body: [
         {
           ...widget('steps', access === undefined ? 'INT' : 'FLOAT', 20, { min: 1, max: 10000, step: 1, tooltip: 'How many denoising steps to run.' }),
+          tooltip: 'How many denoising steps to run.',
           ...(access === undefined ? {} : { [access]: { formula: 'cfg > 8' }, disabledReason: 'Preset controls this field' }),
         },
         widget('cfg', 'FLOAT', 7, { min: 0, max: 100, step: 0.1 }),
@@ -437,6 +438,36 @@ for (const access of ['readOnly', 'disabled'] as const) {
       command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'steps', value: 24 },
     }))
     await expect.poll(() => value(page, 'steps')).toBe(24)
+    await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      app.registerSchemas([{
+        type: 'BlockedSource', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false },
+          { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' }, knownValue: { input: 'value' } },
+        ],
+      }] as never)
+      const store = app.activeTab()!.store
+      const added = store.dispatch({ command: 'node.add', params: {
+        graphId: 'g0', type: 'BlockedSource', position: { x: -150, y: 100 }, values: { value: 37 },
+      } })
+      if (!added.ok) throw new Error(JSON.stringify(added.diagnostics))
+      const source = Object.values(store.doc.graphs.g0!.nodes).find((node) => node.type === 'BlockedSource')!
+      const linked = store.dispatch({ command: 'link.connect', params: {
+        graphId: 'g0', from: { node: source.id, port: 'out' }, to: { node: 'n1', port: 'steps' },
+      } })
+      if (!linked.ok) throw new Error(JSON.stringify(linked.diagnostics))
+    })
+    const wired = await rowPoint(page, 'n1', 'steps')
+    await page.mouse.click(wired.x, wired.y)
+    await expect(page.getByTestId('row-focus')).toContainText('The wire brings 37.0.')
+    await expect(page.getByTestId('row-focus')).toContainText('Stored 24.0, used again when the wire is removed.')
+    await expect(page.getByTestId('row-focus')).toContainText(reason)
+    await expect(page.getByTestId('row-focus')).not.toContainText('How many denoising steps to run.')
+    await expect(page.getByTestId('row-focus')).not.toContainText('Default')
+    await expect(field(page)).toHaveCount(0)
+    await expect.poll(() => value(page, 'steps')).toBe(24)
+    await page.screenshot({ path: testInfo.outputPath('blocked-wire-reason.png') })
   })
 
   test(`a ${access} row can switch representation without changing its value`, async ({ page }, testInfo) => {

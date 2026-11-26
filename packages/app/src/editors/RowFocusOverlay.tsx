@@ -66,7 +66,7 @@ export function RowFocusOverlay(props: {
     <CanvasSidePart
       {...(props.focus.cancellation === undefined ? {} : { result: props.focus.cancellation })}
       facts={props.focus.note !== undefined || props.focus.arriving !== undefined || props.focus.defaultText === undefined ? [] : [{ key: 'default', value: props.focus.defaultText }]}
-      {...(props.focus.note !== undefined || props.focus.arriving !== undefined || props.focus.help === undefined ? {} : { help: props.focus.help })}
+      {...(props.focus.note !== undefined || props.focus.help === undefined ? {} : { help: props.focus.help })}
       {...(props.focus.note !== undefined || props.focus.representation === undefined ? {} : { representation: {
         choices: props.focus.representation.choices,
         selected: props.focus.representation.selected,
