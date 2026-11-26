@@ -10,6 +10,8 @@ import {
   type JSX,
 } from 'solid-js'
 import { render } from 'solid-js/web'
+import { canvasTypePaintForTheme } from '@dinkster/canvas'
+import { semanticTokensForTheme } from '@dinkster/core'
 import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
@@ -42,6 +44,7 @@ import {
   ProductBrandMark,
   ProductCodeBlock,
   ProductCopyValue,
+  ProductCountStrip,
   ProductDisclosure,
   ProductFacts,
   ProductQrCode,
@@ -109,6 +112,7 @@ const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
   { label: 'Forms', href: '#forms', icon: User },
   { label: 'Lists and tables', href: '#lists', icon: LayoutList },
+  { label: 'Count strips', href: '#count-strips', icon: LayoutList },
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
@@ -837,6 +841,25 @@ function Gallery() {
                   </>
                 )}
               </ProductForm>
+            </Match>
+            <Match when={route() === '#count-strips'}>
+              <Section title="Count strips" components="ProductCountStrip">
+                <For each={['dark', 'light'] as const}>{(theme) => {
+                  const colors = canvasTypePaintForTheme(theme).typeColors
+                  return <div class="dinkster-panel dinkster-stack" data-theme={theme}>
+                    <h3 class="dinkster-heading">{theme === 'dark' ? 'Dark' : 'Light'}</h3>
+                    <ProductCountStrip label={`Model kinds, ${theme}`} segments={[
+                      { label: 'LoRAs', count: 38, color: colors.LATENT! },
+                      { label: 'Checkpoints', count: 12, color: colors.MODEL! },
+                      { label: 'ControlNet', count: 9, color: colors.CONTROL_NET! },
+                      { label: 'Text encoders', count: 6, color: colors.CLIP! },
+                      { label: 'VAEs', count: 4, color: colors.VAE! },
+                      { label: 'Upscalers', count: 3, color: colors.IMAGE! },
+                      { label: 'Other', count: 1, color: semanticTokensForTheme(theme).text.muted },
+                    ]} />
+                  </div>
+                }}</For>
+              </Section>
             </Match>
             <Match when={route() === '#lists'}>
               <Section title="Grouped expandable rows" components="ProductList, ProductListRow, ProductFacts, ProductMenu">
