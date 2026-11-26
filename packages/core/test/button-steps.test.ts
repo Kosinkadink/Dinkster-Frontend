@@ -1709,6 +1709,51 @@ describe('steps inside a subgraph occurrence', () => {
     expect(session.doc.graphs.g0!.nodes.first!.values[field]).toBe(17)
     expect(session.undo()).toBe(true)
     expect(session.doc).toEqual(after)
+    const fanoutBefore: WorkflowDocument = { ...before, graphs: { ...before.graphs, g1: { ...before.graphs.g1!, nodes: {
+      ...before.graphs.g1!.nodes, extra: { id: asNodeId('extra'), type: 'test.promoted_button', values: { amount: 2, delta: 13 } },
+    } } } }
+    const fanout = sessionOf(fanoutBefore)
+    const innerField = boundaryItems(fanout.doc.graphs.g1!.boundary, 'inputs')[0]!.id
+    expect(fanout.dispatch({ command: 'boundary.addBinding', params: { graphId: 'g1', itemId: innerField, node: 'extra', port: 'amount' } }).ok).toBe(true)
+    const fanoutDefinitions = fanout.doc.graphs.g1
+    expect(await runPress(fanout, target, host)).toMatchObject({ kind: 'done' })
+    expect(fanout.doc.graphs.g0!.nodes.first!.values[field]).toBe(17)
+    expect(fanout.doc.graphs.g0!.nodes.second!.values[field]).toBe(80)
+    const received = (current: WorkflowDocument) => {
+      const result = compile({ document: current, revision: 1, resolve,
+        scope: { kind: 'partial', targets: ['first', 'second'].flatMap((instance) => ['inner', 'extra'].map((id) => ({
+          instancePath: (depth === 1 ? [instance] : [instance, 'detail']).map(asNodeId), node: asNodeId(id),
+        }))) }, connection: asConnectionId('buttons'), schemaHash: 'buttons' })
+      expect(result.ok, JSON.stringify(result)).toBe(true)
+      return result.ok ? Object.values(result.artifact.prompt).map((entry) => entry.inputs.amount).sort((a, b) => Number(a) - Number(b)) : []
+    }
+    expect(received(fanout.doc)).toEqual([17, 17, 80, 80])
+    expect(fanout.doc.graphs.g1).toEqual(fanoutDefinitions)
+    expect(fanout.undo()).toBe(true)
+    expect(received(fanout.doc)).toEqual([10, 10, 80, 80])
+    expect(fanout.redo()).toBe(true)
+    expect(received(JSON.parse(JSON.stringify(fanout.doc)))).toEqual([17, 17, 80, 80])
+    for (const literal of [false, true]) {
+      addSchema('test.button_source', [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 90 },
+        { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] }, ...(literal ? { knownValue: { input: 'value' } } : {}) },
+      ])
+      const wired = sessionOf({ ...before, graphs: { ...before.graphs, g0: { ...before.graphs.g0!, nodes: {
+        ...before.graphs.g0!.nodes, source: { id: asNodeId('source'), type: 'test.button_source', values: { value: 90 } },
+      }, links: link('feed', ['source', 'out'], ['first', field]) } } })
+      const wiredBefore = wired.doc
+      expect(buttonAvailability(wired.doc, target, host).enabled).toBe(false)
+      expect(await runPress(wired, target, host)).toMatchObject({ kind: 'failed' })
+      expect(wired.doc).toEqual(wiredBefore)
+      expect(wired.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'feed' } }).ok).toBe(true)
+      expect(await runPress(wired, target, host)).toMatchObject({ kind: 'done' })
+      expect(wired.doc.graphs.g0!.nodes.first!.values[field]).toBe(17)
+      expect(wired.doc.graphs.g0!.nodes.second!.values[field]).toBe(80)
+      expect(wired.undo()).toBe(true)
+      expect(wired.doc.graphs.g0!.nodes.first!.values[field]).toBe(10)
+      expect(wired.redo()).toBe(true)
+      expect(wired.doc.graphs.g0!.nodes.first!.values[field]).toBe(17)
+    }
     const collisionDoc: WorkflowDocument = { ...doc, graphs: { ...doc.graphs, g1: { ...doc.graphs.g1!, boundary: { body: [
       { kind: 'section', id: 'old', rows: [
         { kind: 'button', id: 'amount', node: asNodeId('inner'), button: 'missing_amount' },

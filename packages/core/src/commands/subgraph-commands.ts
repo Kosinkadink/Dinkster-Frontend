@@ -1817,15 +1817,13 @@ const subgraphFlatten: CommandDefinition = {
         }
         outputs.push(rewritten)
       }
-      let missingButton = false
       boundary = mapBoundaryItems(boundary, (_item, side, index) => (side === 'inputs' ? inputs : outputs)[index], (entry) => {
         if (entry.node !== nodeId) return entry
         const source = boundaryButtons(body.boundary).find((button) => button.id === entry.button)
         const target = source === undefined ? undefined : nodeIds.get(source.node)
-        if (source === undefined || target === undefined) { missingButton = true; return entry }
+        if (source === undefined || target === undefined) return entry
         return { ...entry, node: asNodeId(target), button: source.button }
       })
-      if (missingButton) return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', 'subgraph.flatten: an enclosing button has no inner declaration', graphId, instancePath, nodeId)]
     }
 
     for (const [id, link] of Object.entries(links)) {
