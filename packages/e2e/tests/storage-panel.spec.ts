@@ -9,16 +9,20 @@ test('Storage keeps unavailable folders and shows the engine reason until retry 
     let mounts = [
       { id: 'archive', path: '/offline/archive', mode: 'read' as const, state: 'failed', error: 'asset library root is not a directory: /offline/archive' },
       { id: 'restricted', path: '/restricted', mode: 'read' as const, state: 'failed', error: 'Permission denied: /restricted' },
+      { id: 'models-lora', path: '/models/loras', mode: 'read' as const, state: 'failed', source: 'shared-models', kind: 'model/lora', error: 'model root unavailable' },
     ]
+    const location = { id: 'models', path: '/models', mode: 'read' as const, visibility: 'default-on' as const }
     backend.connection.fetchMountSettings = async () => ({ mounts, mountChangesAllowed: true })
     backend.connection.fetchMountLocations = async () => ({ mounts })
-    backend.connection.fetchModelSettings = async () => ({ settings: { version: 1, locations: [], downloadLocation: null }, locations: [], revision: 'failed-fixture', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
+    backend.connection.fetchModelSettings = async () => ({ settings: { version: 1, locations: [location], downloadLocation: null }, locations: [{ ...location, enabled: true, active: true, mounts: ['models-lora'] }], revision: 'failed-fixture', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
     backend.connection.retryMount = async (id) => { mounts = mounts.map((row) => row.id === id ? { ...row, state: 'ready', error: '' } : row) }
   })
   await page.getByTestId('storage-sidebar-toggle').click()
   const panel = page.getByTestId('storage-panel')
   const archive = panel.locator('[data-mount-id="archive"]')
   const restricted = panel.locator('[data-mount-id="restricted"]')
+  const model = panel.locator('[data-model-location="models"]')
+  await expect(model).toContainText('model root unavailable')
   await expect(archive).toContainText('asset library root is not a directory: /offline/archive')
   await expect(restricted).toContainText('Permission denied: /restricted')
   await panel.screenshot({ path: testInfo.outputPath('storage-unavailable-dark.png') })
@@ -26,7 +30,13 @@ test('Storage keeps unavailable folders and shows the engine reason until retry 
   await expect(archive).not.toContainText('not a directory')
   await expect(archive.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
   await expect(restricted).toContainText('Permission denied: /restricted')
+  await expect(model).toContainText('model root unavailable')
   await panel.screenshot({ path: testInfo.outputPath('storage-retried-dark.png') })
+  await model.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(model).not.toContainText('model root unavailable')
+  await expect(model).toBeVisible()
+  await expect(restricted).toContainText('Permission denied: /restricted')
+  await panel.screenshot({ path: testInfo.outputPath('storage-model-retried-dark.png') })
 })
 
 test('Storage shows engine file and byte reading progress on model folders and mounts', async ({ page }, testInfo) => {
@@ -41,10 +51,11 @@ test('Storage shows engine file and byte reading progress on model folders and m
       { id: 'input', path: '/home/kosin/Dinkster/Portraits/input', mode: 'readwrite' as const, state: 'scanning', scanProgress: { filesDone: 7, filesTotal: 10, bytesDone: 8 * 1024 ** 2, bytesTotal: 32 * 1024 ** 2, elapsedSeconds: 2 } },
     ]
     const location = { id: 'ComfyUI', path: '/home/kosin/ComfyUI/models', mode: 'read' as const, visibility: 'default-on' as const }
+    const unused = { id: 'shared', path: '/network/projects/shared-models', mode: 'read' as const, visibility: 'opt-in' as const }
     backend.connection.fetchMountSettings = async () => ({ mounts, mountChangesAllowed: true })
-    backend.connection.fetchMountLocations = async () => ({ mounts, importMount: 'input' })
-    backend.connection.fetchModelSettings = async () => ({ settings: { version: 1, locations: [location], downloadLocation: null },
-      locations: [{ ...location, enabled: true, active: true, mounts: ['models-checkpoint'] }], revision: 'reading-fixture', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
+    backend.connection.fetchMountLocations = async () => ({ mounts: [...mounts, { id: 'archive', path: '/network/retained-project-footage/archive', mode: 'read', state: 'ready', entryCount: 37 }], importMount: 'input' })
+    backend.connection.fetchModelSettings = async () => ({ settings: { version: 1, locations: [location, unused], downloadLocation: null },
+      locations: [{ ...location, enabled: true, active: true, mounts: ['models-checkpoint'] }, { ...unused, enabled: false, active: true, mounts: [] }], revision: 'reading-fixture', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
   })
   await page.getByTestId('storage-sidebar-toggle').click()
   const panel = page.getByTestId('storage-panel')
@@ -57,6 +68,14 @@ test('Storage shows engine file and byte reading progress on model folders and m
   await expect(panel.getByRole('progressbar', { name: 'Reading, 7 of 10' })).toHaveAttribute('aria-valuenow', '0.25')
   await expect(panel).toContainText('8.0 MiB of 32 MiB read')
   await panel.screenshot({ path: testInfo.outputPath('storage-reading-dark.png') })
+  const unused = panel.locator('details').filter({ has: page.locator('summary', { hasText: 'not used by this project' }) })
+  await expect(unused).not.toHaveAttribute('open')
+  await expect(unused.locator('summary')).toContainText('2 more')
+  await unused.locator('summary').click()
+  await expect(unused.locator('[data-model-location="shared"]')).toBeVisible()
+  await expect(unused.locator('[data-mount-id="archive"]')).toContainText('37 files')
+  await panel.screenshot({ path: testInfo.outputPath('storage-unused-open-dark.png') })
+  await unused.locator('summary').click()
   const model = panel.locator('[data-model-location="ComfyUI"]')
   const toggle = model.locator('button[aria-expanded]').first()
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
@@ -69,6 +88,12 @@ test('Storage shows engine file and byte reading progress on model folders and m
   await page.screenshot({ path: testInfo.outputPath('storage-model-menu-dark.png') })
   await page.keyboard.press('Escape')
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByTestId('dock-zone-right').getByTestId('dock-zone-close').click()
+  await expect(model.getByRole('definition')).toHaveText('212')
+  await expect(panel.locator('[data-mount-id="input"]')).toBeVisible()
+  await panel.screenshot({ path: testInfo.outputPath('storage-model-open-390-dark.png') })
+  await page.setViewportSize({ width: 1280, height: 900 })
   await toggle.click()
   await expect(model.getByRole('progressbar')).toBeVisible()
   await panel.locator('.storage-group-heading').last().getByRole('button', { name: 'Add', exact: true }).click()
@@ -108,7 +133,7 @@ test('Storage shows engine file and byte reading progress on model folders and m
   await panel.screenshot({ path: testInfo.outputPath('storage-add-model-download-dark.png') })
   await page.route('**/api/models/settings?*', async (route) => {
     if (route.request().method() !== 'PUT') { await route.continue(); return }
-    expect(route.request().postDataJSON()).toMatchObject({ settings: { downloadLocation: 'models', locations: [expect.anything(), { id: 'models', path: '/mnt/big/models', mode: 'readwrite', visibility: 'always-on' }] } })
+    expect(route.request().postDataJSON()).toMatchObject({ settings: { downloadLocation: 'models', locations: [expect.anything(), expect.anything(), { id: 'models', path: '/mnt/big/models', mode: 'readwrite', visibility: 'always-on' }] } })
     await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Folder is unavailable' }) })
   })
   await panel.getByRole('button', { name: 'Add folder', exact: true }).click()
@@ -137,4 +162,22 @@ test('Storage shows engine file and byte reading progress on model folders and m
   await panel.locator('[data-mount-id="input"] button:not([aria-haspopup])').click()
   await expect(source).toHaveAttribute('data-selected-id', 'mount:input')
   await expect(assets.getByTestId('collection-entry')).toContainText('input-note.txt')
+  const targetBefore = await page.evaluate(() => [...window.__dinksterTest!.app.tabTargets.get()])
+  const studioId = await page.evaluate(() => {
+    const backend = window.__dinksterTest!.app.addBackend('http://studio.test:8188', 'Studio', false, 'dinkster', false)!
+    backend.connection.fetchMountSettings = async () => ({ mounts: [], mountChangesAllowed: true })
+    backend.connection.fetchMountLocations = async () => ({ mounts: [] })
+    backend.connection.fetchModelSettings = async () => ({ settings: { version: 1, locations: [], downloadLocation: null }, locations: [], revision: 'empty-fixture', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
+    return backend.id
+  })
+  await page.getByTestId('storage-sidebar-toggle').click()
+  const backendPicker = panel.getByRole('combobox', { name: 'Backend folders' })
+  await expect(backendPicker).toBeVisible()
+  await panel.screenshot({ path: testInfo.outputPath('storage-multiple-backends-dark.png') })
+  await backendPicker.click()
+  await page.getByRole('option').and(page.locator(`[data-option-id="${studioId}"]`)).click()
+  await expect(panel).toContainText('No model folders used by this project.')
+  await expect(panel).toContainText('No other folders used by this project.')
+  expect(await page.evaluate(() => [...window.__dinksterTest!.app.tabTargets.get()])).toEqual(targetBefore)
+  await panel.screenshot({ path: testInfo.outputPath('storage-empty-backend-dark.png') })
 })
