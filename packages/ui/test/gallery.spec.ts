@@ -194,6 +194,7 @@ for (const width of [1280, 390]) {
       await page.goto(`/#${section}`)
       await page.evaluate(() => document.fonts.ready)
       await expect(page.getByRole('main')).toBeVisible()
+      if (section === 'confirmations') expect(await page.evaluate(() => window.scrollY)).toBe(0)
       if (section === 'lists') {
         const heading = page.locator('.storage-folder-heading').first()
         const name = await heading.locator('strong').boundingBox()

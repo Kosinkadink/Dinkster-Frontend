@@ -147,7 +147,7 @@ function ConfirmationBody(props: ProductConfirmationProps) {
   const strings = useProductStrings()
   let cancel!: HTMLButtonElement
   onMount(() => queueMicrotask(() => {
-    if (props.intent === 'remove' && !props.pending && cancel.isConnected) cancel.focus()
+    if (props.intent === 'remove' && !props.pending && cancel.isConnected) cancel.focus({ preventScroll: true })
   }))
   return (
     <>
