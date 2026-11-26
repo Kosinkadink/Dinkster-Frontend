@@ -64,11 +64,14 @@ test('a saved blueprint is detached, placeable, renameable and removable without
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()
     .map((backend) => ({ state: backend.schemaState.get(), ready: backend.registry.get()?.schemas.has('dev.features.slot') }))))
     .toEqual(expect.arrayContaining([expect.objectContaining({ ready: true })]))
-  expect(await page.evaluate(async (name) => {
+  const backendUrl = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
+  const fixtureResponse = await page.request.get(`${backendUrl}/api/packs/dinkster-nodes-dev/blueprints/node-features`)
+  expect(fixtureResponse.ok()).toBe(true)
+  const blueprint = await fixtureResponse.text()
+  expect(await page.evaluate(async ({ name, blueprint }) => {
     const app = window.__dinksterTest!.app
     const backend = app.backends.get().find((item) => item.registry.get()?.schemas.has('dev.features.slot'))!
-    if (!await app.openTemplate('dinkster-nodes-dev', 'node-features', 'Node Feature Examples', backend.id)) return ['template failed']
-    const doc = structuredClone(app.activeTab()!.store.doc)
+    const doc = JSON.parse(blueprint) as import('@dinkster/core').WorkflowDocument
     const body = doc.root
     const root = 'saved-blueprint-test-root'
     const diagnostics = await app.openDocument({
@@ -88,7 +91,7 @@ test('a saved blueprint is detached, placeable, renameable and removable without
     }, 'Blueprint independence')
     app.setTabTarget(app.activeTab()!.id, backend.id)
     return diagnostics
-  }, name)).toEqual([])
+  }, { name, blueprint })).toEqual([])
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
     .some((node) => node.id === 'source'))).toBe(true)
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
@@ -102,6 +105,9 @@ test('a saved blueprint is detached, placeable, renameable and removable without
   const save = page.locator('[data-testid=context-menu-item][data-item-id="core.subgraph.saveBlueprint"]')
   await expect(save).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('saved-blueprint-menu.png') })
+  const status = page.getByTestId('status-bar')
+  const statusBefore = await status.textContent()
+  const connectionBefore = await page.getByTestId('status-connection').boundingBox()
   const created = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/library' && response.request().method() === 'POST')
   await save.click()
   const response = await Promise.race([
@@ -113,7 +119,10 @@ test('a saved blueprint is detached, placeable, renameable and removable without
   expect(response.status()).toBe(201)
   const record = await response.json() as { id: string; digest: string; project: string }
   expect(record.project).toBe('default')
-  const backendUrl = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
+  await expect(page.locator('.dinkster-toast')).toHaveText(`Saved blueprint ${name}`)
+  expect(await status.textContent()).toBe(statusBefore)
+  expect(await page.getByTestId('status-connection').boundingBox()).toEqual(connectionBefore)
+  await expect(status.locator('.transient-status')).toHaveCount(0)
   const bodyResponse = await page.request.get(`${backendUrl}/api/assets/${record.digest}`)
   expect(bodyResponse.ok()).toBe(true)
   const saved = await bodyResponse.json()

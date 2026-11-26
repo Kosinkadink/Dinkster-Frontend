@@ -503,7 +503,7 @@ export function App(props: {
   const searchOpen = useSignal(app.searchOpen)
   const nodeInstallRequest = useSignal(app.nodeInstallRequest)
   const projectNeedsReview = useSignal(app.projectNeedsReview)
-  const projectPackNotification = useSignal(app.projectPackNotification)
+  const successNotification = useSignal(app.successNotification)
   const placementStatus = useSignal(app.placementStatus)
   const transientStatus = useSignal(app.transientStatus)
   const detachedWorkflowIds = (): ReadonlySet<string> => new Set(managedLayout().windows.flatMap((entry) =>
@@ -3081,7 +3081,7 @@ export function App(props: {
           </Show>
         </>}
       />
-      <ProductToast notification={projectPackNotification()} onDismiss={() => app.projectPackNotification.set(undefined)} />
+      <ProductToast notification={successNotification()} onDismiss={() => app.successNotification.set(undefined)} />
       <Show when={searchOpen()}><UniversalSearch app={app} /></Show>
       <Show when={nodeInstallRequest()} keyed>{(request) => <NodeInstallPrompt app={app} request={request} />}</Show>
       <Show when={nodeInstallRequest() === undefined && modalPanel() === '' ? projectNeedsReview() : undefined} keyed>{(review) => <ProjectNeedsPrompt app={app} review={review} />}</Show>

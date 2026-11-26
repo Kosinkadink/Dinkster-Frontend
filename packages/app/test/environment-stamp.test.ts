@@ -492,7 +492,7 @@ describe('workflow-open requirements', () => {
       if (scenario === 'shared' || scenario === 'isolated' || scenario.endsWith('-reconnect')) {
         await app.applyReviewedProjectPacks(review, prepared)
         expect(saved).toEqual(['kept', 'newpack', 'other-window'])
-        expect(app.projectPackNotification.get()).toBeDefined()
+        expect(app.successNotification.get()).toBeDefined()
         expect(app.projectNeedsReview.get()?.needs.unknown).toEqual([{ scope: 'local', id: 'unreadable' }])
       } else {
         if (scenario === 'reconnect-timeout') {
@@ -502,7 +502,7 @@ describe('workflow-open requirements', () => {
           await failed
         } else await expect(app.applyReviewedProjectPacks(review, prepared)).rejects.toThrow()
         expect(saved).toEqual(['kept'])
-        expect(app.projectPackNotification.get()).toBeUndefined()
+        expect(app.successNotification.get()).toBeUndefined()
       }
       await expect(app.applyReviewedProjectPacks(review, prepared)).rejects.toThrow()
       expect(installations).toBe(['expired', 'stale-before', 'unscoped'].includes(scenario) ? 0 : 1)
