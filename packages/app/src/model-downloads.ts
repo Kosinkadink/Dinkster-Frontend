@@ -16,6 +16,30 @@ type Connection = Pick<DinksterConnection, 'planModelDownload' | 'startModelDown
 const keyOf = (requirement: ModelDownloadRequirement): string => JSON.stringify([requirement.name, requirement.kind, requirement.asset?.digest])
 const active = (job: ModelDownloadJob): boolean => !['completed', 'cancelled', 'failed'].includes(job.status)
 
+export function modelDownloadTotals(rows: readonly ModelDownloadState[]) {
+  let count = 0
+  let bytes = 0
+  let unavailable = false
+  const filesystems = new Map<string, { bytes: number; freeBytes: number }>()
+  for (const row of rows) {
+    if (row.pending || row.queued || row.plan?.status !== 'consent-required' || (row.job && active(row.job))) continue
+    count++
+    bytes += row.plan.size
+    const space = row.plan.destinationSpace
+    if (space?.status !== 'available') { unavailable = true; continue }
+    const previous = filesystems.get(space.filesystem)
+    filesystems.set(space.filesystem, {
+      bytes: (previous?.bytes ?? 0) + row.plan.size,
+      freeBytes: Math.min(previous?.freeBytes ?? space.freeBytes, space.freeBytes),
+    })
+  }
+  const observations = [...filesystems.values()]
+  return { count, bytes,
+    freeBytes: unavailable || count === 0 ? undefined : observations.reduce((total, entry) => total + entry.freeBytes, 0),
+    insufficient: observations.some((entry) => entry.bytes > entry.freeBytes),
+  }
+}
+
 /** Transfers belong to a connection/project, not to an open dialog or workflow. */
 export class ModelDownloadsController {
   private readonly state = createSignal<readonly ModelDownloadState[]>([])
@@ -165,6 +189,9 @@ export class ModelDownloadsController {
   }
 
   download(requirements: readonly ModelDownloadRequirement[]): Promise<void> {
+    const keys = new Set(requirements.map(keyOf))
+    const selected = this.state.get().filter((row) => keys.has(keyOf(row.requirement)))
+    if (modelDownloadTotals(selected).insufficient) return Promise.resolve()
     for (const requirement of requirements) {
       const row = this.row(requirement)
       if (!row || row.pending || row.queued || row.plan?.status !== 'consent-required' || (row.job && active(row.job))) continue

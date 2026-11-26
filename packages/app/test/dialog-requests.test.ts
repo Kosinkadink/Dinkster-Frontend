@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { asConnectionId, createSignal, type CommandInvocation } from '@dinkster/core'
 import { DinksterConnection, type AssetGuessCandidate, type AssetGuessMatch, type DinksterSubmitResult, type MissingAsset, type ModelDownloadJob, type WebSocketLike } from '@dinkster/client'
-import { ModelDownloadsController } from '../src/model-downloads.js'
+import { ModelDownloadsController, modelDownloadTotals } from '../src/model-downloads.js'
 import {
   assetGuessCandidateToRef,
   installAssetConsent,
@@ -61,6 +61,53 @@ const consentCallbacks = () => ({
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
 describe('installAssetConsent ownership', () => {
+  it('checks selected downloads against each filesystem without inventing unavailable space', async () => {
+    const requirements = ['first', 'second', 'other'].map((name) => ({ name: `${name}.safetensors`, kind: 'model/vae' }))
+    let spaces: unknown[] = []
+    const starts: string[] = []
+    const connection = new DinksterConnection({ id: asConnectionId('download-space'), baseUrl: '/engine', clientId: 'test', project: 'studio',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        if (String(url).includes('/plan?')) {
+          const requirement = JSON.parse(String(init?.body)) as { name: string }
+          const index = requirements.findIndex((row) => row.name === requirement.name)
+          return new Response(JSON.stringify({ ...requirements[index], project: 'studio', status: 'consent-required', planId: String(index),
+            provider: 'huggingface', source: 'https://huggingface.co/example/model', repo: 'example/model',
+            revision: 'a'.repeat(40), file: requirement.name, sha256: 'b'.repeat(64), license: 'test',
+            size: [311, 701, 37][index], destination: `/models/${index}/${requirement.name}`, mount: `mount-${index}`,
+            ...(spaces[index] === undefined ? {} : { destinationSpace: spaces[index] }),
+          }))
+        }
+        if (init?.method === 'POST') {
+          starts.push(String(url))
+          return new Response('{}', { status: 409 })
+        }
+        return new Response(JSON.stringify({ instance: 'engine', jobs: [] }))
+      } })
+    const available = (filesystem: string, freeBytes: number) => ({ status: 'available', filesystem, freeBytes })
+    const controller = new ModelDownloadsController(connection, 'studio')
+    const review = async () => {
+      for (const requirement of requirements) await controller.review(requirement)
+      return modelDownloadTotals(controller.rows.get())
+    }
+    try {
+      controller.ensure(requirements)
+      spaces = [available('shared', 1100), available('shared', 1000), available('other', 10000)]
+      expect(await review()).toEqual({ count: 3, bytes: 1049, freeBytes: 11000, insufficient: true })
+      await controller.download(requirements)
+      expect(starts).toEqual([])
+      spaces = [available('shared', 1012), available('shared', 1012), available('other', 37)]
+      expect(await review()).toEqual({ count: 3, bytes: 1049, freeBytes: 1049, insufficient: false })
+      spaces = [available('shared', 0), { status: 'unavailable' }, undefined]
+      expect(await review()).toEqual({ count: 3, bytes: 1049, freeBytes: undefined, insufficient: true })
+      spaces = [{ status: 'unavailable' }, undefined, available('other', 37)]
+      expect(await review()).toEqual({ count: 3, bytes: 1049, freeBytes: undefined, insufficient: false })
+      expect(modelDownloadTotals(controller.rows.get().slice(2))).toEqual({ count: 1, bytes: 37, freeBytes: 37, insufficient: false })
+      expect(modelDownloadTotals([])).toEqual({ count: 0, bytes: 0, freeBytes: undefined, insufficient: false })
+      await controller.download([requirements[2]!])
+      expect(starts).toHaveLength(1)
+    } finally { controller.dispose() }
+  })
+
   it('shows only authoritative hidden identities and ignores a dismissed model action', async () => {
     const named = { name: 'requested.safetensors', kind: 'model/vae' }
     const models = ['a', 'b'].map((letter) => ({ ...named, asset: {
