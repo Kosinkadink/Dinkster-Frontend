@@ -1257,7 +1257,7 @@ export function BoundaryPanel(props: { app: AppState }) {
             </div>
           }>
             <div class="boundary-remove-confirm" role="group" data-testid="boundary-remove-confirm">
-              <ProductConfirmation title={message('boundaryPanel.remove.question', { name: itemName(row()) })}
+              <ProductConfirmation title={message('boundaryPanel.remove.question', { name: itemName(row()), subgraph: context()!.def.name })}
                 consequence={message('boundaryPanel.remove.consequence', { count: usedIn() })}
                 actionLabel={message('boundaryPanel.remove')} intent="remove" disabled={frozen()} pending={pending() !== undefined}
                 error={notice()?.key === rowKey(row()) ? message('boundaryPanel.remove.failed', { name: itemName(row()), reason: notice()!.text }) : undefined}

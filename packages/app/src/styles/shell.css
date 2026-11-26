@@ -577,7 +577,7 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   text-overflow: ellipsis;
 }
 .rail-section { padding: var(--dinkster-space-12); }
-.rail-section h2 { display: none; }
+.rail-section > h2 { display: none; }
 
 .statusbar {
   display: flex;

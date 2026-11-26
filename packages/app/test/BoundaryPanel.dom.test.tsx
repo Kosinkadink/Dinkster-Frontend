@@ -311,6 +311,7 @@ describe('BoundaryPanel rows and settings', () => {
     expect(root.querySelector('[data-testid="boundary-show-on-canvas"]')?.textContent).toBe('image on Blend, and 1 more')
     root.querySelector<HTMLButtonElement>('[data-testid="boundary-remove"]')!.click()
     expect(dispatch).not.toHaveBeenCalled()
+    expect(root.querySelector('[data-testid="boundary-remove-confirm"] h2')?.textContent).toBe('Remove "image" from Soften?')
     expect(root.querySelector('[data-testid="boundary-remove-confirm"]')?.textContent).toContain('The row is removed in 2 places; the nodes inside stay unchanged.')
     const buttons = [...root.querySelectorAll<HTMLButtonElement>('[data-testid="boundary-remove-confirm"] button')]
     await Promise.resolve()

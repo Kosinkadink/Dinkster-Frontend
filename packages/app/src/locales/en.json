@@ -1749,7 +1749,7 @@
   "boundaryPanel.problem.clearLimits": "Remove the limits",
   "boundaryPanel.role": "Role",
   "boundaryPanel.remove": "Remove row",
-  "boundaryPanel.remove.question": "Remove \"{name}\" from the subgraph node?",
+  "boundaryPanel.remove.question": "Remove \"{name}\" from {subgraph}?",
   "boundaryPanel.remove.failed": "\"{name}\" was not removed. {reason}",
   "boundaryPanel.remove.consequence": "The row is removed in {count, plural, one {# place} other {# places}}; the nodes inside stay unchanged.",
   "shell.panel.customizeLayout.description": "Choose visible shell regions",

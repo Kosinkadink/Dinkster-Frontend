@@ -1749,7 +1749,7 @@
   "boundaryPanel.problem.clearLimits": "移除范围",
   "boundaryPanel.role": "角色",
   "boundaryPanel.remove": "移除行",
-  "boundaryPanel.remove.question": "要从子图节点移除“{name}”吗？",
+  "boundaryPanel.remove.question": "要从{subgraph}移除“{name}”吗？",
   "boundaryPanel.remove.failed": "未移除“{name}”。{reason}",
   "boundaryPanel.remove.consequence": "此行将在 {count} 处移除，但内部节点保持不变。",
   "shell.panel.customizeLayout.description": "选择可见的壳区域",
