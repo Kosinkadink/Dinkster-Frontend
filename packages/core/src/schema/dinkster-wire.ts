@@ -663,7 +663,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'CURVE':
-      checkWidgetFields(descriptor, ['type', 'inputStrip', 'outputStrip', 'histogram'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'inputStrip', 'outputStrip', 'histogram', 'histogramVisible'], where, diags)
       for (const key of ['inputStrip', 'outputStrip']) {
         const colors = descriptor[key]
         if (colors !== undefined && !(Array.isArray(colors) && colors.length === 2 &&
@@ -673,6 +673,9 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       if (descriptor['histogram'] !== undefined && (typeof descriptor['histogram'] !== 'string' || descriptor['histogram'] === '')) {
         throw new Error(`${where}.histogram must name an input`)
+      }
+      if (descriptor['histogramVisible'] !== undefined && typeof descriptor['histogramVisible'] !== 'boolean') {
+        throw new Error(`${where}.histogramVisible must be a boolean`)
       }
       return
     case 'COMPOSITOR':
@@ -1224,7 +1227,11 @@ function widgetFor(
       const histogram = fields['histogram']
       return {
         widgetType: 'CURVE',
-        options: typeof histogram === 'string' ? { ...strips, histogram } : strips,
+        options: {
+          ...strips,
+          ...(typeof histogram === 'string' ? { histogram } : {}),
+          ...(typeof fields['histogramVisible'] === 'boolean' ? { histogramVisible: fields['histogramVisible'] } : {}),
+        },
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }

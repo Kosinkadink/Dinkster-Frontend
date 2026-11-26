@@ -76,6 +76,20 @@ const closeGallery = async (page: Page): Promise<void> => {
 }
 
 for (const theme of ['dark', 'light'] as const) {
+  test(`a load starts on the saved ${theme} theme's frame colour before any script`, async ({ page }) => {
+    await page.addInitScript((selected) => {
+      localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
+    }, theme)
+    await page.route(/\.(js|css)(\?.*)?$/, (route) => route.abort())
+    const frame = theme === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)'
+    const other = theme === 'dark' ? 'light' : 'dark'
+    await page.goto('/')
+    await expect(page.locator('body')).toHaveCSS('background-color', frame)
+    // A page that sends the browser here names the theme on screen, over the saved one.
+    await page.goto(`/?dinksterTheme=${other}`)
+    await expect(page.locator('body')).toHaveCSS('background-color', other === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)')
+  })
+
   test(`brand assets and persisted ${theme} theme`, async ({ page }) => {
     await page.addInitScript((selected) => {
       localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
@@ -108,8 +122,8 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(trigger).toHaveAccessibleName('Dinkster')
     await expect(trigger.locator('img:visible')).toHaveAttribute('src', /dinkster-symbol-color\.svg/)
     await expect(trigger.locator('.dinkster-wordmark')).toHaveCount(0)
-    const expectedCanvas = theme === 'dark' ? 'rgb(14, 20, 20)' : 'rgb(247, 248, 250)'
-    await expect(page.locator('body')).toHaveCSS('background-color', expectedCanvas)
+    const expectedFrame = theme === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)'
+    await expect(page.locator('body')).toHaveCSS('background-color', expectedFrame)
     const manifest = await (await page.request.get('/manifest.webmanifest')).json()
     expect(manifest.name).toBe('Dinkster')
     for (const icon of manifest.icons) {
@@ -132,15 +146,15 @@ for (const theme of ['dark', 'light'] as const) {
     await page.evaluate((selected) => {
       window.__dinksterTest!.app.settings.set('dinkster.theme', selected === 'dark' ? 'light' : 'dark')
     }, theme)
-    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(247, 248, 250)' : 'rgb(14, 20, 20)')
+    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(237, 239, 242)' : 'rgb(9, 13, 13)')
     await expect(trigger.locator('img:visible')).toHaveAttribute('src', /dinkster-symbol-color\.svg/)
     await page.addStyleTag({ content: '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }' })
     const header = page.locator('.dinkster-window-toolbar-host')
     await header.evaluate((node) => { (node as HTMLElement).dataset['platform'] = 'win32' })
     await page.setViewportSize({ width: 390, height: 900 })
     await expect(trigger).toHaveAccessibleName('Dinkster')
-    // The D symbol alone, filling the left bar's 48px column inside the bar's 12px padding.
-    expect((await trigger.boundingBox())!.width).toBe(24)
+    // The D symbol alone, filling the left bar's 54px column inside the bar's 12px padding.
+    expect((await trigger.boundingBox())!.width).toBe(30)
     // The panel switches leave once the toolbar observes its new width.
     await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
     for (const control of await header.locator('button:visible').all()) {

@@ -36,6 +36,27 @@ describe('CollectionPanel grouped rows', () => {
     expect(root.querySelector('details')!.open).toBe(false)
   })
 
+  it('keeps a grouped run disclosure across refreshes', async () => {
+    const [tick, setTick] = createSignal(0)
+    const source: CollectionSource = {
+      id: 'runs', label: 'Runs',
+      page: async () => ({ items: [{ id: 'group', title: 'Latest', children: [
+        { id: 'new', title: 'New run' }, { id: 'old', title: 'Old run' },
+      ] }] }),
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    render(() => <CollectionPanel sources={[source]} refreshTick={tick}
+      entryContent={(entry) => <details><summary>{entry().title}</summary>Result details</details>} />, root)
+    await flush()
+    root.querySelector<HTMLButtonElement>('[data-testid="collection-expand"]')!.click()
+    const old = () => root.querySelector<HTMLDetailsElement>('[data-entry="old"] details')!
+    old().open = true
+    setTick(1)
+    await flush()
+    expect(old().open).toBe(true)
+  })
+
   it('renders a collapsed count row and expands individual runs in order', async () => {
     const activate = vi.fn()
     const source: CollectionSource = {

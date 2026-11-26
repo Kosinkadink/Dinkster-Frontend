@@ -36,6 +36,7 @@ export interface ProductAttention {
 
 export interface ProductMenuItem {
   label: string
+  description?: string
   icon?: LucideIcon
   intent?: ProductRole
   disabled?: boolean
@@ -80,6 +81,7 @@ function Menu(props: {
   rail?: boolean | undefined
   project?: boolean
   iconOnly?: boolean | undefined
+  fill?: 'quiet' | undefined
   busy?: boolean
   title?: string
   attention?: ProductAttention | undefined
@@ -198,6 +200,7 @@ function Menu(props: {
       <button
         ref={trigger}
         class="dinkster-button dinkster-menu-trigger"
+        data-fill={props.fill}
         data-account={props.account ? '' : undefined}
         data-rail={props.rail ? '' : undefined}
         data-project={props.project ? '' : undefined}
@@ -303,6 +306,7 @@ function Menu(props: {
                 </Match>
                 <Match when={menuItem(entry())}>
                   {(item) => {
+                    const descriptionId = createUniqueId()
                     // A function, so the row and the plain item each get their own element.
                     const button = () => (
                       <button
@@ -313,14 +317,16 @@ function Menu(props: {
                             : 'menuitemcheckbox'
                         }
                         aria-checked={item().checked}
+                        aria-describedby={item().description ? descriptionId : undefined}
                         tabindex="-1"
                         aria-label={(() => {
                           const attention = item().attention
                           return attention
                             ? `${item().label}${strings.statusSeparator}${attention.label}`
-                            : undefined
+                            : item().description ? item().label : undefined
                         })()}
                         class="dinkster-menu-item"
+                        data-description={item().description ? '' : undefined}
                         data-role={item().intent ?? 'neutral'}
                         disabled={item().disabled}
                         onClick={() => {
@@ -338,9 +344,14 @@ function Menu(props: {
                         >
                           <ProductIcon icon={Check} />
                         </Show>
-                        <span class="dinkster-menu-item-label">
-                          {item().label}
-                        </span>
+                        <Show when={item().description} fallback={<span class="dinkster-menu-item-label">{item().label}</span>}>
+                          {(description) => (
+                            <span class="dinkster-menu-item-copy">
+                              <span class="dinkster-menu-item-label">{item().label}</span>
+                              <span id={descriptionId} class="dinkster-menu-item-description">{description()}</span>
+                            </span>
+                          )}
+                        </Show>
                         <Show when={item().attention}>
                           {(attention) => <Attention attention={attention()} />}
                         </Show>
@@ -387,6 +398,8 @@ export function ProductMenu(props: {
   identity?: MenuIdentity
   icon?: LucideIcon
   iconOnly?: boolean
+  /** A borderless text trigger; absent keeps the outlined trigger. */
+  fill?: 'quiet'
   /** Shown on the trigger's corner and read after its name. */
   attention?: ProductAttention | undefined
 }) {
@@ -397,6 +410,7 @@ export function ProductMenu(props: {
       items={props.items}
       identity={props.identity}
       iconOnly={props.iconOnly}
+      fill={props.fill}
       attention={props.attention}
     >
       <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>

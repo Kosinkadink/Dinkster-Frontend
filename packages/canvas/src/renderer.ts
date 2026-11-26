@@ -2177,6 +2177,10 @@ export class CanvasRenderer {
     // Visible world rect for culling.
     const view = { x: -vx / scale, y: -vy / scale, w: w / scale, h: h / scale }
     this.drawCanvasLayers('background', ctx, view, scale)
+    if (this.graphTileSurface?.getContext('2d')?.isContextLost()) {
+      this.clearGraphTiles()
+      this.graphTileSurface = undefined
+    }
     if (
       typeof OffscreenCanvas !== 'undefined' &&
       typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function' &&
@@ -3514,12 +3518,24 @@ export class CanvasRenderer {
           ? t.colors.error
           : running
             ? t.stateColors.running
-            : progress
-              ? t.stateColors[progress.state]
-              : t.colors.nodeIdleOutline
-    const strongOutline = unrecognized || runtimeError || hasDocumentError || running || progress?.state === 'done'
+            : progress?.state === 'cached'
+              ? t.colors.nodeOutline
+              : progress
+                ? t.stateColors[progress.state]
+                : t.colors.nodeIdleOutline
+    // Running and, in the frozen view, done and cached draw quieter than an
+    // error: 2 px, the running colour at 90%, done at half strength, cached
+    // dashed in the neutral outline.
+    const errorOutline = unrecognized || runtimeError || hasDocumentError
+    const ran = !errorOutline && (running || progress?.state === 'done' || progress?.state === 'cached')
+    const strongOutline = errorOutline || ran
     const outline = canvasPaintTokens.node.outline
-    const outlineWidth = unrecognized ? outline.idle * outline.unrecognizedFactor : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
+    const ranOutline = canvasPaintTokens.node.ranOutline
+    const outlineWidth = unrecognized
+      ? outline.idle * outline.unrecognizedFactor
+      : ran ? (running ? canvasPaintTokens.running.outlineStroke : ranOutline.stroke)
+      : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
+    const outlineOpacity = !ran ? 1 : running ? canvasPaintTokens.running.outlineOpacity : progress?.state === 'done' ? ranOutline.opacity : 1
     const outlineDash = unrecognized || runtimeError
       ? nodeStateDash('error', scale)
       : running
@@ -3537,7 +3553,10 @@ export class CanvasRenderer {
     ctx.roundRect(node.x + outlineInset, node.y + outlineInset, l.width - outlineInset * 2, l.height - outlineInset * 2, Math.max(0, t.cornerRadius - outlineInset))
     ctx.strokeStyle = outlineColor
     ctx.lineWidth = outlineStroke
+    const restingAlpha = ctx.globalAlpha
+    ctx.globalAlpha = restingAlpha * outlineOpacity
     ctx.stroke()
+    ctx.globalAlpha = restingAlpha
     if (dash !== undefined) ctx.setLineDash([])
     if (running && !this.reducedMotion) this.drawRunningAccent(ctx, node.x, node.y, l.width, l.height)
     if (node.regionKind !== undefined) {
@@ -4600,15 +4619,26 @@ export class CanvasRenderer {
     const pulse = this.reducedMotion
       ? paint.reducedMotionPulse
       : (Math.sin((this.animationTimeMs / paint.pulsePeriodMs) * Math.PI * 2) + 1) / 2
+    const scale = finiteScale(this.viewport.scale)
+    const radius = this.tokens.cornerRadius
+    // As a CSS box-shadow draws it: the node's box grown by the spread and
+    // blurred, painted only outside the node. Canvas blur is in device
+    // pixels, so it is scaled to read as the same CSS pixels on any screen.
+    const cssBlur = paint.glowBlur + pulse * paint.glowPulseBlur
+    const blur = cssBlur * (globalThis.devicePixelRatio ?? 1)
+    const reach = (paint.glowSpread + cssBlur * 2) / scale
     ctx.save()
+    ctx.beginPath()
+    ctx.rect(x - reach, y - reach, width + reach * 2, height + reach * 2)
+    ctx.roundRect(x, y, width, height, radius)
+    ctx.clip('evenodd')
     ctx.globalAlpha *= paint.glowOpacity + pulse * paint.glowPulseOpacity
     ctx.beginPath()
-    ctx.roundRect(x - paint.glowOutset, y - paint.glowOutset, width + paint.glowOutset * 2, height + paint.glowOutset * 2, this.tokens.cornerRadius + paint.glowOutset)
-    ctx.strokeStyle = this.tokens.stateColors.running
-    ctx.lineWidth = screenAwareStroke(paint.glowStroke, this.viewport.scale, paint.glowMinScreenStroke)
+    ctx.roundRect(x - paint.glowSpread, y - paint.glowSpread, width + paint.glowSpread * 2, height + paint.glowSpread * 2, radius + paint.glowSpread)
+    ctx.fillStyle = this.tokens.stateColors.running
     ctx.shadowColor = this.tokens.stateColors.running
-    ctx.shadowBlur = paint.glowBlur + pulse * paint.glowPulseBlur
-    ctx.stroke()
+    ctx.shadowBlur = blur
+    ctx.fill()
     ctx.restore()
   }
 
@@ -5092,10 +5122,21 @@ export function paintValueSwatch(ctx: CanvasRenderingContext2D, color: string, l
 }
 
 /**
- * As many of `items` as fit in `maxWidth`, separated by a comma and a space,
- * then "+N" for the rest. The first item always shows, cut if it must be.
+ * Whether a cut text still says more than `count` would: the part of it
+ * left before the ellipsis is at least as wide as the count.
  */
-export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[], maxWidth: number): string {
+function cutSaysMore(ctx: CanvasRenderingContext2D, cut: string, whole: string, count: string): boolean {
+  if (cut === whole) return true
+  const kept = cut.endsWith('...') ? cut.slice(0, -'...'.length) : cut
+  return measureWidth(ctx, kept) >= measureWidth(ctx, count)
+}
+
+/**
+ * As many of `items` as fit in `maxWidth`, separated by a comma and a space,
+ * then "+N" for the rest. When none fits whole the first is cut, unless
+ * what is left of it is narrower than `count`, which then stands alone.
+ */
+export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[], maxWidth: number, count?: string): string {
   const more = (shown: number) => shown < items.length ? ` +${items.length - shown}` : ''
   // Items past the row's width cannot fit, so the search starts below them.
   let candidate = 0
@@ -5106,17 +5147,50 @@ export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[]
     const text = items.slice(0, shown).join(', ') + more(shown)
     if (measureWidth(ctx, text) <= maxWidth) return text
   }
-  return fitText(ctx, items[0] ?? '', Math.max(0, maxWidth - measureWidth(ctx, more(1)))) + more(1)
+  const first = items[0] ?? ''
+  const cut = fitText(ctx, first, Math.max(0, maxWidth - measureWidth(ctx, more(1))))
+  return count === undefined || cutSaysMore(ctx, cut, first, count) ? cut + more(1) : fitText(ctx, count, maxWidth)
+}
+
+/**
+ * A row's value summary as its view draws it, with what the view allows the
+ * painter to do when the whole text does not fit.
+ */
+export interface SummaryFit {
+  readonly text: string
+  /** Shown as many as fit, then "+N" for the rest. */
+  readonly items?: readonly string[]
+  /** Kept whole at the end of `text` while the rest of it is cut. */
+  readonly suffix?: string
+  /** Shown alone when too little of the text or of the first item would remain. */
+  readonly count?: string
+  /** Shorter forms of `text`, tried in order; the last is cut if none fits. */
+  readonly shorter?: readonly string[]
+}
+
+/** The text of `summary` that fits in `maxWidth`. */
+export function fitSummary(ctx: CanvasRenderingContext2D, summary: SummaryFit, maxWidth: number): string {
+  const { text, suffix, count } = summary
+  if (summary.items !== undefined) return fitItems(ctx, summary.items, maxWidth, count)
+  if (fitText(ctx, text, maxWidth) === text) return text
+  for (const form of summary.shorter ?? []) {
+    if (fitText(ctx, form, maxWidth) === form) return form
+  }
+  if (suffix !== undefined && suffix !== '' && text.endsWith(suffix)) {
+    const lead = text.slice(0, -suffix.length)
+    const cut = fitText(ctx, lead, Math.max(0, maxWidth - measureWidth(ctx, suffix)))
+    if (count === undefined || cutSaysMore(ctx, cut, lead, count)) return cut + suffix
+  }
+  if (count !== undefined && suffix !== undefined) return fitText(ctx, count, maxWidth)
+  return fitText(ctx, summary.shorter?.at(-1) ?? text, maxWidth)
 }
 
 /**
  * The text a row's own view shows for a value, with the color square before
  * it or the list items it fits.
  */
-export interface CompanionSummary {
-  readonly text: string
+export interface CompanionSummary extends SummaryFit {
   readonly swatch?: string
-  readonly items?: readonly string[]
 }
 
 /**
@@ -5153,8 +5227,7 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   ctx.globalAlpha = companionAlpha ?? prevAlpha
   const textY = y + rowHeight / 2
   const textRight = x + field.right
-  const displayText = summary?.items !== undefined
-    ? prefix + fitItems(ctx, summary.items, Math.max(0, availableWidth - measureWidth(ctx, prefix)))
+  const displayText = summary !== undefined ? prefix + fitSummary(ctx, summary, Math.max(0, availableWidth - measureWidth(ctx, prefix)))
     : fitText(ctx, text, availableWidth)
   ctx.fillStyle = color
   ctx.textAlign = 'right'
