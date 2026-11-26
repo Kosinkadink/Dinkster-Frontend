@@ -500,6 +500,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
             graphId: 'detail', itemId, node: 'incompatible', port,
           } })
           expect(mismatch.ok).toBe(false)
+          expect(mismatch.diagnostics.map((diagnostic) => diagnostic.code)).toContain('boundary.constructShapeMismatch')
           expect(fanout.doc).toBe(stable)
         }
         expect(fanout.dispatch({ command: 'boundary.unbind', params: {
@@ -521,6 +522,16 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         expect((await restoredFanout.receipt(extraPath)).mode).toEqual(extra.mode)
         expect(restoredFanout.second.mode).toEqual(unbound.second.mode)
         expect((await restoredFanout.receipt(secondExtraPath)).mode).toEqual(secondExtra.mode)
+        for (const observed of [unbound, undoFanout, restoredFanout]) {
+          const observedExtra = await observed.receipt(extraPath)
+          const observedSecondExtra = await observed.receipt(secondExtraPath)
+          for (const feature of ['source', 'description', 'nested']) {
+            expect(observed.first[feature]).toEqual(shared.first[feature])
+            expect(observed.second[feature]).toEqual(shared.second[feature])
+            expect(observedExtra[feature]).toEqual(extra[feature])
+            expect(observedSecondExtra[feature]).toEqual(secondExtra[feature])
+          }
+        }
         const session = () => new DocumentStore(lifecycleBaseline, coreCommandRegistry(), 200, undefined, () => ({
           kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, registry.resolve),
         }))
