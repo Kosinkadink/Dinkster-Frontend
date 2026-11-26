@@ -50,8 +50,8 @@
 .product-text-area:focus { border-color: var(--dinkster-border-subtle); }
 :where(:root[data-field-focus='pointer']) :is(.product-text-input, .product-text-area):focus { border-color: var(--dinkster-border-focus); }
 :root[data-field-focus='pointer'] :is(.product-text-input, .product-text-area, .product-color-popover input):focus-visible { outline: 0; }
-.product-text-input:not(:where(.product-color-input, .settings-editor *)):focus,
-.product-text-area:not(:where(.settings-editor *)):focus { border-color: var(--dinkster-text-secondary); outline: 0; }
+.product-text-input:not(.product-color-input):focus,
+.product-text-area:focus { border-color: var(--dinkster-text-secondary); outline: 0; }
 .product-text-input[aria-invalid='true'],
 .product-text-area[aria-invalid='true'] { border-color: var(--dinkster-danger-border); }
 .product-text-input:disabled,
@@ -186,8 +186,8 @@
 :where(:root[data-field-focus='pointer']) .product-number:focus-within { border-color: var(--dinkster-border-focus); }
 .product-number:has(:focus-visible) { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 :root[data-field-focus='pointer'] .product-number:has(:focus-visible) { outline: 0; }
-.product-number:not(:where(.settings-editor *)):has(.product-number-field:focus) { border-color: var(--dinkster-text-secondary); outline: 0; }
-.product-number:not(:where(.settings-editor *)):has(.product-number-field[aria-invalid='true']:focus) { border-color: var(--dinkster-danger-border); }
+.product-number:has(.product-number-field:focus) { border-color: var(--dinkster-text-secondary); outline: 0; }
+.product-number:has(.product-number-field[aria-invalid='true']:focus) { border-color: var(--dinkster-danger-border); }
 .product-number-field { appearance: none; min-width: 0; width: 100%; padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 0; outline: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; }
 .product-number .product-number-field:focus-visible { outline: 0; }
 .product-number-field:disabled { color: var(--dinkster-text-disabled); }

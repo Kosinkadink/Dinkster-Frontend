@@ -6,21 +6,20 @@
  * while a keybinding capture is active or a nonempty search is cleared.
  * Controls that own Escape handle it before the body fallback.
  */
-import { createEffect, createMemo, createSignal, For, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { activeLocale, type MessageParams } from '@dinkster/core'
 import type { DinksterConnection, PackSettings } from '@dinkster/client'
 import type { AppCommand, CommandRegistry, KeybindingRegistry, SettingDefinition, SettingsRegistry } from './settings.js'
-import { captureKeydown, initialSettingsCategory } from './settings.js'
+import { captureKeydown } from './settings.js'
 import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel, type SettingsSearchItem } from './settings-search.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
 import { ProductCheckbox } from './ProductControls.js'
 import { ProductField, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
-import { ProductSelect } from './ProductSelect.js'
-import { ProductEmptyState } from './ProductSurfaces.js'
+import { ProductSelect as PackSelect } from './ProductSelect.js'
 import { LibraryStorageSettings } from './LibraryStorageSettings.js'
-import { ProductButton, ProductShortcut } from '@dinkster/ui'
+import { ProductButton, ProductShortcut, ProductShortcutText, ProductSwitch, ProductSelect, ProductTextInput, ProductSettingRow, ProductSettingsPage, ProductSettingsSection, ProductToast, ProductErrorBanner, type ProductSearchGroup } from '@dinkster/ui'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import type { Backend } from './app-state.js'
@@ -64,10 +63,7 @@ function PackSettingsPanel(props: {
       {error() ?? message('settingsDialog.pack.loading')}
     </p>
   }>{(loaded) => <div class="pack-settings" data-pack-id={props.packId}>
-    <div class="pack-settings-heading">
-      <h2>{loaded().displayName}</h2>
-      <span aria-live="polite">{saving() ? message('settingsDialog.pack.saving') : ''}</span>
-    </div>
+    <p class="pack-settings-status" aria-live="polite">{saving() ? message('settingsDialog.pack.saving') : ''}</p>
     <Show when={error()}>{(text) => <p class="pack-settings-error" role="alert">{text()}</p>}</Show>
     <For each={loaded().schema.required}>{(name) => {
       const field = loaded().schema.properties[name]!
@@ -94,7 +90,7 @@ function PackSettingsPanel(props: {
           <ProductNumberInput id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy} value={value() as number} min={field.minimum} max={field.maximum} step={field.multipleOf} integer={field.type === 'integer'} disabled={saving()} onCommit={commitNumber} />
         </Show>
         <Show when={field.type === 'string' && field.enum !== undefined}>
-          <ProductSelect id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy} disabled={saving()} options={(field.enum ?? []).map((option) => ({ id: option, label: option, value: option }))} selectedId={String(value())} onSelect={(option) => { void update(name, option.value) }} />
+          <PackSelect id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy} disabled={saving()} options={(field.enum ?? []).map((option) => ({ id: option, label: option, value: option }))} selectedId={String(value())} onSelect={(option) => { void update(name, option.value) }} />
         </Show>
         <Show when={field.type === 'string' && field.enum === undefined}>
           <input id={controlId} aria-labelledby={ids.label} aria-describedby={describedBy} disabled={saving()} value={String(value())} onChange={(event) => { void update(name, event.currentTarget.value) }} />
@@ -109,6 +105,9 @@ function SettingField(props: {
   readonly settings: SettingsRegistry
   readonly changed: () => void
   readonly locale: () => void
+  readonly inline?: boolean
+  readonly onCopyId: (id: string) => void
+  readonly resetRef?: (reset: () => void) => void
 }) {
   const messageText = useAppMessage()
   const definition = props.definition
@@ -123,7 +122,7 @@ function SettingField(props: {
   const name = () => { props.locale(); return definition.name }
   const description = () => { props.locale(); return definition.description }
   const options = () => { props.locale(); return definition.options ?? [] }
-  const describedBy = () => [description() === undefined ? undefined : ids.description, validation() === undefined ? undefined : ids.message].filter(Boolean).join(' ') || undefined
+  const describedBy = () => [props.inline || description() === undefined ? undefined : ids.description, validation() === undefined ? undefined : `${controlId}-error`].filter(Boolean).join(' ') || undefined
   const value = () => { props.changed(); return props.settings.get(definition.id) }
   const modified = () => !Object.is(value(), definition.defaultValue)
   const setValue = (next: unknown): void => {
@@ -151,22 +150,14 @@ function SettingField(props: {
     setStringDraft(undefined)
     props.settings.reset(definition.id)
   }
-  return (
-    <ProductField
-      controlId={controlId}
-      label={name()}
-      description={description()}
-      metadata={<code>{definition.id}</code>}
-      message={validationMessage()}
-      invalid={validation() !== undefined}
-      dataAttributes={{ 'data-setting-id': definition.id }}
-      actions={<Show when={modified()}><button type="button" aria-label={messageText('settingsDialog.action.resetSettingAria', { name: name() })} onClick={resetValue}>{messageText('settingsDialog.action.reset')}</button></Show>}
-    >
-      <Show when={definition.type === 'boolean'}><ProductCheckbox id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy()} ariaInvalid={validation() !== undefined} checked={value() as boolean} onChange={setValue} /></Show>
-      <Show when={definition.type === 'number'}><ProductNumberInput id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy()} ariaInvalid={validation() !== undefined} value={String(value())} min={definition.min} max={definition.max} step={definition.step} onCommit={commitNumber} onRevert={() => setValidation(undefined)} /></Show>
-      <Show when={definition.type === 'string'}><input
+  props.resetRef?.(resetValue)
+  const control = () => <>
+      <Show when={definition.type === 'boolean'}><ProductSwitch id={controlId} label={name()} aria-describedby={describedBy()} checked={value() as boolean} onChange={setValue} /></Show>
+      <Show when={definition.type === 'number'}><ProductNumberInput id={controlId} ariaLabel={name()} {...(props.inline ? {} : { ariaLabelledBy: ids.label })} ariaDescribedBy={describedBy()} ariaInvalid={validation() !== undefined} value={String(value())} min={definition.min} max={definition.max} step={definition.step} unit={definition.id === 'tooltips.delayMs' ? 'ms' : undefined} onCommit={commitNumber} onRevert={() => setValidation(undefined)} /></Show>
+      <Show when={definition.type === 'string'}><ProductTextInput
         id={controlId}
-        aria-labelledby={ids.label}
+        aria-label={props.inline ? name() : undefined}
+        aria-labelledby={props.inline ? undefined : ids.label}
         aria-describedby={describedBy()}
         aria-invalid={validation() !== undefined ? 'true' : undefined}
         value={stringDraft() ?? String(value())}
@@ -181,9 +172,19 @@ function SettingField(props: {
           setStringDraft(undefined)
         }}
       /></Show>
-      <Show when={definition.type === 'combo'}><ProductSelect id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy()} ariaInvalid={validation() !== undefined} selectedId={String(value())} options={options().map((option) => ({ id: option.value, label: option.label, value: option.value }))} onSelect={(option) => setValue(option.value)} /></Show>
-    </ProductField>
-  )
+      <Show when={definition.type === 'combo'}><ProductSelect id={controlId} aria-label={props.inline ? name() : undefined} aria-labelledby={props.inline ? undefined : ids.label} aria-describedby={describedBy()} value={String(value())} onChange={(event) => setValue(event.currentTarget.value)}><For each={options()}>{(option) => <option value={option.value}>{option.label}</option>}</For></ProductSelect></Show>
+    </>
+  return <Show when={!props.inline} fallback={<div data-setting-id={definition.id}>
+    {control()}
+    <Show when={validationMessage()}>{(text) => <p id={`${controlId}-error`} class="dinkster-field-error" role="alert">{text()}</p>}</Show>
+  </div>}>
+    <ProductSettingRow id={definition.id} controlId={controlId} label={name()}
+      description={description() === undefined ? undefined : <ProductShortcutText text={description()!} />}
+      error={validationMessage()} fullWidth={definition.type === 'string'} modified={modified()}
+      resetLabel={messageText('settingsDialog.action.reset')} menuLabel={messageText('settingsPage.actions', { name: name() })}
+      resetDefaultLabel={messageText('settingsPage.resetDefault')} copyIdLabel={messageText('settingsPage.copySettingId')}
+      onReset={resetValue} onCopyId={() => props.onCopyId(definition.id)}>{control()}</ProductSettingRow>
+  </Show>
 }
 
 export function SettingsDialog(props: {
@@ -207,27 +208,47 @@ export function SettingsDialog(props: {
   const locale = useSignal(activeLocale)
   const [query, setQuery] = createSignal('')
   const definitions = () => { changed(); return searchableSettingsDefinitions(props.settings.list()) }
-  const packCategories = () => new Map((props.packSettings?.packs() ?? []).map((pack) => [`pack:${pack.id}`, pack.displayName]))
-  const categories = () => [
-    ...new Set(definitions().map((d) => props.settings.categoryOf(d))),
-    'keybindings',
-    ...(props.storageConnection === undefined ? [] : ['storage']),
-    ...packCategories().keys(),
-    ...(props.backends ?? []).filter((backend) => backend.protocol === 'dinkster').map((backend) => `backend:${backend.id}`),
-  ]
-  // Derived categories are intentionally specific (for example canvas.grid), so select a real category rather than inventing a parent grouping.
-  const [category, setCategory] = createSignal(initialSettingsCategory(definitions(), (d) => props.settings.categoryOf(d)))
-  const [searchCategory, setSearchCategory] = createSignal<string>()
+  const layoutIds = new Set(['shell.layout.left.width', 'shell.layout.right.width', 'shell.layout.bottom.height', 'shell.dock.layout', 'editor.splitLayout'])
+  const groups = () => ['general', 'canvas', 'runs', 'shortcuts', 'storage', 'packs', 'engine', 'experimental', 'advanced'].map((id) => ({ id, label: message(`settingsPage.group.${id}`) }))
+  const location = (definition: SettingDefinition): { group: string; section: string } => {
+    const id = definition.id
+    if (id.startsWith('canvas.')) return { group: 'canvas', section: id.startsWith('canvas.minimap.') ? 'minimap' : 'view' }
+    if (id.startsWith('execution.')) return { group: 'runs', section: 'previews' }
+    if (id.startsWith('features.')) return { group: 'experimental', section: 'features' }
+    if (id === 'dinkster.locale' || id === 'dinkster.theme') return { group: 'general', section: 'appearance' }
+    if (id.startsWith('shell.') || id === 'tooltips.delayMs') return { group: 'general', section: 'workspace' }
+    if (id === 'diagnostics.frameRate') return { group: 'advanced', section: 'diagnostics' }
+    if (id === 'search.registryUrl' || id === 'templates.registryUrl') return { group: 'advanced', section: 'registries' }
+    return { group: 'packs', section: props.settings.categoryOf(definition) }
+  }
+  const sectionLabel = (group: string, section: string) => group === 'packs' ? settingsCategoryLabel(section, message) : message(`settingsPage.section.${section}`)
+  const [group, setGroup] = createSignal('general')
+  const [current, setCurrent] = createSignal('')
   const [capture, setCapture] = createSignal<{ readonly command: string; readonly pending: string }>()
+  const [toast, setToast] = createSignal<{ message: string }>()
+  const [copyError, setCopyError] = createSignal('')
+  const copyId = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopyError('')
+      setToast({ message: message('settingsPage.copiedId', { id }) })
+    } catch { setCopyError(message('settingsPage.copyFailed')) }
+  }
+  const focus = (id: string) => queueMicrotask(() => {
+    const control = root.querySelector<HTMLElement>([layoutIds.has(id) ? 'settings-reset-layout' : `setting-${id}`, `keybinding-${id}`, id].map((candidate) => `#${CSS.escape(candidate)}`).join(', '))
+    control?.focus()
+    control?.scrollIntoView?.({ block: 'nearest' })
+  })
   createEffect(() => {
     const request = props.request
     if (!request) return
     setQuery('')
     setCapture(undefined)
-    setCategory(request.category)
+    const definition = definitions().find((entry) => entry.id === request.id)
+    setGroup(definition ? location(definition).group : request.category === 'keybindings' ? 'shortcuts' : request.category.startsWith('backend:') ? 'engine' : request.category.startsWith('pack:') ? 'packs' : request.category)
+    focus(request.id)
     queueMicrotask(() => {
       if (props.request !== request) return
-      root.querySelector<HTMLElement>(`[data-setting-id="${CSS.escape(request.id)}"] input, [data-setting-id="${CSS.escape(request.id)}"] [role="checkbox"], [data-setting-id="${CSS.escape(request.id)}"] [role="combobox"], [data-command-id="${CSS.escape(request.id)}"] button`)?.focus()
       props.onRequestConsumed?.()
     })
   })
@@ -246,81 +267,70 @@ export function SettingsDialog(props: {
     undefined,
     { equals: sameIndex },
   )
-  const searchGroups = createMemo(() => querySettingsIndex(index(), query()))
-  const totalMatches = createMemo(() => searchGroups().reduce((total, group) => total + group.matches.length, 0))
-  const matchCounts = createMemo(() => new Map(searchGroups().map((group) => [group.category, group.matches.length])))
-  const shownSearchGroups = createMemo(() => {
-    const narrowed = searchCategory()
-    return narrowed === undefined ? searchGroups() : searchGroups().filter((group) => group.category === narrowed)
-  })
-  const matchCount = (candidate: string): number => matchCounts().get(candidate) ?? 0
-  const categoryLabel = (candidate: string): string => {
-    const backend = props.backends?.find((row) => `backend:${row.id}` === candidate)
-    if (backend) return backend.label
-    const packName = packCategories().get(candidate)
-    if (packName !== undefined) return packName
-    return settingsCategoryLabel(candidate, message)
-  }
-  const shownMatchCount = createMemo(() => shownSearchGroups().reduce((total, group) => total + group.matches.length, 0))
-  const searchSummary = (): string => {
-    const count = shownMatchCount()
-    const narrowed = searchCategory()
-    return message(
-      narrowed === undefined ? 'settingsDialog.search.summary' : 'settingsDialog.search.summaryInCategory',
-      { count, query: query().trim(), category: narrowed === undefined ? '' : categoryLabel(narrowed) },
-    )
-  }
-  const visible = () => definitions().filter((d) => props.settings.categoryOf(d) === category())
+  const matches = createMemo(() => querySettingsIndex(index(), query()).flatMap((entry) => entry.matches))
+  const visible = () => definitions().filter((d) => location(d).group === group() && !layoutIds.has(d.id))
+  const sections = () => [...new Set(visible().map((d) => location(d).section))]
   const conflicts = () => { changed(); return props.keybindings.conflicts() }
-  const selectCategory = (next: string): void => {
-    if (searching()) setSearchCategory(next)
-    else setCategory(next)
+  const selectGroup = (next: string): void => {
+    setQuery('')
+    setCapture(undefined)
+    setGroup(next)
   }
   const clearSearch = (): void => {
     setQuery('')
-    setSearchCategory(undefined)
     searchInput.focus()
   }
-  const settingRow = (d: SettingDefinition) => {
-    return <SettingField definition={d} settings={props.settings} changed={changed} locale={locale} />
-  }
-  const keybindingRow = (command: AppCommand) => {
+  const settingRow = (d: SettingDefinition, inline = false, resetRef?: (reset: () => void) => void) => <SettingField definition={d} settings={props.settings} changed={changed} locale={locale} inline={inline} onCopyId={(id) => { void copyId(id) }} {...(resetRef ? { resetRef } : {})} />
+  const keybindingRow = (command: AppCommand, inline = false) => {
     const controlId = `keybinding-${command.id}`
     const commandLabel = () => { locale(); return command.label }
     const combo = () => { changed(); return props.keybindings.combo(command.id) }
     const conflict = () => combo() ? conflicts().get(combo()!) : undefined
     const conflictMessage = () => {
       const ids = conflict()
-      return ids === undefined ? undefined : message('settingsDialog.keybinding.conflict', { commands: ids.filter((id) => id !== command.id).join(', ') })
+      return ids === undefined ? undefined : message('settingsDialog.keybinding.conflict', { commands: ids.filter((id) => id !== command.id).map((id) => props.commands.list().find((other) => other.id === id)?.label ?? id).join(', ') })
     }
     const captureText = () => capture()?.command === command.id ? capture()?.pending || message('settingsDialog.keybinding.pressKeys') : combo() ?? message('settingsDialog.keybinding.unbound')
-    const ids = productFieldIds(controlId)
-    return <ProductField
-      controlId={controlId}
-      label={commandLabel()}
-      metadata={<code>{command.id}</code>}
-      invalid={!!conflict()}
-      dataAttributes={{ 'data-command-id': command.id }}
-      actions={<>
-        <button type="button" aria-label={message('settingsDialog.keybinding.resetAria', { name: commandLabel() })} onClick={() => { props.keybindings.reset(command.id); props.settings.changed.get() }}>{message('settingsDialog.action.reset')}</button>
-        <button type="button" aria-label={message('settingsDialog.keybinding.clearAria', { name: commandLabel() })} onClick={() => { props.keybindings.set(command.id, null); props.settings.changed.get() }}>{message('settingsDialog.action.clear')}</button>
-      </>}
-      message={conflictMessage()}
-    >
-      <button
+    const modified = () => combo() !== props.keybindings.defaultCombo(command.id)
+    const control = () => <ProductButton
         id={controlId}
         type="button"
-        class="binding-capture"
         aria-label={message('settingsDialog.keybinding.shortcutAria', { name: commandLabel(), shortcut: captureText() })}
-        aria-invalid={conflict() ? 'true' : undefined}
-        aria-describedby={conflict() ? ids.message : undefined}
+        aria-describedby={conflict() ? `${controlId}-warning` : undefined}
         onClick={() => setCapture({ command: command.id, pending: '' })}
-      ><Show when={capture()?.command === command.id ? capture()?.pending : combo()} fallback={captureText()}>{(keys) => <ProductShortcut keys={keys()} />}</Show></button>
-    </ProductField>
+      ><Show when={capture()?.command === command.id} fallback={<Show when={combo()} fallback={message('settingsPage.setShortcut')}>{(keys) => <ProductShortcut keys={keys()} />}</Show>}>
+        <Show when={capture()?.pending} fallback={<>{message('settingsPage.pressKeys')} <span class="dinkster-setting-cancel">{message('settingsPage.escapeCancels')}</span></>}>{(keys) => <ProductShortcut keys={keys()} />}</Show>
+      </Show></ProductButton>
+    return <div data-command-id={command.id}><Show when={!inline} fallback={<>{control()}<Show when={conflictMessage()}>{(text) => <p id={`${controlId}-warning`} class="dinkster-setting-warning" role="status">{text()}</p>}</Show></>}>
+      <ProductSettingRow id={command.id} controlId={controlId} label={commandLabel()} modified={modified()} warning={conflictMessage()}
+        resetLabel={message('settingsDialog.action.reset')} menuLabel={message('settingsPage.actions', { name: commandLabel() })} resetDefaultLabel={message('settingsPage.resetDefault')} copyIdLabel={message('settingsPage.copyCommandId')}
+        onReset={() => props.keybindings.reset(command.id)} onCopyId={() => { void copyId(command.id) }}>{control()}</ProductSettingRow>
+    </Show></div>
+  }
+  const searchGroups = createMemo<readonly ProductSearchGroup[]>(() => searching() ? [{ key: 'settings', label: message('settingsDialog.search.summary', { count: matches().length, query: query().trim() }), rows: matches().map((match) => {
+    const place = match.source === 'setting' ? location(match.definition) : { group: 'shortcuts', section: 'commands' }
+    let reset = () => props.settings.reset(match.id)
+    return { key: `${match.source}:${match.id}`, title: match.name, detail: `${message(`settingsPage.group.${place.group}`)} - ${sectionLabel(place.group, place.section)}`,
+      control: match.source === 'setting' ? settingRow(match.definition, true, (next) => { reset = next }) : keybindingRow(match.command, true),
+      menu: { label: message('settingsPage.actions', { name: match.name }), get items() { changed(); return [
+        { label: message('settingsPage.resetDefault'), disabled: match.source === 'setting' ? Object.is(props.settings.get(match.id), match.definition.defaultValue) : props.keybindings.combo(match.id) === props.keybindings.defaultCombo(match.id), onSelect: () => match.source === 'setting' ? reset() : props.keybindings.reset(match.id) },
+        ...(match.source === 'keybinding' ? [{ label: message('settingsDialog.action.clear'), onSelect: () => props.keybindings.set(match.id, null) }] : []),
+        { label: message(match.source === 'setting' ? 'settingsPage.copySettingId' : 'settingsPage.copyCommandId'), description: match.id, onSelect: () => { void copyId(match.id) } },
+      ] } },
+    }
+  }) }] : [])
+  const activate = (key: string) => {
+    const match = matches().find((entry) => `${entry.source}:${entry.id}` === key)
+    if (!match) return
+    if (match.source === 'setting' && match.definition.type === 'boolean') props.settings.set(match.id, !props.settings.get<boolean>(match.id))
+    else {
+      selectGroup(match.source === 'setting' ? location(match.definition).group : 'shortcuts')
+      focus(match.id)
+    }
   }
 
-  return (
-    <div class="settings-editor" ref={root} onKeyDown={(e) => {
+  onMount(() => {
+    const record = (e: KeyboardEvent) => {
       const activeCapture = capture()
       if (activeCapture) {
         e.preventDefault(); e.stopPropagation()
@@ -330,72 +340,31 @@ export function SettingsDialog(props: {
         else { props.keybindings.set(activeCapture.command, result.combo); setCapture(undefined); props.settings.changed.get() }
         return
       }
-      if (e.key !== 'Escape' || e.defaultPrevented || !searching()) return
-      e.preventDefault()
-      e.stopPropagation()
-      clearSearch()
+    }
+    root.addEventListener('keydown', record, true)
+    onCleanup(() => root.removeEventListener('keydown', record, true))
+  })
+  return (
+    <div class="dinkster-settings-host" ref={root} onKeyDown={(e) => {
+      if (e.key === 'Escape' && !e.defaultPrevented && searching()) { e.preventDefault(); e.stopPropagation(); clearSearch() }
     }}>
-      <div class="settings-searchbar" role="search" aria-label={message('settingsDialog.search.regionAria')}>
-        <input
-          ref={searchInput}
-          class="settings-search"
-          type="search"
-          aria-label={message('settingsDialog.search.label')}
-          placeholder={message('settingsDialog.search.placeholder')}
-          autocomplete="off"
-          value={query()}
-          onInput={(e) => { setQuery(e.currentTarget.value); setSearchCategory(undefined) }}
-        />
-        <Show when={searching()}><button type="button" class="settings-search-clear" aria-label={message('settingsDialog.search.clearAria')} onClick={clearSearch}>{message('settingsDialog.action.clear')}</button></Show>
-      </div>
-        <div class="settings-body">
-          <nav classList={{ 'settings-categories': true, searching: searching() }} aria-label={message('settingsDialog.category.regionAria')}>
-            <Show when={searching()}><button type="button" aria-label={message('settingsDialog.search.allResultsAria', { count: totalMatches() })} aria-current={searchCategory() === undefined ? 'page' : undefined} classList={{ active: searchCategory() === undefined }} onClick={() => setSearchCategory(undefined)}><span>{message('settingsDialog.search.allResults')}</span><span class="settings-category-count" aria-hidden="true">{totalMatches()}</span></button></Show>
-            <For each={categories()}>{(c) => <button type="button" aria-label={searching() ? message('settingsDialog.search.categoryResultsAria', { category: categoryLabel(c), count: matchCount(c) }) : categoryLabel(c)} aria-current={(searching() ? searchCategory() === c : category() === c) ? 'page' : undefined} disabled={searching() && matchCount(c) === 0} classList={{ active: searching() ? searchCategory() === c : category() === c }} onClick={() => selectCategory(c)}><span>{categoryLabel(c)}</span><Show when={searching()}><span class="settings-category-count" aria-hidden="true">{matchCount(c)}</span></Show></button>}</For>
-          </nav>
-          <main class="settings-content">
-            <Show when={searching()} fallback={
-              <Show when={category().startsWith('backend:')} fallback={
-              <Show when={category() === 'storage'} fallback={
-              <Show when={category().startsWith('pack:')} fallback={
-                <Show when={category() !== 'keybindings'} fallback={
-                  <div class="keybinding-table">
-                    <For each={(changed(), props.commands.list())}>{keybindingRow}</For>
-                  </div>
-                }>
-                  <For each={visible()}>{settingRow}</For>
-                </Show>
-              }>
-                <Show when={props.packSettings}>{(packSettings) =>
-                  <PackSettingsPanel packId={category().slice(5)} client={packSettings().client} />
-                }</Show>
-              </Show>
-              }>
-                <ProductButton type="button" onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton>
-                <Show when={props.storageConnection} keyed>{(connection) => <LibraryStorageSettings connection={connection} />}</Show>
-              </Show>
-              }>
-                <Show when={props.backends?.find((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => `backend:${backend.id}` === category() && backend.protocol === 'dinkster')} keyed>{(backend) => <>
-                  <RuntimeSettingsPanel connection={backend.connection} backendLabel={backend.label} categories={(category) => !['memory-budgets', 'memory-headroom', 'aimdo-policy'].includes(category)} alwaysOpen />
-                  <AgentPermissionsPanel connection={backend.connection} backendLabel={backend.label} />
-                </>}</Show>
-              </Show>
-            }>
-              <div class="settings-results">
-                <p class="settings-result-status" role="status" aria-live="polite">{searchSummary()}</p>
-                <Show when={shownMatchCount() > 0} fallback={<ProductEmptyState testId="settings-search-empty" title={message('settingsDialog.search.emptyTitle')} hint={message('settingsDialog.search.emptyBody')} />}>
-                  <For each={shownSearchGroups()}>{(group) => {
-                    const headingId = `settings-result-group-${group.category}`
-                    return <section class="settings-result-group" data-category={group.category} aria-labelledby={headingId}>
-                      <h2><button type="button" id={headingId} class="settings-result-heading" aria-label={message('settingsDialog.search.showOnlyCategoryAria', { category: categoryLabel(group.category), count: group.matches.length })} onClick={() => setSearchCategory(group.category)}><span>{categoryLabel(group.category)}</span><span class="settings-category-count" aria-hidden="true">{group.matches.length}</span></button></h2>
-                      <For each={group.matches}>{(match) => match.source === 'setting' ? settingRow(match.definition) : keybindingRow(match.command)}</For>
-                    </section>
-                  }}</For>
-                </Show>
-              </div>
-            </Show>
-          </main>
-        </div>
+      <Show when={copyError()}><ProductErrorBanner onDismiss={() => setCopyError('')}>{copyError()}</ProductErrorBanner></Show>
+      <ProductSettingsPage title={message('settingsDialog.search.regionAria')} groupsLabel={message('settingsDialog.category.regionAria')} groups={groups()} group={group()} onGroup={selectGroup}
+        search={{ label: message('settingsDialog.search.label'), placeholder: message('settingsDialog.search.placeholder'), get query() { return query() }, onQuery: (next) => { setQuery(next); setCurrent(''); setCapture(undefined) }, get groups() { return searchGroups() }, get current() { return current() }, onCurrent: setCurrent, onActivate: activate, onClose: clearSearch, inputRef: (input) => { searchInput = input }, empty: { title: message('settingsDialog.search.emptyTitle'), detail: message('settingsDialog.search.emptyBody') } }}>
+        <For each={sections()}>{(section) => <ProductSettingsSection title={sectionLabel(group(), section)}><For each={visible().filter((d) => location(d).section === section)}>{(d) => settingRow(d)}</For></ProductSettingsSection>}</For>
+        <Show when={group() === 'general' && definitions().some((d) => layoutIds.has(d.id))}><ProductSettingsSection title={message('settingsPage.section.layout')}><ProductButton id="settings-reset-layout" onClick={() => { for (const d of definitions()) if (layoutIds.has(d.id)) props.settings.reset(d.id) }}>{message('settingsPage.resetLayout')}</ProductButton></ProductSettingsSection></Show>
+        <Show when={group() === 'shortcuts'}><ProductSettingsSection title={message('settingsPage.section.commands')}><For each={props.commands.list()}>{(command) => keybindingRow(command)}</For></ProductSettingsSection></Show>
+        <Show when={group() === 'storage'}>
+          <Show when={props.onOpenStorage}><ProductButton onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton></Show>
+          <Show when={props.storageConnection} keyed>{(connection) => <LibraryStorageSettings connection={connection} />}</Show>
+        </Show>
+        <Show when={group() === 'packs' && props.packSettings}>{(packSettings) => <For each={packSettings().packs()}>{(pack) => <ProductSettingsSection title={pack.displayName}><PackSettingsPanel packId={pack.id} client={packSettings().client} /></ProductSettingsSection>}</For>}</Show>
+        <Show when={group() === 'engine'}><For each={(props.backends ?? []).filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')}>{(backend) => <ProductSettingsSection title={backend.label}>
+          <RuntimeSettingsPanel connection={backend.connection} backendLabel={backend.label} categories={(category) => !['memory-budgets', 'memory-headroom', 'aimdo-policy'].includes(category)} alwaysOpen />
+          <AgentPermissionsPanel connection={backend.connection} backendLabel={backend.label} />
+        </ProductSettingsSection>}</For></Show>
+      </ProductSettingsPage>
+      <ProductToast notification={toast()} onDismiss={() => setToast(undefined)} />
     </div>
   )
 }

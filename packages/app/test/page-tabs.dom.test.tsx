@@ -148,7 +148,7 @@ describe('app page tabs', () => {
     const dispose = render(() => <App app={app} />, root)
     try {
       app.commands.get('settings.open')!.run()
-      await vi.waitFor(() => expect(root.querySelector('.settings-editor')).not.toBeNull())
+      await vi.waitFor(() => expect(root.querySelector('.dinkster-settings-host')).not.toBeNull())
       expect(app.pages.tabs().filter((tab) => tab.id === 'page:settings')).toHaveLength(1)
       expect(root.querySelector('[aria-modal="true"]')).toBeNull()
       app.commands.get('settings.open')!.run()
@@ -160,8 +160,20 @@ describe('app page tabs', () => {
       expect(app.pages.tabs().filter((tab) => tab.id === 'page:settings')).toHaveLength(1)
       expect(app.tabs.get()).toBe(workflows)
       expect(app.activeTabId.get()).toBe('page:settings')
+      const search = root.querySelector<HTMLInputElement>('.dinkster-search-input')!
+      for (const definition of app.settings.list()) {
+        if (['keybindings.overrides', 'search.recentActivations'].includes(definition.id)) continue
+        search.value = definition.id
+        search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+        expect(root.querySelector(`[data-setting-id="${definition.id}"]`), definition.id).not.toBeNull()
+      }
+      for (const command of app.commands.list()) {
+        search.value = command.id
+        search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+        expect(root.querySelector(`[data-command-id="${command.id}"]`), command.id).not.toBeNull()
+      }
       app.pages.close('page:settings')
-      await vi.waitFor(() => expect(root.querySelector('.settings-editor')).toBeNull())
+      await vi.waitFor(() => expect(root.querySelector('.dinkster-settings-host')).toBeNull())
       expect(app.activeTab()).toBeDefined()
     } finally {
       dispose()

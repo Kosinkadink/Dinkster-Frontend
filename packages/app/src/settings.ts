@@ -341,10 +341,3 @@ export class KeybindingRegistry {
     this.settings.set('keybindings.overrides', raw)
   }
 }
-
-export function initialSettingsCategory(
-  definitions: readonly SettingDefinition[],
-  categoryOf: (definition: SettingDefinition) => string,
-): string {
-  return definitions.length > 0 ? categoryOf(definitions[0]!) : 'keybindings'
-}

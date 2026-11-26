@@ -61,8 +61,9 @@ export function ProductSettingsSection(props: { title: string; children: JSX.Ele
 /** The host owns the control, validation and persistence; this row owns their presentation. */
 export function ProductSettingRow(props: {
   id: string
+  controlId?: string
   label: string
-  description?: string | undefined
+  description?: JSX.Element
   error?: string | undefined
   warning?: string | undefined
   fullWidth?: boolean
@@ -75,12 +76,13 @@ export function ProductSettingRow(props: {
   onCopyId: () => void
   children: JSX.Element
 }) {
+  const controlId = () => props.controlId ?? props.id
   return <div class="dinkster-setting-row" data-setting-id={props.id} data-modified={props.modified} data-full-width={props.fullWidth}>
     <div class="dinkster-setting-copy">
-      <label for={props.id} id={`${props.id}-label`}>{props.label}</label>
-      <Show when={props.description}><p id={`${props.id}-description`}>{props.description}</p></Show>
-      <Show when={props.error}><p id={`${props.id}-error`} class="dinkster-field-error" role="alert">{props.error}</p></Show>
-      <Show when={props.warning}><p id={`${props.id}-warning`} class="dinkster-setting-warning" role="status">{props.warning}</p></Show>
+      <label for={controlId()} id={`${controlId()}-label`}>{props.label}</label>
+      <Show when={props.description}><p id={`${controlId()}-description`}>{props.description}</p></Show>
+      <Show when={props.error}><p id={`${controlId()}-error`} class="dinkster-field-error" role="alert">{props.error}</p></Show>
+      <Show when={props.warning}><p id={`${controlId()}-warning`} class="dinkster-setting-warning" role="status">{props.warning}</p></Show>
     </div>
     <div class="dinkster-setting-control">
       <Show when={props.modified}><ProductTextButton label={props.resetLabel} onClick={props.onReset} /></Show>

@@ -461,6 +461,7 @@ export function ProductSwitch(props: {
   id?: string
   checked: boolean
   label: string
+  'aria-describedby'?: string | undefined
   disabled?: boolean
   onChange: (next: boolean) => void
 }) {
@@ -472,6 +473,7 @@ export function ProductSwitch(props: {
       class="dinkster-switch"
       aria-checked={props.checked}
       aria-label={props.label}
+      aria-describedby={props['aria-describedby']}
       disabled={props.disabled}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {

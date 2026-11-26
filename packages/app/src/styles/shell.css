@@ -623,13 +623,6 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
 
 @media (max-width: 520px) {
   .modal-surface { min-width: 0; max-width: calc(100vw - var(--dinkster-space-32)); }
-  .modal-surface[data-modal='settings'] { min-width: 0; width: calc(100vw - var(--dinkster-space-32)); max-width: calc(100vw - var(--dinkster-space-32)); height: calc(100vh - var(--dinkster-space-32)); max-height: calc(100vh - var(--dinkster-space-32)); }
-  .settings-searchbar { padding: var(--dinkster-space-8); }
-  .settings-body { display: flex; flex-direction: column; }
-  .settings-categories { flex: none; display: flex; gap: var(--dinkster-space-4); padding: var(--dinkster-space-4) var(--dinkster-space-8); overflow-x: auto; overflow-y: hidden; border-inline-end: 0; border-bottom: 1px solid var(--dinkster-border-subtle); }
-  .settings-categories button { flex: none; width: auto; white-space: nowrap; }
-  .settings-categories button > span:first-child { overflow-wrap: normal; }
-  .settings-content { flex: 1; min-height: 0; padding: var(--dinkster-space-8); }
   .product-field[data-layout='row'] { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'copy copy' 'control actions' 'message message'; }
   .product-field[data-layout='row'] .product-field-control { justify-content: flex-start; }
   .product-field[data-layout='row'] .product-field-actions { align-self: stretch; }

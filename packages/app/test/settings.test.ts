@@ -1,6 +1,6 @@
 /** Registry behavior is tested without Solid or a browser storage implementation. */
 import { describe, expect, it } from 'vitest'
-import { captureKeydown, initialSettingsCategory, isNativeTextScopeTarget, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, shortcutSuppressed } from '../src/settings.js'
+import { captureKeydown, isNativeTextScopeTarget, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, shortcutSuppressed } from '../src/settings.js'
 
 function storage(seed?: string): Storage {
   const data = new Map<string, string>(seed ? [[SETTINGS_STORAGE_KEY, seed]] : [])
@@ -143,11 +143,6 @@ describe('settings registry', () => {
     expect(registry.get('test.valid')).toBe(5)
     registry.set('test.valid', Number.POSITIVE_INFINITY)
     expect(registry.get('test.valid')).toBe(5)
-  })
-
-  it('selects the first populated derived category initially', () => {
-    expect(initialSettingsCategory([setting], (definition) => new SettingsRegistry(storage()).categoryOf(definition))).toBe('canvas.grid')
-    expect(initialSettingsCategory([], () => 'unused')).toBe('keybindings')
   })
 })
 
