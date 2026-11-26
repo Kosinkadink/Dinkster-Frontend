@@ -312,6 +312,8 @@ export interface CompileInput {
    * field passes on its default.
    */
   readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
+  /** The same authorized held file facts used when drawing automatic fields. */
+  readonly fileFacts?: ElaborateOptions['fileFacts']
   /** Submission-only worker hints, keyed by root runtime node id. */
   readonly placement?: Readonly<Record<string, string>>
 }
@@ -889,6 +891,7 @@ function compileImpl(
     const e = elaborateInterface(schema, state, connectivity, {
       promoteGhosts: false, nodeId,
       ...(options?.lookupAnswers !== undefined ? { lookupAnswers: options.lookupAnswers } : {}),
+      ...(options?.fileFacts !== undefined ? { fileFacts: options.fileFacts } : {}),
     })
     // Elaboration diagnostics surface once per cache entry: once per
     // definition node normally, once per occurrence for overlaid nodes
