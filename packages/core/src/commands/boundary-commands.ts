@@ -532,6 +532,9 @@ const boundaryShowOnAncestor: CommandDefinition = {
         (side !== undefined || item.promoted === true) && [item.binds, ...(item.alsoBinds ?? [])]
           .some((candidate) => boundaryBindingKey(candidate) === boundaryBindingKey(binding)))
       if (equivalent !== undefined) {
+        if (side !== 'outputs' && [equivalent.binds, ...(equivalent.alsoBinds ?? [])]
+          .some((candidate) => boundaryBindingKey(candidate) !== boundaryBindingKey(binding)))
+          return [err('boundary.ancestorFanOut', `'${equivalent.id}' in '${def.name}' also drives other targets. Choose those targets explicitly instead.`)]
         port = equivalent.id
         continue
       }

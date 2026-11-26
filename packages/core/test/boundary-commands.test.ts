@@ -469,6 +469,19 @@ describe('showing a field on the subgraph node', () => {
     expect(replay.dispatch({ ...groupInvocation, params: prepared.ok ? prepared.params : null }).ok).toBe(true)
     expect(boundaryItems(replay.doc.graphs.outer!.boundary, 'inputs')).toMatchObject([{ binds: { kind: 'construct', node: 'detail', port: 'weights' } }])
     expect(replay.dispatch({ ...invocation, params: { ...invocation.params, ancestors: [{ graphId: 'middle', node: 'collision' }] } }).ok).toBe(false)
+
+    for (const construct of [false, true]) for (const matchedPrimary of [false, true]) {
+      const selected = { kind: construct ? 'construct' as const : 'port' as const, node: asNodeId('first'), port: asPortId(construct ? 'weights' : 'radius') }
+      const sibling = { ...selected, node: asNodeId('second') }
+      const shared = schemaStore(doc({ ...nested.graphs, middle: { ...nested.graphs.middle!, boundary: boundaryOf([{
+        id: 'combined', binds: matchedPrimary ? selected : sibling, alsoBinds: [matchedPrimary ? sibling : selected],
+        ...(construct ? {} : { promoted: true }),
+      }], []) } }))
+      const beforeShared = shared.doc
+      const result = shared.dispatch(construct ? groupInvocation : invocation)
+      expect(result.ok, `fan-out construct=${construct} primary=${matchedPrimary}`).toBe(false)
+      expect(shared.doc).toBe(beforeShared)
+    }
   })
 
   it('adds the field as a promoted input drawn without a wire, in one undo step', () => {
