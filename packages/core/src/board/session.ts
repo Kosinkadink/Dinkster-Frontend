@@ -51,7 +51,7 @@ interface HistoryEntry {
 }
 
 interface PendingEntry {
-  readonly intention: BoardCommandInvocation | readonly PatchOp[]
+  readonly intention: BoardCommandInvocation | 'undo' | 'redo'
   readonly origin: string
   readonly history: HistoryEntry
   patch: readonly PatchOp[]
@@ -109,6 +109,8 @@ export class SharedBoardSession implements BoardSession {
   private confirmed: BoardDocument
   private confirmedRevision: number
   private readonly pending: PendingEntry[] = []
+  private readonly confirmedUndoStack: HistoryEntry[] = []
+  private readonly confirmedRedoStack: HistoryEntry[] = []
   private readonly undoStack: HistoryEntry[] = []
   private readonly redoStack: HistoryEntry[] = []
   private readonly maxUndo: number
@@ -187,7 +189,8 @@ export class SharedBoardSession implements BoardSession {
       const replay = replayHistory(this.doc, patch)
       from.pop()
       to.push(history)
-      this.pending.push({ intention: patch, origin: `board.${direction}`, history, patch: replay.operations })
+      this.updateHistory(history, direction, replay.operations)
+      this.pending.push({ intention: direction, origin: `board.${direction}`, history, patch: replay.operations })
       this.documentSignal.set(replay.document)
       this.pump()
       return true
@@ -264,8 +267,8 @@ export class SharedBoardSession implements BoardSession {
             this.drop(entry, 'checkpoint may already contain this submitted edit')
           }
         }
-        this.undoStack.length = 0
-        this.redoStack.length = 0
+        this.confirmedUndoStack.length = 0
+        this.confirmedRedoStack.length = 0
         this.confirmed = document
         this.confirmedRevision = snapshot.revision
         this.resync = false
@@ -332,6 +335,8 @@ export class SharedBoardSession implements BoardSession {
       if (operation.actorId !== this.actorId || !jsonSameValue(operation.patch as unknown as Json, own.attempt!.patch as unknown as Json)) {
         throw new Error('Board accepted operation changed')
       }
+      this.advanceHistory(own, this.confirmedUndoStack, this.confirmedRedoStack)
+      this.updateHistory(own.history, own.intention, own.patch)
       this.pending.splice(this.pending.indexOf(own), 1)
     }
     this.confirmed = document
@@ -341,20 +346,24 @@ export class SharedBoardSession implements BoardSession {
 
   private rebase(): void {
     let cursor = this.confirmed
+    this.undoStack.splice(0, this.undoStack.length, ...this.confirmedUndoStack)
+    this.redoStack.splice(0, this.redoStack.length, ...this.confirmedRedoStack)
     for (const entry of [...this.pending]) {
       try {
-        if (Array.isArray(entry.intention)) {
-          const replay = replayHistory(cursor, entry.intention)
-          cursor = replay.document
+        let document: BoardDocument
+        if (typeof entry.intention === 'string') {
+          const replay = replayHistory(cursor, entry.intention === 'undo' ? entry.history.inverse : entry.history.forward)
+          document = replay.document
           entry.patch = replay.operations
         } else {
-          const plan = planBoardCommand(cursor, entry.intention as BoardCommandInvocation)
+          const plan = planBoardCommand(cursor, entry.intention)
           if (!plan.ok) throw new Error(plan.diagnostics[0]?.message ?? 'Board command no longer applies')
-          cursor = loaded(applyOwnedOps(cursor as unknown as Json, plan.forward))
+          document = loaded(applyOwnedOps(cursor as unknown as Json, plan.forward))
           entry.patch = plan.forward
-          entry.history.forward = plan.forward
-          entry.history.inverse = invertOps(plan.forward)
         }
+        this.advanceHistory(entry, this.undoStack, this.redoStack)
+        this.updateHistory(entry.history, entry.intention, entry.patch)
+        cursor = document
       } catch (error) { this.drop(entry, error) }
     }
     this.documentSignal.set(cursor)
@@ -362,11 +371,26 @@ export class SharedBoardSession implements BoardSession {
 
   private drop(entry: PendingEntry, error: unknown): void {
     this.pending.splice(this.pending.indexOf(entry), 1)
-    for (const stack of [this.undoStack, this.redoStack]) {
-      const index = stack.indexOf(entry.history)
-      if (index !== -1) stack.splice(index, 1)
-    }
     this.conflict(entry.origin, error)
+  }
+
+  private advanceHistory(entry: PendingEntry, undo: HistoryEntry[], redo: HistoryEntry[]): void {
+    if (typeof entry.intention !== 'string') {
+      undo.push(entry.history)
+      if (undo.length > this.maxUndo) undo.shift()
+      redo.length = 0
+      return
+    }
+    const from = entry.intention === 'undo' ? undo : redo
+    const to = entry.intention === 'undo' ? redo : undo
+    if (from.at(-1) !== entry.history) throw new Error('Board history action no longer applies')
+    from.pop()
+    to.push(entry.history)
+  }
+
+  private updateHistory(history: HistoryEntry, intention: PendingEntry['intention'], patch: readonly PatchOp[]): void {
+    history.forward = intention === 'undo' ? invertOps(patch) : patch
+    history.inverse = intention === 'undo' ? patch : invertOps(patch)
   }
 
   private async retry(): Promise<void> {
