@@ -16,7 +16,7 @@ import {
   canvasEditorIcons,
   type CanvasCurveStrip,
 } from '@dinkster/ui'
-import { createEffect, createSignal, on, onCleanup, Show, untrack, type JSX } from 'solid-js'
+import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack, type JSX } from 'solid-js'
 import type { ExecutionState, MountSettings } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
 import { frameFromVideo, webcamError, type WebcamDimensions } from './webcam.js'
@@ -231,6 +231,9 @@ export const editorSpaceInteractive = (scale: number): boolean => scale >= defau
 export function SaveTargetSpace(props: {
   readonly value: Json | undefined
   readonly wired: boolean
+  readonly declared?: Json
+  readonly help?: string
+  readonly measured?: (height: number) => void
   readonly fetchMounts: (() => Promise<MountSettings>) | undefined
   readonly commit: (value: Json) => Promise<boolean>
   readonly queue: () => void
@@ -250,7 +253,9 @@ export function SaveTargetSpace(props: {
     setMount(isSaveTarget(value) ? value.mount : null)
     setPrefix(isSaveTarget(value) || isProjectDefaultTarget(value) ? value.prefix : '')
   }
-  createEffect(on(() => [props.value, props.wired], reset))
+  const incoming = createMemo(() => props.value)
+  const wired = createMemo(() => props.wired)
+  createEffect(on([incoming, wired], reset))
   createEffect(() => {
     const fetch = props.fetchMounts
     let live = true
@@ -260,13 +265,28 @@ export function SaveTargetSpace(props: {
     onCleanup(() => { live = false })
   })
   const ready = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready').map((entry) => entry.id) ?? []
+  const noDefault = () => settings() !== undefined && settings()!.activeOutputMount === undefined
+  const projectMount = () => settings()?.activeOutputMount ?? message(noDefault() ? 'saveTargetWidget.noOutputMount' : 'saveTargetWidget.projectDefault')
   const options = () => [
-    { id: '', label: message('saveTargetWidget.projectDefault') },
+    { id: '', label: message('saveTargetWidget.projectDefaultIs', { mount: projectMount() }), closedLabel: message('saveTargetWidget.projectDefault') },
     ...ready().map((id) => ({ id, label: id })),
     ...(mount() !== null && !ready().includes(mount()!) ? [{ id: mount()!, label: message('saveTargetWidget.notHere', { id: mount()! }), unavailable: true }] : []),
   ]
   const draft = () => saveTargetDraft({ stored: props.value ?? null, mount: mount(), prefix: prefix(),
-    ready: settings() === undefined || ready().length === 0 ? undefined : ready(), projectMount: settings()?.activeOutputMount ?? message('saveTargetWidget.projectDefault') })
+    ready: settings() === undefined || ready().length === 0 ? undefined : ready(), projectMount: projectMount() })
+  const mountProblem = () => failed() ? message('mountWidget.error')
+    : settings() === undefined ? undefined
+      : noDefault() && draft().mountGone ? message('saveTargetWidget.notHereNoDefault', { id: mount() ?? '' })
+        : noDefault() && mount() === null ? message('saveTargetWidget.noDefaultMount')
+          : ready().length === 0 ? message('saveTargetWidget.noMounts')
+            : draft().mountGone ? message('saveTargetWidget.notHereSaving', { id: mount() ?? '', mount: projectMount() }) : undefined
+  const mountTone = () => failed() || noDefault() && (mount() === null || draft().mountGone)
+    ? 'error' as const : draft().mountGone || settings() !== undefined && ready().length === 0 ? 'warning' as const : undefined
+  const defaultTarget = () => isSaveTarget(props.declared) || isProjectDefaultTarget(props.declared) ? props.declared : undefined
+  const differs = () => {
+    const value = defaultTarget()
+    return value !== undefined && (prefix() !== value.prefix || mount() !== (isSaveTarget(value) ? value.mount : null))
+  }
   const store = async (): Promise<boolean> => {
     if (props.wired || pending()) return false
     const value = draft().store
@@ -289,7 +309,12 @@ export function SaveTargetSpace(props: {
     setHighlight(picked >= 0 ? picked : 0)
     setListOpen(true)
   }
-  return <div onFocusOut={(event) => {
+  return <div ref={(element) => {
+    if (props.measured === undefined) return
+    const observer = new ResizeObserver(() => props.measured?.(element.offsetHeight))
+    observer.observe(element)
+    onCleanup(() => observer.disconnect())
+  }} onFocusOut={(event) => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setListOpen(false); void store() }
   }} onKeyDown={(event) => {
     if (event.isComposing) return
@@ -317,19 +342,32 @@ export function SaveTargetSpace(props: {
       }
     } else if (event.key === 'Enter' && event.target === mountButton && !listOpen()) {
       event.preventDefault(); event.stopPropagation(); openList()
-    } else if (event.key === 'Enter') {
+    } else if (event.key === 'Enter' && (event.target === prefixInput || event.target === mountButton)) {
       event.preventDefault(); event.stopPropagation()
       if (listOpen()) pick(highlight() ?? 0)
       else void store()
     }
   }}>
-    <CanvasTargetBox inNode frozen={props.wired || pending()}
+    <CanvasTargetBox inNode frozen={props.wired || pending()} help={props.help}
       words={{ mount: message('assets.fact.mount'), prefix: message('assets.fact.name'),
         loading: message('saveTargetWidget.loading'), none: message('saveTargetWidget.none'), failed: message('saveTargetWidget.couldNotLoad') }}
       mounts={failed() ? 'failed' : settings() === undefined ? 'loading' : ready().length === 0 ? 'none' : 'ready'}
       options={options()} mount={mount() ?? ''} prefix={prefix()} listOpen={listOpen()} {...(highlight() === undefined ? {} : { highlight: highlight()! })}
       onPrefix={setPrefix} onToggleList={() => listOpen() ? setListOpen(false) : openList()} onHighlight={setHighlight}
       onPick={pick}
+      {...(mountProblem() === undefined ? {} : { mountProblem: mountProblem()! })}
+      {...(mountTone() === undefined ? {} : { tone: mountTone()! })}
+      {...(draft().mountGone && !noDefault() && !props.wired ? {
+        mountAction: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } },
+      } : {})}
+      {...(!props.wired && differs() ? {
+        reset: { label: message('saveTargetWidget.reset'), onClick: () => {
+          const value = defaultTarget()!
+          prefixInput?.focus()
+          setMount(isSaveTarget(value) ? value.mount : null)
+          setPrefix(value.prefix)
+        } },
+      } : {})}
       mountRef={(element) => { mountButton = element }}
       prefixRef={(element) => {
         prefixInput = element

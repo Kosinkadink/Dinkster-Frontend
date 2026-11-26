@@ -1520,6 +1520,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }[]>([])
   const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal<ReadonlySet<string>>(new Set())
   const [editorSpaces, setEditorSpaces] = createSolidSignal<readonly EditorSpaceItem[]>([])
+  const [editorMeasurements, setEditorMeasurements] = createSolidSignal<{
+    readonly scope: string
+    readonly controls: Readonly<Record<string, Readonly<Record<string, number>>>>
+  }>({ scope: '', controls: {} })
+  const measureEditorControls = (item: EditorSpaceItem, height: number): void => {
+    const tab = activeTab()
+    if (tab === undefined) return
+    const scope = `${tab.id}:${currentGraphId(tab)}:${(viewInstancePath(tab) ?? []).join('/')}`
+    setEditorMeasurements((previous) => {
+      const controls = previous.scope === scope ? previous.controls : {}
+      if (controls[item.nodeId]?.[item.row.valueKey] === height) return previous
+      return { scope, controls: { ...controls, [item.nodeId]: { ...controls[item.nodeId], [item.row.valueKey]: height } } }
+    })
+  }
   let editorPictureHeights: Pick<InteractionController, 'previewPictureHeight' | 'commitPictureHeight'> | undefined
   const editorSpaceByKey = createMemo(() => new Map(editorSpaces().map((item) => [item.key, item])))
   /** Every node's box in the order the canvas draws them, so a later one is drawn in front. */
@@ -4486,6 +4500,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly recordedAutomatic: ExecutionState['automaticValues']
       readonly lookups: LookupClient | undefined
       readonly lookupGeneration: number
+      readonly editorControls: Readonly<Record<string, Readonly<Record<string, number>>>> | undefined
     } | undefined
     // A frozen tab's run records what its automatic fields used; the record
     // arrives with the finished job, after the snapshot's first scene.
@@ -4549,6 +4564,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const path = viewInstancePath(tab) ?? []
       const key = `${tab.id}:${graphId}`
       const pathKey = path.join('/')
+      const measurements = editorMeasurements()
+      const editorControls = measurements.scope === `${key}:${pathKey}` ? measurements.controls : undefined
       const extensionsGeneration = props.app.extensions.changed.get()
       const seedControllerEnabled = props.app.settings.get<boolean>('features.seedController.enabled')
       const occurrenceOwner = path.length === 0 ? undefined : {
@@ -4576,7 +4593,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.plannerAvailable === plannerAvailable &&
         previousBuild.recordedAutomatic === recordedAutomatic &&
         previousBuild.lookups === lookups &&
-        previousBuild.lookupGeneration === lookupGeneration
+        previousBuild.lookupGeneration === lookupGeneration &&
+        previousBuild.editorControls === editorControls
       const valuesUpdated = canReuseScene && path.length === 0
         ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => shown?.resolve(type), lookupAnswers)
         : undefined
@@ -4605,6 +4623,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           tokens: defaultTokens,
           measure,
           widgetMeasure,
+          ...(editorControls === undefined ? {} : { editorControls }),
           ...(path.length > 0 || occurrenceView.values.size > 0 ? { occurrenceView } : {}),
           ...(occurrenceOwner !== undefined ? {
             occurrence: { owner: occurrenceOwner, plannerAvailable },
@@ -4642,6 +4661,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         recordedAutomatic,
         lookups,
         lookupGeneration,
+        editorControls,
       }
       // A rebuild can produce a scene identical to the installed one: a
       // workspace-session swap re-reads an equal document, and an edit in
@@ -7264,11 +7284,26 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId, at.current.row.inputId),
           }
         }
-        const saveTarget = createMemo(() => {
+        const saveTargetMounts = createMemo(() => {
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.saveTarget') return undefined
           const backend = props.app.backendForTab(at.tab)
-          return { commit: at.commit, fetchMounts: backend.protocol === 'dinkster' ? () => backend.connection.fetchMountSettings() : undefined }
+          return backend.protocol === 'dinkster' ? backend.connection : undefined
+        })
+        const fetchSaveTargetMounts = createMemo(() => {
+          const connection = saveTargetMounts()
+          return connection === undefined ? undefined : () => connection.fetchMountSettings()
+        })
+        const saveTarget = createMemo(() => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.saveTarget') return undefined
+          const node = at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]
+          const schema = node === undefined ? undefined : props.app.registryForTab(at.tab)?.resolve(node.type)
+          const help = node === undefined || schema === undefined ? undefined
+            : elabInputsOf(elaborateInterface(schema, node)).find((input) => input.spec.id === at.target.inputId)?.spec.tooltip
+          const suffix = at.current.field.spec.options['suffix']
+          return { commit: at.commit, fetchMounts: fetchSaveTargetMounts(),
+            help: [help, message('saveTargetWidget.naming', { suffix: typeof suffix === 'string' ? suffix : '' })].filter(Boolean).join('\n\n') }
         })
         const webcam = () => {
           const at = valueTarget()
@@ -7384,6 +7419,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               <Show when={saveTarget()}>
                 {(at) => <SaveTargetSpace value={item()?.value ?? (item()?.wired ? undefined : effectiveWidgetDefault(item()!.field.spec))}
                   wired={item()?.wired === true} fetchMounts={at().fetchMounts} commit={at().commit}
+                  {...(effectiveWidgetDefault(item()!.field.spec) === undefined ? {} : { declared: effectiveWidgetDefault(item()!.field.spec)! })}
+                  help={at().help}
+                  measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}
                   queue={() => {
                     const command = props.app.commands.get('workflow.queue')
                     if (command?.enabled?.() !== false) command?.run()

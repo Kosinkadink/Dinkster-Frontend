@@ -99,6 +99,8 @@ export function CanvasTargetBox(props: {
   onPick?: (index: number) => void
   prefix: string
   onPrefix?: (text: string) => void
+  /** Naming help shown on the Name row. */
+  help?: string | undefined
   /** Why the prefix cannot be used, under the field. */
   prefixProblem?: string
   mountProblem?: string
@@ -218,7 +220,7 @@ export function CanvasTargetBox(props: {
           }</Show>
         </p>
       </Show>
-      <div class="dinkster-canvas-target-name" data-wired={props.prefixWired === true} inert={props.prefixWired === true}>
+      <div class="dinkster-canvas-target-name" data-wired={props.prefixWired === true} inert={props.prefixWired === true} title={props.help}>
         <label class="dinkster-canvas-target-caption" for={prefixId}>
           {props.words.prefix}
         </label>

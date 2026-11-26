@@ -1102,6 +1102,8 @@ export interface LayoutOptions {
   readonly editorsStartFolded?: true
   /** Height of each unfolded editor's picture the user dragged, by value key (view.setPictureHeight). */
   readonly pictureHeights?: Readonly<Record<string, number>>
+  /** Measured controls height, excluding the shared editor's padding, by value key. */
+  readonly editorControls?: Readonly<Record<string, number>>
   /**
    * Ports with a link/net attached, keyed by connectedPortKey over ELAB
    * KEYS. A CONNECTED port inside a collapsed section keeps a pin (anchored
@@ -1760,7 +1762,7 @@ export function layoutNode(
       const histogram = editor.histogramLine !== undefined &&
         (w.histogram?.connected === true || (options.histogramVisibility?.[w.valueKey] ?? w.spec.options['histogramVisible']) !== false)
         ? w.histogram : undefined
-      const controls = editorControlHeights.get(w.valueKey) ??
+      const controls = options.editorControls?.[w.valueKey] ?? editorControlHeights.get(w.valueKey) ??
         (editor.controlRows + (histogram !== undefined ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
       const spaceRow: PendingRow = {
         kind: 'editorSpace',

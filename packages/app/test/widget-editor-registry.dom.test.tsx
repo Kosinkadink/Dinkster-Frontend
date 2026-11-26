@@ -10,6 +10,46 @@ import { SaveTargetSpace } from '../src/InNodeEditorSpaces.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it('keeps mount recovery and declared-default reset inside the Save target editor without changing a wired target', async () => {
+  const root = document.createElement('div'); document.body.append(root)
+  const [wired, setWired] = createSolidSignal(false)
+  const commit = vi.fn(async () => true)
+  const dispose = render(() => <SaveTargetSpace value={{ mount: 'usb1', prefix: 'shots/shot_042' }} wired={wired()}
+    declared={{ prefix: 'ComfyUI' }} help="Relative name only"
+    fetchMounts={async () => ({ activeOutputMount: 'output', mountChangesAllowed: false,
+      mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }] })}
+    commit={commit} queue={() => {}} />, root)
+  const button = (label: string) => [...root.querySelectorAll('button')].find((entry) => entry.textContent === label)
+  try {
+    await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toContain('usb1 is not on this machine. Saving to output.'))
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('Use project default')
+    expect(root.querySelector('.dinkster-canvas-target-name')?.getAttribute('title')).toBe('Relative name only')
+    button('Use project default')!.focus()
+    const recoverKey = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    button('Use project default')!.dispatchEvent(recoverKey)
+    expect(recoverKey.defaultPrevented).toBe(false)
+    button('Use project default')!.click()
+    expect(root.querySelector('[role="status"]')).toBeNull()
+    expect(root.querySelector('input')!.value).toBe('shots/shot_042')
+    expect(document.activeElement).toBe(root.querySelector('input'))
+    expect(commit).not.toHaveBeenCalled()
+    expect(button('Reset to default')).toBeDefined()
+    button('Reset to default')!.focus()
+    const resetKey = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    button('Reset to default')!.dispatchEvent(resetKey)
+    expect(resetKey.defaultPrevented).toBe(false)
+    button('Reset to default')!.click()
+    expect(root.querySelector('input')!.value).toBe('ComfyUI')
+    expect(button('Reset to default')).toBeUndefined()
+    expect(document.activeElement).toBe(root.querySelector('input'))
+    expect(commit).not.toHaveBeenCalled()
+    setWired(true)
+    expect(button('Use project default')).toBeUndefined()
+    expect(button('Reset to default')).toBeUndefined()
+    expect(root.querySelector('input')!.readOnly).toBe(true)
+  } finally { dispose() }
+})
+
 it('selects the save name on opening and queues the atomically stored target only after commit succeeds', async () => {
   const root = document.createElement('div'); document.body.append(root)
   let saved: Json = { mount: 'output', prefix: 'before' }
