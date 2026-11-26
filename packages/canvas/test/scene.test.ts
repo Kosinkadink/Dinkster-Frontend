@@ -1677,17 +1677,13 @@ describe('solver verdicts on scene edges', () => {
 
 describe('groups', () => {
 
-  it('nodesInGroup: membership is spatial (node center inside bounds)', () => {
+  it('initializes legacy membership with full bounds and keeps stored membership independent of bounds', () => {
     const scene = sceneOf('subgraph')
     const group = scene.groups[0]!
-    // All three g0 nodes (positions 60/380/720 x ~200) center inside the
-    // 40..800 x 140..440 rect.
-    expect(nodesInGroup(scene, group).sort()).toEqual(['n0', 'n1', 'n2'])
-    // Shrink the rect so only n0's center fits: membership follows.
-    const narrow = { ...group, x: 40, width: 200 }
-    expect(nodesInGroup(scene, narrow)).toEqual(['n0'])
-    // A rect over empty space carries nothing.
-    expect(nodesInGroup(scene, { ...group, x: -5_000, y: -5_000, width: 10, height: 10 })).toEqual([])
+    expect(nodesInGroup(scene, group).sort()).toEqual(['n0', 'n1'])
+    const stored = { ...scene, groupMembership: { nodes: { n0: group.id }, reroutes: {}, groups: {}, boundary: {} } }
+    expect(nodesInGroup(stored, group)).toEqual(['n0'])
+    expect(nodesInGroup(stored, { ...group, x: -5_000, y: -5_000, width: 10, height: 10 })).toEqual(['n0'])
   })
 
 })
@@ -1829,14 +1825,14 @@ describe('boundary pseudo-nodes', () => {
     expect(sceneOf('exec-subgraph').boundaryNodes).toEqual([])
   })
 
-  it('participate in spatial group membership by center', () => {
+  it('initializes fully enclosed legacy boundary panels as group members', () => {
     const scene = g1SceneWith({ inputs: { position: { x: 100, y: 100 } } })
     const inputs = scene.boundaryNodes.find((node) => node.side === 'inputs')!
     const group = {
       id: 'group', title: 'Boundary', x: inputs.x - 10, y: inputs.y - 10,
       width: inputs.layout.width + 20, height: inputs.layout.height + 20,
     }
-    expect(boundaryNodesInGroup(scene, group)).toContain('inputs')
+    expect(boundaryNodesInGroup({ ...scene, groups: [group] }, group)).toContain('inputs')
   })
 
   it('a definition derives Inputs (pins face out) and Outputs (pins face in)', () => {

@@ -12,6 +12,7 @@ import { createEffect, createMemo, createSignal as createSolidSignal, on, onClea
 import type { ExecutionLogEntry, ExecutionState, LookupClient, PreviewData } from '@dinkster/client'
 import {
   buildScene,
+  groupItemGeometry,
   boundarySceneId,
   CanvasRenderer,
   canvasColorsForTheme,
@@ -77,6 +78,7 @@ import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type C
 import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart } from '@dinkster/ui'
 import {
   defaultValuesOf,
+  initialGroupMembership,
   buildRerouteIndex,
   portRefKey,
   initialDynamicStateOf,
@@ -2921,6 +2923,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       rerouteIds: [...controller.getRerouteSelection()],
       groupIds: [...controller.getGroupSelection()],
       geometry: geometryOfLifecycleScene(scene),
+      ...(scene.groupMembership !== undefined ? { groupMembership: scene.groupMembership } : {}),
     })
     const canExtractSubgraph = (): boolean => hasExtractSelection(lifecycleSelection())
     const canFlattenSubgraph = (): boolean => {
@@ -6655,11 +6658,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (!tab) return
       const graphId = currentGraphId(tab)
       const scopeToken = `clipboard-${++clipboardScopeSeq}`
+      const membership = scene.groupMembership ?? initialGroupMembership(groupItemGeometry(scene))
       const envelope = serializeSelection(tab.store.doc, graphId, {
         nodes: controller.getSelection(),
         reroutes: controller.getRerouteSelection(),
         groups: controller.getGroupSelection(),
-      }, scopeToken)
+      }, scopeToken, membership)
       if (!envelope) return
       const graph = tab.store.doc.graphs[graphId]!
       const endpointTypes = clipboardSceneEndpointTypes(scene)

@@ -735,6 +735,13 @@ export const WORKFLOW_SCHEMA = {
       properties: {
         nodes: { type: 'object', additionalProperties: { $ref: '#/$defs/nodeViewState' } },
         groups: { type: 'object', additionalProperties: { $ref: '#/$defs/groupViewState' } },
+        groupMembership: {
+          type: 'object',
+          required: ['nodes', 'reroutes', 'groups', 'boundary'],
+          properties: Object.fromEntries(['nodes', 'reroutes', 'groups', 'boundary'].map((kind) => [kind, {
+            type: 'object', additionalProperties: { type: 'string', minLength: 1 },
+          }])),
+        },
         groupSeq: { type: 'integer', minimum: 0, maximum: 9007199254740991 },
         reroutes: { type: 'object', additionalProperties: { $ref: '#/$defs/rerouteViewState' } },
         collapsedNets: { type: 'array', items: { type: 'string' } },
