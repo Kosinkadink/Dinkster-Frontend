@@ -849,7 +849,7 @@ narrow node, with incoming values, problems and the pointer readout.
 The default `widgetRowLook: 'raised-editors'` keeps a value typed in its row,
 color included, in an inset field, and raises every row that opens an editor:
 asset, recording, camera, 3D model, crop, compare, save target, video edit,
-list, colors, curve, camera angle and resolution preview. A raised row has a
+list, colors, curve and camera angle. A raised row has a
 lucide icon for its kind and an opening chevron; an output mount is drawn as a
 choice row. A row whose editor is parked (`PARKED_EDITOR_VIEWS`, today the
 compositor's layers) opens nothing, so it is drawn inset with its summary as
