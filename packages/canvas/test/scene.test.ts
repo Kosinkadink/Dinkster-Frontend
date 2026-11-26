@@ -89,12 +89,13 @@ describe('buildScene', () => {
         },
       }).nodes[0]!.layout
       const options = { nodeHeightFor: (doc: WorkflowDocument) => layoutFor(doc).minHeight }
+      let receive: Parameters<Parameters<typeof connectSharedSession>[0]['onEvent']>[0] = () => {}
       const session = kind === 'local' ? createLocalSession(document, coreCommandRegistry(), options)
         : await connectSharedSession({
           sessionId: 'fold-heights',
           fetchSnapshot: async () => ({ revision: 0, document }), fetchOps: async () => ({ kind: 'ops', ops: [] }),
           postOp: () => new Promise(() => {}), putSnapshot: async () => ({ kind: 'ok' }),
-          sendPresence: () => {}, onEvent: () => () => {}, close: () => {},
+          sendPresence: () => {}, onEvent: (listener) => { receive = listener; return () => {} }, close: () => {},
         }, coreCommandRegistry(), { ...options, actorId: 'fold-heights' })
       const scene = () => layoutFor(session.doc)
       const natural = scene()
@@ -135,6 +136,32 @@ describe('buildScene', () => {
       checkFold('view.setSectionCollapsed', { sectionId: 'group:extras', collapsed: false })
       checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
       checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: false })
+      const openHeight = scene().height
+      checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
+      const foldedHeight = scene().height
+      const foldedSize = session.doc.view.graphs.g0!.nodes.n0!.size
+      if (kind === 'shared') {
+        receive({ kind: 'op', op: {
+          opId: 'peer#1', actorId: 'peer', baseRevision: 0, revision: 1, timestamp: 1,
+          patch: [{ op: 'replace', path: ['view', 'graphs', 'g0', 'nodes', 'n0', 'position'], value: { x: 111, y: 222 } }],
+        } })
+        expect(session.doc.view.graphs.g0!.nodes.n0!.position).toEqual({ x: 111, y: 222 })
+        expect(scene().height).toBe(foldedHeight)
+        expect(session.doc.view.graphs.g0!.nodes.n0!.size).toEqual(foldedSize)
+        expect(session.undo()).toBe(true)
+        expect(scene().height).toBe(openHeight)
+        expect(session.redo()).toBe(true)
+        expect(scene().height).toBe(foldedHeight)
+      }
+      if (sized) {
+        storedSize.height += 41
+        expect(session.dispatch({ command: 'view.setNodeSize', params: {
+          graphId: 'g0', nodeId: 'n0', size: { width: storedSize.width, height: foldedHeight + 41 },
+        } }).ok).toBe(true)
+        checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: false })
+        expect(scene().height).toBe(openHeight + 41)
+        checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
+      }
       if ('close' in session && typeof session.close === 'function') session.close()
     }
   })
