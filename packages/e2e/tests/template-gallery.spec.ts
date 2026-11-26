@@ -10,13 +10,18 @@ test('reviews template models without opening or submitting a workflow and revok
   const cancellations: string[] = []
   let started = false
   let phase = 'downloading'
+  let jobId = 'template-job'
   const selection = {
     name: 'missing.safetensors', kind: 'model/vae', project: 'default', provider: 'huggingface',
     source: 'https://huggingface.co/example/models/resolve/main/missing.safetensors', repo: 'example/models',
     revision: 'a'.repeat(40), file: 'missing.safetensors', sha256: 'b'.repeat(64), size: 1000,
     license: 'test', destination: '/models/missing.safetensors', mount: 'models',
   }
-  const job = () => ({ ...selection, jobId: 'template-job', status: phase, received: 410 })
+  const job = () => ({ ...selection, jobId, status: phase, received: phase === 'completed' ? 1000 : 410,
+    ...(phase === 'completed' ? { path: '/models/missing.safetensors', reused: false, renamed: false,
+      asset: { digest: `blake3:${'c'.repeat(64)}`, name: selection.name, size: 1000,
+        mediaType: 'application/octet-stream', virtualPath: 'models/missing.safetensors' } } : {}),
+  })
   await page.routeWebSocket('**/api/events*', () => {})
   await page.route('/api/settings', (route) => route.fulfill({ json: {
     features: { templates: { enabled: true } }, categories: { granted: [], available: [] }, settings: {},
@@ -32,7 +37,9 @@ test('reviews template models without opening or submitting a workflow and revok
     locations: [{ id: 'models', path: '/models', mode: 'readwrite', visibility: 'always-on', mounts: ['models'], enabled: true, active: true }],
     revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
   } }))
-  await page.route('/api/assets/guess*', (route) => route.fulfill({ json: { matches: [] } }))
+  await page.route('/api/assets/guess*', (route) => route.fulfill({ json: { matches: phase === 'completed' ? [{
+    query: selection.name, candidates: [{ digest: `blake3:${'c'.repeat(64)}`, name: selection.name, confidence: 'name', held: true }],
+  }] : [] } }))
   await page.route('**/index/templates*', (route) => route.fulfill({ json: { catalogVersion: 1, templates: [] } }))
   await page.route('/api/packs/demo/templates/models', (route) => route.fulfill({ json: {
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'review-only', root: 'g0',
@@ -91,6 +98,10 @@ test('reviews template models without opening or submitting a workflow and revok
   await dialog.getByRole('button', { name: 'Dismiss', exact: true }).click()
   const gallery = page.getByTestId('templates-page')
   await expect(gallery).toContainText('Downloading 1 model, 41%')
+  const modelState = gallery.locator('.dinkster-template-model-state')
+  await expect(modelState).toHaveText('Downloading')
+  const secondaryColor = await gallery.locator('.dinkster-template-fact dt').first().evaluate((element) => getComputedStyle(element).color)
+  await expect(modelState).toHaveCSS('color', secondaryColor)
   await expect(gallery.getByRole('listbox', { name: 'Templates', exact: true }).getByRole('option', { selected: true })).toContainText('41%')
   expect(cancellations).toEqual([])
   await captureProof(page, 'template-download-progress.png')
@@ -115,6 +126,26 @@ test('reviews template models without opening or submitting a workflow and revok
   await captureProof(page, 'template-download-stopping.png')
   phase = 'cancelled'
   await expect(gallery.getByRole('button', { name: 'Download 1 model', exact: true })).toBeVisible()
+  await expect(modelState).toHaveText('Missing')
+  await captureProof(page, 'template-download-cancelled.png')
+  jobId = 'external-retry'
+  phase = 'downloading'
+  await expect(modelState).toHaveText('Downloading')
+  phase = 'failed'
+  await expect(modelState).toHaveText('Missing')
+  await captureProof(page, 'template-download-failed.png')
+  jobId = 'external-completion'
+  phase = 'downloading'
+  await expect(modelState).toHaveText('Downloading')
+  phase = 'completed'
+  await expect(modelState).toHaveText('Here')
+  await expect(gallery).toContainText('1 of 1 on this computer')
+  await expect(gallery.getByRole('button', { name: 'Download 1 model', exact: true })).toHaveCount(0)
+  await captureProof(page, 'template-download-completed.png')
+  // A changed catalog can expose another missing requirement for review.
+  phase = 'cancelled'
+  await page.getByRole('button', { name: 'Close Templates', exact: true }).click()
+  await page.keyboard.press('Alt+t')
   await gallery.getByRole('button', { name: 'Download 1 model', exact: true }).click()
   await expect(dialog).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.tabs.get().length)).toBe(count)

@@ -359,7 +359,10 @@ export function TemplatesPage(props: {
             summary: message('templatesPage.hereCount', { count: models(entry()).length - missing(entry()).length, total: models(entry()).length }),
             hereLabel: message('templatesPage.here'),
             missingLabel: message('templatesPage.missing'),
-            models: models(entry()).map((model) => ({ name: model.name, here: model.here, size: model.size === undefined ? undefined : formatByteSize(model.size) })),
+            downloadingLabel: message('templatesPage.downloadingModel'),
+            models: models(entry()).map((model) => ({ name: model.name, here: model.here,
+              downloading: activeJobs(entry()).some((job) => job.name === model.name),
+              size: model.size === undefined ? undefined : formatByteSize(model.size) })),
           }}
           facts={[
             { label: message('templatesPage.pack'), value: backend()?.registry.get()?.packs?.get(ref(entry()).template.pack)?.displayName ?? ref(entry()).template.pack },

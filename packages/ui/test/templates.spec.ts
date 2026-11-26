@@ -102,6 +102,7 @@ test('a tile shows what is left to download, then how far it is, and a template 
   await expect(page.getByRole('button', { name: /Download 2 models/ })).toHaveCount(0)
   const progress = page.locator('.dinkster-template-download')
   await expect(progress).toContainText('Downloading 2 models, 12%')
+  await expect(needs.locator('.dinkster-template-model-state')).toHaveText(['Here', 'Downloading', 'Downloading'])
   const track = await progress.locator('.dinkster-template-download-track').boundingBox()
   const filled = await progress.locator('.dinkster-template-progress').boundingBox()
   expect(Math.abs(filled!.width / track!.width - 0.12)).toBeLessThan(0.01)
@@ -109,6 +110,7 @@ test('a tile shows what is left to download, then how far it is, and a template 
   await expect(progress).toHaveCount(0)
   await expect(missing.locator('.dinkster-template-mark')).toHaveText('6.4 GB')
   await expect(page.getByRole('button', { name: /Download 2 models/ })).toBeVisible()
+  await expect(needs.locator('.dinkster-template-model-state')).toHaveText(['Here', 'Missing', 'Missing'])
 
   // The switch shows the workflow in place of the result.
   const view = page.locator('.dinkster-template-detail > .dinkster-template-picture')

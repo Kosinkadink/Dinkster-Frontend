@@ -319,6 +319,7 @@ export interface ProductTemplateModel {
   name: string
   size?: string | undefined
   here: boolean
+  downloading?: boolean | undefined
 }
 
 /**
@@ -342,6 +343,7 @@ export function ProductTemplateDetail(props: {
         summary: string
         hereLabel: string
         missingLabel: string
+        downloadingLabel: string
         models: readonly ProductTemplateModel[]
       }
     | undefined
@@ -421,12 +423,12 @@ export function ProductTemplateDetail(props: {
                     </span>
                     <span
                       class="dinkster-template-model-state"
-                      data-state={model.here ? 'here' : 'missing'}
+                      data-state={model.downloading ? 'downloading' : model.here ? 'here' : 'missing'}
                     >
-                      <Show when={model.here}>
+                      <Show when={model.here && !model.downloading}>
                         <ProductIcon icon={Check} />
                       </Show>
-                      {model.here ? needs().hereLabel : needs().missingLabel}
+                      {model.downloading ? needs().downloadingLabel : model.here ? needs().hereLabel : needs().missingLabel}
                     </span>
                   </li>
                 )}

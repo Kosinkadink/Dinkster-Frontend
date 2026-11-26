@@ -364,7 +364,10 @@ export function TemplatesGallery() {
                           summary: `${template().models.length - left().length} of ${template().models.length} on this computer`,
                           hereLabel: 'Here',
                           missingLabel: 'Missing',
-                          models: template().models,
+                          downloadingLabel: 'Downloading',
+                          models: template().models.map((model) => ({ ...model,
+                            downloading: !model.here && template().progress !== undefined,
+                          })),
                         }
                       : undefined
                   }

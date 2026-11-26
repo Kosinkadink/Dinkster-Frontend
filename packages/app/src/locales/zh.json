@@ -1465,6 +1465,7 @@
   "templatesPage.blank": "\u7a7a\u767d\u5de5\u4f5c\u6d41",
   "templatesPage.downloadCount": "\u4e0b\u8f7d {count} \u4e2a\u6a21\u578b",
   "templatesPage.downloading": "\u6b63\u5728\u4e0b\u8f7d {count} \u4e2a\u6a21\u578b\uff0c{percent}%",
+  "templatesPage.downloadingModel": "\u6b63\u5728\u4e0b\u8f7d",
   "templatesPage.empty": "\u6682\u65e0\u6a21\u677f\u3002\u6dfb\u52a0\u7684\u5305\u53ef\u4ee5\u63d0\u4f9b\u6a21\u677f\u3002",
   "templatesPage.from": "\u6765\u6e90",
   "templatesPage.here": "\u5df2\u6709",
