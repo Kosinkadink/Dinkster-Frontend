@@ -1369,9 +1369,13 @@ function elaboratePass(
       sourceValues.set(meaning.source, values)
     }
     const value = values.get(meaning.path)
-    useLookups((value?.lookups ?? []).map((site) => ({ ...site, call: {
+    return value === undefined ? undefined : { ...value, lookups: (value.lookups ?? []).map((site) => ({ ...site, call: {
       ...site.call, nodeType: site.call.nodeType ?? meaning.source.node.type,
-    } })))
+    } })) }
+  }
+  const readFixedValue = (meaning: Exclude<OuterName, { row: string }>): ElaboratedFormulaValue | undefined => {
+    const value = fixedValue(meaning)
+    useLookups(value?.lookups ?? [])
     if (value?.pending === true) readWaiting = true
     return value
   }
@@ -1420,9 +1424,11 @@ function elaboratePass(
       const path = where.get(name)!
       const reference = fixed.get(name)
       if (reference !== undefined) {
-        const constant = fixedValue(reference)
-        if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.set(name, constant === undefined || constant.linked === true || constant.pending === true ? UNKNOWN : formulaValueOf(constant.value, kind))
-        if (names.inputs.has(name)) wired.set(name, constant?.linked === true)
+        if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.setLazy(name, () => {
+          const constant = readFixedValue(reference)
+          return constant === undefined || constant.linked === true || constant.pending === true ? UNKNOWN : formulaValueOf(constant.value, kind)
+        })
+        if (names.inputs.has(name)) wired.set(name, fixedValue(reference)?.linked === true)
       } else if (unknown.has(name)) {
         // A group's size with no entry in `sizes` reads unknown.
         if (kind !== 'opaque' && kind !== 'group') values.setLazy(name, () => UNKNOWN)
@@ -1475,7 +1481,7 @@ function elaboratePass(
     const { where, unknown, fixed } = namesAt(scope)
     const reference = fixed.get(name)
     if (reference !== undefined) {
-      const constant = fixedValue(reference)
+      const constant = readFixedValue(reference)
       return { value: constant === undefined || constant.linked === true || constant.pending === true ? UNKNOWN : (constant.value ?? null) as Json }
     }
     const path = where.get(name)

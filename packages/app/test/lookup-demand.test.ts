@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createLookupClient } from '@dinkster/client'
-import { EMPTY_CONNECTIVITY, documentResolver, elaborateInterface, elabInputsOf, type NodeSchema } from '@dinkster/core'
+import { EMPTY_CONNECTIVITY, asPortId, documentResolver, elaborateInterface, elabInputsOf, type NodeSchema } from '@dinkster/core'
 import { LookupDemand, lookupAnswersOf, recordRunAnswers } from '../src/lookup-demand.js'
 import { boundarySample } from '../../core/test/fixtures/boundary-sample.js'
 
@@ -76,6 +76,45 @@ describe('recorded run answers', () => {
       expect(calls.at(-1)).toMatchObject({ nodeType: 'Boundary sample', function: 'pack.seed', args: [0.6] })
       demand.dispose()
       client.dispose()
+
+      const quietDoc = { ...doc, graphs: { ...doc.graphs,
+        detail: { ...doc.graphs.detail!, boundary: { body: doc.graphs.detail!.boundary!.body.map((row) => row.kind === 'input' && row.id === 'strength' ? { ...row, id: 'amount' } : row) } },
+        ...(doc.graphs.portrait === undefined ? {} : { portrait: { ...doc.graphs.portrait,
+          boundary: { body: doc.graphs.portrait.boundary!.body.map((row) => row.kind === 'input' && row.id === 'strength' && row.binds.kind === 'port'
+            ? { ...row, id: 'mix', binds: { ...row.binds, port: asPortId('amount') } } : row) },
+        } }),
+      } }
+      for (const [formula, expected] of [
+        ['"Ready" if True else fixed(seed, 1)', 'Ready'],
+        ['"Wired" if linked(seed) else "Unwired"', 'Unwired'],
+        ['fixed(seed, 1) if True else "Ready"', '0.7'],
+      ]) {
+        const quietSchema = { ...schema, body: schema.body.map((row) => {
+          if (row.kind !== 'input' || row.id !== 'strength') return row
+          const { automatic: _automatic, ...field } = row
+          return { ...field, labelFormula: { formula: formula! } }
+        }) }
+        const asked: unknown[] = []
+        const quietClient = createLookupClient({ baseUrl: '', fetchFn: async (_url, init) => {
+          asked.push(JSON.parse(String(init?.body)))
+          return new Response(JSON.stringify({ answer: 0.7 }), { status: 200, headers: { 'content-type': 'application/json' } })
+        } })
+        const quietDemand = new LookupDemand(quietClient)
+        const quietDerived = documentResolver(quietDoc, (type) => type === schema.type ? quietSchema : undefined)(level === 1 ? '#detail' : '#portrait')!
+        const quietDraw = () => {
+          const elaborated = elaborateInterface(quietDerived, { values: {} }, EMPTY_CONNECTIVITY, { lookupAnswers: lookupAnswersOf(quietClient) })
+          quietDemand.show([{ nodeType: quietDerived.type, node: 'quiet', items: elaborated.items,
+            ...(elaborated.lookupDependencies === undefined ? {} : { lookupDependencies: elaborated.lookupDependencies }),
+          }])
+          return elabInputsOf(elaborated).find((item) => item.spec.id === (level === 1 ? 'amount' : 'mix'))!.spec.displayName
+        }
+        quietDraw()
+        await settle()
+        expect(quietDraw()).toBe(expected)
+        expect(asked).toEqual(expected === '0.7' ? [{ nodeType: 'Boundary sample', function: 'pack.seed', args: [0.1] }] : [])
+        quietDemand.dispose()
+        quietClient.dispose()
+      }
     }
   })
 
