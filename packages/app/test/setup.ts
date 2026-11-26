@@ -1,7 +1,7 @@
 import { vi } from 'vitest'
 
 // happy-dom has no top layer; browser tests cover native popover placement.
-if (typeof HTMLElement.prototype.showPopover !== 'function') {
+if (typeof HTMLElement !== 'undefined' && typeof HTMLElement.prototype.showPopover !== 'function') {
   HTMLElement.prototype.showPopover = () => {}
 }
 
