@@ -17,7 +17,7 @@ test('served dev blueprint copies its graph independently and undoes as one inse
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 0.5 }))
   await page.getByTestId('graph-canvas').dblclick({ position: { x: 600, y: 500 } })
   await page.getByTestId('palette-search').fill('Node Feature Examples')
-  await page.getByTestId('palette-item').filter({ hasText: 'Node Feature Examples' }).click()
+  await page.locator('.dinkster-search-row').filter({ hasText: 'Node Feature Examples' }).click()
   await page.getByTestId('graph-canvas').click({ position: { x: 600, y: 500 } })
   await expect.poll(async () => Object.keys((await document()).graphs).length).toBe(2)
   const inserted = await document()

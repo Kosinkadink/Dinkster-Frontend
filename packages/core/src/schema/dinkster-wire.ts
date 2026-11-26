@@ -663,7 +663,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'CURVE':
-      checkWidgetFields(descriptor, ['type', 'inputStrip', 'outputStrip', 'histogram', 'histogramVisible'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'inputStrip', 'outputStrip', 'histogram', 'histogramVisible', 'interpolations'], where, diags)
       for (const key of ['inputStrip', 'outputStrip']) {
         const colors = descriptor[key]
         if (colors !== undefined && !(Array.isArray(colors) && colors.length === 2 &&
@@ -676,6 +676,14 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       if (descriptor['histogramVisible'] !== undefined && typeof descriptor['histogramVisible'] !== 'boolean') {
         throw new Error(`${where}.histogramVisible must be a boolean`)
+      }
+      if (descriptor['interpolations'] !== undefined) {
+        const kinds = descriptor['interpolations']
+        if (!(Array.isArray(kinds) && kinds.length > 0 &&
+          kinds.every((kind) => kind === 'linear' || kind === 'monotone_cubic' || kind === 'step') &&
+          new Set(kinds).size === kinds.length)) {
+          throw new Error(`${where}.interpolations must be distinct supported kinds`)
+        }
       }
       return
     case 'COMPOSITOR':
@@ -1231,6 +1239,7 @@ function widgetFor(
           ...strips,
           ...(typeof histogram === 'string' ? { histogram } : {}),
           ...(typeof fields['histogramVisible'] === 'boolean' ? { histogramVisible: fields['histogramVisible'] } : {}),
+          ...(Array.isArray(fields['interpolations']) ? { interpolations: [...fields['interpolations']] } : {}),
         },
         ...(dflt !== undefined ? { default: dflt } : {}),
       }

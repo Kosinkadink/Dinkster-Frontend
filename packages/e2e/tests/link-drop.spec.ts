@@ -227,11 +227,11 @@ test('output noodle dropped on empty opens input-compatible search; Escape cance
   const search = page.getByTestId('palette-search')
   // PreviewImage accepts IMAGE - present.
   await search.fill('preview image')
-  await expect(page.locator('[data-node-type="dinkster.image.preview_image"]')).toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.image.preview_image"]')).toBeVisible()
   // VAEDecode consumes LATENT+VAE, never IMAGE - excluded even when the
   // text would rank it.
   await search.fill('vae decode')
-  await expect(page.locator('[data-node-type="dinkster.latent.vae_decode"]')).not.toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.latent.vae_decode"]')).not.toBeVisible()
 
   // Escape: no node, no link, nothing.
   await search.press('Escape')
@@ -260,17 +260,17 @@ nativeTest('native typed Autogrow families filter in both directions and generic
   await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), EMPTY)
   const search = page.getByTestId('palette-search')
   await search.fill('Batch Images')
-  await expect(page.locator('[data-node-type="dinkster.image.batch_images_node"]')).toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.image.batch_images_node"]')).toBeVisible()
   await search.fill('Batch Masks')
-  await expect(page.locator('[data-node-type="dinkster.image.batch_masks_node"]')).not.toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.image.batch_masks_node"]')).not.toBeVisible()
   await search.fill('Batch Latents')
-  await expect(page.locator('[data-node-type="dinkster.latent.batch_latents_node"]')).not.toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.latent.batch_latents_node"]')).not.toBeVisible()
   await search.fill('Preview as Text')
-  await expect(page.locator('[data-node-type="dinkster.utilities.preview_any"]')).toBeVisible()
-  await expect(page.getByTestId('palette-preview').getByTestId('preview-input')).toContainText('Any')
+  await expect(page.locator('[data-key="entry:dinkster.utilities.preview_any"]')).toBeVisible()
+  await expect(page.getByTestId('search-node-preview')).toHaveAttribute('data-preview-ready', 'dinkster.utilities.preview_any')
 
   await search.fill('Batch Images')
-  await page.locator('[data-node-type="dinkster.image.batch_images_node"]').click()
+  await page.locator('[data-key="entry:dinkster.image.batch_images_node"]').click()
   const inserted = await activeDoc(page)
   const batch = Object.values(inserted.graphs['g0']!.nodes).find((node) => node.type === 'dinkster.image.batch_images_node')
   expect(batch?.dynamic?.['images']).toMatchObject({ members: ['image0'] })
@@ -285,9 +285,9 @@ nativeTest('native typed Autogrow families filter in both directions and generic
   await drag(page, await pinPoint(page, 'n0', 'in', 'images'), EMPTY)
   await expect(page.getByTestId('node-palette')).toHaveAttribute('data-link-drop', 'out')
   await page.getByTestId('palette-search').fill('Batch Images')
-  await expect(page.locator('[data-node-type="dinkster.image.batch_images_node"]')).toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.image.batch_images_node"]')).toBeVisible()
   await page.getByTestId('palette-search').fill('Batch Masks')
-  await expect(page.locator('[data-node-type="dinkster.image.batch_masks_node"]')).not.toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.image.batch_masks_node"]')).not.toBeVisible()
 })
 
 test('backdrop pointerdown cancels a link-drop ghost without creating a link or panning', async ({ page }) => {
@@ -314,7 +314,7 @@ test('picking a node inserts it and connects the dangling end - ONE undo step', 
   const previousIds = Object.keys((await activeDoc(page)).graphs.g0!.nodes)
   await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), EMPTY)
   await page.getByTestId('palette-search').fill('preview image')
-  await page.locator('[data-node-type="dinkster.image.preview_image"]').click()
+  await page.locator('[data-key="entry:dinkster.image.preview_image"]').click()
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
 
   const doc = await activeDoc(page)
@@ -355,10 +355,10 @@ test('rewire dropped on empty still disconnects (no palette); a free input then 
   const search = page.getByTestId('palette-search')
   // CLIPTextEncode outputs CONDITIONING, never IMAGE - excluded.
   await search.fill('CLIPTextEncode')
-  await expect(page.locator('[data-node-type="dinkster.conditioning.clip_text_encode"]')).not.toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.conditioning.clip_text_encode"]')).not.toBeVisible()
 
   await search.fill('empty image')
-  await page.locator('[data-node-type="dinkster.image.empty_image"]').click()
+  await page.locator('[data-key="entry:dinkster.image.empty_image"]').click()
 
   const doc = await activeDoc(page)
   const added = await singleAddedNode(page, previousIds)
@@ -408,7 +408,7 @@ test('dropped noodle stays visible while the palette is browsed; clears on Escap
   // Committing a pick clears it too (the real link replaces the ghost).
   await drag(page, from, EMPTY)
   await page.getByTestId('palette-search').fill('preview image')
-  await page.locator('[data-node-type="dinkster.image.preview_image"]').click()
+  await page.locator('[data-key="entry:dinkster.image.preview_image"]').click()
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
   expect(await ghost()).toBeUndefined()
 })
@@ -427,7 +427,7 @@ test('subgraphs participate through their boundary-derived schema', async ({ pag
   await drag(page, await pinPoint(page, 'n1', 'in', 'images'), EMPTY)
   await expect(page.getByTestId('node-palette')).toHaveAttribute('data-link-drop', 'out')
   await page.getByTestId('palette-search').fill('Image source')
-  await page.locator('[data-node-type="#g1"]').click()
+  await page.locator('[data-key="entry:#g1"]').click()
 
   const doc = await activeDoc(page)
   const added = await singleAddedNode(page, previousIds)
