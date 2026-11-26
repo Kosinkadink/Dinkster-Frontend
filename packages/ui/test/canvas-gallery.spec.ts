@@ -794,6 +794,19 @@ test('Open rows use a quiet outline and preserve keyboard focus and side-part co
       await palette('--dinkster-border-subtle'),
     )
     await expect(neutral).toHaveCSS('stroke-width', '1px')
+    await openPage(page, 'row-states', theme)
+    await cardsReady(page, 'row-states', theme)
+    const form = page.getByTestId('button-ask-form')
+    const formOutline = form.locator('..').locator('..').locator('.dinkster-canvas-field-outline path')
+    const start = form.getByTestId('button-ask-start')
+    await start.focus()
+    await page.keyboard.press('Tab')
+    const end = form.getByTestId('button-ask-end')
+    await expect(end).toBeFocused()
+    await expect(end.locator('..')).toHaveCSS('border-color', await palette('--dinkster-border-keyboard-focus'))
+    await expect(end.locator('..')).toHaveCSS('border-width', '1px')
+    await expect(formOutline).toHaveCSS('stroke', await palette('--dinkster-accent-rest-border'))
+    await expect(formOutline).toHaveCSS('stroke-width', '2px')
   }
 })
 

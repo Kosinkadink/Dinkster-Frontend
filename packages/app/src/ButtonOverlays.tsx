@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, For, onMount, Show } from 'soli
 import Info from 'lucide-solid/icons/info'
 import TriangleAlert from 'lucide-solid/icons/triangle-alert'
 import { formatWidgetValue, type AskRequest, type InputSpec, type IntegerWidgetValue, type Json, type WidgetKind, type WidgetSpec } from '@dinkster/core'
-import { CanvasRowFocus, CanvasSideActions, CanvasSideRow } from '@dinkster/ui'
+import { CanvasRowFrame, CanvasSideActions, CanvasSideRow } from '@dinkster/ui'
 import { placeRow, rowPlacement, visibleCanvas, type RowBox } from './editors/row-placement.js'
 import { resolveTypedNumber, stepTypedNumber } from './widget-commit.js'
 import type { ButtonBox } from './button-presses.js'
@@ -201,7 +201,7 @@ export function ButtonAskForm(props: {
             </div>
           }
         >
-          <CanvasRowFocus
+          <CanvasRowFrame
             rowWidth={placement().rowWidth}
             look={props.box.look}
             zoomed={placement().scale > 1}
