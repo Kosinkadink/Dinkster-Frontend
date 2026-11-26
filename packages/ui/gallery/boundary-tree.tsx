@@ -3,6 +3,7 @@ import { Plus, Trash2, TriangleAlert } from 'lucide-solid'
 import { defaultTokens, typeColor } from '@dinkster/canvas'
 import {
   BoundaryTree,
+  BoundaryPromotionPreview,
   ProductButton,
   ProductCheckbox,
   ProductField,
@@ -321,8 +322,20 @@ const lineDrag: BoundaryTreeDrag = {
 
 /** The Boundary panel's ordered tree, drawn by the component the panel uses. */
 export function BoundaryTreeGallery() {
+  const [promotionOpen, setPromotionOpen] = createSignal(false)
   return (
     <div class="boundary-tree-examples">
+      <Example caption="Show on an enclosing subgraph" note="Review every intermediate definition and its document usage count before adding any row.">
+        <div class="dinkster-stack">
+          <ProductButton intent="add" onClick={() => setPromotionOpen(true)}>Review ancestor promotion</ProductButton>
+          <Show when={promotionOpen()}>
+            <BoundaryPromotionPreview definitions={[
+              { name: 'Detail pass', uses: 2, changed: false },
+              { name: 'Portrait fix', uses: 3, changed: true },
+            ]} onConfirm={() => setPromotionOpen(false)} onCancel={() => setPromotionOpen(false)} />
+          </Show>
+        </div>
+      </Example>
       <Example
         caption="One ordered tree, a field on a shared line selected"
         note="Rows, sections, lines of fields and whole constructs in the order the subgraph node draws them. An output keeps its own line, with its label at the right end; every grip is at the left."

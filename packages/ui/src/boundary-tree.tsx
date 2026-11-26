@@ -7,6 +7,27 @@ import {
   TriangleAlert,
 } from 'lucide-solid'
 import { ProductIcon } from './controls.js'
+import { ProductConfirmation } from './messages.js'
+
+/** Definition-wide effects of one explicitly selected ancestor promotion. */
+export function BoundaryPromotionPreview(props: {
+  readonly definitions: readonly { readonly name: string; readonly uses: number; readonly changed: boolean }[]
+  readonly disabled?: boolean
+  readonly pending?: boolean
+  readonly onConfirm: () => void
+  readonly onCancel: () => void
+}) {
+  return <div class="dinkster-stack">
+    <p class="dinkster-description">Each boundary belongs to its definition. Adding a row changes every use of that definition.</p>
+    <For each={props.definitions}>{(definition) => <div>
+      <strong>{definition.name}</strong>
+      <p class="dinkster-description">{definition.uses} {definition.uses === 1 ? 'use' : 'uses'} in this document - {definition.changed ? 'add row' : 'reuse existing row'}</p>
+    </div>}</For>
+    <ProductConfirmation consequence="Only the selected occurrence path is connected. All additions form one undo step."
+      actionLabel="Show on ancestor" intent="add" disabled={props.disabled === true} pending={props.pending === true}
+      onConfirm={props.onConfirm} onCancel={props.onCancel} />
+  </div>
+}
 
 /** One input or output of a subgraph node, as the Boundary panel lists it. */
 export interface BoundaryTreeRow {
