@@ -27,19 +27,29 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
-test('Step curves draw exact horizontal holds and vertical jumps without a histogram', async ({ page }) => {
+test('Step curves draw exact horizontal holds and vertical jumps without a histogram', async ({
+  page,
+}) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   for (const theme of ['dark', 'light'] as const) {
+    await page.setViewportSize({ width: 1280, height: 1000 })
     await openPage(page, 'in-node-editors', theme)
     const canvas = page.getByTestId('in-node-editor-hook-keyframes-curve')
-    await expect(canvas).toHaveAttribute('data-ready', `hook-keyframes-curve-${theme}`)
+    await expect(canvas).toHaveAttribute(
+      'data-ready',
+      `hook-keyframes-curve-${theme}`,
+    )
     const stage = canvas.locator('..')
     await expect(stage).toContainText('Step')
     await expect(stage).not.toContainText('Histogram')
     await expect(stage.locator('.dinkster-canvas-curve-point')).toHaveCount(4)
-    const points = await stage.locator('.dinkster-canvas-curve-line[data-held="false"]').getAttribute('points')
-    const vertices = points!.split(' ').map((pair) => pair.split(',').map(Number))
+    const points = await stage
+      .locator('.dinkster-canvas-curve-line[data-held="false"]')
+      .getAttribute('points')
+    const vertices = points!
+      .split(' ')
+      .map((pair) => pair.split(',').map(Number))
     let jumps = 0
     for (let index = 1; index < vertices.length; index++) {
       const [x, y] = vertices[index]!
@@ -52,7 +62,9 @@ test('Step curves draw exact horizontal holds and vertical jumps without a histo
     }
     expect(jumps).toBe(3)
     await page.setViewportSize({ width: 390, height: 1000 })
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBe(390)
   }
   expect(errors).toEqual([])
 })
@@ -293,14 +305,21 @@ test('Color picker handles stay wholly inside every control', async ({
       .locator('svg:has(> .dinkster-canvas-color-handle)')
       .evaluateAll((controls) =>
         controls.map((svg) => {
-          const handle = svg.querySelector<SVGGElement>('.dinkster-canvas-color-handle')!
+          const handle = svg.querySelector<SVGGElement>(
+            '.dinkster-canvas-color-handle',
+          )!
           const box = handle.getBBox()
           const at = (value: number) => Math.round(value * 100) / 100
           return {
             shape: handle.getAttribute('data-shape'),
             x: Number(handle.getAttribute('data-x')),
             y: Number(handle.getAttribute('data-y')),
-            box: { left: at(box.x), top: at(box.y), right: at(box.x + box.width), bottom: at(box.y + box.height) },
+            box: {
+              left: at(box.x),
+              top: at(box.y),
+              right: at(box.x + box.width),
+              bottom: at(box.y + box.height),
+            },
             width: Number(svg.getAttribute('width')),
             height: Number(svg.getAttribute('height')),
           }
@@ -309,10 +328,24 @@ test('Color picker handles stay wholly inside every control', async ({
   // Every open example draws a ring on the square and an upright bar on the
   // hue strip, and on the opacity strip when the field has one. Each stays
   // inside its control; a bar spans its strip's full height.
-  for (const id of ['open', 'pick', 'invalid', 'empty', 'alpha', 'clear', 'black', 'white']) {
+  for (const id of [
+    'open',
+    'pick',
+    'invalid',
+    'empty',
+    'alpha',
+    'clear',
+    'black',
+    'white',
+  ]) {
     const handles = await handlesOf(id)
-    expect(handles.map((handle) => handle.shape), id).toEqual(
-      id === 'alpha' || id === 'clear' ? ['ring', 'bar', 'bar'] : ['ring', 'bar'],
+    expect(
+      handles.map((handle) => handle.shape),
+      id,
+    ).toEqual(
+      id === 'alpha' || id === 'clear'
+        ? ['ring', 'bar', 'bar']
+        : ['ring', 'bar'],
     )
     for (const handle of handles) {
       expect(handle.width, id).toBeGreaterThan(12)
@@ -321,7 +354,10 @@ test('Color picker handles stay wholly inside every control', async ({
       expect(handle.box.right, id).toBeLessThanOrEqual(handle.width)
       expect(handle.box.bottom, id).toBeLessThanOrEqual(handle.height)
       if (handle.shape === 'bar') {
-        expect([handle.box.top, handle.box.bottom], id).toEqual([0, handle.height])
+        expect([handle.box.top, handle.box.bottom], id).toEqual([
+          0,
+          handle.height,
+        ])
         expect(handle.box.right - handle.box.left, id).toBeCloseTo(6, 2)
       }
     }
@@ -341,7 +377,7 @@ test('Color picker handles stay wholly inside every control', async ({
   expect(hue!.x).toBeCloseTo((220 / 360) * hue!.width, 0)
 })
 
-test('An open row\'s side part draws its rules and keys in the node\'s divider and label colors', async ({
+test("An open row's side part draws its rules and keys in the node's divider and label colors", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -361,9 +397,9 @@ test('An open row\'s side part draws its rules and keys in the node\'s divider a
   expect(
     await help.evaluate((element) => getComputedStyle(element).borderTopColor),
   ).toBe(await palette('--dinkster-border-divider'))
-  expect(
-    await key.evaluate((element) => getComputedStyle(element).color),
-  ).toBe(await palette('--dinkster-text-secondary'))
+  expect(await key.evaluate((element) => getComputedStyle(element).color)).toBe(
+    await palette('--dinkster-text-secondary'),
+  )
 })
 
 for (const theme of ['dark', 'light'] as const) {
