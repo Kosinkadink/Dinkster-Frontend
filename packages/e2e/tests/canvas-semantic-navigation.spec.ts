@@ -146,6 +146,19 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('ArrowDown')
   await expect(active).toHaveAttribute('data-kind', 'port')
+  await expect(active).toHaveAccessibleName(/^Output: width /)
+  await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes[0]!
+    const pin = node.layout.pins.find((candidate) => candidate.direction === 'out' && candidate.widgetTap === true)!
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const toolbar = document.querySelector('.canvas-stage-toolbar')!.getBoundingClientRect()
+    renderer.setViewport({
+      x: 280 - node.x - node.layout.width,
+      y: toolbar.bottom + 120 - canvas.top - node.y - pin.y,
+      scale: 1,
+    })
+  })
   await expect.poll(() => navigator.evaluate((listbox) => {
     const panel = listbox.parentElement!.getBoundingClientRect()
     const toolbar = listbox.closest('.canvas-stage')!.querySelector('.canvas-stage-toolbar')!.getBoundingClientRect()
@@ -155,6 +168,7 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   await page.setViewportSize({ width: 390, height: 844 })
   await setShellRegion(page, 'right', false)
   await navigator.focus()
+  await page.keyboard.press('Home')
   await expect(navigator).toBeFocused()
   await expect(navigator.getByRole('option')).toHaveCount(5)
   await expect.poll(() => navigator.evaluate((listbox) => {
