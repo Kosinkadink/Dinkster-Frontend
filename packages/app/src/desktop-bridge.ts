@@ -54,12 +54,18 @@ export interface DesktopFileImport {
   readonly folder?: string
 }
 
+export interface DesktopFileImportProgress {
+  readonly phase: 'copying' | 'publishing'
+  readonly received: number
+  readonly total: number | null
+}
+
 export interface DinksterDesktopBridge {
   saveFile?(bytes: Uint8Array, suggestedName: string): Promise<DesktopSaveResult>
   locale(): Promise<string>
   status(): Promise<DesktopLifecycleStatus>
   retry(): Promise<void>
-  fileCapabilities(backendUrl: string): Promise<{ readonly nativeFolderChoice: boolean; readonly reveal: boolean; readonly resolvePath?: boolean }>
+  fileCapabilities(backendUrl: string): Promise<{ readonly nativeFolderChoice: boolean; readonly reveal: boolean; readonly resolvePath?: boolean; readonly importFile?: boolean; readonly importProgress?: boolean }>
   chooseDirectory(backendUrl: string): Promise<string | undefined>
   revealFile?(backendUrl: string, asset: { readonly digest: string; readonly scope: 'local'; readonly project: string }): Promise<{ readonly mode: 'selected' | 'folder' }>
   revealModelLocation?(backendUrl: string, location: string): Promise<void>
@@ -67,10 +73,11 @@ export interface DinksterDesktopBridge {
     | { readonly status: 'resolved'; readonly asset: AssetRef }
     | { readonly status: 'refused'; readonly reason: 'not-resolvable' | 'not-native-file' | 'unsupported-backend' }
   >
-  importFile?(backendUrl: string, file: File, destination: DesktopFileImport): Promise<
+  importFile?(backendUrl: string, file: File, destination: DesktopFileImport, transfer?: { readonly id: string; onProgress(progress: DesktopFileImportProgress): void }): Promise<
     | { readonly status: 'imported'; readonly asset: AssetRef }
     | { readonly status: 'refused'; readonly reason: 'not-native-file' | 'unsupported-backend' }
   >
+  cancelFileImport?(id: string): Promise<void>
   windowContext(): Promise<DesktopWindowContext>
   windowLayout(): Promise<DesktopWindowLayout>
   openWorkflowWindow(workflowId: string, x?: number, y?: number): Promise<void>
@@ -109,7 +116,7 @@ declare global {
   }
 }
 
-export type DesktopFileBridge = Pick<DinksterDesktopBridge, 'saveFile' | 'fileCapabilities' | 'chooseDirectory' | 'revealFile' | 'revealModelLocation' | 'resolveDroppedFile' | 'importFile'>
+export type DesktopFileBridge = Pick<DinksterDesktopBridge, 'saveFile' | 'fileCapabilities' | 'chooseDirectory' | 'revealFile' | 'revealModelLocation' | 'resolveDroppedFile' | 'importFile' | 'cancelFileImport'>
 
 export function desktopSaveBridge(): { saveFile(bytes: Uint8Array, suggestedName: string): Promise<DesktopSaveResult> } | undefined {
   const saveFile = window.dinksterDesktop?.saveFile
@@ -147,12 +154,38 @@ function nativeAssetRef(value: unknown): AssetRef | undefined {
     ? asset : undefined
 }
 
-/** Only an explicit unsupported/native-file refusal permits streaming instead. */
-export async function importNativeAsset(backendUrl: string, file: File, destination: DesktopFileImport, isCurrent: () => boolean): Promise<AssetRef | undefined> {
+/** Missing native support or an explicit unsupported/native-file refusal permits streaming. */
+export async function importNativeAsset(backendUrl: string, file: File, destination: DesktopFileImport, isCurrent: () => boolean, transfer?: {
+  readonly signal: AbortSignal
+  readonly onProgress?: (progress: DesktopFileImportProgress) => void
+}): Promise<AssetRef | undefined> {
+  transfer?.signal.throwIfAborted()
   const bridge = desktopFileBridge()
   if (!isCurrent() || !bridge?.importFile) return undefined
+  if (transfer?.onProgress && !bridge.cancelFileImport) return undefined
+  let cancel: (() => void) | undefined
+  let active = true
   try {
-    const result = await bridge.importFile(new URL(backendUrl || '/', window.location.href).href, file, destination)
+    const url = new URL(backendUrl || '/', window.location.href).href
+    let pending: ReturnType<NonNullable<DesktopFileBridge['importFile']>>
+    if (transfer && bridge.cancelFileImport) {
+      const id = crypto.randomUUID()
+      pending = bridge.importFile(url, file, destination, {
+        id,
+        onProgress: (progress) => {
+          if (active && !transfer.signal.aborted && isCurrent()) transfer.onProgress?.(progress)
+        },
+      })
+      const cancelFileImport = bridge.cancelFileImport
+      cancel = () => { void cancelFileImport(id).catch(() => {}) }
+      transfer.signal.addEventListener('abort', cancel, { once: true })
+      // Invocation precedes cancellation so Stop cannot arrive before the transfer exists.
+      if (transfer.signal.aborted) cancel()
+    } else {
+      pending = bridge.importFile(url, file, destination)
+    }
+    const result = await pending
+    transfer?.signal.throwIfAborted()
     if (!isCurrent()) return undefined
     if (result?.status === 'refused' && Object.keys(result).length === 2 &&
         ['not-native-file', 'unsupported-backend'].includes(result.reason)) return undefined
@@ -161,7 +194,11 @@ export async function importNativeAsset(backendUrl: string, file: File, destinat
       if (asset !== undefined) return asset
     }
   } catch {
+    transfer?.signal.throwIfAborted()
     throw new Error('Could not import the native file. No byte upload was attempted.')
+  } finally {
+    active = false
+    if (cancel) transfer?.signal.removeEventListener('abort', cancel)
   }
   throw new Error('Invalid native file import response. No byte upload was attempted.')
 }

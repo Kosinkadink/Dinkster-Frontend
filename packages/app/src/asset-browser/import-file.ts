@@ -1,5 +1,5 @@
 import type { AssetUploadDestination, DinksterConnection, MediaAssetRef } from '@dinkster/client'
-import { importNativeAsset, resolveDroppedAsset } from '../desktop-bridge.js'
+import { importNativeAsset, resolveDroppedAsset, type DesktopFileImportProgress } from '../desktop-bridge.js'
 import { model3dMimeFor } from '../model3d-mime.js'
 import { assetUploadPolicy, formatSize, mediaAcceptsFile } from './helpers.js'
 
@@ -9,7 +9,7 @@ function importName(name: string): string {
   return bounded === '' || bounded === '.' || bounded === '..' ? 'upload' : bounded
 }
 
-/** Resolve mounted files first; only an explicit native refusal permits a byte upload. */
+/** Resolve mounted files first; missing native support or an explicit refusal permits byte upload. */
 export async function importAssetFile(file: File, options: {
   readonly baseUrl: string
   readonly connection: DinksterConnection
@@ -19,12 +19,15 @@ export async function importAssetFile(file: File, options: {
   readonly destination: AssetUploadDestination
   readonly current: () => boolean
   readonly signal: AbortSignal
+  readonly onProgress?: (progress: DesktopFileImportProgress) => void
 }): Promise<{ readonly asset: MediaAssetRef; readonly existing: boolean } | undefined> {
   const { accept, kind, policy, current, signal, connection } = options
+  signal.throwIfAborted()
   const effectiveType = model3dMimeFor(file.name, file.type) ?? file.type
   const media = kind === 'media/image' || kind === 'media/audio' || kind === 'media/video' ? kind : undefined
   const latent = kind === 'data/latent'
   const existing = await resolveDroppedAsset(options.baseUrl, file, current)
+  signal.throwIfAborted()
   if (!current()) return undefined
   if (existing && accept.length > 0 && !mediaAcceptsFile(accept, existing.mediaType, existing.name)) {
     throw new Error('The existing file is not compatible with this input. Nothing was uploaded.')
@@ -46,12 +49,14 @@ export async function importAssetFile(file: File, options: {
     mediaType: latent ? 'application/x-comfy-latent' : effectiveType || 'application/octet-stream',
     ...(media !== undefined ? { kind: media } : {}),
     ...(latent ? { kind: 'data/latent' } : destination),
-  }, current)
+  }, current, { signal, ...(options.onProgress ? { onProgress: options.onProgress } : {}) })
+  signal.throwIfAborted()
   if (!current()) return undefined
   const asset = existing ?? imported ?? (media !== undefined
     ? await connection.uploadMediaAsset(file, { scope: 'local', kind: media, name, ...destination, signal })
     : latent
       ? await connection.uploadLatentAsset(file, { scope: 'local', name, signal })
       : await connection.uploadNamedAsset(file, { scope: 'local', name, ...destination, signal }))
+  signal.throwIfAborted()
   return current() ? { asset, existing: existing !== undefined } : undefined
 }
