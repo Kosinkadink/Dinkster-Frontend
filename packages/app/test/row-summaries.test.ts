@@ -105,7 +105,6 @@ describe('a closed row shows its stored value for each retained kind', () => {
     ['BOUNDING_BOX below zero', specOf('BOUNDING_BOX'), { x: -4, y: 0, width: 8, height: 8 }, 'Invalid value'],
     ['IMAGECOMPARE', specOf('IMAGECOMPARE'), null, 'Open image comparison'],
     ['CAMERA_ANGLE_VIEW', specOf('CAMERA_ANGLE_VIEW'), 'front', 'Open camera angle'],
-    ['RESOLUTION_PREVIEW', specOf('RESOLUTION_PREVIEW'), null, 'Resolution preview'],
     ['SAVE_TARGET default', specOf('SAVE_TARGET'), null, 'Default output'],
     ['SAVE_TARGET', specOf('SAVE_TARGET'), { mount: 'renders', prefix: 'session/frame' }, 'renders/session/frame'],
     ['VIDEO_EDIT empty', videoEdit, {}, 'No edits'],

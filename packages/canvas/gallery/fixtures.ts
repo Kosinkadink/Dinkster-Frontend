@@ -221,7 +221,6 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
   widget('markdown', 'MARKDOWN', '# Heading\nBody text'),
   widget('compare', 'IMAGECOMPARE', null),
   widget('camera_angle', 'CAMERA_ANGLE_VIEW', ''),
-  widget('resolution', 'RESOLUTION_PREVIEW', null),
   widget('save_target', 'SAVE_TARGET', null),
   widget('bounding_box', 'BOUNDING_BOX', {
     x: 8,
@@ -755,7 +754,6 @@ export function createCanvasGalleryFixture(
         'list',
         'curve',
         'camera_angle',
-        'resolution',
       ].includes(item.id),
     )
     const checkpoint: InputSpec = {
