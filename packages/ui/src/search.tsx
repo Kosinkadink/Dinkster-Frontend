@@ -394,7 +394,7 @@ export function ProductSearch(props: {
                 <Show when={row.detailIcon}>
                   {(icon) => <ProductIcon icon={icon()} />}
                 </Show>
-                {detail()}
+                <span>{detail()}</span>
               </span>
             )}
           </Show>

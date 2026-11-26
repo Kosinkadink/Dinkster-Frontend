@@ -332,6 +332,12 @@ test('result hierarchy, preview, scrolling, and popovers remain contained at des
     expect(activeId).not.toBeNull()
     const active = page.locator(`#${activeId}`)
     await expect(active).toBeInViewport()
+    const title = active.locator('.dinkster-search-row-title')
+    expect(await title.evaluate((element) => {
+      const context = document.createElement('canvas').getContext('2d')!
+      context.font = getComputedStyle(element).font
+      return element.getBoundingClientRect().width - context.measureText('Palette').width
+    })).toBeGreaterThanOrEqual(0)
     const activeBox = (await active.boundingBox())!
     const resultBox = (await palette.getByRole('listbox', { name: 'Add a node' }).boundingBox())!
     expect(activeBox.y).toBeGreaterThanOrEqual(resultBox.y)
