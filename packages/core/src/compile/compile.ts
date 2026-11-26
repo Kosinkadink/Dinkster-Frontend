@@ -1140,8 +1140,11 @@ function compileImpl(
         return { runtimeId: regionRuntimeId, outputIndex }
       }
       const child = graphOf(childId)
-      // Symmetric with the input side: one boundary matcher (crossing.ts).
-      const match = matchBoundaryItem(boundaryItems(child?.boundary, 'outputs'), ref)
+      // A mixed construct keeps one boundary entry but exposes pins on both sides.
+      const match = matchBoundaryItem([
+        ...boundaryItems(child?.boundary, 'outputs'),
+        ...boundaryItems(child?.boundary, 'inputs').filter((item) => item.binds.kind === 'construct'),
+      ], ref)
       if (!child || !match.ok) {
         const ambiguous = child && !match.ok && match.code === 'ambiguous'
         sink.push(diag(

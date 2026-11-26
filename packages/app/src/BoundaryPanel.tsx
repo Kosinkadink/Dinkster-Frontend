@@ -516,11 +516,11 @@ export function BoundaryPanel(props: { app: AppState }) {
       ? Promise.resolve(true)
       : dispatch('boundary.arrange', { body: arrangeBody(next) }, 'layout')
 
-  /** A field may join a line with room: only fields share a line, and at most four. */
+  /** A field may join a line with room, or move within its existing line. */
   const canJoin = (key: string, line: BoundaryLineEntry): boolean => {
     const row = rowById(key)
     return row !== undefined && row.side === 'inputs' && row.item.binds.kind !== 'construct' && isField(row)
-      && line.rows.length < 4 && !line.rows.some((field) => field.id === key)
+      && (line.rows.length < 4 || line.rows.some((field) => field.id === key))
   }
 
   /** Where an entry dragged to a point would land; undefined keeps the drop it has. */
@@ -535,17 +535,28 @@ export function BoundaryPanel(props: { app: AppState }) {
       return x >= box.left && x <= box.right && y > box.bottom ? { kind: 'slot', index: shown(entries).length } : undefined
     }
     if (hit.closest('.boundary-tree-slot') !== null) return undefined
+    if (hit.closest('.boundary-tree-pocket') !== null) return undefined
     let element = hit.closest<HTMLElement>('[data-entry-id]')
-    // A field of a line lands as its line does, except in the line's pocket.
+    const cell = element?.classList.contains('boundary-tree-cell') ? element : undefined
     if (element?.classList.contains('boundary-tree-cell')) element = element.parentElement?.closest<HTMLElement>('[data-entry-id]') ?? null
     const found = element === null ? undefined : locate(entries, element.dataset.entryId ?? '')
     if (element === null || found === undefined) return undefined
     const slot = (index: number): BoundaryTreeDrop => ({ kind: 'slot', ...(found.section !== undefined ? { section: found.section } : {}), index })
     const at = shown(found.list).indexOf(found.entry)
     const box = element.getBoundingClientRect()
-    // The right end of a line with room is its pocket; the rest of it opens a slot above or below.
-    if (found.entry.kind === 'line' && canJoin(key, found.entry) && x > box.left + box.width * 0.7) {
-      return { kind: 'pocket', line: lineKey(found.entry) }
+    const middle = y > box.top + box.height * 0.2 && y < box.bottom - box.height * 0.2
+    if (found.entry.kind === 'line' && canJoin(key, found.entry) && middle) {
+      const rows = found.entry.rows.filter((row) => row.id !== key)
+      const cellBox = cell?.getBoundingClientRect()
+      const at = rows.findIndex((row) => row.id === cell?.dataset.entryId)
+      const before = at < 0 ? undefined : rows[at + (x > cellBox!.left + cellBox!.width / 2 ? 1 : 0)]?.id
+      return { kind: 'pocket', line: lineKey(found.entry), ...(before !== undefined ? { before } : {}) }
+    }
+    if (found.entry.kind === 'input' && found.entry.id !== key && middle && x > box.left + box.width * 0.7) {
+      const row = rowById(found.entry.id)
+      if (row !== undefined && isField(row) && canJoin(key, { kind: 'line', rows: [found.entry] })) {
+        return { kind: 'pocket', line: found.entry.id }
+      }
     }
     if (found.entry.kind === 'section') {
       const sectionId = sectionKey(found.entry.id)

@@ -1164,10 +1164,10 @@ function occurrenceDriverConflict(doc: WorkflowDocument, graphId: string, to: Li
 
 /**
  * Shared structural validation for connecting `from` -> `to`. Returns an
- * error diagnostic or undefined. Schema-blind (type compat is advisory), but
- * rejects self-loops and reroute cycles so I9 can never break.
+ * error diagnostic or undefined. Type compatibility stays advisory; a
+ * pinless field cannot receive a runtime wire that changes its structure.
  */
-function connectError(def: GraphDef, graphId: string, from: LinkEndpoint, to: LinkEndpoint, what: string): Diagnostic | undefined {
+function connectError(doc: WorkflowDocument, def: GraphDef, graphId: string, from: LinkEndpoint, to: LinkEndpoint, what: string, context: CommandExecutionContext): Diagnostic | undefined {
   const refs = [...endpointRefs(graphId, from, 'output'), ...endpointRefs(graphId, to, 'input')]
   if (isWidgetTapRef(to))
     return err('link.tapTarget', `${what}: widget taps produce, never consume (cannot be a link target)`, refs)
@@ -1182,6 +1182,13 @@ function connectError(def: GraphDef, graphId: string, from: LinkEndpoint, to: Li
       return err('link.selfLoop', `${what}: cannot connect a reroute to itself`, refs)
     if (wouldCreateRerouteCycle(def, from, to.reroute))
       return err('reroute.cycle', `${what}: connection would create a reroute cycle`, refs)
+  }
+  if (isPortEndpoint(to)) {
+    const node = def.nodes[to.node]
+    const schema = node && commandSchemaOf(doc, node.type, context)
+    const input = schema && elabInputsOf(elaborateInterface(schema, node!)).find((input) => input.address.port === to.port)
+    if (input?.spec.socketless === true)
+      return err('link.socketless', `${what}: '${to.port}' has no input pin`, refs)
   }
   return undefined
 }
@@ -1200,7 +1207,7 @@ const linkConnect: CommandDefinition = {
     if (toErr) return [toErr]
     const from = toEndpoint(params.from)
     const to = toEndpoint(params.to)
-    const connErr = connectError(def, graphId, from, to, 'link.connect')
+    const connErr = connectError(doc, def, graphId, from, to, 'link.connect', context)
     if (connErr) return [connErr]
     if (occurrenceDriverConflict(doc, graphId, to))
       return [err('occurrence.topology.definitionReferenced', 'link.connect: an occurrence-local link already drives this input')]
@@ -1263,7 +1270,7 @@ function primitiveCorrectionOf(doc: WorkflowDocument, graphId: string, from: Lin
 
 const linkRewire: CommandDefinition = {
   id: 'link.rewire',
-  run(doc, params, tx) {
+  run(doc, params, tx, context) {
     if (!isObj(params) || typeof params.linkId !== 'string' || !isEndpoint(params.to))
       return [err('params.invalid', 'link.rewire: params must be {graphId, linkId, to: Endpoint}')]
     const def = graphOf(doc, params.graphId)
@@ -1275,7 +1282,7 @@ const linkRewire: CommandDefinition = {
     if (toErr) return [toErr]
     const to = toEndpoint(params.to)
     if (sameEndpoint(link.to, to)) return [] // no-op
-    const connErr = connectError(def, graphId, link.from, to, 'link.rewire')
+    const connErr = connectError(doc, def, graphId, link.from, to, 'link.rewire', context)
     if (connErr) return [connErr]
     if (occurrenceDriverConflict(doc, graphId, to))
       return [err('occurrence.topology.definitionReferenced', 'link.rewire: an occurrence-local link already drives this input')]
@@ -1297,7 +1304,7 @@ const linkRewire: CommandDefinition = {
 
 const linkRewireSource: CommandDefinition = {
   id: 'link.rewireSource',
-  run(doc, params, tx) {
+  run(doc, params, tx, context) {
     if (
       !isObj(params) ||
       !Array.isArray(params.linkIds) ||
@@ -1317,7 +1324,7 @@ const linkRewireSource: CommandDefinition = {
       const link = def.links[linkId]
       if (!link) return [err('link.missing', `link.rewireSource: unknown link '${linkId}'`)]
       if (sameEndpoint(link.from, from)) continue // no-op member
-      const connErr = connectError(def, graphId, from, link.to, 'link.rewireSource')
+      const connErr = connectError(doc, def, graphId, from, link.to, 'link.rewireSource', context)
       if (connErr) return [connErr]
     }
     for (const linkId of linkIds) {

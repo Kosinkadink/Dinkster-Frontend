@@ -86,14 +86,18 @@ export function takeEntry(entries: readonly BoundaryEntry[], key: string): { res
   return taken === undefined ? { rest } : { rest, taken }
 }
 
-/** The body with an entry put where a drop names: a slot among a list's shown entries, or the end of a line. */
+/** The body with an entry put in a slot, or beside a field in a new or existing line. */
 export function putEntry(entries: readonly BoundaryEntry[], drop: BoundaryTreeDrop, entry: BoundaryEntry): BoundaryEntry[] {
   if (drop.kind === 'pocket') {
     if (entry.kind !== 'input') return [...entries]
-    return entries.map((candidate): BoundaryEntry =>
-      candidate.kind === 'line' && lineKey(candidate) === drop.line ? { ...candidate, rows: [...candidate.rows, entry] }
-        : candidate.kind === 'section' ? { ...candidate, rows: putEntry(candidate.rows, drop, entry) }
-          : candidate)
+    return entries.map((candidate): BoundaryEntry => {
+      if (candidate.kind === 'section') return { ...candidate, rows: putEntry(candidate.rows, drop, entry) }
+      const rows = candidate.kind === 'line' && lineKey(candidate) === drop.line ? candidate.rows
+        : candidate.kind === 'input' && candidate.id === drop.line ? [candidate] : undefined
+      if (rows === undefined) return candidate
+      const at = drop.before === undefined ? rows.length : rows.findIndex((row) => row.id === drop.before)
+      return { kind: 'line', rows: [...rows.slice(0, at), entry, ...rows.slice(at)] }
+    })
   }
   const insert = (list: readonly BoundaryEntry[]): BoundaryEntry[] => [...list.slice(0, drop.index), entry, ...list.slice(drop.index)]
   if (drop.section === undefined) return insert(entries)
@@ -105,7 +109,12 @@ export function putEntry(entries: readonly BoundaryEntry[], drop: BoundaryTreeDr
 
 /** Moves one entry to a drop; undefined when the entry is not in the body. */
 export function moveEntry(entries: readonly BoundaryEntry[], key: string, drop: BoundaryTreeDrop): BoundaryEntry[] | undefined {
+  const target = drop.kind === 'pocket' ? locate(entries, drop.line)?.entry : undefined
   const { rest, taken } = takeEntry(entries, key)
+  if (drop.kind === 'pocket' && target?.kind === 'line') {
+    const remaining = target.rows.filter((row) => row.id !== key)
+    drop = { ...drop, line: remaining.length === 1 ? remaining[0]!.id : lineKey({ ...target, rows: remaining }) }
+  }
   return taken === undefined ? undefined : putEntry(rest, drop, taken)
 }
 

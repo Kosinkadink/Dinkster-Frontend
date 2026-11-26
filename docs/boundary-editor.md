@@ -19,7 +19,9 @@ subgraph node or by a wire to the Inputs or Outputs panel.
 
 Pressing a row, line or section and dragging it moves it; a gap opens where it
 would land, and Escape puts it back. Dropping a field on the right end of a
-line with room adds it to the line. Alt with the up or down arrow moves the
+field starts a shared line; dropping into a line's pocket inserts or reorders
+the field there. A line holds at most four fields. Its top and bottom edges
+offer vertical slots to split a field out. Alt with the up or down arrow moves the
 selected entry one place: past its neighbour, into an open section it meets,
 or out of the section or line it ends. **Add section** adds an empty section
 before the outputs that end the tree. Each move is one `boundary.arrange` and

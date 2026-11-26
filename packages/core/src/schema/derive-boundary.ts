@@ -1077,6 +1077,7 @@ export function deriveBoundarySchema(
       // input is satisfiable without a connection.
       optional: satisfiable,
       ...(acceptsList ? { acceptsList: true as const } : {}),
+      ...(promoted && inner.socketless === true ? { socketless: true as const } : {}),
       ...(promotedWidget !== undefined
         ? { widget: promotedWidget }
         : inner.widget !== undefined
@@ -1270,12 +1271,14 @@ export function deriveBoundarySchema(
   // row shows.
   const conditionScope = boundaryConditionScope({ body: derivedItems })
   for (const item of boundaryItems(def.boundary, 'inputs')) {
-    if (item.visible === undefined) continue
+    const visible = item.visible
+    if (visible === undefined) continue
     try {
-      Formula.parse(item.visible.formula, conditionScope)
+      Formula.parse(visible.formula, conditionScope)
+      derivedItems = derivedItems.map((row) => 'id' in row && row.id === item.id ? { ...row, visible } : row)
     } catch (error) {
       if (!(error instanceof FormulaRefused)) throw error
-      diags.push(diag('warning', 'schema', 'boundary.visibleBroken', `[${def.id}] boundary input '${item.id}' shows only when "${item.visible.formula}", which no longer reads: ${error.message}. The row shows until its "Show" is set again.`, { refs: [{ graphId: def.id, portId: item.id }] }))
+      diags.push(diag('warning', 'schema', 'boundary.visibleBroken', `[${def.id}] boundary input '${item.id}' shows only when "${visible.formula}", which no longer reads: ${error.message}. The row shows until its "Show" is set again.`, { refs: [{ graphId: def.id, portId: item.id }] }))
     }
   }
 

@@ -12,6 +12,7 @@ import { boundaryItems, boundaryOf, type BoundaryItem, type GraphDef, type Json,
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId } from '../src/ids.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
+import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 import { inputsOf, type InputSpec, type NodeSchema } from '../src/schema/model.js'
 
 const schemaOf = (type: string, body: NodeSchema['body']): NodeSchema => ({
@@ -145,6 +146,24 @@ describe('boundary row settings', () => {
     expect(Object.values(prompt!).find((node) => node.class_type === 'Blend')?.inputs['strength']).toBe(0.9)
   })
 
+  it('applies a Show condition to each instance, including fields sharing a line', () => {
+    const inner = schemasWith({ min: 0, max: 1 })('Blend')!
+    const resolve = (type: string) => type === 'Blend' ? { ...inner, body: [...inner.body, { ...strengthInput(0, 1), id: 'other' }] } : undefined
+    const store = storeFor(soften([...baseInputs(), item('other', 'other', { promoted: true })]), resolve)
+    expect(store.dispatch({ command: 'boundary.setVisible', params: { graphId: 'sub', itemId: 'strength', formula: 'strength < 0.5' } }).ok).toBe(true)
+    const hidden = (value: number) => elabInputsOf(elaborateInterface(derivedStrength(store.doc, resolve).result.schema!, { values: { strength: value } }))
+      .find((input) => input.spec.id === 'strength')!.hiddenByScope === true
+    expect(hidden(0.2)).toBe(false)
+    expect(hidden(0.8)).toBe(true)
+    expect(store.dispatch({ command: 'boundary.arrange', params: { graphId: 'sub', body: [
+      { kind: 'input', id: 'image' }, { kind: 'input', id: 'mask' },
+      { kind: 'line', rows: [{ kind: 'input', id: 'strength' }, { kind: 'input', id: 'other' }] },
+      { kind: 'output', id: 'out' },
+    ] } }).ok).toBe(true)
+    expect(hidden(0.2)).toBe(false)
+    expect(hidden(0.8)).toBe(true)
+  })
+
   it('refuses a condition that names something other than an input, and reports one whose input was removed', () => {
     const store = storeFor(soften(baseInputs()))
     const refused = store.dispatch({ command: 'boundary.setVisible', params: { graphId: 'sub', itemId: 'strength', formula: 'linked(nope)' } })
@@ -154,6 +173,7 @@ describe('boundary row settings', () => {
     expect(store.dispatch({ command: 'boundary.unbind', params: { graphId: 'sub', side: 'inputs', itemId: 'mask', node: 'blend', port: 'mask' } }).ok).toBe(true)
     const { result, strength } = derivedStrength(store.doc)
     expect(strength).toBeDefined()
+    expect(elabInputsOf(elaborateInterface(result.schema!, { values: {} })).find((input) => input.spec.id === 'strength')!.hiddenByScope).toBeUndefined()
     expect(result.diagnostics.find((d) => d.code === 'boundary.visibleBroken')?.refs).toEqual([{ graphId: 'sub', portId: 'strength' }])
   })
 

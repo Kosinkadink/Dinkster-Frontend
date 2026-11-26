@@ -432,6 +432,30 @@ describe('BoundaryPanel rows and settings', () => {
     unmount()
   })
 
+  it('creates a shared line by dragging fields together and reorders its first field without splitting it', async () => {
+    const { tab, root, unmount } = await mountPanel()
+    const box = { top: 100, bottom: 124, left: 0, right: 300, height: 24, width: 300, x: 0, y: 100, toJSON: () => ({}) }
+    const dragTo = async (id: string, target: HTMLElement) => {
+      vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(box)
+      const line = target.closest<HTMLElement>('.boundary-tree-line')
+      if (line !== null) vi.spyOn(line, 'getBoundingClientRect').mockReturnValue(box)
+      vi.spyOn(document, 'elementFromPoint').mockReturnValue(target.querySelector('.boundary-tree-label'))
+      rowOf(root, id).dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: 10, clientY: 300, bubbles: true }))
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 10, clientY: 290 }))
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 280, clientY: 112 }))
+      window.dispatchEvent(new PointerEvent('pointerup', {}))
+      await idle(root)
+    }
+    const rows = () => tab.store.doc.graphs.sub!.boundary!.body.flatMap((entry) => entry.kind === 'line' ? [entry.rows.map((row) => row.id)] : [])
+    await dragTo('mode', rowOf(root, 'strength'))
+    expect(rows()).toEqual([['strength', 'mode']])
+    await dragTo('strength', rowOf(root, 'mode'))
+    expect(rows()).toEqual([['mode', 'strength']])
+    expect(tab.store.undo()).toBe(true)
+    expect(rows()).toEqual([['strength', 'mode']])
+    unmount()
+  })
+
   it('adds, names and removes a section, which keeps its rows where it was', async () => {
     const { app, tab, root, unmount } = await mountPanel()
     const body = () => tab.store.doc.graphs.sub!.boundary!.body

@@ -76,7 +76,7 @@ export type BoundaryTreeEntry =
  */
 export type BoundaryTreeDrop =
   | { readonly kind: 'slot'; readonly section?: string; readonly index: number }
-  | { readonly kind: 'pocket'; readonly line: string }
+  | { readonly kind: 'pocket'; readonly line: string; readonly before?: string }
 
 /** A row being dragged: it lifts out of the list until it is dropped. */
 export interface BoundaryTreeDrag {
@@ -165,12 +165,21 @@ export function BoundaryTree(props: {
   }
   const press = (id: string) => (event: PointerEvent) => {
     if (event.button !== 0) return
-    if ((event.target as Element).closest('.boundary-tree-chevron, .boundary-tree-tab, a, button, input')) return
+    if (
+      (event.target as Element).closest(
+        '.boundary-tree-chevron, .boundary-tree-tab, a, button, input',
+      )
+    )
+      return
     event.stopPropagation()
     pressDragged = false
     const start = { x: event.clientX, y: event.clientY }
     const move = (moved: PointerEvent) => {
-      if (Math.hypot(moved.clientX - start.x, moved.clientY - start.y) < DRAG_THRESHOLD) return
+      if (
+        Math.hypot(moved.clientX - start.x, moved.clientY - start.y) <
+        DRAG_THRESHOLD
+      )
+        return
       pressDragged = true
       stop()
       props.onDragStart?.(id)
@@ -207,7 +216,11 @@ export function BoundaryTree(props: {
   }) => (
     <>
       <Show when={markProps.condition}>
-        <span class="boundary-tree-mark" data-mark="condition" title={strings.condition}>
+        <span
+          class="boundary-tree-mark"
+          data-mark="condition"
+          title={strings.condition}
+        >
           <ProductIcon icon={Eye} />
         </span>
       </Show>
@@ -282,6 +295,16 @@ export function BoundaryTree(props: {
     const pocket = () =>
       props.drag?.drop?.kind === 'pocket' &&
       props.drag.drop.line === lineProps.line.id
+    const before = () =>
+      props.drag?.drop?.kind === 'pocket' ? props.drag.drop.before : undefined
+    const Pocket = () => (
+      <span class="boundary-tree-pocket">
+        <Dot color={(dragged() as BoundaryTreeRow).color} />
+        <span class="boundary-tree-label">
+          {(dragged() as BoundaryTreeRow).label}
+        </span>
+      </span>
+    )
     return (
       <div
         class="boundary-tree-line"
@@ -298,35 +321,41 @@ export function BoundaryTree(props: {
         </span>
         <For each={lineProps.line.rows.filter((row) => !isDragged(row.id))}>
           {(row) => (
-            <span
-              class="boundary-tree-cell"
-              role="treeitem"
-              aria-level={lineProps.level + 1}
-              aria-selected={props.selected === row.id}
-              tabindex={tabStop(row.id) ? 0 : -1}
-              data-entry-id={row.id}
-              data-inert={row.problem ? '' : undefined}
-              onPointerDown={press(row.id)}
-              onClick={(event) => {
-                event.stopPropagation()
-                select(row.id)()
-              }}
-            >
-              <Dot color={row.color} />
-              <span class="boundary-tree-label" title={row.label}>
-                {row.label}
+            <>
+              <Show
+                when={
+                  pocket() && before() === row.id && dragged()?.kind === 'row'
+                }
+              >
+                <Pocket />
+              </Show>
+              <span
+                class="boundary-tree-cell"
+                role="treeitem"
+                aria-level={lineProps.level + 1}
+                aria-selected={props.selected === row.id}
+                tabindex={tabStop(row.id) ? 0 : -1}
+                data-entry-id={row.id}
+                data-inert={row.problem ? '' : undefined}
+                onPointerDown={press(row.id)}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  select(row.id)()
+                }}
+              >
+                <Dot color={row.color} />
+                <span class="boundary-tree-label" title={row.label}>
+                  {row.label}
+                </span>
+                <Marks condition={row.condition} problem={row.problem} />
               </span>
-              <Marks condition={row.condition} problem={row.problem} />
-            </span>
+            </>
           )}
         </For>
-        <Show when={pocket() && dragged()?.kind === 'row'}>
-          <span class="boundary-tree-pocket">
-            <Dot color={(dragged() as BoundaryTreeRow).color} />
-            <span class="boundary-tree-label">
-              {(dragged() as BoundaryTreeRow).label}
-            </span>
-          </span>
+        <Show
+          when={pocket() && before() === undefined && dragged()?.kind === 'row'}
+        >
+          <Pocket />
         </Show>
       </div>
     )
@@ -349,7 +378,9 @@ export function BoundaryTree(props: {
       aria-level={constructProps.level}
       aria-selected={props.selected === constructProps.construct.id}
       aria-expanded={true}
-      data-entry-id={constructProps.lifted ? undefined : constructProps.construct.id}
+      data-entry-id={
+        constructProps.lifted ? undefined : constructProps.construct.id
+      }
       data-construct={constructProps.construct.construct}
       data-inert={constructProps.construct.problem ? '' : undefined}
       onPointerDown={press(constructProps.construct.id)}
@@ -500,10 +531,27 @@ export function BoundaryTree(props: {
               </Show>
               <Switch>
                 <Match when={entry.kind === 'row'}>
-                  <Row
-                    row={entry as BoundaryTreeRow}
-                    level={entriesProps.level}
-                  />
+                  <Show
+                    when={
+                      props.drag?.drop?.kind === 'pocket' &&
+                      props.drag.drop.line === entry.id
+                    }
+                    fallback={
+                      <Row
+                        row={entry as BoundaryTreeRow}
+                        level={entriesProps.level}
+                      />
+                    }
+                  >
+                    <Line
+                      line={{
+                        kind: 'line',
+                        id: entry.id,
+                        rows: [entry as BoundaryTreeRow],
+                      }}
+                      level={entriesProps.level}
+                    />
+                  </Show>
                 </Match>
                 <Match when={entry.kind === 'line'}>
                   <Line
