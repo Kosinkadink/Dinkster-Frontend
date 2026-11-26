@@ -113,6 +113,7 @@ function Environments() {
       variant: string
       supported: boolean
       reason: string
+      gpus?: readonly string[]
       downloadBytes?: number | undefined
     }[]
   >([])
@@ -166,7 +167,15 @@ function Environments() {
   const change = (key: Field, value: string) => {
     invalidate()
     setFieldErrors((current) => ({ ...current, [key]: undefined }))
-    setValues((current) => ({ ...current, [key]: value }))
+    const gpus =
+      key === 'variant'
+        ? variants().find((choice) => choice.variant === value)?.gpus
+        : undefined
+    setValues((current) => ({
+      ...current,
+      [key]: value,
+      ...(gpus === undefined ? {} : { gpus: gpus.join(',') }),
+    }))
     if (['root', 'channel', 'mirrors', 'gpus'].includes(key)) clearHardware()
     if (key === 'root') resetSandbox()
     if (key === 'host') {
@@ -448,6 +457,10 @@ function Environments() {
     setValues((current) => ({
       ...current,
       variant: result.plan.selected ?? '',
+      gpus:
+        result.plan.selected && result.plan.gpus
+          ? result.plan.gpus.join(',')
+          : current.gpus,
     }))
     setHardware(
       [
