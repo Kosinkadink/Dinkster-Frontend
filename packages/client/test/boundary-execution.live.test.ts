@@ -6,7 +6,12 @@ import {
   coreCommandRegistry,
   DocumentStore,
   documentResolver,
+  lifecycleCanonicalHash,
+  lifecycleFlattenFingerprint,
   loadDocument,
+  planFlattenBoundaryRoutes,
+  planFlattenOccurrenceTopology,
+  type CommandInvocation,
   type Json,
   type WorkflowDocument,
 } from '@dinkster/core'
@@ -112,7 +117,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
           : level === 1
             ? 'second.sample'
             : 'second.detail.sample'
-      const run = async (document: WorkflowDocument = store.doc) => {
+      const run = async (document: WorkflowDocument = store.doc, firstPath = path, includeFirst = true) => {
         const compiled = compile({
           document,
           revision: store.revision,
@@ -165,7 +170,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
             }
             return {
               value,
-              first: await receipt(path),
+              first: includeFirst ? await receipt(firstPath) : null,
               second: await receipt(secondPath),
             }
           }
@@ -402,6 +407,91 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         JSON.stringify(reloaded.diagnostics),
       ).toBeDefined()
       expect((await run(reloaded.document!)).first).toEqual((await run()).first)
+
+      if (level > 0) {
+        const lifecycleBaseline = store.doc
+        const lifecycleRun = await run()
+        const session = () => new DocumentStore(lifecycleBaseline, coreCommandRegistry(), 200, undefined, () => ({
+          kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, registry.resolve),
+        }))
+        const detached = session()
+        expect(detached.dispatch({ command: 'occurrence.localize', params: { graphId: 'root', nodeId: 'first' } }).ok).toBe(true)
+        const copyId = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+        expect(copyId).not.toBe(level === 1 ? 'detail' : 'portrait')
+        expect((await run(detached.doc)).first).toEqual(lifecycleRun.first)
+        expect(detached.dispatch({ command: 'node.setValue', params: {
+          graphId: copyId, nodeId: level === 1 ? 'sample' : 'detail', inputId: 'mode.mix', value: 0.7,
+        } }).ok).toBe(true)
+        const edited = await run(detached.doc)
+        expect(edited.first.mode.mix).toBe(0.7)
+        expect(edited.second.mode.mix).toBe(0.3)
+        expect(edited.first.strength).toBe(0.2)
+        expect(edited.second.strength).toBe(0.8)
+        expect(detached.doc.graphs[level === 1 ? 'detail' : 'portrait']).toEqual(lifecycleBaseline.graphs[level === 1 ? 'detail' : 'portrait'])
+        expect(detached.undo()).toBe(true)
+        expect(detached.undo()).toBe(true)
+        expect((await run(detached.doc)).first).toEqual(lifecycleRun.first)
+
+        for (const mode of ['active', 'muted', 'bypassed'] as const) {
+          const flattened = session()
+          if (mode !== 'active') expect(flattened.dispatch({ command: 'node.setMode', params: { graphId: 'root', nodeIds: ['first'], mode } }).ok).toBe(true)
+          const document = flattened.doc
+          const root = document.graphs.root!
+          const node = root.nodes.first!
+          const body = document.graphs[node.type.slice(1)]!
+          const beforeFlatten = mode === 'bypassed' ? undefined : await run(document, path, mode !== 'muted')
+          const resolve = documentResolver(document, registry.resolve)
+          const plan = planFlattenBoundaryRoutes(body, resolve, node, root)
+          const topology = planFlattenOccurrenceTopology(document, resolve, { instancePath: [], node: node.id })
+          const topologyParams = topology.plan === undefined ? {} : {
+            occurrenceTopologyPlan: topology.plan, occurrenceTopologyPlanDigest: lifecycleCanonicalHash(topology.plan),
+          }
+          const selectionFingerprint = lifecycleFlattenFingerprint(document, 'root', 'first', {
+            boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest, ...topologyParams,
+          })
+          const invocation = { command: 'subgraph.flatten', params: {
+            graphId: 'root', instancePath: [], nodeId: 'first', placementCenter: { x: 100, y: 100 },
+            resolvedGeometry: {
+              occurrence: { id: 'first', kind: 'node', x: 0, y: 0, width: 200, height: 200 },
+              body: Object.keys(body.nodes).map((id) => ({ id, kind: 'node', x: 0, y: 0, width: 200, height: 200 })),
+            },
+            boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaSnapshot: plan.schemaSnapshot,
+            schemaPlanDigest: plan.schemaPlanDigest, selectionFingerprint, ...topologyParams,
+          } } as unknown as CommandInvocation
+          const outcome = flattened.dispatch(invocation)
+          if (mode === 'bypassed') {
+            expect(outcome.ok).toBe(false)
+            expect(outcome.diagnostics.map((entry) => entry.code)).toContain('subgraph.flatten.modeUnsupported')
+            expect(flattened.doc).toBe(document)
+            continue
+          }
+          expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
+          const replacement = Object.values(flattened.doc.graphs.root!.nodes).find((candidate) =>
+            root.nodes[candidate.id] === undefined && candidate.type === (level === 1 ? 'boundary-sample.sample' : '#detail'))!
+          expect(replacement).toBeDefined()
+          const replacementPath = level === 1 ? replacement.id : `${replacement.id}.sample`
+          const after = await run(flattened.doc, replacementPath, mode !== 'muted')
+          expect(after.second).toEqual(lifecycleRun.second)
+          if (mode === 'active') {
+            expect(after.first).toEqual(lifecycleRun.first)
+            expect(after.value('sink', 'received')).toBe('47.0')
+            expect([0, 1, 2, 3].map((index) => after.value(replacementPath, `outputs.o${index}`))).toEqual([10, 20, 30, 40])
+          } else {
+            expect(after.value(replacementPath, 'output91')).toBeUndefined()
+            expect(after.value('sink', 'received')).toBe('null')
+          }
+          expect(flattened.undo()).toBe(true)
+          const undone = await run(flattened.doc, path, mode !== 'muted')
+          expect(undone.first).toEqual(beforeFlatten!.first)
+          expect(undone.second).toEqual(lifecycleRun.second)
+          expect(undone.value('sink', 'received')).toBe(beforeFlatten!.value('sink', 'received'))
+          expect(flattened.redo()).toBe(true)
+          const redone = await run(flattened.doc, replacementPath, mode !== 'muted')
+          expect(redone.first).toEqual(after.first)
+          expect(redone.second).toEqual(lifecycleRun.second)
+          expect(redone.value('sink', 'received')).toBe(after.value('sink', 'received'))
+        }
+      }
     }, 120_000)
   }
 })

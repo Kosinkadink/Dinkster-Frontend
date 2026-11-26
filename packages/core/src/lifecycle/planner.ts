@@ -32,7 +32,7 @@ import {
 import { canonicalJson, sha256Hex } from '../compile/hash.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { constructRowOf, deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
-import type { NodeSchema } from '../schema/model.js'
+import { scopeRowsOf, type NodeSchema } from '../schema/model.js'
 import { DEFAULT_ELAB_BUDGET, elaborateInterface, EMPTY_CONNECTIVITY, valueKeyOf } from '../schema/elaborate.js'
 import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
@@ -161,8 +161,16 @@ export function walkFlattenStoredState(
   const census = elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { promoteGhosts: false, includeDormant: true })
   const error = census.diagnostics.find((entry) => entry.severity === 'error')
   if (error !== undefined) return fail(`${node.type}: ${error.message}`)
-  // A row's boundary route is its top-level row: the first segment of its flattened id.
-  const routeOf = (side: 'input' | 'output', key: string): string => JSON.stringify([side, key.split('.', 1)[0]])
+  const constructs = new Set(census.constructs)
+  const wholeRows = new Set(scopeRowsOf(schema.body).filter((row) =>
+    row.kind === 'group' || row.kind === 'choice' || row.kind === 'typeChoice' || row.kind === 'described').map((row) => row.id))
+  // A whole mixed construct owns both directions under its one boundary row.
+  const routeOf = (side: 'input' | 'output', key: string): string => {
+    const root = key.split('.', 1)[0]!
+    const direct = JSON.stringify([side, root])
+    if (routeIds?.has(direct) || !wholeRows.has(root)) return direct
+    return JSON.stringify([side === 'input' ? 'output' : 'input', root])
+  }
   const allowedValues = new Set<string>()
   const allowedControllers = new Set<string>()
   const allowedPorts = new Map<string, 'input' | 'output'>()
@@ -175,7 +183,6 @@ export function walkFlattenStoredState(
     } else if (item.kind === 'output') allowedPorts.set(item.address.port, 'output')
   }
   if (allowedPorts.size > DEFAULT_ELAB_BUDGET.maxItems) return fail(`${node.type}: schema descriptors exceed the ${DEFAULT_ELAB_BUDGET.maxItems}-item budget`)
-  const constructs = new Set(census.constructs)
   for (const key of valueKeys) {
     if (!allowedValues.has(key)) return fail(`${node.type}: stored value '${key}' has no schema-owned input`)
     if (routeIds !== undefined && !routeIds.has(routeOf('input', key))) return fail(`${node.type}: stored value '${key}' has no unique boundary route`)

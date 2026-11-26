@@ -459,9 +459,9 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
   })
 
   /** Each run node by type, with wires named by their source's type and output, sorted: prompt ids change on flatten. */
-  const runOf = (doc: WorkflowDocument) => {
+  const runOf = (doc: WorkflowDocument, resolve = resolveSchema) => {
     const result = compile({
-      document: doc, revision: 1, resolve: resolveSchema, scope: { kind: 'full' },
+      document: doc, revision: 1, resolve, scope: { kind: 'full' },
       connection: asConnectionId('c0'), schemaHash: 'test',
     })
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
@@ -474,13 +474,13 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     })).sort()
   }
 
-  const flatten = async (doc: WorkflowDocument, graphId: string, instancePath: readonly string[], nodeId: string) => {
-    const session = createLocalSession(doc, coreCommandRegistry(), { schemaResolverFor: () => documentResolver(doc, resolveSchema) })
+  const flatten = async (doc: WorkflowDocument, graphId: string, instancePath: readonly string[], nodeId: string, resolve = resolveSchema) => {
+    const session = createLocalSession(doc, coreCommandRegistry(), { schemaResolverFor: () => documentResolver(doc, resolve) })
     const reports: Diagnostic[] = []
     const ok = await flattenSubgraphThroughBridge({
       document: doc, graphId, instancePath, nodeId,
       occurrence: { id: nodeId, kind: 'node', x: 200, y: 0, width: 140, height: 120 },
-      resolveSchema, seedControllerEnabled: true,
+      resolveSchema: resolve, seedControllerEnabled: true,
       measure: (text) => text.length * 7, widgetMeasure: () => ({ viewId: 'core.line', rows: 1 }),
       report: (diagnostic) => reports.push(diagnostic),
       dispatch: (invocation) => session.dispatch(invocation),
@@ -535,6 +535,42 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     expect(refused.ok).toBe(false)
     expect(refused.session.doc).toEqual(bypassed)
     expect(refused.session.canUndo).toBe(false)
+  })
+
+  it('flattening a described construct retains its input state and output wires and named nets at both depths', async () => {
+    const described = node('Mode', [...schemas.Mode!.body, {
+      kind: 'described', id: 'description', minEntries: 0, maxEntries: 4, fixedIds: true,
+      kinds: [floatField('amount', 0.4), { kind: 'output', id: 'result', type: FLOAT }],
+    }])
+    const sink = node('FloatSink', [{ kind: 'input', id: 'in', type: FLOAT, optional: false }])
+    const resolve = (type: string) => type === 'Mode' ? described : type === 'FloatSink' ? sink : resolveSchema(type)
+    const doc = fixture()
+    const mutable = doc as any
+    mutable.graphs.detail.boundary.body.push({ kind: 'input', ...construct('description', 'm', 'description') })
+    mutable.graphs.portrait.boundary.body.push({ kind: 'input', ...construct('report', 'd', 'description') })
+    mutable.graphs.root.nodes.first.values.report = JSON.stringify({ entries: [
+      { id: 'amount', label: 'Amount', kind: 'amount' }, { id: 'result', label: 'Result', kind: 'result' },
+    ] })
+    mutable.graphs.root.nodes.first.values['report.amount'] = 0.7
+    mutable.graphs.root.nodes.direct = { id: 'direct', type: 'FloatSink', values: {} }
+    mutable.graphs.root.nodes.named = { id: 'named', type: 'FloatSink', values: {} }
+    mutable.graphs.root.links.report = {
+      id: 'report', from: { node: 'first', port: 'report.result' }, to: { node: 'direct', port: 'in' },
+    }
+    mutable.graphs.root.nets = { ...mutable.graphs.root.nets, reportNet: {
+      id: 'reportNet', name: 'Report', source: { node: 'first', port: 'report.result' }, sinks: [{ node: 'named', port: 'in' }],
+    } }
+    const before = runOf(doc, resolve)
+    expect(before.filter((entry) => entry.includes('"class_type":"Mode"'))).toContainEqual(expect.stringContaining('"description.amount":0.7'))
+    for (const [graphId, instancePath, nodeId] of [['root', [], 'first'], ['portrait', ['first'], 'd']] as const) {
+      const { ok, reports, session } = await flatten(doc, graphId, instancePath, nodeId, resolve)
+      expect(ok, JSON.stringify(reports)).toBe(true)
+      expect(runOf(session.doc, resolve)).toEqual(before)
+      expect(session.undo()).toBe(true)
+      expect(runOf(session.doc, resolve)).toEqual(before)
+      expect(session.redo()).toBe(true)
+      expect(runOf(session.doc, resolve)).toEqual(before)
+    }
   })
 
   it('extracting the inner nodes inside the definition keeps them shown whole through the new subgraph node', () => {
