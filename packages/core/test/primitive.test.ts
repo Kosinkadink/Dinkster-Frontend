@@ -203,6 +203,68 @@ describe('a primitive works out its value widget', () => {
       const store = new DocumentStore(document, coreCommandRegistry())
       const effective = (current: WorkflowDocument, nodeId: string) =>
         documentPrimitiveResolver(current, resolve)('g0', current.graphs.g0!.nodes[nodeId]!, [])
+      const delivered = (current: WorkflowDocument) => {
+        const result = compile({ document: current, revision: 1, resolve, scope: { kind: 'full' },
+          connection: 'boundary-limits' as never, schemaHash: 'primitive' })
+        expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+        if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+        return [result.artifact.prompt.a!.inputs.steps, result.artifact.prompt.b!.inputs.count]
+      }
+      const plain = docOf({ first: { type: 'Int', values: { value: 6, minimum: 5 } },
+        second: { type: 'Int', values: { value: 2, minimum: 1 } }, a: { type: 'Steps' }, b: { type: 'Count' },
+      }, [['first', 'INT', 'a', 'steps'], ['second', 'INT', 'b', 'count']])
+      expect(delivered(plain)).toEqual([6, 2])
+      expect(delivered(store.doc), `boundary/primitive/${depth === 1 ? 'one-level' : 'two-levels'} plain reference`).toEqual([6, 2])
+      expect(effective(plain, 'first')?.spec).toEqual(effective(store.doc, 'first')?.spec)
+      expect(effective(plain, 'second')?.spec).toEqual(effective(store.doc, 'second')?.spec)
+
+      const fallback = JSON.parse(JSON.stringify(document)) as WorkflowDocument
+      const outerNode = fallback.graphs.g0!.nodes.first!
+      const innerNode = fallback.graphs.detail!.nodes.prim!
+      const middleNode = depth === 2 ? fallback.graphs.portrait!.nodes.detail! : undefined
+      const withoutOuter = { ...fallback, graphs: { ...fallback.graphs,
+        g0: { ...fallback.graphs.g0!, nodes: { ...fallback.graphs.g0!.nodes, first: { ...outerNode, values: {} } } },
+        detail: { ...fallback.graphs.detail!, nodes: { prim: { ...innerNode, values: { value: 5 } } } },
+        ...(middleNode === undefined ? {} : { portrait: { ...fallback.graphs.portrait!, nodes: { detail: { ...middleNode, values: { amount: 7 } } } } }),
+      } } as WorkflowDocument
+      expect(delivered(withoutOuter), `boundary/primitive/two-instances inherited depth ${depth}`).toEqual([depth === 1 ? 5 : 7, 2])
+      const fallbackStore = new DocumentStore(withoutOuter, coreCommandRegistry())
+      expect(fallbackStore.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: field, value: 9 } }).ok).toBe(true)
+      expect(delivered(fallbackStore.doc)).toEqual([9, 2])
+      expect(fallbackStore.undo()).toBe(true)
+      expect(delivered(fallbackStore.doc)).toEqual([depth === 1 ? 5 : 7, 2])
+      expect(fallbackStore.redo()).toBe(true)
+      expect(delivered(loadDocument(JSON.parse(JSON.stringify(fallbackStore.doc))).document!)).toEqual([9, 2])
+      if (middleNode !== undefined) {
+        const withoutMiddle = { ...withoutOuter, graphs: { ...withoutOuter.graphs,
+          portrait: { ...withoutOuter.graphs.portrait!, nodes: { detail: { ...middleNode, values: {} } } },
+        } } as WorkflowDocument
+        expect(delivered(withoutMiddle), 'boundary/primitive/two-levels inner stored fallback').toEqual([5, 2])
+      }
+      const defaultOnly = { ...withoutOuter, graphs: { ...withoutOuter.graphs,
+        detail: { ...withoutOuter.graphs.detail!, nodes: { prim: { ...innerNode, values: {} } } },
+        ...(middleNode === undefined ? {} : { portrait: { ...withoutOuter.graphs.portrait!, nodes: { detail: { ...middleNode, values: {} } } } }),
+      } } as WorkflowDocument
+      const plainDefault = docOf({ first: { type: 'Int' }, second: { type: 'Int', values: { value: 2 } },
+        a: { type: 'Steps' }, b: { type: 'Count' },
+      }, [['first', 'INT', 'a', 'steps'], ['second', 'INT', 'b', 'count']])
+      expect(delivered(plainDefault)).toEqual([4, 2])
+      expect(delivered(defaultOnly), `boundary/primitive/${depth === 1 ? 'one-level' : 'two-levels'} receiving default`).toEqual([4, 2])
+      const outputGraphId = depth === 1 ? 'detail' : 'portrait'
+      const outputGraph = document.graphs[outputGraphId]!
+      const secondSource = new DocumentStore({ ...document, graphs: { ...document.graphs,
+        [outputGraphId]: { ...outputGraph, nodes: { ...outputGraph.nodes, other: { id: 'other', type: 'Int', values: { value: 11 } } } },
+      } } as WorkflowDocument, coreCommandRegistry())
+      const beforeSecondSource = secondSource.doc
+      for (const command of ['boundary.addBinding', 'boundary.addItem']) {
+        const duplicateSource = secondSource.dispatch({ command, params: {
+          graphId: outputGraphId, side: 'outputs', itemId: 'number', node: 'other', port: 'INT',
+        } })
+        expect(duplicateSource.ok, `boundary/primitive/fan-out duplicate output source depth ${depth} via ${command}`).toBe(false)
+        expect(duplicateSource.diagnostics.map((entry) => entry.code)).toContain(command === 'boundary.addBinding' ? 'boundary.itemMissing' : 'boundary.duplicateId')
+        expect(secondSource.doc).toBe(beforeSecondSource)
+        expect(secondSource.undo()).toBe(false)
+      }
       expect(effective(store.doc, 'first')?.spec?.options).toMatchObject({ min: 5, max: 8 })
       expect(effective(store.doc, 'first')?.derived.has('max')).toBe(true)
       expect(effective(store.doc, 'first')?.derived.has('min')).toBe(false)
