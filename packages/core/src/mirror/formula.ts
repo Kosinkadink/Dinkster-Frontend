@@ -1429,6 +1429,7 @@ class Evaluator {
     private readonly scope: FormulaScope,
     private readonly values: FormulaValues,
     private readonly derivedResults: Map<string, FormulaOutcome>,
+    private readonly availabilityResults = new Map<string, FormulaOutcome>(),
   ) {}
 
   outcome(formula: Formula): FormulaOutcome {
@@ -1448,17 +1449,13 @@ class Evaluator {
     if (this.locals.has(name)) return this.locals.get(name)!
     const derived = formula.derivedFormula(name)
     if (derived !== undefined) {
-      if (this.checkingAvailability) {
-        const evaluator = new Evaluator(this.scope, this.values, new Map())
-        evaluator.checkingAvailability = true
-        const result = evaluator.outcome(derived)
-        if (result.kind !== 'value') throw new Stop(result)
-        return result.value
+      const results = this.checkingAvailability ? this.availabilityResults : this.derivedResults
+      if (!results.has(name)) {
+        const evaluator = new Evaluator(this.scope, this.values, this.derivedResults, this.availabilityResults)
+        evaluator.checkingAvailability = this.checkingAvailability
+        results.set(name, evaluator.outcome(derived))
       }
-      if (!this.derivedResults.has(name)) {
-        this.derivedResults.set(name, new Evaluator(this.scope, this.values, this.derivedResults).outcome(derived))
-      }
-      const result = this.derivedResults.get(name)!
+      const result = results.get(name)!
       if (result.kind !== 'value') throw new Stop(result)
       return result.value
     }
