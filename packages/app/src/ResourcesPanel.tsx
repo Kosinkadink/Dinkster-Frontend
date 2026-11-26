@@ -184,10 +184,10 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
               <div class="dinkster-metadata">{message('resources.loadedOnCard')}</div>
               <For each={models(device).map((model) => model.key)}>{(key) => {
                 const model = () => models(device).find((entry) => entry.key === key)!
-                return <div class="dinkster-resource-model"><span title={model().item.displayName}>{model().item.displayName}</span><span>{gb(model().bytes)}</span><Show when={model().item.inUse === true} fallback={<ProductButton intent="remove" disabled={pending() || stale()} aria-label={message('memory.action.unloadModel', { model: model().item.displayName })} onClick={() => {
+                return <div class="dinkster-resource-model"><span title={model().item.displayName}>{model().item.displayName}</span><span>{gb(model().bytes)}</span><span class="dinkster-resource-model-action"><span aria-hidden="true">{message('resources.unload')}</span><Show when={model().item.inUse === true} fallback={<ProductButton intent="remove" disabled={pending() || stale()} aria-label={message('memory.action.unloadModel', { model: model().item.displayName })} onClick={() => {
                   const selected = model()
                   setConfirmUnload(() => () => connection().unloadMemory(device, selected.consumer, selected.item.itemId))
-                }}>{message('resources.unload')}</ProductButton>}><span class="dinkster-metadata">{message('resources.inUse')}</span></Show></div>
+                }}>{message('resources.unload')}</ProductButton>}><span>{message('resources.inUse')}</span></Show></span></div>
               }}</For>
             </Show>
           </section>
