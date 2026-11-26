@@ -37,13 +37,51 @@ export function ProductAuthCard(props: {
   children: JSX.Element
   footer?: JSX.Element
 }) {
+  let card!: HTMLElement
+  let content!: HTMLDivElement
+  onMount(() => {
+    let height = card.getBoundingClientRect().height
+    let animation: Animation | undefined
+    const observer = new ResizeObserver(() => {
+      const style = getComputedStyle(card)
+      const next =
+        content.getBoundingClientRect().height +
+        parseFloat(style.paddingTop) +
+        parseFloat(style.paddingBottom) +
+        parseFloat(style.borderTopWidth) +
+        parseFloat(style.borderBottomWidth)
+      if (next === height) return
+      const from =
+        animation?.playState === 'running'
+          ? card.getBoundingClientRect().height
+          : height
+      animation?.cancel()
+      height = next
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      // Animate the measured change, then return to intrinsic height.
+      animation = card.animate(
+        [{ height: `${from}px` }, { height: `${next}px` }],
+        {
+          duration: 200,
+          easing: components.motion.easing,
+        },
+      )
+    })
+    observer.observe(content)
+    onCleanup(() => {
+      observer.disconnect()
+      animation?.cancel()
+    })
+  })
   return (
     <main class="dinkster-auth">
       <div class="dinkster-auth-column">
         <ProductWordmark />
-        <section class="dinkster-auth-card" aria-label={props.title}>
-          <h1 class="dinkster-title">{props.title}</h1>
-          {props.children}
+        <section ref={card} class="dinkster-auth-card" aria-label={props.title}>
+          <div ref={content} class="dinkster-auth-card-content">
+            <h1 class="dinkster-title">{props.title}</h1>
+            {props.children}
+          </div>
         </section>
         {props.footer}
       </div>

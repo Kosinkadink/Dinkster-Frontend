@@ -268,6 +268,11 @@ for (const width of [1280, 1440, 1920, 390]) {
     const card = page.locator('.dinkster-auth-card')
     await expect(card).toBeVisible()
     expect(
+      await page
+        .locator('.dinkster-wordmark')
+        .evaluate((element) => element.getBoundingClientRect().top),
+    ).toBe(200)
+    expect(
       await card.evaluate((element) => element.getBoundingClientRect().width),
     ).toBe(Math.min(440, width - 32))
     await expect(page.locator('.dinkster-auth-footer')).toContainText(
@@ -309,6 +314,99 @@ for (const width of [1280, 1440, 1920, 390]) {
     await expect(
       page.getByRole('button', { name: 'Sign in', exact: true }),
     ).toBeDisabled()
+  })
+}
+
+for (const motion of ['no-preference', 'reduce'] as const) {
+  test(`sign-in card stays anchored and grows downward with ${motion} motion`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: motion })
+    await page.setViewportSize({ width: 390, height: 220 })
+    const model: AccountModel = {
+      ...structuredClone(profile),
+      screen: {
+        id: 'sign-in',
+        layout: 'card',
+        blocks: [{ t: 'h1', text: 'Sign in' }],
+      },
+    }
+    await open(page, model)
+    const before = await page.locator('.dinkster-auth-card').boundingBox()
+    expect(before).not.toBeNull()
+    expect(
+      await page
+        .locator('.dinkster-wordmark')
+        .evaluate((element) => element.getBoundingClientRect().top),
+    ).toBe(48)
+    const samples = await page.evaluate(async () => {
+      const current = window as unknown as {
+        model: AccountModel
+        view: {
+          load(
+            model: AccountModel,
+            read: () => Promise<AccountModel>,
+          ): Promise<void>
+        }
+      }
+      const next = structuredClone(current.model)
+      next.screen.blocks.push(
+        { t: 'field', id: 'username', label: 'Username or email' },
+        { t: 'field', id: 'password', kind: 'password', label: 'Password' },
+        { t: 'button', text: 'Sign in', press: 'commits' },
+      )
+      void current.view.load(current.model, async () => next)
+      const frames: {
+        top: number
+        bottom: number
+        heading: number
+        logo: number
+      }[] = []
+      const start = performance.now()
+      while (performance.now() - start < 350) {
+        await new Promise(requestAnimationFrame)
+        const card = document
+          .querySelector('.dinkster-auth-card')!
+          .getBoundingClientRect()
+        frames.push({
+          top: card.top,
+          bottom: card.bottom,
+          heading: document.querySelector('h1')!.getBoundingClientRect().top,
+          logo: document
+            .querySelector('.dinkster-wordmark')!
+            .getBoundingClientRect().top,
+        })
+      }
+      return frames
+    })
+    expect(new Set(samples.map((frame) => frame.top)).size).toBe(1)
+    expect(new Set(samples.map((frame) => frame.heading)).size).toBe(1)
+    expect(new Set(samples.map((frame) => frame.logo)).size).toBe(1)
+    const final = samples.at(-1)!.bottom
+    expect(final).toBeGreaterThan(before!.y + before!.height + 100)
+    if (motion === 'no-preference') {
+      expect(
+        samples.some(
+          (frame) =>
+            frame.bottom > before!.y + before!.height + 1 &&
+            frame.bottom < final - 1,
+        ),
+      ).toBe(true)
+    } else {
+      expect(
+        samples.every(
+          (frame) =>
+            frame.bottom === before!.y + before!.height ||
+            frame.bottom === final,
+        ),
+      ).toBe(true)
+    }
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollHeight > innerHeight,
+      ),
+    ).toBe(true)
   })
 }
 
