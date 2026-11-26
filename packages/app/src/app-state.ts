@@ -7804,7 +7804,7 @@ export class AppState {
    */
   async clearRunHistory(owner: string): Promise<number> {
     const backend = this.ownedLibraryBackend(owner)
-    if (!backend) return 0
+    if (!backend) throw new Error('The backend is no longer available.')
     try {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
@@ -7813,7 +7813,7 @@ export class AppState {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
       ])
-      return 0
+      throw e
     } finally {
       await this.confirmRemovedHistoryExecutions(backend)
       this.backendsTick.update((v) => v + 1)

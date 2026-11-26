@@ -311,8 +311,11 @@ describe('BoundaryPanel rows and settings', () => {
     expect(root.querySelector('[data-testid="boundary-show-on-canvas"]')?.textContent).toBe('image on Blend, and 1 more')
     root.querySelector<HTMLButtonElement>('[data-testid="boundary-remove"]')!.click()
     expect(dispatch).not.toHaveBeenCalled()
-    expect(root.querySelector('[data-testid="boundary-remove-confirm"]')?.textContent).toContain('This changes it in 2 places.')
-    root.querySelector<HTMLButtonElement>('[data-testid="boundary-remove-yes"]')!.click()
+    expect(root.querySelector('[data-testid="boundary-remove-confirm"]')?.textContent).toContain('The row is removed in 2 places; the nodes inside stay unchanged.')
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>('[data-testid="boundary-remove-confirm"] button')]
+    await Promise.resolve()
+    expect(document.activeElement).toBe(buttons.find((button) => button.textContent === 'Cancel'))
+    buttons.find((button) => button.textContent === 'Remove row')!.click()
     await idle(root)
     expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'batch', params: { invocations: [
       { command: 'boundary.unbind', params: { graphId: 'sub', side: 'inputs', itemId: 'image', node: 'n2', port: 'image' } },

@@ -46,7 +46,7 @@ import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
+import { ProductConfirmation, ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import type { ShellNavigation } from './Shell.js'
@@ -686,34 +686,34 @@ export function App(props: {
     if (actionId === 'open') void app.openRunWorkflow(runId, entry.owner)
     if (actionId === 'resubmit') void app.resubmitRunWorkflow(runId, entry.owner)
   }
-  // Clearing the whole runs scope is destructive: the button arms on the
-  // first click ("Confirm clear") and executes only on a second click
-  // within the arming window - no native dialogs, no accidental wipes.
-  // Both clicks act on the COMMITTED page's owner (the backend whose runs
-  // are actually on screen, handed over by CollectionPanel) - never on
-  // whatever backend is current when the click lands. While a replacement
-  // page is in flight the panel disables the button AND reports no owner,
-  // so old items lingering during a backend switch can never route a
-  // clear to the incoming backend; if the page owner changes between arm
-  // and confirm, the confirm re-arms instead of clearing a scope the user
-  // never looked at.
-  const [clearArmed, setClearArmed] = createSolidSignal(false)
-  let clearArmTimer: ReturnType<typeof setTimeout> | undefined
-  let clearArmOwner: string | undefined
+  // The confirmation keeps the committed collection page's owner, never
+  // routing a clear to a backend selected while that page is being replaced.
+  const [pendingClear, setPendingClear] = createSolidSignal<{ owner: string; name: string }>()
+  const [clearing, setClearing] = createSolidSignal(false)
+  const [clearError, setClearError] = createSolidSignal('')
   const librarySourceAction = (sourceId: string, actionId: string, owner?: string): void => {
-    if (sourceId !== 'runs' || actionId !== 'clear') return
-    if (owner === undefined) return
-    if (!clearArmed() || clearArmOwner !== owner) {
-      clearArmOwner = owner
-      setClearArmed(true)
-      if (clearArmTimer !== undefined) clearTimeout(clearArmTimer)
-      clearArmTimer = setTimeout(() => setClearArmed(false), 4000)
-      return
+    if (sourceId !== 'runs' || actionId !== 'clear' || owner === undefined || clearing()) return
+    const backend = backends().find((candidate) => candidate.id === owner)
+    if (backend) {
+      setClearError('')
+      setPendingClear({ owner, name: backend.label })
     }
-    if (clearArmTimer !== undefined) clearTimeout(clearArmTimer)
-    setClearArmed(false)
-    void app.clearRunHistory(owner)
   }
+  const confirmClear = async (): Promise<void> => {
+    const target = pendingClear()
+    if (!target || clearing()) return
+    setClearing(true)
+    setClearError('')
+    try {
+      await app.clearRunHistory(target.owner)
+      setPendingClear(undefined)
+    } catch (cause) {
+      setClearError(message('runs.clear.failed', { reason: cause instanceof Error ? cause.message : String(cause) }))
+    } finally { setClearing(false) }
+  }
+  createEffect(() => {
+    if (!clearing() && pendingClear()?.owner !== activeBackend().id) setPendingClear(undefined)
+  })
   const multiBackend = () => backends().length > 1
 
   // Pending close is validated by (id, DocumentSession): a same-id
@@ -1700,17 +1700,18 @@ export function App(props: {
         </RunSection>
       </Show>
       <Show when={shownRunScope() === 'workflow'} fallback={<>
-        <Show when={clearArmed() && clearArmOwner === activeBackend().id}>
-          <ProductNotice tone="info" testId="runs-clear-confirmation">{message('runs.clear.confirmation')}</ProductNotice>
-        </Show>
         <h3 class="run-section-title">{message('runs.section.finished')}</h3>
+        <Show when={pendingClear()}>{(target) => <ProductConfirmation
+          title={message('runs.clear.title', { backend: target().name })} consequence={message('runs.clear.confirmation')}
+          actionLabel={message('runs.clear.action')} intent="remove" pending={clearing()} error={clearError()}
+          onCancel={() => { setClearError(''); setPendingClear(undefined) }} onConfirm={() => void confirmClear()} />}</Show>
         <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
             ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
           entryContent={(entry, selected) => <StoredRun entry={entry()} selected={selected} />}
           onAction={libraryEntryAction}
-          sourceActions={[{ sourceId: 'runs', id: 'clear', label: message(clearArmed() ? 'runs.clear.confirm' : 'runs.clear.action') }]}
+          sourceActions={pendingClear() ? [] : [{ sourceId: 'runs', id: 'clear', label: message('runs.clear.action') }]}
           onSourceAction={librarySourceAction} />
       </>}>
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>

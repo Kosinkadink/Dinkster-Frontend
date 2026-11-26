@@ -51,15 +51,6 @@
 .boundary-limit .product-number-field { text-align: right; font-variant-numeric: tabular-nums; }
 .boundary-limits-inside { flex-basis: 100%; }
 .boundary-default-text { min-width: 0; color: var(--dinkster-text-primary); overflow-wrap: anywhere; }
-.boundary-remove-confirm {
-  display: grid;
-  gap: var(--dinkster-space-8);
-  padding: var(--dinkster-space-8);
-  border: 1px solid var(--dinkster-danger-border);
-  border-radius: var(--dinkster-radius-control);
-  background: var(--dinkster-danger-background);
-  color: var(--dinkster-text-primary);
-}
 
 .boundary-section-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); }
 .boundary-eyebrow {

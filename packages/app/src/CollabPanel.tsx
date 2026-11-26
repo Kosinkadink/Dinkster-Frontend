@@ -2,7 +2,8 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid
 import type { CollabSessionDescriptor, SharedSessionStatus } from '@dinkster/core'
 import type { AppState, CollabTabState, Tab } from './app-state.js'
 import { actorColor, actorLabel } from './collab-presence.js'
-import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductNotice } from './ProductForm.js'
+import { ProductConfirmation } from '@dinkster/ui'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState, ProductListRow, ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
@@ -57,7 +58,6 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
   let unsharedState: HTMLElement | undefined
   let currentSessionCard: HTMLElement | undefined
   let endButton: HTMLButtonElement | undefined
-  let confirmEndButton: HTMLButtonElement | undefined
   let panel: HTMLDivElement | undefined
   let refreshRevision = 0
   let refreshQueued = false
@@ -239,7 +239,6 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
     setConfirmingEnd(sessionId)
     setFailure('end', undefined)
     setAnnouncement('Confirm ending this session for everyone.')
-    focusSoon(() => confirmEndButton)
   }
 
   const cancelEnd = (): void => {
@@ -467,25 +466,10 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                   </div>
                 }>
                   <div class="collab-end-confirm" data-testid="collab-end-confirm" role="group" aria-label="Confirm ending session">
-                    <ProductNotice tone="warning">
-                      Everyone will be disconnected. Their current workflow stays open locally.
-                    </ProductNotice>
-                    <ProductActionFooter>
-                      <button type="button" data-testid="collab-end-cancel" disabled={isPending('end')} onClick={cancelEnd}>Cancel</button>
-                      <button
-                        ref={confirmEndButton}
-                        type="button"
-                        class="danger"
-                        data-testid="collab-end-confirm-button"
-                        data-action-state={isPending('end') ? 'pending' : 'idle'}
-                        aria-busy={isPending('end')}
-                        aria-disabled={isPending('end')}
-                        onClick={() => end(tabId, entry.descriptor.sessionId)}
-                      >
-                        <Show when={isPending('end')}><span class="collab-spinner" aria-hidden="true" /></Show>
-                        {isPending('end') ? 'Ending session...' : 'End session for everyone'}
-                      </button>
-                    </ProductActionFooter>
+                    <ProductConfirmation title={message('collab.end.title', { name: activeTab()?.title ?? entry.descriptor.sessionId })}
+                      consequence={message('collab.end.consequence')} actionLabel={message('collab.end.action')} intent="remove"
+                      pending={isPending('end')} error={failureFor('end')} onCancel={cancelEnd}
+                      onConfirm={() => end(tabId, entry.descriptor.sessionId)} />
                   </div>
                 </Show>
               </article>
@@ -495,7 +479,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
         <Show when={failureFor('leave')}>{(message) => (
           <ProductNotice tone="error" testId="collab-leave-error">Leave failed: {message()}</ProductNotice>
         )}</Show>
-        <Show when={failureFor('end')}>{(message) => (
+        <Show when={!confirmingEnd() && failureFor('end')}>{(message) => (
           <ProductNotice tone="error" testId="collab-end-error">End failed: {message()}</ProductNotice>
         )}</Show>
       </section>
