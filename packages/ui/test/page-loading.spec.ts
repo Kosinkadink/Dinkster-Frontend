@@ -354,18 +354,29 @@ test('known project detail stays fixed while loading is centered without coverin
     const panel = section.locator('.dinkster-projects-detail')
     const known = section.locator('.dinkster-page-load-known')
     const before = await known.boundingBox()
-    const bounds = (await panel.boundingBox())!
+    const content = await section
+      .locator('.dinkster-page-load')
+      .evaluate((host) => {
+        const box = host.getBoundingClientRect()
+        const style = getComputedStyle(host)
+        return {
+          left: box.left + parseFloat(style.paddingLeft),
+          right: box.right - parseFloat(style.paddingRight),
+          top: box.top + parseFloat(style.paddingTop),
+          bottom: box.bottom - parseFloat(style.paddingBottom),
+        }
+      })
     await section.getByRole('button', { name: 'Read project detail' }).click()
     await page.clock.runFor(220)
     const sign = section.getByRole('status')
     await expect(sign).toHaveCount(1)
     const knownBottom = before!.y + before!.height
-    const middle = bounds.y + bounds.height / 2
+    const middle = (content.top + content.bottom) / 2
     expect(width === 1280 ? knownBottom < middle : knownBottom > middle).toBe(
       true,
     )
     const expectedY =
-      width === 1280 ? middle : (knownBottom + bounds.y + bounds.height) / 2
+      width === 1280 ? middle : (knownBottom + content.bottom) / 2
     await expect
       .poll(async () => {
         const box = (await sign.boundingBox())!
@@ -374,7 +385,7 @@ test('known project detail stays fixed while loading is centered without coverin
       .toBeLessThan(1)
     const box = (await sign.boundingBox())!
     expect(
-      Math.abs(box.x + box.width / 2 - bounds.x - bounds.width / 2),
+      Math.abs(box.x + box.width / 2 - (content.left + content.right) / 2),
     ).toBeLessThan(1)
     expect(box.y).toBeGreaterThanOrEqual(knownBottom)
     expect(await known.boundingBox()).toEqual(before)

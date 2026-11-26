@@ -67,10 +67,19 @@ export function ProductPageLoad<T>(props: {
   let observer: ResizeObserver | undefined
   const placeLoading = () => {
     if (!host || !known || !loading) return
+    const padding = getComputedStyle(host)
+    const contentTop = parseFloat(padding.paddingTop)
+    const contentBottom = host.clientHeight - parseFloat(padding.paddingBottom)
     const bottom = known.offsetTop + known.offsetHeight
     const top =
-      bottom + loading.offsetHeight / 2 > host.clientHeight / 2 ? bottom : 0
-    loading.parentElement!.style.top = `${top}px`
+      bottom + loading.offsetHeight / 2 > (contentTop + contentBottom) / 2
+        ? bottom
+        : contentTop
+    const region = loading.parentElement!
+    region.style.top = `${top}px`
+    region.style.bottom = padding.paddingBottom
+    region.style.left = padding.paddingLeft
+    region.style.right = padding.paddingRight
   }
   onMount(() => {
     if (!known) return
