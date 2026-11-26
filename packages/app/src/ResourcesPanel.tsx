@@ -184,10 +184,10 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
               <div class="dinkster-metadata">{message('resources.loadedOnCard')}</div>
               <For each={models(device).map((model) => model.key)}>{(key) => {
                 const model = () => models(device).find((entry) => entry.key === key)!
-                return <div class="dinkster-resource-model"><span title={model().item.displayName}>{model().item.displayName}</span><span>{gb(model().bytes)}</span><ProductButton intent="remove" disabled={pending() || stale()} aria-label={message('memory.action.unloadModel', { model: model().item.displayName })} onClick={() => {
+                return <div class="dinkster-resource-model"><span title={model().item.displayName}>{model().item.displayName}</span><span>{gb(model().bytes)}</span><Show when={model().item.inUse === true} fallback={<ProductButton intent="remove" disabled={pending() || stale()} aria-label={message('memory.action.unloadModel', { model: model().item.displayName })} onClick={() => {
                   const selected = model()
                   setConfirmUnload(() => () => connection().unloadMemory(device, selected.consumer, selected.item.itemId))
-                }}>{message('resources.unload')}</ProductButton></div>
+                }}>{message('resources.unload')}</ProductButton>}><span class="dinkster-metadata">{message('resources.inUse')}</span></Show></div>
               }}</For>
             </Show>
           </section>
@@ -235,7 +235,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
             <Show when={granted('memory-headroom') && headroom() !== undefined}><div class="dinkster-resource-limit-control"><span>{message('resources.keepFree')}</span><ProductSlider ariaLabel={message('resources.keepFree')} min={0} max={Math.max(...cards().map((device) => status()!.memoryGovernor![device]!.measured?.totalBytes ?? 0), headroom()!, 1024 ** 3)} step={64 * 1024 ** 2} value={headroomDraft() ?? headroom()!} disabled={pending() || stale()} onInput={setHeadroomDraft} onCommit={(value) => void update('memory-headroom', value)} /><span>{gb(headroomDraft() ?? headroom()!)}</span></div></Show>
           </ProductDisclosure>
         </Show>
-        <Show when={unload().length > 0 && details() !== undefined}><ProductButton intent="remove" disabled={stale() || pending()} onClick={() => setConfirmUnload(() => async () => { for (const device of unload()) await connection().unloadMemory(device) })}>{message('memory.action.unloadAll')}</ProductButton></Show>
+        <Show when={unload().length > 0 && details() !== undefined}><ProductButton intent="remove" disabled={stale() || pending()} onClick={() => setConfirmUnload(() => async () => { for (const device of unload()) await connection().unloadMemory(device) })}>{message('resources.unloadUnused')}</ProductButton></Show>
         <Show when={confirmUnload()}><div class="dinkster-stack"><span>{message('resources.confirmUnload')}</span><div class="dinkster-actions"><ProductButton intent="remove" fill="solid" pending={pending()} onClick={() => void act(confirmUnload()!)}>{message('resources.unload')}</ProductButton><ProductButton onClick={() => setConfirmUnload(undefined)}>{message('shell.action.cancel')}</ProductButton></div></div></Show>
       </div>
     </Show>
