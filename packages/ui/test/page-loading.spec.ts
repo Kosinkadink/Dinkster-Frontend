@@ -335,3 +335,71 @@ test('project headings and actions stay mounted while rows and facts arrive and 
     section.getByRole('group', { name: 'Loaded project facts' }),
   ).toHaveScreenshot('project-answer-facts-narrow.png')
 })
+
+test('known project detail stays fixed while loading is centered without covering it', async ({
+  page,
+}, testInfo) => {
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.emulateMedia({
+      reducedMotion: width === 390 ? 'reduce' : 'no-preference',
+    })
+    await page.goto('/#page-loading')
+    await page.goto('/#project-loading')
+    const section = page.getByRole('region', {
+      name: 'Project detail loading',
+      exact: true,
+    })
+    await section.scrollIntoViewIfNeeded()
+    const panel = section.locator('.dinkster-projects-detail')
+    const known = section.locator('.dinkster-page-load-known')
+    const before = await known.boundingBox()
+    const bounds = (await panel.boundingBox())!
+    await section.getByRole('button', { name: 'Read project detail' }).click()
+    await page.clock.runFor(220)
+    const sign = section.getByRole('status')
+    await expect(sign).toHaveCount(1)
+    const knownBottom = before!.y + before!.height
+    const middle = bounds.y + bounds.height / 2
+    expect(width === 1280 ? knownBottom < middle : knownBottom > middle).toBe(
+      true,
+    )
+    const expectedY =
+      width === 1280 ? middle : (knownBottom + bounds.y + bounds.height) / 2
+    await expect
+      .poll(async () => {
+        const box = (await sign.boundingBox())!
+        return Math.abs(box.y + box.height / 2 - expectedY)
+      })
+      .toBeLessThan(1)
+    const box = (await sign.boundingBox())!
+    expect(
+      Math.abs(box.x + box.width / 2 - bounds.x - bounds.width / 2),
+    ).toBeLessThan(1)
+    expect(box.y).toBeGreaterThanOrEqual(knownBottom)
+    expect(await known.boundingBox()).toEqual(before)
+    await panel.screenshot({
+      path: testInfo.outputPath(`${width}-waiting.png`),
+    })
+    await page.clock.runFor(780)
+    await expect(sign).toHaveCount(0)
+    await expect(
+      section.getByText('Three workflows are ready to open.'),
+    ).toBeVisible()
+    expect(await known.boundingBox()).toEqual(before)
+    await expect(known).toHaveCSS('animation-name', 'none')
+    const answer = section.locator('.dinkster-page-load-answer')
+    await expect(answer).toHaveCSS(
+      'animation-name',
+      width === 390 ? 'none' : 'dinkster-page-rise',
+    )
+    await panel.screenshot({ path: testInfo.outputPath(`${width}-answer.png`) })
+    await section.getByRole('button', { name: 'Read project detail' }).click()
+    await page.clock.runFor(220)
+    await expect(sign).toHaveCount(0)
+    await expect(
+      section.getByText('Three workflows are ready to open.'),
+    ).toBeVisible()
+    await page.clock.runFor(780)
+  }
+})
