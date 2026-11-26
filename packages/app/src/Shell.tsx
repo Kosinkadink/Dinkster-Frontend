@@ -16,6 +16,8 @@
  * frame in.
  */
 import { createSignal, onCleanup, onMount, Show, type Accessor, type JSX } from 'solid-js'
+import { asConnectionId } from '@dinkster/core'
+import { DinksterConnection } from '@dinkster/client'
 import { activeProjectId } from './projects.js'
 import {
   openPath,
@@ -66,7 +68,7 @@ export type ProjectsPageComponent = (props: { readonly shell: ShellNavigation })
 export const projectsPage: ProjectsPageComponent | undefined = ProjectsPage
 
 /** Mounts one project's editor into ``host``; resolves once it has drawn, with its disposer. */
-export type MountEditor = (projectId: string, host: HTMLElement, shell: ShellNavigation) => Promise<() => void>
+export type MountEditor = (projectId: string, host: HTMLElement, shell: ShellNavigation, initialProjectName?: string) => Promise<() => void>
 
 const reducedMotion = (): boolean => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -207,7 +209,7 @@ export function Shell(props: {
     coverElement.style.clipPath = ''
   }
 
-  const mount = async (projectId: string, run: number): Promise<void> => {
+  const mount = async (projectId: string, run: number, initialProjectName?: string): Promise<void> => {
     // A project scope cannot overlap the editor still being built for an older open.
     await mounting.catch(() => undefined)
     if (run !== attempt || editorProject() === projectId) return
@@ -216,7 +218,7 @@ export function Shell(props: {
       disposeEditor = undefined
       setEditorProject(undefined)
       try {
-        const dispose = await props.mountEditor(projectId, editorHost, navigation)
+        const dispose = await props.mountEditor(projectId, editorHost, navigation, initialProjectName)
         if (run !== attempt) dispose()
         else {
           disposeEditor = dispose
@@ -284,7 +286,14 @@ export function Shell(props: {
     const starting = installation !== undefined && !sameInstallation(openInstallation, installation)
     const line = starting ? message('shell.opening.starting', { installation: nameOf(installation) }) : message('shell.opening.here')
     setOpening({ projectId, line })
+    let initialProjectName: string | undefined
     try {
+      if (starting) {
+        // Home serves the library now; during engine startup it may refuse project reads.
+        const connection = new DinksterConnection({ id: asConnectionId('project-opening'), baseUrl: '', clientId: 'project-opening' })
+        initialProjectName = (await connection.getProject(projectId)).name
+        if (run !== attempt) return
+      }
       if (installation !== undefined) await openInstallationEngine(installation)
     } catch (error) {
       if (run === attempt && installation !== undefined) setOpening(failedOpening({ projectId, line }, installation, error))
@@ -302,7 +311,7 @@ export function Shell(props: {
       release = holdOldEditor()
     }
     try {
-      await mount(projectId, run)
+      await mount(projectId, run, initialProjectName)
       await projectNamed(run)
     } catch (error) {
       if (run !== attempt) return

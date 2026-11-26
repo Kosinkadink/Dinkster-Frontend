@@ -115,9 +115,9 @@ async function bootstrap(): Promise<void> {
   if (home !== undefined && projectsPage !== undefined) {
     // The projects page shares the editor's frame; it follows the persisted theme and language.
     bindPersistedLocale(globalThis.localStorage, document.documentElement, navigator.language)
-    render(() => <Shell home={home} page={projectsPage!} mountEditor={async (projectId, host, shell) => {
+    render(() => <Shell home={home} page={projectsPage!} mountEditor={async (projectId, host, shell, projectName) => {
       initializeProjectScope(projectId)
-      const { dispose } = await startEditor(host, desktopLocale, undefined, shell)
+      const { dispose } = await startEditor(host, desktopLocale, undefined, shell, [], projectName)
       await new Promise(requestAnimationFrame)
       await new Promise(requestAnimationFrame)
       return dispose
@@ -140,6 +140,7 @@ async function startEditor(
   desktopWindow: Parameters<typeof App>[0]['desktopWindow'],
   shell: ShellNavigation | undefined,
   desktopLogs: readonly string[] = [],
+  projectName?: string,
 ): Promise<{ readonly app: AppState; readonly dispose: () => void }> {
   const app = new AppState()
   const disposeTheme = bindTheme(app.settings)
@@ -154,7 +155,7 @@ async function startEditor(
   // browser store is a cache, so a slow one only costs that, never startup.
   const [, initialProjectName] = await Promise.all([
     Promise.race([app.loadKeptSchemas(), new Promise((resolve) => setTimeout(resolve, 1000))]),
-    app.connection.getProject(activeProjectId()).then((project) => project.name, () => undefined),
+    projectName ?? app.connection.getProject(activeProjectId()).then((project) => project.name, () => undefined),
   ])
   const started = app.start()
 

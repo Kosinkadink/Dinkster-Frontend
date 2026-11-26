@@ -1,6 +1,66 @@
 import { expect, test } from '../visual.js'
 import { evidencePath } from './evidence-output.js'
 
+test('cold project opening keeps its authoritative name while the engine refuses project reads', async ({ page }) => {
+  let state = 'stopped'
+  const root = '/installs/nightly'
+  const projects = ['Bookshop diorama', 'Mountain lanterns'].map((name, index) => ({
+    id: `scene-${index}`, uid: `48bb018e-5b17-4e68-bd81-c6412c4bcd7${index}`, name,
+    created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
+    packs: { extra: [] }, environment: null, accountProject: null,
+  }))
+  await page.route('**/supervisor/status', (route) => route.fulfill({ json: {
+    protocol: 1, role: 'home', state, installations: 1,
+    ...(state === 'stopped' ? {} : { open: { root, engine: 'main' } }),
+  } }))
+  await page.route('**/supervisor/installations', (route) => route.fulfill({ json: {
+    installations: [{ root, frontend: { wire: 2, selected: null, available: true } }],
+  } }))
+  await page.route('**/supervisor/engine', (route) => {
+    state = 'starting'
+    return route.fulfill({ json: { protocol: 1, role: 'home', state, open: { root, engine: 'main' } } })
+  })
+  await page.route('**/supervisor/setup**', (route) => route.fulfill({ json: { activeJob: null } }))
+  await page.route('**/api/**', (route) => {
+    const path = new URL(route.request().url()).pathname
+    const project = projects.find((project) => path === `/api/projects/${project.id}`)
+    if (path === '/api/projects') return route.fulfill({ json: { items: projects, cursor: null } })
+    if (project && state !== 'starting') return route.fulfill({ json: { project } })
+    if (path === '/api/nodes' && state === 'ready') return route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'cold-open', schemaWire: 2 }, nodes: {},
+    } })
+    return route.fulfill({ status: 503, json: { error: 'engine-not-ready', state } })
+  })
+  await page.addInitScript(() => {
+    const names: string[] = []
+    new MutationObserver(() => {
+      if (!document.querySelector('[data-testid="app-shell-editor"] [data-testid="learn-toggle"]')) return
+      const name = document.querySelector('[data-testid="app-shell-editor"] .dinkster-project-name')?.textContent ?? ''
+      if (names.at(-1) !== name) names.push(name)
+      document.documentElement.dataset.editorProjectNames = JSON.stringify(names)
+    }).observe(document, { childList: true, subtree: true })
+  })
+
+  await page.goto('/')
+  await page.getByRole('option').filter({ hasText: 'Bookshop diorama' }).click()
+  await page.getByRole('button', { name: 'Open', exact: true }).click()
+  await expect(page.getByTestId('app-shell')).toHaveAttribute('data-view', 'editor')
+  await expect(page.locator('html')).toHaveAttribute('data-editor-project-names', '["Bookshop diorama"]')
+  expect(await page.evaluate(async () => (await fetch('/api/projects/scene-0')).status)).toBe(503)
+  await page.screenshot({ path: evidencePath('issue-1424', 'cold-open-named.png') })
+
+  state = 'ready'
+  await expect(page.getByTestId('engine-run-control')).toBeHidden({ timeout: 7000 })
+  await expect(page.locator('.dinkster-project-name')).toHaveText('Bookshop diorama')
+  await page.locator('.dinkster-project-name').click()
+  await page.getByRole('menuitem', { name: 'All projects', exact: true }).click()
+  await page.getByRole('option').filter({ hasText: 'Mountain lanterns' }).click()
+  await page.getByRole('button', { name: 'Open', exact: true }).click()
+  await expect(page.getByTestId('app-shell')).toHaveAttribute('data-view', 'editor')
+  await expect(page.locator('html')).toHaveAttribute('data-editor-project-names', '["Bookshop diorama","Mountain lanterns"]')
+  await expect(page.locator('.dinkster-project-name')).toHaveText('Mountain lanterns')
+})
+
 test('setup owns engine controls until its registered installation has completed', async ({ page }) => {
   const root = '/install/nightly'
   const plan = {
