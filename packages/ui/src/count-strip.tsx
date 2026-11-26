@@ -1,19 +1,19 @@
-import { For, Show, createMemo } from "solid-js";
+import { For, Show, createMemo } from 'solid-js'
 
 export function ProductCountStrip(props: {
-  readonly label: string;
+  readonly label: string
   readonly segments: readonly {
-    readonly label: string;
-    readonly count: number;
-    readonly color: string;
-  }[];
+    readonly label: string
+    readonly count: number
+    readonly color: string
+  }[]
 }) {
   const segments = createMemo(() =>
     props.segments.filter((segment) => segment.count > 0),
-  );
+  )
   const total = createMemo(() =>
     segments().reduce((sum, segment) => sum + segment.count, 0),
-  );
+  )
   return (
     <Show when={segments().length > 0}>
       <div class="dinkster-count-strip">
@@ -48,5 +48,5 @@ export function ProductCountStrip(props: {
         </dl>
       </div>
     </Show>
-  );
+  )
 }

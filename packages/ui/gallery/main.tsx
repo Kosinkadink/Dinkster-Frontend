@@ -112,7 +112,6 @@ const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
   { label: 'Forms', href: '#forms', icon: User },
   { label: 'Lists and tables', href: '#lists', icon: LayoutList },
-  { label: 'Count strips', href: '#count-strips', icon: LayoutList },
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
