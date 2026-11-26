@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, compile, coreCommandRegistry, DocumentStore, type GraphDef, type InputSpec, type Json, type NodeSchema, type OutputSpec, type TypeExpr, type WidgetRegistry, type WorkflowDocument } from '@dinkster/core'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, compile, coreCommandRegistry, DocumentStore, documentResolver, loadDocument, type GraphDef, type InputSpec, type Json, type NodeSchema, type OutputSpec, type TypeExpr, type WidgetRegistry, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { appViewQueueScope, appViewQueueTargetOptions, buildParamRows, buildPreviewRows, previewRuntimeMapping, type ParamRow } from '../src/app-view-rows.js'
 import { boundarySample, resolveBoundarySample } from '../../core/test/fixtures/boundary-sample.js'
@@ -161,6 +161,91 @@ describe('buildParamRows', () => {
       expect(rows().map((row) => row.entry.inputId)).toEqual(['mode.text'])
       expect(store.undo()).toBe(true)
       expect(rows().map((row) => live(row).value)).toEqual([0.4, 0.8, 'second text'])
+    }
+  })
+
+  it('boundary/construct-fields/app-view keeps member keys and occurrence edits through reorder and reload', () => {
+    for (const depth of [1, 2] as const) {
+      const source = boundarySample(depth)
+      const store = new DocumentStore(source, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveBoundarySample) }))
+      const dispatch = (command: string, params: Record<string, Json>) => {
+        const result = store.dispatch({ command, params })
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+      }
+      for (const nodeId of ['first', 'second']) {
+        dispatch('dynamic.materialize', { graphId: 'root', nodeId,
+          frames: [{ construct: 'layers', members: nodeId === 'first' ? ['layer0', 'layer1'] : ['layer0'] }] })
+        dispatch('dynamic.specializeSlot', { graphId: 'root', nodeId, construct: 'source', variant: 'mask' })
+        dispatch('node.setValue', { graphId: 'root', nodeId, inputId: 'description',
+          value: '{"entries":[{"id":"text","label":"Caption","kind":"text"}]}' })
+      }
+      dispatch('node.setValues', { graphId: 'root', nodeId: 'first', values: {
+        'layers.layer0.strength': 0.2, 'layers.layer1.strength': 0.7, 'source.gain': 0.4,
+        'description.text': 'first caption', 'mode.mix': 0.6,
+      } })
+      dispatch('node.setValues', { graphId: 'root', nodeId: 'second', values: {
+        'layers.layer0.strength': 0.8, 'source.gain': 0.9,
+        'description.text': 'second caption', 'mode.mix': 0.3,
+      } })
+      for (const nodeId of ['first', 'second']) for (const inputId of [
+        'layers.layer0.strength', 'source.gain', 'description.text', 'mode.mix',
+      ]) dispatch('params.expose', { graphId: 'root', nodeId, inputId })
+      const rows = (document = store.doc) => buildParamRows(document, resolveBoundarySample)
+      const values = () => rows().map((row) => live(row).value)
+      expect(rows().filter((row) => row.kind === 'stale').map((row) => row.entry)).toEqual([
+        { graphId: 'root', nodeId: 'first', inputId: 'source.gain' },
+        { graphId: 'root', nodeId: 'second', inputId: 'source.gain' },
+      ])
+      for (const nodeId of ['first', 'second']) dispatch('link.connect', {
+        graphId: 'root', from: port('maskB', 'mask'), to: port(nodeId, 'source'),
+      })
+      expect(values()).toEqual([0.2, 0.4, 'first caption', 0.6, 0.8, 0.9, 'second caption', 0.3])
+      for (const [index, feature, inputId, value] of [
+        [0, 'whole-group', 'layers.layer0.strength', 0.5],
+        [1, 'type-choice', 'source.gain', 0.45],
+        [2, 'described-inputs', 'description.text', 'edited first caption'],
+        [3, 'active-option-row', 'mode.mix', 0.65],
+      ] as const) {
+        const chosen = live(rows()[index]!)
+        expect(chosen.valueKey, `boundary/${feature}/app-view`).toBe(inputId)
+        const before = values()
+        dispatch('node.setValue', { graphId: chosen.entry.graphId, nodeId: chosen.entry.nodeId,
+          inputId: chosen.valueKey, value })
+        expect(values(), `boundary/${feature}/app-view`).toEqual(before.map((prior, i) => i === index ? value : prior))
+        expect(store.undo()).toBe(true)
+        expect(values()).toEqual(before)
+        expect(store.redo()).toBe(true)
+        expect(values()[index]).toBe(value)
+      }
+      dispatch('dynamic.moveMember', { graphId: 'root', nodeId: 'first', construct: 'layers', member: 'layer1', index: 0 })
+      expect(values()).toEqual([0.5, 0.45, 'edited first caption', 0.65, 0.8, 0.9, 'second caption', 0.3])
+      expect(live(rows()[0]!).valueKey).toBe('layers.layer0.strength')
+      const compiled = compile({ document: store.doc, revision: 1, resolve: resolveBoundarySample,
+        scope: { kind: 'full' }, connection: 'app-view' as never, schemaHash: 'boundary-sample' })
+      expect(compiled.ok).toBe(true)
+      if (!compiled.ok) throw new Error(JSON.stringify(compiled.diagnostics))
+      const prefix = depth === 2 ? 'detail.' : ''
+      expect(compiled.artifact.prompt[`first.${prefix}sample`]!.inputs).toMatchObject({
+        'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4,
+        'layers.layer2.strength': 0.5, 'layers.layer3.strength': 0.7,
+        'source.gain': 0.45, 'description.text': 'edited first caption', 'mode.mix': 0.65,
+      })
+      expect(compiled.artifact.prompt[`first.${prefix}sample`]!.outputMembers?.layers).toEqual(['layer0', 'layer1', 'layer3', 'layer2'])
+      expect(compiled.artifact.prompt[`second.${prefix}sample`]!.inputs).toMatchObject({
+        'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4, 'layers.layer2.strength': 0.8,
+        'source.gain': 0.9, 'description.text': 'second caption', 'mode.mix': 0.3,
+      })
+      expect(store.doc.graphs.detail!.nodes.sample!.values['layers.layer0.strength']).toBe(0.1)
+      const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc)))
+      expect(reopened.document, JSON.stringify(reopened.diagnostics)).toBeDefined()
+      expect(rows(reopened.document!).map((row) => live(row).value)).toEqual(values())
+      dispatch('link.connect', { graphId: 'root', from: port('first', 'result'), to: port('second', 'layers.layer0.strength') })
+      expect(live(rows()[0]!).linked).toBe(false)
+      expect(live(rows()[4]!).linked).toBe(true)
+      expect(store.undo()).toBe(true)
+      expect(live(rows()[4]!).linked).toBe(false)
+      expect(values()[4]).toBe(0.8)
     }
   })
 
