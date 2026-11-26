@@ -448,6 +448,10 @@ function Environments() {
     setValues((current) => ({
       ...current,
       variant: result.plan.selected ?? '',
+      gpus:
+        result.plan.selected && result.plan.gpus
+          ? result.plan.gpus.join(',')
+          : current.gpus,
     }))
     setHardware(
       [

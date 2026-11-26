@@ -214,6 +214,7 @@ export interface EnvironmentBridge {
     }
     readonly plan: {
       readonly selected?: string
+      readonly gpus?: readonly string[]
       readonly reason: string
       readonly choices: readonly {
         readonly variant: string
