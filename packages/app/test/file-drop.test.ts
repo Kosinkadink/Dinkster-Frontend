@@ -75,6 +75,19 @@ describe('safe file-drop classification', () => {
     await expect(classifyDroppedFile(framed)).resolves.toMatchObject({ kind: 'image', embeddedWorkflow: { nodes: [] } })
   })
 
+  it('checks large and many PNG image-data chunks in bounded reads without imposing a metadata admission cap', async () => {
+    const source = file(png(
+      chunk('IDAT', new Uint8Array(16 * 1024 * 1024 + 1)),
+      ...Array.from({ length: 512 }, () => chunk('IDAT', new Uint8Array())),
+    ))
+    source.arrayBuffer = async () => { throw new Error('Whole-file read forbidden') }
+    source.slice = (start = 0, end = source.size) => {
+      if (end - start > 64 * 1024) throw new Error('Unbounded PNG read forbidden')
+      return Blob.prototype.slice.call(source, start, end)
+    }
+    await expect(classifyDroppedFile(source)).resolves.toEqual({ kind: 'image', mediaType: 'image/png' })
+  })
+
   it('extracts bounded uncompressed Comfy workflow text from PNG', async () => {
     const text = new TextEncoder().encode('workflow\0{"nodes":[]}')
     await expect(classifyDroppedFile(file(png(chunk('tEXt', text))))).resolves.toEqual({

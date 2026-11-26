@@ -3,8 +3,7 @@ import { readLatentMetadata, type LatentMetadata } from './latent-metadata.js'
 import { mediaAcceptsFile } from './asset-browser/helpers.js'
 
 const MAX_JSON_BYTES = 8 * 1024 * 1024
-const MAX_PNG_CHUNKS = 512
-const MAX_PNG_CHUNK_BYTES = 16 * 1024 * 1024
+const MAX_PNG_TEXT_BYTES = 16 * 1024 * 1024
 const MAX_WORKFLOW_BYTES = 1024 * 1024
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10] as const
 
@@ -32,10 +31,9 @@ for (let index = 0; index < CRC32_TABLE.length; index += 1) {
   CRC32_TABLE[index] = value >>> 0
 }
 
-const crc32 = (bytes: Uint8Array): number => {
-  let crc = 0xffffffff
+const updateCrc32 = (crc: number, bytes: Uint8Array): number => {
   for (const byte of bytes) crc = CRC32_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8)
-  return (crc ^ 0xffffffff) >>> 0
+  return crc
 }
 
 /** Synchronous one-shot gate for mutually exclusive embedded-PNG actions. */
@@ -95,21 +93,31 @@ const pngWorkflow = async (file: Pick<File, 'size' | 'slice'>): Promise<{ readon
   let sawHeader = false
   let sawImageData = false
   while (offset < file.size) {
-    if (++chunks > MAX_PNG_CHUNKS) return { ok: false, message: 'PNG contains too many chunks' }
+    chunks += 1
     if (offset + 12 > file.size) return { ok: false, message: 'PNG has a truncated chunk header' }
     const prefix = await file.slice(offset, offset + 8).arrayBuffer()
     if (prefix.byteLength !== 8) return { ok: false, message: 'PNG has a truncated chunk header' }
     const view = new DataView(prefix)
     const length = view.getUint32(0)
-    if (length > MAX_PNG_CHUNK_BYTES) return { ok: false, message: 'PNG chunk exceeds the safe size limit' }
+    const typeBytes = new Uint8Array(prefix, 4, 4)
+    const type = String.fromCharCode(...typeBytes)
+    if (type === 'IHDR' && length !== 13) return { ok: false, message: 'PNG must begin with a valid IHDR chunk' }
+    const text = type === 'tEXt' || type === 'iTXt'
+    if (text && length > MAX_PNG_TEXT_BYTES) return { ok: false, message: 'PNG text exceeds the safe size limit' }
     const end = offset + 12 + length
     if (end > file.size) return { ok: false, message: 'PNG has a truncated chunk' }
-    const bytes = new Uint8Array(await file.slice(offset + 4, end).arrayBuffer())
-    if (bytes.byteLength !== length + 8) return { ok: false, message: 'PNG has a truncated chunk' }
-    const type = String.fromCharCode(...bytes.subarray(0, 4))
-    const data = bytes.subarray(4, 4 + length)
-    const expectedCrc = new DataView(bytes.buffer, bytes.byteOffset + 4 + length, 4).getUint32(0)
-    if (crc32(bytes.subarray(0, 4 + length)) !== expectedCrc) return { ok: false, message: 'PNG chunk checksum is invalid' }
+    const data = new Uint8Array(type === 'IHDR' || text ? length : 0)
+    let crc = updateCrc32(0xffffffff, typeBytes)
+    for (let cursor = offset + 8; cursor < end - 4; cursor += 64 * 1024) {
+      const pieceEnd = Math.min(cursor + 64 * 1024, end - 4)
+      const piece = new Uint8Array(await file.slice(cursor, pieceEnd).arrayBuffer())
+      if (piece.byteLength !== pieceEnd - cursor) return { ok: false, message: 'PNG has a truncated chunk' }
+      crc = updateCrc32(crc, piece)
+      if (data.length !== 0) data.set(piece, cursor - offset - 8)
+    }
+    const checksum = await file.slice(end - 4, end).arrayBuffer()
+    if (checksum.byteLength !== 4) return { ok: false, message: 'PNG has a truncated chunk' }
+    if (((crc ^ 0xffffffff) >>> 0) !== new DataView(checksum).getUint32(0)) return { ok: false, message: 'PNG chunk checksum is invalid' }
     if (chunks === 1) {
       if (type !== 'IHDR' || length !== 13) return { ok: false, message: 'PNG must begin with a valid IHDR chunk' }
       const header = new DataView(data.buffer, data.byteOffset, data.byteLength)
