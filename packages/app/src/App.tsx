@@ -1307,6 +1307,7 @@ export function App(props: {
       const nodes = Object.values(p.exec.nodes)
       const backend = app.backendFor(p.exec.ref.connection)
       return [
+        { label: message('runs.chosen.workflow'), text: p.exec.workflowName ?? message('runs.chosen.workflowUnknown') },
         ...(p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.finished'), text: formatCollectionDate(p.exec.endedAt) }]),
         ...(p.exec.startedAt === undefined || p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText((p.exec.endedAt - p.exec.startedAt) / 1000) }]),
         { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', {
@@ -1607,6 +1608,7 @@ export function App(props: {
       backendsTick()
       const backend = app.backends.get().find((candidate) => candidate.id === p.entry.owner)
       return [
+        { label: message('runs.chosen.workflow'), text: run.workflowName ?? message('runs.chosen.workflowUnknown') },
         { label: message('runs.chosen.finished'), text: formatCollectionDate(run.finishedAt * 1000) },
         ...(run.startedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText(run.finishedAt - run.startedAt) }]),
         { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', { ran: run.executed, cached: run.cached }) },

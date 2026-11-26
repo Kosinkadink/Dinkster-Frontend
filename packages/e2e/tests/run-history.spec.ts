@@ -203,6 +203,43 @@ test('a durable stamped record: click selects, the open action reopens the produ
   expect(after.type).toBe('dev.image.gradient')
 })
 
+test('a run\'s details name the workflow it was queued under, in both scopes, and say when none was recorded', async ({ page }) => {
+  const jobId = await queueAndComplete(page)
+  await expect.poll(async () => (await durableRecords()).some((record) => record.jobId === jobId)).toBe(true)
+  // Renaming the workflow afterwards leaves the run under the name it was queued with.
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.renameTab(app.activeTabId.get(), 'Renamed afterwards')
+  })
+  const workflowLine = (details: Locator) => details.locator('div').filter({ has: page.getByText('Workflow', { exact: true }) })
+
+  await openRailPanel(page, 'Runs')
+  await chooseRunScope(page, 'workflow')
+  const row = page.getByTestId('runs-panel').getByTestId('execution-row').first()
+  await expect(row.getByRole('button', { name: /^More for / })).toBeVisible()
+  await chosenRunMenu(page, row, 'Details')
+  await expect(workflowLine(row.getByTestId('chosen-run-details'))).toHaveText('WorkflowRun History')
+
+  await chooseRunScope(page, 'all')
+  const entry = entryFor(page, jobId)
+  await entry.click()
+  await chosenRunMenu(page, entry, 'Details')
+  await expect(workflowLine(entry.getByTestId('chosen-run-details'))).toHaveText('WorkflowRun History')
+
+  // A record kept before names were stored has none, and its details say so.
+  await page.route('**/api/history?*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json() as { records: Record<string, unknown>[] }
+    await route.fulfill({ response, json: { ...body, records: body.records.map(({ workflowName: _name, ...record }) => record) } })
+  })
+  await chooseRunScope(page, 'workflow')
+  await chooseRunScope(page, 'all')
+  const unnamed = entryFor(page, jobId)
+  await unnamed.click()
+  await chosenRunMenu(page, unnamed, 'Details')
+  await expect(workflowLine(unnamed.getByTestId('chosen-run-details'))).toHaveText('WorkflowNot recorded')
+})
+
 test('two cached runs collapse into one expandable no-op history row', async ({ page }) => {
   // Give this test a unique workflow digest, warm its engine cache once,
   // then clear only durable records. The next two submissions are both

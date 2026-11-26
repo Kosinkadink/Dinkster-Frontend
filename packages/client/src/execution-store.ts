@@ -138,6 +138,8 @@ export interface ExecutionState {
   readonly jobRef?: string
   /** Content digest of the exact workflow document submitted for this run. */
   readonly sourceDocument?: string
+  /** The workflow's name when the run was submitted. */
+  readonly workflowName?: string
   /** What the run's automatic fields used, from the persisted run record. */
   readonly automaticValues?: readonly AutomaticValueRecord[]
   readonly queuedAt: number
@@ -386,7 +388,7 @@ export class ExecutionStore {
     ref: ExecutionRef,
     artifact: CompileArtifact,
     now: number = Date.now(),
-    identity?: { readonly jobRef?: string; readonly sourceDocument?: string },
+    identity?: { readonly jobRef?: string; readonly sourceDocument?: string; readonly workflowName?: string },
   ): void {
     const key = executionKey(ref)
     // A fresh local submission is a new, confirmed run - never late chatter.
@@ -440,6 +442,7 @@ export class ExecutionStore {
     readonly automaticValues?: readonly AutomaticValueRecord[]
     readonly jobRef: string
     readonly sourceDocument: string
+    readonly workflowName?: string
     readonly queuedAt: number
     readonly endedAt: number
   }): void {
@@ -469,6 +472,7 @@ export class ExecutionStore {
       ...(state.automaticValues === undefined || state.automaticValues.length === 0 ? {} : { automaticValues: state.automaticValues }),
       jobRef: state.jobRef,
       sourceDocument: state.sourceDocument,
+      ...(state.workflowName === undefined ? {} : { workflowName: state.workflowName }),
       queuedAt: state.queuedAt,
       endedAt: state.endedAt,
     })
