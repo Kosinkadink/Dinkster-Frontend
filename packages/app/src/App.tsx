@@ -1286,6 +1286,8 @@ export function App(props: {
   </Show>
 
   const cancelling = useSignal(app.cancellingExecutions)
+  // A run is named by the workflow it was queued under, so renaming its tab later leaves the run's row alone.
+  const runName = (execution: ExecutionState): string => execution.workflowName ?? app.tabTitleFor(execution.ref)
   const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
     const live = () => liveTabOf(p.exec)
     const pending = createMemo(() => runIsPending(p.exec))
@@ -1316,7 +1318,7 @@ export function App(props: {
         ...(backend === undefined ? [] : [{ label: message('runs.chosen.ranOn'), text: backend.label }]),
       ]
     }
-    return <RunRow entry={p.exec} name={app.tabTitleFor(p.exec.ref)} workflow={app.tabTitleFor(p.exec.ref)}
+    return <RunRow entry={p.exec} name={runName(p.exec)} workflow={runName(p.exec)}
       statusInNote all={p.all} testId="execution-row" nodeTitle={runtimeNodeTitle}
       cancelling={cancelling().has(executionKey(p.exec.ref))}
       onCancel={() => { void app.cancelExecution(p.exec.ref) }}
@@ -1329,7 +1331,7 @@ export function App(props: {
       <Show when={selected()}>
         <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
             entry={p.exec}
-            title={app.tabTitleFor(p.exec.ref)}
+            title={runName(p.exec)}
             testId="run-details"
             relation={overlayRoleOf(p.exec)}
             hideOpen
@@ -1340,7 +1342,7 @@ export function App(props: {
               else app.pinExecutionOverlay(tab.id, p.exec.ref)
             } : undefined}
           />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
-          {...(pending() ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
+          {...(pending() ? {} : { chosen: <ChosenRun name={runName(p.exec)} reason={reason()} facts={facts()}
             detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
             menuMount={menuMount()} onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
       </Show>
@@ -1622,7 +1624,7 @@ export function App(props: {
       return run?.state === 'failed' ? run.error?.message : undefined
     }
     const act = (actionId: 'resubmit' | 'open' | 'delete') => () => libraryEntryAction('runs', p.entry, actionId)
-    const chosen = () => <ChosenRun name={known() ? app.tabTitleFor(known()!.ref) : p.entry.title} reason={reason()} facts={facts()}
+    const chosen = () => <ChosenRun name={known() ? runName(known()!) : p.entry.title} reason={reason()} facts={facts()}
       detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
       onRunAgain={record()?.state === 'interrupted' && record()?.sourceDocument !== undefined ? act('resubmit') : undefined}
       onOpenWorkflow={record()?.sourceDocument !== undefined ? act('open') : undefined}
@@ -1634,7 +1636,7 @@ export function App(props: {
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
         </span>
         <span class="run-row-text">
-          <span class="run-row-name">{known() ? app.tabTitleFor(known()!.ref) : p.entry.title}</span>
+          <span class="run-row-name">{known() ? runName(known()!) : p.entry.title}</span>
           <span class="run-row-note">{note()}</span>
         </span>
         <Show when={known()?.artifact && known()}>{(execution) =>
