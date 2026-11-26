@@ -974,7 +974,7 @@
   "outputs.pages.previous": "上一页输出",
   "outputs.pages.next": "下一页输出",
   "outputs.pages.position": "第 {first}-{last} 项，共 {count} 项",
-  "resources.usedOfTotal": "{used} / {total}",
+  "resources.ofTotal": "/ {total}",
   "resources.updated": "资源已更新。",
   "resources.used": "已用",
   "resources.models": "模型",

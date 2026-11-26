@@ -77,7 +77,7 @@ test('Resources isolates card residency, preserves refresh focus and releases un
     app.setTabTarget(app.activeTab()!.id, id)
   }, backendId)
   await page.getByTestId('status-memory').click()
-  await expect(backend).toContainText('7.0 GB of 12.0 GB')
+  await expect(backend).toContainText('7.0 of 12.0 GB')
   const backendToggle = backend.locator(':scope > .dinkster-resource-backend-toggle button')
   await backendToggle.click()
   await expect(backendToggle).toHaveAttribute('aria-expanded', 'false')

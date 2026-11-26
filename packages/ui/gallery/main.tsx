@@ -174,7 +174,7 @@ function Gallery() {
                 <For each={[false, true]}>
                   {(compact) => (
                     <section class="dinkster-resource-card">
-                    <header class="dinkster-resource-card-heading"><strong>{compact ? 'RTX 3090' : 'RTX 4090'}</strong><span>12.0 GB of 24.0 GB</span></header>
+                    <header class="dinkster-resource-card-heading"><strong>{compact ? 'RTX 3090' : 'RTX 4090'}</strong><span class="dinkster-resource-total"><strong>12.0</strong> <span>of 24.0 GB</span></span></header>
                     <ProductResourceUsage
                       label={compact ? 'Compact card memory' : 'Card memory'}
                       total={24}

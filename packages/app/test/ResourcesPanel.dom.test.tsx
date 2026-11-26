@@ -147,6 +147,31 @@ it('offers measured-card limits without inventing a reported budget and unloads 
   unmount()
 })
 
+it('reports known card totals for closed engines without counting system memory', async () => {
+  const connection = (memoryGovernor: MemoryStatus['memoryGovernor']) => ({
+    status: coreSignal<ConnectionStatus>('connected'),
+    fetchMemoryStatus: async () => ({ ...payload, memoryGovernor }),
+    onMemoryStatus: () => () => {},
+    fetchRuntimeSettings: async () => ({ categories: { granted: [], available: [] }, settings: {} }),
+  }) as unknown as DinksterConnection
+  const card = payload.memoryGovernor!['vram:cuda:0']!
+  const root = document.createElement('div'); document.body.append(root)
+  const unmount = render(() => <ResourcesPanel backends={[
+    { id: 'local', label: 'Local', connection: connection(null) },
+    { id: 'studio', label: 'Studio', connection: connection({
+      'vram:cuda:0': card,
+      'vram:cuda:1': { ...card, measured: { totalBytes: 24e9, freeBytes: 20e9 } },
+      ram: { ...card, measured: { totalBytes: 64e9, freeBytes: 32e9 } },
+    }) },
+  ]} activeBackendId="local" />, root)
+  await flush()
+  const studio = root.querySelector('[data-backend="studio"] button')!
+  expect(studio.getAttribute('aria-expanded')).toBe('false')
+  expect(studio.textContent).toContain('11.0 of 36.0 GB')
+  expect(root.querySelector('[data-backend="local"] .dinkster-metadata')!.textContent).toBe('')
+  unmount()
+})
+
 it('targets a backend repeatedly without collapsing other backends', async () => {
   const connection = {
     status: coreSignal<ConnectionStatus>('connected'),
@@ -217,7 +242,7 @@ it('preserves focused model rows across snapshots and immediately unloads the se
   const root = document.createElement('div'); document.body.append(root)
   const unmount = render(() => <ResourcesPanel backends={[{ id: 'local', label: 'Local', connection }]} activeBackendId="local" />, root)
   await flush()
-  expect(root.textContent).toContain('7.0 GB of 12.0 GB')
+  expect(root.textContent).toContain('7.0 of 12.0 GB')
   expect(root.querySelector('svg.dinkster-resource-bar')!.getAttribute('aria-label')).toBe('Models: 3.0 GB, Held, unused: 0.5 GB, Other memory: 3.5 GB')
   expect(root.querySelector('.dinkster-resource-model')!.textContent).toContain('3.0 GB')
   const unload = root.querySelector<HTMLButtonElement>('[aria-label="Unload Flux model"]')!

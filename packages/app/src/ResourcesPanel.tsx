@@ -11,7 +11,6 @@ import { useAppMessage } from './locale.js'
 interface ResourceBackend {
   readonly id: string
   readonly label: string
-  readonly baseUrl?: string
   readonly connection: DinksterConnection
 }
 
@@ -20,11 +19,11 @@ const cardUsed = (device: MemoryGovernorDevice): number | undefined => device.me
 
 export function ResourcesPanel(props: { readonly backends: readonly ResourceBackend[]; readonly activeBackendId: string; readonly focusBackend?: { readonly id: string } | undefined }) {
   return <div class="dinkster-resources" data-testid="resources-panel">
-    <For each={props.backends}>{(backend) => <BackendResources backend={backend} initiallyOpen={backend.id === props.activeBackendId} focusBackend={props.focusBackend} />}</For>
+    <For each={props.backends}>{(backend) => <BackendResources backend={backend} multiple={props.backends.length > 1} initiallyOpen={backend.id === props.activeBackendId} focusBackend={props.focusBackend} />}</For>
   </div>
 }
 
-function BackendResources(props: { readonly backend: ResourceBackend; readonly initiallyOpen: boolean; readonly focusBackend: { readonly id: string } | undefined }) {
+function BackendResources(props: { readonly backend: ResourceBackend; readonly multiple: boolean; readonly initiallyOpen: boolean; readonly focusBackend: { readonly id: string } | undefined }) {
   const message = useAppMessage()
   const connection = () => props.backend.connection
   const connectionState = useSignal(connection().status)
@@ -46,7 +45,12 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
   let controller: MemoryStatusController | undefined
   const stale = () => connectionState() !== 'connected' || clock() - receivedAt() > 6000
   const cards = () => Object.keys(status()?.memoryGovernor ?? {}).filter((device) => (device.startsWith('vram:') || device.startsWith('cuda:')) && status()!.memoryGovernor![device]!.measured !== null)
-  const usedOfTotal = (used: number, total: number) => message('resources.usedOfTotal', { used: gb(used), total: gb(total) })
+  const usedOfTotal = (used: number, total: number) => <span class="dinkster-resource-total"><strong>{(used / 1_000_000_000).toFixed(1)}</strong> <span>{message('resources.ofTotal', { total: gb(total) })}</span></span>
+  const aggregate = () => {
+    const rows = cards().map((device) => status()!.memoryGovernor![device]!)
+    if (rows.length === 0) return undefined
+    return usedOfTotal(rows.reduce((sum, row) => sum + cardUsed(row)!, 0), rows.reduce((sum, row) => sum + row.measured!.totalBytes, 0))
+  }
   const accept = (next: MemoryStatus, isDetails: boolean): void => {
     if (isDetails) { setDetails(next.consumerDetails); return }
     setStatus(next)
@@ -158,8 +162,8 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
   const unload = () => Object.keys(status()?.memoryGovernor ?? {}).filter((device) => Object.keys(status()!.memoryGovernor![device]!.consumers).length > 0)
   return <section class="dinkster-resource-backend" data-backend={props.backend.id}>
     <div class="dinkster-resource-backend-toggle"><ProductButton disabled={connectionState() !== 'connected'} aria-expanded={connectionState() === 'connected' && open()} onClick={toggle}>
-      <span class="dinkster-resource-backend-name"><Show when={connectionState() === 'connected'}><ProductIcon icon={ChevronRight} /></Show><i class="dinkster-resource-state" data-connected={connectionState() === 'connected'} aria-hidden="true" /><strong>{props.backend.label}</strong></span>
-      <span class="dinkster-metadata">{connectionState() === 'connected' ? props.backend.id === 'local' ? message('resources.thisComputer') : props.backend.baseUrl : message('resources.disconnected')}</span>
+      <span class="dinkster-resource-backend-name"><Show when={props.multiple}><span class="dinkster-resource-backend-chevron" data-connected={connectionState() === 'connected'}><ProductIcon icon={ChevronRight} /></span></Show><i class="dinkster-resource-state" data-connected={connectionState() === 'connected'} aria-hidden="true" /><strong>{props.backend.label}</strong></span>
+      <span class="dinkster-metadata">{connectionState() === 'connected' ? props.multiple ? aggregate() : message('resources.thisComputer') : message('resources.disconnected')}</span>
     </ProductButton></div>
     <Show when={connectionState() === 'connected' && open()}>
       <div class="dinkster-stack">
@@ -170,7 +174,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
           const row = () => status()!.memoryGovernor![device]!
           const name = () => row().measured?.gpuName ?? device
           return <section class="dinkster-resource-card" aria-label={name()}>
-            <header class="dinkster-resource-card-heading"><strong>{name()}<Show when={cards().length > 1}><span class="dinkster-metadata"> {message('resources.cardPosition', { number: index() + 1, count: cards().length })}</span></Show></strong><Show when={cardUsed(row()) !== undefined}><span>{usedOfTotal(cardUsed(row())!, row().measured!.totalBytes)}</span></Show></header>
+            <header class="dinkster-resource-card-heading"><strong>{name()}<Show when={cards().length > 1}><span class="dinkster-metadata"> {message('resources.cardPosition', { number: index() + 1, count: cards().length })}</span></Show></strong><Show when={cardUsed(row()) !== undefined}>{usedOfTotal(cardUsed(row())!, row().measured!.totalBytes)}</Show></header>
             <Show when={row().measured}>{(measured) => <ProductResourceUsage label={message('resources.cardMemory', { name: name() })} total={measured().totalBytes} segments={segments(device)} samples={history()[device] ?? []} now={clock()} {...(limit(device) === undefined ? {} : { limit: limit(device)! })} format={gb} historyLabel={message('resources.history')} limitLabel={message('resources.limit')} compact={cards().length > 1} />}</Show>
             <dl class="dinkster-resource-live">
               <Show when={row().measured?.gpuUtilizationPercent !== undefined}><div><dt>{message('resources.busyLabel')}</dt><dd>{row().measured!.gpuUtilizationPercent!}%</dd></div></Show>
@@ -178,6 +182,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
               <Show when={row().measured?.gpuPowerMilliwatts !== undefined}><div><dt>{message('resources.powerLabel')}</dt><dd>{message('resources.power', { value: (row().measured!.gpuPowerMilliwatts! / 1000).toFixed(0) })}</dd></div></Show>
             </dl>
             <Show when={details() !== undefined && models(device).length > 0}>
+              <div class="dinkster-resource-models">
               <div class="dinkster-resource-models-heading">{message('resources.loadedOnCard')}</div>
               <For each={models(device).map((model) => model.key)}>{(key) => {
                 const model = () => models(device).find((entry) => entry.key === key)!
@@ -186,6 +191,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
                   void act(() => connection().unloadMemory(device, selected.consumer, selected.item.itemId))
                 }}>{message('resources.unload')}</ProductButton>}><span>{message('resources.inUse')}</span></Show></span></div>
               }}</For>
+              </div>
             </Show>
           </section>
         }}</For>
