@@ -12,6 +12,7 @@ import { buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESS
 import { decodeSteps } from '../src/actions/steps.js'
 import type { CommandDefinition } from '../src/commands/contract.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import { DocumentStore } from '../src/commands/store.js'
 import { createLocalSession, type DocumentSession } from '../src/commands/session.js'
 import { compile, documentNodeResolver, documentResolver } from '../src/compile/compile.js'
 import { boundaryButtons, boundaryItems } from '../src/format/document.js'
@@ -1614,6 +1615,18 @@ describe('steps inside a subgraph occurrence', () => {
     } }
     const session = sessionOf(doc)
     const promote = (graphId: string, node: string, button: string) => session.dispatch({ command: 'boundary.showButton', params: { graphId, node, button } })
+    const command = coreCommandRegistry().get('boundary.showButton')!
+    const prepared = command.prepareForSharedReplay!(doc, { graphId: 'g1', node: 'inner', button: 'increase' },
+      { kind: 'initial', schemaResolverFor: () => resolve }, undefined)!
+    if (!prepared.ok) throw new Error('promotion preparation failed')
+    const unchangedReplay = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'shared-replay' }))
+    expect(unchangedReplay.dispatch({ command: command.id, params: prepared.params }).ok).toBe(true)
+    const concurrent: WorkflowDocument = { ...doc, graphs: { ...doc.graphs, g1: { ...doc.graphs.g1!,
+      boundary: { body: [{ kind: 'section', id: 'other', rows: [] }] },
+    } } }
+    const changedReplay = new DocumentStore(concurrent, coreCommandRegistry(), 200, undefined, () => ({ kind: 'shared-replay' }))
+    expect(changedReplay.dispatch({ command: command.id, params: prepared.params }).ok).toBe(false)
+    expect(changedReplay.doc).toEqual(concurrent)
     const refused = promote('g1', 'inner', 'structural')
     expect(refused.ok).toBe(false)
     expect(session.doc).toEqual(doc)

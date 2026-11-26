@@ -304,7 +304,8 @@ function itemConflict(command: string, def: GraphDef, binding: NodeBoundaryBindi
 }
 
 function idTaken(def: GraphDef, binding: NodeBoundaryBinding, id: string): boolean {
-  return [...boundaryItems(def.boundary, 'inputs'), ...(boundaryItems(def.boundary, 'outputs') ?? [])].some((item) => item.id === id ||
+  return boundaryButtons(def.boundary).some((entry) => entry.id === id) ||
+    [...boundaryItems(def.boundary, 'inputs'), ...(boundaryItems(def.boundary, 'outputs') ?? [])].some((item) => item.id === id ||
     (binding.kind === 'construct' && item.id.startsWith(`${id}.`)) ||
     (item.binds.kind === 'construct' && id.startsWith(`${item.id}.`)))
 }
@@ -495,7 +496,9 @@ const boundaryShowButton: CommandDefinition = {
     const tx = createTransactionBuilder(doc, actor)
     const diagnostics = boundaryShowButton.run(doc, params, tx, context)
     return diagnostics.some((item) => item.severity === 'error') ? { ok: false, diagnostics }
-      : { ok: true, params: { ...(params as JsonObject), body: tx.current.graphs[(params as JsonObject).graphId as string]!.boundary!.body as unknown as Json } }
+      : { ok: true, params: { ...(params as JsonObject),
+        expectedBoundary: (doc.graphs[(params as JsonObject).graphId as string]!.boundary ?? null) as unknown as Json,
+        body: tx.current.graphs[(params as JsonObject).graphId as string]!.boundary!.body as unknown as Json } }
   },
   run(doc, params, tx, context) {
     if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.node !== 'string' || typeof params.button !== 'string')
@@ -504,6 +507,8 @@ const boundaryShowButton: CommandDefinition = {
     const node = def?.nodes[params.node]
     if (context.kind === 'shared-replay') {
       if (def === undefined || !Array.isArray(params.body)) return [err('params.invalid', 'The shown button body is missing.')]
+      if (params.expectedBoundary === undefined || canonicalJson(params.expectedBoundary) !== canonicalJson((def.boundary ?? null) as unknown as Json))
+        return [err('boundary.changed', 'The boundary changed while this button was being shown. Show it again against the current rows.')]
       const shape = validateGraphDefShape({ ...def, boundary: { body: params.body } } as unknown as Json)
       if (shape.length > 0) return shape
       tx.set(['graphs', def.id, 'boundary'], { body: params.body })
@@ -528,6 +533,7 @@ const boundaryShowButton: CommandDefinition = {
     }
     const current = tx.current.graphs[def.id]!
     const ids = new Set([...(current.boundary?.body ?? []).flatMap((entry) => 'id' in entry ? [entry.id] : []),
+      ...boundaryButtons(current.boundary).map((entry) => entry.id),
       ...boundaryItems(current.boundary, 'inputs').map((item) => item.id), ...boundaryItems(current.boundary, 'outputs').map((item) => item.id)])
     let id = params.button.replace(/[^a-zA-Z0-9_]/g, '_')
     for (let suffix = 2; ids.has(id); suffix++) id = `${params.button.replace(/[^a-zA-Z0-9_]/g, '_')}_${suffix}`
