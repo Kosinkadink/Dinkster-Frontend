@@ -230,14 +230,14 @@ test('Display filters declared looks and dismisses without changing the field', 
   await expect(above.locator('.dinkster-canvas-side-representation-list .dinkster-canvas-field')).toHaveAttribute('data-panel', 'above')
   const draft = stage.locator('input:not([role="combobox"])')
   const trigger = stage.getByRole('button', { name: 'Display Number', exact: true })
+  await expect(draft).toHaveValue('0.65')
+  await filter.press('Escape')
   await expect.poll(() => trigger.evaluate((element) => {
     const style = getComputedStyle(element)
     return style.borderTopLeftRadius !== '0px' &&
       [style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius]
         .every((radius) => radius === style.borderTopLeftRadius)
   })).toBe(true)
-  await expect(draft).toHaveValue('0.65')
-  await filter.press('Escape')
   await draft.fill('0.73')
   await trigger.click()
   await expect(popup.getByRole('option')).toHaveText(['Number', 'Slider'])
