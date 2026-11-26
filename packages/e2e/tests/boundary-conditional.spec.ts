@@ -121,23 +121,6 @@ async function returnToRoot(page: Page): Promise<void> {
   await identityViewport(page)
 }
 
-<<<<<<< HEAD
-=======
-async function selectCombo(page: Page, nodeId: string, inputId: string, option: string, xFraction = 0.5): Promise<void> {
-  const point = await page.evaluate(({ nodeId, inputId, xFraction }) => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === nodeId)!
-    const row = node.layout.rows.find((item) => item.inputId === inputId)!
-    if (!row) throw new Error(`no row '${nodeId}/${inputId}'`)
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width * xFraction, y: rect.top + node.y + row.y + row.height / 2 }
-  }, { nodeId, inputId, xFraction })
-  await page.mouse.click(point.x, point.y)
-  const dropdown = page.locator('[data-editor-surface="in-row-list"]')
-  await expect(dropdown.locator('input')).toBeVisible()
-  await dropdown.getByRole('option', { name: option, exact: true }).click()
-}
-
->>>>>>> origin/feature/widget-standard
 async function assertNoUnsupportedDiagnostic(page: Page): Promise<void> {
   await expect(page.getByText(/constructUnsupported|not supported yet/)).toHaveCount(0)
 }
