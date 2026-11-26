@@ -1776,7 +1776,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const pressEditorPlaces = new WeakMap<EditorTarget, ButtonPlace>()
   /** The field editor an Ask form's row opened, which closes with the form. */
   let askRowTarget: EditorTarget | undefined
+  const buttonBodyRegions = new WeakMap<Tab, Map<string, (scene: Scene) => Scene>>()
   const buttonPresses = createButtonPresses(props.app, {
+    projectScene: (place, scene) => buttonBodyRegions.get(place.tab)?.get(JSON.stringify([
+      place.tab.store.doc.lineage, place.graphId, place.instancePath ?? [],
+    ]))?.(scene) ?? scene,
     edit: (request, signal) => {
       let target: Extract<EditorTarget, { kind: 'local' }> | undefined
       return answerOnce<Json>(signal, (answer) => {
@@ -5152,6 +5156,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setNodeDecorations(decorations.presentation)
       renderer.setRowMarks(model.rowProblems)
       const nodeOutputTexts = lens.id === 'standard' ? model.outputTexts : {}
+      const regions = buttonBodyRegions.get(tab) ?? new Map<string, (scene: Scene) => Scene>()
+      buttonBodyRegions.set(tab, regions)
+      regions.set(JSON.stringify([tab.store.doc.lineage, gid, viewedPath]),
+        (scene) => renderer.sceneWithBodyRegions(scene, model.previews, nodeOutputTexts))
       renderer.setNodeOutputTexts(nodeOutputTexts)
       renderer.setNodePreviews(model.previews)
       // Background overlay updates must not dismiss a still-valid user decision.

@@ -518,6 +518,7 @@ describe('each step', () => {
   it.each([1, 2])('AddNode shares the node but wires only the pressing occurrence at depth %s', async (depth) => {
     addSchema('test.add_target', [
       { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
+      { kind: 'input', id: 'other', type: { kind: 'concrete', types: ['INT'] }, default: 4 },
       { kind: 'button', id: 'add', label: 'Add', steps: [{ step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} }] },
     ])
     addSchema('test.add_processor', [
@@ -563,8 +564,16 @@ describe('each step', () => {
       const outcome = await runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: path('left'), button: 'add' }, host)
       expect(outcome.kind, JSON.stringify(outcome)).toBe('done')
       if (driver === 'outside' || driver === 'outsideReroute') {
-        expect(outcome.message).toBe('value is wired from outside this subgraph.')
+        expect(outcome.message).toBe('Nothing added. value is wired from outside this subgraph.')
         expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+        const mixed = await runSteps(session, [{ graphId: 'g1', nodeId: 'inner', instancePath: path('left'), prefix: '', steps: decodeSteps([
+          { step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} },
+          { step: 'addNode', nodeType: 'test.add_processor', to: 'other', values: {} },
+        ]) }], host)
+        expect(mixed).toMatchObject({ kind: 'done', message: 'Nothing added for value. value is wired from outside this subgraph. Added to all 2 uses of Shared body. Wired only here.' })
+        expect(Object.keys(session.doc.graphs['g1']!.nodes)).toHaveLength(3)
+        expect(session.undo()).toBe(true)
         expect(session.canUndo).toBe(false)
         continue
       }
@@ -612,7 +621,7 @@ describe('each step', () => {
           { step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} },
           { step: 'pick', name: 'chosen', options: { value: ['go'] } },
         ]) }], changedHost)
-        expect(outcome).toMatchObject({ kind: 'done', message: 'value is wired from outside this subgraph.', notes: [] })
+        expect(outcome).toMatchObject({ kind: 'done', message: 'Nothing added. value is wired from outside this subgraph.', notes: [] })
         expect(Object.keys(waiting.doc.graphs['g1']!.nodes)).toHaveLength(2)
         expect(waiting.doc.occurrenceTopologies).toBeUndefined()
         expect(waiting.undo()).toBe(true)

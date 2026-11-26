@@ -1,5 +1,6 @@
 import { createSignal } from 'solid-js'
 import {
+  asNodeId,
   buttonAvailability,
   coreCommandRegistry,
   documentNodeResolver,
@@ -23,7 +24,9 @@ import {
   type WidgetSpec,
 } from '@dinkster/core'
 import type { LookupCall, LookupEntry } from '@dinkster/client'
+import { buildScene, defaultTokens, linkBounds, type Scene } from '@dinkster/canvas'
 import type { AppState, Tab } from './app-state.js'
+import { canvasMeasures } from './canvas-measures.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { desktopSaveBridge } from './desktop-bridge.js'
 
@@ -66,6 +69,8 @@ export interface LocalEditRequest {
 
 /** The surfaces a press opens at its button; each settles undefined when the user closes it. */
 export interface ButtonSurfaces {
+  /** Include the tab's visible preview/text body regions in a staged measurement scene. */
+  projectScene?(place: ButtonPlace, scene: Scene): Scene
   edit(request: LocalEditRequest, signal: AbortSignal): Promise<Json | undefined>
   ask(place: ButtonPlace, request: AskRequest, signal: AbortSignal): Promise<Readonly<Record<string, Json>> | undefined>
   /** Shows a field-built address before its tab opens. */
@@ -149,6 +154,45 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     return {
       ...lookOf(place),
       commands: coreCommandRegistry([], resolve),
+      positionAddedNode(doc, target, node, to, source) {
+        const graph = doc.graphs[target.graphId]!
+        const measuring = { ...doc, graphs: { ...doc.graphs, [target.graphId]: { ...graph, nodes: { ...graph.nodes, [node.id]: node } } } }
+        const resolver = documentResolver(measuring, resolve)
+        const measures = canvasMeasures(() => app.widgetRegistryForTab(tab))
+        const path = target.instancePath ?? []
+        const measured = buildScene({ document: measuring, graphId: target.graphId, resolve: resolver,
+          tokens: defaultTokens, ...measures,
+          occurrenceView: occurrenceDynamicView(measuring, resolver, path, path.length === 0 ? target.graphId : doc.root),
+          ...(path.length === 0 ? {} : { occurrence: {
+            owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }, plannerAvailable: true,
+          } }),
+        })
+        const scene = surfaces.projectScene?.(place, measured) ?? measured
+        const destination = scene.nodes.find((item) => item.id === target.nodeId)!
+        const layout = scene.nodes.find((item) => item.id === node.id)!.layout
+        const gap = defaultTokens.rowHeight * 2
+        const driver = source === undefined ? undefined : scene.links.find((link) =>
+          link.to.kind === 'port' && link.to.node === target.nodeId && link.to.port === to)
+        let x = destination.x - layout.width - gap
+        const obstacles = [...scene.nodes.filter((item) => item.id !== node.id), ...scene.boundaryNodes].map((item) => ({
+          x: item.x, y: item.y, width: item.layout.width, height: item.layout.height,
+        }))
+        for (const link of scene.links) {
+          // The old delivery is replaced by the insertion, not an obstacle.
+          if (link.hidden || (link.to.kind === 'port' && link.to.node === target.nodeId && link.to.port === to)) continue
+          const bounds = linkBounds(link.x1, link.y1, link.x2, link.y2)
+          obstacles.push({ x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY })
+        }
+        const clear = (y: number): boolean => !obstacles.some((item) => x < item.x + item.width + gap && x + layout.width + gap > item.x &&
+            y < item.y + item.height + gap && y + layout.height + gap > item.y)
+        if ((driver === undefined || x >= driver.x1 + gap) && clear(destination.y)) return { x, y: destination.y }
+        // Existing positions belong to every use of the definition. Only the
+        // new node moves to a clear lane when the horizontal gap is too small.
+        if (driver !== undefined) x = (driver.x1 + destination.x - layout.width) / 2
+        const candidates = obstacles.flatMap((item) => [item.y - layout.height - gap, item.y + item.height + gap])
+          .sort((a, b) => Math.abs(a - destination.y) - Math.abs(b - destination.y) || b - a)
+        return { x, y: candidates.find(clear)! }
+      },
       async lookup(request, signal): Promise<LookupResult> {
         const lookups = lookupsOf(tab)
         if (request.use === 'value') return lookups.resolve(lookupCall(request), 'value', { signal })

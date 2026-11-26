@@ -2011,7 +2011,16 @@ export function buildScene(input: BuildSceneInput): Scene {
       bindings.forEach((b, i) => {
         const projected = projectedAnchors('in', item, b)
         const fallback = innerAnchor(b, 'in')
-        const targets = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
+        // A local driver replaces the boundary value in this occurrence.
+        // Its declaration binding is not a second delivery to draw.
+        const locallyDriven = effective?.links.some((link) => {
+          if (link.to.graphId !== def.id || fallback === undefined) return false
+          const to = link.to.endpoint
+          return fallback.end.kind === 'reroute'
+            ? isRerouteRef(to) && to.reroute === fallback.end.reroute
+            : fallback.end.kind === 'port' && isPortEndpoint(to) && to.node === fallback.end.node && to.port === fallback.end.port
+        }) === true
+        const targets = projected.length > 0 ? projected : fallback === undefined || locallyDriven ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,

@@ -1674,13 +1674,14 @@ export class CanvasRenderer {
     ctx.textAlign = 'left'
   }
 
-  private sceneWithBodyRegions(scene: Scene): Scene {
-    if (Object.keys(this.previews).length === 0 && Object.keys(this.outputTexts).length === 0 &&
+  /** Project a measurement scene with the same preview/text regions the canvas paints, without installing it. */
+  sceneWithBodyRegions(scene: Scene, previews: PreviewMap = this.previews, outputTexts: OutputTextMap = this.outputTexts): Scene {
+    if (Object.keys(previews).length === 0 && Object.keys(outputTexts).length === 0 &&
         !scene.nodes.some((node) => node.previewCapable === true)) return scene
     const nodes = scene.nodes.map((node) => {
       const folded = previewFoldedOf(node)
-      const preview = this.previews[node.id]
-      const outputText = this.outputTexts[node.id]
+      const preview = previews[node.id]
+      const outputText = outputTexts[node.id]
       if (node.layout.minimized === true) {
         const content = minimizedStripContent(preview, outputText)
         return content === 'picture'

@@ -1832,6 +1832,27 @@ describe('boundary pseudo-nodes', () => {
     expect(JSON.stringify(doc)).toBe(before)
   })
 
+  it('draws only the local delivery when it replaces a promoted boundary value', () => {
+    const original = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document!
+    const source: NodeSchema = { type: 'IntegerSource', displayName: 'Integer source', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'output', id: 'number', type: { kind: 'concrete', name: 'INT' } }] }
+    const doc: WorkflowDocument = { ...original, graphs: { ...original.graphs, g1: { ...original.graphs.g1!,
+      nodes: { ...original.graphs.g1!.nodes, source: { id: asNodeId('source'), type: source.type, values: {} } },
+      links: { drive: { id: asLinkId('drive'), from: { node: asNodeId('source'), port: asPortId('number') },
+        to: { node: asNodeId('n0'), port: asPortId('color') } } },
+    } } }
+    const resolve = documentResolver(doc, (type) => type === source.type ? source : schemas.get(type))
+    const definition = buildScene({ document: doc, graphId: 'g1', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    expect(definition.links.some((link) => link.id === 'boundary:inputs:color')).toBe(true)
+    const occurrence = { owner: { instancePath: [], node: asNodeId('n0') }, plannerAvailable: true }
+    const local = buildScene({ document: doc, graphId: 'g1', resolve, tokens: defaultTokens, measure, widgetMeasure, occurrence })
+    expect(local.links.filter((link) => link.to.kind === 'port' && link.to.node === 'n0' && link.to.port === 'color')
+      .map((link) => link.from)).toEqual([{ kind: 'port', node: 'source', port: 'number' }])
+    const unwired = buildScene({ document: original, graphId: 'g1', resolve: documentResolver(original, (type) => schemas.get(type)),
+      tokens: defaultTokens, measure, widgetMeasure, occurrence })
+    expect(unwired.links.some((link) => link.id === 'boundary:inputs:color')).toBe(true)
+  })
+
   it('saved view positions win over defaults, per side', () => {
     const scene = g1SceneWith({ inputs: { position: { x: -321, y: 77 } } })
     const inputs = scene.boundaryNodes.find((b) => b.side === 'inputs')!

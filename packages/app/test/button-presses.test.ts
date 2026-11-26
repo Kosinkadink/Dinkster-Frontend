@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry, createLocalSession, documentResolver, parseDinksterSchema, type CallAnswer, type DinksterWireSchema, type WorkflowDocument } from '@dinkster/core'
 import { createLookupClient, valueFromWire, type LookupClient } from '@dinkster/client'
+import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { createButtonPresses, type ButtonSurfaces } from '../src/button-presses.js'
 import type { AppState, Tab } from '../src/app-state.js'
 
@@ -41,6 +42,54 @@ function setup(call: () => Promise<CallAnswer>, nodeSchema = schema, lookups?: L
 }
 
 describe('button press authority and typed answers', () => {
+  it.each([700, 250])('places an added node without moving or covering existing nodes (target x: %s)', async (targetX) => {
+    const target = parseDinksterSchema('test.target', { schemaVersion: 2, nodeType: 'test.target', displayName: 'Target', category: 'test', body: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'button', id: 'add', label: 'Add', steps: [{ step: 'addNode', nodeType: 'test.processor', to: 'value', values: {} }] },
+    ] }).schema!
+    const processor = parseDinksterSchema('test.processor', { schemaVersion: 2, nodeType: 'test.processor', displayName: 'Processor with a longer title', category: 'test', body: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+    ] }).schema!
+    const resolve = (type: string) => type === target.type ? target : type === processor.type ? processor : undefined
+    const doc = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'placement', root: 'g0', graphs: {
+      g0: { id: 'g0', name: 'root', nextOrdinal: 100, nodes: {
+        target: { id: 'target', type: target.type, values: {} }, source: { id: 'source', type: processor.type, values: {} },
+      }, links: { feed: { id: 'feed', from: { node: 'source', port: 'out' }, to: { node: 'target', port: 'value' } } }, nets: {}, reroutes: {} },
+    }, view: { graphs: { g0: { nodes: { target: { position: { x: targetX, y: 100 } }, source: { position: { x: 0, y: 100 } } } } } } } as unknown as WorkflowDocument
+    const store = createLocalSession(doc, coreCommandRegistry([], resolve), { schemaResolverFor: () => resolve })
+    const tab = { id: 'placement', store } as Tab
+    const registry = { resolve }
+    const state = { status: 'ready' }
+    const backend = { schemaState: { get: () => state } }
+    const app = { registryForTab: () => registry, widgetRegistryForTab: () => ({ kind: () => undefined }),
+      backendForTab: () => backend,
+      tabs: { get: () => [tab] }, recordHostLog: () => undefined } as unknown as AppState
+    await createButtonPresses(app, {} as ButtonSurfaces).press({ tab, graphId: 'g0', nodeId: 'target', button: 'add' })
+    const scene = buildScene({ document: store.doc, graphId: 'g0', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => undefined })
+    const added = scene.nodes.find((node) => node.id !== 'target' && node.id !== 'source')!
+    expect(added).toBeDefined()
+    expect(store.doc.view.graphs['g0']!.nodes['source']).toEqual(doc.view.graphs['g0']!.nodes['source'])
+    expect(store.doc.view.graphs['g0']!.nodes['target']).toEqual(doc.view.graphs['g0']!.nodes['target'])
+    for (const node of scene.nodes.filter((node) => node !== added)) {
+      expect(added.x + added.layout.width <= node.x || added.x >= node.x + node.layout.width ||
+        added.y + added.layout.height <= node.y || added.y >= node.y + node.layout.height).toBe(true)
+    }
+    if (targetX === 700) {
+      const source = scene.nodes.find((node) => node.id === 'source')!
+      expect(added.x).toBeGreaterThan(source.x + source.layout.width)
+      expect(added.x + added.layout.width).toBeLessThan(targetX)
+      expect(added.y).toBe(100)
+    } else expect(added.y).not.toBe(100)
+    const after = store.doc
+    expect(store.undo()).toBe(true)
+    expect(Object.keys(store.doc.graphs['g0']!.nodes)).toEqual(['target', 'source'])
+    expect(store.canUndo).toBe(false)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(after)
+  })
+
   it.each(['direct', 'nested', 'edited', 'wired', 'removed', 'refused'] as const)('keeps inside-subgraph writes atomic and occurrence-owned: %s', async (scenario) => {
     const inner = parseDinksterSchema('test.inner_button', {
       schemaVersion: 2, nodeType: 'test.inner_button', displayName: 'Inner', category: 'test', body: [

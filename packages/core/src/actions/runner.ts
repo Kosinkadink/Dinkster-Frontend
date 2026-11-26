@@ -130,6 +130,8 @@ export interface ActionHost {
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
   /** The schema of a node of `graphId` as the canvas resolves it; also asked for a node AddNode creates. */
   schemaOf(doc: WorkflowDocument, graphId: string, node: NodeData): NodeSchema | undefined
+  /** A renderer host places additions using its measured node and wire geometry. */
+  positionAddedNode?(doc: WorkflowDocument, target: StepPlace, node: NodeData, to: string, source?: LinkEndpoint): { readonly x: number; readonly y: number }
   lookup(request: LookupRequest, signal: AbortSignal): Promise<LookupResult>
   call(request: CallRequest, progress: (fraction: number, text: string) => void, signal: AbortSignal): Promise<CallAnswer>
   /** The chosen option's value, or undefined when the list closed. */
@@ -597,7 +599,8 @@ function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace,
     }
     case 'addNode': {
       const id = predictAllocatedId(doc.graphs[graphId]!, actor, 'n')
-      const add: CommandInvocation = { command: 'node.add', params: { graphId, type: action.type, position: action.position, values: action.values } }
+      const position = host.positionAddedNode?.(doc, target, { id: asNodeId(id), type: action.type, values: action.values }, action.to, action.source) ?? action.position
+      const add: CommandInvocation = { command: 'node.add', params: { graphId, type: action.type, position, values: action.values } }
       const path = target.instancePath ?? []
       if (path.length > 0) {
         const staged = scratchOf(doc, host)
@@ -689,7 +692,7 @@ class Press {
   readonly actions: Action[] = []
   readonly notes: string[] = []
   readonly skipped: Skip[] = []
-  sharedNodeAdded = false
+  nodeAdded = false
   view: View
   context: FormulaContext
   readonly signal: AbortSignal
@@ -1321,9 +1324,7 @@ class Press {
       if (built.length === 0) continue
       dispatchOn(live, built, this.session.allocationActor)
       invocations.push(...built)
-      if (action.kind === 'addNode' && (this.target.instancePath?.length ?? 0) > 0) {
-        this.sharedNodeAdded = true
-      }
+      if (action.kind === 'addNode') this.nodeAdded = true
     }
     return { invocations, written: written.size }
   }
@@ -1381,14 +1382,14 @@ const OUTSIDE_WORDS: Readonly<Record<string, string>> = {
   call: 'Saving the file',
 }
 
-function summary(changed: number, skipped: readonly Skip[], notes: readonly string[]): string | undefined {
+function summary(changed: number, skipped: readonly Skip[], notes: readonly string[], nodeAdded: boolean): string | undefined {
   if (skipped.length === 0 && notes.length === 0) return undefined
   const parts: string[] = []
   if (skipped.length > 0) {
     if (changed > 0) parts.push(`Set ${changed} ${changed === 1 ? 'field' : 'fields'}.`)
     parts.push(...skipped.map(({ id, why }) => why === 'edited'
       ? `${id} was changed while the button waited and keeps that value.`
-      : why === 'outside' ? `${id} is wired from outside this subgraph.`
+      : why === 'outside' ? `Nothing added${nodeAdded ? ` for ${id}` : ''}. ${id} is wired from outside this subgraph.`
         : `${id} has a wire and was left as it is.`))
   }
   parts.push(...notes)
@@ -1542,7 +1543,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
   const outsideFailures: string[] = []
   const unsaved: string[] = []
   for (const [index, press] of presses.entries()) {
-    if (press.sharedNodeAdded) {
+    if (press.nodeAdded && (press.target.instancePath?.length ?? 0) > 0) {
       const count = (id: string, ancestors: ReadonlySet<string>): number => {
         if (ancestors.has(id)) return 0
         return (id === press.target.graphId ? 1 : 0) + Object.values(session.doc.graphs[id]!.nodes).reduce((total, node) => {
@@ -1575,7 +1576,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
   const notes = presses.flatMap((press) => press.notes)
   const message = [
     ...unsaved.map((name) => `The Save As dialog was closed, so ${name} was not saved.`),
-    summary(changed, skipped, notes),
+    summary(changed, skipped, notes, presses.some((press) => press.nodeAdded)),
   ].filter((part) => part !== undefined).join(' ') || undefined
   if (outsideFailures.length > 0) {
     const kept = lead.length > 0 || presses.some((press) => press.actions.length > 0) ? 'The changes were made. ' : ''
