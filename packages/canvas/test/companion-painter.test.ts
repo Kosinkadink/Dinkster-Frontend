@@ -145,6 +145,22 @@ const registry: WidgetRegistry = {
 
 describe('companion value painting', () => {
 
+  it('aligns absence words on seed rows with ordinary numeric rows, without reserving the hidden controller', () => {
+    for (const painter of [defaultWidgetPainter, createRegistryPainter(registry)]) {
+      for (const state of ['nothing', 'expected'] as const) {
+        const word = state === 'nothing' ? 'Nothing' : '42'
+        const edges = [row, { ...row, controllerMode: 'fixed' as const }].map((field) => {
+          const { ctx, calls } = fakeCtx()
+          painter(argsWith(ctx, { row: field, width: 400, connected: true, companion: { state, value: 42 } }))
+          return calls.find((call) => call.text === word)?.x
+        })
+        expect(edges[0]).toBe(400 - defaultTokens.rowGeometry.stepperZone)
+        if (state === 'expected') expect(edges[1]).toBeLessThan(edges[0]!)
+        else expect(edges[1]).toBe(edges[0])
+      }
+    }
+  })
+
   it('default painter preserves a short value before the label', () => {
     const { ctx, calls } = fakeCtx()
     defaultWidgetPainter({

@@ -110,6 +110,14 @@ export const intKind: WidgetKind<IntegerWidgetValue> = {
     : isIntegerWidgetValue(spec.options['min']) ? spec.options['min'] : 0,
   validate: (value, spec) => integerRangeDiags(value, spec),
   defaultView: (spec) => spec.options['display'] === 'color' ? 'core.integerColor' : 'core.number',
+  representations: (spec) => spec.options['display'] === 'color' ? {
+    default: 'color',
+    userSwitchable: true,
+    representations: [
+      { id: 'color', displayName: 'Color', widget: { ...spec } },
+      { id: 'number', displayName: 'Number', widget: { ...spec, options: { ...spec.options, display: 'number' } } },
+    ],
+  } : undefined,
 }
 
 /**
