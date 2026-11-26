@@ -213,6 +213,7 @@
   "saveTargetWidget.noMounts": "No ready writable mounts. Add or reconnect a writable folder in mount settings.",
   "saveTargetWidget.clear": "Clear destination",
   "saveTargetWidget.apply": "Apply destination",
+  "saveTargetWidget.reset": "Reset to default",
   "saveTargetWidget.loading": "Loading mounts",
   "saveTargetWidget.none": "No mount ready",
   "saveTargetWidget.couldNotLoad": "Could not load",

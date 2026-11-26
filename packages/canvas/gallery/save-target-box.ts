@@ -71,7 +71,7 @@ export function createSaveTargetScene(
   widgetMeasure: WidgetMeasure,
   position: { x: number; y: number },
   stored: Json,
-  options: { readonly optional?: boolean; readonly wired?: boolean; readonly unfolded?: boolean; readonly wiredParts?: readonly string[] } = {},
+  options: { readonly optional?: boolean; readonly wired?: boolean; readonly unfolded?: boolean; readonly wiredParts?: readonly string[]; readonly nameOffset?: number } = {},
 ): Scene {
   const schema = options.optional === true ? optionalSaveTargetSchema : saveTargetSchema
   const id = schema.type
@@ -128,7 +128,7 @@ export function createSaveTargetScene(
     type: { kind: 'concrete', name: part === 'mount' ? 'MOUNT' : 'STRING' },
     y: space === undefined
       ? header.y + tokens.rowHeight / 2 + (index - (parts.length - 1) / 2) * canvasPaintTokens.node.box.clusterPitch.two
-      : space.y + canvasPaintTokens.node.editorSpace.pad + (index + 0.5) * tokens.rowHeight,
+      : space.y + canvasPaintTokens.node.editorSpace.pad + (part === 'name' ? options.nameOffset ?? tokens.rowHeight : 0) + tokens.rowHeight / 2,
     ...(space === undefined ? { collapsedSection: 'target' } : {}),
   }))
   // These two example pins do not declare engine inputs. The engine contract is separate.
@@ -201,6 +201,11 @@ export const saveTargetGroups: readonly {
       { id: 'foldout-mount-wired', caption: 'Example data only: Mount wired while Name stays editable. No engine input is added.', stored: portrait, open: { mount: 'archive', prefix: 'renders/portrait' }, foldout: true, resting: true, wiredParts: ['mount'] },
       { id: 'foldout-name-wired', caption: 'Example data only: Name wired while Mount stays editable.', stored: portrait, open: { mount: null, prefix: 'shots/shot_042' }, foldout: true, resting: true, wiredParts: ['name'] },
       { id: 'foldout-both-folded', caption: 'Example data only: connected Mount and Name pins gather at the closed header on the node edge.', stored: portrait, foldout: true, wiredParts: ['mount', 'name'] },
+      { id: 'foldout-missing', caption: 'A missing mount stays stored; its warning and project-default action belong under Mount.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, foldout: true, resting: true },
+      { id: 'foldout-no-default', caption: 'Project default has no output mount. The error stays inside the editor.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, noDefault: true, foldout: true, resting: true },
+      { id: 'foldout-missing-no-default', caption: 'The stored mount is missing and this project has no default output mount.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, noDefault: true, foldout: true, resting: true },
+      { id: 'foldout-none', caption: 'No ready writable mount. The message grows the editor only by its content height.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'none', foldout: true, resting: true },
+      { id: 'foldout-changed', caption: 'A changed target offers Reset to default in the shared editor button row.', stored: portrait, open: { mount: 'archive', prefix: 'renders/final' }, foldout: true, resting: true },
     ],
   },
   {

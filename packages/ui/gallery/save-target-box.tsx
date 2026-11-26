@@ -64,6 +64,7 @@ function SaveTargetExampleCard(props: {
   const [fieldInsetY, setFieldInsetY] = createSignal(0)
   const [sideSize, setSideSize] = createSignal({ width: SIDE_ROOM - MARGIN, height: 0 })
   const [boxHeight, setBoxHeight] = createSignal(0)
+  const [nameOffset, setNameOffset] = createSignal(0)
   const example = () => props.example
   const schema = () => (example().optional === true ? optionalSaveTargetSchema : saveTargetSchema)
   const nodeAt = { x: MARGIN, y: MARGIN }
@@ -71,7 +72,9 @@ function SaveTargetExampleCard(props: {
   createEffect(() => {
     const theme = props.theme
     const current = example()
+    const currentOpen = open()
     const controlsHeight = boxHeight()
+    const nameY = nameOffset()
     let disposed = false
     let renderer: CanvasRenderer | undefined
     void document.fonts
@@ -100,14 +103,15 @@ function SaveTargetExampleCard(props: {
           return view ? { viewId: view.id, rows: view.measure(spec).rows,
             ...(current.foldout && current.open && controlsHeight > 0 ? { editorControls: controlsHeight } : {}) } : undefined
         }
-        const shown = current.foldout && current.open && !draft().prefixInvalid
-          ? { prefix: current.open.prefix, ...(current.open.mount === null ? {} : { mount: current.open.mount }) }
+        const shown = current.foldout && currentOpen && !draft().prefixInvalid
+          ? { prefix: currentOpen.prefix, ...(currentOpen.mount === null ? {} : { mount: currentOpen.mount }) }
           : current.stored
         const built = createSaveTargetScene(tokens, measure, widgetMeasure, nodeAt, shown, {
           ...(current.optional === true ? { optional: true } : {}),
           ...(current.arriving === undefined ? {} : { wired: true }),
           ...(current.foldout ? { unfolded: current.open !== undefined } : {}),
           ...(current.wiredParts === undefined ? {} : { wiredParts: current.wiredParts }),
+          ...(current.foldout && current.open ? { nameOffset: nameY } : {}),
         })
         const node = built.nodes.find((item) => item.id === schema().type)!
         canvas.style.width = `${current.foldout ? node.layout.width + MARGIN * 2 : MARGIN + NODE_WIDTH + SIDE_ROOM}px`
@@ -144,7 +148,8 @@ function SaveTargetExampleCard(props: {
 
   const mounts = (): CanvasTargetMounts => example().mounts ?? 'ready'
   const ready = (): readonly string[] => (mounts() === 'ready' ? galleryMounts : [])
-  const open = () => example().open
+  const [edited, setEdited] = createSignal<{ mount: string | null; prefix: string }>()
+  const open = () => edited() ?? example().open
   // The project's default output mount, known once the mounts are read; a project may have none.
   const noDefault = (): boolean => mounts() === 'ready' && example().noDefault === true
   const projectMount = (): string | undefined => (mounts() === 'ready' && !noDefault() ? galleryMounts[0] : undefined)
@@ -215,7 +220,12 @@ function SaveTargetExampleCard(props: {
     return open()?.mount === null ? t('saveTargetWidget.noDefaultMount') : undefined
   }
   const mountTone = (): 'warning' | 'error' | undefined =>
-    runStops() !== undefined ? 'error' : draft().mountGone ? 'warning' : undefined
+    runStops() !== undefined || (example().foldout && mounts() === 'failed') ? 'error'
+      : draft().mountGone || (example().foldout && mounts() === 'none') ? 'warning' : undefined
+
+  const mountProblem = () => mounts() === 'failed' ? t(NO_BACKEND)
+    : runStops() ?? (mounts() === 'none' ? t('saveTargetWidget.noMounts')
+      : draft().mountGone ? t('saveTargetWidget.notHereSaving', { id: open()?.mount ?? '', mount: projectText() }) : undefined)
 
   const side = createMemo(() => {
     const result = draft()
@@ -248,7 +258,11 @@ function SaveTargetExampleCard(props: {
   const box = (
     <div
       ref={(element) => {
-        const observer = new ResizeObserver(() => setBoxHeight(element.scrollHeight))
+        const observer = new ResizeObserver(() => {
+          setBoxHeight(element.scrollHeight)
+          const name = element.querySelector<HTMLElement>('.dinkster-canvas-target-name')
+          if (name) setNameOffset(name.getBoundingClientRect().top - element.getBoundingClientRect().top)
+        })
         observer.observe(element)
         onCleanup(() => observer.disconnect())
       }}
@@ -272,6 +286,15 @@ function SaveTargetExampleCard(props: {
         listOpen={listOn() !== undefined}
         {...(listOn() === undefined ? {} : { highlight: listOn()! })}
         prefix={open()?.prefix ?? ''}
+        {...(example().foldout ? { onPrefix: (prefix: string) => setEdited({ mount: open()?.mount ?? null, prefix }) } : {})}
+        {...(example().foldout && mountProblem() !== undefined ? { mountProblem: mountProblem()! } : {})}
+        {...(example().foldout && draft().mountGone && !noDefault() ? {
+          mountAction: { label: t('saveTargetWidget.useProjectDefault'), onClick: () => setEdited({ mount: null, prefix: open()?.prefix ?? '' }) },
+        } : {})}
+        {...(example().foldout && example().arriving === undefined && !example().wiredParts?.length &&
+          (open()?.mount !== null || open()?.prefix !== galleryDefault.prefix) ? {
+            reset: { label: t('saveTargetWidget.reset'), onClick: () => setEdited({ mount: null, prefix: galleryDefault.prefix }) },
+          } : {})}
         {...(draft().prefixInvalid ? { prefixProblem: t('saveTargetWidget.invalid') } : {})}
         {...(example().resting ? {} : { focused: listOn() !== undefined ? 'mount' as const : 'prefix' as const })}
       />
