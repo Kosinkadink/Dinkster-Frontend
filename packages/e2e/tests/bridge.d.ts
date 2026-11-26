@@ -482,7 +482,8 @@ interface DinksterTestBridge {
         baseUrl: string
         protocol: 'v1' | 'dinkster'
         scopedClient: Pick<import('@dinkster/client').RefreshableScopedClient, 'remoteChoices'>
-        connection: {
+        connection: Pick<import('@dinkster/client').DinksterConnection,
+          'fetchMountSettings' | 'fetchMountLocations' | 'fetchModelSettings' | 'retryMount'> & {
           status: { get(): string }
           ingest(event: Readonly<Record<string, unknown>> & { type: string }): void
           onLiveCompletion(listener: (execution: DinksterBridgeExecutionRef) => void): () => void
