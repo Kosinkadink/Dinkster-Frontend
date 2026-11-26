@@ -12,6 +12,7 @@
  */
 
 import type { ReplacementRule } from '../replace/model.js'
+import type { GraphDef, NodeData } from '../format/document.js'
 
 export type SchemaSource = 'v3' | 'v1' | 'subgraph'
 
@@ -748,7 +749,7 @@ export type GroupGrowsSpec =
  * On a row a subgraph node exposes: what each name its formulas
  * read in the inner scope means on that node. The formulas keep the inner
  * node's scope; a name the subgraph also shows reads that row of the subgraph
- * node, and any other name reads the definition's fixed value.
+ * node, and any other name reads the projected inner occurrence.
  */
 export interface OuterScope {
   /** The inner node's scopes around the row, outermost first, each with what its names mean. */
@@ -764,6 +765,15 @@ export interface ScopedVisibility {
 export type OuterName =
   | { readonly row: string }
   | { readonly value: unknown; readonly linked?: true }
+  | { readonly source: OuterSource; readonly path: string }
+
+/** An inner occurrence, projected through each containing boundary before formulas read it. */
+export interface OuterSource {
+  readonly graph: GraphDef
+  readonly node: NodeData
+  readonly schemas: ReadonlyMap<string, NodeSchema>
+  readonly parent?: OuterSource
+}
 
 /** A box that repeats its member rows. */
 export interface GroupSpec {

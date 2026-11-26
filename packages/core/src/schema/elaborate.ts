@@ -25,7 +25,8 @@
  */
 
 import { diag, type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
-import type { DynamicPortState, GraphDef, Json, NodeData } from '../format/document.js'
+import { boundaryItems, type DynamicPortState, type GraphDef, type Json, type NodeData } from '../format/document.js'
+import { outerConstructAddress, projectConstructs } from '../compile/crossing.js'
 import { asPortId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, type DynamicMemberId, type NodeId } from '../ids.js'
 import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaValue, type Unknown } from '../mirror/formula.js'
 import {
@@ -60,6 +61,7 @@ import type {
   OptionRow,
   OuterName,
   OuterScope,
+  OuterSource,
   OutputSpec,
   SectionSpec,
   TypeChoiceSpec,
@@ -1249,11 +1251,11 @@ function elaboratePass(
   const namesAt = (scope: Scope): {
     readonly where: Map<string, string>
     readonly unknown: Set<string>
-    readonly fixed: Map<string, Extract<OuterName, { value: unknown }>>
+    readonly fixed: Map<string, Exclude<OuterName, { row: string }>>
   } => {
     const where = new Map<string, string>()
     const unknown = new Set<string>()
-    const fixed = new Map<string, Extract<OuterName, { value: unknown }>>()
+    const fixed = new Map<string, Exclude<OuterName, { row: string }>>()
     for (const frame of scope.formulaFrames) {
       if (frame.outer !== undefined) {
         // A name outside a forwarded construct: a row of this node, or the
@@ -1284,6 +1286,55 @@ function elaboratePass(
     return { where, unknown, fixed }
   }
 
+  const sourceNodes = new WeakMap<OuterSource, { readonly node: NodeData; readonly connectivity: Connectivity }>()
+  const sourceValues = new WeakMap<OuterSource, ReadonlyMap<string, OuterName>>()
+  const sourceNode = (source: OuterSource): { readonly node: NodeData; readonly connectivity: Connectivity } => {
+    const cached = sourceNodes.get(source)
+    if (cached !== undefined) return cached
+    const parent = source.parent === undefined ? { node, connectivity } : sourceNode(source.parent)
+    const resolve = (inner: NodeData): NodeSchema | undefined => source.schemas.get(inner.type)
+    const projection = projectConstructs(source.graph, parent.node, resolve)
+    const inner = buildGraphConnectivity(source.graph)(source.node.id)
+    const connected = (port: string, side: 'inputs' | 'outputs'): boolean => {
+      const query = side === 'inputs' ? parent.connectivity.isInputConnected : parent.connectivity.isOutputConnected
+      for (const item of boundaryItems(source.graph.boundary, side) ?? []) {
+        for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+          if (!('node' in binding) || binding.node !== source.node.id) continue
+          const outer = binding.kind === 'construct' ? outerConstructAddress(source.graph, binding, item.id, port, resolve)
+            : binding.kind === 'port' && binding.port === port ? item.id : undefined
+          if (outer !== undefined && query(outer)) return true
+        }
+      }
+      return false
+    }
+    const projected = {
+      node: { ...source.node,
+        values: projection.values.get(source.node.id) ?? source.node.values,
+        ...(projection.dynamic.get(source.node.id) !== undefined ? { dynamic: projection.dynamic.get(source.node.id)! } : {}),
+      },
+      connectivity: {
+        isInputConnected: (port: string) => inner.isInputConnected(port) || connected(port, 'inputs'),
+        isOutputConnected: (port: string) => inner.isOutputConnected(port) || connected(port, 'outputs'),
+      },
+    }
+    sourceNodes.set(source, projected)
+    return projected
+  }
+  const fixedValue = (meaning: Exclude<OuterName, { row: string }>): Extract<OuterName, { value: unknown }> | undefined => {
+    if ('value' in meaning) return meaning
+    let values = sourceValues.get(meaning.source)
+    if (values === undefined) {
+      const projected = sourceNode(meaning.source)
+      values = elaborateInterface(meaning.source.schemas.get(meaning.source.node.type)!, projected.node, projected.connectivity, {
+        promoteGhosts: false,
+        ...(options.lookupAnswers !== undefined ? { lookupAnswers: options.lookupAnswers } : {}),
+      }).formulaValues
+      sourceValues.set(meaning.source, values)
+    }
+    const value = values.get(meaning.path)
+    return value !== undefined && 'value' in value ? value : undefined
+  }
+
   const partsAt = (widget: WidgetSpec, scope: Scope): WidgetParts | undefined => {
     if (widget.writes === undefined && widget.reads === undefined) return undefined
     const { where, unknown, fixed } = namesAt(scope)
@@ -1309,15 +1360,28 @@ function elaboratePass(
       }
     }
     const member = [...scope.formulaFrames].reverse().find((frame) => frame.index !== undefined)
+    let formula: Formula
+    try {
+      formula = Formula.parse(text, {
+        names: names.names, inputs: names.inputs, assets: names.assets, tables, derived,
+        inMember: member !== undefined,
+      })
+    } catch (error) {
+      if (error instanceof FormulaRefused) return { kind: 'failed', reason: error.message }
+      throw error
+    }
+    const used = formula.uses().names
     const values = new LazyValues()
     const wired = new Map<string, boolean>()
     const sizes = new Map<string, number>()
     for (const [name, kind] of names.names) {
+      if (!used.has(name)) continue
       const path = where.get(name)!
-      const constant = fixed.get(name)
-      if (constant !== undefined) {
-        if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.set(name, constant.linked === true ? UNKNOWN : formulaValueOf(constant.value, kind))
-        if (names.inputs.has(name)) wired.set(name, constant.linked === true)
+      const reference = fixed.get(name)
+      if (reference !== undefined) {
+        const constant = fixedValue(reference)
+        if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.set(name, constant === undefined || constant.linked === true ? UNKNOWN : formulaValueOf(constant.value, kind))
+        if (names.inputs.has(name)) wired.set(name, constant?.linked === true)
       } else if (unknown.has(name)) {
         // A group's size with no entry in `sizes` reads unknown.
         if (kind !== 'opaque' && kind !== 'group') values.setLazy(name, () => UNKNOWN)
@@ -1343,14 +1407,6 @@ function elaboratePass(
       }
     }
     try {
-      const formula = Formula.parse(text, {
-        names: names.names,
-        inputs: names.inputs,
-        assets: names.assets,
-        tables,
-        derived,
-        inMember: member !== undefined,
-      })
       return formula.evaluate({
         values,
         linked: wired,
@@ -1376,8 +1432,11 @@ function elaboratePass(
     const name = argument
     if (!framesNamesOf(scope.formulaFrames.map((frame) => frame.rows)).assets.has(name)) return undefined
     const { where, unknown, fixed } = namesAt(scope)
-    const constant = fixed.get(name)
-    if (constant !== undefined) return { value: constant.linked === true ? UNKNOWN : (constant.value ?? null) as Json }
+    const reference = fixed.get(name)
+    if (reference !== undefined) {
+      const constant = fixedValue(reference)
+      return { value: constant === undefined || constant.linked === true ? UNKNOWN : (constant.value ?? null) as Json }
+    }
     const path = where.get(name)
     if (path === undefined || unknown.has(name) || linked(path)) return { value: UNKNOWN, ...(path === undefined ? {} : { path }) }
     return { value: (Object.hasOwn(node.values, path) ? node.values[path] : null) ?? null, path }

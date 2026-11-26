@@ -52,6 +52,7 @@ import type {
   OptionRow,
   OuterName,
   OuterScope,
+  OuterSource,
   OutputSpec,
   TypeChoiceSpec,
   TypeExpr,
@@ -920,15 +921,19 @@ export function deriveBoundarySchema(
     })),
   })
 
-  const fixedValues = new WeakMap<NodeData, ReadonlyMap<string, OuterName>>()
-  const unexposedValuesOf = (node: NodeData): ReadonlyMap<string, OuterName> => {
-    const cached = fixedValues.get(node)
-    if (cached !== undefined) return cached
-    const schema = resolveNode(node)!
-    const connectivity = (connectivityOf ??= buildGraphConnectivity(graph))(node.id)
-    const values = elaborateInterface(schema, node, connectivity, { promoteGhosts: false }).formulaValues
-    fixedValues.set(node, values)
-    return values
+  const sources = new WeakMap<NodeData, OuterSource>()
+  const sourceOf = (node: NodeData): OuterSource => {
+    let source = sources.get(node)
+    if (source === undefined) {
+      const schemas = new Map<string, NodeSchema>()
+      for (const inner of Object.values(graph.nodes)) {
+        const schema = resolveNode(inner)
+        if (schema !== undefined) schemas.set(inner.type, schema)
+      }
+      source = { graph, node, schemas }
+      sources.set(node, source)
+    }
+    return source
   }
 
   /**
@@ -941,14 +946,24 @@ export function deriveBoundarySchema(
     const meaningOf = (flat: string): OuterName | undefined => {
       const shown = flat === path ? shownAs : exposedPathOf(binds.node, flat)
       if (shown !== undefined) return { row: shown }
-      return unexposedValuesOf(node).get(flat)
+      return { source: sourceOf(node), path: flat }
     }
     if (carried !== undefined) {
+      const carriedSources = new WeakMap<OuterSource, OuterSource>()
+      const carrySource = (source: OuterSource): OuterSource => {
+        let outer = carriedSources.get(source)
+        if (outer === undefined) {
+          outer = { ...source, parent: source.parent === undefined ? sourceOf(node) : carrySource(source.parent) }
+          carriedSources.set(source, outer)
+        }
+        return outer
+      }
       return {
         frames: carried.frames.map((frame) => {
           const names: Record<string, OuterName> = {}
           for (const [name, meaning] of Object.entries(frame.names)) {
-            const outer = 'row' in meaning ? meaningOf(meaning.row) : meaning
+            const outer = 'row' in meaning ? meaningOf(meaning.row)
+              : 'source' in meaning ? { ...meaning, source: carrySource(meaning.source) } : meaning
             if (outer !== undefined) names[name] = outer
           }
           return { rows: frame.rows, names }

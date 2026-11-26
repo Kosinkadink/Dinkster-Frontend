@@ -1022,6 +1022,46 @@ describe('Boundary sample acceptance compilation', () => {
     }
   })
 
+  it('boundary/formulas recalculates unexposed dependencies from renamed occurrence fields at both depths', () => {
+    for (const stored of [false, true]) {
+      const inner: NodeSchema = { ...boundarySampleSchema, body: boundarySampleSchema.body.map((row) =>
+        row.kind === 'input' && row.id === 'strength' ? { ...row,
+          visible: { formula: 'mode.calculated > 0.5 and mode.pick == "y" and mode.pick.amount > 0.5' },
+          labelFormula: { formula: '"Mix " + fixed(mode.calculated, 1)' },
+        } : row.kind === 'choice' && row.id === 'mode' ? { ...row, options: row.options.map((option) => option.key !== 'image' ? option : { ...option, rows: [...option.rows,
+          { kind: 'input' as const, id: 'calculated', type: { kind: 'concrete' as const, name: 'FLOAT' }, optional: false,
+            widget: { widgetType: 'FLOAT', options: {}, default: 0.1 }, automatic: { formula: 'radius' } },
+          { kind: 'choice' as const, id: 'pick', required: true, leader: '"y" if radius > 0.5 else "x"', shared: [],
+            options: ['x', 'y'].map((key) => ({ key, rows: [{ kind: 'state' as const, id: 'amount', type: { kind: 'concrete' as const, name: 'FLOAT' }, default: key === 'x' ? 0.2 : 0.8, partOfRun: false }] })) },
+        ] }) } : row) }
+      const source = boundarySample(2)
+      const detail = source.graphs.detail!
+      const sample = detail.nodes.sample!
+      const document = { ...source, graphs: { ...source.graphs,
+        detail: { ...detail, nodes: { ...detail.nodes, sample: { ...sample,
+          values: { ...sample.values, radius: 0.1, ...(stored ? { 'mode.calculated': 0.9 } : {}) },
+          dynamic: { ...sample.dynamic, mode: { selected: 'image' } },
+        } }, boundary: { body: [
+          { kind: 'input', id: 'amount', promoted: true, binds: { kind: 'port', node: asNodeId('sample'), port: asPortId('strength') } },
+          { kind: 'input', id: 'threshold', promoted: true, binds: { kind: 'port', node: asNodeId('sample'), port: asPortId('radius') } },
+        ] } },
+        portrait: { ...source.graphs.portrait!, boundary: { body: [
+          { kind: 'input', id: 'mix', promoted: true, binds: { kind: 'port', node: asNodeId('detail'), port: asPortId('amount') } },
+          { kind: 'input', id: 'control', promoted: true, binds: { kind: 'port', node: asNodeId('detail'), port: asPortId('threshold') } },
+        ] } },
+      } } as WorkflowDocument
+      const resolve: SchemaResolver = (type) => type === 'Boundary sample' ? inner : resolveBoundarySample(type)
+      for (const [type, control, amount] of [['#detail', 'threshold', 'amount'], ['#portrait', 'control', 'mix']] as const) {
+        const schema = documentResolver(document, resolve)(type)!
+        for (const value of [0.2, 0.8, 0.2]) {
+          const field = elabInputsOf(elaborateInterface(schema, { values: { [control]: value } })).find((row) => row.spec.id === amount)!
+          expect(field.spec.displayName).toBe(`Mix ${stored ? 0.9 : value}`)
+          expect(field.spec.hidden === true).toBe(value < 0.5)
+        }
+      }
+    }
+  })
+
   it('boundary/show-hide uses boundary names for a whole choice through renamed nested boundaries', () => {
     const source = boundarySample(2)
     const detail = source.graphs.detail!
