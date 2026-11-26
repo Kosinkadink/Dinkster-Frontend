@@ -164,7 +164,7 @@ describe('NodePalette shared search', () => {
   it('switches kind tabs and updates open labels with the locale', () => {
     const node = entry('n', 'Node')
     const utility: PaletteEntry = { ...entry('u', 'Utility'), kind: 'utility' }
-    const view = mount(() => [node, utility])
+    const view = mount(() => [node, entry('n2', 'Another node'), utility])
     try {
       view.search('')
       key(view.input, 'Tab')
@@ -172,11 +172,22 @@ describe('NodePalette shared search', () => {
       expect(rows(view.root)).toHaveLength(0)
       button(view.root, 'All').click()
       expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:u'])
-      registerCatalog('de-DE', { 'palette.action.addNode': '[Add]', 'palette.filter.takes': '[Takes]', 'palette.search.addNodePlaceholder': '[Search]' })
+      registerCatalog('de-DE', {
+        'palette.action.addNode': '[Add]', 'palette.filter.takes': '[Takes]', 'palette.search.addNodePlaceholder': '[Search]',
+        'palette.announcement.results': '[Results] {count} / {index}: {name}',
+        'palette.announcement.noMatches': '[No matches] {query}',
+      })
       setLocale('de-DE')
       expect(view.input.getAttribute('aria-label')).toBe('[Add]')
       expect(view.input.placeholder).toBe('[Search]')
       expect(button(view.root, '[Takes]')).toBeTruthy()
+      view.search('Node')
+      const announcement = () => view.root.querySelector('.dinkster-search-status[role="status"]')?.textContent
+      expect(announcement()).toBe('[Results] 2 / 1: Node')
+      key(view.input, 'ArrowDown')
+      expect(announcement()).toBe('[Results] 2 / 2: Another node')
+      view.search('missing')
+      expect(announcement()).toBe('[No matches] missing')
     } finally { view.dispose() }
   })
 

@@ -224,6 +224,14 @@ export function NodePalette(props: {
     return keys.includes(current() ?? '') ? current() : keys[0]
   }
   const selected = () => matches().find((entry) => `entry:${entry.type}` === selectedKey())
+  const announcement = () => {
+    const rows = groups().flatMap((group) => group.rows)
+    const index = rows.findIndex((item) => item.key === selectedKey())
+    if (index < 0) return query().trim() === ''
+      ? message('palette.announcement.noNodes')
+      : message('palette.announcement.noMatches', { query: query() })
+    return message('palette.announcement.results', { count: rows.length, index: index + 1, name: rows[index]!.title })
+  }
   const activate = (key: string) => {
     if (key.startsWith('category:')) { setCategory(key.slice(9)); setCurrent(undefined); return }
     const entry = matches().find((item) => `entry:${item.type}` === key)
@@ -334,6 +342,7 @@ export function NodePalette(props: {
         filters={filters}
         groups={groups()} {...(selectedKey() === undefined ? {} : { current: selectedKey()! })}
         onCurrent={setCurrent} onActivate={activate} onClose={props.onClose}
+        status={announcement()}
         markQuery={parseSearchFilters(query()).text}
         autofocus inputRef={(input) => { searchInput = input; input.dataset.testid = 'palette-search' }}
         empty={{ title: message('palette.empty.title'), detail: message(query().trim() === '' ? 'palette.empty.filters' : 'palette.empty.query') }}

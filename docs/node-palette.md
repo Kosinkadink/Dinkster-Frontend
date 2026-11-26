@@ -5,7 +5,9 @@ blueprints, and utilities. Double-clicking empty canvas opens it with its
 top edge centered on that point. Dropping a link on empty canvas opens the
 same surface with compatible entries, and double-clicking a link can open it
 with both endpoint filters; every spawn point uses the same top-centered
-anchor, shifted only as needed to keep the whole surface visible.
+anchor, clamped as if the surface occupied the full available height. Its top
+stays fixed while results change and shorter results move only the bottom;
+canvas-bounds changes recalculate containment.
 
 ## Search and browsing
 
