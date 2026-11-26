@@ -675,6 +675,10 @@ describe('shared model management', () => {
     await connection.listMountEntries('output / extra', { path: 'nested', recursive: false, sort: 'name', cursor: page.cursor! })
     expect(calls[1]?.url.pathname).toBe('/api/mounts/output%20%2F%20extra/entries')
     expect(Object.fromEntries(calls[1]!.url.searchParams)).toEqual({ project: 'work / client', path: 'nested', recursive: 'false', sort: 'name', cursor: 'next' })
+    await connection.listMountEntries(undefined, { mountIds: ['input / local', 'output'], sort: 'newest' })
+    expect(calls[2]?.url.searchParams.getAll('mount')).toEqual(['input / local', 'output'])
+    expect(await connection.listMountEntries(undefined, { mountIds: [] })).toEqual({ entries: [], total: 0 })
+    expect(calls).toHaveLength(3)
     status = 400
     await expect(connection.listMountEntries(undefined, { cursor: page.cursor! })).rejects.toThrow('GET mount entries failed: 400')
   })

@@ -3832,8 +3832,10 @@ export class DinksterConnection {
     if (!res.ok) throw new Error(`DELETE /api/mounts/${id} failed: ${res.status}`)
   }
 
-  async listMountEntries(mountId: string | undefined, req: { readonly q?: string; readonly path?: string; readonly recursive?: boolean; readonly sort?: 'path' | 'name' | 'newest'; readonly cursor?: string; readonly limit?: number; readonly kind?: string; readonly signal?: AbortSignal } = {}): Promise<MountEntryPage> {
+  async listMountEntries(mountId: string | undefined, req: { readonly mountIds?: readonly string[]; readonly q?: string; readonly path?: string; readonly recursive?: boolean; readonly sort?: 'path' | 'name' | 'newest'; readonly cursor?: string; readonly limit?: number; readonly kind?: string; readonly signal?: AbortSignal } = {}): Promise<MountEntryPage> {
+    if (req.mountIds?.length === 0) return { entries: [], total: 0 }
     const params = new URLSearchParams({ project: this.project ?? 'default' })
+    for (const id of req.mountIds ?? []) params.append('mount', id)
     if (req.q) params.set('q', req.q)
     if (req.path !== undefined) params.set('path', req.path)
     if (req.recursive !== undefined) params.set('recursive', req.recursive ? 'true' : 'false')
