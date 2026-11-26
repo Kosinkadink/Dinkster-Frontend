@@ -23,7 +23,7 @@ it('offers each enclosing definition with the selected occurrence path, not its 
   }] }]
   const document = { graphs: { outer: { name: 'Portrait fix' }, middle: { name: 'Detail pass' },
     inner: { boundary: { body: [{ kind: 'input', id: 'amount', promoted: true, binds: { kind: 'port', node: 'blend', port: 'mix' } }] } },
-  } } } as unknown as WorkflowDocument
+  } } as unknown as WorkflowDocument
   const result = ancestorPromotionMenuGroup(groups, document, ['root', 'outer', 'middle', 'inner'], ['portrait', 'right', 'second'], false)!
   expect(result.items[0]!.label).toBe('Show on ancestor')
   expect(result.items[0]!.children!.map((item) => item.label)).toEqual(['Detail pass', 'Portrait fix'])
