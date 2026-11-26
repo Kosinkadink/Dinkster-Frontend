@@ -964,7 +964,7 @@ test('narrow advanced settings remain reachable and removal requires confirmatio
   ).toBeDisabled()
   await expect(
     page.getByLabel('Saved environment', { exact: true }),
-  ).toHaveValue('studio')
+  ).toHaveText(longName)
   await page
     .getByRole('button', { name: 'Dismiss notification', exact: true })
     .click()
