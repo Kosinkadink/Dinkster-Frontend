@@ -1568,7 +1568,7 @@ describe('steps outside the workflow', () => {
 })
 
 describe('steps inside a subgraph occurrence', () => {
-  it('refuses an unowned instance write without committing earlier writes or changing siblings', async () => {
+  it('reports shared field changes while keeping promoted writes instance-local in one undo step', async () => {
     addSchema('test.shared_value', [
       { kind: 'input', id: 'owned', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
       { kind: 'input', id: 'shared', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
@@ -1577,17 +1577,33 @@ describe('steps inside a subgraph occurrence', () => {
         { step: 'set', field: 'shared', value: { formula: 'shared + 1' } },
       ] },
     ])
-    const root = documentOf({ left: { type: '#g1', values: { shown: 41 } }, right: { type: '#g1', values: { shown: 73 } } })
-    const inner = documentOf({ inner: { type: 'test.shared_value', values: { shared: 3 } } }).graphs['g0']!
-    const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), boundary: {
-      body: [{ kind: 'input', id: asPortId('shown'), binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('owned') }, promoted: true }],
-    } } } }
     const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
-    const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
-    expect(await runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: ['left'], button: 'increase' }, host))
-      .toMatchObject({ kind: 'failed' })
-    expect(session.doc).toEqual(doc)
-    expect(session.canUndo).toBe(false)
+    for (const uses of [1, 2, 3]) for (const promoted of [false, true]) {
+      const root = documentOf({ left: { type: '#g1', values: { shown: 41, ...(promoted ? { ownShared: 3 } : {}) } },
+        ...(uses > 1 ? { right: { type: '#g1', values: { shown: 73 } } } : {}),
+        ...(uses > 2 ? { third: { type: '#g1', values: { shown: 97 } } } : {}),
+      })
+      const inner = documentOf({ inner: { type: 'test.shared_value', values: { shared: 3 } } }).graphs['g0']!
+      const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), name: 'shared', boundary: {
+        body: [{ kind: 'input', id: asPortId('shown'), binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('owned') }, promoted: true },
+          ...(promoted ? [{ kind: 'input' as const, id: asPortId('ownShared'), binds: { kind: 'port' as const, node: asNodeId('inner'), port: asPortId('shared') }, promoted: true }] : [])],
+      } } } }
+      const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+      const outcome = await runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: ['left'], button: 'increase' }, host)
+      expect(outcome).toMatchObject({ kind: 'done', notes: !promoted && uses > 1
+        ? [`Also changed in the other ${uses === 2 ? 'use' : '2 uses'} of shared.`] : [] })
+      expect(valuesOf(session, 'left')).toEqual({ shown: 42, ...(promoted ? { ownShared: 4 } : {}) })
+      expect(session.doc.graphs['g1']!.nodes['inner']!.values).toEqual({ shared: promoted ? 3 : 4 })
+      for (const id of ['right', 'third']) if (root.graphs['g0']!.nodes[id]) {
+        expect(session.doc.graphs['g0']!.nodes[id]).toEqual(root.graphs['g0']!.nodes[id])
+      }
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(session.doc).toEqual(doc)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+    }
   })
 
   it('materializes and edits whole promoted groups outside, keeping definition members and sibling instances', async () => {

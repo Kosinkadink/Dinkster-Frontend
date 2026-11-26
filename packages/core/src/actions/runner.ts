@@ -234,7 +234,6 @@ export const STALE_MESSAGE = 'The workflow changed while the steps waited.'
 export const CONFLICT_MESSAGE = 'Two of these set the same field to different values.'
 export const INSIDE_ONLY_MESSAGE = 'These steps ask the user or act outside the workflow, so they cannot run here.'
 export const NO_WAIT_MESSAGE = 'These steps wait on a pack or a lookup, so they cannot run here.'
-const SHARED_FIELD_MESSAGE = 'This field cannot be changed in only this use of the subgraph.'
 
 // ---------------------------------------------------------------------------
 // Values
@@ -563,7 +562,6 @@ function constructOwnerOf(doc: WorkflowDocument, target: StepPlace, address: str
     if (mapped === undefined) break
     owner = { graphId: parent.graph.id, nodeId: parent.instance.id, valueKey: mapped }
   }
-  if ((target.instancePath?.length ?? 0) > 0 && owner.graphId !== doc.root) return refuse(SHARED_FIELD_MESSAGE)
   return owner
 }
 
@@ -668,9 +666,6 @@ type Action =
 function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace, actor: string | undefined, host: ActionHost): CommandInvocation[] {
   const owner = action.kind === 'value' || action.kind === 'mode'
     ? (viewOf(doc, target, host) ?? refuse('The node is gone.')).valueOwners.get(action.path) : undefined
-  if ((action.kind === 'value' || action.kind === 'mode') && (target.instancePath?.length ?? 0) > 0 && owner?.graphId !== doc.root) {
-    return refuse(SHARED_FIELD_MESSAGE)
-  }
   const { graphId, nodeId } = owner ?? target
   const path = owner?.valueKey ?? (action.kind === 'value' || action.kind === 'mode' ? action.path : '')
   switch (action.kind) {
@@ -808,6 +803,7 @@ class Press {
   readonly actions: Action[] = []
   readonly notes: string[] = []
   readonly skipped: Skip[] = []
+  readonly changedSharedGraphs = new Set<string>()
   nodeAdded = false
   view: View
   context: FormulaContext
@@ -1500,7 +1496,16 @@ class Press {
         continue
       }
       if (built.length === 0) continue
+      const before = live.doc
       dispatchOn(live, built, this.session.allocationActor)
+      if ((action.kind === 'value' || action.kind === 'mode') && (this.target.instancePath?.length ?? 0) > 0) {
+        const owner = view.valueOwners.get(action.path) ?? this.target
+        const previous = before.graphs[owner.graphId]!.nodes[owner.nodeId]!
+        const current = live.doc.graphs[owner.graphId]!.nodes[owner.nodeId]!
+        if (owner.graphId !== before.root && JSON.stringify([previous.values, previous.controllers]) !== JSON.stringify([current.values, current.controllers])) {
+          this.changedSharedGraphs.add(owner.graphId)
+        }
+      }
       invocations.push(...built)
       if (action.kind === 'addNode') this.nodeAdded = true
     }
@@ -1722,16 +1727,18 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
   const outsideFailures: string[] = []
   const unsaved: string[] = []
   for (const [index, press] of presses.entries()) {
-    if (press.nodeAdded && (press.target.instancePath?.length ?? 0) > 0) {
+    const shared = [...(press.nodeAdded && (press.target.instancePath?.length ?? 0) > 0 ? [{ graphId: press.target.graphId, verb: 'added' }] : []),
+      ...[...press.changedSharedGraphs].map((graphId) => ({ graphId, verb: 'changed' }))]
+    for (const { graphId, verb } of shared) {
       const count = (id: string, ancestors: ReadonlySet<string>): number => {
         if (ancestors.has(id)) return 0
-        return (id === press.target.graphId ? 1 : 0) + Object.values(session.doc.graphs[id]!.nodes).reduce((total, node) => {
+        return (id === graphId ? 1 : 0) + Object.values(session.doc.graphs[id]!.nodes).reduce((total, node) => {
           const child = subgraphDefIdOf(node.type)
           return total + (child === undefined ? 0 : count(child, new Set([...ancestors, id])))
         }, 0)
       }
       const uses = count(session.doc.root, new Set())
-      if (uses > 1) press.notes.push(`Also added in the other ${uses === 2 ? 'use' : `${uses - 1} uses`} of ${session.doc.graphs[press.target.graphId]!.name}.`)
+      if (uses > 1) press.notes.push(`Also ${verb} in the other ${uses === 2 ? 'use' : `${uses - 1} uses`} of ${session.doc.graphs[graphId]!.name}.`)
     }
     const part = parts[index]!
     const committed = viewOf(session.doc, part, host)
