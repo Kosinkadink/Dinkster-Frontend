@@ -100,7 +100,7 @@ export function ModelProvider(props: { readonly connection: ModelProviderConnect
     setToken('')
     void perform(() => connection.saveModelProviderToken(value))
   }
-  return <section class="dinkster-stack" data-testid="model-provider">
+  return <section class="dinkster-stack dinkster-model-provider" data-testid="model-provider">
     <h4 class="dinkster-heading">{message('modelProvider.title')}</h4>
     <Show when={error()}><ProductNotice tone="error">{message('modelProvider.error')} <ProductIconButton icon={X} label={message('modelProvider.dismiss')} onClick={() => setError(false)} /></ProductNotice></Show>
     <ProductNotice tone="info">{message('modelProvider.privacy')}</ProductNotice>

@@ -1,4 +1,13 @@
-import { Index, Show, createSignal, type JSX } from 'solid-js'
+import {
+  For,
+  Index,
+  Show,
+  createEffect,
+  createSignal,
+  onCleanup,
+  onMount,
+  type JSX,
+} from 'solid-js'
 import { Check, ChevronDown, ChevronRight } from 'lucide-solid'
 import { ProductFacts } from './account.js'
 import {
@@ -59,13 +68,46 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
   const [expanded, setExpanded] = createSignal(
     available()?.initiallyExpanded === true,
   )
+  let line!: HTMLDivElement
+  let name!: HTMLElement
+  let disposed = false
+  const placeAction = () => {
+    if (disposed || !line || !name) return
+    line.dataset.actionBelow = 'false'
+    if (needs()) {
+      const lineHeight = parseFloat(getComputedStyle(name).lineHeight)
+      line.dataset.actionBelow = String(
+        name.getBoundingClientRect().height > lineHeight * 2,
+      )
+    }
+  }
+  createEffect(() => {
+    void props.row.name
+    void needs()?.action.label
+    queueMicrotask(placeAction)
+  })
+  onMount(() => {
+    let width = -1
+    const observer = new ResizeObserver(() => {
+      const next = line.getBoundingClientRect().width
+      if (next === width) return
+      width = next
+      placeAction()
+    })
+    observer.observe(line)
+    void document.fonts?.ready.then(placeAction)
+    onCleanup(() => observer.disconnect())
+  })
+  onCleanup(() => {
+    disposed = true
+  })
   return (
     <li
       class="dinkster-model-download-row"
       data-state={props.row.state}
       data-model={props.row.id}
     >
-      <div class="dinkster-model-download-line">
+      <div ref={line} class="dinkster-model-download-line">
         <Show when={available()}>
           {(entry) => (
             <ProductCheckbox
@@ -79,7 +121,16 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
           )}
         </Show>
         <div class="dinkster-model-download-copy">
-          <strong class="dinkster-model-download-name">{props.row.name}</strong>
+          <strong ref={name} class="dinkster-model-download-name">
+            <For each={props.row.name.split(/(?<=[_.-])/)}>
+              {(part) => (
+                <>
+                  <span>{part}</span>
+                  <wbr />
+                </>
+              )}
+            </For>
+          </strong>
           <span class="dinkster-model-download-meta">
             <Show when={needs()}>
               {(entry) => (
