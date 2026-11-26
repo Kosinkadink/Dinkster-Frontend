@@ -22,6 +22,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { documentResolver } from '../src/compile/compile.js'
 import { loadDocument } from '../src/format/migrate.js'
+import { lifecycleSelectionFingerprint, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
 
 /** Build a GraphDef from a plain literal (branded ids make literals noisy). */
 const asDef = (d: unknown): GraphDef => d as GraphDef
@@ -979,10 +980,13 @@ describe('Boundary sample acceptance compilation', () => {
     const resolve: SchemaResolver = (type) => type === 'Boundary sample' ? {
       ...boundarySampleSchema, body: boundarySampleSchema.body.map((row) =>
         row.kind === 'input' && row.id === 'strength'
-          ? { ...row, visible: { formula: 'radius > 0.5' }, labelFormula: { formula: '"Mix " + fixed(radius, 1)' } }
+          ? { ...row, visible: { formula: 'radius > 0.5' }, labelFormula: { formula: '"Mix " + fixed(radius, 1)' },
+            ext: { 'fixture.row': { inherited: 'strength' } },
+            widget: { ...row.widget!, controller: 'after_generate' } }
           : row.kind === 'input' && row.id === 'radius' ? { ...row, sent: false, socketless: true }
             : row.kind === 'input' && row.id === 'mask' ? { ...row, onAbsent: 'fail', acceptsStorage: true, acceptsStream: true, maskPolarity: 'transparency' }
-              : row.kind === 'output' && row.id === 'result' ? { ...row, alphaPolicy: 'drop', tooltip: 'Result help' } : row),
+              : row.kind === 'output' && row.id === 'result' ? { ...row, alphaPolicy: 'drop', tooltip: 'Result help',
+                preview: true, optional: true, knownValue: { input: 'strength' } } : row),
     } : resolveBoundarySample(type)
     const source = boundarySample(2)
     const detail = source.graphs.detail!
@@ -993,19 +997,52 @@ describe('Boundary sample acceptance compilation', () => {
       portrait: { ...portrait, boundary: { body: portrait.boundary!.body.map((row) => row.kind === 'input' && row.id === 'radius'
         ? { ...row, id: 'control', binds: { kind: 'port' as const, node: asNodeId('detail'), port: asPortId('threshold') } } : row) } },
     } }
-    const schema = documentResolver(doc, resolve)('#portrait')!
-    for (const control of [0.2, 0.8]) {
-      const elab = elaborateInterface(schema, { values: { control, strength: 0.9 } })
-      const fields = elabInputsOf(elab)
-      const mix = fields.find((row) => row.spec.id === 'strength')!
-      expect(mix.spec.hidden === true).toBe(control < 0.5)
-      expect(mix.spec.displayName).toBe(`Mix ${control}`)
-      expect(fields.find((row) => row.spec.id === 'control')).toMatchObject({ spec: { socketless: true, sent: false } })
-      expect(fields.find((row) => row.spec.id === 'mask')).toMatchObject({ spec: {
-        onAbsent: 'fail', acceptsStorage: true, acceptsStream: true, maskPolarity: 'transparency',
-      } })
-      const output = elab.items.find((row) => row.kind === 'output' && row.spec.id === 'result')
-      expect(output).toMatchObject({ spec: { alphaPolicy: 'drop', tooltip: 'Result help' } })
+    const store = new DocumentStore(doc, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve) }))
+    const extraction = store.dispatch({ command: 'subgraph.extract', params: {
+      graphId: 'detail', instancePath: ['first', 'detail'], selection: { nodeIds: ['sample'] },
+      selectionFingerprint: lifecycleSelectionFingerprint(doc, 'detail', { nodeIds: ['sample'] })!,
+      specializedSlotRoots: [], widgetTapSources: [], placementCenter: { x: 0, y: 0 },
+      resolvedGeometry: [{ id: 'sample', kind: 'node', x: 0, y: 0, width: 400, height: 600 }], name: 'Extracted sample',
+    } })
+    expect(extraction.ok, JSON.stringify(extraction.diagnostics)).toBe(true)
+    const extracted = store.doc
+    expect(store.undo()).toBe(true)
+    expect(store.redo()).toBe(true)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(extracted)))
+    expect(reopened.document).toBeDefined()
+    const extractedRun = compile({ document: reopened.document!, revision: 1, resolve, scope: { kind: 'full' },
+      connection: asConnectionId('boundary-grid'), schemaHash: 'boundary-sample' })
+    expect(extractedRun.ok, JSON.stringify(!extractedRun.ok && extractedRun.diagnostics)).toBe(true)
+    if (!extractedRun.ok) throw new Error('extracted row fixture did not compile')
+    const samples = Object.values(extractedRun.artifact.prompt).filter((node) => node.class_type === 'Boundary sample')
+    expect(samples.map((node) => node.inputs.strength).sort()).toEqual([0.2, 0.8])
+    for (const node of samples) expect(node.inputs).not.toHaveProperty('radius')
+    const plan = planFlattenBoundaryRoutes(doc.graphs.portrait!, documentResolver(doc, resolve),
+      doc.graphs.root!.nodes.first!, doc.graphs.root!)
+    expect(plan.statePlan.status).toBe('ready')
+    for (const [route, schema] of [
+      ['derive', documentResolver(doc, resolve)('#portrait')!],
+      ['extract', documentResolver(reopened.document!, resolve)('#portrait')!],
+      ['planner', deriveBoundarySchema(doc.graphs.portrait!, (type) => plan.schemaSnapshot[type]).schema!],
+    ] as const) {
+      for (const control of [0.2, 0.8]) {
+        const elab = elaborateInterface(schema, { values: { control, strength: 0.9 } })
+        const fields = elabInputsOf(elab)
+        const mix = fields.find((row) => row.spec.id === 'strength')!
+        expect(mix.spec.hidden === true, route).toBe(control < 0.5)
+        expect(mix.spec.displayName).toBe(`Mix ${control}`)
+        expect(mix.spec.tooltip).toBe('Mix strength')
+        expect(mix.spec.ext).toEqual({ 'fixture.row': { inherited: 'strength' } })
+        expect(mix.spec.widget?.controller).toBe('after_generate')
+        expect(fields.find((row) => row.spec.id === 'control')).toMatchObject({ spec: { socketless: true, sent: false } })
+        expect(fields.find((row) => row.spec.id === 'mask')).toMatchObject({ spec: {
+          onAbsent: 'fail', acceptsStorage: true, acceptsStream: true, maskPolarity: 'transparency',
+        } })
+        const output = elab.items.find((row) => row.kind === 'output' && row.spec.id === 'result')
+        expect(output).toMatchObject({ spec: { alphaPolicy: 'drop', tooltip: 'Result help',
+          preview: true, optional: true, knownValue: { input: 'strength' } } })
+      }
     }
     const first = doc.graphs.root!.nodes.first!
     const compiled = compile({ document: { ...doc, graphs: { ...doc.graphs, root: { ...doc.graphs.root!, nodes: {

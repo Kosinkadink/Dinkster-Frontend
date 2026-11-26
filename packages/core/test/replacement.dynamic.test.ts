@@ -3,6 +3,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import {
+  asConnectionId,
   asGraphDefId,
   asLineageId,
   asLinkId,
@@ -12,6 +13,9 @@ import {
 import type { ReplacementRule } from '../src/replace/model.js'
 import { planReplacement } from '../src/replace/plan.js'
 import { parseDinksterNodes, type DinksterWireSchema, type InputSpec, type NodeSchema, boundaryOf } from '../src/index.js'
+import { compile, documentResolver } from '../src/compile/compile.js'
+import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
+import { loadDocument } from '../src/format/migrate.js'
 
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 const samples = {
@@ -559,9 +563,11 @@ describe('wire-28 dynamic replacement targets', () => {
         g0: graph({
           id: 'g0',
           nodes: {
-            instance: { id: asNodeId('instance'), type: '#g1', values: {} },
+            instance: { id: asNodeId('instance'), type: '#g2', values: { color: 23 } },
           },
         }),
+        g2: graph({ id: 'g2', nodes: { middle: { id: asNodeId('middle'), type: '#g1', values: {} } },
+          boundary: boundaryOf([{ id: 'color', promoted: true, binds: { kind: 'port', ...port('middle', 'color') } }], []) }),
         g1: {
           ...base.graphs.g0!,
           id: asGraphDefId('g1'),
@@ -596,6 +602,46 @@ describe('wire-28 dynamic replacement targets', () => {
       fromPort: 'color_value',
       port: 'policy.color_source.color_value',
     })
+    const decoratedResolve = (type: string): NodeSchema | undefined => {
+      if (type === 'fixture.sink') return {
+        type, displayName: 'Sink', category: 'fixture', source: 'v3', isOutputNode: true,
+        body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'comfy.IMAGE' }, optional: false }],
+      }
+      const schema = resolve(type)
+      if (schema?.type !== 'fixture.dynamic-modern') return schema
+      return { ...schema, body: schema.body.map((row) => row.kind !== 'choice' ? row : {
+        ...row, options: row.options.map((option) => ({ ...option, rows: option.rows.map((child) => child.kind !== 'typeChoice' ? child : {
+          ...child, variants: child.variants!.map((variant) => ({ ...variant, rows: variant.rows.map((field) => field.kind !== 'input' ? field : {
+            ...field, tooltip: 'Replacement color help', visible: { formula: 'color_value > 10' },
+            labelFormula: { formula: '"Color " + str(color_value)' }, ext: { 'fixture.row': { inherited: 'color' } },
+          }) })),
+        }) })),
+      }) }
+    }
+    const store = new DocumentStore(before, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, decoratedResolve) }))
+    const plan = planReplacement(before, 'g1', 'old', copyRule, decoratedResolve).plan!
+    expect(store.dispatch({ command: 'node.replace', params: { plan } as unknown as Json }).ok).toBe(true)
+    const check = (doc: WorkflowDocument) => {
+      const schema = documentResolver(doc, decoratedResolve)('#g2')!
+      for (const color of [7, 23]) {
+        const field = elabInputsOf(elaborateInterface(schema, { values: { color } })).find((row) => row.spec.id === 'color')!
+        expect(field.spec.hidden === true).toBe(color < 10)
+        expect(field.spec.displayName).toBe(`Color ${color}`)
+        expect(field.spec.tooltip).toBe('Replacement color help')
+        expect(field.spec.ext).toEqual({ 'fixture.row': { inherited: 'color' } })
+      }
+      const result = compile({ document: doc, revision: 1, resolve: decoratedResolve, scope: { kind: 'full' },
+        connection: asConnectionId('test'), schemaHash: 'replacement' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) throw new Error('replacement fixture did not compile')
+      expect(result.artifact.prompt['instance.middle.old']!.inputs['policy.color_source.color_value']).toBe(23)
+    }
+    check(store.doc)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.g1!.nodes.old!.type).toBe('fixture.dynamic-legacy')
+    expect(store.redo()).toBe(true)
+    check(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!)
   })
 
 })

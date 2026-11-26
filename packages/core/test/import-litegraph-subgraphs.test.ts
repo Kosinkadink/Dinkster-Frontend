@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
-import { compile } from '../src/compile/compile.js'
+import { compile, documentResolver } from '../src/compile/compile.js'
 import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
 import { importLitegraph } from '../src/format/import-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
@@ -9,7 +9,7 @@ import type { Json, JsonObject, WorkflowDocument } from '../src/format/document.
 import { asConnectionId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
 import { classifyFlattenBoundaryRoute, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
-import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
+import { elaborateInterface, elabInputsOf, elabOutputsOf } from '../src/schema/elaborate.js'
 import type { InputSpec, NodeSchema } from '../src/schema/model.js'
 import { boundaryItems } from '../src/format/document.js'
 import { PRIMITIVE_SCHEMAS, withPrimitives } from './fixtures/primitive-schemas.js'
@@ -225,12 +225,34 @@ describe('LiteGraph subgraphs', () => {
   })
 
   it('retains recursive definition catalogs and nested instances', () => {
+    const decorated: NodeSchema = { ...schema, body: [
+      { ...schema.body[0] as InputSpec, tooltip: 'Value help', optional: true, onAbsent: 'fail',
+        acceptsStorage: true, visible: { formula: 'value > 10' },
+        labelFormula: { formula: '"Value " + str(value)' },
+        ext: { 'fixture.row': { inherited: 'value' } },
+        widget: { widgetType: 'INT', options: { min: 0, max: 50 }, default: 5 } },
+      { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'INT' },
+        preview: true, optional: true, tooltip: 'Result help', knownValue: { input: 'value' } },
+    ] }
+    const resolver = (type: string) => type === 'Relay' ? decorated : undefined
     const outer = { ...definition('outer'), nodes: [instance(1)], definitions: { subgraphs: [definition()] } }
-    const doc = imported({ nodes: [instance(1, 'outer')], links: [], definitions: { subgraphs: [outer] } })
+    const doc = imported({ nodes: [instance(1, 'outer')], links: [], definitions: { subgraphs: [outer] } }, resolver)
     expect(Object.keys(doc.graphs).sort()).toEqual(['g0', 'inner', 'outer'])
     expect(doc.graphs['outer']!.nodes.n1!.type).toBe('#inner')
     expect(doc.graphs.g0!.nodes.n1!.type).toBe('#outer')
-    expect(prompt(doc)['n1.n1.n1']!.inputs['value']).toBe(19)
+    expect(prompt(doc, resolver)['n1.n1.n1']!.inputs['value']).toBe(19)
+    const derived = documentResolver(doc, resolver)('#outer')!
+    for (const value of [7, 19]) {
+      const elab = elaborateInterface(derived, { values: { in: value } })
+      const input = elabInputsOf(elab).find((row) => row.spec.id === 'in')!
+      expect(input.spec.hidden === true).toBe(value < 10)
+      expect(input.spec.displayName).toBe('value')
+      expect(input.spec).toMatchObject({ tooltip: 'Value help', onAbsent: 'fail', acceptsStorage: true,
+        ext: { 'fixture.row': { inherited: 'value' } }, widget: { options: { min: 0, max: 50 } } })
+      expect(elabOutputsOf(elab).find((row) => row.spec.id === 'out')!.spec).toMatchObject({
+        preview: true, optional: true, tooltip: 'Result help', knownValue: { input: 'in' },
+      })
+    }
   })
 
   it('retains nested definitions when boundary node schemas are unavailable', () => {
