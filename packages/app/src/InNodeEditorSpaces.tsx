@@ -1,4 +1,4 @@
-import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, jsonSameValue, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
+import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, effectiveWidgetDefault, elabInputsOf, jsonSameValue, occurrenceKey, type AssetRef, type ElaboratedInterface, type Json, type JsonObject } from '@dinkster/core'
 import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind, curveEditorInterpolations, curveInterpolator, isSaveTarget, isProjectDefaultTarget, saveTargetDraft, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
@@ -102,10 +102,27 @@ export function wiredEditorSummaries(nodes: readonly {
   readonly id: string
   readonly layout: { readonly width?: number; readonly rows: readonly LayoutRow[] }
   readonly node?: { readonly values?: Readonly<Record<string, Json>> }
+  readonly elaborated?: ElaboratedInterface
 }[], wires: EditorWires, notKnown: string, thumbnails?: (value: Json, width: number) => EditorSummary['thumbnails']): EditorSummaryMap {
   return Object.fromEntries(nodes.flatMap((node) => {
     const summaries = Object.fromEntries(node.layout.rows.flatMap((row): [string, EditorSummary][] => {
       if (row.kind !== 'widget') return []
+      const mountId = row.parts?.writes['mount']
+      const nameId = row.parts?.writes['name']
+      if (row.editor === true && row.viewId === 'core.saveTarget' && mountId !== undefined && nameId !== undefined) {
+        const inputs = node.elaborated === undefined ? [] : elabInputsOf(node.elaborated)
+        const valueOf = (id: string): Json | undefined => {
+          if (wires.wired(node.id, id)) return wires.carried(node.id, id)
+          const input = inputs.find((input) => input.spec.id === id)
+          const stored = node.node?.values?.[id]
+          return stored !== undefined ? stored : input?.derivedValue !== undefined ? input.derivedValue
+            : input?.spec.widget === undefined ? undefined : effectiveWidgetDefault(input.spec.widget)
+        }
+        const mount = valueOf(mountId)
+        const prefix = valueOf(nameId)
+        if (mount === undefined || prefix === undefined) return [[row.valueKey, { text: notKnown, placeholder: true, value: null }]]
+        return [[row.valueKey, { value: { ...(mount === null ? {} : { mount }), prefix } }]]
+      }
       const wired = wires.wired(node.id, row.inputId)
       if (!wired) {
         const value = node.node?.values?.[row.valueKey]

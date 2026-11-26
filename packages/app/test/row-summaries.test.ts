@@ -11,6 +11,7 @@ import english from '../src/locales/en.json'
 import { resolveCanvasTooltip, WIDGET_READOUT_ITEMS, type CanvasTooltipContext } from '../src/tooltips.js'
 import { assetRowThumbnails, type PreviewLoader } from '../src/node-previews.js'
 import { wiredEditorSummaries } from '../src/InNodeEditorSpaces.js'
+import { createSaveTargetScene } from '../../canvas/gallery/save-target-box.js'
 
 beforeAll(() => {
   registerCatalog('en', english)
@@ -308,6 +309,32 @@ describe('a value that does not fit gives way in order', () => {
 })
 
 describe('a value arriving down a wire uses the same summary', () => {
+  it('composes mapped Save inputs from their own wires, defaults and stored values without revealing dormant values', () => {
+    const measure = (spec: WidgetSpec) => {
+      const viewId = registry.kind(spec.widgetType)!.defaultView(spec)
+      const view = registry.viewsFor(spec.widgetType).find((view) => view.id === viewId)!
+      return { viewId, rows: view.measure(spec).rows }
+    }
+    const scene = createSaveTargetScene(defaultTokens, (text) => text.length * 6, measure,
+      { x: 0, y: 0 }, { mount: 'stored-mount', prefix: 'stored/name' }, { mapped: true })
+    const node = scene.nodes.find((node) => node.node.values['filename_prefix'] === 'stored/name')!
+    const summary = (wired: readonly string[], arriving: Readonly<Record<string, Json>>) => wiredEditorSummaries([node], {
+      wired: (_node, id) => wired.includes(id), carried: (_node, id) => arriving[id],
+    }, 'Not known yet')[node.id]?.['target']
+    expect(summary(['mount'], { mount: 'incoming-mount' })?.value).toEqual({ mount: 'incoming-mount', prefix: 'stored/name' })
+    expect(summary(['filename_prefix'], { filename_prefix: 'incoming/name' })?.value).toEqual({ mount: 'stored-mount', prefix: 'incoming/name' })
+    expect(summary(['mount', 'filename_prefix'], { mount: null, filename_prefix: '' })?.value).toEqual({ prefix: '' })
+    expect(summary(['mount'], {})).toEqual({ text: 'Not known yet', placeholder: true, value: null })
+    expect(summary(['filename_prefix'], {})).toEqual({ text: 'Not known yet', placeholder: true, value: null })
+    expect(summary([], {})?.value).toEqual({ mount: 'stored-mount', prefix: 'stored/name' })
+    const defaults = wiredEditorSummaries([{ ...node, node: { values: {} } }], {
+      wired: () => false, carried: () => undefined,
+    }, 'Not known yet')
+    expect(defaults[node.id]?.['target']?.value).toEqual({ prefix: 'ComfyUI' })
+    expect(node.node.values).toMatchObject({ mount: 'stored-mount', filename_prefix: 'stored/name' })
+    expect(node.node.values).not.toHaveProperty('target')
+  })
+
   it('shows the known incoming list, not the stored one, and keeps the estimate mark', () => {
     const stored = ['dpmpp_2m', 'euler', 'dpmpp_2m_sde']
     const spec = specOf('MULTI_COMBO', { options: samplers })
@@ -403,10 +430,12 @@ describe('pointing at a row reads out its whole value without changing it', () =
   })
 
   it('reads the full save prefix and names a project-default target without inventing a mount', () => {
-    expect(readout(specOf('SAVE_TARGET'), { mount: 'renders', prefix: 'a-long-session/nested/frame' }))
-      .toEqual(['Value: renders/a-long-session/nested/frame'])
-    expect(readout(specOf('SAVE_TARGET'), { prefix: 'nested/frame' }))
-      .toEqual(['Value: Project default/nested/frame'])
+    const spec = specOf('SAVE_TARGET', { suffix: '.png' })
+    const naming = 'Subfolders and filename stem only. The writer adds numbering and .png.'
+    expect(readout(spec, { mount: 'renders', prefix: 'a-long-session/nested/frame' }))
+      .toEqual(['Value: renders/a-long-session/nested/frame', naming])
+    expect(readout(spec, { prefix: 'nested/frame' }))
+      .toEqual(['Value: Project default/nested/frame', naming])
   })
 
   it('reads the incoming value first and the stored one under it', () => {
