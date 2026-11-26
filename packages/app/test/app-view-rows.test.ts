@@ -159,17 +159,23 @@ describe('buildParamRows', () => {
         const states = (doc: WorkflowDocument) => buildParamRows(doc, sourceResolve).map((row) =>
           [live(row).value, live(row).linked])
         expect(states(wired.doc)).toEqual([[7, true], [9, false]])
-        const projected = compile({ document: wired.doc, revision: 1, resolve: sourceResolve, scope: { kind: 'full' },
-          connection: 'test' as never, schemaHash: 'primitive-linked' })
-        expect(projected.ok, JSON.stringify(!projected.ok && projected.diagnostics)).toBe(true)
-        if (projected.ok) {
-          expect(projected.artifact.prompt.a!.inputs.steps).toEqual(runtime ? ['source', 0] : 5)
-          expect(projected.artifact.prompt.b!.inputs.count).toBe(9)
+        const receiving = (doc: WorkflowDocument) => {
+          const projected = compile({ document: doc, revision: 1, resolve: sourceResolve, scope: { kind: 'full' },
+            connection: 'test' as never, schemaHash: 'primitive-linked' })
+          expect(projected.ok, JSON.stringify(!projected.ok && projected.diagnostics)).toBe(true)
+          if (!projected.ok) throw new Error('primitive projection failed')
+          return [projected.artifact.prompt.a!.inputs.steps, projected.artifact.prompt.b!.inputs.count]
         }
+        const driven = [runtime ? ['source', 0] : 5, 9]
+        expect(receiving(wired.doc)).toEqual(driven)
         expect(wired.undo()).toBe(true)
         expect(states(wired.doc)).toEqual([[7, false], [9, false]])
+        expect(receiving(wired.doc)).toEqual([7, 9])
         expect(wired.redo()).toBe(true)
-        expect(states(loadDocument(JSON.parse(JSON.stringify(wired.doc))).document!)).toEqual([[7, true], [9, false]])
+        expect(receiving(wired.doc)).toEqual(driven)
+        const loaded = loadDocument(JSON.parse(JSON.stringify(wired.doc))).document!
+        expect(states(loaded)).toEqual([[7, true], [9, false]])
+        expect(receiving(loaded)).toEqual(driven)
       }
     }
   })
