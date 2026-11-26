@@ -127,9 +127,12 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   return (
     <aside ref={element} class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip">
       <div ref={content} role="tooltip">
-        <Show when={displayed().title}><div class="app-tooltip-title">{displayed().title}</div></Show>
-        <For each={displayed().lines}>{(line) => <div>{line}</div>}</For>
-        <Show when={displayed().shortcut}>{(keys) => <ProductShortcut keys={keys()} />}</Show>
+        <Show when={displayed().title}><div class="app-tooltip-title">
+          {displayed().title}<Show when={displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
+        </div></Show>
+        <For each={displayed().lines}>{(line, index) => <div>
+          {line}<Show when={index() === 0 && !displayed().title && displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
+        </div>}</For>
         <Show when={props.tip.detailed}><For each={displayed().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
       </div>
     </aside>

@@ -86,16 +86,17 @@ test('Settings keeps immediate help, shortcut keys, and hover-out', async ({ pag
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('tooltips.delayMs', 3000))
   const settings = page.getByTestId('settings-button')
   await settings.hover()
-  await expect(page.getByTestId('app-tooltip')).toHaveText('SettingsCtrl,', { timeout: 250 })
-  await expect(page.getByTestId('app-tooltip').getByLabel('Ctrl+,', { exact: true }).locator('kbd')).toHaveText(['Ctrl', ','])
+  const tooltip = page.getByTestId('app-tooltip')
+  await expect(tooltip).toHaveText('Settings Ctrl+,', { timeout: 250 })
+  await expect(tooltip.locator('kbd')).toHaveText('Ctrl+,')
   await page.mouse.move(600, 400)
   await expect(page.getByTestId('app-tooltip')).toBeHidden()
 
   await page.keyboard.down('Alt')
   await settings.hover()
-  await expect(page.getByTestId('app-tooltip')).toHaveText('SettingsCtrl,', { timeout: 250 })
+  await expect(page.getByTestId('app-tooltip')).toHaveText('Settings Ctrl+,', { timeout: 250 })
   await page.keyboard.up('Alt')
-  await expect(page.getByTestId('app-tooltip')).toHaveText('SettingsCtrl,')
+  await expect(page.getByTestId('app-tooltip')).toHaveText('Settings Ctrl+,')
 })
 
 test('top-right tooltip uses its real width and follows content changes', async ({ page }, testInfo) => {
