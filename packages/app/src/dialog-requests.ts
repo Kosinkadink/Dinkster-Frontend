@@ -24,6 +24,7 @@ import type {
   MissingAsset,
   DinksterConnection,
   ModelDownloadRequirement,
+  ModelSettingsState,
 } from '@dinkster/client'
 import type { ImportAssetPromptReason } from './import-asset-autoresolve.js'
 import type { ModelProviderConnection } from './ModelProvider.js'
@@ -43,6 +44,7 @@ export interface AssetConsentRequest {
   readonly providerConnection?: ModelProviderConnection
   readonly providerChanged?: () => void
   readonly providerBackendUrl?: string
+  readonly fetchModelSettings?: () => Promise<ModelSettingsState>
   readonly models?: readonly ModelConsentState[]
   readonly selectModelSource?: (index: number, source: string) => void
   readonly reviewModel?: (index: number) => Promise<void>
@@ -128,7 +130,7 @@ export function installAssetConsent(p: {
   readonly unhideModel?: (identity: string) => Promise<void>
   readonly locateModel?: (requirement: ModelDownloadRequirement, status: 'duplicate' | 'destination-required') => void
   readonly modelDownloads?: {
-    readonly connection: Pick<DinksterConnection, 'planModelDownload' | 'startModelDownload' | 'fetchModelDownloads' | 'fetchModelDownload' | 'cancelModelDownload'>
+    readonly connection: Pick<DinksterConnection, 'planModelDownload' | 'startModelDownload' | 'fetchModelDownloads' | 'fetchModelDownload' | 'cancelModelDownload'> & Partial<Pick<DinksterConnection, 'fetchModelSettings'>>
     readonly project: string
     readonly controller?: ModelDownloadsController
     readonly providerConnection?: ModelProviderConnection
@@ -309,6 +311,7 @@ export function installAssetConsent(p: {
     const request: AssetConsentRequest = { assets: requirements.length ? [] : remainingAssets, busy: false,
       ...(p.workflowTitle === undefined ? {} : { workflowTitle: p.workflowTitle }),
       ...(transfers ? { modelDownloadController: transfers } : {}),
+      ...(p.modelDownloads?.connection.fetchModelSettings ? { fetchModelSettings: () => p.modelDownloads!.connection.fetchModelSettings!() } : {}),
       ...(result === undefined ? {} : { retry }),
       ...(p.modelDownloads?.providerConnection ? {
         providerConnection: p.modelDownloads.providerConnection,
