@@ -1,8 +1,12 @@
+import { createSignal, createUniqueId } from 'solid-js'
 import {
   createPageLoad,
   ProductButton,
   ProductPageAnswer,
   ProductPageLoad,
+  ProductProjectFacts,
+  ProductProjectListHeader,
+  ProductProjectRows,
   ProductSection,
 } from '../src/index.js'
 
@@ -85,5 +89,84 @@ export function PageLoadingGallery(props: { activity: string }) {
         </ProductPageAnswer>
       </ProductSection>
     </>
+  )
+}
+
+export function ProjectLoadingGallery() {
+  const page = createPageLoad<[string, string]>()
+  const projectHeading = createUniqueId()
+  const [selected, setSelected] = createSignal('film-grain-tests')
+  const [created, setCreated] = createSignal(false)
+  const read = () =>
+    new Promise<[string, string]>((resolve) => {
+      setTimeout(() => resolve(['Alex Morgan', 'alex@example.test']), 1000)
+    })
+  return (
+    <ProductSection title="Project loading">
+      <ProductButton onClick={() => void page.load(read)}>
+        Read projects
+      </ProductButton>
+      <ProductProjectListHeader
+        id={projectHeading}
+        title="Projects"
+        newLabel="New"
+        onNew={() => setCreated(true)}
+      />
+      <p class="dinkster-metadata">
+        {created() ? 'New project opened' : 'New is available before the read'}
+      </p>
+      <div class="dinkster-project-load-example">
+        <ProductProjectFacts
+          label="Loaded project facts"
+          columns={[
+            [
+              {
+                label: 'Owner',
+                value: (
+                  <ProductPageAnswer page={page}>
+                    {(account) => account[0]}
+                  </ProductPageAnswer>
+                ),
+              },
+            ],
+            [
+              {
+                label: 'Email',
+                value: (
+                  <ProductPageAnswer page={page}>
+                    {(account) => account[1]}
+                  </ProductPageAnswer>
+                ),
+              },
+            ],
+          ]}
+        />
+      </div>
+      <ProductPageLoad
+        page={page}
+        read={read}
+        loadingLabel="Loading projects"
+        arrival="rise"
+      >
+        <ProductProjectRows
+          labelledBy={projectHeading}
+          projects={[
+            {
+              id: 'film-grain-tests',
+              name: 'Film grain tests',
+              detail: 'Opened today',
+            },
+            {
+              id: 'settings',
+              name: 'Settings audit',
+              detail: 'Opened today',
+            },
+          ]}
+          selected={selected()}
+          onSelect={setSelected}
+          loadingLabel="Loading projects"
+        />
+      </ProductPageLoad>
+    </ProductSection>
   )
 }
