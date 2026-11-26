@@ -3,7 +3,7 @@ import { assetMultiSelect, type CollectionEntry, type JsonObject } from '@dinkst
 import type { AssetGuessCandidate } from '@dinkster/client'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
-import { assetSourcesStatus, committableAssetRef, formatSize, mediaAcceptsFile, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
+import { assetSourcesStatus, assetUploadPolicy, committableAssetRef, formatSize, mediaAcceptsFile, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
 import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../asset-browser/localAssetSource.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
@@ -67,11 +67,6 @@ function AssetVideoPreview(props: {
     <PreviewDownload class="" download={props.preview} label="Download video" />
   </video>
 }
-
-const GENERIC_UPLOAD_MAX_BYTES = 16 * 1024 * 1024
-const IMAGE_UPLOAD_MAX_BYTES = 256 * 1024 * 1024
-const MEDIA_UPLOAD_MAX_BYTES = 1024 * 1024 * 1024
-const LATENT_UPLOAD_MAX_BYTES = 1024 * 1024 * 1024
 
 interface AssetPickerVocabulary {
   readonly singular: string
@@ -232,22 +227,9 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     ? uploadKind
     : undefined
   const classifiedLatent = ed.spec?.widgetType === 'ASSET' && uploadKind === 'data/latent'
-  const legacyUploadMaxBytes = classifiedMediaKind === 'media/image'
-    ? IMAGE_UPLOAD_MAX_BYTES
-    : classifiedMediaKind !== undefined
-      ? MEDIA_UPLOAD_MAX_BYTES
-      : classifiedLatent ? LATENT_UPLOAD_MAX_BYTES : GENERIC_UPLOAD_MAX_BYTES
-  const uploadLimits = openedRegistry?.uploadLimits
-  const assetUploadMaxBytes = uploadLimits === null ? undefined
-    : uploadLimits === undefined ? legacyUploadMaxBytes
-      : uploadLimits[classifiedMediaKind ?? (classifiedLatent ? 'data/latent' : 'generic')]
-  // Older engines did not advertise an authoritative model upload limit.
-  const assetUploadLimitLabel = assetUploadMaxBytes === undefined ||
-    (uploadLimits === undefined && uploadKind?.startsWith('model/') === true)
-    ? undefined
-    : `${assetUploadMaxBytes % MEDIA_UPLOAD_MAX_BYTES === 0
-      ? `${assetUploadMaxBytes / MEDIA_UPLOAD_MAX_BYTES} GiB`
-      : formatSize(assetUploadMaxBytes)} per file`
+  const policy = assetUploadPolicy(uploadKind, openedRegistry?.uploadLimits)
+  const assetUploadMaxBytes = policy.maxBytes
+  const assetUploadLimitLabel = policy.label === undefined ? undefined : `${policy.label} per file`
   // The SCALAR MERGE arm specifically (multi-select whose declaration is
   // NOT list-outer): an empty selection cannot commit `[]` there - the
   // declared type is scalar T, and a bare empty array would compile as raw

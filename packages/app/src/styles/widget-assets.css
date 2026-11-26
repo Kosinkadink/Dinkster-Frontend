@@ -8,10 +8,15 @@
 .asset-quick-list .collection-toolbar:empty { display: none; }
 .asset-quick-list .asset-view-controls { flex-wrap: wrap; margin-block: var(--dinkster-space-4); }
 .asset-quick-list .asset-scope { margin: 0; }
+.asset-quick-list .collection-content { flex-direction: column; }
 .asset-quick-list .collection-items { max-height: calc(var(--dinkster-space-32) * 6); }
-.asset-quick-list .collection-items.grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.asset-quick-list .collection-items.grid { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: max-content; }
+.asset-quick-caption { display: flex; flex: none; min-width: 0; gap: var(--dinkster-space-8); padding: var(--dinkster-space-4); font-size: var(--dinkster-type-metadata-size); }
+.asset-quick-caption > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-quick-caption > small { margin-left: auto; color: var(--dinkster-text-muted); font-size: inherit; }
 .asset-quick-list .collection-footer { display: none; }
 .asset-quick-list > .dinkster-button { flex: none; justify-content: flex-start; }
+.asset-quick-list > .dinkster-button .asset-scope { margin-left: auto; }
 
 .combo-dropdown {
   display: flex;

@@ -415,7 +415,7 @@ describe('ASSET widget modal integration', () => {
     try {
       const chooser = mounted.root.querySelector<HTMLInputElement>('input[type="file"]')!
       const clicked = vi.spyOn(chooser, 'click').mockImplementation(() => {})
-      const add = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Add a file from this computer')!
+      const add = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.startsWith('Upload a file'))!
       add.click()
       expect(clicked).toHaveBeenCalledOnce()
       expect(mounted.root.querySelector('dialog')).toBeNull()
@@ -424,6 +424,58 @@ describe('ASSET widget modal integration', () => {
       expect(mounted.close).not.toHaveBeenCalled()
       expect(mounted.root.querySelector('dialog')).toBeNull()
     } finally { mounted.unmount() }
+  })
+
+  it.each([null, {
+    generic: 7 * 1024 * 1024, 'media/image': 9 * 1024 * 1024, 'media/audio': 12 * 1024 * 1024,
+    'media/video': 18 * 1024 * 1024, 'media/model3d': 5 * 1024 * 1024, 'data/latent': 15 * 1024 * 1024,
+  }])('shows the quick-list import policy before choosing a file: %j', async (policy) => {
+    const mounted = catalogAssetEditor('file/binary', undefined, null, false, true)
+    const registry = buildDinksterRegistry(asConnectionId('native'), {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {}, dinkster: { uploadLimits: policy },
+    })
+    Object.assign(mounted.app, { registryForTab: () => registry })
+    const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(mounted.app, mounted.ed)} ed={mounted.ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    try {
+      const add = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+        button.textContent?.includes(policy === null ? 'Add a file from this computer' : 'Upload a file'))
+      expect(add).toBeDefined()
+      expect(add!.textContent).toContain(policy === null ? 'Any size' : 'Up to 7.0 MiB')
+      const clicked = vi.spyOn(mounted.root.querySelector<HTMLInputElement>('input[type="file"]')!, 'click').mockImplementation(() => {})
+      add!.click()
+      expect(clicked).toHaveBeenCalledOnce()
+      expect(mounted.root.querySelector('dialog')).toBeNull()
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    } finally { dispose() }
+  })
+
+  it('shows the focused file without changing the saved quick-list selection', async () => {
+    const initial = { digest: `blake3:${'b'.repeat(64)}`, name: 'saved.safetensors', size: 20,
+      mediaType: 'application/x-safetensors', virtualPath: 'mounts/left/saved.safetensors' }
+    const mounted = catalogAssetEditor('file/binary', undefined, initial, false, true)
+    mounted.connection.listMountEntries.mockResolvedValue({ entries: [
+      { ...initial, kind: 'file/binary' },
+      { ...initial, digest: mounted.digestA, name: 'other.safetensors', kind: 'file/binary', virtualPath: 'mounts/right/other.safetensors' },
+    ] })
+    const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(mounted.app, mounted.ed)} ed={mounted.ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    try {
+      await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-quick-caption"]')?.textContent).toContain('mounts/left/saved.safetensors'))
+      const rows = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
+      rows[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      expect(mounted.root.querySelector('[data-testid="asset-quick-caption"]')?.textContent).toContain('mounts/right/other.safetensors')
+      expect(rows[0]!.getAttribute('aria-selected')).toBe('true')
+      expect(rows[1]!.getAttribute('aria-selected')).toBe('false')
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+      rows[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await vi.waitFor(() => expect(mounted.close).toHaveBeenCalledOnce())
+      expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
+        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: {
+          ...initial, digest: mounted.digestA, name: 'other.safetensors', virtualPath: 'mounts/right/other.safetensors',
+        } },
+      })
+    } finally { dispose() }
   })
 
   it.each([true, false])('commits an imported quick-list file only after successful import: %s', async (accepted) => {

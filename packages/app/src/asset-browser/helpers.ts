@@ -84,3 +84,19 @@ export function formatSize(size?: number): string {
   if (size < 1048576) return `${(size / 1024).toFixed(size < 10240 ? 1 : 0)} KiB`
   return `${(size / 1048576).toFixed(size < 10485760 ? 1 : 0)} MiB`
 }
+
+/** Both the chooser entry point and import validation use the opened engine's policy. */
+export function assetUploadPolicy(kind: string | undefined, limits: Readonly<Record<string, number>> | null | undefined): {
+  readonly maxBytes: number | undefined
+  readonly label: string | undefined
+} {
+  const media = kind === 'media/image' || kind === 'media/audio' || kind === 'media/video'
+  const gibibyte = 1024 * 1024 * 1024
+  const legacyMaxBytes = kind === 'media/image' ? 256 * 1024 * 1024
+    : media || kind === 'data/latent' ? gibibyte : 16 * 1024 * 1024
+  const maxBytes = limits === null ? undefined : limits === undefined ? legacyMaxBytes
+    : limits[media || kind === 'data/latent' ? kind! : 'generic']
+  const label = maxBytes === undefined || (limits === undefined && kind?.startsWith('model/') === true)
+    ? undefined : maxBytes % gibibyte === 0 ? `${maxBytes / gibibyte} GiB` : formatSize(maxBytes)
+  return { maxBytes, label }
+}

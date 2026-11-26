@@ -1,12 +1,12 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, type Component } from 'solid-js'
-import { assetMultiSelect, type WidgetSpec, type TypeExpr } from '@dinkster/core'
+import { assetMultiSelect, type CollectionEntry, type WidgetSpec, type TypeExpr } from '@dinkster/core'
 import { CanvasRowField, ProductButton, ProductSegmented, canvasListLayout } from '@dinkster/ui'
 import { CollectionPanel } from '../CollectionPanel.js'
 import { ProductNotice } from '../ProductForm.js'
 import { ProductSelect } from '../ProductSelect.js'
 import { ProductFileInput } from '../ProductControls.js'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
-import { committableAssetRef, mediaKindForAccept } from '../asset-browser/helpers.js'
+import { assetUploadPolicy, committableAssetRef, mediaKindForAccept } from '../asset-browser/helpers.js'
 import { mountAssetSource, mountAssetSources } from '../asset-browser/mountAssetSource.js'
 import { AssetEntryContent } from '../asset-browser/presentation.js'
 import type { AssetSourceAdapter } from '../asset-browser/types.js'
@@ -46,6 +46,13 @@ export const AssetQuickList: Component<WidgetEditorImplementationProps & {
   const acceptValue = ed.spec?.options['accept']
   const accept = Array.isArray(acceptValue) ? acceptValue.filter((item): item is string => typeof item === 'string') : []
   const kind = ed.spec?.kind ?? mediaKindForAccept(accept)
+  const policy = assetUploadPolicy(kind, registry?.uploadLimits)
+  const matchesStoredAsset = (entry: CollectionEntry): boolean => {
+    const ref = assetItemOf(entry)
+    const initial = ed.initial
+    return typeof initial === 'object' && initial !== null && 'digest' in initial && 'virtualPath' in initial &&
+      initial.digest === ref?.digest && initial.virtualPath === ref?.virtualPath
+  }
   const storage = safeLocalStorage()
   const scopeKey = `dinkster.asset-quick-scope:${kind ?? accept.join(',')}`
   let savedScope = 'all-mounts'
@@ -126,8 +133,12 @@ export const AssetQuickList: Component<WidgetEditorImplementationProps & {
                   options={[{ value: 'list', label: message('assets.view.names') }, { value: 'grid', label: message('assets.view.pictures') }]} />
               </div>}
               entryContent={(entry) => <AssetEntryContent entry={entry()} />}
+              initialSelection={matchesStoredAsset}
+              detailRail={(entry) => <Show when={entry}>{(focused) => <div class="asset-quick-caption" data-testid="asset-quick-caption">
+                <span>{focused().title}</span><small>{assetItemOf(focused())?.virtualPath}</small>
+              </div>}</Show>}
               pick={{ pickable: assetEntryPickable(accept, kind),
-                selected: (entry) => { const ref = assetItemOf(entry); const initial = ed.initial; return typeof initial === 'object' && initial !== null && 'digest' in initial && 'virtualPath' in initial && initial.digest === ref?.digest && initial.virtualPath === ref?.virtualPath },
+                selected: matchesStoredAsset,
                 onPick: (entry) => {
                   const item = assetItemOf(entry)
                   const ref = item === undefined ? undefined : committableAssetRef(item)
@@ -138,7 +149,10 @@ export const AssetQuickList: Component<WidgetEditorImplementationProps & {
         </Show>
         <Show when={props.commitError()}>{(value) => <ProductNotice tone="error">{value()}</ProductNotice>}</Show>
         <ProductButton onClick={() => handOff()}>{message('assets.quickList.browse')}</ProductButton>
-        <ProductButton ref={addButton} intent="add" onClick={() => chooser.click()}>{message('assets.quickList.add')}</ProductButton>
+        <ProductButton ref={addButton} intent="add" onClick={() => chooser.click()}>
+          {message(policy.maxBytes === undefined ? 'assets.quickList.add' : 'assets.quickList.upload')}
+          <span class="asset-scope">{policy.label === undefined ? message('assets.quickList.anySize') : message('assets.quickList.limit', { size: policy.label })}</span>
+        </ProductButton>
       </div>} />
     <ProductFileInput ref={chooser} accept={accept.join(',')} onChange={(event) => {
       const file = event.currentTarget.files?.[0]
