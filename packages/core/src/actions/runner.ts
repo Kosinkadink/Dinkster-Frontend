@@ -35,7 +35,7 @@ import type { ControllerMode, GraphDef, Json, NodeData, WorkflowDocument } from 
 import { asNodeId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, sameEndpoint, type LinkEndpoint } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, traceEndpoint } from '../reroute.js'
-import { resolveDynamicAddress } from '../format/document.js'
+import { boundaryItems, resolveDynamicAddress } from '../format/document.js'
 import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaOutcome, type FormulaValue } from '../mirror/formula.js'
 import { constructsOf, keyPosition, rowKind } from '../schema/body.js'
 import { isComboValue, normalizeComboOption, normalizedComboOptions, type NormalizedComboOption } from '../schema/combo-options.js'
@@ -442,7 +442,7 @@ function constructOwnerOf(doc: WorkflowDocument, target: StepPlace, address: str
   let owner: ValueOwner = { graphId: target.graphId, nodeId: target.nodeId, valueKey: address }
   for (const parent of parents.reverse()) {
     let mapped: string | undefined
-    for (const item of [...(parent.child.boundary?.inputs ?? []), ...(parent.child.boundary?.outputs ?? [])]) {
+    for (const item of [...boundaryItems(parent.child.boundary, 'inputs'), ...boundaryItems(parent.child.boundary, 'outputs')]) {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.kind !== 'construct' || binding.node !== owner.nodeId) continue
         mapped = outerConstructAddress(parent.child, binding, item.id, owner.valueKey, (node) => resolveNode(parent.child.id, node))
@@ -477,7 +477,7 @@ function memberWired(view: View, group: string, member: string): boolean {
   const ends = [
     ...Object.values(graph.links).flatMap((link) => [link.from, link.to]),
     ...Object.values(graph.nets).flatMap((net) => [net.source, ...net.sinks]),
-    ...[...(graph.boundary?.inputs ?? []), ...(graph.boundary?.outputs ?? [])].flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])]),
+    ...[...boundaryItems(graph.boundary, 'inputs'), ...boundaryItems(graph.boundary, 'outputs')].flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])]),
   ]
   // A wire leaving a member field's output is a widget tap named by the field's flattened id.
   return ends.some((end) => 'node' in end && end.node === view.node.id &&

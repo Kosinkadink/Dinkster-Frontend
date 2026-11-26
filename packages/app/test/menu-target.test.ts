@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildScene, defaultTokens, type Hit } from '@dinkster/canvas'
-import { asNodeId, coreCommandRegistry, createLocalSession, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { asNodeId, boundaryItems, coreCommandRegistry, createLocalSession, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 import { toolboxMenuRequest } from '../src/CanvasHost.js'
 import { canvasMenuContext, curveHistogramMenuGroup, memberRemovalInvocation, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
 
@@ -42,10 +42,9 @@ describe('direct member removal', () => {
         shared: { id: 'shared', source: { node: 'n2', port: 'items.m1.out' }, sinks: [{ node: 'n1', port: 'items.m1.net' }, { node: 'n1', port: 'items.m10.net' }] },
       },
       boundary: {
-        inputs: [{ id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m1.value' }, alsoBinds: [
+        body: [{ kind: 'input', id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m1.value' }, alsoBinds: [
           { kind: 'port', node: 'n1', port: 'items.m1.extra' }, { kind: 'port', node: 'n1', port: 'items.m10.value' },
-        ] }],
-        outputs: [{ id: 'output', binds: { kind: 'widgetTap', node: 'n1', tap: 'items.m1.value' } }],
+        ] }, { kind: 'output', id: 'output', binds: { kind: 'widgetTap', node: 'n1', tap: 'items.m1.value' } }],
       },
     } },
   } as unknown as WorkflowDocument)
@@ -63,7 +62,7 @@ describe('direct member removal', () => {
     expect(Object.keys(graph.links)).toEqual(['kept'])
     expect(Object.keys(graph.nets)).toEqual(['shared'])
     expect(graph.nets.shared!.sinks).toEqual([{ node: 'n1', port: 'items.m10.net' }])
-    expect(graph.boundary).toEqual({ inputs: [{ id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }], outputs: [] })
+    expect(graph.boundary).toEqual({ body: [{ kind: 'input', id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }] })
     session.undo()
     expect(session.doc).toEqual(before)
     expect(session.canUndo).toBe(false)
@@ -126,7 +125,7 @@ describe('direct member removal', () => {
       const before = { ...initial, graphs: { ...initial.graphs, g0: { ...initial.graphs.g0!, nextOrdinal: 100, nodes: {
         a: { id: 'a', type: `#${graph}`, values: {} }, n1: { id: 'n1', type: '#sub', values: {} },
       } }, sub: { ...initial.graphs.sub!, boundary: { ...initial.graphs.sub!.boundary,
-        inputs: [...initial.graphs.sub!.boundary!.inputs, { id: 'items.m1.value', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }],
+        body: [...initial.graphs.sub!.boundary!.body, { kind: 'input', id: 'items.m1.value', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }],
       } }, other: { ...initial.graphs.sub!, id: 'other', links: {}, nets: {} } },
       occurrenceTopologies: { [kind === 'other instance graph' ? 'n1' : 'a']: {
         owner: { instancePath: [], node: kind === 'other instance graph' ? 'n1' : 'a' }, bodyGraph: graph, nextOrdinal: 1,
@@ -167,7 +166,7 @@ describe('curve histogram menu', () => {
       links: delivery === 'link' ? { wire: { id: 'wire', from: { node: 'source', port: 'out' }, to: port(1) } } : {},
       nets: delivery === 'net' ? { net: { id: 'net', name: 'Histogram', source: { node: 'source', port: 'out' }, sinks: [port(1), port(2)] } } : {},
       reroutes: {},
-      ...(delivery === 'boundary' ? { boundary: { inputs: [{ id: 'feed', binds: { kind: 'port', ...port(1) }, alsoBinds: [{ kind: 'port', ...port(2) }] }], outputs: [] } } : {}),
+      ...(delivery === 'boundary' ? { boundary: { body: [{ kind: 'input', id: 'feed', binds: { kind: 'port', ...port(1) }, alsoBinds: [{ kind: 'port', ...port(2) }] }] } } : {}),
     } }, view: { graphs: {} },
   }).document!
   const menu = (document: WorkflowDocument, member = 1, disabled = false, occurrence?: Parameters<typeof buildScene>[0]['occurrence']) => {
@@ -193,7 +192,7 @@ describe('curve histogram menu', () => {
       expect(menu(store.doc, 2).label).toBe('Hide histogram input')
       if (delivery === 'link') expect(store.doc.graphs.g0!.links).toEqual({})
       if (delivery === 'net') expect(store.doc.graphs.g0!.nets.net!.sinks).toEqual([port(2)])
-      if (delivery === 'boundary') expect(store.doc.graphs.g0!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', ...port(2) })
+      if (delivery === 'boundary') expect(boundaryItems(store.doc.graphs.g0!.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'port', ...port(2) })
       const saved = loadDocument(JSON.parse(JSON.stringify(store.doc)))
       expect(menu(saved.document!).label).toBe('Show histogram input')
       expect(store.undo()).toBe(true)
@@ -228,7 +227,7 @@ describe('curve histogram menu', () => {
       const body = fixture(delivery === 'net' ? 'net' : 'boundary')
       const document = loadDocument({ ...body, root: 'outer', graphs: { ...body.graphs,
         g0: { ...body.graphs.g0!, ...(delivery === 'parent-boundary' ? {
-          boundary: { inputs: [{ id: 'feed', binds: { kind: 'port', ...port(1) } }], outputs: [] },
+          boundary: { body: [{ kind: 'input', id: 'feed', binds: { kind: 'port', ...port(1) } }] },
         } : {}) },
         outer: {
           id: 'outer', name: 'Outer', nextOrdinal: 1, nets: {}, reroutes: {},

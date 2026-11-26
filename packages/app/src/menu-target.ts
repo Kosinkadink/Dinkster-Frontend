@@ -7,7 +7,7 @@
  */
 
 import type { Hit, OccurrenceMutationPlanner, Scene } from '@dinkster/canvas'
-import { constructsOf, coreCommandRegistry, createTransactionBuilder, effectiveOccurrenceTopology, executeCommand, isPortEndpoint, outputsOf, supportsExpressionMirror, supportsGlslMirror, supportsOutputRepresentation, widgetRepresentationsOf, type BoundaryBinding, type CommandInvocation, type Json, type LinkEndpoint, type MenuContext, type MenuItem, type MenuRegistry, type MenuTarget, type NodeSchema, type ResolvedMenuGroup, type SchemaResolver, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { boundaryItems, constructsOf, coreCommandRegistry, createTransactionBuilder, effectiveOccurrenceTopology, executeCommand, isPortEndpoint, outputsOf, supportsExpressionMirror, supportsGlslMirror, supportsOutputRepresentation, widgetRepresentationsOf, type BoundaryBinding, type CommandInvocation, type Json, type LinkEndpoint, type MenuContext, type MenuItem, type MenuRegistry, type MenuTarget, type NodeSchema, type ResolvedMenuGroup, type SchemaResolver, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 
 /** Where and on what the menu opened; anchored in canvas-pane CSS px. */
 export interface MenuAnchor {
@@ -51,7 +51,7 @@ export function memberRemovalInvocation(
     }
   }
   for (const side of ['inputs', 'outputs'] as const) {
-    for (const item of graph.boundary?.[side] ?? []) {
+    for (const item of boundaryItems(graph.boundary, side)) {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (touches(binding)) invocations.push({ command: 'boundary.unbind', params: { graphId, side, itemId: item.id, ...binding } })
       }
@@ -215,7 +215,7 @@ export function curveHistogramMenuGroup(input: {
       if (Object.values(graph.nets).some((net) => net.sinks.some(targetsHistogram))) {
         invocations.push({ command: 'net.disconnectInput', params: { graphId, to: { node: nodeId, port: histogram.portId } } })
       }
-      for (const item of graph.boundary?.inputs ?? []) {
+      for (const item of boundaryItems(graph.boundary, 'inputs')) {
         if ([item.binds, ...(item.alsoBinds ?? [])].some((binding) => binding.kind === 'port' && targetsHistogram(binding))) {
           invocations.push({ command: 'boundary.unbind', params: { graphId, side: 'inputs', itemId: item.id, node: nodeId, port: histogram.portId } })
         }

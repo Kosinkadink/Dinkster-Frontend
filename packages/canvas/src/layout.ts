@@ -701,7 +701,7 @@ const flexibleLineHeight = (layout: NodeLayout, row: LayoutRow, tokens: DesignTo
 
 /** Reflow text boxes back to their own heights, without any resize surplus. */
 const ownHeightRows = (layout: NodeLayout, tokens: DesignTokens): LayoutRow[] =>
-  reflowRows(layout, (row) => isTextBoxRow(row) ? flexibleLineHeight(layout, row, tokens) : row.height)
+  reflowRows(layout, (row) => isTextBoxRow(row) ? multilineWidgetHeight(row.rows, tokens) : row.height)
 
 const remappedPins = (layout: NodeLayout, rows: readonly LayoutRow[]): PinLayout[] =>
   layout.pins.map((pin) => {
@@ -810,9 +810,9 @@ const projectedBoxes = (
   return {
     boxes: layout.boxes.map((box) => {
       const first = layout.rows[box.first]!
-      const last = layout.rows[box.last]!
       const top = box.y + rows[box.first]!.y - first.y
-      const bottom = box.y + box.height + (rows[box.last]!.y + rows[box.last]!.height) - (last.y + last.height)
+      const bottomOf = (rs: readonly LayoutRow[]): number => Math.max(...rs.slice(box.first, box.last + 1).map((row) => row.y + row.height))
+      const bottom = box.y + box.height + bottomOf(rows) - bottomOf(layout.rows)
       return { ...box, y: top, height: bottom - top }
     }),
   }
@@ -1039,7 +1039,9 @@ export function projectNodeLayoutHeight(
   const flexibleIndexes = flexibleTextRowIndexes(layout)
   if (flexibleIndexes.length === 0) return { ...layout, height }
   const rows = reflowRows(layout, (row, index) => isTextBoxRow(row)
-    ? flexibleLineHeight(layout, row, tokens) + (flexibleIndexes.includes(index) ? extra : 0)
+    ? extra > 0 && flexibleIndexes.includes(index)
+      ? flexibleLineHeight(layout, row, tokens) + extra
+      : multilineWidgetHeight(row.rows, tokens)
     : row.height)
   const textOutput = layout.textOutput === undefined
     ? undefined
@@ -1501,18 +1503,28 @@ export function layoutNode(
         })
         continue
       }
+      const slot = {
+        portId: spec.id,
+        ...rowLabels(item),
+        type: spec.type,
+        index: outputIndex++,
+        ...(spec.optional ? { maybeAbsent: true as const } : {}),
+        ...annotate(item),
+      }
+      if (schema.source === 'subgraph') {
+        // A subgraph node's outputs keep the place the author gave them: an
+        // output shares the line of the pin-only input directly above it in
+        // the same box, unless it is kept on a line of its own.
+        const above = pending.at(-1)
+        if (!spec.ownRow && above?.kind === 'ports' && above.input !== undefined &&
+          above.output === undefined && chainKey(above.boxes) === chainKey(chain)) above.output = slot
+        else pending.push({ kind: 'ports', boxes: chain, output: slot })
+        continue
+      }
       outputs.push({
-        boxes: chain,
+        boxes: chain, slot,
         ...rowRemoval(item, chain),
         ...(removable(item, chain) ? { removable: true as const } : {}),
-        slot: {
-          portId: spec.id,
-          ...rowLabels(item),
-          type: spec.type,
-          index: outputIndex++,
-          ...(spec.optional ? { maybeAbsent: true as const } : {}),
-          ...annotate(item),
-        },
       })
       continue
     }
@@ -1954,7 +1966,7 @@ export function layoutNode(
         y += height
       } else if (row.kind === 'note' || row.kind === 'button') {
         const line = lines.get(row)!
-        const height = lineBaseHeight(line)
+        const height = rowBaseHeight(row)
         const inset = fieldInset(depth)
         const member = row.kind === 'button' && line.at(-1) === row
           ? line.find((cell) => cell.removable)
@@ -1990,10 +2002,10 @@ export function layoutNode(
       } else {
         const w = row.widget!
         const flexible = flexibleRows.includes(row)
-        const baseHeight = lineBaseHeight(lines.get(row)!)
-        const height = baseHeight + (flexible
+        const extra = flexible
           ? flexibleShare + (flexibleIndex === flexibleRows.length - 1 ? flexibleRemainder : 0)
-          : 0)
+          : 0
+        const height = (extra > 0 ? lineBaseHeight(lines.get(row)!) : rowBaseHeight(row)) + extra
         if (flexible) flexibleIndex += 1
         // Keep the capsule and its edge controls clear of sockets on either
         // border. The symmetric side also reserves space for output widgets.

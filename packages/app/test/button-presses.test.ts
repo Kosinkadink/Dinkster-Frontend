@@ -130,7 +130,7 @@ describe('button press authority and typed answers', () => {
         g1: { id: 'g1', name: 'inner', nextOrdinal: 100, nodes: {
           inner: { id: 'inner', type: inner.type, values: { value: 3 } },
         }, links: {}, nets: {}, reroutes: {}, boundary: {
-          inputs: [{ id: 'shown', binds: { kind: 'port', node: 'inner', port: 'value' }, promoted: true }], outputs: [],
+          body: [{ kind: 'input', id: 'shown', binds: { kind: 'port', node: 'inner', port: 'value' }, promoted: true }],
         } },
       }, view: { graphs: {} },
     } as unknown as WorkflowDocument
@@ -141,7 +141,7 @@ describe('button press authority and typed answers', () => {
         ...doc.graphs,
         g0: { ...doc.graphs['g0']!, nodes: Object.fromEntries(Object.entries(doc.graphs['g0']!.nodes).map(([id, node]) => [id, { ...node, type: '#g2' }])) },
         g2: { ...doc.graphs['g1']!, id: 'g2', nodes: { middle: { id: 'middle', type: '#g1', values: {} } }, boundary: {
-          inputs: [{ id: 'shown', binds: { kind: 'port', node: 'middle', port: 'shown' }, promoted: true }], outputs: [],
+          body: [{ kind: 'input', id: 'shown', binds: { kind: 'port', node: 'middle', port: 'shown' }, promoted: true }],
         } },
       },
     } as unknown as WorkflowDocument : doc

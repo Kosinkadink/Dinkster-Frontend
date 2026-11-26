@@ -1,6 +1,6 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asNodeId, resolveImportedNodePacks } from '@dinkster/core'
+import { asNodeId, boundaryItems, resolveImportedNodePacks } from '@dinkster/core'
 import type { CommandOutcome, DinksterNodesPayload, NodeSchema, WorkflowDocument } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { historicalRegistry } from './historical-schemas.js'
@@ -470,19 +470,19 @@ describe('opening a wire from a member that is gone', () => {
         9: { id: asNodeId('9'), type: 'Sink', values: {} },
       },
       links: { 4: tap('4', 'weight0', '2'), 5: tap('5', 'weight1', '3'), 10: tap('10', 'weight1', '7', '6'), 11: tap('11', 'weight1', '9', '8') },
-      boundary: { inputs: [], outputs: [{ id: 'second', binds: { kind: 'widgetTap', node: asNodeId('1'), tap: 'weights.weight1' } }] },
+      boundary: { body: [{ kind: 'output', id: 'second', binds: { kind: 'widgetTap', node: asNodeId('1'), tap: 'weights.weight1' } }] },
     } } } as unknown as WorkflowDocument
     expect(await own.openDocument(incoming, 'Gone member')).toEqual([])
     const tab = own.activeTab()!
     await vi.waitFor(() => expect(own.problems.get()).toContainEqual(expect.objectContaining({
       code: 'upgrade.removedDynamicParts', message: expect.stringContaining("the wire from 'weights.weight1' is removed") })))
     expect(Object.keys(tab.store.doc.graphs[before.root]!.links).sort()).toEqual(['11', '4'])
-    expect(tab.store.doc.graphs[before.root]!.boundary?.outputs ?? []).toEqual([])
+    expect(boundaryItems(tab.store.doc.graphs[before.root]!.boundary, 'outputs')).toEqual([])
     expect(own.problems.get().filter((entry) => entry.code === 'upgrade.removedDynamicParts').map((entry) => entry.message.split(':')[0]).sort())
       .toEqual(['Counted', 'Weights'])
     expect(tab.store.undo()).toBe(true)
     expect(Object.keys(tab.store.doc.graphs[before.root]!.links).sort()).toEqual(['10', '11', '4', '5'])
-    expect(tab.store.doc.graphs[before.root]!.boundary!.outputs.map((item) => item.id)).toEqual(['second'])
+    expect(boundaryItems(tab.store.doc.graphs[before.root]!.boundary, 'outputs').map((item) => item.id)).toEqual(['second'])
     own.dispose()
   })
 })

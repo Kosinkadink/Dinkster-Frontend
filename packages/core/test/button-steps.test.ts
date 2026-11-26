@@ -463,9 +463,8 @@ describe('each step', () => {
     // A boundary input's additional binding is a wire too, not just its primary target.
     const boundary = documentOf({ n1: { type: 'dev.buttons.member_steps', values: start.values, ...start.extra } })
     const boundSession = sessionOf({ ...boundary, graphs: { g0: { ...boundary.graphs['g0']!, boundary: {
-      inputs: [{ id: 'clip', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('loras.lora_1.clip') },
+      body: [{ kind: 'input', id: 'clip', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('loras.lora_1.clip') },
         alsoBinds: [{ kind: 'port', node: asNodeId('n1'), port: asPortId('loras.lora_3.clip') }] }],
-      outputs: [],
     } } } })
     const boundOutcome = await runPress(boundSession, at('clear'), hostOf())
     expect(boundSession.doc.graphs['g0']!.nodes['n1']!.dynamic!['loras']!.members).toEqual(['lora_1', 'lora_3'])
@@ -546,10 +545,10 @@ describe('each step', () => {
           links: { local: { id: asLinkId('local'), from: { kind: 'body' as const, endpoint: from }, to: { kind: 'body' as const, endpoint: target } } },
         } } } : {}), graphs: { ...root.graphs,
         g1: { ...body, id: asGraphDefId('g1'), name: 'Shared body', boundary: {
-          inputs: [{ id: asPortId('shown'), promoted: true, binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('value'), ...(driver === 'outsideReroute' ? { viaReroute: 'junction' as never } : {}) } }], outputs: [],
+          body: [{ kind: 'input', id: asPortId('shown'), promoted: true, binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('value'), ...(driver === 'outsideReroute' ? { viaReroute: 'junction' as never } : {}) } }],
         } },
         ...(depth === 1 ? {} : { g2: { ...middle, id: asGraphDefId('g2'), boundary: {
-          inputs: [{ id: asPortId('shown'), promoted: true, binds: { kind: 'port', node: asNodeId('deep'), port: asPortId('shown') } }], outputs: [],
+          body: [{ kind: 'input', id: asPortId('shown'), promoted: true, binds: { kind: 'port', node: asNodeId('deep'), port: asPortId('shown') } }],
         } } }),
       } }
       const path = (side: string) => (depth === 1 ? [side] : [side, 'deep']).map(asNodeId)
@@ -1013,7 +1012,7 @@ describe('steps inside a subgraph occurrence', () => {
     const root = documentOf({ left: { type: '#g1' }, right: { type: '#g1' } })
     const inner = documentOf({ inner: { type: 'test.owned_group' } }).graphs['g0']!
     const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), boundary: {
-      inputs: [{ id: asPortId('shown'), binds: { kind: 'construct', node: asNodeId('inner'), port: asPortId('items') }, promoted: true }], outputs: [],
+      body: [{ kind: 'input', id: asPortId('shown'), binds: { kind: 'construct', node: asNodeId('inner'), port: asPortId('items') }, promoted: true }],
     } } } }
     const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
     const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
@@ -1061,7 +1060,7 @@ describe('steps inside a subgraph occurrence', () => {
     const root = documentOf({ left: { type: '#g1' }, right: { type: '#g1' } })
     const inner = documentOf({ inner: { type: 'test.nested_owned_group' } }).graphs['g0']!
     const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), boundary: {
-      inputs: [{ id: asPortId('shown'), binds: { kind: 'construct', node: asNodeId('inner'), port: asPortId('items') }, promoted: true }], outputs: [],
+      body: [{ kind: 'input', id: asPortId('shown'), binds: { kind: 'construct', node: asNodeId('inner'), port: asPortId('items') }, promoted: true }],
     } } } }
     const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
     const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
@@ -1093,7 +1092,7 @@ describe('steps inside a subgraph occurrence', () => {
     })
     const inner = documentOf({ inner: { type: 'test.owned_disconnect', values: { value: 3 } } }).graphs['g0']!
     const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), boundary: {
-      inputs: [{ id: asPortId('shown'), binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('value') }, promoted: true }], outputs: [],
+      body: [{ kind: 'input', id: asPortId('shown'), binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('value') }, promoted: true }],
     } } } }
     const answer = later<CallAnswer>()
     const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve), call: () => answer.promise })

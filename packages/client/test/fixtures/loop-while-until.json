@@ -97,26 +97,29 @@
       "nets": {},
       "reroutes": {},
       "boundary": {
-        "inputs": [
+        "body": [
           {
+            "kind": "input",
             "id": "count",
             "binds": { "kind": "port", "node": "count", "port": "value" }
           },
           {
+            "kind": "input",
             "id": "limit",
             "binds": { "kind": "port", "node": "limit", "port": "value" }
-          }
-        ],
-        "outputs": [
+          },
           {
+            "kind": "output",
             "id": "result",
             "binds": { "kind": "port", "node": "add", "port": "INT" }
           },
           {
+            "kind": "output",
             "id": "steps",
             "binds": { "kind": "port", "node": "add", "port": "INT" }
           },
           {
+            "kind": "output",
             "id": "continue",
             "binds": { "kind": "port", "node": "compare", "port": "BOOL" }
           }
