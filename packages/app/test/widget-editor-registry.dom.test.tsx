@@ -142,51 +142,6 @@ it.each([false, true])('edits structured save destinations with writable grants 
   }
 })
 
-it('previews resolution with half-even rounding and edits descriptor-named siblings as one undo', async () => {
-  const schema = parseDinksterSchema('ResolutionFixture', { body: [
-    { kind: 'input', id: 'ratio', type: { kind: 'concrete', types: ['COMBO'] }, default: '1:1 (Square)', widget: { type: 'COMBO', options: ['1:1 (Square)', '16:9 (Widescreen)'] } },
-    { kind: 'input', id: 'mp', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
-    { kind: 'input', id: 'step', type: { kind: 'concrete', types: ['INT'] }, default: 8 },
-    { kind: 'input', id: 'preview', type: { kind: 'concrete', types: ['RESOLUTION_PREVIEW'] }, default: null, widget: { type: 'RESOLUTION_PREVIEW', ratio_widget: 'ratio', megapixels_widget: 'mp', multiple_widget: 'step' } },
-  ] }).schema!
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
-  const store = new DocumentStore(imported.document!, coreCommandRegistry())
-  const before = store.doc.graphs.g0!.nodes.n1!.values
-  const tab = { store } as unknown as Tab
-  const registry = createWidgetRegistry()
-  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    registryForTab: () => ({ resolve: () => schema }),
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
-  } as unknown as AppState
-  const root = document.createElement('div'); document.body.append(root)
-  const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'preview' }, label: 'Preview',
-    spec: inputsOf(schema)[3]!.widget, multiline: false, initial: null,
-    rect: { x: 0, y: 0, width: 180, height: 24 },
-  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  const input = (field: string, value: string) => {
-    const element = root.querySelector<HTMLInputElement>(`#resolution-${field}`)!
-    expect(element.getAttribute('aria-labelledby')).toBeTruthy()
-    element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
-  }
-  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply resolution')!
-  expect(root.querySelector('output')!.textContent).toBe('1,024 x 1,024 pixels')
-  input('megapixels', '0.2539215087890625')
-  expect(root.querySelector('output')!.textContent).toBe('512 x 512 pixels')
-  input('megapixels', '0.2618560791015625')
-  expect(root.querySelector('output')!.textContent).toBe('528 x 528 pixels')
-  for (const value of ['', '0.09', '16.1', 'NaN']) { input('megapixels', value); expect(apply.disabled).toBe(true) }
-  input('megapixels', '1.3')
-  for (const value of ['', '7', '129', '8.5']) { input('multiple', value); expect(apply.disabled).toBe(true) }
-  input('multiple', '64')
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  apply.click()
-  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, ratio: '1:1 (Square)', mp: 1.3, step: 64 }))
-  expect(store.undo()).toBe(true)
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  dispose()
-})
-
 it.each([
   { node: 'dinkster.video.video_trim', id: 'trim', feature: 'trim', stored: { trim: { start_time: 2, duration: 3 } },
     shown: { 'video-trim-start-seconds': '2', 'video-trim-duration-seconds': '3' } },

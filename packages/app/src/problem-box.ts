@@ -63,6 +63,7 @@ export function problemBoxLines(
     .map(({ problem }) => {
       const row = problem.row === undefined ? undefined : rows.find((candidate) => candidate.key === problem.row)
       const diagnostic = problem.diagnostic
+      const nodeMessage = diagnostic.data?.['nodeMessage']
       const actions: ProblemBoxAction[] = diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'
         ? ['locate-asset']
         : diagnostic.code.startsWith('model.availability.') && typeof diagnostic.data?.['input'] === 'string'
@@ -76,8 +77,13 @@ export function problemBoxLines(
       return {
         key: JSON.stringify([problem.row ?? null, diagnostic.code, diagnostic.message]),
         kind: problem.kind,
-        ...(problem.row === undefined ? {} : { row: problem.row, rowName: row?.name ?? rowName(problem.row) }),
-        message: display(problem),
+        ...(problem.row === undefined ? {} : {
+          row: problem.row,
+          ...(typeof nodeMessage === 'string' ? {} : { rowName: row?.name ?? rowName(problem.row) }),
+        }),
+        ...(diagnostic.code === 'compile.input.missing' && diagnostic.hiddenRequiredField !== undefined
+          ? { rowName: diagnostic.hiddenRequiredField } : {}),
+        message: typeof nodeMessage === 'string' ? nodeMessage : display(problem),
         actions,
         problem,
       }

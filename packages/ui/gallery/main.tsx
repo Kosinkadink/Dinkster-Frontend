@@ -88,6 +88,7 @@ import {
   selectCanvasPage,
 } from './canvas.js'
 import { ContextMenuGallery } from './context-menus.js'
+import { PageLoadingGallery } from './page-loading.js'
 import { CanvasChromeGallery } from './canvas-chrome.js'
 import { RunControlsGallery } from './run-controls.js'
 import { SiteGallery } from './site.js'
@@ -188,7 +189,7 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
+              (route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
@@ -204,6 +205,9 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#page-loading'}>
+              <PageLoadingGallery />
+            </Match>
             <Match when={route() === '#setup-components'}>
               <Section title="Progress" components="ProductProgress">
                 <For each={[
