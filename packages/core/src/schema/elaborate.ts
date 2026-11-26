@@ -707,8 +707,10 @@ export interface ElaborateOptions {
    * Already-authorized decoded answers held for the node's target engine,
    * keyed by digest. Reading here must not start requests; an absent answer
    * leaves its facts unknown. The host owns loading and failure diagnostics.
+   * JSON numbers for dimensions and frame counts become formula integers;
+   * rates and durations stay decimals, including integral rates and durations.
    */
-  readonly fileFacts?: (digest: string) => Readonly<Record<string, FormulaValue>> | undefined
+  readonly fileFacts?: (digest: string) => Readonly<Partial<Record<'width' | 'height' | 'frames' | 'fps' | 'duration', number>>> | undefined
   /**
    * Flattened ids of rows that have a problem (an error or a warning) found
    * outside elaboration. Such a row, and every box that holds it, shows even
@@ -1357,7 +1359,7 @@ function elaboratePass(
     const linkedTypes = new LazyValues<string | null>()
     const facts = new LazyValues<FormulaValue>()
     const sizes = new Map<string, number>()
-    for (const name of names.assets) for (const fact of ['filename', 'kind', 'width', 'height', 'frames', 'fps', 'duration']) facts.setLazy(`${fact}(${name})`, () => {
+    for (const name of names.assets) for (const fact of ['filename', 'kind', 'width', 'height', 'frames', 'fps', 'duration'] as const) facts.setLazy(`${fact}(${name})`, () => {
       if (unknown.has(name)) return undefined
       const constant = fixed.get(name)
       const path = where.get(name)
@@ -1366,7 +1368,14 @@ function elaboratePass(
           : Object.hasOwn(node.values, path) ? node.values[path] : defaults.get(path)
       if (!isAssetRefValue(value)) return undefined
       if (fact === 'filename') return value.name.split(/[\\/]/).at(-1)
-      if (fact !== 'kind') return options.fileFacts?.(value.digest)?.[fact]
+      if (fact !== 'kind') {
+        const numeric = options.fileFacts?.(value.digest)?.[fact]
+        if (numeric === undefined || !Number.isFinite(numeric)) return undefined
+        if (fact === 'width' || fact === 'height' || fact === 'frames') {
+          return Number.isSafeInteger(numeric) ? BigInt(numeric) : undefined
+        }
+        return numeric
+      }
       if (value.mediaType === '') return undefined
       const kind = /^(image|video|audio|model|text)\//.exec(value.mediaType)?.[1]
       return kind === 'model' ? '3d' : kind ?? 'file'

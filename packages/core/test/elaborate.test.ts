@@ -1261,6 +1261,14 @@ describe('automatic values', () => {
     expect(automatic(video, connectedInputs('file'))[0]).toEqual({ value: 0, state: 'default', reason: 'unknown' })
     expect(automatic(audio)[3]).toMatchObject({ value: 0.3, state: 'worked-out' })
 
+    for (const width of [13.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const invalid = elaborateInterface(schemaOf(rows), { values: { file: image } }, EMPTY_CONNECTIVITY, {
+        fileFacts: () => ({ width }),
+      })
+      expect(elabInputsOf(invalid).find((input) => input.spec.id === 'w')!.automatic)
+        .toEqual({ value: 0, state: 'default', reason: 'unknown' })
+    }
+
     const defaultFile = { ...file, widget: { widgetType: 'ASSET', options: {}, default: image } }
     const defaulted = elaborateInterface(schemaOf([defaultFile, rows[1]!]), { values: {} }, EMPTY_CONNECTIVITY, options)
     expect(elabInputsOf(defaulted).find((input) => input.spec.id === 'w')!.automatic)
