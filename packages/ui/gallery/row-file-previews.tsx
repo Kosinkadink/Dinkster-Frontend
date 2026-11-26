@@ -115,6 +115,8 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
     renderer.setViewport({ x: 0, y: 0, scale: 1 })
     if (example.mode === 'expected' || example.mode === 'estimate' || example.mode === 'stale')
       renderer.setCompanions({ files: { files: { value: example.value, state: example.mode } } })
+    else if (example.mode === 'unknown')
+      renderer.setCompanions({ files: { files: { value: null, state: 'unknown' } } })
     const loader = createPreviewLoader({
       assetUrlForExecution: (_ref, digest) => digest,
       assetUrlForInput: (digest) => digest === `blake3:${'b'.repeat(64)}` ? videoUrl : pictureUrl,
