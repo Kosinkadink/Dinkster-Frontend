@@ -97,7 +97,7 @@ test('recent entries, categories, type menus and installation actions stay on th
 })
 
 test('type menus retain start alignment and keep end-aligned output dots inside wide and narrow searches', async ({ page }) => {
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 600, 390, 360, 240]) {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/#node-search')
     const search = page.getByTestId('node-search-typed')
@@ -105,6 +105,8 @@ test('type menus retain start alignment and keep end-aligned output dots inside 
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
     for (const direction of ['Takes', 'Gives']) {
       const trigger = search.getByRole('button', { name: `${direction} type`, exact: true })
+      await trigger.scrollIntoViewIfNeeded()
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
       await trigger.click()
       const menu = search.getByRole('menu')
       const bounds = (await menu.boundingBox())!
@@ -113,7 +115,7 @@ test('type menus retain start alignment and keep end-aligned output dots inside 
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8)
       if (direction === 'Takes' && width === 1440) expect(bounds.x).toBeCloseTo(anchor.x, 1)
       if (direction === 'Gives') {
-        expect(bounds.x + bounds.width).toBeCloseTo(anchor.x + anchor.width, 1)
+        expect(bounds.x + bounds.width).toBeCloseTo(Math.min(width - 8, Math.max(8 + bounds.width, anchor.x + anchor.width)), 1)
         const searchBounds = (await search.boundingBox())!
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(searchBounds.x + searchBounds.width)
         const dots = await menu.locator('.dinkster-search-chip-dot').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().right))
@@ -127,25 +129,31 @@ test('type menus retain start alignment and keep end-aligned output dots inside 
 })
 
 test('custom menu content keeps string names, separate descriptions and selection behavior', async ({ page }) => {
-  await page.goto('/#node-search')
-  const trigger = page.getByRole('button', { name: 'Choose example type', exact: true })
-  await expect(trigger).toHaveText('image')
-  await expect(trigger).toHaveAttribute('title', 'Choose an example type')
-  await trigger.scrollIntoViewIfNeeded()
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
-  await trigger.click()
-  const menu = page.getByRole('menu', { name: 'Type label examples', exact: true })
-  const plain = menu.getByRole('menuitem', { name: 'Image input', exact: true })
-  const described = menu.getByRole('menuitem', { name: 'Image output', exact: true })
-  await expect(plain).toHaveText('image')
-  await expect(plain).not.toHaveAttribute('aria-describedby')
-  await expect(described).toHaveAccessibleDescription('Accepts a picture from the node.')
-  await expect(described.locator('.dinkster-menu-item-label')).toHaveText('image')
-  await described.click()
-  await expect(page.getByTestId('custom-menu-chosen')).toHaveText('Image output')
-  await expect(menu).toHaveCount(0)
-  await expect(trigger).toBeFocused()
-  await trigger.press('ArrowDown')
-  await plain.click()
-  await expect(page.getByTestId('custom-menu-chosen')).toHaveText('Image input')
+  for (const width of [240, 360, 600]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/#node-search')
+    const trigger = page.getByRole('button', { name: 'Choose example type', exact: true })
+    await expect(trigger).toHaveText('image')
+    await expect(trigger).toHaveAttribute('title', 'Choose an example type')
+    await trigger.scrollIntoViewIfNeeded()
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+    await trigger.click()
+    const menu = page.getByRole('menu', { name: 'Type label examples', exact: true })
+    const bounds = (await menu.boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(8)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8)
+    const plain = menu.getByRole('menuitem', { name: 'Image input', exact: true })
+    const described = menu.getByRole('menuitem', { name: 'Image output', exact: true })
+    await expect(plain).toHaveText('image')
+    await expect(plain).not.toHaveAttribute('aria-describedby')
+    await expect(described).toHaveAccessibleDescription('Accepts a picture from the node.')
+    await expect(described.locator('.dinkster-menu-item-label')).toHaveText('image')
+    await described.click()
+    await expect(page.getByTestId('custom-menu-chosen')).toHaveText('Image output')
+    await expect(menu).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    await trigger.press('ArrowDown')
+    await plain.click()
+    await expect(page.getByTestId('custom-menu-chosen')).toHaveText('Image input')
+  }
 })
