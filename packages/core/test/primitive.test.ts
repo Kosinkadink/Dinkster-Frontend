@@ -229,11 +229,15 @@ describe('a primitive works out its value widget', () => {
   })
 
   it('preserves inner explicit limits unless an exposed field overrides them', () => {
-    for (const [depth, exposed] of [[1, false], [2, false], [1, true], [2, true]] as const) {
+    for (const [depth, exposed, narrowed] of [
+      [1, false, false], [2, false, false], [1, true, false], [2, true, false],
+      [1, false, true], [2, false, true], [1, true, true], [2, true, true],
+    ] as const) {
       const graph = (id: string, node: string, type: string, value: string, target: string, output: string, values = {}) => ({
         id, name: id, nodes: { [node]: { id: node, type, values } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
         boundary: { body: [
-          { kind: 'input', id: value, promoted: true, binds: { kind: 'port', node, port: target } },
+          { kind: 'input', id: value, promoted: true, binds: { kind: 'port', node, port: target },
+            ...(narrowed && node === 'prim' ? { limits: { min: 6, max: 6 } } : {}) },
           ...(exposed ? [{ kind: 'input', id: 'low', promoted: true, binds: { kind: 'port', node, port: node === 'prim' ? 'minimum' : 'low' } }] : []),
           { kind: 'output', id: 'number', binds: { kind: 'port', node, port: output } },
         ] },
@@ -247,7 +251,7 @@ describe('a primitive works out its value widget', () => {
       } } as unknown as WorkflowDocument
       const primitive = documentPrimitiveResolver(doc, resolve)
       const effective = primitive('g0', doc.graphs.g0!.nodes.first!, [])!
-      const expected = { options: { min: exposed ? 3 : 5, max: 7, step: 2 }, default: 6 }
+      const expected = { options: { min: narrowed ? 6 : exposed ? 3 : 5, max: narrowed ? 6 : 7, step: 2 }, default: 6 }
       expect(effective.spec).toMatchObject(expected)
       expect([...effective.derived]).toEqual([])
       const drawn = documentNodeResolver(doc, resolve, primitive)('g0', doc.graphs.g0!.nodes.first!, [])!

@@ -232,9 +232,32 @@ export function documentPrimitiveResolver(doc: WorkflowDocument, base: SchemaRes
         }
       }
     }
+    Object.assign(explicit, explicitPrimitiveLimits(shape, limitValue))
+    let valueNode = node
+    let valueId = shape.value.id as string
+    let min = -Infinity
+    let max = Infinity
+    while (true) {
+      const graphId = subgraphDefIdOf(valueNode.type)
+      const graph = graphId === undefined ? undefined : doc.graphs[graphId]
+      const match = graph?.boundary && matchBoundaryItem(boundaryItems(graph.boundary, 'inputs'), { port: valueId })
+      if (!match?.ok || match.item.binds.kind !== 'port') break
+      const row = scopeRowsOf(resolve(valueNode.type)?.body ?? []).find((row) => row.kind === 'input' && row.id === valueId) as InputSpec | undefined
+      if (match.item.limits?.min !== undefined && typeof row?.widget?.options['min'] === 'number') min = Math.max(min, row.widget.options['min'])
+      if (match.item.limits?.max !== undefined && typeof row?.widget?.options['max'] === 'number') max = Math.min(max, row.widget.options['max'])
+      const inner = graph!.nodes[match.item.binds.node]
+      if (!inner) break
+      valueNode = inner
+      valueId = match.item.binds.port
+    }
+    // Boundary ranges constrain authored limits, but consumer-derived
+    // ranges still give way to the primitive's own explicit settings.
+    for (const limit of ['min', 'max'] as const) {
+      if (explicit[limit] !== undefined) explicit[limit] = Math.min(max, Math.max(min, explicit[limit]))
+    }
     const effective = effectivePrimitiveSpec(node.id, shape,
       [...fed.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, field]) => field),
-      { ...explicit, ...explicitPrimitiveLimits(shape, limitValue) }, explicitPrimitiveDefault(shape, limitValue) ?? explicitDefault)
+      explicit, explicitPrimitiveDefault(shape, limitValue) ?? explicitDefault)
     cache.set(key, effective)
     return effective
   }
