@@ -19,7 +19,7 @@ import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
-import type { ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
+import type { ChoiceSpec, GroupSpec, InputSpec, NodeSchema, NoteSpec, OutputSpec } from '../src/schema/model.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { PRIMITIVE_SCHEMAS, withPrimitives } from './fixtures/primitive-schemas.js'
@@ -493,7 +493,7 @@ const sdOutput = (id: string, type: string): OutputSpec => ({
 const sdSchema = (
   type: string,
   displayName: string,
-  items: readonly (InputSpec | OutputSpec)[],
+  items: readonly (InputSpec | OutputSpec | NoteSpec)[],
   isOutputNode = false,
 ): NodeSchema => ({
   type,
@@ -1351,11 +1351,11 @@ describe('positional widget mapping', () => {
     expect(document!.graphs.g0!.nodes.n1!.values).toEqual({ label: 'kept' })
   })
 
-  it('does not assign a saved resolution multiple to the non-serializing preview', () => {
+  it('does not assign a saved resolution multiple to the display-only Note', () => {
     const schema = sdSchema('ResolutionSelector', 'Resolution Selector', [
       sdInput('aspect_ratio', 'COMBO', 'COMBO'),
       sdInput('megapixels', 'FLOAT', 'FLOAT'),
-      { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
+      { kind: 'note', id: 'preview', text: '1024 x 1024 pixels' },
       { ...sdInput('multiple', 'INT'), widget: { widgetType: 'INT', options: {}, default: 8 } },
     ], true)
     const localResolve = (type: string) => type === schema.type ? schema : undefined
@@ -1371,11 +1371,11 @@ describe('positional widget mapping', () => {
     if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs.multiple).toBe(32)
   })
 
-  it('skips a non-serializing preview in an Autogrow member template', () => {
+  it('skips a display-only Note in an Autogrow member template', () => {
     const schema: NodeSchema = { ...sdSchema('FamilyPreview', 'Family preview', [], true), body: [{
       kind: 'group', id: 'values', keys: { kind: 'named', names: ['a'] }, grows: 'link', minMembers: 1,
       member: [
-        { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
+        { kind: 'note', id: 'preview', text: '1024 x 1024 pixels' },
         { ...sdInput('multiple', 'INT'), widget: { widgetType: 'INT', options: {}, default: 8 } },
       ],
     }] }
@@ -1390,11 +1390,11 @@ describe('positional widget mapping', () => {
   })
 
   it.each([[false, 'fixed'], [true, 'randomize']] as const)(
-    'accepts a legacy boolean controller %s before a non-serializing preview',
+    'accepts a legacy boolean controller %s before a display-only Note',
     (legacy, mode) => {
       const schema = sdSchema('SeedPreview', 'Seed preview', [
         { ...sdInput('seed', 'INT'), widget: { widgetType: 'INT', options: {}, controller: 'after_generate' as const } },
-        { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
+        { kind: 'note', id: 'preview', text: '1024 x 1024 pixels' },
       ])
       const imported = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [42, legacy] })]),
         (type) => type === schema.type ? schema : undefined)
