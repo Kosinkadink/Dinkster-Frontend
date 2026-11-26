@@ -37,6 +37,8 @@ export interface ProductAttention {
 
 export interface ProductMenuItem {
   label: string
+  /** Non-interactive visible content; label still names the item. */
+  labelContent?: JSX.Element
   description?: string
   icon?: LucideIcon
   intent?: ProductRole
@@ -87,7 +89,7 @@ function Menu(props: {
   fill?: 'quiet' | undefined
   align?: 'start' | 'end' | undefined
   busy?: boolean
-  title?: string
+  title?: string | undefined
   attention?: ProductAttention | undefined
   filter?: { label: string; placeholder?: string } | undefined
   onTrigger?: (() => void) | undefined
@@ -133,10 +135,22 @@ function Menu(props: {
   })
   const revealItem = (item: HTMLButtonElement) => {
     const bounds = item.getBoundingClientRect()
-    const top = filterInput?.parentElement?.getBoundingClientRect().bottom ?? menu.getBoundingClientRect().top
-    const bottom = menu.getBoundingClientRect().top + menu.clientHeight
+    const menuTop = menu.getBoundingClientRect().top + menu.clientTop
+    const top = filterInput?.parentElement?.getBoundingClientRect().bottom ?? menuTop
+    const bottom = menuTop + menu.clientHeight
+    // Reveal only inside the menu; scrolling its host would dismiss it.
     if (bounds.top < top) menu.scrollTop += bounds.top - top
     else if (bounds.bottom > bottom) menu.scrollTop += bounds.bottom - bottom
+  }
+  const focusInitialItem = (last: boolean) => {
+    if (props.filter) {
+      filterInput?.focus({ preventScroll: true })
+      return
+    }
+    const items = enabledItems()
+    const item = items[last ? items.length - 1 : 0]
+    if (item) revealItem(item)
+    ;(item ?? menu).focus({ preventScroll: true })
   }
   const show = (last = false) => {
     setQuery('')
@@ -166,8 +180,7 @@ function Menu(props: {
         menu.style.left = `${placement.left}px`
         menu.style.top = `${placement.top}px`
         menu.style.maxHeight = `${placement.maxHeight}px`
-        const items = enabledItems()
-        ;(props.filter ? filterInput : items[last ? items.length - 1 : 0] ?? menu)?.focus({ preventScroll: !!props.filter })
+        focusInitialItem(last)
         return
       }
       // Explicit end alignment and triggers near the window's right edge
@@ -196,8 +209,7 @@ function Menu(props: {
       menu.style.left = `${placement.left}px`
       menu.style.top = `${placement.top}px`
       menu.style.maxHeight = `${placement.maxHeight}px`
-      const items = enabledItems()
-      ;(props.filter ? filterInput : items[last ? items.length - 1 : 0] ?? menu)?.focus({ preventScroll: !!props.filter })
+      focusInitialItem(last)
     })
   }
   // Dismissal listeners exist only while the menu is open, so a page with
@@ -392,7 +404,7 @@ function Menu(props: {
                           const attention = item().attention
                           return attention
                             ? `${item().label}${strings.statusSeparator}${attention.label}`
-                            : item().description ? item().label : undefined
+                            : item().description || item().labelContent !== undefined ? item().label : undefined
                         })()}
                         class="dinkster-menu-item"
                         data-active={props.filter && activeItem()?.id === `${descriptionId}-item` ? '' : undefined}
@@ -414,10 +426,10 @@ function Menu(props: {
                         >
                           <ProductIcon icon={Check} />
                         </Show>
-                        <Show when={item().description} fallback={<span class="dinkster-menu-item-label">{item().label}</span>}>
+                        <Show when={item().description} fallback={<span class="dinkster-menu-item-label" data-custom-label={item().labelContent !== undefined ? '' : undefined}>{item().labelContent ?? item().label}</span>}>
                           {(description) => (
-                            <span class="dinkster-menu-item-copy">
-                              <span class="dinkster-menu-item-label">{item().label}</span>
+                            <span class="dinkster-menu-item-copy" data-custom-label={item().labelContent !== undefined ? '' : undefined}>
+                              <span class="dinkster-menu-item-label" data-custom-label={item().labelContent !== undefined ? '' : undefined}>{item().labelContent ?? item().label}</span>
                               <span id={descriptionId} class="dinkster-menu-item-description">{description()}</span>
                             </span>
                           )}
@@ -472,7 +484,10 @@ function Menu(props: {
 
 export function ProductMenu(props: {
   label: string
+  /** Non-interactive visible content; label and triggerName keep their names. */
+  labelContent?: JSX.Element
   triggerName?: string
+  title?: string
   items: readonly (ProductMenuItem | 'separator')[]
   identity?: MenuIdentity
   icon?: LucideIcon
@@ -496,11 +511,12 @@ export function ProductMenu(props: {
       fill={props.fill}
       align={props.align}
       attention={props.attention}
+      title={props.title}
       filter={props.filter}
     >
       <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
       <Show when={!props.iconOnly}><span class="dinkster-menu-label" data-compact={!!props.icon}>
-        {props.label}
+        {props.labelContent ?? props.label}
       </span></Show>
     </Menu>
   )
