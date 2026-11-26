@@ -1,11 +1,8 @@
-import { For, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
-import { formatWidgetValue, type NodeProgress } from '@dinkster/core'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
+import { formatWidgetValue, typeExprFromTypeId, typeProblemWords, type NodeProgress } from '@dinkster/core'
 import {
   boundarySceneId,
-  defaultTokens,
   nodesInGroup,
-  presentedType,
-  typeIdDisplayLabel,
   type NodeBadge,
   type NodeOutputText,
   type OutputTextMap,
@@ -16,6 +13,7 @@ import {
   type SceneLinkEnd,
   type SceneNode,
 } from '@dinkster/canvas'
+import { useAppMessage } from './locale.js'
 
 export const CANVAS_SEMANTIC_WINDOW_SIZE = 5
 
@@ -35,6 +33,9 @@ export interface CanvasSemanticItem {
   readonly key: string
   readonly category: CanvasSemanticTarget['kind']
   readonly label: string
+  readonly kindLabel: string
+  readonly name: string
+  readonly detail?: string
   readonly target: CanvasSemanticTarget
 }
 
@@ -239,12 +240,18 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       key: `node:${node.id}`,
       category: 'node',
       label: `Node: ${node.layout.title}, ${details.join(', ')}`,
+      kindLabel: 'Node',
+      name: node.layout.title,
+      detail: details.join(', '),
       target: { kind: 'node', id: node.id },
     })
     items.push({
       key: `minimize:${node.id}`,
       category: 'minimize',
       label: `Button: ${node.layout.minimized ? 'Restore' : 'Minimize'} ${node.layout.title}`,
+      kindLabel: 'Button',
+      name: node.layout.minimized ? 'Restore' : 'Minimize',
+      detail: node.layout.title,
       target: { kind: 'minimize', nodeId: node.id },
     })
     if (node.layout.minimized) continue
@@ -253,7 +260,7 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       const count = connections.get(pinConnectionKeyOf(node.id, pin)) ?? 0
       const problem = source.rowProblems[node.id]?.[pin.direction === 'in' ? pin.portId : outputRowKey(pin.portId)]
       const traits = [
-        presentedType(defaultTokens, pin.type).label,
+        typeProblemWords(pin.type, 'name').toLowerCase(),
         ...(pin.matchVariable !== undefined ? [`match ${pin.matchVariable}`] : []),
         ...(pin.inferred === true ? ['inferred'] : []),
         ...(pin.optional === true ? ['optional'] : []),
@@ -265,6 +272,9 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
         key: `port:${node.id}:${pin.direction}:${pin.portId}${pin.widgetTap === true ? ':tap' : ''}`,
         category: 'port',
         label: `${pin.direction === 'in' ? 'Input' : 'Output'}: ${name} of ${node.layout.title}, ${traits.join(', ')}`,
+        kindLabel: pin.direction === 'in' ? 'Input' : 'Output',
+        name,
+        detail: `${node.layout.title}, ${traits.join(', ')}`,
         target: {
           kind: 'port', nodeId: node.id, id: pin.portId, direction: pin.direction,
           ...(pin.widgetTap === true ? { widgetTap: true as const } : {}),
@@ -278,6 +288,9 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
         key: `widget:${node.id}:${row.valueKey}`,
         category: 'widget',
         label: `Row: ${row.name ?? row.label} of ${node.layout.title}, ${widgetValueText(node.node.values[row.valueKey], row.spec)}${connected ? ', connected' : ''}`,
+        kindLabel: 'Row',
+        name: row.name ?? row.label,
+        detail: `${node.layout.title}, ${widgetValueText(node.node.values[row.valueKey], row.spec)}${connected ? ', connected' : ''}`,
         target: { kind: 'widget', nodeId: node.id, valueKey: row.valueKey },
       })
     }
@@ -290,15 +303,22 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       key: `boundary:${boundary.side}`,
       category: 'boundary',
       label: `${boundary.side === 'inputs' ? 'Inputs' : 'Outputs'} boundary, ${portCount} port${portCount === 1 ? '' : 's'}`,
+      kindLabel: 'Boundary',
+      name: boundary.side === 'inputs' ? 'Inputs' : 'Outputs',
+      detail: `${portCount} port${portCount === 1 ? '' : 's'}`,
       target: { kind: 'boundary', id },
     })
     for (const pin of boundary.layout.pins) {
       const name = pinNames.get(pinConnectionKeyOf(id, pin, true)) ?? pin.address.port
       const count = connections.get(pinConnectionKeyOf(id, pin, true)) ?? 0
+      const detail = `${boundary.side} boundary, ${typeProblemWords(pin.type, 'name').toLowerCase()}, ${count === 0 ? 'not connected' : `${count} connection${count === 1 ? '' : 's'}`}`
       items.push({
         key: `boundary-port:${boundary.side}:${pin.portId}`,
         category: 'port',
-        label: `${pin.direction === 'in' ? 'Input' : 'Output'}: ${name} of ${boundary.side} boundary, ${presentedType(defaultTokens, pin.type).label}, ${count === 0 ? 'not connected' : `${count} connection${count === 1 ? '' : 's'}`}`,
+        label: `${pin.direction === 'in' ? 'Input' : 'Output'}: ${name} of ${detail}`,
+        kindLabel: pin.direction === 'in' ? 'Input' : 'Output',
+        name,
+        detail,
         target: { kind: 'port', nodeId: id, id: pin.portId, direction: pin.direction },
       })
     }
@@ -309,6 +329,9 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
         key: `widget:${id}:${row.valueKey}`,
         category: 'widget',
         label: `Row: ${row.name ?? row.label} of Inputs, ${widgetValueText(boundary.fields!.node.values[row.valueKey], row.spec)}${connected ? ', connected' : ''}`,
+        kindLabel: 'Row',
+        name: row.name ?? row.label,
+        detail: `Inputs, ${widgetValueText(boundary.fields!.node.values[row.valueKey], row.spec)}${connected ? ', connected' : ''}`,
         target: { kind: 'widget', nodeId: id, valueKey: row.valueKey },
       })
     }
@@ -321,7 +344,7 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
     const from = endpointName(link.from, 'out', nodes, reroutes, pinNames)
     const to = endpointName(link.to, 'in', nodes, reroutes, pinNames)
     const traits = [
-      ...(link.typeName === undefined ? [] : [typeIdDisplayLabel(link.typeName)]),
+      ...(link.typeName === undefined ? [] : [typeProblemWords(typeExprFromTypeId(link.typeName), 'name').toLowerCase()]),
       ...(link.maybeAbsent === true ? ['may be absent'] : []),
       ...(link.mismatch === true ? ['type mismatch'] : []),
     ]
@@ -329,19 +352,28 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       key: `link:${link.id}`,
       category: 'link',
       label: `Link: ${from} to ${to}${traits.length === 0 ? '' : `, ${traits.join(', ')}`}`,
+      kindLabel: 'Wire',
+      name: `${from} to ${to}`,
+      detail: traits.join(', '),
       target: { kind: 'link', id: link.id },
     })
   }
   for (const reroute of scene.reroutes) items.push({
     key: `reroute:${reroute.id}`,
     category: 'reroute',
-    label: `Reroute: ${reroute.id}${reroute.typeName === undefined ? '' : `, ${typeIdDisplayLabel(reroute.typeName)}`}`,
+    label: `Reroute: ${reroute.id}${reroute.typeName === undefined ? '' : `, ${typeProblemWords(typeExprFromTypeId(reroute.typeName), 'name').toLowerCase()}`}`,
+    kindLabel: 'Reroute',
+    name: reroute.id,
+    ...(reroute.typeName === undefined ? {} : { detail: typeProblemWords(typeExprFromTypeId(reroute.typeName), 'name').toLowerCase() }),
     target: { kind: 'reroute', id: reroute.id },
   })
   for (const stub of scene.netStubs) items.push({
     key: `net:${stub.id}`,
     category: 'net',
-    label: `Named net ${stub.role}: ${stub.name}${stub.typeName === undefined ? '' : `, ${typeIdDisplayLabel(stub.typeName)}`}`,
+    label: `Named net ${stub.role}: ${stub.name}${stub.typeName === undefined ? '' : `, ${typeProblemWords(typeExprFromTypeId(stub.typeName), 'name').toLowerCase()}`}`,
+    kindLabel: 'Named net',
+    name: stub.name,
+    detail: `${stub.role}${stub.typeName === undefined ? '' : `, ${typeProblemWords(typeExprFromTypeId(stub.typeName), 'name').toLowerCase()}`}`,
     target: { kind: 'net', id: stub.id },
   })
   for (const group of scene.groups) {
@@ -350,6 +382,9 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       key: `group:${group.id}`,
       category: 'group',
       label: `Group: ${group.title}, ${count} node${count === 1 ? '' : 's'}`,
+      kindLabel: 'Group',
+      name: group.title,
+      detail: `${count} node${count === 1 ? '' : 's'}`,
       target: { kind: 'group', id: group.id },
     })
   }
@@ -369,9 +404,29 @@ export function CanvasSemanticNavigator(props: {
   readonly onFocusChange: (focused: boolean) => void
   readonly onActiveChange?: (item: CanvasSemanticItem | undefined) => void
 }) {
+  const message = useAppMessage()
+  let panel!: HTMLDivElement
   let listbox!: HTMLDivElement
   const [cursor, setCursor] = createSignal(0)
   const [focused, setFocused] = createSignal(false)
+  createEffect(() => {
+    if (!focused()) return
+    const stage = panel.offsetParent
+    if (!(stage instanceof HTMLElement)) return
+    const bar = stage.querySelector<HTMLElement>('.canvas-corner-bar')
+    const place = (): void => {
+      const bounds = stage.getBoundingClientRect()
+      const gap = Number.parseFloat(getComputedStyle(panel).left) || 0
+      const bottom = bar === null ? gap : bounds.bottom - bar.getBoundingClientRect().top + gap
+      panel.style.bottom = `${bottom}px`
+      panel.style.maxHeight = `${Math.max(0, bounds.height - bottom - gap)}px`
+    }
+    place()
+    const observer = new ResizeObserver(place)
+    observer.observe(stage)
+    if (bar !== null) observer.observe(bar)
+    onCleanup(() => observer.disconnect())
+  })
   onCleanup(() => queueMicrotask(() => {
     props.onFocusChange(false)
     props.onActiveChange?.(undefined)
@@ -454,11 +509,9 @@ export function CanvasSemanticNavigator(props: {
     })
   })
   return (
-    <div class="canvas-semantic-nav">
-      <span id={helpId()} class="canvas-semantic-help">
-        Use arrow keys to browse. Enter selects and centers the item. Escape returns to the canvas.
-      </span>
+    <div ref={panel} class="canvas-semantic-nav">
       <div
+        class="dinkster-list-rows"
         ref={listbox}
         role="listbox"
         aria-label="Canvas scene navigator"
@@ -473,8 +526,10 @@ export function CanvasSemanticNavigator(props: {
       >
         <For each={windowEntries()}>{(entry) => (
           <div
+            class="dinkster-list-row"
             id={optionId(props.owner, entry.item.key)}
             role="option"
+            aria-label={entry.item.label}
             aria-posinset={entry.index + 1}
             aria-setsize={props.items.length}
             aria-selected={selected(entry.item.target)}
@@ -482,10 +537,14 @@ export function CanvasSemanticNavigator(props: {
             data-active={entry.index === cursor() ? 'true' : undefined}
             onClick={() => move(entry.index)}
           >
-            {entry.item.label}
+            <span class="canvas-semantic-name"><span class="canvas-semantic-kind">{entry.item.kindLabel}</span> {entry.item.name}</span>
+            <Show when={entry.item.detail}><span class="dinkster-list-row-detail">{entry.item.detail}</span></Show>
           </div>
         )}</For>
       </div>
+      <span id={helpId()} class="canvas-semantic-help">
+        {message('canvas.navigator.help')}
+      </span>
     </div>
   )
 }
