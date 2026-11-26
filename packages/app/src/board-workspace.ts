@@ -103,14 +103,14 @@ export class BoardWorkspace {
   }
 
   /** Resolve saved bytes on their owning project connection before opening a Board. */
-  async openSaved(recordId: string, baseUrl: string): Promise<BoardEntry> {
+  async openSaved(recordId: string, baseUrl: string, stillWanted: () => boolean = () => true): Promise<BoardEntry> {
     const connection = this.options.mediaConnection(baseUrl)
     if (this.disposed || !connection) throw new Error('This Board\'s backend is unavailable')
     const key = JSON.stringify([baseUrl, recordId])
     const token = {}
     this.opening.set(key, token)
     const epoch = this.epoch
-    const current = () => !this.disposed && this.opening.get(key) === token && this.options.mediaConnection(baseUrl) === connection
+    const current = () => !this.disposed && stillWanted() && this.opening.get(key) === token && this.options.mediaConnection(baseUrl) === connection
     try {
       const record = await connection.getLibraryRecord(recordId, 'local')
       if (!current()) throw new Error('Board backend changed while opening')

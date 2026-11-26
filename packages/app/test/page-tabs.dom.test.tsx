@@ -143,6 +143,61 @@ describe('page tab host', () => {
 })
 
 describe('app page tabs', () => {
+  it('keeps the later Board active when an earlier Library open finishes last', async () => {
+    const app = createWorkflowApp()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    const backend = app.backends.get()[0]!
+    vi.spyOn(backend.connection, 'fetchMountSettings').mockResolvedValue({ mounts: [], mountChangesAllowed: false })
+    const earlier = emptyBoard()
+    const later = emptyBoard()
+    const record = (id: string) => ({
+      id, scope: 'local', name: id, digest: `blake3:${id.repeat(64)}`, mediaType: BOARD_MEDIA_TYPE,
+      labels: ['board'], created: 1, modified: 2, revision: 1,
+    })
+    vi.spyOn(backend.connection, 'listLibrary').mockResolvedValue({ records: [record('a'), record('b')] })
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockImplementation(async (id) => record(id))
+    let release!: (text: string) => void
+    let requested!: () => void
+    const started = new Promise<void>((resolve) => { requested = resolve })
+    const pending = new Promise<string>((resolve) => { release = resolve })
+    vi.spyOn(backend.connection, 'fetchAssetText').mockImplementation(async (digest) => {
+      if (digest !== record('a').digest) return JSON.stringify(later)
+      requested()
+      return pending
+    })
+    const openSaved = app.boards.openSaved.bind(app.boards)
+    let opening!: ReturnType<typeof openSaved>
+    vi.spyOn(app.boards, 'openSaved').mockImplementation((...args) => {
+      const result = openSaved(...args)
+      if (args[0] === 'a') opening = result
+      return result
+    })
+    try {
+      app.settings.set('features.board.enabled', true)
+      dispose = render(() => <App app={app} />, root)
+      setPanelOpen(app.panels, app.dock, 'library', 'left', true)
+      root.querySelector<HTMLButtonElement>('[data-source="boards"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('[data-entry="a"]')).not.toBeNull())
+      root.querySelector<HTMLElement>('[data-entry="a"]')!.click()
+      await started
+      root.querySelector<HTMLElement>('[data-entry="b"]')!.click()
+      await vi.waitFor(() => expect(app.pages.activeId()).toBe(`page:board:${later.lineage}`))
+      setPanelOpen(app.panels, app.dock, 'library', 'left', true)
+      release(JSON.stringify(earlier))
+      await Promise.allSettled([opening])
+      expect(app.pages.activeId()).toBe(`page:board:${later.lineage}`)
+      expect(root.querySelector('[data-testid="library-overlay"]')).not.toBeNull()
+    } finally {
+      dispose()
+      app.dispose()
+      root.remove()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('reopens saved Boards from their Library backend without loading them as workflows', async () => {
     const app = createWorkflowApp()
     const root = document.createElement('div')
