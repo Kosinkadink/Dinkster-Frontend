@@ -1675,8 +1675,9 @@ export function layoutNode(
       const histogram = editor.histogramLine !== undefined &&
         (w.histogram?.connected === true || (options.histogramVisibility?.[w.valueKey] ?? w.spec.options['histogramVisible']) !== false)
         ? w.histogram : undefined
+      const fixedCurve = w.viewId === 'core.curve' && Array.isArray(w.spec.options['interpolations']) && w.spec.options['interpolations'].length === 1
       const controls = editorControlHeights.get(w.valueKey) ??
-        (editor.controlRows + (histogram !== undefined ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
+        (editor.controlRows - (fixedCurve ? 1 : 0) + (histogram !== undefined ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
       const spaceRow: PendingRow = {
         kind: 'editorSpace',
         boxes: cell.boxes,
@@ -1692,7 +1693,7 @@ export function layoutNode(
           ...(pictureHeight !== undefined ? { picture: { top: space.pad, height: pictureHeight } } : {}),
         },
       }
-      if (histogram !== undefined) spaceHistograms.set(spaceRow, { pin: histogram, line: editor.histogramLine! })
+      if (histogram !== undefined) spaceHistograms.set(spaceRow, { pin: histogram, line: editor.histogramLine! - (fixedCurve ? 1 : 0) })
       lines.set(spaceRow, [spaceRow])
       withSpaces.push(spaceRow)
     }

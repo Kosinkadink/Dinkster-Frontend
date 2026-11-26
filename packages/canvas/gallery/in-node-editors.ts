@@ -117,7 +117,7 @@ export const inNodeEditorSchemas: readonly NodeSchema[] = [
     { kind: 'output', id: 'values', type: { kind: 'list', element: concrete('FLOAT') } },
   ]),
   schema('Hook keyframes from curve', [
-    editor('curve', 'CURVE'),
+    editor('curve', 'CURVE', { interpolations: ['step'] }),
     socket('prev_hook_kf', 'HOOK_KEYFRAMES', true),
     output('HOOK_KF', 'HOOK_KEYFRAMES'),
   ]),
@@ -356,7 +356,7 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
     wired: { 'curves.1.histogram': 'HISTOGRAM', 'curves.2.histogram': 'HISTOGRAM' }, view: unfold('curves.1.curve', 'curves.2.curve'),
     width: 324, states: { 'curves.1.curve': { histogram: 'rising' }, 'curves.2.curve': { histogram: 'falling' } } },
   { id: 'sample-curve', card: 40, caption: 'Sample curve: evenly spaced values for the requested count, with no histogram input', type: 'Sample curve',
-    values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.75, value: 0.35 }, { position: 0.9, value: 0.6 }] } },
+    values: { curve: { interpolation: 'step', points: [{ position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.75, value: 0.35 }, { position: 0.9, value: 0.6 }] } },
     view: unfold('curve') },
   { id: 'hook-keyframes-curve', card: 40, caption: 'Hook keyframes from curve: each point sets a strength at its position, holding it until the next point', type: 'Hook keyframes from curve',
     values: { curve: { interpolation: 'step', points: [{ position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.75, value: 0.35 }, { position: 0.9, value: 0.6 }] } },

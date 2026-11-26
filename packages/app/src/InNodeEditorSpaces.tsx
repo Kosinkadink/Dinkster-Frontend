@@ -1,6 +1,6 @@
 import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
 import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
-import { audioRecordKind, curveInterpolator, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
+import { audioRecordKind, curveEditorInterpolations, curveInterpolator, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
   CanvasAnglePicture,
   CanvasCurvePlot,
@@ -655,7 +655,8 @@ export function CurveSpace(props: {
   const [selected, setSelected] = createSignal<number>()
   const [draft, setDraft] = createSignal<CurveValue>()
   const curve = () => draft() ?? props.value
-  const interpolation = () => curve().interpolation ?? 'linear'
+  const kinds = () => curveEditorInterpolations(props.options)
+  const interpolation = () => kinds().length === 1 ? kinds()[0]! : curve().interpolation ?? 'linear'
   const points = () => curve().points
   const point = () => {
     const index = selected()
@@ -699,7 +700,7 @@ export function CurveSpace(props: {
           label={message('inNodeCurve.plot')}
           tooltip={message('inNodeCurve.addPoint')}
           points={points()}
-          sample={curveInterpolator(curve())}
+          sample={curveInterpolator({ ...curve(), interpolation: interpolation() })}
           step={interpolation() === 'step'}
           selected={selected()}
           histogram={bars()}
@@ -723,11 +724,13 @@ export function CurveSpace(props: {
           onDelete={remove}
         />
       </CanvasEditorPicture>
-      <CanvasEditorLine>
-        <CanvasEditorChoice label={message('inNodeCurve.interpolation')} value={interpolation() === 'step' ? step() : interpolation() === 'linear' ? linear() : cubic()}
-          options={[linear(), cubic(), step()]}
-          onChange={(label) => store(points(), label === step() ? 'step' : label === linear() ? 'linear' : 'monotone_cubic')} />
-      </CanvasEditorLine>
+      <Show when={kinds().length > 1}>
+        <CanvasEditorLine>
+          <CanvasEditorChoice label={message('inNodeCurve.interpolation')} value={interpolation() === 'step' ? step() : interpolation() === 'linear' ? linear() : cubic()}
+            options={kinds().map((kind) => kind === 'step' ? step() : kind === 'linear' ? linear() : cubic())}
+            onChange={(label) => store(points(), label === step() ? 'step' : label === linear() ? 'linear' : 'monotone_cubic')} />
+        </CanvasEditorLine>
+      </Show>
       <CanvasEditorLine dimmed={point() === undefined}>
         <CanvasEditorNumber label={message('inNodeCurve.position')} value={point()?.position} min={0} max={1} step={0.01} precision={2}
           onChange={(position) => place({ position })} />

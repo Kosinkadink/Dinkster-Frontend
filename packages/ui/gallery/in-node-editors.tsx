@@ -15,7 +15,7 @@ import {
   type TextMeasurer,
   type WidgetMeasure,
 } from '@dinkster/canvas'
-import { createWidgetRegistry, curveInterpolator, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
+import { createWidgetRegistry, curveEditorInterpolations, curveInterpolator, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import {
   GALLERY_NODE_WIDTH,
   createInNodeEditorScene,
@@ -314,7 +314,8 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
     case 'core.curve': {
       const value = props.example.values?.[props.row.valueKey] as
         { interpolation?: 'linear' | 'monotone_cubic' | 'step'; points?: { position: number; value: number }[] } | undefined
-      const interpolation = value?.interpolation ?? 'monotone_cubic'
+      const kinds = curveEditorInterpolations(props.declared)
+      const interpolation = kinds.length === 1 ? kinds[0]! : value?.interpolation ?? 'monotone_cubic'
       const points = value?.points ?? []
       const selected = num(state(), 'selected')
       const strip = (key: string): CanvasCurveStrip | undefined => {
@@ -335,9 +336,11 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
               histogram={bars()}
               inputStrip={inputStrip} outputStrip={outputStrip} {...(hover ? { hover } : {})} />,
           )}
-          <CanvasEditorLine>
-            <GalleryChoice label="Interpolation" value={interpolation === 'step' ? 'Step' : interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic', 'Step']} />
-          </CanvasEditorLine>
+          <Show when={kinds.length > 1}>
+            <CanvasEditorLine>
+              <GalleryChoice label="Interpolation" value={interpolation === 'step' ? 'Step' : interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={kinds.map((kind) => kind === 'step' ? 'Step' : kind === 'linear' ? 'Linear' : 'Monotone cubic')} />
+            </CanvasEditorLine>
+          </Show>
           <CanvasEditorLine dimmed={selected === undefined}>
             <GalleryNumber label="Position" value={selected === undefined ? undefined : points[selected]!.position} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>

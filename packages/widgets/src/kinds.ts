@@ -339,6 +339,11 @@ export interface CurveValue {
   readonly points: readonly CurvePoint[]
 }
 
+export function curveEditorInterpolations(options: Readonly<Record<string, unknown>>): readonly NonNullable<CurveValue['interpolation']>[] {
+  return options['interpolations'] as readonly NonNullable<CurveValue['interpolation']>[] | undefined
+    ?? ['linear', 'monotone_cubic', 'step']
+}
+
 const hasExactKeys = (value: object, keys: readonly string[]): boolean => {
   const actual = Object.keys(value).sort()
   return actual.length === keys.length && actual.every((key, index) => key === keys[index])
@@ -890,8 +895,10 @@ export const curveView: WidgetView<Json> = {
   drawCompact(ctx, value, spec, state) {
     ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
     // A wire decides a connected curve: what it brought is drawn, and nothing before a run.
-    const curve = isCurveValue(value) ? value
+    const stored = isCurveValue(value) ? value
       : state.connected ? undefined : curveKind.defaultValue(spec) as unknown as CurveValue
+    const kinds = curveEditorInterpolations(spec.options)
+    const curve = stored === undefined ? undefined : kinds.length === 1 ? { ...stored, interpolation: kinds[0]! } : stored
     const points = curve?.points ?? []
     const interpolate = curve === undefined ? undefined : curveInterpolator(curve)
     const samples = interpolate === undefined ? []

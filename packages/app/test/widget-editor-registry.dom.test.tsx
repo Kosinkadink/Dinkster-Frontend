@@ -34,6 +34,33 @@ it('stores Step interpolation without changing points', async () => {
   } finally { dispose() }
 })
 
+it('draws a Step-only curve without a selector or a ramp even for an incoming linear value', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'linear' as const, points: [
+    { position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.9, value: 0.3 },
+  ] }
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn()
+  const dispose = render(() => <CurveSpace value={value} options={{ interpolations: ['step'] }}
+    histogram={undefined} histogramInput="none" commit={commit} />, root)
+  try {
+    expect(root.textContent).not.toContain('Interpolation')
+    expect(root.textContent).not.toContain('Histogram')
+    const vertices = root.querySelector('.dinkster-canvas-curve-line[data-held="false"]')!.getAttribute('points')!
+      .split(' ').map((point) => point.split(',').map(Number))
+    let jumps = 0
+    for (let index = 1; index < vertices.length; index++) {
+      const [x, y] = vertices[index]!
+      const [beforeX, beforeY] = vertices[index - 1]!
+      expect(x === beforeX || y === beforeY).toBe(true)
+      if (y !== beforeY) { expect(x).toBe(beforeX); jumps++ }
+    }
+    expect(jumps).toBe(2)
+    expect(commit).not.toHaveBeenCalled()
+    expect(value.interpolation).toBe('linear')
+  } finally { dispose() }
+})
+
 it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {
   const schema = parseDinksterSchema('SaveTargetFixture', { body: [
     { kind: 'input', id: 'target', type: { kind: 'concrete', types: ['dinkster.save_target'] }, required: !optional, widget: { type: 'SAVE_TARGET', suffix: '.pgm' } },

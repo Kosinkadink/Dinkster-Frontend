@@ -41,7 +41,8 @@ test('Step curves draw exact horizontal holds and vertical jumps without a histo
       `hook-keyframes-curve-${theme}`,
     )
     const stage = canvas.locator('..')
-    await expect(stage).toContainText('Step')
+    await expect(stage).not.toContainText('Interpolation')
+    await expect(page.getByTestId('in-node-editor-sample-curve').locator('..')).toContainText('Step')
     await expect(stage).not.toContainText('Histogram')
     await expect(stage.locator('.dinkster-canvas-curve-point')).toHaveCount(4)
     const points = await stage
