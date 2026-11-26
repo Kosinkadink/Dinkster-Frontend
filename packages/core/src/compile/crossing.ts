@@ -63,6 +63,14 @@ export type BoundaryMatch =
   | { readonly ok: true; readonly item: BoundaryItem }
   | { readonly ok: false; readonly code: 'missing' | 'ambiguous'; readonly message: string }
 
+/** Mixed constructs keep one input entry while exposing output descendants. */
+export function boundaryOutputCandidates(boundary: GraphDef['boundary']): readonly BoundaryItem[] {
+  return [
+    ...boundaryItems(boundary, 'outputs'),
+    ...boundaryItems(boundary, 'inputs').filter((item) => item.binds.kind === 'construct'),
+  ]
+}
+
 /**
  * Select THE boundary item an instance-side address refers to: the address
  * is exactly the item's id (the INSTANCE-side port is a plain static port

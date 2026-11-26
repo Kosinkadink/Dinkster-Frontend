@@ -36,7 +36,7 @@ import { scopeRowsOf, type NodeSchema } from '../schema/model.js'
 import { DEFAULT_ELAB_BUDGET, elaborateInterface, EMPTY_CONNECTIVITY, valueKeyOf } from '../schema/elaborate.js'
 import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
-import { innerConstructAddress, matchBoundaryItem, projectConstructs } from '../compile/crossing.js'
+import { boundaryOutputCandidates, innerConstructAddress, matchBoundaryItem, projectConstructs } from '../compile/crossing.js'
 import { rerouteInputTargets } from '../reroute.js'
 import { boundaryItems } from '../format/document.js'
 
@@ -482,7 +482,7 @@ function planFlattenState(
   const enclosingRewrites: FlattenEnclosingBindingRewrite[] = []
   const enclosingSides = [
     { side: 'input' as const, parentItems: boundaryItems(parent.boundary, 'inputs') ?? [], childItems: boundaryItems(body.boundary, 'inputs') ?? [] },
-    { side: 'output' as const, parentItems: boundaryItems(parent.boundary, 'outputs') ?? [], childItems: boundaryItems(body.boundary, 'outputs') ?? [] },
+    { side: 'output' as const, parentItems: boundaryItems(parent.boundary, 'outputs') ?? [], childItems: boundaryOutputCandidates(body.boundary) },
   ]
   for (const { side, parentItems, childItems } of enclosingSides) {
     for (const [itemIndex, parentItem] of parentItems.entries()) {
@@ -499,8 +499,10 @@ function planFlattenState(
           continue
         }
         const childItem = childMatch.item
-        const route = boundaryPlan.find((entry) => entry.side === side && entry.id === childItem.id)
-        const childBindings = route === undefined ? [] : [childItem.binds, ...(childItem.alsoBinds ?? [])]
+        const authoredSide = boundaryItems(body.boundary, 'inputs').includes(childItem) ? 'input' : 'output'
+        const route = boundaryPlan.find((entry) => entry.side === authoredSide && entry.id === childItem.id)
+        const childBindings = route === undefined ? [] : [childItem.binds,
+          ...(side === 'output' && authoredSide === 'input' ? [] : childItem.alsoBinds ?? [])]
         // Under a construct shown whole, the enclosing row binds the matching inner row.
         const after = childBindings.flatMap((child): BoundaryBinding[] => {
           if (child.kind !== 'construct') return [child]

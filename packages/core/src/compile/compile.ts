@@ -89,7 +89,7 @@ import {
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
 import { constructsOf } from '../schema/body.js'
-import { innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
+import { boundaryOutputCandidates, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
 import { assetTypeId, canonicalTypeIdOf, effectiveAbsentPolicy, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, scopeRowsOf, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue, sentSpecOf, sentWhenUnset } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
@@ -1157,11 +1157,7 @@ function compileImpl(
         return { runtimeId: regionRuntimeId, outputIndex }
       }
       const child = graphOf(childId)
-      // A mixed construct keeps one boundary entry but exposes pins on both sides.
-      const match = matchBoundaryItem([
-        ...boundaryItems(child?.boundary, 'outputs'),
-        ...boundaryItems(child?.boundary, 'inputs').filter((item) => item.binds.kind === 'construct'),
-      ], ref)
+      const match = matchBoundaryItem(boundaryOutputCandidates(child?.boundary), ref)
       if (!child || !match.ok) {
         const ambiguous = child && !match.ok && match.code === 'ambiguous'
         sink.push(diag(

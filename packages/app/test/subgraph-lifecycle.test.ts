@@ -544,32 +544,68 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     }])
     const sink = node('FloatSink', [{ kind: 'input', id: 'in', type: FLOAT, optional: false }])
     const resolve = (type: string) => type === 'Mode' ? described : type === 'FloatSink' ? sink : resolveSchema(type)
-    const doc = fixture()
-    const mutable = doc as any
-    mutable.graphs.detail.boundary.body.push({ kind: 'input', ...construct('description', 'm', 'description') })
-    mutable.graphs.portrait.boundary.body.push({ kind: 'input', ...construct('report', 'd', 'description') })
-    mutable.graphs.root.nodes.first.values.report = JSON.stringify({ entries: [
+    const description = JSON.stringify({ entries: [
       { id: 'amount', label: 'Amount', kind: 'amount' }, { id: 'result', label: 'Result', kind: 'result' },
     ] })
-    mutable.graphs.root.nodes.first.values['report.amount'] = 0.7
-    mutable.graphs.root.nodes.direct = { id: 'direct', type: 'FloatSink', values: {} }
-    mutable.graphs.root.nodes.named = { id: 'named', type: 'FloatSink', values: {} }
-    mutable.graphs.root.links.report = {
-      id: 'report', from: { node: 'first', port: 'report.result' }, to: { node: 'direct', port: 'in' },
-    }
-    mutable.graphs.root.nets = { ...mutable.graphs.root.nets, reportNet: {
-      id: 'reportNet', name: 'Report', source: { node: 'first', port: 'report.result' }, sinks: [{ node: 'named', port: 'in' }],
-    } }
-    const before = runOf(doc, resolve)
-    expect(before.filter((entry) => entry.includes('"class_type":"Mode"'))).toContainEqual(expect.stringContaining('"description.amount":0.7'))
-    for (const [graphId, instancePath, nodeId] of [['root', [], 'first'], ['portrait', ['first'], 'd']] as const) {
-      const { ok, reports, session } = await flatten(doc, graphId, instancePath, nodeId, resolve)
-      expect(ok, JSON.stringify(reports)).toBe(true)
-      expect(runOf(session.doc, resolve)).toEqual(before)
-      expect(session.undo()).toBe(true)
-      expect(runOf(session.doc, resolve)).toEqual(before)
-      expect(session.redo()).toBe(true)
-      expect(runOf(session.doc, resolve)).toEqual(before)
+    for (const route of ['whole', 'leaf', 'fanout', 'leaf-fanout'] as const) {
+      const fanout = route.includes('fanout')
+      const leaf = route.startsWith('leaf')
+      const doc = fixture()
+      const mutable = doc as any
+      mutable.graphs.detail.boundary.body.push({ kind: 'input', ...construct('description', 'm', 'description'),
+        ...(fanout ? { alsoBinds: [{ kind: 'construct', node: 'alias', port: 'description' }] } : {}),
+      })
+      if (fanout) mutable.graphs.detail.nodes.alias = {
+        ...structuredClone(mutable.graphs.detail.nodes.m), id: 'alias',
+        values: { 'mode.words': 'alias only' },
+      }
+      const port = leaf ? 'result' : 'report.result'
+      if (leaf) {
+        mutable.graphs.portrait.nodes.d.values.description = description
+        mutable.graphs.portrait.nodes.d.values['description.amount'] = 0.7
+        mutable.graphs.portrait.boundary.body.push({ kind: 'output', id: 'result', binds: { kind: 'port', node: 'd', port: 'description.result' } })
+      } else {
+        mutable.graphs.portrait.boundary.body.push({ kind: 'input', ...construct('report', 'd', 'description') })
+        mutable.graphs.root.nodes.first.values.report = description
+        mutable.graphs.root.nodes.first.values['report.amount'] = 0.7
+      }
+      mutable.graphs.root.nodes.direct = { id: 'direct', type: 'FloatSink', values: {} }
+      mutable.graphs.root.nodes.named = { id: 'named', type: 'FloatSink', values: {} }
+      mutable.graphs.root.links.report = {
+        id: 'report', from: { node: 'first', port }, to: { node: 'direct', port: 'in' },
+      }
+      mutable.graphs.root.nets = { ...mutable.graphs.root.nets, reportNet: {
+        id: 'reportNet', name: 'Report', source: { node: 'first', port }, sinks: [{ node: 'named', port: 'in' }],
+      } }
+      const before = runOf(doc, resolve)
+      expect(before.filter((entry) => entry.includes('"class_type":"Mode"'))).toContainEqual(expect.stringContaining('"description.amount":0.7'))
+      for (const [graphId, instancePath, nodeId] of [['root', [], 'first'], ['portrait', ['first'], 'd']] as const) {
+        const { ok, reports, session } = await flatten(doc, graphId, instancePath, nodeId, resolve)
+        expect(ok, `${route}: ${JSON.stringify(reports)}`).toBe(true)
+        expect(runOf(session.doc, resolve)).toEqual(before)
+        if (leaf && graphId === 'portrait') {
+          const primary = Object.values(session.doc.graphs.portrait!.nodes).find((candidate) =>
+            candidate.type === 'Mode' && candidate.values['mode.words'] !== 'alias only')!
+          expect(boundaryItems(session.doc.graphs.portrait!.boundary, 'outputs').find((item) => item.id === 'result')!.binds)
+            .toEqual({ kind: 'port', node: primary.id, port: 'description.result' })
+        }
+        expect(session.undo()).toBe(true)
+        expect(runOf(session.doc, resolve)).toEqual(before)
+        expect(session.redo()).toBe(true)
+        expect(runOf(session.doc, resolve)).toEqual(before)
+      }
+      if (fanout) {
+        const outer = await flatten(doc, 'root', [], 'first', resolve)
+        expect(outer.ok, JSON.stringify(outer.reports)).toBe(true)
+        const inner = Object.values(outer.session.doc.graphs.root!.nodes).find((candidate) => candidate.type === '#detail')!
+        const flattened = await flatten(outer.session.doc, 'root', [], inner.id, resolve)
+        expect(flattened.ok, JSON.stringify(flattened.reports)).toBe(true)
+        expect(runOf(flattened.session.doc, resolve)).toEqual(before)
+        const primary = Object.values(flattened.session.doc.graphs.root!.nodes).find((candidate) =>
+          candidate.type === 'Mode' && candidate.values['mode.words'] !== 'alias only')!
+        expect(flattened.session.doc.graphs.root!.links.report!.from).toEqual({ node: primary.id, port: 'description.result' })
+        expect(flattened.session.doc.graphs.root!.nets.reportNet!.source).toEqual({ node: primary.id, port: 'description.result' })
+      }
     }
   })
 
