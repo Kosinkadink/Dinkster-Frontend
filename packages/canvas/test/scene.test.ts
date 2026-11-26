@@ -94,7 +94,7 @@ describe('buildScene', () => {
     expect(scene()).toEqual(folded)
   })
 
-  it('gives folded editors and sections their height back through one-step undo and redo, sized or not', async () => {
+  it('gives folded editors, sections and field lines their height back through one-step undo and redo, sized or not', async () => {
     const base = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
     const editorViews = [
       ['CURVE', 'core.curve', 3], ['WEBCAM', 'core.webcam', 1],
@@ -115,6 +115,8 @@ describe('buildScene', () => {
           }] },
           { kind: 'group', id: 'extras', keys: { kind: 'named', names: ['first', 'second'] }, grows: 'button', minMembers: 0,
             value: { kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } } },
+          { kind: 'row', rows: ['first', 'last'].map((id) => ({ kind: 'input', id, optional: false,
+            type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } })) },
         ] }],
       }
       const graph = base.graphs.g0!
@@ -177,6 +179,8 @@ describe('buildScene', () => {
       checkFold('view.setSectionCollapsed', { sectionId: 'inner', collapsed: startsOpen })
       checkFold('view.setSectionCollapsed', { sectionId: 'group:extras', collapsed: true })
       checkFold('view.setSectionCollapsed', { sectionId: 'group:extras', collapsed: false })
+      checkFold('view.setLineFolded', { lineKey: 'first', folded: false })
+      checkFold('view.setLineFolded', { lineKey: 'first', folded: true })
       checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
       checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: false })
       const openHeight = scene().height
