@@ -1553,7 +1553,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
         }, 0)
       }
       const uses = count(session.doc.root, new Set())
-      if (uses > 1) press.notes.push(`Added to all ${uses} uses of ${session.doc.graphs[press.target.graphId]!.name}. Wired only here.`)
+      if (uses > 1) press.notes.push(`The other ${uses === 2 ? 'use' : `${uses - 1} uses`} of ${session.doc.graphs[press.target.graphId]!.name} also got this node, unwired.`)
     }
     const part = parts[index]!
     const committed = viewOf(session.doc, part, host)

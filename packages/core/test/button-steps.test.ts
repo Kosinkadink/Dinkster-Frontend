@@ -571,13 +571,13 @@ describe('each step', () => {
           { step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} },
           { step: 'addNode', nodeType: 'test.add_processor', to: 'other', values: {} },
         ]) }], host)
-        expect(mixed).toMatchObject({ kind: 'done', message: 'Added to all 2 uses of Shared body. Wired only here.\nSkipped value: it is wired from outside this subgraph.' })
+        expect(mixed).toMatchObject({ kind: 'done', message: 'The other use of Shared body also got this node, unwired.\nSkipped value: it is wired from outside this subgraph.' })
         expect(Object.keys(session.doc.graphs['g1']!.nodes)).toHaveLength(3)
         expect(session.undo()).toBe(true)
         expect(session.canUndo).toBe(false)
         continue
       }
-      expect(outcome.message).toBe('Added to all 2 uses of Shared body. Wired only here.')
+      expect(outcome.message).toBe('The other use of Shared body also got this node, unwired.')
       const fresh = Object.values(session.doc.graphs['g1']!.nodes).find((node) => !Object.hasOwn(body.nodes, node.id))!
       expect(fresh.type).toBe('test.add_processor')
       expect(Object.keys(session.doc.graphs['g1']!.nodes)).toHaveLength(3)
@@ -606,6 +606,14 @@ describe('each step', () => {
           .toMatchObject({ kind: 'failed', message: 'Nothing was changed. The wire was refused.', notes: [] })
         expect(refused.doc).toEqual(doc)
         expect(refused.canUndo).toBe(false)
+        for (const uses of [1, 3]) {
+          const { right, ...single } = doc.graphs['g0']!.nodes
+          const nodes = uses === 1 ? single : { ...doc.graphs['g0']!.nodes, third: { ...right!, id: asNodeId('third') } }
+          const varied = createLocalSession({ ...doc, graphs: { ...doc.graphs, g0: { ...doc.graphs['g0']!, nodes } } }, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+          const result = await runPress(varied, { graphId: 'g1', nodeId: 'inner', instancePath: path('left'), button: 'add' }, host)
+          expect(result.kind).toBe('done')
+          expect(result.notes).toEqual(uses === 1 ? [] : ['The other 2 uses of Shared body also got this node, unwired.'])
+        }
       }
       if (driver === 'reroute') {
         const waiting = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
