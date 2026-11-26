@@ -25,7 +25,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, noteLookupRows } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -4304,15 +4304,15 @@ export class CanvasRenderer {
       ? matchVariableAt(this.overlay.focusedPin)
       : undefined
     if (l.minimized) {
-      const connectedPins = (direction: 'in' | 'out') => l.pins.filter((pin) => {
-        if (pin.direction !== direction) return false
+      const isConnected = (pin: PinLayout): boolean => {
         const key = pin.widgetTap === true ? pin.address.port as string : pin.portId
-        return direction === 'in'
+        return pin.direction === 'in'
           ? this.connectedInputPins.has(`${node.id}\u0000${key}`)
           : this.connectedOutputPins.has(`${node.id}\u0000${key}`)
-      })
+      }
       const paintAggregate = (direction: 'in' | 'out'): void => {
-        const pins = connectedPins(direction)
+        const pins = l.pins.filter((pin) => pin.direction === direction &&
+          (isConnected(pin) || (direction === 'in' && !pin.widgetBacked && !pin.optional)))
         if (pins.length === 0) return
         const first = JSON.stringify(pins[0]!.type)
         const type = pins.every((pin) => JSON.stringify(pin.type) === first)
@@ -4326,7 +4326,7 @@ export class CanvasRenderer {
           point.x,
           point.y,
           this.viewport.scale,
-          false,
+          direction === 'in' && !pins.some(isConnected),
           direction,
           pinRadius,
         )
