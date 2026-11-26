@@ -1,4 +1,4 @@
-import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
+import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, jsonSameValue, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
 import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind, curveInterpolator, isSaveTarget, isProjectDefaultTarget, saveTargetDraft, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
@@ -253,17 +253,17 @@ export function SaveTargetSpace(props: {
     setMount(isSaveTarget(value) ? value.mount : null)
     setPrefix(isSaveTarget(value) || isProjectDefaultTarget(value) ? value.prefix : '')
   }
-  const incoming = createMemo(() => props.value)
+  const incoming = createMemo(() => props.value, undefined, { equals: jsonSameValue })
   const wired = createMemo(() => props.wired)
+  const fetchMounts = createMemo(() => props.fetchMounts)
   createEffect(on([incoming, wired], reset))
-  createEffect(() => {
-    const fetch = props.fetchMounts
+  createEffect(on(fetchMounts, (fetch) => {
     let live = true
     setSettings(undefined)
     setFailed(fetch === undefined)
     void fetch?.().then((value) => { if (live) setSettings(value) }).catch(() => { if (live) setFailed(true) })
     onCleanup(() => { live = false })
-  })
+  }))
   const ready = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready').map((entry) => entry.id) ?? []
   const noDefault = () => settings() !== undefined && settings()!.activeOutputMount === undefined
   const projectMount = () => settings()?.activeOutputMount ?? message(noDefault() ? 'saveTargetWidget.noOutputMount' : 'saveTargetWidget.projectDefault')

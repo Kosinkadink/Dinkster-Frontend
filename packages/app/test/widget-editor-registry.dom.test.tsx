@@ -13,15 +13,21 @@ afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unst
 it('keeps mount recovery and declared-default reset inside the Save target editor without changing a wired target', async () => {
   const root = document.createElement('div'); document.body.append(root)
   const [wired, setWired] = createSolidSignal(false)
+  const [requestState, setRequestState] = createSolidSignal(0)
+  const [value, setValue] = createSolidSignal<Json>({ mount: 'usb1', prefix: 'shots/shot_042' })
   const commit = vi.fn(async () => true)
-  const dispose = render(() => <SaveTargetSpace value={{ mount: 'usb1', prefix: 'shots/shot_042' }} wired={wired()}
+  const dispose = render(() => <SaveTargetSpace value={value()} wired={wired()}
     declared={{ prefix: 'ComfyUI' }} help="Relative name only"
-    fetchMounts={async () => ({ activeOutputMount: 'output', mountChangesAllowed: false,
-      mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }] })}
+    fetchMounts={async () => {
+      requestState()
+      return { activeOutputMount: 'output', mountChangesAllowed: false,
+        mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }] }
+    }}
     commit={commit} queue={() => {}} />, root)
   const button = (label: string) => [...root.querySelectorAll('button')].find((entry) => entry.textContent === label)
   try {
     await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toContain('usb1 is not on this machine. Saving to output.'))
+    setRequestState(1)
     expect(root.querySelector('[role="status"]')?.textContent).toContain('Use project default')
     expect(root.querySelector('.dinkster-canvas-target-name')?.getAttribute('title')).toBe('Relative name only')
     button('Use project default')!.focus()
@@ -30,6 +36,8 @@ it('keeps mount recovery and declared-default reset inside the Save target edito
     expect(recoverKey.defaultPrevented).toBe(false)
     button('Use project default')!.click()
     expect(root.querySelector('[role="status"]')).toBeNull()
+    setValue({ mount: 'usb1', prefix: 'shots/shot_042' })
+    expect(root.querySelector('.dinkster-canvas-target-value-text')?.textContent).toBe('Project default')
     expect(root.querySelector('input')!.value).toBe('shots/shot_042')
     expect(document.activeElement).toBe(root.querySelector('input'))
     expect(commit).not.toHaveBeenCalled()
@@ -73,8 +81,8 @@ it('selects the save name on opening and queues the atomically stored target onl
     await vi.waitFor(() => expect(mount.textContent).toContain('output'))
     mount.focus()
     mount.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    expect(root.querySelector('[role="listbox"]')).not.toBeNull()
-    Array.from(root.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent === 'archive')!.click()
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull()
+    Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent === 'archive')!.click()
     name.focus()
     name.value = 'after'; name.dispatchEvent(new Event('input', { bubbles: true }))
     expect(saved).toEqual({ mount: 'output', prefix: 'before' })
