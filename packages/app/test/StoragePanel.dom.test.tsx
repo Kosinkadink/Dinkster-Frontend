@@ -8,6 +8,49 @@ import { AppState } from '../src/app-state.js'
 const disposers: (() => void)[] = []
 afterEach(() => { for (const dispose of disposers.splice(0)) dispose(); document.body.replaceChildren(); vi.restoreAllMocks() })
 
+it.each([true, false])('adds a model folder with download destination enabled: %s', async (download) => {
+  const existing = { id: 'models', path: '/existing/models', mode: 'readwrite' as const, visibility: 'default-on' as const }
+  let state: ModelSettingsState = {
+    settings: { version: 1, locations: [existing], downloadLocation: 'models' },
+    locations: [{ ...existing, enabled: true, active: true, mounts: [] }], revision: 'before', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+  }
+  let refused = true
+  const connection = {
+    fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: true }),
+    fetchMountLocations: async () => ({ mounts: [] }),
+    fetchModelSettings: async () => state,
+    onMountsChanged: () => () => {},
+    updateModelSettings: async (settings: ModelSettingsState['settings'], revision: string) => {
+      expect(revision).toBe('before')
+      if (refused) throw new Error('Folder is unavailable')
+      state = { ...state, settings, revision: 'after', locations: settings.locations.map((row) => ({ ...row, active: false, enabled: true, mounts: [] })) }
+      return state
+    },
+  } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} focus={{ addModelFolder: true }} />, root))
+  await vi.waitFor(() => expect(root.querySelector('select')).not.toBeNull())
+  const folderLabel = [...root.querySelectorAll('label')].find((label) => label.textContent === 'Folder')!
+  const folder = root.querySelector<HTMLInputElement>(`#${folderLabel.htmlFor}`)!
+  folder.value = '/archive/models'; folder.dispatchEvent(new Event('input', { bubbles: true }))
+  const usedBy = root.querySelector<HTMLSelectElement>('select')!
+  expect(usedBy.value).toBe('always-on')
+  usedBy.value = 'opt-in'; usedBy.dispatchEvent(new Event('change', { bubbles: true }))
+  const toggle = root.querySelector<HTMLButtonElement>('[role="switch"]')!
+  expect(toggle.getAttribute('aria-checked')).toBe('false')
+  if (download) toggle.click()
+  root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('Folder is unavailable'))
+  expect(folder.value).toBe('/archive/models')
+  expect(usedBy.value).toBe('opt-in')
+  expect(toggle.getAttribute('aria-checked')).toBe(String(download))
+  refused = false
+  root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await vi.waitFor(() => expect(root.querySelector('[data-model-location="models-2"]')).not.toBeNull())
+  expect(state.settings.locations).toEqual([existing, { id: 'models-2', path: '/archive/models', mode: download ? 'readwrite' : 'read', visibility: 'opt-in' }])
+  expect(state.settings.downloadLocation).toBe(download ? 'models-2' : 'models')
+})
+
 it.each([true, false])('keeps a refused mount form and adds with saving allowed: %s', async (writable) => {
   const mounts: MountDescriptor[] = []
   let refused = true
@@ -126,12 +169,16 @@ it('groups model grants under one folder and switches project membership without
     },
   } as unknown as DinksterConnection
   const root = document.createElement('div'); document.body.append(root)
-  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
+  const opened: string[] = []
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} focus={{ modelLocationId: 'models' }} onOpenModels={(id) => opened.push(id)} />, root))
   await vi.waitFor(() => expect(root.querySelectorAll('[data-model-location]')).toHaveLength(1))
   expect([...root.querySelectorAll('h3')].map((heading) => heading.textContent)).toEqual(['Model folders', 'Mounts'])
   expect([...root.querySelectorAll('button')].some((button) => button.textContent === 'Default save folder')).toBe(false)
   expect(root.querySelectorAll('[data-mount-id]')).toHaveLength(2)
   const model = root.querySelector('[data-model-location="models"]')!
+  expect(model.querySelector('details')!.open).toBe(true)
+  ;[...model.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Show these models')!.click()
+  expect(opened).toEqual(['models'])
   expect(model.textContent).toContain('Checkpoints3')
   expect(model.textContent).toContain('LoRAs7')
   expect(model.textContent).not.toContain('VAEs0')

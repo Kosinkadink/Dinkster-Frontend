@@ -6,6 +6,7 @@ import { ProductSelect } from './ProductSelect.js'
 import { useAppMessage } from './locale.js'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { ModelProvider, type ModelProviderConnection } from './ModelProvider.js'
+import { ProductButton as SharedButton, ProductErrorBanner, ProductField as SharedField, ProductLoading, ProductSelect as SharedSelect, ProductSwitch, ProductTextButton, ProductTextInput as SharedInput } from '@dinkster/ui'
 
 export function ModelSettings(props: {
   readonly connection: Pick<DinksterConnection, 'fetchModelSettings' | 'updateModelSettings' | 'setModelLocationEnabled' | 'onMountsChanged'>
@@ -16,6 +17,8 @@ export function ModelSettings(props: {
   readonly onChanged?: () => void
   readonly editLocation?: string | undefined
   readonly focusHiddenModels?: boolean
+  readonly variant?: 'storage-add'
+  readonly onCancel?: () => void
 }) {
   const message = useAppMessage()
   const [state, setState] = createSignal<ModelSettingsState>()
@@ -25,11 +28,12 @@ export function ModelSettings(props: {
   const [path, setPath] = createSignal('')
   const [kind, setKind] = createSignal('')
   const [writable, setWritable] = createSignal(false)
+  const [visibility, setVisibility] = createSignal<ModelLocation['visibility']>('always-on')
   const [removing, setRemoving] = createSignal<string>()
   const [editing, setEditing] = createSignal<string>()
   let editRevision = ''
   const [nativeChoice, setNativeChoice] = createSignal(false)
-  const resetForm = () => { setEditing(undefined); setId(''); setPath(''); setKind(''); setWritable(false) }
+  const resetForm = () => { setEditing(undefined); setId(''); setPath(''); setKind(''); setWritable(false); setVisibility('always-on') }
   const startEdit = (location: ModelLocation, revision: string) => {
     setEditing(location.id)
     editRevision = revision
@@ -118,12 +122,12 @@ export function ModelSettings(props: {
     if (!current || !id().trim() || !path().trim()) return
     if (editing() && current.revision !== editRevision) { setError(message('modelSettings.staleEdit')); return }
     const previous = current.settings.locations.find((row) => row.id === editing())
-    const location: ModelLocation = { id: id().trim(), path: path().trim(), mode: writable() ? 'readwrite' : 'read', visibility: previous?.visibility ?? 'default-on',
+    const location: ModelLocation = { id: id().trim(), path: path().trim(), mode: writable() ? 'readwrite' : 'read', visibility: previous?.visibility ?? (props.variant === 'storage-add' ? visibility() : 'default-on'),
       ...(kind().trim() ? { kind: kind().trim() } : {}) }
     const locations = editing() ? current.settings.locations.map((row) => row.id === editing() ? location : row) : [...current.settings.locations, location]
     const download = current.settings.downloadLocation === location.id && !writable()
       ? locations.find((row) => row.mode === 'readwrite')?.id ?? null
-      : current.settings.downloadLocation ?? (writable() ? location.id : null)
+      : props.variant === 'storage-add' && writable() ? location.id : current.settings.downloadLocation ?? (writable() ? location.id : null)
     if (await save(locations, download)) {
       const current = state()!
       const location = current.settings.locations.find((row) => row.id === props.editLocation)
@@ -138,7 +142,7 @@ export function ModelSettings(props: {
     setError('')
     try {
       const selected = await desktopFileBridge()!.chooseDirectory(new URL(props.backendUrl || '/', window.location.href).href)
-      if (owner === generation && selected) setPath(selected)
+      if (owner === generation && selected) enterPath(selected)
     } catch (cause) {
       if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause))
     } finally { if (owner === generation) setBusy(false) }
@@ -164,8 +168,17 @@ export function ModelSettings(props: {
     return previous === undefined || previous.path !== path().trim() || (previous.kind ?? '') !== kind().trim() || (previous.mode === 'readwrite') !== writable()
   }
   const visibilityOptions = () => (['always-on', 'default-on', 'opt-in'] as const).map((value) => ({ id: value, value, label: message(`modelSettings.${value}`) }))
+  const enterPath = (value: string) => {
+    setPath(value)
+    if (props.variant !== 'storage-add') return
+    const stem = (value.split(/[\\/]/).filter(Boolean).at(-1) ?? 'models').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, '') || 'models'
+    const ids = new Set(state()?.settings.locations.map((row) => row.id))
+    let next = stem
+    for (let suffix = 2; ids.has(next); suffix++) next = `${stem}-${suffix}`
+    setId(next)
+  }
 
-  return <section class="runtime-settings project-folder-settings" data-testid="model-settings">
+  return <Show when={props.variant === 'storage-add'} fallback={<section class="runtime-settings project-folder-settings" data-testid="model-settings">
     <div class="runtime-settings-body">
       <div class="runtime-settings-toolbar">
         <div><h3>{message('modelSettings.title')}</h3><p>{message('modelSettings.description', { machine: props.backendLabel })}</p></div>
@@ -239,5 +252,34 @@ export function ModelSettings(props: {
         </form></Show>
       </>}</Show>
     </div>
-  </section>
+  </section>}>
+    <Show when={!state()}>
+      <Show when={error()} fallback={<ProductLoading label={message('projectFolders.loading')} />}>
+        <ProductErrorBanner onDismiss={() => setError('')}>{error()} <ProductTextButton label={message('projectFolders.refresh')} onClick={() => void load()} /></ProductErrorBanner>
+      </Show>
+    </Show>
+    <Show when={state()}>{(current) => <form class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); void add() }}>
+      <SharedField label={message('storagePanel.mountFolder')} description={message('storagePanel.modelFolderHint')} error={error()}>
+        {(attributes) => <div class="dinkster-actions">
+          <SharedInput {...attributes} value={path()} disabled={disabled()} required onInput={(event) => enterPath(event.currentTarget.value)} />
+          <Show when={nativeChoice()}><ProductTextButton label={message('storagePanel.choose')} disabled={disabled()} onClick={() => void choose()} /></Show>
+        </div>}
+      </SharedField>
+      <SharedField label={message('storagePanel.usedBy')}>
+        {(attributes) => <SharedSelect {...attributes} value={visibility()} disabled={disabled()} onChange={(event) => setVisibility(event.currentTarget.value as ModelLocation['visibility'])}>
+          <option value="always-on">{message('storagePanel.everyProject')}</option>
+          <option value="default-on">{message('modelSettings.default-on')}</option>
+          <option value="opt-in">{message('modelSettings.opt-in')}</option>
+        </SharedSelect>}
+      </SharedField>
+      <div class="dinkster-actions"><ProductSwitch checked={writable()} label={message('storagePanel.downloadInto')} disabled={disabled()} onChange={setWritable} /><span>{message('storagePanel.downloadInto')}</span></div>
+      <p class="dinkster-description">{message('storagePanel.downloadHint')}</p>
+      <Show when={!current().changesAllowed}><ProductNotice tone="info">{message('projectFolders.disabled')}</ProductNotice></Show>
+      <div class="dinkster-actions">
+        <SharedButton type="submit" intent="add" fill="solid" pending={busy()} disabled={disabled() || !path().trim()}>{message('storagePanel.addFolder')}</SharedButton>
+        <ProductTextButton label={message('projectFolders.cancel')} disabled={busy()} onClick={() => props.onCancel?.()} />
+      </div>
+      <p class="dinkster-description">{message('storagePanel.restartHint')}</p>
+    </form>}</Show>
+  </Show>
 }

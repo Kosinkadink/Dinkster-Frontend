@@ -3606,7 +3606,10 @@ export class DinksterConnection {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ settings, revision }),
     })
     if (res.status === 409) throw new Error('Model folders changed in another project. Refresh before saving.')
-    if (!res.ok) throw new Error(`PUT model settings failed: ${res.status}`)
+    if (!res.ok) {
+      const body = await res.json().catch(() => undefined) as { error?: unknown } | undefined
+      throw new Error(typeof body?.error === 'string' ? body.error : `PUT model settings failed: ${res.status}`)
+    }
     return decodeModelSettingsState(await res.json())
   }
 

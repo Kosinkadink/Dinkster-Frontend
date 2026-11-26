@@ -602,6 +602,9 @@ describe('shared model management', () => {
     expect(calls.at(-1)).toEqual({ url: '/engine/api/models/locations/studio%20%2F%20second/projects/work%20%2F%20client', body: { enabled: true } })
     status = 409
     await expect(connection.updateModelSettings(state.settings, state.revision)).rejects.toThrow('Refresh before saving')
+    status = 400
+    payload = { error: 'not a directory: /archive/models' }
+    await expect(connection.updateModelSettings(state.settings, state.revision)).rejects.toThrow('not a directory: /archive/models')
     status = 403
     await expect(connection.fetchModelSettings()).rejects.toThrow('403')
   })
