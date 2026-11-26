@@ -1,6 +1,6 @@
 import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
 import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
-import { audioRecordKind, curveInterpolator, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
+import { audioRecordKind, curveInterpolator, isSaveTarget, isProjectDefaultTarget, saveTargetDraft, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
   CanvasAnglePicture,
   CanvasCurvePlot,
@@ -12,11 +12,12 @@ import {
   CanvasEditorPicture,
   CanvasEditorSpace,
   CanvasRecorderStrip,
+  CanvasTargetBox,
   canvasEditorIcons,
   type CanvasCurveStrip,
 } from '@dinkster/ui'
 import { createEffect, createSignal, on, onCleanup, Show, untrack, type JSX } from 'solid-js'
-import type { ExecutionState } from '@dinkster/client'
+import type { ExecutionState, MountSettings } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
 import { frameFromVideo, webcamError, type WebcamDimensions } from './webcam.js'
 import { overlayClipStyle, type EditorWorldRect } from './widget-editor-position.js'
@@ -214,6 +215,98 @@ export function NodeEditorSpaceOverlay(props: {
 
 /** Whether an editor's controls are live at this zoom; below it the canvas draws only its panel. */
 export const editorSpaceInteractive = (scale: number): boolean => scale >= defaultTokens.mediaControlMinScale
+
+/** Save target controls inside the shared fold-out editor space. */
+export function SaveTargetSpace(props: {
+  readonly value: Json | undefined
+  readonly wired: boolean
+  readonly fetchMounts: (() => Promise<MountSettings>) | undefined
+  readonly commit: (value: Json) => void
+}) {
+  const message = useAppMessage()
+  const [settings, setSettings] = createSignal<MountSettings>()
+  const [failed, setFailed] = createSignal(false)
+  const [mount, setMount] = createSignal<string | null>(null)
+  const [prefix, setPrefix] = createSignal('')
+  const [listOpen, setListOpen] = createSignal(false)
+  const [highlight, setHighlight] = createSignal<number>()
+  const reset = () => {
+    const value = props.value
+    setMount(isSaveTarget(value) ? value.mount : null)
+    setPrefix(isSaveTarget(value) || isProjectDefaultTarget(value) ? value.prefix : '')
+  }
+  createEffect(on(() => [props.value, props.wired], reset))
+  createEffect(() => {
+    const fetch = props.fetchMounts
+    let live = true
+    setSettings(undefined)
+    setFailed(fetch === undefined)
+    void fetch?.().then((value) => { if (live) setSettings(value) }).catch(() => { if (live) setFailed(true) })
+    onCleanup(() => { live = false })
+  })
+  const ready = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready').map((entry) => entry.id) ?? []
+  const options = () => [
+    { id: '', label: message('saveTargetWidget.projectDefault') },
+    ...ready().map((id) => ({ id, label: id })),
+    ...(mount() !== null && !ready().includes(mount()!) ? [{ id: mount()!, label: message('saveTargetWidget.notHere', { id: mount()! }), unavailable: true }] : []),
+  ]
+  const draft = () => saveTargetDraft({ stored: props.value ?? null, mount: mount(), prefix: prefix(),
+    ready: settings() === undefined || ready().length === 0 ? undefined : ready(), projectMount: settings()?.activeOutputMount ?? message('saveTargetWidget.projectDefault') })
+  const store = () => {
+    if (props.wired) return
+    const value = draft().store
+    if (value !== undefined) props.commit(value)
+  }
+  const pick = (index: number) => {
+    const entry = options()[index]
+    if (entry === undefined || 'unavailable' in entry || props.wired) return
+    setMount(entry.id || null)
+    setListOpen(false)
+  }
+  const openList = () => {
+    setHighlight(Math.max(0, options().findIndex((entry) => entry.id === (mount() ?? ''))))
+    setListOpen(true)
+  }
+  return <div onFocusOut={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setListOpen(false); store() }
+  }} onKeyDown={(event) => {
+    if (event.isComposing) return
+    if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault(); event.stopPropagation()
+      const mount = event.currentTarget.querySelector<HTMLButtonElement>('button')
+      const name = event.currentTarget.querySelector<HTMLInputElement>('input')
+      ;(document.activeElement === mount ? name : mount)?.focus()
+    } else if (!listOpen() && event.key === 'ArrowDown' && event.target instanceof HTMLButtonElement) {
+      event.preventDefault(); event.stopPropagation(); openList()
+    } else if (event.key === 'Escape') {
+      event.preventDefault(); event.stopPropagation()
+      if (listOpen()) setListOpen(false)
+      else reset()
+    } else if (listOpen() && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault(); event.stopPropagation()
+      const all = options()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      for (let at = (highlight() ?? -1) + step; at >= 0 && at < all.length; at += step) {
+        if (!('unavailable' in all[at]!)) { setHighlight(at); break }
+      }
+    } else if (event.key === 'Enter' && event.target instanceof HTMLButtonElement && !listOpen()) {
+      event.preventDefault(); event.stopPropagation(); openList()
+    } else if (event.key === 'Enter') {
+      event.preventDefault(); event.stopPropagation()
+      if (listOpen()) pick(highlight() ?? 0)
+      else store()
+    }
+  }}>
+    <CanvasTargetBox inNode frozen={props.wired}
+      words={{ mount: message('assets.fact.mount'), prefix: message('assets.fact.name'),
+        loading: message('saveTargetWidget.loading'), none: message('saveTargetWidget.none'), failed: message('saveTargetWidget.couldNotLoad') }}
+      mounts={failed() ? 'failed' : settings() === undefined ? 'loading' : ready().length === 0 ? 'none' : 'ready'}
+      options={options()} mount={mount() ?? ''} prefix={prefix()} listOpen={listOpen()} {...(highlight() === undefined ? {} : { highlight: highlight()! })}
+      onPrefix={setPrefix} onToggleList={() => listOpen() ? setListOpen(false) : openList()} onHighlight={setHighlight}
+      onPick={pick}
+      {...(draft().prefixInvalid ? { prefixProblem: message('saveTargetWidget.invalid') } : {})} />
+  </div>
+}
 
 export type AudioClip = AssetRef & JsonObject
 

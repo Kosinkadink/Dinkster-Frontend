@@ -735,6 +735,7 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   // Interpolation; Position; Value; Delete point; and, for a curve that declares a histogram,
   // the histogram's line after them.
   'core.curve': { picture: 180, controlRows: 4, histogramLine: 4 },
+  'core.saveTarget': { controlRows: 2 },
 }
 
 /** Minimum zoom for text detail and transient media DOM. */

@@ -32,8 +32,8 @@ import {
 } from '../../canvas/gallery/save-target-box.js'
 import {
   CanvasRowField,
+  CanvasEditorSpace,
   CanvasTargetBox,
-  CanvasTargetFoldout,
   CanvasTargetSide,
   ProductSection,
   canvasTargetLayout,
@@ -41,6 +41,7 @@ import {
   type CanvasTargetMounts,
 } from '../src/index.js'
 import { MARGIN, NODE_WIDTH, SIDE_ROOM } from './row-editing.js'
+import { InNodeEditorExampleCard } from './in-node-editors.js'
 
 type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
 
@@ -79,6 +80,7 @@ function SaveTargetExampleCard(props: {
         const tokens: DesignTokens = {
           ...defaultTokens,
           widgetEditing: 'in-row',
+          widgetRowLook: 'raised-editors',
           ...canvasTypePaintForTheme(theme),
           colors: canvasColorsForTheme(theme),
         }
@@ -94,20 +96,20 @@ function SaveTargetExampleCard(props: {
           const view = props.registry
             .viewsFor(spec.widgetType)
             .find((view) => view.id === kind?.defaultView(spec))
-          return view ? { viewId: view.id, rows: view.measure(spec).rows } : undefined
+          return view ? { viewId: view.id, rows: view.measure(spec).rows,
+            ...(current.id === 'foldout-invalid' ? { editorControls: tokens.rowHeight * 4 } : {}) } : undefined
         }
-        const base = createSaveTargetScene(tokens, measure, widgetMeasure, nodeAt, current.stored, {
+        const shown = current.foldout && current.open && !draft().prefixInvalid
+          ? { prefix: current.open.prefix, ...(current.open.mount === null ? {} : { mount: current.open.mount }) }
+          : current.stored
+        const built = createSaveTargetScene(tokens, measure, widgetMeasure, nodeAt, shown, {
           ...(current.optional === true ? { optional: true } : {}),
           ...(current.arriving === undefined ? {} : { wired: true }),
+          ...(current.foldout ? { unfolded: current.open !== undefined } : {}),
+          ...(current.wiredParts === undefined ? {} : { wiredParts: current.wiredParts }),
         })
-        // Only the proposal's gallery node reserves this body space. Product layout is unchanged.
-        const built = current.foldout && current.open ? {
-          ...base,
-          nodes: base.nodes.map((node) => node.id === schema().type
-            ? { ...node, layout: { ...node.layout, height: node.layout.height + 64 } } : node),
-        } : base
         const node = built.nodes.find((item) => item.id === schema().type)!
-        canvas.style.width = `${MARGIN + NODE_WIDTH + SIDE_ROOM}px`
+        canvas.style.width = `${current.foldout ? node.layout.width + MARGIN * 2 : MARGIN + NODE_WIDTH + SIDE_ROOM}px`
         canvas.style.height = `${node.y + node.layout.height + MARGIN}px`
         renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(props.registry))
         renderer.setReducedMotion(true)
@@ -142,7 +144,6 @@ function SaveTargetExampleCard(props: {
   const mounts = (): CanvasTargetMounts => example().mounts ?? 'ready'
   const ready = (): readonly string[] => (mounts() === 'ready' ? galleryMounts : [])
   const open = () => example().open
-  // The project's default output mount, known once the mounts are read.
   // The project's default output mount, known once the mounts are read; a project may have none.
   const noDefault = (): boolean => mounts() === 'ready' && example().noDefault === true
   const projectMount = (): string | undefined => (mounts() === 'ready' && !noDefault() ? galleryMounts[0] : undefined)
@@ -252,6 +253,10 @@ function SaveTargetExampleCard(props: {
       }}
     >
       <CanvasTargetBox
+        inNode={example().foldout === true}
+        frozen={example().arriving !== undefined}
+        mountWired={example().wiredParts?.includes('mount') === true}
+        prefixWired={example().wiredParts?.includes('name') === true}
         words={{
           mount: example().foldout ? 'Mount' : t('saveTargetWidget.mount'),
           prefix: example().foldout ? 'Name' : t('saveTargetWidget.prefix'),
@@ -283,16 +288,15 @@ function SaveTargetExampleCard(props: {
         />
         <Show when={example().foldout && target()}>
           {(found) => {
-            const value = () => (example().arriving ?? example().stored) as { mount?: string; prefix: string }
-            return <CanvasTargetFoldout label={found().row.label} mount={value().mount ?? galleryMounts[0]}
-              name={value().prefix} open={open() !== undefined} wired={example().arriving !== undefined}
-              ref={(element) => {
-                element.style.left = `${found().node.x + found().row.inset}px`
-                element.style.top = `${found().node.y + found().row.y + fieldInsetY()}px`
-                element.style.width = `${found().row.width ?? found().node.layout.width - found().row.inset * 2}px`
-              }}>
-              {box}
-            </CanvasTargetFoldout>
+            const space = () => found().node.layout.rows.find((row): row is Extract<LayoutRow, { kind: 'editorSpace' }> => row.kind === 'editorSpace' && row.valueKey === 'target')
+            return <Show when={space()}>{(row) =>
+              <CanvasEditorSpace {...(example().arriving === undefined ? {} : { state: 'dimmed' })} ref={(element) => {
+                element.style.left = `${found().node.x + row().inset}px`
+                element.style.top = `${found().node.y + row().y}px`
+                element.style.width = `${row().width ?? found().node.layout.width - row().inset * 2}px`
+                element.style.height = `${row().height - fieldInsetY()}px`
+              }}>{box}</CanvasEditorSpace>
+            }</Show>
           }}
         </Show>
         <Show when={!example().foldout && open() !== undefined && placement()}>
@@ -336,7 +340,20 @@ export function SaveTargetBoxGallery(props: { theme: 'dark' | 'light' }) {
         <ProductSection title={group.title}>
           <div class="dinkster-canvas-examples">
             <For each={group.examples}>
-              {(example) => <SaveTargetExampleCard example={example} theme={props.theme} registry={registry} />}
+              {(example) => <>
+                <SaveTargetExampleCard example={example} theme={props.theme} registry={registry} />
+                <Show when={example.foldout}>
+                  <InNodeEditorExampleCard theme={props.theme} registry={registry} example={{
+                    id: `curve-beside-${example.id}`, type: 'Curve editor', card: 34,
+                    caption: 'Curve uses the same frame, header, opener and editor space.',
+                    values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } },
+                    view: { editors: { curve: { unfolded: example.open !== undefined } } },
+                    ...(example.arriving === undefined ? {} : {
+                      wired: { curve: 'CURVE' }, carried: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } },
+                    }),
+                  }} />
+                </Show>
+              </>}
             </For>
           </div>
         </ProductSection>

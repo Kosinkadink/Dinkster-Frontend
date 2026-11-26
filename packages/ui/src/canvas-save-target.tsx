@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createUniqueId, type JSX } from 'solid-js'
-import { Check, ChevronDown, ChevronRight, FolderOutput } from 'lucide-solid'
+import { Check, ChevronDown } from 'lucide-solid'
 import {
   CanvasSideLink,
   CanvasSidePart,
@@ -73,41 +73,16 @@ export interface CanvasTargetWords {
 /** The part of a save target box the keyboard is on. */
 export type CanvasTargetStop = 'mount' | 'prefix'
 
-/** A save target's stationary header and optional in-node editor body. */
-export function CanvasTargetFoldout(props: {
-  label: string
-  mount: string
-  name: string
-  open: boolean
-  wired?: boolean
-  ref?: (element: HTMLDivElement) => void
-  onToggle?: () => void
-  children?: JSX.Element
-}) {
-  return (
-    <div ref={props.ref} class="dinkster-canvas-target-foldout" data-open={props.open} data-wired={props.wired === true}>
-      <button type="button" class="dinkster-canvas-target-header" disabled={props.wired}
-        aria-expanded={props.wired ? undefined : props.open} onClick={() => props.onToggle?.()}>
-        <FolderOutput class="dinkster-canvas-target-glyph" aria-hidden="true" />
-        <span class="dinkster-canvas-target-label">{props.label}</span>
-        <span class="dinkster-canvas-target-summary"><i>{props.mount}/</i>{props.name}</span>
-        <Show when={!props.wired}>
-          <Show when={props.open} fallback={<ChevronRight class="dinkster-canvas-target-glyph" aria-hidden="true" />}>
-            <ChevronDown class="dinkster-canvas-target-glyph" aria-hidden="true" />
-          </Show>
-        </Show>
-      </button>
-      <Show when={props.open && !props.wired}>{props.children}</Show>
-    </div>
-  )
-}
-
 /**
  * The box under an open save target row: the "Writable mount" dropdown,
  * whose list lies over the box, and the relative filename prefix. Nothing
  * here stores; the caller does when the box is left.
  */
 export function CanvasTargetBox(props: {
+  /** Uses the shared editor space's padding and row heights. */
+  inNode?: boolean
+  mountWired?: boolean
+  prefixWired?: boolean
   words: CanvasTargetWords
   mounts: CanvasTargetMounts
   options: readonly CanvasTargetMount[]
@@ -170,8 +145,8 @@ export function CanvasTargetBox(props: {
     }
   }
   return (
-    <div class="dinkster-canvas-target-box" data-frozen={props.frozen === true}>
-      <div class="dinkster-canvas-target-mount">
+    <div class="dinkster-canvas-target-box" data-in-node={props.inNode === true} data-frozen={props.frozen === true}>
+      <div class="dinkster-canvas-target-mount" data-wired={props.mountWired === true} inert={props.mountWired === true}>
         <button
           ref={(element) => {
             mountButton = element
@@ -186,7 +161,7 @@ export function CanvasTargetBox(props: {
           aria-expanded={props.listOpen}
           aria-controls={props.listOpen ? listboxId : undefined}
           aria-disabled={!ready() || props.frozen === true}
-          tabindex="-1"
+          tabindex={props.inNode && !props.frozen ? 0 : -1}
           onFocus={() => props.onFocusStop?.('mount')}
           onClick={() => {
             if (ready() && props.frozen !== true) props.onToggleList?.()
@@ -230,7 +205,7 @@ export function CanvasTargetBox(props: {
           </div>
         </Show>
       </div>
-      <div class="dinkster-canvas-target-name">
+      <div class="dinkster-canvas-target-name" data-wired={props.prefixWired === true} inert={props.prefixWired === true}>
         <label class="dinkster-canvas-target-caption" for={prefixId}>
           {props.words.prefix}
         </label>
@@ -243,10 +218,10 @@ export function CanvasTargetBox(props: {
           data-focused={props.focused === 'prefix'}
           aria-invalid={props.prefixProblem !== undefined}
           aria-errormessage={props.prefixProblem === undefined ? undefined : problemId}
-          readOnly={props.frozen === true}
+          readOnly={props.frozen === true || props.prefixWired === true}
           autocomplete="off"
           spellcheck={false}
-          tabindex="-1"
+          tabindex={props.inNode && !props.frozen ? 0 : -1}
           onFocus={() => props.onFocusStop?.('prefix')}
           onInput={(event) => props.onPrefix?.(event.currentTarget.value)}
         />

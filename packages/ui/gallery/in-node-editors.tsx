@@ -370,7 +370,7 @@ function boxOf(scene: Scene, example: InNodeEditorExample): Pick<SceneNode, 'x' 
   return panel === undefined ? undefined : boundaryFieldNode(panel)
 }
 
-function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
+export function InNodeEditorExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
   let canvas!: HTMLCanvasElement
   const [scene, setScene] = createSignal<Scene>()
   createEffect(() => {
@@ -485,7 +485,7 @@ export function InNodeEditorsGallery(props: { theme: 'dark' | 'light' }) {
         <ProductSection title={title}>
           <div class="dinkster-canvas-examples">
             <For each={inNodeEditorExamples.filter(matches)}>
-              {(example) => <ExampleCard example={example} theme={props.theme} registry={registry} />}
+              {(example) => <InNodeEditorExampleCard example={example} theme={props.theme} registry={registry} />}
             </For>
           </div>
         </ProductSection>

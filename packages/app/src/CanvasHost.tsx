@@ -205,7 +205,7 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
+import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, SaveTargetSpace, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
 import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
 import { imageCompareFrames, IMAGE_COMPARE_SIDES, readImageCompareInput, type ImageCompareSide } from './image-compare-frames.js'
@@ -7256,6 +7256,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId, at.current.row.inputId),
           }
         }
+        const saveTarget = createMemo(() => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.saveTarget') return undefined
+          const backend = props.app.backendForTab(at.tab)
+          return { commit: at.commit, fetchMounts: backend.protocol === 'dinkster' ? () => backend.connection.fetchMountSettings() : undefined }
+        })
         const webcam = () => {
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.webcam') return undefined
@@ -7366,6 +7372,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wired={item()?.wired === true}
                   histogramInput={item()?.row.histogram === undefined ? 'none' : item()!.row.histogram!.connected ? 'wired' : 'unwired'}
                   options={item()?.field.spec.options ?? {}} />}
+              </Show>
+              <Show when={saveTarget()}>
+                {(at) => <SaveTargetSpace value={item()?.value ?? (item()?.wired ? undefined : effectiveWidgetDefault(item()!.field.spec))}
+                  wired={item()?.wired === true} fetchMounts={at().fetchMounts} commit={at().commit} />}
               </Show>
               <Show when={load3d()}>
                 {(at) => <Load3dSpace value={item()?.value} wired={item()?.wired === true}
