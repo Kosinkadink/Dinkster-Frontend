@@ -63,6 +63,22 @@ it('counts only the focused workflow and opens its explanatory panels without to
   status.set('disconnected')
   app.backendsTick.update((value) => value + 1)
   expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain('disconnected')
+  backend.schemaState.set({ status: 'loading' })
+  for (const [state, words, dot] of [
+    ['stopped', 'No engine is running', 'no-engine'],
+    ['starting', 'Dinkster is starting...', 'starting'],
+    ['failed', 'Engine failed', 'failed'],
+  ] as const) {
+    backend.supervisor.set({ protocol: 1, state })
+    expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain(words)
+    expect(root.querySelector('[data-testid="status-connection"]')?.getAttribute('data-state')).toBe(dot)
+    expect(root.querySelector('.status-catalog')).toBeNull()
+  }
+  backend.supervisor.set({ protocol: 1, state: 'ready' })
+  expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain('disconnected')
+  expect(root.querySelector('.status-catalog')).toBeNull()
+  status.set('connected')
+  expect(root.querySelector('.status-catalog')?.textContent).toContain('Loading schemas...')
 })
 
 it('combines connected backend work, opens App log and withdraws stale work on disconnect', async () => {

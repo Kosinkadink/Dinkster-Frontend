@@ -95,6 +95,7 @@ import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 import { ProjectsGallery } from './projects.js'
 import { TemplatesGallery } from './templates.js'
+import { EngineStatesGallery } from './engine-states.js'
 import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
 
@@ -173,7 +174,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#engine-states'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -206,7 +207,7 @@ function Gallery() {
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
             <Match when={route() === '#page-loading'}>
-              <PageLoadingGallery />
+              <PageLoadingGallery activity={activity()} />
             </Match>
             <Match when={route() === '#setup-components'}>
               <Section title="Progress" components="ProductProgress">
@@ -367,6 +368,11 @@ function Gallery() {
             <Match when={route() === '#canvas-chrome'}>
               <Section title="Canvas corner, view bar and Run" components="CanvasCornerControls, CanvasViewControls, WorkflowQueueControl">
                 <CanvasChromeGallery />
+              </Section>
+            </Match>
+            <Match when={route() === '#engine-states'}>
+              <Section title="Engine states" components="EngineRunControl, WorkflowQueueControl">
+                <EngineStatesGallery />
               </Section>
             </Match>
             <Match when={route() === '#search'}>
@@ -1115,7 +1121,7 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <Show when={route() !== '#canvas'}>
+        <Show when={route() !== '#canvas' && route() !== '#page-loading'}>
           <p class="dinkster-metadata" role="status">
             {activity()}
           </p>
@@ -1537,7 +1543,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'

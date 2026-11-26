@@ -146,7 +146,7 @@ import { liveExactnessFor } from './companion-display.js'
 import { drawnAnewInputs, RunStandingMemory, runStandingFor } from './run-problem-standing.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
-import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
+import { assetRowThumbnails, createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
 import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
@@ -4903,7 +4903,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       setEditorSpaces(editorSpaceItems([...renderer.getScene().nodes, ...(panelFace === undefined ? [] : [panelFace])], editorWires))
       setNodeBoxes(renderer.getScene().nodes.map((node) => ({ id: node.id, box: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height } })))
-      renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown')))
+      renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown'),
+        (value, width) => assetRowThumbnails(value, previewLoader, widgetRegistry(), width)))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
         if (node.layout.minimized) return []
         const media = model.previews[node.id]
@@ -5032,9 +5033,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }),
       ]
       const rows: ToolboxRow[] = []
-      if (currentGraphId(tab) === tab.store.doc.root && registry()) {
-        const scopes = props.app.previewSelectionExecutionScopes(tab, sel)
-        rows.push(partialExecutionButtons(scopes === undefined ? {
+      if (currentGraphId(tab) === tab.store.doc.root) {
+        backendsTick()
+        const blockedReason = props.app.engineOffReason(tab, message)
+        const scopes = blockedReason === undefined ? props.app.previewSelectionExecutionScopes(tab, sel) : undefined
+        rows.push(partialExecutionButtons(blockedReason !== undefined ? {
+          upTo: blockedReason,
+          between: blockedReason,
+          fromOnwards: blockedReason,
+        } : scopes === undefined ? {
           upTo: message('execution.scopes.checking'),
           between: message('execution.scopes.checking'),
           fromOnwards: message('execution.scopes.checking'),
