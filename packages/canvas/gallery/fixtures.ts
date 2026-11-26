@@ -92,6 +92,7 @@ export const canvasGalleryPages = [
   ['save-target-box', 'Save target in the row'],
   ['node-look', 'Original and new node look'],
   ['problem-box', 'The node\'s problem box'],
+  ['fixes-notice', 'The notice of automatic fixes'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
   ['row-summaries', 'Closed row summaries'],
