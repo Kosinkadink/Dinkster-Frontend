@@ -185,14 +185,15 @@ test('reviews template models without opening or submitting a workflow and revok
   await expect(banner).toBeVisible()
   await captureProof(page, 'template-canvas-missing-900.png')
   await page.setViewportSize({ width: 1440, height: 900 })
+  const plansBeforeCanvasReview = plans.length
   await banner.getByRole('button', { name: 'Review download', exact: true }).click()
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText('missing.safetensors')
   await expect(dialog.getByRole('button', { name: 'Run once', exact: true })).toHaveCount(0)
+  expect(plans).toHaveLength(plansBeforeCanvasReview)
   expect(starts).toHaveLength(1)
   expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
   await captureProof(page, 'template-canvas-review.png')
-  const plansBeforeCanvasReview = plans.length
   await dialog.getByRole('button', { name: 'Review source', exact: true }).click()
   await expect.poll(() => plans.length).toBe(plansBeforeCanvasReview + 1)
   expect(starts).toHaveLength(1)
