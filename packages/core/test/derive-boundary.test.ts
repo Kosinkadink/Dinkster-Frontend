@@ -1403,6 +1403,90 @@ describe('Boundary sample acceptance compilation', () => {
       expect(reopened.graphs.detail).toEqual(shared)
       expect(reopened.graphs.root!.nodes.first!.values).not.toHaveProperty('image')
       expect(reopened.graphs.root!.nodes.second!.values).not.toHaveProperty('image')
+
+      const detached = storeFor(reopened)
+      edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
+      const copyId = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+      edit(detached, 'node.add', { graphId: copyId, type: 'ImageSource', position: { x: 0, y: 0 } })
+      const inside = Object.values(detached.doc.graphs[copyId]!.nodes).find((node) => node.type === 'ImageSource')!
+      const beforeWire = prompt(detached.doc)
+      edit(detached, 'link.connect', { graphId: copyId, from: { node: inside.id, port: 'image' },
+        to: { node: level === 1 ? 'sample' : 'detail', port: 'image' } })
+      expect(prompt(detached.doc)[path]!.inputs.image).toEqual([`first.${inside.id}`, 0])
+      expect(prompt(detached.doc)[second]!.inputs).not.toHaveProperty('image')
+      expect(detached.doc.graphs.detail).toEqual(shared)
+      if (level === 2) expect(detached.doc.graphs.portrait).toEqual(reopened.graphs.portrait)
+      expect(detached.undo()).toBe(true)
+      expect(prompt(detached.doc)).toEqual(beforeWire)
+      expect(detached.redo()).toBe(true)
+      const rewired = loadDocument(JSON.parse(JSON.stringify(detached.doc))).document!
+      expect(prompt(rewired)[path]!.inputs.image).toEqual([`first.${inside.id}`, 0])
+      expect(prompt(rewired)[second]!.inputs).not.toHaveProperty('image')
+      expect(rewired.graphs.detail).toEqual(shared)
+
+      const fanoutDoc = boundarySample(level)
+      Object.assign(fanoutDoc.graphs.detail!.nodes, { other: { ...structuredClone(fanoutDoc.graphs.detail!.nodes.sample!), id: 'other' } })
+      const fanout = storeFor(fanoutDoc)
+      edit(fanout, 'boundary.addBinding', { graphId: 'detail', itemId: 'image', node: 'other', port: 'image' })
+      const admitted = fanout.doc
+      const refused = fanout.dispatch({ command: 'boundary.addBinding', params: {
+        graphId: 'detail', itemId: 'image', node: 'other', port: 'strength',
+      } })
+      expect(refused.ok).toBe(false)
+      expect(refused.diagnostics.some((entry) => entry.code === 'boundary.fanoutTypeMismatch')).toBe(true)
+      expect(fanout.doc).toBe(admitted)
+      expect(fanout.undo()).toBe(true)
+      expect(fanout.doc.graphs.detail!.boundary).toEqual(fanoutDoc.graphs.detail!.boundary)
+      expect(fanout.redo()).toBe(true)
+      edit(fanout, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'image' } })
+      const otherPath = level === 1 ? 'first.other' : 'first.detail.other'
+      const otherSecond = level === 1 ? 'second.other' : 'second.detail.other'
+      for (const target of [path, otherPath]) expect(prompt(fanout.doc)[target]!.inputs.image).toEqual(['imageA', 0])
+      for (const target of [second, otherSecond]) expect(prompt(fanout.doc)[target]!.inputs).not.toHaveProperty('image')
+      edit(fanout, 'boundary.unbind', { graphId: 'detail', side: 'inputs', itemId: 'image', node: 'sample', port: 'image' })
+      expect(prompt(fanout.doc)[path]!.inputs).not.toHaveProperty('image')
+      expect(prompt(fanout.doc)[otherPath]!.inputs.image).toEqual(['imageA', 0])
+      expect(fanout.undo()).toBe(true)
+      expect(prompt(fanout.doc)[path]!.inputs.image).toEqual(['imageA', 0])
+      expect(fanout.redo()).toBe(true)
+      const fanoutReload = loadDocument(JSON.parse(JSON.stringify(fanout.doc))).document!
+      expect(prompt(fanoutReload)[path]!.inputs).not.toHaveProperty('image')
+      expect(prompt(fanoutReload)[otherPath]!.inputs.image).toEqual(['imageA', 0])
+
+      // A FLOAT pin also accepts a known literal; IMAGE/MASK require runtime data.
+      for (const literal of [true, false]) {
+        const numericDoc = boundarySample(level)
+        Object.assign(numericDoc.graphs.detail!.nodes, { receiver: { id: 'receiver', type: 'NumberSink', values: {} } })
+        Object.assign(numericDoc.graphs.root!.nodes, { numericSource: { id: 'numericSource',
+          type: literal ? 'dinkster.utilities.primitive_float' : 'FloatSource', values: literal ? { value: 0.65 } : {},
+        } })
+        const numeric = storeFor(numericDoc)
+        edit(numeric, 'boundary.addItem', { graphId: 'detail', side: 'inputs', itemId: 'number', node: 'receiver', port: 'number' })
+        if (level === 2) edit(numeric, 'boundary.addItem', {
+          graphId: 'portrait', side: 'inputs', itemId: 'amount', node: 'detail', port: 'number',
+        })
+        const field = level === 1 ? 'number' : 'amount'
+        const receiver = level === 1 ? 'first.receiver' : 'first.detail.receiver'
+        const receiverSecond = level === 1 ? 'second.receiver' : 'second.detail.receiver'
+        expect(prompt(numeric.doc)[receiver]!.inputs).not.toHaveProperty('number')
+        const input = inputsOf(documentResolver(numeric.doc, resolveBoundarySample)(numeric.doc.graphs.root!.nodes.first!.type)!)
+          .find((row) => row.id === field)!
+        expect(input.optional).toBe(true)
+        expect(input.widget).toBeUndefined()
+        edit(numeric, 'link.connect', { graphId: 'root', from: { node: 'numericSource', port: literal ? 'value' : 'number' },
+          to: { node: 'first', port: field } })
+        expect(prompt(numeric.doc)[receiver]!.inputs.number).toEqual(literal ? 0.65 : ['numericSource', 0])
+        expect(prompt(numeric.doc)[receiverSecond]!.inputs).not.toHaveProperty('number')
+        const numericLink = Object.values(numeric.doc.graphs.root!.links)[0]!
+        edit(numeric, 'link.disconnect', { graphId: 'root', linkId: numericLink.id })
+        expect(prompt(numeric.doc)[receiver]!.inputs).not.toHaveProperty('number')
+        expect(numeric.undo()).toBe(true)
+        expect(prompt(numeric.doc)[receiver]!.inputs.number).toEqual(literal ? 0.65 : ['numericSource', 0])
+        expect(numeric.redo()).toBe(true)
+        const numericReload = loadDocument(JSON.parse(JSON.stringify(numeric.doc))).document!
+        expect(prompt(numericReload)[receiver]!.inputs).not.toHaveProperty('number')
+        expect(prompt(numericReload)[receiverSecond]!.inputs).not.toHaveProperty('number')
+      }
     })
 
     it(`boundary/output/${context}`, () => {
