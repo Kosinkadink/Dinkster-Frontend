@@ -3132,7 +3132,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     const lookupNodeKey = (tab: Tab, nodeId: string): string =>
       JSON.stringify([tab.id, currentGraphId(tab), viewInstancePath(tab) ?? [], nodeId])
-    const [sceneVersion, setSceneVersion] = createSolidSignal(0)
     /** The open row's lookup fields, read from the scene as it is rebuilt. */
     const rowLookupsOf = (tab: Tab, nodeId: string, inputId: string): RowLookups | undefined => {
       const itemOf = () => {
