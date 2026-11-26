@@ -367,6 +367,11 @@ it('keeps the chosen installation, starting contents and one project identity ac
   installationsUnavailable = true
   globalThis.dispatchEvent(new Event('focus'))
   await settle()
+  expect(document.querySelector<HTMLSelectElement>('#new-project-runs-on')!.value).toBe(nightly.root)
+  const copyLabel = [...document.querySelectorAll('label')].find((label) => label.htmlFor && label.textContent === 'Copy of a project')!
+  const copy = document.getElementById(copyLabel.htmlFor) as HTMLSelectElement
+  expect(copy.value).toBe('p-film')
+  expect([...copy.options].find((option) => option.value === 'p-film')?.textContent).toBe('Film grain tests')
   name.value = 'My revised film'
   name.dispatchEvent(new Event('input', { bubbles: true }))
   button('Create')!.click()

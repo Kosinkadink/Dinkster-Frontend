@@ -868,8 +868,10 @@ export function ProjectsView(props: {
 
   const [name, setName] = createSignal('')
   const [newInstallation, setNewInstallation] = createSignal<string>()
-  const chosenInstallation = () => installations()?.all.find((row) => row.root === newInstallation())
-    ?? installations()?.open ?? installations()?.all[0]
+  const creationInstallations = createMemo<readonly PageInstallation[]>((previous) => installations()?.all ?? previous, [])
+  const creationProjects = createMemo<readonly LibraryProject[]>((previous) => live() ?? previous, [])
+  const chosenInstallation = () => creationInstallations().find((row) => row.root === newInstallation())
+    ?? installations()?.open ?? creationInstallations()[0]
   const [createError, setCreateError] = createSignal<string>()
   const [creating, setCreating] = createSignal(false)
   const [creationAttempt, setCreationAttempt] = createSignal<{ readonly id: string; readonly creation: ProjectCreation }>()
@@ -936,6 +938,7 @@ export function ProjectsView(props: {
     try {
       const attempt = creationAttempt() ?? { id: `p-${uuidv4()}`, creation: { filesFolder: filesFolder(), startWith } }
       setCreationAttempt(attempt)
+      if (startWith.kind === 'project') setCopySource(startWith.project)
       const registered = await props.source.registerProject(attempt.id, trimmed, attempt.creation)
       const project = registered.name === trimmed ? registered : await props.source.renameProject(registered, trimmed)
       if (installationRoot) writeChoice(pageKey(project.id, 'runsOn'), installationRoot)
@@ -982,10 +985,10 @@ export function ProjectsView(props: {
         </span>
         <label for="new-project-runs-on">{message('projects.facts.runsOn')}</label>
         <ProductSelect id="new-project-runs-on" value={chosenInstallation()?.root ?? ''}
-          disabled={creating() || (installations()?.all.length ?? 0) === 0}
+          disabled={creating() || installations() === null || creationInstallations().length === 0}
           onChange={(event) => setNewInstallation(event.currentTarget.value)}>
-          <Show when={(installations()?.all.length ?? 0) > 0} fallback={<option value="">{message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.facts.noInstallation')}</option>}>
-            <For each={installations()?.all}>{(row) => <option value={row.root}>{row.name} - {message('projects.facts.thisComputer')}</option>}</For>
+          <Show when={creationInstallations().length > 0} fallback={<option value="">{message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.facts.noInstallation')}</option>}>
+            <For each={creationInstallations()}>{(row) => <option value={row.root}>{row.name} - {message('projects.facts.thisComputer')}</option>}</For>
           </Show>
         </ProductSelect>
         <span>{message('projects.new.startWith')}</span>
@@ -1008,8 +1011,8 @@ export function ProjectsView(props: {
             </div>}</ProductField>
           </Show>
           <Show when={startChoice() === 'project'}>
-            <ProductField label={message('projects.new.copyProject')}>{(attributes) => <ProductSelect {...attributes} value={startingProject() ?? ''} disabled={creationLocked() || !live()?.length} onChange={(event) => setCopySource(event.currentTarget.value)}>
-              <For each={live()}>{(row) => <option value={row.id}>{row.name}</option>}</For>
+            <ProductField label={message('projects.new.copyProject')}>{(attributes) => <ProductSelect {...attributes} value={startingProject() ?? ''} disabled={creationLocked() || projects() === null || !creationProjects().length} onChange={(event) => setCopySource(event.currentTarget.value)}>
+              <For each={creationProjects()}>{(row) => <option value={row.id}>{row.name}</option>}</For>
             </ProductSelect>}</ProductField>
           </Show>
         </div>
