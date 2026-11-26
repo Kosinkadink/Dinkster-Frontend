@@ -50,7 +50,7 @@
 }
 
 .sidebar-button:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: -1px;
 }
 
@@ -202,7 +202,7 @@
 .shell-panel-close:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .dock-close:focus-visible,
 .shell-panel-header-action:not(.product-button):focus-visible,
-.shell-panel-close:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
+.shell-panel-close:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: -1px; }
 
 .rail-panel-body { min-height: 0; padding: var(--dinkster-space-12); }
 
@@ -282,7 +282,7 @@
 .learn-back:focus-visible,
 .learn-load-more:focus-visible,
 .dinkster-markdown-template button:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: 1px;
 }
 
@@ -725,8 +725,8 @@ section.editor-group:not(:only-of-type):not([data-focused='true']) .tab.active {
 }
 .editor-split-divider[data-direction='row'] { cursor: col-resize; }
 .editor-split-divider[data-direction='column'] { cursor: row-resize; }
-.editor-split-divider:hover,
-.editor-split-divider:focus-visible { background: var(--dinkster-border-focus); outline: none; }
+.editor-split-divider:hover { background: var(--dinkster-border-focus); }
+.editor-split-divider:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
 
 .editor-split-drop-preview {
   position: absolute;
@@ -760,7 +760,7 @@ section.editor-group:not(:only-of-type):not([data-focused='true']) .tab.active {
 }
 
 .activity-log-list:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: -2px;
 }
 

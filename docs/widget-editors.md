@@ -1041,17 +1041,22 @@ The schema can declare a finite `REPRESENTATIONS` set around one canonical
 widget value/socket. Each alternative has a stable id, display name, and closed
 widget descriptor. The schema's declared default chooses the initial compact
 and expanded presentation. If and only if the schema sets `userSwitchable`,
-the widget row context menu exposes a **Representation** submenu with the
+the widget row context menu exposes a **Display** submenu with the
 current choice checked. For example, CLIP Text Encode defaults to Multiline and
 also offers Single line.
 
 An ordinary STRING without an explicit representation set receives compatible
 Single line and Multiline views automatically. Its `multiline` hint chooses the
-default, not the only available editor. An explicit representation set remains
+default, not the only available editor. A whole number declared with
+`display: color` likewise offers Color, its default, and Number, the ordinary
+number row with steppers. These integer alternatives come from the registered
+`WidgetKind.representations(spec)` hook; FLOAT and STRING retain their automatic
+choices. An explicit representation set remains
 authoritative: omitting an alternative restricts it, and setting
 `userSwitchable` to `false` locks the declared default. Switchable rows expose
-their choices only through the **Representation** submenu in the right-click
-context menu; they do not paint a dedicated switch button.
+their choices through the **Display** control at the end of the open
+row's side part and the **Display** submenu in the right-click context
+menu. Frozen run views do not offer the side-part control.
 
 The `core.text` compact representation has a two-line natural minimum made of
 one 18px floating-label band, two 20px content lines, and 6px top/bottom content
