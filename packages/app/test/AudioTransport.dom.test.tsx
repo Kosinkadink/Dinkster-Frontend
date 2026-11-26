@@ -73,6 +73,24 @@ describe('shared audio transport lifecycle', () => {
     audio.dispatchEvent(new Event('timeupdate'))
     expect(slider.getAttribute('aria-valuenow')).toBe('0.35')
   })
+  it('uses the waveform as the only position control and seeks with pointer and keyboard', async () => {
+    await next()
+    const positions = root.querySelectorAll('[role="slider"][aria-label="Audio position"]')
+    expect(positions).toHaveLength(1)
+    const position = positions[0] as SVGSVGElement
+    expect(position.querySelector('image')?.getAttribute('href')).toBe('blob:window')
+    vi.spyOn(position, 'getBoundingClientRect').mockReturnValue({ left: 50, width: 100 } as DOMRect)
+    position.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: 87, bubbles: true }))
+    await next()
+    expect(position.getAttribute('aria-valuenow')).toBe('3.7')
+    expect(root.textContent).toContain('3.7 / 10.0s')
+    position.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+    await next()
+    expect(position.getAttribute('aria-valuenow')).toBe('3.69')
+    position.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    await next()
+    expect(position.getAttribute('aria-valuenow')).toBe('0')
+  })
   it('keeps a late failed window from replacing a newer successful selection', async () => {
     await next()
     let finish!: (value: Awaited<ReturnType<NonNullable<NodePreview['audio']>['load']>>) => void

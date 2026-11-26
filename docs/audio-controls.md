@@ -19,8 +19,11 @@ disable the corresponding controls and explain why; no full-audio fallback or
 local waveform decode occurs.
 The existing first-batch `wav` rendition is not a bounded `window` fallback.
 
-The position slider uses the effective timeline; playback advances window by
-window. `element` remains nested-list descent only. Batch Previous/Next sends
+The waveform is the position track, shared with Board sound items through
+`ProductAudioWaveform`: click or drag to seek, use arrow/Page keys or Home/End,
+and read the brighter played portion and playhead. It uses the effective
+timeline; playback advances window by window. `element` remains nested-list
+descent only. Batch Previous/Next sends
 the independent `batch` selector only when advertised, starting at the provider's
 declared batch default. A new window cancels the previous request and keeps the
 selected position visible while loading, ignoring the old window's late playback

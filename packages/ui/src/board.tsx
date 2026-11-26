@@ -38,6 +38,7 @@ import {
   ProductTextArea,
   ProductTextInput,
 } from './controls.js'
+import { ProductAudioWaveform } from './audio-waveform.js'
 
 export interface ProductBoardProps {
   readonly store: BoardStore
@@ -109,7 +110,6 @@ function BoardMedia(props: {
   const [waveform, setWaveform] = createSignal('')
   const [waveformFailed, setWaveformFailed] = createSignal(false)
   const [playFailed, setPlayFailed] = createSignal(false)
-  const waveformClip = createUniqueId()
   let media!: HTMLMediaElement
   const fraction = () =>
     duration() ? Math.min(1, elapsed() / duration()!) : 0
@@ -254,39 +254,13 @@ function BoardMedia(props: {
               onEnded={() => setPlaying(false)}
             />
             <Show when={!unreadable()}>
-              <svg
-                class="dinkster-board-waveform"
-                viewBox="0 0 288 72"
-                preserveAspectRatio="none"
-                role="slider"
-                tabindex={0}
-                aria-label={`Waveform of ${props.item.asset.name}`}
-                aria-valuemin={0}
-                aria-valuemax={duration() ?? 0}
-                aria-valuenow={elapsed()}
-                onPointerDown={scrubStart}
-                onPointerMove={scrubMove}
-                onKeyDown={scrubKey}
-              >
-                <defs>
-                  <clipPath id={waveformClip}>
-                    <rect width={fraction() * 288} height={72} />
-                  </clipPath>
-                </defs>
-                <path d={waveform()} />
-                <path
-                  class="dinkster-board-waveform-played"
-                  d={waveform()}
-                  clip-path={`url(#${waveformClip})`}
-                />
-                <line
-                  class="dinkster-board-playhead"
-                  x1={fraction() * 288}
-                  x2={fraction() * 288}
-                  y1={0}
-                  y2={72}
-                />
-              </svg>
+              <ProductAudioWaveform
+                path={waveform()}
+                label={`Waveform of ${props.item.asset.name}`}
+                duration={duration() ?? 0}
+                value={elapsed()}
+                onSeek={seek}
+              />
             </Show>
           </>
         }
