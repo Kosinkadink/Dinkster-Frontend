@@ -561,9 +561,10 @@ function withStoredDefaults<T extends OptionRow>(row: T, prefix: string, node: N
     case 'input': {
       const path = prefix + r.id
       if (!Object.hasOwn(values, path)) return row
+      const { automatic: _automatic, ...fixed } = r
       return (r.widget !== undefined
-        ? { ...r, widget: { ...r.widget, default: values[path] } }
-        : { ...r, ext: { ...r.ext, default: values[path] } }) as unknown as T
+        ? { ...fixed, widget: { ...r.widget, default: values[path] } }
+        : { ...fixed, ext: { ...r.ext, default: values[path] } }) as unknown as T
     }
     case 'use': {
       const path = prefix + r.id
@@ -936,9 +937,12 @@ export function deriveBoundarySchema(
     for (const row of rows) {
       if (row.kept !== undefined || row.ancestry?.some((ancestor) => ancestor.ghost)) continue
       const path = row.spec.id
-      const value = Object.hasOwn(node.values, path) ? node.values[path]
+      const stored = Object.hasOwn(node.values, path)
+      const linked = connectivity.isInputConnected(path)
+      if (!stored && !linked && (row.automatic?.state === 'loading' || row.automatic?.state === 'not-known')) continue
+      const value = stored ? node.values[path]
         : row.derivedValue ?? row.automatic?.value ?? readWhenUnset(row.spec)
-      if (value !== undefined) values.set(path, { value, ...(connectivity.isInputConnected(path) ? { linked: true as const } : {}) })
+      if (value !== undefined || linked) values.set(path, { value, ...(linked ? { linked: true as const } : {}) })
     }
     fixedInputs.set(node, values)
     return values
@@ -954,9 +958,10 @@ export function deriveBoundarySchema(
     const meaningOf = (flat: string, row: () => unknown): OuterName | undefined => {
       const shown = flat === path ? shownAs : exposedPathOf(binds.node, flat)
       if (shown !== undefined) return { row: shown }
-      if (flat.includes('.')) return unexposedInputsOf(node).get(flat)
+      if (flat.includes('.') || rowById(resolveNode(node)!.body, flat)?.kind === 'input') return unexposedInputsOf(node).get(flat)
       const value = Object.hasOwn(node.values, flat) ? node.values[flat] : row()
-      return value === undefined ? undefined : { value, ...(isInternallyConnected(binds, flat) ? { linked: true as const } : {}) }
+      const linked = isInternallyConnected(binds, flat)
+      return value === undefined && !linked ? undefined : { value, ...(linked ? { linked: true as const } : {}) }
     }
     if (carried !== undefined) {
       const schema = resolveNode(node)
