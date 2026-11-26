@@ -49,12 +49,12 @@ test('recent entries, categories, type menus and installation actions stay on th
   // Deliver the outside scroll event before opening a menu that dismisses on scroll.
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
   for (const direction of ['Takes', 'Gives'] as const) {
-    const trigger = typed.getByRole('button', { name: `${direction} type`, exact: true })
-    await expect(trigger).toHaveAttribute('title', `${direction}: Any type`)
-    await expect(trigger).toHaveText('Any type')
+    const trigger = typed.getByRole('button', { name: direction, exact: true })
+    await expect(trigger).toHaveAttribute('title', direction)
+    await expect(trigger).toHaveText(direction)
     await trigger.click()
-    const labels = trigger.locator('.dinkster-search-type-label').or(typed.getByRole('menu').locator('.dinkster-search-type-label'))
-    await expect(labels).toHaveCount(7)
+    const labels = typed.getByRole('menu').locator('.dinkster-search-type-label')
+    await expect(labels).toHaveCount(5)
     const positions = await labels.evaluateAll((elements) => elements.map((element) => {
       const dot = element.querySelector('svg')!.getBoundingClientRect()
       const word = element.querySelector('span')!.getBoundingClientRect()
@@ -70,21 +70,19 @@ test('recent entries, categories, type menus and installation actions stay on th
       expect(position.minimumGap).toBe('8px')
     }
     await expect(typed.getByRole('menuitemcheckbox', { name: `${direction} image`, exact: true }).locator('circle')).toHaveAttribute('fill', '#64B5F6')
-    const anyDot = typed.getByRole('menuitemcheckbox', { name: `${direction} Any type`, exact: true }).locator('svg.dinkster-search-chip-dot')
-    await expect(anyDot).toHaveCSS('color', 'rgb(116, 136, 139)')
+    await expect(typed.getByRole('menuitemcheckbox', { name: `${direction} Any type`, exact: true })).toHaveCount(0)
     await page.keyboard.press('Escape')
   }
-  await typed.getByRole('button', { name: 'Gives type', exact: true }).click()
-  await expect(typed.getByRole('menuitemcheckbox', { name: 'Gives Any type', exact: true })).toBeChecked()
+  await typed.getByRole('button', { name: 'Gives', exact: true }).click()
   await typed.getByRole('menuitemcheckbox', { name: 'Gives string', exact: true }).click()
   await expect(typed.getByRole('listbox').getByRole('option')).toHaveText(['Image Statsdev / image'])
-  await typed.getByRole('button', { name: 'Gives type', exact: true }).click()
+  await typed.getByRole('button', { name: 'Gives', exact: true }).click()
   await expect(typed.getByRole('menuitemcheckbox', { name: 'Gives string', exact: true })).toBeChecked()
-  await typed.getByRole('menuitemcheckbox', { name: 'Gives Any type', exact: true }).click()
+  await typed.getByRole('menuitemcheckbox', { name: 'Gives string', exact: true }).click()
   await typed.getByRole('option', { name: /Upscale Image with Model.*Not installed/ }).click()
   await expect(page.getByTestId('node-search-typed-chosen')).toHaveText('Install Upscale Image with Model')
 
-  const takes = typed.getByRole('button', { name: 'Takes type', exact: true })
+  const takes = typed.getByRole('button', { name: 'Takes', exact: true })
   await takes.click()
   await typed.getByRole('menuitemcheckbox', { name: 'Takes image', exact: true }).click()
   await expect(typed.getByRole('option', { name: /Gradient Image/ })).toHaveCount(0)
@@ -104,7 +102,7 @@ test('type menus retain start alignment and keep end-aligned output dots inside 
     await search.scrollIntoViewIfNeeded()
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
     for (const direction of ['Takes', 'Gives']) {
-      const trigger = search.getByRole('button', { name: `${direction} type`, exact: true })
+      const trigger = search.getByRole('button', { name: direction, exact: true })
       await trigger.scrollIntoViewIfNeeded()
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
       await trigger.click()
@@ -119,7 +117,7 @@ test('type menus retain start alignment and keep end-aligned output dots inside 
         const searchBounds = (await search.boundingBox())!
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(searchBounds.x + searchBounds.width)
         const dots = await menu.locator('.dinkster-search-chip-dot').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().right))
-        expect(dots).toHaveLength(6)
+        expect(dots).toHaveLength(5)
         expect(Math.max(...dots) - Math.min(...dots)).toBeLessThan(0.5)
       }
       await page.keyboard.press('Escape')
@@ -134,17 +132,16 @@ test('list filters keep plain names, directional pin shapes and whole-list input
   for (const direction of ['Takes', 'Gives']) {
     await search.scrollIntoViewIfNeeded()
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
-    await search.getByRole('button', { name: `${direction} type`, exact: true }).click()
+    await search.getByRole('button', { name: direction, exact: true }).click()
     const menu = search.getByRole('menu')
-    await expect(menu.getByRole('menuitemcheckbox')).toHaveText(['Any type', 'image', 'image list', 'image file', 'int', 'string'])
+    await expect(menu.getByRole('menuitemcheckbox')).toHaveText(['image', 'image list', 'image file', 'int', 'string'])
     await expect(menu.getByRole('menuitemcheckbox', { name: `${direction} image list`, exact: true }).locator('.dinkster-search-chip-dot')).toHaveAttribute('data-shape', 'diamond')
     await expect(menu.getByRole('menuitemcheckbox', { name: `${direction} image`, exact: true }).locator('.dinkster-search-chip-dot')).toHaveAttribute('data-shape', 'circle')
     await menu.getByRole('menuitemcheckbox', { name: `${direction} image list`, exact: true }).click()
     await expect(search.getByRole('listbox').getByRole('option')).toHaveText(direction === 'Takes'
       ? ['Image List to Batchdev / image', 'Image Statsdev / image']
       : ['Image Batch to Listdev / image'])
-    await search.getByRole('button', { name: `${direction} type`, exact: true }).click()
-    await search.getByRole('menuitemcheckbox', { name: `${direction} Any type`, exact: true }).click()
+    await search.getByRole('button', { name: `Remove ${direction} image list`, exact: true }).click()
   }
   const wire = page.getByTestId('node-search-list-wire')
   await expect(wire.getByRole('group', { name: 'Takes image list', exact: true })).toHaveText('image list')
@@ -152,27 +149,69 @@ test('list filters keep plain names, directional pin shapes and whole-list input
   await expect(wire.getByRole('option')).toHaveText(['Image List to Batchinto images', 'Image Statsinto image'])
 })
 
-test('several checked types require all of them and can be individually cleared', async ({ page }) => {
+test('picked requirements keep order, require all types and support individual or empty-query Backspace removal', async ({ page }, testInfo) => {
   await page.goto('/#node-search')
   const search = page.getByTestId('node-search-typed')
   await search.scrollIntoViewIfNeeded()
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   const choose = async (direction: string, type: string) => {
-    await search.getByRole('button', { name: `${direction} type`, exact: true }).click()
+    await search.getByRole('button', { name: direction, exact: true }).click()
     await search.getByRole('menuitemcheckbox', { name: `${direction} ${type}`, exact: true }).click()
   }
-  await choose('Takes', 'image')
+  await choose('Gives', 'string')
   await choose('Takes', 'image list')
-  await expect(search.getByRole('option')).toHaveText(['Image List to Batchdev / image', 'Image Statsdev / image'])
-  await search.getByRole('button', { name: 'Takes type', exact: true }).click()
-  await expect(search.getByRole('menuitemcheckbox', { name: 'Takes image', exact: true })).toBeChecked()
+  const chips = search.locator('.dinkster-search-field > [role="group"]')
+  await expect(chips).toHaveText(['string', 'image list'])
+  await expect(chips.nth(0)).toHaveAccessibleName('Gives string')
+  await expect(chips.nth(1)).toHaveAccessibleName('Takes image list')
+  await expect(search.getByRole('option')).toHaveText(['Image Statsdev / image'])
+  const field = search.getByRole('combobox')
+  await field.focus()
+  await field.press('Home')
+  await field.press('Backspace')
+  await expect(chips).toHaveCount(2)
+  await search.screenshot({ path: testInfo.outputPath('requirements-two-chips-dark.png') })
+  await search.getByRole('button', { name: 'Takes', exact: true }).click()
   await expect(search.getByRole('menuitemcheckbox', { name: 'Takes image list', exact: true })).toBeChecked()
-  await search.getByRole('menuitemcheckbox', { name: 'Takes Any type', exact: true }).click()
+  await expect(search.getByRole('menuitemcheckbox', { name: 'Takes int', exact: true })).toBeVisible()
+  const diamond = search.getByRole('menuitemcheckbox', { name: 'Takes image list', exact: true }).locator('.dinkster-search-chip-dot')
+  await expect(diamond).toHaveCSS('width', '13.75px')
+  await expect(chips.nth(1).locator('.dinkster-search-chip-dot')).toHaveCSS('width', '13.75px')
+  await search.screenshot({ path: testInfo.outputPath('requirements-list-menu-dark.png') })
+  await page.keyboard.press('Escape')
+  await field.fill('')
+  await field.press('Backspace')
+  await expect(chips).toHaveCount(1)
+  await expect(chips).toHaveAccessibleName('Gives string')
+  await expect(field).toBeFocused()
+  await choose('Takes', 'image')
+  await search.getByRole('button', { name: 'Remove Gives string', exact: true }).click()
+  await expect(chips).toHaveAccessibleName('Takes image')
+  await expect(field).toBeFocused()
+  await choose('Takes', 'image')
+  await expect(chips).toHaveCount(0)
   await choose('Gives', 'image')
   await choose('Gives', 'string')
   await expect(search.getByRole('option')).toHaveCount(0)
   await choose('Gives', 'image')
-  await expect(search.getByRole('option')).toHaveText(['Image Statsdev / image'])
+  await expect(search.getByRole('option')).toHaveText(['Image Statsdev / image', 'Number to Textdev / image'])
+  await choose('Gives', 'string')
+  await choose('Takes', 'image file')
+  await expect(search.getByRole('option', { name: /Blend Images/ })).toBeVisible()
+  await choose('Gives', 'image list')
+  await choose('Takes', 'int')
+  await expect(chips).toHaveText(['image file', 'image list', 'int'])
+  await expect(search.getByRole('option')).toHaveCount(0)
+  for (const width of [600, 360, 240]) {
+    await page.setViewportSize({ width, height: 900 })
+    const panel = (await search.locator('.dinkster-search-panel').boundingBox())!
+    for (const control of [field, chips.nth(0), chips.nth(1), chips.nth(2)]) {
+      const bounds = (await control.boundingBox())!
+      expect(bounds.x).toBeGreaterThanOrEqual(panel.x)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(panel.x + panel.width)
+    }
+    await search.screenshot({ path: testInfo.outputPath(`requirements-chips-${width}-dark.png`) })
+  }
 })
 
 test('custom menu content keeps string names, separate descriptions and selection behavior', async ({ page }) => {

@@ -63,7 +63,7 @@ export interface ProductSearchHint {
   readonly label: string
 }
 
-/** The chip at the start of the field, such as the type a dropped wire carries. */
+/** A requirement before the query, such as the type a dropped wire carries. */
 export interface ProductSearchChip {
   readonly label: string
   readonly name: string
@@ -229,7 +229,7 @@ export function ProductSearch(props: {
   query: string
   onQuery: (text: string) => void
   placeholder?: string
-  chip?: ProductSearchChip
+  chips?: readonly ProductSearchChip[]
   kinds?: readonly ProductSearchKind[]
   kind?: string
   onKind?: (id: string) => void
@@ -310,12 +310,11 @@ export function ProductSearch(props: {
       props.onClose()
     } else if (
       event.key === 'Backspace' &&
-      props.chip !== undefined &&
-      input.selectionStart === 0 &&
-      input.selectionEnd === 0
+      props.query === '' &&
+      (props.chips?.length ?? 0) > 0
     ) {
       event.preventDefault()
-      props.chip.onRemove()
+      props.chips!.at(-1)!.onRemove()
     }
   }
   createEffect(() => {
@@ -437,17 +436,17 @@ export function ProductSearch(props: {
       <div class="dinkster-search-panel">
         <div class="dinkster-search-field">
           <ProductIcon icon={Search} />
-          <Show when={props.chip}>
+          <For each={props.chips}>
             {(chip) => (
-              <span class="dinkster-search-chip" role="group" aria-label={chip().name} title={chip().name}>
-                <ProductSearchTypeLabel label={chip().label} direction={chip().direction} color={chip().color} shape={chip().shape} />
+              <span class="dinkster-search-chip" role="group" aria-label={chip.name} title={chip.name}>
+                <ProductSearchTypeLabel label={chip.label} direction={chip.direction} color={chip.color} shape={chip.shape} />
                 <button
                   type="button"
                   class="dinkster-search-chip-remove"
-                  aria-label={chip().removeLabel}
+                  aria-label={chip.removeLabel}
                   onPointerDown={(event) => event.preventDefault()}
                   onClick={() => {
-                    chip().onRemove()
+                    chip.onRemove()
                     input.focus()
                   }}
                 >
@@ -455,7 +454,7 @@ export function ProductSearch(props: {
                 </button>
               </span>
             )}
-          </Show>
+          </For>
           <input
             ref={(element) => {
               input = element

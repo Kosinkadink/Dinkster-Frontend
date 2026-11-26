@@ -1356,8 +1356,8 @@
 /* The one search surface: Ctrl+K search, node search and the Settings page share it. */
 .dinkster-search { position: relative; display: flex; min-width: 0; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
 .dinkster-search-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; max-height: inherit; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }
-.dinkster-search-field { display: flex; align-items: center; gap: var(--dinkster-space-8); min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-8) var(--dinkster-space-16); color: var(--dinkster-text-secondary); }
-.dinkster-search-input { flex: 1 1 auto; min-width: 0; padding: 0; border: 0; outline: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); caret-color: var(--dinkster-accent-foreground); }
+.dinkster-search-field { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-8); min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-8) var(--dinkster-space-16); color: var(--dinkster-text-secondary); }
+.dinkster-search-input { flex: 1 1 calc(var(--dinkster-space-32) * 3); min-width: min(100%, calc(var(--dinkster-space-32) * 3)); padding: 0; border: 0; outline: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); caret-color: var(--dinkster-accent-foreground); }
 /* The caret is the field's focus mark; the global control ring would box the field inside its own panel. */
 .dinkster-search-field .dinkster-search-input:focus-visible { outline: 0; }
 .dinkster-search-input::placeholder { color: var(--dinkster-text-muted); }
@@ -1365,7 +1365,8 @@
 .dinkster-search-chip { display: inline-flex; flex: none; align-items: center; gap: var(--dinkster-space-4); padding: 0 var(--dinkster-space-4) 0 var(--dinkster-space-8); border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); white-space: nowrap; }
 .dinkster-search-type-label { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); white-space: nowrap; }
 .dinkster-search-type-label[data-direction='gives'] { width: 100%; justify-content: space-between; }
-.dinkster-search-chip-dot { flex: none; width: var(--dinkster-space-8); height: var(--dinkster-space-8); color: var(--dinkster-text-muted); }
+.dinkster-search-chip-dot { flex: none; width: var(--dinkster-search-pin-size); height: var(--dinkster-search-pin-size); color: var(--dinkster-text-muted); }
+.dinkster-search-chip-dot[data-shape='diamond'] { width: var(--dinkster-search-list-pin-size); height: var(--dinkster-search-list-pin-size); }
 .dinkster-search-chip-remove { display: inline-flex; padding: 2px; border: 0; border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-secondary); background: transparent; cursor: pointer; }
 .dinkster-search-chip-remove:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .dinkster-search-kinds { display: flex; align-items: end; justify-content: space-between; gap: var(--dinkster-space-16); padding: 0 var(--dinkster-space-16); }

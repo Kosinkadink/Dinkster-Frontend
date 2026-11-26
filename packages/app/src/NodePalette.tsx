@@ -304,14 +304,14 @@ export function NodePalette(props: {
       <ProductSearch label={message('palette.action.addNode')} placeholder={message('palette.search.addNodePlaceholder')}
         query={query()} onQuery={(value) => { setQuery(value); setCurrent(undefined) }}
         kinds={kinds()} kind={kind()} onKind={(value) => { setKind(value); setCurrent(undefined) }}
-        {...(props.anchor.linkDrop === undefined ? {} : { chip: {
+        {...(props.anchor.linkDrop === undefined ? {} : { chips: [{
           label: typeLabelOf(props.anchor.linkDrop.anchorType),
           name: `${message(props.anchor.linkDrop.seeking === 'in' ? 'palette.filter.takes' : 'palette.filter.gives')} ${typeLabelOf(props.anchor.linkDrop.anchorType)}`,
           direction: props.anchor.linkDrop.seeking === 'in' ? 'takes' as const : 'gives' as const,
           color: presentedType(defaultTokens, props.anchor.linkDrop.anchorType).color,
           shape: cardinalityOf(props.anchor.linkDrop.anchorType) === 'list' ? 'diamond' as const : 'circle' as const,
           removeLabel: message('palette.filter.removeConnection'), onRemove: props.onRemoveLinkDrop,
-        } })}
+        }] })}
         filters={filters}
         groups={groups()} {...(selectedKey() === undefined ? {} : { current: selectedKey()! })}
         onCurrent={setCurrent} onActivate={activate} onClose={props.onClose}

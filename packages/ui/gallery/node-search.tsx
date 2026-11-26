@@ -40,20 +40,20 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
   const [query, setQuery] = createSignal(props.query ?? '')
   const [kind, setKind] = createSignal('all')
   const [wire, setWire] = createSignal(props.wire ?? false)
-  const [takes, setTakes] = createSignal<ReadonlySet<string>>(new Set())
-  const [gives, setGives] = createSignal<ReadonlySet<string>>(new Set())
+  const [requirements, setRequirements] = createSignal<readonly { direction: 'takes' | 'gives'; type: string }[]>([])
   const [category, setCategory] = createSignal<string>()
   const [current, setCurrent] = createSignal<string>()
   const [chosen, setChosen] = createSignal('Nothing chosen yet')
   const anchor = () => props.list ? { kind: 'list' as const, element: image } : image
+  const wireType = () => props.list ? 'list<IMAGE>' : 'IMAGE'
   const wireName = () => props.list ? 'image list' : 'image'
   const target = (item: Entry) => autoConnectTarget(item.schema, anchor(), 'in')
   const corpus = () => ENTRIES.filter((item) =>
     (!wire() || (!item.notInstalled && target(item) !== undefined)) &&
     (kind() === 'all' || item.kind === kind()) &&
     schemaMatchesPortFilters(item.schema, {
-      inputs: [...takes()],
-      outputs: [...gives()],
+      inputs: requirements().filter((item) => item.direction === 'takes').map((item) => item.type),
+      outputs: requirements().filter((item) => item.direction === 'gives').map((item) => item.type),
     }),
   )
   const found = () => corpus().filter((item) =>
@@ -67,7 +67,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
     detail: item.notInstalled ? 'Not installed' : wire() ? `into ${target(item)!.port}` : 'dev / image',
     ...(item.notInstalled ? { detailIcon: Download } : {}),
   })
-  const browsing = () => query().trim() === '' && !wire() && category() === undefined && takes().size === 0 && gives().size === 0
+  const browsing = () => query().trim() === '' && !wire() && category() === undefined && requirements().length === 0
   const groups = (): readonly ProductSearchGroup[] => {
     if (browsing()) {
       const recent = RECENT.flatMap((id) => corpus().filter((item) => item.schema.type === id))
@@ -97,28 +97,24 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
     setChosen(item.notInstalled ? `Install ${item.schema.displayName}` : `Place ${item.schema.displayName}${wire() ? ` connected into ${target(item)!.port}` : ''}`)
   }
   const typeMenu = (direction: 'Takes' | 'Gives') => {
-    const selectedTypes = () => direction === 'Takes' ? takes() : gives()
+    const side = direction === 'Takes' ? 'takes' : 'gives'
+    const selected = (type: string) => requirements().some((item) => item.direction === side && item.type === type) || (wire() && side === 'takes' && type === wireType())
     const change = (type: string) => {
-      const next = new Set(selectedTypes())
-      if (type === '') next.clear()
-      else if (next.has(type)) next.delete(type)
-      else next.add(type)
-      ;(direction === 'Takes' ? setTakes : setGives)(next)
+      if (wire() && side === 'takes' && type === wireType()) setWire(false)
+      else setRequirements((items) => selected(type)
+        ? items.filter((item) => item.direction !== side || item.type !== type)
+        : [...items, { direction: side, type }])
       setCurrent(undefined)
     }
-    const valueLabel = () => selectedTypes().size === 0 ? 'Any type' : [...selectedTypes()].map((type) => productSearchTypeName(type.toLowerCase())).join(', ')
-    const singleType = () => selectedTypes().size === 1 ? [...selectedTypes()][0]! : ''
     return <ProductMenu
       fill="quiet"
       align={direction === 'Gives' ? 'end' : 'start'}
-      label={`${direction}: ${valueLabel()}`}
-      title={`${direction}: ${valueLabel()}`}
-      labelContent={<ProductSearchTypeLabel label={valueLabel()} direction={direction === 'Takes' ? 'takes' : 'gives'} color={singleType() === '' ? undefined : typeColor(defaultTokens, singleType())} shape={cardinalityOf(typeExprFromTypeId(singleType())) === 'list' ? 'diamond' : 'circle'} />}
-      triggerName={`${direction} type`}
-      items={['', ...productSearchTypeOptions(['IMAGE', 'list<IMAGE>', 'asset<IMAGE>', 'STRING', 'INT'])].map((type) => ({
-        label: `${direction} ${type === '' ? 'Any type' : productSearchTypeName(type.toLowerCase())}`,
-        labelContent: <ProductSearchTypeLabel label={type === '' ? 'Any type' : productSearchTypeName(type.toLowerCase())} direction={direction === 'Takes' ? 'takes' : 'gives'} color={type === '' ? undefined : typeColor(defaultTokens, type)} shape={cardinalityOf(typeExprFromTypeId(type)) === 'list' ? 'diamond' : 'circle'} />,
-        checked: type === '' ? selectedTypes().size === 0 : selectedTypes().has(type),
+      label={direction}
+      title={direction}
+      items={productSearchTypeOptions(['IMAGE', 'list<IMAGE>', 'asset<IMAGE>', 'STRING', 'INT']).map((type) => ({
+        label: `${direction} ${productSearchTypeName(type.toLowerCase())}`,
+        labelContent: <ProductSearchTypeLabel label={productSearchTypeName(type.toLowerCase())} direction={side} color={typeColor(defaultTokens, type)} shape={cardinalityOf(typeExprFromTypeId(type)) === 'list' ? 'diamond' : 'circle'} />,
+        checked: selected(type),
         onSelect: () => change(type),
       }))}
     />
@@ -137,11 +133,16 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
         kinds={KINDS}
         kind={kind()}
         onKind={setKind}
-        {...(wire() ? { chip: { label: wireName(), name: `Takes ${wireName()}`, direction: 'takes' as const, color: typeColor(defaultTokens, 'IMAGE'), shape: props.list ? 'diamond' as const : 'circle' as const, removeLabel: 'Remove image constraint', onRemove: () => setWire(false) } } : {})}
-        filters={<>
-          <Show when={!wire()}>{typeMenu('Takes')}</Show>
-          {typeMenu('Gives')}
-        </>}
+        chips={[
+          ...(wire() ? [{ label: wireName(), name: `Takes ${wireName()}`, direction: 'takes' as const, color: typeColor(defaultTokens, 'IMAGE'), shape: props.list ? 'diamond' as const : 'circle' as const, removeLabel: 'Remove image constraint', onRemove: () => setWire(false) }] : []),
+          ...requirements().map((item) => {
+            const label = productSearchTypeName(item.type.toLowerCase())
+            const name = `${item.direction === 'takes' ? 'Takes' : 'Gives'} ${label}`
+            return { label, name, direction: item.direction, color: typeColor(defaultTokens, item.type), shape: cardinalityOf(typeExprFromTypeId(item.type)) === 'list' ? 'diamond' as const : 'circle' as const,
+              removeLabel: `Remove ${name}`, onRemove: () => setRequirements((items) => items.filter((candidate) => candidate !== item)) }
+          }),
+        ]}
+        filters={<>{typeMenu('Takes')}{typeMenu('Gives')}</>}
         groups={groups()}
         {...(key() === undefined ? {} : { current: key()! })}
         onCurrent={setCurrent}
