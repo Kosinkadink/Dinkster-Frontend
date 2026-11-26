@@ -395,9 +395,12 @@ describe('registry painter label/value split', () => {
   it('aligns color squares beside different equal-length codes without changing label type', () => {
     const colorView: WidgetView = {
       ...stubView, id: 'core.color', kind: 'COLOR',
-      drawCompact: (scene, value) => scene.text(1, 0, String(value), {
-        role: 'widgetValue', align: 'right', width: 1, swatch: value,
-      }),
+      drawCompact: (scene, value) => {
+        scene.text(0, 0, 'Tint', { role: 'widgetLabel', width: 0.42 })
+        scene.text(1, 0, String(value), {
+          role: 'widgetValue', align: 'right', width: 0.58, swatch: value,
+        })
+      },
     }
     const colorRegistry: WidgetRegistry = {
       ...registry,
@@ -425,6 +428,7 @@ describe('registry painter label/value split', () => {
     expect(blackSquare).toBeDefined()
     expect(whiteSquare.x).toBe(blackSquare.x)
     expect(white.textCalls.find((call) => call.text === 'color')?.font).toBe(`13px ${defaultTokens.fontFamily}`)
+    expect(white.textCalls.find((call) => call.text === 'Tint')?.font).toBe(`13px ${defaultTokens.fontFamily}`)
     expect(white.textCalls.some((call) => call.text === '#ffffff')).toBe(true)
     expect(black.textCalls.some((call) => call.text === '#000000')).toBe(true)
   })

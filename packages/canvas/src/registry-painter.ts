@@ -496,7 +496,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           if (!multiline) {
             const role = style['role']
             const valueFont = ctx.font
-            if (colorValue && style['placeholder'] !== true) ctx.font = `${tokens.fontSize}px ${tokens.fontMono}`
+            const colorCode = row.viewId === 'core.color' || typeof style['swatch'] === 'string'
+            if (colorCode && (role === undefined || role === 'widgetValue') && style['placeholder'] !== true) ctx.font = `${tokens.fontSize}px ${tokens.fontMono}`
             const marked = valueWord !== undefined && (role === undefined || role === 'widgetValue')
             const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
             const items = stringList(style['items'])

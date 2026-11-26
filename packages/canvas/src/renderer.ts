@@ -5353,7 +5353,7 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   // The subgraph mark before the name widens the name's share, as the painter lays it out.
   const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
   const labelWidth = measureWidth(ctx, row.label)
-  const valueFont = (row.viewId === 'core.color' || row.viewId === 'core.integerColor') && summary !== undefined
+  const valueFont = summary !== undefined && (row.viewId === 'core.color' || swatch !== undefined)
     ? `${tokens.fontSize}px ${tokens.fontMono}` : prevFont
   ctx.font = valueFont
   const picturesWidth = summaryThumbnailReserve(ctx, summary?.thumbnails)
