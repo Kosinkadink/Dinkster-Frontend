@@ -2058,8 +2058,8 @@ export function createCanvasGalleryFixture(
         page === 'zoom'
           ? tokens.mediaControlMinScale
           : page === 'zoom-content'
-            ? 0.5
-            : 0.49
+            ? tokens.detailMinScale
+            : tokens.detailMinScale - 0.01
       fixture.width = 960 * fixture.scale
       fixture.height = 350 * fixture.scale
     }
