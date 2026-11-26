@@ -760,20 +760,22 @@ export function ProjectsGallery() {
           autofocus
           onInput={(event) => setName(event.currentTarget.value)}
         />
-        <span>Files</span>
-        <span class="dinkster-project-form-path">
-          <span>
-            /home/kosin/Dinkster/projects/
-            {name()
-              .trim()
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/gu, '-')}
+        <div class="dinkster-project-form-folder">
+          <span>Files</span>
+          <span class="dinkster-project-form-path">
+            <span>
+              /home/kosin/Dinkster/projects/
+              {name()
+                .trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/gu, '-')}
+            </span>
+            <ProductTextButton
+              label="Change"
+              onClick={() => setActivity('Folder browser opened')}
+            />
           </span>
-          <ProductTextButton
-            label="Change"
-            onClick={() => setActivity('Folder browser opened')}
-          />
-        </span>
+        </div>
         <label for="new-project-runs-on">Runs on</label>
         <ProductSelect id="new-project-runs-on">
           <option>Stable 0.0.18 - this computer</option>

@@ -997,11 +997,13 @@ export function ProjectsView(props: {
           disabled={creating()}
           onInput={(event) => setName(event.currentTarget.value)}
         />
-        <span>{message('projects.facts.filesFolder')}</span>
-        <span class="dinkster-project-form-path">
-          <span data-testid="new-project-files" data-tooltip-label={filesFolder() || undefined}>{filesFolder() || message('projects.new.folderUnknown')}</span>
-          <ProductTextButton label={message('projects.facts.change')} disabled={creationLocked()} onClick={() => { void chooseFilesFolder() }} />
-        </span>
+        <div class="dinkster-project-form-folder">
+          <span>{message('projects.facts.filesFolder')}</span>
+          <span class="dinkster-project-form-path">
+            <span data-testid="new-project-files" data-tooltip-label={filesFolder() || undefined}>{filesFolder() || message('projects.new.folderUnknown')}</span>
+            <ProductTextButton label={message('projects.facts.change')} disabled={creationLocked()} onClick={() => { void chooseFilesFolder() }} />
+          </span>
+        </div>
         <label for="new-project-runs-on">{message('projects.facts.runsOn')}</label>
         <ProductSelect id="new-project-runs-on" value={chosenInstallation()?.root ?? ''}
           disabled={creating() || installations() === null || creationInstallations().length === 0}

@@ -768,6 +768,7 @@
 .dinkster-segment:has(:disabled:not(:checked)) { color: var(--dinkster-text-secondary); }
 .dinkster-project-form { display: grid; grid-template-columns: 136px minmax(0, 1fr); align-items: center; gap: var(--dinkster-space-16) var(--dinkster-space-24); max-width: 720px; }
 .dinkster-project-form > .dinkster-actions { grid-column: 2; justify-content: flex-end; }
+.dinkster-project-form-folder { display: contents; }
 .dinkster-project-form-path { display: flex; align-items: baseline; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; padding-inline: var(--dinkster-space-12); }
 .dinkster-project-form-path > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @container projects (max-width: 720px) {
@@ -793,6 +794,11 @@
 @container project-detail (max-width: 420px) {
   .dinkster-project-form { grid-template-columns: minmax(0, 1fr); gap: var(--dinkster-space-12); }
   .dinkster-project-form > .dinkster-actions { grid-column: 1; }
+  .dinkster-project-form-folder { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: var(--dinkster-space-12); }
+  .dinkster-project-form-folder > .dinkster-project-form-path { display: contents; }
+  .dinkster-project-form-folder > .dinkster-project-form-path > span { grid-column: 1 / -1; grid-row: 2; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .dinkster-project-form-folder > .dinkster-project-form-path > .dinkster-text-button { grid-column: 2; grid-row: 1; justify-self: end; }
+  .dinkster-project-form .dinkster-segmented { display: flex; flex-direction: column; }
 }
 .dinkster-projects-setup { display: grid; align-content: center; justify-items: center; height: 100%; padding: var(--dinkster-space-32); }
 .dinkster-projects-setup > .dinkster-project-form { width: min(100%, 780px); }
