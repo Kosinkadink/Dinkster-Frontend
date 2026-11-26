@@ -320,11 +320,16 @@ export function ProductSearch(props: {
   createEffect(() => {
     const key = current()
     if (key === undefined) return
-    queueMicrotask(() =>
-      list
-        ?.querySelector<HTMLElement>(`#${CSS.escape(optionId(key))}`)
-        ?.scrollIntoView?.({ block: 'nearest' }),
-    )
+    queueMicrotask(() => {
+      const row = list?.querySelector<HTMLElement>(`#${CSS.escape(optionId(key))}`)
+      if (row === undefined || row === null) return
+      const bounds = row.getBoundingClientRect()
+      const top = list.getBoundingClientRect().top + list.clientTop
+      const bottom = top + list.clientHeight
+      // Reveal results without scrolling the host and dismissing its menus.
+      if (bounds.top < top) list.scrollTop += bounds.top - top
+      else if (bounds.bottom > bottom) list.scrollTop += bounds.bottom - bottom
+    })
   })
   /**
    * The floating preview's top stays level with the top of the results, so

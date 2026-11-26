@@ -1203,6 +1203,7 @@
   "palette.filter.input": "输入",
   "palette.filter.inputTypes": "筛选输入类型",
   "palette.filter.outputTypes": "筛选输出类型",
+  "palette.filter.findType": "查找类型",
   "palette.filter.takes": "接收",
   "palette.filter.gives": "输出",
   "palette.filter.removeConnection": "移除连接限制",

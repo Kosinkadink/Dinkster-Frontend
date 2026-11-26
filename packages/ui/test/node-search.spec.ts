@@ -94,28 +94,26 @@ test('recent entries, categories, type menus and installation actions stay on th
   await expect(takes).toBeFocused()
 })
 
-test('type menus retain start alignment and keep end-aligned output dots inside wide and narrow searches', async ({ page }) => {
-  for (const width of [1440, 600, 390, 360, 240]) {
+test('type menus open on the first click and align their right edge inside wide and narrow searches', async ({ page }) => {
+  for (const width of [1280, 600, 390, 360, 240]) {
     await page.setViewportSize({ width, height: 1000 })
-    await page.goto('/#node-search')
-    const search = page.getByTestId('node-search-typed')
-    await search.scrollIntoViewIfNeeded()
-    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
     for (const direction of ['Takes', 'Gives']) {
+      await page.goto('/#node-search')
+      await page.reload()
+      const search = page.getByTestId('node-search-typed')
       const trigger = search.getByRole('button', { name: direction, exact: true })
-      await trigger.scrollIntoViewIfNeeded()
-      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
       await trigger.click()
       const menu = search.locator('.dinkster-menu-popover')
+      await expect(menu).toBeVisible()
+      await expect(menu.getByRole('textbox')).toHaveAttribute('placeholder', 'Find a type')
       const bounds = (await menu.boundingBox())!
       const anchor = (await trigger.boundingBox())!
       expect(bounds.x).toBeGreaterThanOrEqual(8)
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8)
-      if (direction === 'Takes' && width === 1440) expect(bounds.x).toBeCloseTo(anchor.x, 1)
+      expect(bounds.x + bounds.width).toBeCloseTo(Math.min(width - 8, Math.max(8 + bounds.width, anchor.x + anchor.width)), 1)
+      const searchBounds = (await search.boundingBox())!
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(searchBounds.x + searchBounds.width)
       if (direction === 'Gives') {
-        expect(bounds.x + bounds.width).toBeCloseTo(Math.min(width - 8, Math.max(8 + bounds.width, anchor.x + anchor.width)), 1)
-        const searchBounds = (await search.boundingBox())!
-        expect(bounds.x + bounds.width).toBeLessThanOrEqual(searchBounds.x + searchBounds.width)
         const dots = await menu.locator('.dinkster-search-chip-dot').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().right))
         expect(dots).toHaveLength(5)
         expect(Math.max(...dots) - Math.min(...dots)).toBeLessThan(0.5)
@@ -163,6 +161,7 @@ test('picked requirements keep order, require all types and support individual o
     await expect(search.getByRole('menuitemcheckbox', { name: `${direction} ${type}`, exact: true })).toBeVisible()
     await filter.press('Enter')
     await expect(search.getByRole('menu')).toHaveCount(0)
+    await expect(search.getByRole('combobox')).toBeFocused()
   }
   await choose('Gives', 'string')
   await choose('Takes', 'image list')

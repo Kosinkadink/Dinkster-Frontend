@@ -44,6 +44,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
   const [category, setCategory] = createSignal<string>()
   const [current, setCurrent] = createSignal<string>()
   const [chosen, setChosen] = createSignal('Nothing chosen yet')
+  let searchInput!: HTMLInputElement
   const anchor = () => props.list ? { kind: 'list' as const, element: image } : image
   const wireType = () => props.list ? 'list<IMAGE>' : 'IMAGE'
   const wireName = () => props.list ? 'image list' : 'image'
@@ -105,13 +106,14 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
         ? items.filter((item) => item.direction !== side || item.type !== type)
         : [...items, { direction: side, type }])
       setCurrent(undefined)
+      searchInput.focus({ preventScroll: true })
     }
     return <ProductMenu
       fill="quiet"
-      align={direction === 'Gives' ? 'end' : 'start'}
+      align="end"
       label={direction}
       title={direction}
-      filter={{ label: direction === 'Takes' ? 'Filter input types' : 'Filter output types' }}
+      filter={{ label: direction === 'Takes' ? 'Filter input types' : 'Filter output types', placeholder: 'Find a type' }}
       items={productSearchTypeOptions(['IMAGE', 'list<IMAGE>', 'asset<IMAGE>', 'STRING', 'INT']).map((type) => ({
         label: `${direction} ${productSearchTypeName(type.toLowerCase())}`,
         labelContent: <ProductSearchTypeLabel label={productSearchTypeName(type.toLowerCase())} direction={side} color={typeColor(defaultTokens, type)} shape={cardinalityOf(typeExprFromTypeId(type)) === 'list' ? 'diamond' : 'circle'} />,
@@ -129,6 +131,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
         testId={props.id}
         label="Search nodes"
         placeholder="Search nodes"
+        inputRef={(input) => { searchInput = input }}
         query={query()}
         onQuery={setQuery}
         kinds={KINDS}

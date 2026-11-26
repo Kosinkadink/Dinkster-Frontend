@@ -249,6 +249,7 @@ export function NodePalette(props: {
     return productSearchTypeOptions(found)
   }
   const typeShape = (type: string) => cardinalityOf(typeExprFromTypeId(type)) === 'list' ? 'diamond' as const : 'circle' as const
+  let searchInput!: HTMLInputElement
   const typeMenu = (direction: 'takes' | 'gives') => {
     const wireType = () => {
       const drop = props.anchor.linkDrop
@@ -262,11 +263,12 @@ export function NodePalette(props: {
         ? items.filter((item) => item.direction !== direction || item.type !== type)
         : [...items, { direction, type }])
       setCurrent(undefined)
+      searchInput.focus({ preventScroll: true })
     }
     const label = () => message(direction === 'takes' ? 'palette.filter.takes' : 'palette.filter.gives')
-    return <ProductMenu fill="quiet" align={direction === 'gives' ? 'end' : 'start'}
+    return <ProductMenu fill="quiet" align="end"
       label={label()} title={label()}
-      filter={{ label: message(direction === 'takes' ? 'palette.filter.inputTypes' : 'palette.filter.outputTypes') }}
+      filter={{ label: message(direction === 'takes' ? 'palette.filter.inputTypes' : 'palette.filter.outputTypes'), placeholder: message('palette.filter.findType') }}
       items={typeOptions(direction === 'takes' ? 'in' : 'out').map((type) => ({
           label: `${label()} ${productSearchTypeName(typeIdDisplayLabel(type))}`,
           labelContent: <ProductSearchTypeLabel label={productSearchTypeName(typeIdDisplayLabel(type))} direction={direction} color={typeColor(defaultTokens, type)} shape={typeShape(type)} />,
@@ -333,7 +335,7 @@ export function NodePalette(props: {
         groups={groups()} {...(selectedKey() === undefined ? {} : { current: selectedKey()! })}
         onCurrent={setCurrent} onActivate={activate} onClose={props.onClose}
         markQuery={parseSearchFilters(query()).text}
-        autofocus inputRef={(input) => { input.dataset.testid = 'palette-search' }}
+        autofocus inputRef={(input) => { searchInput = input; input.dataset.testid = 'palette-search' }}
         empty={{ title: message('palette.empty.title'), detail: message(query().trim() === '' ? 'palette.empty.filters' : 'palette.empty.query') }}
         hints={[
           { keys: ['Up', 'Down'], label: message('search.hint.move') },

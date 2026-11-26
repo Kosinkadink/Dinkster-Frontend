@@ -1201,6 +1201,7 @@
   "palette.filter.input": "Input",
   "palette.filter.inputTypes": "Filter input types",
   "palette.filter.outputTypes": "Filter output types",
+  "palette.filter.findType": "Find a type",
   "palette.filter.takes": "Takes",
   "palette.filter.gives": "Gives",
   "palette.filter.removeConnection": "Remove connection constraint",
