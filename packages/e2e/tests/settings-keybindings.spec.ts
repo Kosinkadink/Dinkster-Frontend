@@ -87,7 +87,7 @@ test('captured chord dispatches, conflicts are surfaced, and reset restores the 
   await expect(capture).toHaveText('None')
   await dialog.getByRole('button', { name: 'Reset', exact: true }).click()
   await expect(capture).toHaveAttribute('aria-label', /: ctrl\+o$/)
-  await reboundRow.getByRole('button', { name: /^Actions for / }).click()
+  await dialog.getByRole('button', { name: 'Actions for Open workflow library', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Remove shortcut', exact: true }).click()
   await expect(capture).toHaveText('None')
   await expect(search).toHaveValue('workflow.open')
