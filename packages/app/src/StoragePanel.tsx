@@ -160,7 +160,20 @@ export function StorageFolders(props: {
       void perform(() => props.connection.updateProjectFolders(selected().filter((row) => row.id !== target.id).map((row) => row.id), output))
     }
   }
+  const removalQuestion = (id: string, model: boolean) => <ProductConfirmation
+    title={message('projectFolders.removeTitle', { folder: id })}
+    consequence={message('projectFolders.removeNotice', { folder: id })}
+    actionLabel={message('projectFolders.confirmRemove')} intent="remove" pending={busy()} error={error()}
+    disabled={!model && id === settings()?.outputMount && !replacement()}
+    onCancel={() => { setError(''); setLeaving(undefined) }} onConfirm={leave}>
+    <Show when={!model && id === settings()?.outputMount}>
+      <ProductSelect ariaLabel={message('projectFolders.replacement')} selectedId={replacement()}
+        options={folders().filter((row) => row.mode === 'readwrite' && row.id !== id && row.state !== 'failed').map((row) => ({ id: row.id, label: row.id, value: row.id }))}
+        onSelect={(option) => setReplacement(option.value)} />
+    </Show>
+  </ProductConfirmation>
   const modelCard = (location: ModelSettingsState['locations'][number]) => <article class="storage-folder" data-model-location={location.id}>
+    <Show when={leaving()?.model === true && leaving()?.id === location.id} fallback={<>
     <div class="storage-folder-heading">
       <div class="storage-folder-copy"><strong title={location.id}>{location.id}</strong><code title={location.path}>{location.path}</code></div>
       <ProductMenu icon={Ellipsis} iconOnly label={message('storagePanel.actions', { folder: location.id })} items={[
@@ -181,8 +194,10 @@ export function StorageFolders(props: {
     <Show when={location.mode === 'read'}><span class="dinkster-metadata">{message('storagePanel.readOnly')}</span></Show>
     <Show when={models()?.settings.downloadLocation === location.id}><span class="storage-folder-mark">{message('storagePanel.downloads')}</span></Show>
     <Show when={!location.active}><span class="dinkster-metadata">{message('modelSettings.inactive')}</span></Show>
+    </>}>{removalQuestion(location.id, true)}</Show>
   </article>
   const folderCard = (mount: MountDescriptor, used: boolean) => <article class="storage-folder" data-mount-id={mount.id}>
+    <Show when={leaving()?.model === false && leaving()?.id === mount.id} fallback={<>
     <div class="storage-folder-heading">
       <div class="storage-folder-copy"><strong title={mount.id}>{mount.id}</strong><Show when={path(mount)}>{(value) => <code title={value()}>{value()}</code>}</Show></div>
       <ProductMenu icon={Ellipsis} iconOnly label={message('storagePanel.actions', { folder: mount.id })} items={used ? [
@@ -204,15 +219,16 @@ export function StorageFolders(props: {
     <Show when={mount.id === settings()?.outputMount}><span class="storage-folder-mark">{message('storagePanel.saves')}</span></Show>
     <Show when={mount.id === locations()?.importMount}><span class="storage-folder-mark">{message('storagePanel.imports')}</span></Show>
     <Show when={mount.scanProgress}>{(progress) => <p class="dinkster-metadata">{message('projectFolders.scanning', { done: progress().filesDone, total: progress().filesTotal })}</p>}</Show>
+    </>}>{removalQuestion(mount.id, false)}</Show>
   </article>
 
   return <div class="storage-folders" data-testid="storage-folders">
-    <Show when={error()}><ProductErrorBanner onDismiss={() => setError('')}>{error()} <ProductButton disabled={busy()} onClick={() => { void load() }}>{message('projectFolders.refresh')}</ProductButton></ProductErrorBanner></Show>
+    <Show when={error() && !leaving()}><ProductErrorBanner onDismiss={() => setError('')}>{error()} <ProductButton disabled={busy()} onClick={() => { void load() }}>{message('projectFolders.refresh')}</ProductButton></ProductErrorBanner></Show>
     <Show when={settings()} fallback={<Show when={!error()}><ProductLoading label={message('projectFolders.loading')} /></Show>}>
       <Show when={operatorNotice()}><ProductNotice>{message('storagePanel.operatorOnly')}</ProductNotice></Show>
       <Show when={settings()?.restartRequired}><ProductNotice tone="warning">{message('modelSettings.restart')}</ProductNotice></Show>
       <Show when={!settings()?.mountChangesAllowed}><ProductNotice>{message('projectFolders.disabled')}</ProductNotice></Show>
-      <Show when={leaving()} keyed fallback={<Show when={editing()} fallback={<>
+      <Show when={editing()} fallback={<>
         <p class="dinkster-metadata">{message('storagePanel.folderCount', { count: usedModels().length + folders().length })}</p>
         <div class="storage-group-heading"><h3>{message('storagePanel.models')}</h3><Show when={models()?.changesAllowed}><ProductButton intent="add" onClick={() => setEditing('models')}>{message('storagePanel.add')}</ProductButton></Show></div>
         <For each={usedModels()}>{modelCard}</For>
@@ -231,18 +247,6 @@ export function StorageFolders(props: {
           <Show when={editor() === 'models'}><ModelSettings connection={props.connection} providerConnection={props.connection} visibilityConnection={props.connection} backendLabel="" backendUrl={props.backendUrl} focusHiddenModels={props.focus?.hiddenModels === true} onChanged={() => { void load() }} /></Show>
           <Show when={editor() === 'folders'}><ProductSection title={message('storagePanel.addFolder')}><MountFolderForm connection={props.connection} backendUrl={props.backendUrl} onGranted={() => { setEditing(undefined); void load() }} /></ProductSection></Show>
           <Show when={editor() === 'output'}><OutputMountSettings connection={props.connection} /></Show>
-        </>}
-      </Show>}>
-        {(target) => <>
-          <Show when={!target.model && target.id === settings()?.outputMount}>
-            <ProductSelect ariaLabel={message('projectFolders.replacement')} selectedId={replacement()}
-              options={folders().filter((row) => row.mode === 'readwrite' && row.id !== target.id && row.state !== 'failed').map((row) => ({ id: row.id, label: row.id, value: row.id }))}
-              onSelect={(option) => setReplacement(option.value)} />
-          </Show>
-          <ProductConfirmation title={message('projectFolders.remove')} consequence={message('projectFolders.removeNotice', { folder: target.id })}
-            actionLabel={message('projectFolders.confirmRemove')} intent="remove" pending={busy()}
-            disabled={!target.model && target.id === settings()?.outputMount && !replacement()}
-            onCancel={() => setLeaving(undefined)} onConfirm={() => { if (target.model || target.id !== settings()?.outputMount || replacement()) leave() }} />
         </>}
       </Show>
     </Show>

@@ -48,7 +48,7 @@ import {
   ProductBrandMark,
   ProductButton,
   ProductCheckbox,
-  ProductConfirmation,
+  ProductConfirmationDialog,
   ProductDialog,
   ProductEmptyState,
   ProductErrorBanner,
@@ -985,11 +985,8 @@ export function ProjectsGallery() {
         </ProductDialog>
       </Show>
       <Show when={dialog() === 'delete'}>
-        <ProductDialog
-          title={`Delete ${project().name}?`}
-          onDismiss={() => setDialog(undefined)}
-        >
-          <ProductConfirmation
+          <ProductConfirmationDialog
+            title={`Delete "${project().name}"?`}
             consequence="Its workflows and outputs leave the project list. Files in its folder stay on disk."
             actionLabel="Delete project"
             intent="remove"
@@ -999,7 +996,6 @@ export function ProjectsGallery() {
             }}
             onCancel={() => setDialog(undefined)}
           />
-        </ProductDialog>
       </Show>
       <ProductPage
         title="Projects page"

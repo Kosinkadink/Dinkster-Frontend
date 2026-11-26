@@ -23,10 +23,12 @@ function BackendRow(props: {
   readonly onOpenStorage?: ((backend: Backend) => void) | undefined
   readonly onOpenResources?: ((backend: Backend) => void) | undefined
   readonly onOpenSettings?: ((backend: Backend) => void) | undefined
+  readonly removing: boolean
+  readonly onRemove: () => void
+  readonly onCancelRemove: () => void
 }) {
   const message = useAppMessage()
   const [busy, setBusy] = createSignal(false)
-  const [removing, setRemoving] = createSignal(false)
   const [error, setError] = createSignal('')
   const [connectFailed, setConnectFailed] = createSignal(false)
   const active = createMemo(() => props.backend?.id === (props.activeBackendId ?? props.defaultBackend.id))
@@ -51,12 +53,12 @@ function BackendRow(props: {
     const backend = props.backend
     if (!await props.connections.remove(props.url)) return
     if (backend && props.app.backends.get().includes(backend)) props.app.removeBackend(backend.id)
-    setRemoving(false)
+    props.onCancelRemove()
   }
   const title = () => `${message(`backendsPanel.connection.${status()}`)} - ${props.name}${props.backend ? ` - ${message(props.backend.protocol === 'dinkster' ? 'backendsPanel.protocol.dinkster' : 'backendsPanel.protocol.comfyUi')}` : ''}${registry() ? `, ${message('backendsPanel.schema.available', { count: registry()!.schemas.size })}` : ''}`
   return <article class="backend-server" data-testid="backend-row" data-connection={props.backend?.id ?? props.url} data-status={status()}>
-    <Show when={error() || connectFailed()}><ProductErrorBanner onDismiss={() => { setError(''); setConnectFailed(false) }}>{connectFailed() ? message('connectionProfiles.error.connect', { name: props.name }) : error()}</ProductErrorBanner></Show>
-    <Show when={removing()} fallback={<>
+    <Show when={!props.removing && (error() || connectFailed())}><ProductErrorBanner onDismiss={() => { setError(''); setConnectFailed(false) }}>{connectFailed() ? message('connectionProfiles.error.connect', { name: props.name }) : error()}</ProductErrorBanner></Show>
+    <Show when={props.removing} fallback={<>
       <div class="storage-folder-heading">
         <ProductDisclosure title={title()} open={active()}>
           <p class="dinkster-metadata" role="status">{message(`backendsPanel.connection.${status()}`)}</p>
@@ -78,11 +80,11 @@ function BackendRow(props: {
           <Show when={validProfileUrl(props.url)}><ConnectionCredentialControls connections={props.connections} url={props.url} name={props.name} /></Show>
         </ProductDisclosure>
         <Show when={props.backend !== props.defaultBackend}><ProductMenu icon={Ellipsis} iconOnly label={message('backendsPanel.aria.actions', { backend: props.name })}
-          items={[{ label: message('backendsPanel.action.remove'), intent: 'remove', disabled: props.connections.busy(), onSelect: () => setRemoving(true) }]} /></Show>
+          items={[{ label: message('backendsPanel.action.remove'), intent: 'remove', disabled: props.connections.busy(), onSelect: props.onRemove }]} /></Show>
       </div>
     </>}>
-      <ProductConfirmation title={message('backendsPanel.action.remove')} consequence={message('backendsPanel.removeNotice', { backend: props.name })}
-        actionLabel={message('backendsPanel.action.remove')} intent="remove" pending={busy() || props.connections.busy()} onCancel={() => setRemoving(false)} onConfirm={() => { void perform(remove) }} />
+      <ProductConfirmation title={message('backendsPanel.removeTitle', { backend: props.name })} consequence={message('backendsPanel.removeNotice', { backend: props.name })}
+        error={error() || props.connections.error()} actionLabel={message('backendsPanel.action.remove')} intent="remove" pending={busy() || props.connections.busy()} onCancel={props.onCancelRemove} onConfirm={() => { void perform(remove) }} />
     </Show>
   </article>
 }
@@ -98,6 +100,7 @@ export function BackendsPanel(props: {
   const backends = useSignal(props.app.backends)
   const tick = useSignal(props.app.backendsTick)
   const connections = createConnectionProfiles()
+  const [removingUrl, setRemovingUrl] = createSignal<string>()
   const addresses = createMemo(() => [...new Set([...backends().map((backend) => canonicalBackendUrl(backend.baseUrl)), ...connections.profiles().map((profile) => canonicalBackendUrl(profile.url))])])
   const [adding, setAdding] = createSignal(false)
   const [url, setUrl] = createSignal('')
@@ -126,7 +129,7 @@ export function BackendsPanel(props: {
   }
   return <section class="backends-panel" data-testid="backends-panel" aria-label={message('backendsPanel.title')}>
     <ProductPanelHeader title={message('backendsPanel.title')} actions={<ProductButton intent="add" aria-expanded={adding()} disabled={discovering()} onClick={() => setAdding(!adding())}>{message('backendsPanel.addBackend')}</ProductButton>} />
-    <Show when={connections.error()}><ProductErrorBanner onDismiss={connections.dismissError}>{connections.error()}</ProductErrorBanner></Show>
+    <Show when={!removingUrl() && connections.error()}><ProductErrorBanner onDismiss={connections.dismissError}>{connections.error()}</ProductErrorBanner></Show>
     <Show when={adding()}><form class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); void add() }}>
       <ProductField controlId="backend-address" label={message('backendsPanel.label.address')} description={message('backendsPanel.help.address')} layout="stack" invalid={addError() !== ''}>
         <ProductTextInput id="backend-address" data-testid="backend-url-input" inputmode="url" autocomplete="url"
@@ -148,6 +151,7 @@ export function BackendsPanel(props: {
         const backend = () => backends().find((backend) => canonicalBackendUrl(backend.baseUrl) === address)
         const label = () => backend()?.label ?? connections.matching(address)[0]?.name ?? address
         return <BackendRow app={props.app} url={address} name={label()} backend={backend()} defaultBackend={backends()[0]!} connections={connections} activeBackendId={props.activeBackendId} tick={tick}
+          removing={removingUrl() === address} onRemove={() => { connections.dismissError(); setRemovingUrl(address) }} onCancelRemove={() => { connections.dismissError(); setRemovingUrl(undefined) }}
           onOpenStorage={props.onOpenStorage} onOpenResources={props.onOpenResources} onOpenSettings={props.onOpenSettings} />
       }}</For>
     </div>

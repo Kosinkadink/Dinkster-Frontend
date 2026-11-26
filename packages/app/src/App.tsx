@@ -44,9 +44,9 @@ import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostCo
 import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
-import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
+import { ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import type { ShellNavigation } from './Shell.js'
@@ -3088,42 +3088,30 @@ export function App(props: {
       <ImportAssetResolutionDialog app={app} />
       <Show when={pendingClose()} keyed>
         {(pending) => (
-          <ModalSurface
+          <ProductConfirmationDialog
             title={message('shell.close.title', { title: pending.title })}
-            ariaLabel={message('shell.close.confirm', { title: pending.title })}
+            consequence={message('shell.close.consequence')}
             modalId="close-tab"
             testId="close-tab-dialog"
-            closeLabel={message('shell.close.cancel')}
-            onRequestClose={() => setPendingClose(undefined)}
-          >
-            <div class="close-tab-confirm">
-              <p>{message('shell.close.confirm', { title: pending.title })}</p>
-              <ProductActionFooter>
-                <ProductButton type="button" autofocus onClick={() => setPendingClose(undefined)}>{message('shell.action.cancel')}</ProductButton>
-                <SharedProductButton intent="remove" fill="solid" onClick={confirmPendingClose}>{message('shell.close.discard')}</SharedProductButton>
-              </ProductActionFooter>
-            </div>
-          </ModalSurface>
+            intent="remove"
+            actionLabel={message('shell.close.discard')}
+            onCancel={() => setPendingClose(undefined)}
+            onConfirm={confirmPendingClose}
+          />
         )}
       </Show>
       <Show when={pendingCloseOthers()} keyed>{(pending) => (
-        <ModalSurface
-          title={message('shell.workflowTabs.closeOthers')}
-          ariaLabel={message('shell.workflowTabs.closeOthers')}
+        <ProductConfirmationDialog
+          title={message('shell.close.othersTitle', { count: pending.length })}
+          consequence={message('shell.close.othersConsequence', { count: pending.filter(isDirty).length })}
           modalId="close-other-tabs"
           testId="close-other-tabs-dialog"
-          closeLabel={message('shell.close.cancel')}
-          onRequestClose={() => setPendingCloseOthers(undefined)}
-        >
-          <div class="close-tab-confirm">
-            <p>{message('shell.close.othersConfirm')}</p>
-            <ul><For each={pending.filter(isDirty)}>{(tab) => <li>{tab.title}</li>}</For></ul>
-            <ProductActionFooter>
-              <ProductButton type="button" autofocus onClick={() => setPendingCloseOthers(undefined)}>{message('shell.action.cancel')}</ProductButton>
-              <SharedProductButton intent="remove" fill="solid" onClick={confirmCloseOthers}>{message('shell.close.discard')}</SharedProductButton>
-            </ProductActionFooter>
-          </div>
-        </ModalSurface>
+          items={pending.filter(isDirty).map((tab) => ({ name: tab.title, outcome: message('shell.close.unsaved') }))}
+          intent="remove"
+          actionLabel={message('shell.close.discard')}
+          onCancel={() => setPendingCloseOthers(undefined)}
+          onConfirm={confirmCloseOthers}
+        />
       )}</Show>
       <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
       <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}
