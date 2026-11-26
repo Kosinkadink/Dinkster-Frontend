@@ -198,7 +198,7 @@ it('keeps the first painted elements unchanged as detail arrives, and keeps old 
   render(() => <ProjectsView shell={shell()} source={{
     ...source(projects), listProjects: async () => projects.map((project) => ({ ...project })),
     listWorkflows: (id) => id === 'p-film' ? film.promise : valley.promise,
-    usage: async () => ({ outputs: 12, bytes: 4096 }),
+    usage: async (id) => ({ outputs: 12, bytes: id === 'p-film' ? 0 : 512 }),
   }} />, document.body)
   await settle()
   expect(document.querySelector('.dinkster-skeleton')).toBeNull()
@@ -212,6 +212,7 @@ it('keeps the first painted elements unchanged as detail arrives, and keeps old 
     expect(element.textContent).toBe(text)
   }
   const detail = document.querySelector('.dinkster-projects-detail')!
+  expect(detail.textContent).toContain('0 B')
   const original = detail.textContent
   const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) => entry.textContent?.startsWith('Valley'))!
   row.focus()
@@ -226,6 +227,7 @@ it('keeps the first painted elements unchanged as detail arrives, and keeps old 
   valley.resolve([])
   await settle()
   expect(document.querySelector('h2')?.textContent).toBe('Valley matte paintings')
+  expect(detail.textContent).toContain('512 B')
   expect(document.querySelector('[aria-label="valley.png"]')).not.toBeNull()
 })
 

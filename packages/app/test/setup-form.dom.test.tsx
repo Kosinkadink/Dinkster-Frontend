@@ -173,7 +173,7 @@ it.each([false, true])('refuses a held library while preserving only known facts
 })
 
 it.each([
-  ['downloading', 'bytes', 0, 4096, 'Downloading Dinkster - 0 byte of 4.1 kB'],
+  ['downloading', 'bytes', 0, 4096, 'Downloading Dinkster - 0 B of 4.1 kB'],
   ['downloading', 'bytes', 2048, 4096, 'Downloading Dinkster - 2 kB of 4.1 kB'],
   ['checking-reviewed-inputs', 'items', 3, 12, 'Installing the standard node packs'],
   ['future-stage', 'bytes', 2048, null, 'Setting up - 2 kB'],

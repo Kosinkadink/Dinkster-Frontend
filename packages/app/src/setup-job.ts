@@ -70,7 +70,7 @@ export const setupJobActive = (job: SetupJob | null | undefined): boolean =>
 /** Registration can precede completion; a listed installation may still be setting up. */
 export async function setupInProgress(): Promise<boolean> {
   try {
-    const response = await fetch('/supervisor/setup', { cache: 'no-store' })
+    const response = await fetch('/supervisor/setup/active', { cache: 'no-store' })
     return response.ok && setupJobActive((await response.json()).activeJob)
   } catch {
     return false

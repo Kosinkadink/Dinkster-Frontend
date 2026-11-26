@@ -1,6 +1,43 @@
 import { expect, test } from '../visual.js'
 import { evidencePath } from './evidence-output.js'
 
+test('Projects and editor discovery stay usable while setup planning is unresolved', async ({ page }) => {
+  const project = { id: 'default', name: 'Bookshop diorama', created: '2026-01-01T00:00:00Z', revision: 1, deleted: false }
+  let retained: null | { state: string } = null
+  let finishPlan!: () => void
+  const planning = new Promise<void>((resolve) => { finishPlan = resolve })
+  await page.route('**/supervisor/status', (route) => route.fulfill({ json: {
+    protocol: 1, role: 'home', state: 'stopped', installations: 1,
+  } }))
+  await page.route('**/supervisor/installations', (route) => route.fulfill({ json: {
+    installations: [{ root: '/installs/bookshop' }],
+  } }))
+  await page.route('**/supervisor/setup**', async (route) => {
+    if (new URL(route.request().url()).pathname === '/supervisor/setup') await planning
+    return route.fulfill({ json: { activeJob: retained } })
+  })
+  await page.route('**/api/**', (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path === '/api/projects') return route.fulfill({ json: { items: [project], cursor: null } })
+    if (path === '/api/projects/default') return route.fulfill({ json: { project } })
+    return route.fulfill({ status: 503, json: { error: 'engine-not-ready', state: 'stopped' } })
+  })
+  try {
+    for (const state of [null, 'completed', 'cancelled', 'failed']) {
+      retained = state === null ? null : { state }
+      await page.goto('/')
+      await expect(page.getByRole('option', { name: /Bookshop diorama/ })).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Bookshop diorama', exact: true })).toBeVisible()
+      await expect(page.getByTestId('setup-form')).toBeHidden()
+      await page.goto('/?dinksterProject=default')
+      await expect(page.getByTestId('engine-start')).toBeVisible()
+      await expect(page.getByTestId('setup-form')).toBeHidden()
+    }
+  } finally {
+    finishPlan()
+  }
+})
+
 test('the native bridge opens Home without owning engine startup and retains its window context', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
