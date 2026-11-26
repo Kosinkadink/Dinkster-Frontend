@@ -1647,6 +1647,11 @@ describe('DockZoneHost', () => {
       />
     ), root)
     const tablist = root.querySelector('[role="tablist"]')!
+    ;(tablist as HTMLElement).style.padding = '4px'
+    const tabs = root.querySelectorAll<HTMLElement>('[role="tab"]')
+    tabs.forEach((tab, index) => {
+      vi.spyOn(tab, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 72 + index * 12, 32))
+    })
     let clientWidth = 100
     Object.defineProperty(tablist, 'clientWidth', { configurable: true, get: () => clientWidth })
     const remeasure = async (clipped: boolean): Promise<void> => {
