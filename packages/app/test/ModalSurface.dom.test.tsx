@@ -28,6 +28,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  delete window.dinksterDesktop
   document.body.replaceChildren()
   setLocale('en')
   vi.restoreAllMocks()
@@ -1101,10 +1102,13 @@ describe('ASSET widget modal integration', () => {
   })
 
   it.each([
-    { policy: undefined, label: '1 GiB per file', maximum: 1024 * 1024 * 1024 },
-    { policy: null, label: undefined, maximum: undefined },
-    { policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MiB per file', maximum: 32 * 1024 * 1024 },
-  ])('routes a native typed video widget using engine upload policy $label', async ({ policy, label, maximum }) => {
+    { transport: 'stream', policy: undefined, label: '1 GiB per file', maximum: 1024 * 1024 * 1024 },
+    { transport: 'stream', policy: null, label: undefined, maximum: undefined },
+    { transport: 'stream', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MiB per file', maximum: 32 * 1024 * 1024 },
+    { transport: 'native', policy: null, label: undefined, maximum: undefined },
+    { transport: 'refused', policy: null, label: undefined, maximum: undefined },
+    { transport: 'error', policy: null, label: undefined, maximum: undefined },
+  ])('routes a typed video widget by $transport using engine upload policy $label', async ({ transport, policy, label, maximum }) => {
     const root = document.createElement('div')
     document.body.append(root)
     const digest = `blake3:${'f'.repeat(64)}`
@@ -1139,6 +1143,17 @@ describe('ASSET widget modal integration', () => {
       nodes: {},
       dinkster: { ...(policy !== undefined ? { uploadLimits: policy } : {}) },
     })
+    const importFile = vi.fn(async () => {
+      if (transport === 'error') throw new Error('/private/source.webm')
+      return transport === 'refused'
+        ? { status: 'refused' as const, reason: 'not-native-file' as const }
+        : { status: 'imported' as const, asset: canonical }
+    })
+    if (transport !== 'stream') window.dinksterDesktop = {
+      fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: false }),
+      chooseDirectory: async () => undefined,
+      importFile,
+    }
     const app = {
       retainPickerAssets: vi.fn().mockResolvedValue(undefined),
       backendForTab: vi.fn().mockReturnValue({ protocol: 'dinkster', id: 'native', connection: {
@@ -1177,15 +1192,29 @@ describe('ASSET widget modal integration', () => {
     Object.defineProperty(file, 'size', { configurable: true, value: canonical.size })
     Object.defineProperty(input, 'files', { configurable: true, value: [file] })
     input.dispatchEvent(new Event('change', { bubbles: true }))
-    await vi.waitFor(() => expect(uploadMediaAsset).toHaveBeenCalledOnce())
-    expect(uploadMediaAsset.mock.calls[0]?.[0]).toBe(file)
-    expect(uploadMediaAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', kind: 'media/video', name: 'large.webm' })
+    if (transport === 'error') {
+      await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('Could not import the native file. No byte upload was attempted.'))
+      expect(root.textContent).not.toContain('/private/source.webm')
+      expect(uploadMediaAsset).not.toHaveBeenCalled()
+      expect(dispatchTo).not.toHaveBeenCalled()
+      unmount()
+      return
+    }
+    if (transport !== 'native') {
+      await vi.waitFor(() => expect(uploadMediaAsset).toHaveBeenCalledOnce())
+      expect(uploadMediaAsset.mock.calls[0]?.[0]).toBe(file)
+      expect(uploadMediaAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', kind: 'media/video', name: 'large.webm' })
+    }
     const video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"]')!
     expect(video.getAttribute('src')).toBe('blob:video-upload')
     expect(video.controls).toBe(true)
 
-    resolveUpload(canonical)
+    if (transport !== 'native') resolveUpload(canonical)
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('large.webm'))
+    if (transport !== 'stream') expect(importFile).toHaveBeenCalledWith(`${window.location.origin}/`, file, {
+      name: 'large.webm', mediaType: 'video/webm', kind: 'media/video',
+    })
+    if (transport === 'native') expect(uploadMediaAsset).not.toHaveBeenCalled()
     expect(close).not.toHaveBeenCalled()
     expect(dispatchTo).not.toHaveBeenCalled()
     root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()

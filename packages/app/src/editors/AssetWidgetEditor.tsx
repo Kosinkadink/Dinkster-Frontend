@@ -31,7 +31,7 @@ import { UploadDestination } from '../UploadDestination.js'
 import { activeProjectId } from '../projects.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
 import { AssetFileLocation } from '../AssetFileLocation.js'
-import { resolveDroppedAsset } from '../desktop-bridge.js'
+import { importNativeAsset, resolveDroppedAsset } from '../desktop-bridge.js'
 import { useAppMessage } from '../locale.js'
 import { tabDocumentUnchanged } from '../widget-editor-anchor.js'
 
@@ -457,7 +457,14 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         ...(choice.mount ? { mount: choice.mount } : {}),
         ...(choice.folder ? { folder: choice.folder } : {}),
       }
-      const ref = existing ?? (classifiedMediaKind !== undefined
+      const imported = existing ? undefined : await importNativeAsset(backend.baseUrl, file, {
+        name: mediaUploadName(file.name),
+        mediaType: classifiedLatent ? 'application/x-comfy-latent' : effectiveType || 'application/octet-stream',
+        ...(classifiedMediaKind !== undefined ? { kind: classifiedMediaKind } : {}),
+        ...(classifiedLatent ? { kind: 'data/latent' } : uploadDestination),
+      }, current)
+      if (!current()) return false
+      const ref = existing ?? imported ?? (classifiedMediaKind !== undefined
         ? await backend.connection.uploadMediaAsset(file, {
             scope: 'local',
             kind: classifiedMediaKind,
