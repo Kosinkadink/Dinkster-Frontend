@@ -1288,7 +1288,7 @@
   "fixesNotice.change.wireIntoRemoved": "连入 {row} 的连线已移除。",
   "fixesNotice.change.removedChoice": "{row}: {removed} 已被移除；改用 {selected}",
   "fixesNotice.change.removedChoiceNone": "{row}: {removed} 已被移除；未选择任何项",
-  "fixesNotice.settings": "自动修复...",
+  "fixesNotice.settings": "打开审查升级设置",
   "fixesNotice.count": "已调整 {count} 项",
   "problems.section.execution": "执行",
   "problems.section.workflow": "此工作流",

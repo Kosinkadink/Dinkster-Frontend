@@ -134,6 +134,7 @@ test('open-time lossy upgrades show one notice on the canvas that navigates and 
   await expect(rows.last()).toContainText('Its wire into unmapped was removed.')
   await expect(notice).not.toContainText('replace:')
   await expect(notice).not.toContainText('mapping')
+  await expect(notice.getByRole('button', { name: 'Open the Review upgrades setting', exact: true })).toBeVisible()
   await rows.first().click()
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
   await expect.poll(() => page.evaluate(() => {

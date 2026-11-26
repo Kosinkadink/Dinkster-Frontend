@@ -1286,7 +1286,7 @@
   "fixesNotice.change.wireIntoRemoved": "Its wire into {row} was removed.",
   "fixesNotice.change.removedChoice": "{row}: {removed} was removed; {selected} is used",
   "fixesNotice.change.removedChoiceNone": "{row}: {removed} was removed; nothing is chosen",
-  "fixesNotice.settings": "Automatic fixes...",
+  "fixesNotice.settings": "Open the Review upgrades setting",
   "fixesNotice.count": "{count} adjusted",
   "problems.section.execution": "Execution",
   "problems.section.workflow": "This workflow",
