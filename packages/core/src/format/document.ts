@@ -554,10 +554,14 @@ export const boundaryOf = (inputs: readonly BoundaryItem[], outputs: readonly Bo
 export function mapBoundaryItems(
   boundary: Boundary,
   map: (item: BoundaryItem, side: 'inputs' | 'outputs', index: number) => BoundaryItem | undefined,
+  mapButton: (entry: BoundaryButtonEntry) => BoundaryButtonEntry | undefined = (entry) => entry,
 ): Boundary {
   const next = { inputs: 0, outputs: 0 }
   const visit = (entries: readonly BoundaryEntry[]): BoundaryEntry[] => entries.flatMap((entry): BoundaryEntry[] => {
-    if (entry.kind === 'button') return [entry]
+    if (entry.kind === 'button') {
+      const mapped = mapButton(entry)
+      return mapped === undefined ? [] : [mapped]
+    }
     if (entry.kind === 'section') return [{ ...entry, rows: visit(entry.rows) }]
     if (entry.kind === 'line') {
       const rows = visit(entry.rows) as BoundaryInputEntry[]

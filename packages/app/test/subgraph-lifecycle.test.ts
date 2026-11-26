@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asConnectionId, checkDocument, compile, diag, DocumentStore, loadDocument, planClipboardPaste, serializeSelection, documentResolver, coreCommandRegistry, createLocalSession, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument, boundaryOf, boundaryItems } from '@dinkster/core'
+import { asConnectionId, checkDocument, compile, diag, DocumentStore, loadDocument, planClipboardPaste, serializeSelection, documentResolver, documentNodeResolver, runPress, coreCommandRegistry, createLocalSession, type ActionHost, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument, boundaryOf, boundaryItems } from '@dinkster/core'
 import { extractSubgraphInvocationThroughBridge, flattenSubgraphThroughBridge } from '../src/CanvasHost.js'
 import { activateProblem } from '../src/ProblemsPanel.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection } from '../src/subgraph-lifecycle.js'
@@ -488,6 +488,65 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     })
     return { ok, reports, session }
   }
+
+  it('keeps an enclosing button executable and instance-local after extracting and flattening its target', async () => {
+    const buttonSchema = node('Counter', [floatField('amount', 3), floatField('delta', 7), {
+      kind: 'button', id: 'increase', label: 'Increase',
+      steps: [{ step: 'set', field: 'amount', value: { formula: 'amount + delta' } }],
+    }])
+    const resolve = (type: string) => type === 'Counter' ? buttonSchema : undefined
+    const doc: WorkflowDocument = {
+      ...fixture(), graphs: {
+        root: { id: 'root' as never, name: 'Root', ...empty, nodes: {
+          first: { id: 'first' as never, type: '#detail', values: { gain: 10 } },
+          second: { id: 'second' as never, type: '#detail', values: { gain: 80 } },
+        } },
+        detail: { id: 'detail' as never, name: 'Detail', ...empty, nodes: {
+          n: { id: 'n' as never, type: 'Counter', values: { amount: 3, delta: 7 } },
+        }, boundary: { body: [
+          { kind: 'input', id: 'gain' as never, promoted: true, binds: { kind: 'port', node: 'n' as never, port: 'amount' as never } },
+          { kind: 'section', id: 'actions', rows: [{ kind: 'button', id: 'increase', node: 'n' as never, button: 'increase' }] },
+        ] } },
+      }, view: { graphs: { root: { nodes: {} }, detail: { nodes: { n: { position: { x: 0, y: 0 } } } } } },
+    }
+    const unavailable = async (): Promise<never> => { throw new Error('This button needs no host service.') }
+    const host: ActionHost = {
+      commands: coreCommandRegistry([], resolve), schemaResolverFor: (current) => documentResolver(current, resolve),
+      schemaOf: (current, graphId, entry) => documentNodeResolver(current, resolve)(graphId, entry),
+      lookup: unavailable, call: unavailable, pick: unavailable, ask: unavailable, openPicker: unavailable,
+      editorFor: () => undefined, pasteImage: unavailable, copy: unavailable, download: unavailable,
+      queue: unavailable, interrupt: unavailable, openLink: unavailable, random: () => 0.5,
+    }
+    const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    const invocation = extractInvocation(doc, 'detail', ['first'], {
+      nodeIds: ['n'], geometry: [{ id: 'n', kind: 'node', x: 0, y: 0, width: 140, height: 120 }],
+    }, 'Counter body', resolve)!
+    const extracted = session.dispatch(invocation)
+    expect(extracted.ok, JSON.stringify(!extracted.ok && extracted.diagnostics)).toBe(true)
+    const shell = Object.values(session.doc.graphs.detail!.nodes)[0]!
+    const target = { graphId: 'root', nodeId: 'first', button: 'increase' }
+    const beforePress = session.doc
+    expect(await runPress(session, target, host)).toMatchObject({ kind: 'done' })
+    expect(session.doc.graphs.root!.nodes.first!.values.gain).toBe(17)
+    expect(session.doc.graphs.root!.nodes.second!.values.gain).toBe(80)
+    expect(session.doc.graphs.detail).toEqual(beforePress.graphs.detail)
+    expect(session.doc.graphs[shell.type.slice(1)]).toEqual(beforePress.graphs[shell.type.slice(1)])
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(beforePress)
+    const flattened = await flatten(session.doc, 'detail', ['first'], shell.id, resolve)
+    expect(flattened.ok, JSON.stringify(flattened.reports)).toBe(true)
+    const reopened = createLocalSession(JSON.parse(JSON.stringify(flattened.session.doc)), host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    const beforeReopenedPress = reopened.doc
+    expect(await runPress(reopened, target, host)).toMatchObject({ kind: 'done' })
+    expect(reopened.doc.graphs.root!.nodes.first!.values.gain).toBe(17)
+    expect(reopened.doc.graphs.root!.nodes.second!.values.gain).toBe(80)
+    expect(reopened.doc.graphs.detail).toEqual(beforeReopenedPress.graphs.detail)
+    expect(reopened.undo()).toBe(true)
+    expect(reopened.doc).toEqual(beforeReopenedPress)
+    expect(flattened.session.undo()).toBe(true)
+    expect(await runPress(flattened.session, target, host)).toMatchObject({ kind: 'done' })
+    expect(flattened.session.doc.graphs.root!.nodes.first!.values.gain).toBe(17)
+  })
 
   it('flattening the outer subgraph node keeps every run input, member order and pick', async () => {
     const doc = fixture()

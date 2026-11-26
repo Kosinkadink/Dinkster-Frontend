@@ -750,8 +750,9 @@ describe('region compile lowering', () => {
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     const nodes = (result.artifact.dinksterGraph!.nodes.n0 as { region: { body: { nodes: Record<string, unknown> } } }).region.body.nodes
-    // Count groups carry no member lists: the engine derives their members from the count.
-    expect(nodes.source).toEqual({ nodeType: 'CountMultiSplitter', inputs: { count: 2 } })
+    expect(nodes.source).toEqual({ nodeType: 'CountMultiSplitter', inputs: { count: 2 },
+      outputMembers: { images: ['0', '1'], masks: ['0', '1'] },
+    })
     expect(nodes.before).toEqual(expect.objectContaining({
       inputs: { in: { $link: { node: 'source', output: 'before' } } },
     }))

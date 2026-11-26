@@ -65,7 +65,7 @@ import { groupAllocationFloor } from '../group-alloc.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
 import { planSubgraphDefinitionCleanup } from '../lifecycle/definition-cleanup.js'
 import { NET_VIEWS_EXT_KEY, netViewToJson, parseNetViewPosition, type NetViewGeometry } from '../format/net-views.js'
-import { boundaryItems, boundaryOf, mapBoundaryItems } from '../format/document.js'
+import { boundaryButtons, boundaryItems, boundaryOf, mapBoundaryItems, type BoundaryButtonEntry } from '../format/document.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 const warn = (code: string, message: string): Diagnostic => diag('warning', 'command', code, message)
@@ -776,6 +776,8 @@ const subgraphExtract: CommandDefinition = {
       }
     }
 
+    const innerButtons: BoundaryButtonEntry[] = []
+    const innerBoundaryIds = new Set([...innerBoundaryInputs, ...innerBoundaryOutputs].map((item) => item.id as string))
     let parentBoundary = parent.boundary
     if (parentBoundary !== undefined) {
       const inputs = [...boundaryItems(parentBoundary, 'inputs')]
@@ -793,7 +795,15 @@ const subgraphExtract: CommandDefinition = {
           }
         }
       }
-      parentBoundary = mapBoundaryItems(parentBoundary, (_item, side, index) => (side === 'inputs' ? inputs : outputs)[index])
+      parentBoundary = mapBoundaryItems(parentBoundary, (_item, side, index) => (side === 'inputs' ? inputs : outputs)[index], (entry) => {
+        const innerNode = nodeIds.get(entry.node)
+        if (innerNode === undefined) return entry
+        let id = entry.id
+        for (let suffix = 2; innerBoundaryIds.has(id); suffix++) id = `${entry.id}_${suffix}`
+        innerBoundaryIds.add(id)
+        innerButtons.push({ ...entry, id, node: asNodeId(innerNode) })
+        return { ...entry, node: asNodeId(occurrenceId), button: id }
+      })
     }
 
     const parentNodes: Record<string, NodeData> = { ...parent.nodes }
@@ -809,7 +819,7 @@ const subgraphExtract: CommandDefinition = {
       links: innerLinks,
       nets: innerNets,
       reroutes: innerReroutes,
-      boundary: boundaryOf(innerBoundaryInputs, innerBoundaryOutputs),
+      boundary: { body: [...boundaryOf(innerBoundaryInputs, innerBoundaryOutputs).body, ...innerButtons] },
       nextOrdinal: innerCursor.nextOrdinal,
       ...(innerCursor.actorCursors !== undefined ? { actorCursors: innerCursor.actorCursors } : {}),
     }
@@ -1807,7 +1817,15 @@ const subgraphFlatten: CommandDefinition = {
         }
         outputs.push(rewritten)
       }
-      boundary = mapBoundaryItems(boundary, (_item, side, index) => (side === 'inputs' ? inputs : outputs)[index])
+      let missingButton = false
+      boundary = mapBoundaryItems(boundary, (_item, side, index) => (side === 'inputs' ? inputs : outputs)[index], (entry) => {
+        if (entry.node !== nodeId) return entry
+        const source = boundaryButtons(body.boundary).find((button) => button.id === entry.button)
+        const target = source === undefined ? undefined : nodeIds.get(source.node)
+        if (source === undefined || target === undefined) { missingButton = true; return entry }
+        return { ...entry, node: asNodeId(target), button: source.button }
+      })
+      if (missingButton) return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', 'subgraph.flatten: an enclosing button has no inner declaration', graphId, instancePath, nodeId)]
     }
 
     for (const [id, link] of Object.entries(links)) {

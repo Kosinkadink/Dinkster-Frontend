@@ -57,7 +57,7 @@ import {
   type PortRef,
 } from './ids.js'
 import { boundaryOutputCandidates, matchBoundaryItem } from './compile/crossing.js'
-import { boundaryItems } from './format/document.js'
+import { boundaryButtons, boundaryItems } from './format/document.js'
 
 const SUBGRAPH_PREFIX = '#'
 
@@ -614,6 +614,10 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
   if (def.boundary) {
     const boundaryIds = new Set<string>()
     const boundaryReroutes = new Set<string>()
+    for (const button of boundaryButtons(def.boundary)) {
+      if (boundaryIds.has(button.id)) diags.push(diag('error', 'invariant', 'doc.boundary.duplicateId', where(`duplicate boundary id '${button.id}'`)))
+      boundaryIds.add(button.id)
+    }
     for (const side of ['inputs', 'outputs'] as const) {
       for (const item of boundaryItems(def.boundary, side)) {
         if (boundaryIds.has(item.id)) {

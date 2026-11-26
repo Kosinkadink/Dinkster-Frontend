@@ -16,6 +16,7 @@ import { DocumentStore } from '../src/commands/store.js'
 import { createLocalSession, type DocumentSession } from '../src/commands/session.js'
 import { compile, documentNodeResolver, documentResolver } from '../src/compile/compile.js'
 import { boundaryButtons, boundaryItems } from '../src/format/document.js'
+import { loadDocument } from '../src/format/migrate.js'
 import { elaborateInterface } from '../src/schema/elaborate.js'
 import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
 import { diag } from '../src/diagnostics.js'
@@ -1599,6 +1600,41 @@ describe('steps outside the workflow', () => {
 })
 
 describe('steps inside a subgraph occurrence', () => {
+  it.each([1, 2])('forwards SetEach only to the shown members through %i levels', async (depth) => {
+    addSchema('test.forwarded_group', [
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 6,
+        keys: { numbered: { prefix: 'item_', start: 1, pad: 0 } }, member: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+        ] },
+      { kind: 'button', id: 'increase', label: 'Increase', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: 'value + 7' } }] },
+    ])
+    const root = documentOf({ first: { type: depth === 1 ? '#g1' : '#g2' }, second: { type: depth === 1 ? '#g1' : '#g2' } })
+    const inner = documentOf({ inner: { type: 'test.forwarded_group', values: { 'items.item_1.value': 5 }, dynamic: { items: { members: ['item_1'], seq: 1 } } } }).graphs.g0!
+    const middle = documentOf({ detail: { type: '#g1' } }).graphs.g0!
+    const session = sessionOf({ ...root, graphs: { ...root.graphs,
+      g1: { ...inner, id: asGraphDefId('g1'), boundary: { body: [] } },
+      ...(depth === 1 ? {} : { g2: { ...middle, id: asGraphDefId('g2'), boundary: { body: [] } } }),
+    } })
+    expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g1', node: 'inner', button: 'increase' } }).ok).toBe(true)
+    if (depth === 2) expect(session.dispatch({ command: 'boundary.showButton', params: { graphId: 'g2', node: 'detail', button: 'increase' } }).ok).toBe(true)
+    const definition = session.doc.graphs[depth === 1 ? 'g1' : 'g2']!
+    const group = boundaryItems(definition.boundary, 'inputs')[0]!.id
+    const before: WorkflowDocument = { ...session.doc, graphs: { ...session.doc.graphs, g0: { ...session.doc.graphs.g0!, nodes: {
+      first: { ...session.doc.graphs.g0!.nodes.first!, values: { [`${group}.item_1.value`]: 10, [`${group}.item_2.value`]: 20 }, dynamic: { [group]: { members: ['item_1', 'item_2'], seq: 2 } } },
+      second: { ...session.doc.graphs.g0!.nodes.second!, values: { [`${group}.item_1.value`]: 80 }, dynamic: { [group]: { members: ['item_1'], seq: 1 } } },
+    } } } }
+    const run = sessionOf(before)
+    const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve),
+      schemaOf: (current, graphId, node) => documentNodeResolver(current, resolve)(graphId, node) })
+    expect(await runPress(run, { graphId: 'g0', nodeId: 'first', button: boundaryButtons(definition.boundary)[0]!.id }, host)).toMatchObject({ kind: 'done' })
+    expect(run.doc.graphs.g1).toEqual(before.graphs.g1)
+    if (depth === 2) expect(run.doc.graphs.g2).toEqual(before.graphs.g2)
+    expect(run.doc.graphs.g0!.nodes.second).toEqual(before.graphs.g0!.nodes.second)
+    expect(run.doc.graphs.g0!.nodes.first!.values).toEqual({ [`${group}.item_1.value`]: 17, [`${group}.item_2.value`]: 27 })
+    expect(run.undo()).toBe(true)
+    expect(run.doc).toEqual(before)
+  })
+
   it.each([1, 2])('promotes a button and its written fields through %i levels, preserving private reads and occurrence ownership', async (depth) => {
     addSchema('test.promoted_button', [
       { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
@@ -1673,6 +1709,24 @@ describe('steps inside a subgraph occurrence', () => {
     expect(session.doc.graphs.g0!.nodes.first!.values[field]).toBe(17)
     expect(session.undo()).toBe(true)
     expect(session.doc).toEqual(after)
+    const collisionDoc: WorkflowDocument = { ...doc, graphs: { ...doc.graphs, g1: { ...doc.graphs.g1!, boundary: { body: [
+      { kind: 'section', id: 'old', rows: [
+        { kind: 'button', id: 'amount', node: asNodeId('inner'), button: 'missing_amount' },
+        { kind: 'button', id: 'increase', node: asNodeId('inner'), button: 'missing_increase' },
+      ] },
+    ] } } } }
+    const collisions = sessionOf(collisionDoc)
+    expect(collisions.dispatch({ command: 'boundary.showButton', params: { graphId: 'g1', node: 'inner', button: 'increase' } }).ok).toBe(true)
+    expect(boundaryItems(collisions.doc.graphs.g1!.boundary, 'inputs').map((item) => item.id)).toEqual(['amount_2'])
+    expect(boundaryButtons(collisions.doc.graphs.g1!.boundary).map((item) => item.id)).toEqual(['amount', 'increase', 'increase_2'])
+    const beforeCollision = collisions.doc
+    expect(collisions.dispatch({ command: 'boundary.addItem', params: { graphId: 'g1', side: 'inputs', node: 'inner', port: 'delta', itemId: 'increase' } }).ok).toBe(false)
+    expect(collisions.doc).toEqual(beforeCollision)
+    const invalid = { ...collisionDoc, graphs: { ...collisionDoc.graphs, g1: { ...collisionDoc.graphs.g1!, boundary: { body: [
+      ...collisionDoc.graphs.g1!.boundary!.body,
+      { kind: 'input', id: 'amount', binds: { kind: 'port', node: 'inner', port: 'amount' } },
+    ] } } } }
+    expect(loadDocument(invalid).diagnostics.map((item) => item.code)).toContain('doc.boundary.duplicateId')
   })
 
   it('reports only shared values left changed at commit, after restored writes and skipped targets', async () => {

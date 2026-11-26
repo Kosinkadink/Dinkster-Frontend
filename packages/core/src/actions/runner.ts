@@ -549,6 +549,20 @@ function promotedTarget(doc: WorkflowDocument, target: PressTarget, host: Action
   }
 }
 
+const writeOwnerKey = (view: View, target: StepPlace, path: string): string => {
+  const owner = view.valueOwners.get(path)
+  return JSON.stringify([owner?.graphId ?? target.graphId, owner?.nodeId ?? target.nodeId, owner?.valueKey ?? path])
+}
+
+/** A shown group contains its outer members, not the definition's prefix. */
+function shownWriteOwners(doc: WorkflowDocument, target: PressTarget, host: ActionHost): ReadonlySet<string> | undefined {
+  const view = viewOf(doc, target, host)
+  const writes = view && buttonOf(view, target)?.spec.promotedFrom?.writes
+  return writes === undefined || view === undefined ? undefined : new Set(elabInputsOf(view.elaborated)
+    .filter((input) => writes.some((path) => input.address.port === path || input.address.port.startsWith(`${path}.`)))
+    .map((input) => writeOwnerKey(view, target, input.address.port)))
+}
+
 const inputAt = (view: View, path: string): ElaboratedInput | undefined =>
   elabInputsOf(view.elaborated).find((input) => valueKeyOf(input) === path)
 
@@ -834,6 +848,7 @@ class Press {
     readonly prefix: string,
     readonly store: DocumentStore,
     readonly options: PressOptions,
+    readonly shownWrites?: ReadonlySet<string>,
   ) {
     this.view = viewOf(store.doc, target, host) ?? refuse('The node is not in the workflow.')
     this.context = this.view.contexts.get(prefix) ?? refuse('The button is not on the node.')
@@ -1311,6 +1326,11 @@ class Press {
     const evaluated: [FormulaContext, unknown][] = []
     for (const member of members) {
       const context = this.view.contexts.get(`${group.path}.${member}.`) ?? refuse(`${name} has no member ${member}.`)
+      const path = context.paths.get(row)
+      if (this.shownWrites !== undefined && (path === undefined || !this.shownWrites.has(writeOwnerKey(this.view, this.target, path)))) {
+        this.skip(path ?? `${group.path}.${member}.${row}`, 'outside')
+        continue
+      }
       evaluated.push([context, await this.value(value, context)])
     }
     this.stage(evaluated.flatMap(([context, item]) => this.write(row, item, context)))
@@ -1608,12 +1628,13 @@ export async function runPress(
   host: ActionHost,
   options: PressOptions = {},
 ): Promise<PressOutcome> {
-  target = promotedTarget(session.doc, target, host)
+  const shownWrites = shownWriteOwners(session.doc, target, host)
   const availability = buttonAvailability(session.doc, target, host)
   if (!availability.enabled) return failedOutcome(availability.reason)
+  target = promotedTarget(session.doc, target, host)
   const view = viewOf(session.doc, target, host)!
   const button = buttonOf(view, target)!
-  return run(session, [{ ...target, prefix: button.prefix, steps: decodeSteps(button.spec.steps) }], host, options)
+  return run(session, [{ ...target, prefix: button.prefix, steps: decodeSteps(button.spec.steps) }], host, options, shownWrites)
 }
 
 /**
@@ -1636,7 +1657,7 @@ export async function runSteps(
 const failedOutcome = (message: string, notes: readonly string[] = [], own = false): PressOutcome =>
   ({ kind: 'failed', message: own ? message : `Nothing was changed. ${message}`, warning: true, skipped: [], notes })
 
-async function run(session: DocumentSession, parts: readonly StepPart[], host: ActionHost, options: PressOptions): Promise<PressOutcome> {
+async function run(session: DocumentSession, parts: readonly StepPart[], host: ActionHost, options: PressOptions, shownWrites?: ReadonlySet<string>): Promise<PressOutcome> {
   const original = session.doc
   const stale = options.staleMessage ?? STALE_MESSAGE
   if (options.insideOnly === true || options.noWait === true) {
@@ -1696,7 +1717,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
     const scratch = scratchOf(session.doc, host)
     dispatchOn(scratch, lead, actor)
     for (const part of parts) {
-      const press = new Press(session, part, host, part.prefix, scratch, options)
+      const press = new Press(session, part, host, part.prefix, scratch, options, shownWrites)
       presses.push(press)
       for (const step of part.steps) {
         if (isOutsideStep(step)) break
@@ -1841,6 +1862,7 @@ const formulasOf = (value: StepValue | undefined): readonly string[] =>
  * has a wire.
  */
 export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, host: Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor'>): ButtonAvailability {
+  const shownWrites = shownWriteOwners(doc, target, host as ActionHost)
   target = promotedTarget(doc, target, host as ActionHost)
   const initial = viewOf(doc, target, host as ActionHost)
   const button = initial && buttonOf(initial, target)
@@ -1919,7 +1941,9 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
       ]
       scopes = members.flatMap((member) => {
         const scope = view.contexts.get(`${path}.${member}.`)
-        return scope === undefined ? [] : [scope]
+        const field = scope?.paths.get(step.field)
+        return scope === undefined || (shownWrites !== undefined &&
+          (field === undefined || !shownWrites.has(writeOwnerKey(view, target, field)))) ? [] : [scope]
       })
     }
     const writes = targetsOf([step])
