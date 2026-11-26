@@ -84,19 +84,19 @@ test('backend and runtime management remains truthful and usable across wide, na
     window.dispatchEvent(new Event('connection-profiles-changed'))
   })
   const saved = panel.getByTestId('backend-row').filter({ hasText: 'Saved studio' })
-  await saved.locator('summary').click()
+  await saved.locator('button[aria-controls]').click()
   await expect(saved.getByRole('button', { name: 'Connect', exact: true })).toBeVisible()
   const farm = page.getByTestId('backend-row').filter({ hasText: 'Render farm with a long descriptive backend name' })
   const maintenance = page.getByTestId('backend-row').filter({ hasText: 'Maintenance backend' })
-  await expect(farm.locator('summary').first()).toContainText('Reconnecting')
-  await expect(maintenance.locator('summary').first()).toContainText('Disconnected')
-  await farm.locator('summary').first().click()
-  await expect(farm.locator('details').first()).toHaveAttribute('open', '')
+  await expect(farm.locator('button[aria-controls]')).toContainText('Reconnecting')
+  await expect(maintenance.locator('button[aria-controls]')).toContainText('Not connected')
+  await farm.locator('button[aria-controls]').click()
+  await expect(farm.locator('button[aria-controls]')).toHaveAttribute('aria-expanded', 'true')
   await page.evaluate(() => {
     const local = (window.__dinksterTest!.app as any).backends.get()[0]!
     local.supervisor.set({ ...local.supervisor.get()!, detail: 'Backend health refreshed' })
   })
-  await expect(farm.locator('details').first()).toHaveAttribute('open', '')
+  await expect(farm.locator('button[aria-controls]')).toHaveAttribute('aria-expanded', 'true')
   await expect(saved.getByRole('button', { name: 'Connect', exact: true })).toBeVisible()
   await expect(farm).toContainText('Schema wire 99 is not supported')
   await expect(farm.getByRole('button', { name: 'Restart engine', exact: true })).toBeVisible()
@@ -144,12 +144,12 @@ test('backend and runtime management remains truthful and usable across wide, na
 
   await page.emulateMedia({ reducedMotion: 'reduce' })
   expect(await panel.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0s')
-  const serverToggle = local.locator('summary').first()
+  const serverToggle = local.locator('button[aria-controls]')
   await serverToggle.scrollIntoViewIfNeeded()
   const serverToggleBox = await serverToggle.boundingBox()
   expect(serverToggleBox).not.toBeNull()
   await page.touchscreen.tap(serverToggleBox!.x + serverToggleBox!.width / 2, serverToggleBox!.y + serverToggleBox!.height / 2)
-  await expect(local.locator('details').first()).not.toHaveAttribute('open', '')
+  await expect(serverToggle).toHaveAttribute('aria-expanded', 'false')
 
   // Model the CSS viewport and pixel density of 200% zoom on a 720px display.
   // CSS zoom alone leaves window.innerWidth and media queries unchanged.
@@ -266,7 +266,7 @@ test('mounted agent permission chrome relabels without refetching or changing au
   })
 
   const backend = page.getByTestId('backend-row').filter({ hasText: 'Raw permissions backend' })
-  await backend.locator('summary').first().click()
+  await backend.locator('button[aria-controls]').click()
   await backend.getByRole('button', { name: 'Settings', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Settings', exact: true }).getByRole('region', { name: 'Raw permissions backend', exact: true }).getByTestId('agent-permissions')
   const row = panel.getByTestId('agent-permissions-row')
