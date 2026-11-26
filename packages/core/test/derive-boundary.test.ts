@@ -979,11 +979,12 @@ describe('Boundary sample acceptance compilation', () => {
       ['signal', 'image', true, undefined], ['signal', 'image', false, undefined],
       ['pending', 'image', false, undefined], ['stored', 'image', false, 0.9],
       ['calculated', 'image', false, 0.7], ['failed', 'image', false, 0.3],
+      ['pick', 'image', false, null],
     ] as const) for (const exposeInnerChoice of wired ? [false] : [false, true]) {
       const inner: NodeSchema = { ...boundarySampleSchema, body: boundarySampleSchema.body.map((row) =>
         row.kind === 'input' && row.id === 'strength'
-          ? { ...row, visible: { formula: dependency === 'signal' ? 'linked(mode.signal)' : `mode.${dependency} > 0.5` },
-            labelFormula: { formula: dependency === 'signal' ? '"Signal connected" if linked(mode.signal) else "Signal empty"' : `"Mix " + fixed(mode.${dependency}, 1)` } }
+          ? { ...row, visible: { formula: dependency === 'signal' ? 'linked(mode.signal)' : dependency === 'pick' ? 'mode.pick == "x"' : `mode.${dependency} > 0.5` },
+            labelFormula: { formula: dependency === 'signal' ? '"Signal connected" if linked(mode.signal) else "Signal empty"' : dependency === 'pick' ? '"Pick x" if mode.pick == "x" else "Pick empty"' : `"Mix " + fixed(mode.${dependency}, 1)` } }
           : row.kind === 'choice' && row.id === 'mode' ? { ...row, shared: [...row.shared,
             { kind: 'input' as const, id: 'signal', type: { kind: 'concrete' as const, name: 'FLOAT' }, optional: true },
             ...['pending', 'stored', 'calculated', 'failed'].map((id) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'FLOAT' }, optional: false,
@@ -992,7 +993,9 @@ describe('Boundary sample acceptance compilation', () => {
           ], options: row.options.map((option) => option.key === 'text'
             ? { ...option, rows: [...option.rows, { kind: 'input' as const, id: 'private', type: { kind: 'concrete' as const, name: 'FLOAT' }, optional: false,
               widget: { widgetType: 'FLOAT', options: {}, default: 0.7 } }] }
-            : { ...option, rows: [...option.rows, ...['signal', 'pending', 'stored', 'calculated', 'failed'].map((id) => ({ kind: 'use' as const, id }))] }) } : row) }
+            : { ...option, rows: [...option.rows, ...['signal', 'pending', 'stored', 'calculated', 'failed'].map((id) => ({ kind: 'use' as const, id })),
+              { kind: 'choice' as const, id: 'pick', required: false, shared: [], options: [{ key: 'x', rows: [] }, { key: 'y', rows: [] }] },
+            ] }) } : row) }
       const source = boundarySample(2)
       const detail = source.graphs.detail!
       const sample = detail.nodes.sample!
@@ -1009,8 +1012,8 @@ describe('Boundary sample acceptance compilation', () => {
       const resolve: SchemaResolver = (type) => type === 'Boundary sample' ? inner : resolveBoundarySample(type)
       for (const [schema, id] of [[documentResolver(doc, resolve)('#detail')!, 'amount'], [documentResolver(doc, resolve)('#portrait')!, 'mix']] as const) {
         const field = elabInputsOf(elaborateInterface(schema, { values: {} })).find((row) => row.spec.id === id)!
-        expect(field.spec.displayName).toBe(dependency === 'signal' ? wired ? 'Signal connected' : 'Signal empty' : expected === undefined ? id : `Mix ${expected}`)
-        expect(field.spec.hidden === true).toBe(dependency === 'signal' ? !wired : expected !== undefined && expected < 0.5)
+        expect(field.spec.displayName).toBe(dependency === 'signal' ? wired ? 'Signal connected' : 'Signal empty' : dependency === 'pick' ? 'Pick empty' : expected === undefined ? id : `Mix ${expected}`)
+        expect(field.spec.hidden === true).toBe(dependency === 'signal' ? !wired : expected === null || expected !== undefined && expected < 0.5)
       }
     }
   })

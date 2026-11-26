@@ -940,8 +940,8 @@ export function deriveBoundarySchema(
       const stored = Object.hasOwn(node.values, path)
       const linked = connectivity.isInputConnected(path)
       if (!stored && !linked && (row.automatic?.state === 'loading' || row.automatic?.state === 'not-known')) continue
-      const value = stored ? node.values[path]
-        : row.derivedValue ?? row.automatic?.value ?? readWhenUnset(row.spec)
+      const value = row.origin.kind === 'selector' ? row.origin.selected ?? null
+        : stored ? node.values[path] : row.derivedValue ?? row.automatic?.value ?? readWhenUnset(row.spec)
       if (value !== undefined || linked) values.set(path, { value, ...(linked ? { linked: true as const } : {}) })
     }
     fixedInputs.set(node, values)
