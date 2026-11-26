@@ -179,6 +179,22 @@ test('Save target shared fold-out distinguishes rest, typing and a reopened wire
     await expect(changed.locator('input')).toHaveValue('ComfyUI')
     await expect(changed.getByRole('button', { name: 'Reset to default', exact: true })).toHaveCount(0)
     await expect.poll(() => changed.locator('.dinkster-canvas-editor').evaluate((element) => element.clientHeight)).toBeLessThan(expandedHeight)
+
+    const mapped = (id: string) => page.getByTestId(`save-target-box-mapped-${id}`).locator('..')
+    const inputs = page.getByRole('heading', { name: 'Ordinary Save inputs', exact: true }).locator('..')
+    await expect(inputs).toHaveScreenshot(`save-target-mapped-${theme}.png`)
+    const wiredMount = mapped('mount-wired')
+    await expect(wiredMount.locator('.dinkster-canvas-target-mount')).toHaveAttribute('inert', '')
+    await wiredMount.locator('input').fill('edited/name')
+    await wiredMount.getByRole('button', { name: 'Reset to default', exact: true }).click()
+    await expect(wiredMount.locator('input')).toHaveValue('ComfyUI')
+    await expect(wiredMount.locator('.dinkster-canvas-target-value-text')).toHaveText('archive')
+    const mappedName = mapped('name-wired')
+    await expect(mappedName.locator('input')).toHaveAttribute('readonly', '')
+    await mappedName.locator('.dinkster-canvas-target-choice').click()
+    await page.getByRole('option', { name: 'archive', exact: true }).click()
+    await expect(mappedName.locator('.dinkster-canvas-target-value-text')).toHaveText('archive')
+    await expect(mappedName.locator('input')).toHaveValue('from/upstream')
   }
   } finally { await browser.close() }
 })

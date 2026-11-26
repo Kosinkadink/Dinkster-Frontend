@@ -1421,6 +1421,17 @@ export function layoutNode(
     connected: isConnected('in', item.spec.id), ...(item.spec.optional ? { optional: true as const } : {}),
   })
 
+  const saveTargetInputs = new Map<string, ElaboratedInput[]>()
+  const saveTargetParts = new Set<string>()
+  for (const item of items) {
+    if (item.kind !== 'editor' || widgetMeasure(item.widget)?.viewId !== 'core.saveTarget') continue
+    const inputs = ['mount', 'name'].map((part) => items.find((input): input is ElaboratedInput =>
+      input.kind === 'input' && input.spec.id === item.parts.writes[part]))
+    if (!inputs.every((input) => input !== undefined)) continue
+    saveTargetInputs.set(item.id, inputs)
+    for (const input of inputs) saveTargetParts.add(input.spec.id)
+  }
+
   let outputIndex = 0
   /** Top-level boxes that hold a row other than an output. */
   const holdsMoreThanOutputs = new Set<string>()
@@ -1455,7 +1466,11 @@ export function layoutNode(
       const measured = widgetMeasure(item.widget) ?? { viewId: 'core.unknown', rows: 1 }
       // The compact view shows the one row the editor writes, when it writes exactly one.
       const written = Object.values(item.parts.writes)
-      const shown = written.length === 1 ? node.values[written[0]!] : undefined
+      const mapped = saveTargetInputs.get(item.id)
+      const shown = mapped === undefined ? written.length === 1 ? node.values[written[0]!] : undefined
+        : { ...(node.values[mapped[0]!.spec.id] == null ? {} : { mount: node.values[mapped[0]!.spec.id]! }), prefix: node.values[mapped[1]!.spec.id] ?? '' }
+      if (measured.editorControls !== undefined && Number.isFinite(measured.editorControls))
+        editorControlHeights.set(item.id, Math.max(0, measured.editorControls))
       const ghost = (item.origin.kind === 'member' && item.origin.ghost === true) || item.ancestry?.some((a) => a.ghost) === true
       pending.push({
         kind: 'widget',
@@ -1579,8 +1594,8 @@ export function layoutNode(
       }
       continue
     }
-    // Its curve draws its pin; it has no row of its own.
-    if (curveHistograms.has(spec.id)) continue
+    // Its editor draws the input's pin beside the corresponding control.
+    if (curveHistograms.has(spec.id) || saveTargetParts.has(spec.id)) continue
     if (asSocket) {
       pending.push({
         kind: 'ports',
@@ -1973,6 +1988,13 @@ export function layoutNode(
           const controlsTop = space.pad + (editorSpace.picture === undefined ? 0 : editorSpace.picture.height + space.gap)
           pins.push(histogramPinAt(histogram.pin, y + controlsTop + (histogram.line + 0.5) * tokens.rowHeight))
         }
+        for (const [line, input] of (saveTargetInputs.get(editorSpace.inputId) ?? []).entries()) {
+          const center = y + space.pad + (line + 0.5) * tokens.rowHeight
+          pins.push(histogramPinAt(curveHistogramPin(input), center))
+          if (input.spec.widget !== undefined && input.spec.sent !== false) pins.push({
+            ...histogramPinAt(curveHistogramPin(input), center), direction: 'out', widgetTap: true,
+          })
+        }
         y += editorSpace.height
       } else if (row.kind === 'growth') {
         const g = row.growth!
@@ -2053,6 +2075,19 @@ export function layoutNode(
           widgetBacked: true as const,
         })
         if (pressed) pins.push({ ...histogramPinAt(w.histogram!, y + tokens.rowHeight / 2 + pitch), collapsedSection: w.valueKey })
+        if (w.unfolded !== true && saveTargetInputs.has(w.inputId)) {
+          for (const direction of ['in', 'out'] as const) {
+            const connected = saveTargetInputs.get(w.inputId)!.filter((input) =>
+              isConnected(direction, input.spec.id) && (direction === 'in' || input.spec.widget !== undefined && input.spec.sent !== false))
+            for (const [index, input] of connected.entries()) {
+              pins.push({
+                ...histogramPinAt(curveHistogramPin(input), y + tokens.rowHeight / 2 + (index - (connected.length - 1) / 2) * box.clusterPitch.two),
+                direction, collapsedSection: w.inputId,
+                ...(direction === 'out' ? { widgetTap: true as const } : {}),
+              })
+            }
+          }
+        }
         // A widget can also produce its effective value. The duplicate
         // right-edge anchor deliberately shares the input's flattened id.
         if (w.editor !== true && w.unsent !== true) pins.push({

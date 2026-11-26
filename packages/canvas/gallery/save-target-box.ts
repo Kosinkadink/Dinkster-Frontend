@@ -2,6 +2,7 @@ import {
   defaultValuesOf,
   loadDocument,
   type Json,
+  type JsonObject,
   type NodeSchema,
 } from '@dinkster/core'
 import {
@@ -47,6 +48,18 @@ export const optionalSaveTargetSchema: NodeSchema = {
   ],
 }
 
+export const mappedSaveTargetSchema: NodeSchema = {
+  ...saveTargetSchema,
+  body: [
+    { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+    { kind: 'input', id: 'mount', displayName: 'Mount', type: { kind: 'concrete', name: 'MOUNT' }, optional: true,
+      widget: { widgetType: 'MOUNT', options: {} } },
+    { kind: 'input', id: 'filename_prefix', displayName: 'Name', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+      widget: { widgetType: 'STRING', options: {}, default: 'ComfyUI' } },
+    { kind: 'editor', id: 'target', widget: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' }, writes: { mount: 'mount', name: 'filename_prefix' } } },
+  ],
+}
+
 const SOURCE = 'Target source'
 const sourceSchema: NodeSchema = {
   type: SOURCE,
@@ -68,14 +81,24 @@ export function createSaveTargetScene(
   widgetMeasure: WidgetMeasure,
   position: { x: number; y: number },
   stored: Json,
-  options: { readonly optional?: boolean; readonly wired?: boolean; readonly unfolded?: boolean } = {},
+  options: { readonly optional?: boolean; readonly wired?: boolean; readonly unfolded?: boolean; readonly mapped?: boolean; readonly wiredParts?: readonly ('mount' | 'name')[] } = {},
 ): Scene {
   const wired = options.wired === true
   const schema = {
-    ...(options.optional === true ? optionalSaveTargetSchema : saveTargetSchema),
+    ...(options.mapped ? mappedSaveTargetSchema : options.optional === true ? optionalSaveTargetSchema : saveTargetSchema),
     ...(wired ? { displayName: 'Save layers' } : {}),
   }
   const id = schema.type
+  const parts = options.wiredParts ?? []
+  const hasSource = wired || parts.length > 0
+  const target = (typeof stored === 'object' && stored !== null && !Array.isArray(stored) ? stored : {}) as JsonObject
+  const source = {
+    ...sourceSchema,
+    body: options.mapped ? [
+      { kind: 'output', id: 'mount', type: { kind: 'concrete', name: 'MOUNT' } },
+      { kind: 'output', id: 'name', type: { kind: 'concrete', name: 'STRING' } },
+    ] : sourceSchema.body,
+  } satisfies NodeSchema
   const loaded = loadDocument({
     format: 'dinkster-workflow',
     formatVersion: 1,
@@ -87,12 +110,13 @@ export function createSaveTargetScene(
         name: 'Gallery',
         nextOrdinal: 3,
         nodes: {
-          [id]: { id, type: id, values: { ...defaultValuesOf(schema), target: stored } },
-          ...(wired ? { [SOURCE]: { id: SOURCE, type: SOURCE, values: {} } } : {}),
+          [id]: { id, type: id, values: { ...defaultValuesOf(schema), ...(options.mapped
+            ? { mount: target['mount'] ?? null, filename_prefix: target['prefix'] ?? '' } : { target: stored }) } },
+          ...(hasSource ? { [SOURCE]: { id: SOURCE, type: SOURCE, values: {} } } : {}),
         },
         links: wired
           ? { wire: { id: 'wire', from: { node: SOURCE, port: 'target' }, to: { node: id, port: 'target' } } }
-          : {},
+          : Object.fromEntries(parts.map((part) => [part, { id: part, from: { node: SOURCE, port: part }, to: { node: id, port: part === 'mount' ? 'mount' : 'filename_prefix' } }])),
         nets: {},
         reroutes: {},
       },
@@ -102,7 +126,7 @@ export function createSaveTargetScene(
         gallery: {
           nodes: {
             [id]: { position, size: { width: 280, height: 0 }, ...(options.unfolded === undefined ? {} : { editors: { target: { unfolded: options.unfolded } } }) },
-            ...(wired ? { [SOURCE]: { position: { x: -400, y: position.y }, size: { width: 160, height: 0 } } } : {}),
+            ...(hasSource ? { [SOURCE]: { position: { x: -400, y: position.y }, size: { width: 160, height: 0 } } } : {}),
           },
         },
       },
@@ -113,7 +137,7 @@ export function createSaveTargetScene(
   return buildScene({
     document: loaded.document,
     graphId: 'gallery',
-    resolve: (type) => (type === id ? schema : type === SOURCE ? sourceSchema : undefined),
+    resolve: (type) => (type === id ? schema : type === SOURCE ? source : undefined),
     tokens,
     measure,
     widgetMeasure,
@@ -148,6 +172,8 @@ export interface SaveTargetExample {
   readonly foldout?: true
   /** Show the text field without a host-managed keyboard highlight. */
   readonly resting?: true
+  readonly mapped?: true
+  readonly wiredParts?: readonly ('mount' | 'name')[]
 }
 
 /** A target on Project default names only the prefix. */
@@ -164,6 +190,16 @@ export const saveTargetGroups: readonly {
   readonly title: string
   readonly examples: readonly SaveTargetExample[]
 }[] = [
+  {
+    title: 'Ordinary Save inputs',
+    examples: [
+      { id: 'mapped-open', caption: 'Mount and Name are real inputs, grouped by the target editor. The header has no pin.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mapped: true, foldout: true, resting: true },
+      { id: 'mapped-mount-wired', caption: 'Mount wired: its arriving archive value is quiet. Name stays editable.', stored: portrait, open: { mount: 'archive', prefix: 'renders/portrait' }, wiredParts: ['mount'], mapped: true, foldout: true, resting: true },
+      { id: 'mapped-name-wired', caption: 'Name wired: its arriving name is quiet. Mount stays editable.', stored: portrait, open: { mount: null, prefix: 'from/upstream' }, wiredParts: ['name'], mapped: true, foldout: true, resting: true },
+      { id: 'mapped-folded', caption: 'Folded with no wires: the Mount and Name pins are hidden.', stored: portrait, mapped: true, foldout: true },
+      { id: 'mapped-both-wired', caption: 'Folded with both inputs wired: their pins gather at the header on the node edge. No target input is invented.', stored: portrait, wiredParts: ['mount', 'name'], mapped: true, foldout: true },
+    ],
+  },
   {
     title: 'Shared fold-out editor',
     examples: [

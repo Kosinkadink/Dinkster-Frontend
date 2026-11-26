@@ -95,9 +95,10 @@ function SaveTargetExampleCard(props: {
         const shown = current.foldout && currentOpen && !draft().prefixInvalid
           ? { prefix: currentOpen.prefix, ...(currentOpen.mount === null ? {} : { mount: currentOpen.mount }) }
           : current.stored
-        const built = createSaveTargetScene(tokens, measure, widgetMeasure, nodeAt, shown, {
+        const built = createSaveTargetScene(tokens, measure, widgetMeasure, nodeAt, current.mapped ? current.stored : shown, {
           ...(current.optional === true ? { optional: true } : {}),
           ...(current.arriving === undefined ? {} : { wired: true }),
+          ...(current.mapped ? { mapped: true, wiredParts: current.wiredParts ?? [] } : {}),
           ...(current.foldout ? { unfolded: current.open !== undefined } : {}),
         })
         const node = built.nodes.find((item) => item.id === schema().type)!
@@ -108,6 +109,15 @@ function SaveTargetExampleCard(props: {
         renderer.setGridVisible(false)
         renderer.setScene(built)
         if (current.arriving !== undefined) renderer.setCompanions(wiredTargetCompanions(node.id, current.arriving))
+        if (current.mapped) renderer.setCompanions({ [node.id]: Object.fromEntries((current.wiredParts ?? []).map((part) => [
+          part === 'mount' ? 'mount' : 'filename_prefix',
+          { value: part === 'mount' ? currentOpen?.mount ?? 'archive' : currentOpen?.prefix ?? 'from/upstream', state: 'expected' },
+        ])) })
+        if (current.mapped) renderer.setEditorSummaries({ [node.id]: { target: { value: {
+          ...(typeof shown === 'object' && shown !== null ? shown : {}),
+          ...(current.wiredParts?.includes('mount') ? { mount: 'archive' } : {}),
+          ...(current.wiredParts?.includes('name') ? { prefix: 'from/upstream' } : {}),
+        } } } })
         if ((current.mounts ?? 'ready') === 'ready')
           renderer.setWidgetFacts({ SAVE_TARGET: { ready: [...galleryMounts], ...(current.noDefault === true ? {} : { projectMount: galleryMounts[0] }) } })
         renderer.setViewport({ x: 0, y: 0, scale: 1 })
@@ -179,8 +189,8 @@ function SaveTargetExampleCard(props: {
   const [listOpen, setListOpen] = createSignal(example().listOn !== undefined)
   const listOn = () => {
     if (!listOpen()) return undefined
-    const on = example().listOn
-    return on === undefined ? undefined : options().findIndex((entry) => entry.id === on)
+    const on = example().listOn ?? open()?.mount ?? ''
+    return options().findIndex((entry) => entry.id === on)
   }
   const box = (
     <div
@@ -195,6 +205,8 @@ function SaveTargetExampleCard(props: {
       <CanvasTargetBox
         inNode={example().foldout === true}
         frozen={example().arriving !== undefined}
+        mountWired={example().wiredParts?.includes('mount') === true}
+        prefixWired={example().wiredParts?.includes('name') === true}
         words={{
           mount: example().foldout ? 'Mount' : t('saveTargetWidget.mount'),
           prefix: example().foldout ? 'Name' : t('saveTargetWidget.prefix'),
@@ -208,6 +220,11 @@ function SaveTargetExampleCard(props: {
         {...(mountTone() === undefined ? {} : { tone: mountTone()! })}
         listOpen={listOn() !== undefined}
         onToggleList={() => setListOpen(!listOpen())}
+        onPick={(index) => {
+          if (example().wiredParts?.includes('mount')) return
+          setEdited({ mount: options()[index]!.id || null, prefix: open()?.prefix ?? '' })
+          setListOpen(false)
+        }}
         {...(listOn() === undefined ? {} : { highlight: listOn()! })}
         prefix={open()?.prefix ?? ''}
         {...(example().foldout ? { onPrefix: (prefix: string) => setEdited({ mount: open()?.mount ?? null, prefix }) } : {})}
@@ -225,8 +242,12 @@ function SaveTargetExampleCard(props: {
             : 'saveTargetWidget.noMountsShort', { id: open()?.mount ?? '' })}</CanvasEditorNote>,
         } : {})}
         {...(example().foldout && example().arriving === undefined &&
-          (open()?.mount !== null || open()?.prefix !== galleryDefault.prefix) ? {
-            reset: { label: t('saveTargetWidget.reset'), onClick: () => setEdited({ mount: null, prefix: galleryDefault.prefix }) },
+          ((!example().wiredParts?.includes('mount') && open()?.mount !== null) ||
+            (!example().wiredParts?.includes('name') && open()?.prefix !== galleryDefault.prefix)) ? {
+            reset: { label: t('saveTargetWidget.reset'), onClick: () => setEdited({
+              mount: example().wiredParts?.includes('mount') ? open()?.mount ?? null : null,
+              prefix: example().wiredParts?.includes('name') ? open()?.prefix ?? '' : galleryDefault.prefix,
+            }) },
           } : {})}
         {...(draft().prefixInvalid ? { prefixProblem: t('saveTargetWidget.invalid') } : {})}
         {...(example().resting ? {} : { focused: listOn() !== undefined ? 'mount' as const : 'prefix' as const })}
@@ -282,7 +303,7 @@ export function SaveTargetBoxGallery(props: { theme: 'dark' | 'light' }) {
                     caption: 'Curve uses the same frame, header, opener and editor space.',
                     values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } },
                     view: { editors: { curve: { unfolded: example.open !== undefined } } },
-                    ...(example.arriving === undefined ? {} : {
+                    ...(example.arriving === undefined && !example.wiredParts?.length ? {} : {
                       wired: { curve: 'CURVE' }, carried: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } },
                     }),
                   }} />
