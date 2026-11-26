@@ -1,11 +1,11 @@
 import { createEffect, createMemo, createSignal, on, onCleanup, Show } from 'solid-js'
 import { ArrowLeft, Download, Folder, PanelTop, Wrench } from 'lucide-solid'
 import {
-  defaultTokens, pinShapeOf, presentedType, typeColor, typeExprCanonicalLabel, typeIdDisplayLabel,
+  defaultTokens, presentedType, typeColor, typeExprCanonicalLabel, typeIdDisplayLabel,
   type LinkDropContext, type LinkDoubleClickContext,
 } from '@dinkster/canvas'
 import {
-  allRowsOf, autoConnectTarget, hasKnownLinkDropAnchorType, hintsMatchLinkDrop,
+  autoConnectTarget, cardinalityOf, hasKnownLinkDropAnchorType, hintsMatchLinkDrop,
   hintsMatchPortFilters, isDeprecated, parseSearchFilters,
   rankSearch, schemaInputTypes, schemaMatchesLinkDrop,
   schemaMatchesPortFilters, schemaOutputTypes, semanticDesignTokens, typeExprFromTypeId,
@@ -246,11 +246,7 @@ export function NodePalette(props: {
     }
     return productSearchTypeOptions(found)
   }
-  const typeShape = (type: string, direction: 'takes' | 'gives') => pinShapeOf(
-    typeExprFromTypeId(type), direction === 'takes' ? 'in' : 'out',
-    direction === 'takes' && entries().some((entry) => entry.schema !== undefined &&
-      [...allRowsOf(entry.schema.body)].some((row) => row.kind === 'input' && row.hidden !== true && row.acceptsList === true && typeExprCanonicalLabel(row.type) === type)),
-  )
+  const typeShape = (type: string) => cardinalityOf(typeExprFromTypeId(type)) === 'list' ? 'diamond' as const : 'circle' as const
   const typeMenu = (direction: 'takes' | 'gives') => {
     const selectedTypes = () => direction === 'takes' ? takes() : gives()
     const change = (value: ReadonlySet<string>) => { (direction === 'takes' ? setTakes : setGives)(value); setCurrent(undefined) }
@@ -259,12 +255,12 @@ export function NodePalette(props: {
     return <ProductMenu fill="quiet" align={direction === 'gives' ? 'end' : 'start'}
       label={`${label()}: ${valueLabel()}`} title={`${label()}: ${valueLabel()}`}
       triggerName={`${label()}: ${valueLabel()}`}
-      labelContent={<ProductSearchTypeLabel label={valueLabel()} direction={direction} color={selectedTypes().size === 1 ? typeColor(defaultTokens, [...selectedTypes()][0]!) : undefined} shape={selectedTypes().size === 1 ? typeShape([...selectedTypes()][0]!, direction) : 'circle'} />}
+      labelContent={<ProductSearchTypeLabel label={valueLabel()} direction={direction} color={selectedTypes().size === 1 ? typeColor(defaultTokens, [...selectedTypes()][0]!) : undefined} shape={selectedTypes().size === 1 ? typeShape([...selectedTypes()][0]!) : 'circle'} />}
       items={[
         { label: `${label()} ${message('palette.typeFilter.any')}`, labelContent: <ProductSearchTypeLabel label={message('palette.typeFilter.any')} direction={direction} />, checked: selectedTypes().size === 0, onSelect: () => change(new Set()) },
         ...typeOptions(direction === 'takes' ? 'in' : 'out').map((type) => ({
           label: `${label()} ${productSearchTypeName(typeIdDisplayLabel(type))}`,
-          labelContent: <ProductSearchTypeLabel label={productSearchTypeName(typeIdDisplayLabel(type))} direction={direction} color={typeColor(defaultTokens, type)} shape={typeShape(type, direction)} />,
+          labelContent: <ProductSearchTypeLabel label={productSearchTypeName(typeIdDisplayLabel(type))} direction={direction} color={typeColor(defaultTokens, type)} shape={typeShape(type)} />,
           checked: selectedTypes().has(type),
           onSelect: () => { const next = new Set(selectedTypes()); if (next.has(type)) next.delete(type); else next.add(type); change(next) },
         })),
@@ -313,7 +309,7 @@ export function NodePalette(props: {
           name: `${message(props.anchor.linkDrop.seeking === 'in' ? 'palette.filter.takes' : 'palette.filter.gives')} ${typeLabelOf(props.anchor.linkDrop.anchorType)}`,
           direction: props.anchor.linkDrop.seeking === 'in' ? 'takes' as const : 'gives' as const,
           color: presentedType(defaultTokens, props.anchor.linkDrop.anchorType).color,
-          shape: pinShapeOf(props.anchor.linkDrop.anchorType),
+          shape: cardinalityOf(props.anchor.linkDrop.anchorType) === 'list' ? 'diamond' as const : 'circle' as const,
           removeLabel: message('palette.filter.removeConnection'), onRemove: props.onRemoveLinkDrop,
         } })}
         filters={filters}

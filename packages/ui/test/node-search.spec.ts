@@ -138,7 +138,7 @@ test('list filters keep plain names, directional pin shapes and whole-list input
     const menu = search.getByRole('menu')
     await expect(menu.getByRole('menuitemcheckbox')).toHaveText(['Any type', 'image', 'image list', 'image file', 'int', 'string'])
     await expect(menu.getByRole('menuitemcheckbox', { name: `${direction} image list`, exact: true }).locator('.dinkster-search-chip-dot')).toHaveAttribute('data-shape', 'diamond')
-    await expect(menu.getByRole('menuitemcheckbox', { name: `${direction} image`, exact: true }).locator('.dinkster-search-chip-dot')).toHaveAttribute('data-shape', direction === 'Takes' ? 'scalar-list' : 'circle')
+    await expect(menu.getByRole('menuitemcheckbox', { name: `${direction} image`, exact: true }).locator('.dinkster-search-chip-dot')).toHaveAttribute('data-shape', 'circle')
     await menu.getByRole('menuitemcheckbox', { name: `${direction} image list`, exact: true }).click()
     await expect(search.getByRole('listbox').getByRole('option')).toHaveText(direction === 'Takes'
       ? ['Image List to Batchdev / image', 'Image Statsdev / image']

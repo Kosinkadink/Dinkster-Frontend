@@ -527,7 +527,7 @@ test('a dropped list wire offers either-value inputs, excludes scalar-only input
   await palette.getByRole('button', { name: /^Takes:/ }).click()
   const listType = palette.getByRole('menuitemcheckbox', { name: 'Takes IMAGE list', exact: true })
   await expect(listType).toBeVisible()
-  await expect(palette.getByRole('menuitemcheckbox', { name: 'Takes IMAGE', exact: true }).locator('.dinkster-search-chip-dot')).toHaveAttribute('data-shape', 'scalar-list')
+  await expect(palette.getByRole('menuitemcheckbox', { name: 'Takes IMAGE', exact: true }).locator('.dinkster-search-chip-dot')).toHaveAttribute('data-shape', 'circle')
   await listType.click()
   await expect(either).toBeVisible()
   await expect(palette.locator('[data-key="entry:PaletteImageConsumer"]')).toHaveCount(0)

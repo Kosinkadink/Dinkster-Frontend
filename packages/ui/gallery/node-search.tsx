@@ -1,7 +1,7 @@
 import { For, Show, createSignal } from 'solid-js'
 import { ArrowLeft, Download, Folder, PanelTop, Wrench } from 'lucide-solid'
-import { autoConnectTarget, schemaMatchesPortFilters, typeExprFromTypeId, type NodeSchema, type WidgetRegistry } from '@dinkster/core'
-import { defaultTokens, pinShapeOf, typeColor } from '@dinkster/canvas'
+import { autoConnectTarget, cardinalityOf, schemaMatchesPortFilters, typeExprFromTypeId, type NodeSchema, type WidgetRegistry } from '@dinkster/core'
+import { defaultTokens, typeColor } from '@dinkster/canvas'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { BlueprintIcon, ProductButton, ProductIcon, ProductMenu, ProductSearch, ProductSearchNodePreview, ProductSearchTypeLabel, ProductSection, productSearchTypeName, productSearchTypeOptions, type ProductSearchGroup } from '../src/index.js'
 import { NodeDrawing, node } from './search.js'
@@ -113,11 +113,11 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
       align={direction === 'Gives' ? 'end' : 'start'}
       label={`${direction}: ${valueLabel()}`}
       title={`${direction}: ${valueLabel()}`}
-      labelContent={<ProductSearchTypeLabel label={valueLabel()} direction={direction === 'Takes' ? 'takes' : 'gives'} color={singleType() === '' ? undefined : typeColor(defaultTokens, singleType())} shape={pinShapeOf(typeExprFromTypeId(singleType()), direction === 'Takes' ? 'in' : 'out', direction === 'Takes' && singleType() === 'IMAGE')} />}
+      labelContent={<ProductSearchTypeLabel label={valueLabel()} direction={direction === 'Takes' ? 'takes' : 'gives'} color={singleType() === '' ? undefined : typeColor(defaultTokens, singleType())} shape={cardinalityOf(typeExprFromTypeId(singleType())) === 'list' ? 'diamond' : 'circle'} />}
       triggerName={`${direction} type`}
       items={['', ...productSearchTypeOptions(['IMAGE', 'list<IMAGE>', 'asset<IMAGE>', 'STRING', 'INT'])].map((type) => ({
         label: `${direction} ${type === '' ? 'Any type' : productSearchTypeName(type.toLowerCase())}`,
-        labelContent: <ProductSearchTypeLabel label={type === '' ? 'Any type' : productSearchTypeName(type.toLowerCase())} direction={direction === 'Takes' ? 'takes' : 'gives'} color={type === '' ? undefined : typeColor(defaultTokens, type)} shape={pinShapeOf(typeExprFromTypeId(type), direction === 'Takes' ? 'in' : 'out', direction === 'Takes' && type === 'IMAGE')} />,
+        labelContent: <ProductSearchTypeLabel label={type === '' ? 'Any type' : productSearchTypeName(type.toLowerCase())} direction={direction === 'Takes' ? 'takes' : 'gives'} color={type === '' ? undefined : typeColor(defaultTokens, type)} shape={cardinalityOf(typeExprFromTypeId(type)) === 'list' ? 'diamond' : 'circle'} />,
         checked: type === '' ? selectedTypes().size === 0 : selectedTypes().has(type),
         onSelect: () => change(type),
       }))}
@@ -137,7 +137,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
         kinds={KINDS}
         kind={kind()}
         onKind={setKind}
-        {...(wire() ? { chip: { label: wireName(), name: `Takes ${wireName()}`, direction: 'takes' as const, color: typeColor(defaultTokens, 'IMAGE'), shape: pinShapeOf(anchor()), removeLabel: 'Remove image constraint', onRemove: () => setWire(false) } } : {})}
+        {...(wire() ? { chip: { label: wireName(), name: `Takes ${wireName()}`, direction: 'takes' as const, color: typeColor(defaultTokens, 'IMAGE'), shape: props.list ? 'diamond' as const : 'circle' as const, removeLabel: 'Remove image constraint', onRemove: () => setWire(false) } } : {})}
         filters={<>
           <Show when={!wire()}>{typeMenu('Takes')}</Show>
           {typeMenu('Gives')}

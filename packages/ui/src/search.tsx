@@ -70,7 +70,7 @@ export interface ProductSearchChip {
   readonly direction: 'takes' | 'gives'
   /** The wire's paint, supplied by the caller from its type palette. */
   readonly color?: string
-  readonly shape?: 'circle' | 'diamond' | 'scalar-list'
+  readonly shape?: 'circle' | 'diamond'
   readonly removeLabel: string
   readonly onRemove: () => void
 }
@@ -114,13 +114,12 @@ export function ProductSearchTypeLabel(props: {
   label: string
   direction: 'takes' | 'gives'
   color?: string | undefined
-  shape?: 'circle' | 'diamond' | 'scalar-list' | undefined
+  shape?: 'circle' | 'diamond' | undefined
 }) {
   const dot = () => (
     <svg class="dinkster-search-chip-dot" data-shape={props.shape ?? 'circle'} viewBox="0 0 8 8" aria-hidden="true">
-      <Show when={props.shape !== undefined && props.shape !== 'circle'} fallback={<circle cx="4" cy="4" r="4" fill={props.color ?? 'currentColor'} />}>
+      <Show when={props.shape === 'diamond'} fallback={<circle cx="4" cy="4" r="4" fill={props.color ?? 'currentColor'} />}>
         <path d="M4 0 8 4 4 8 0 4Z" fill={props.color ?? 'currentColor'} />
-        <Show when={props.shape === 'scalar-list'}><circle cx="4" cy="4" r="2" fill={props.color ?? 'currentColor'} /></Show>
       </Show>
     </svg>
   )
