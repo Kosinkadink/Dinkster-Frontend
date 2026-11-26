@@ -3480,7 +3480,6 @@ export class CanvasRenderer {
     const unrecognized = node.unrecognized === true || node.missingSchema === true
     const scale = this.viewport.scale
     const contentDetail = detailLevel !== 'overview'
-    const pinRadius = detailRadius(t.pinRadius, scale, detailLevel)
     const selectionStrokeWidth = screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, scale, canvasPaintTokens.toolbox.selectionMinScreenStroke)
 
     if (this.overlay.bodyDropNode === node.id) {
@@ -3693,9 +3692,28 @@ export class CanvasRenderer {
       )
     }
 
+    this.drawNodeContent(ctx, sceneNode, node, detailLevel)
+  }
+
+  /** Node rows share their painter with the entered subgraph's Inputs panel. */
+  private drawNodeContent(
+    ctx: CanvasRenderingContext2D,
+    sceneNode: SceneNode,
+    node: SceneNode,
+    detailLevel: CanvasDetailLevel,
+    panel?: SceneBoundaryNode,
+  ): void {
+    const t = this.tokens
+    const l = node.layout
+    const scale = this.viewport.scale
+    const contentDetail = detailLevel !== 'overview'
+    const pinRadius = detailRadius(t.pinRadius, scale, detailLevel)
+    const nodeColor = this.nodeDecorations[sceneNode.id]?.color ?? sceneNode.color
+
     // Compact rows are content-tier detail; their pins paint independently.
     if (contentDetail) {
       ctx.font = `${t.fontSize}px ${t.fontFamily}`
+      ctx.textBaseline = 'middle'
       const boxPaint = canvasPaintTokens.node.box
       const closedHeight = t.rowHeight - t.rowGeometry.fieldInsetY * 2
       const boxHovered = (id: string): boolean =>
@@ -3998,7 +4016,7 @@ export class CanvasRenderer {
             ctx.globalAlpha = rowAlpha
           }
         } else {
-          this.drawFieldRow(ctx, sceneNode, node, row)
+          this.drawFieldRow(ctx, sceneNode, node, row, panel?.fields?.wired[row.valueKey])
         }
       }
       ctx.globalAlpha = rowsAlpha
@@ -4008,6 +4026,8 @@ export class CanvasRenderer {
         ctx.fillRect(node.x + drag.line.x, node.y + drag.line.y - boxPaint.dropLine / 2, drag.line.width, boxPaint.dropLine)
       }
     }
+
+    if (panel !== undefined) return
 
     const preview = this.previews[node.id]
     const outputText = this.outputTexts[node.id]
@@ -4954,18 +4974,8 @@ export class CanvasRenderer {
       // node outside. Ghost rows (the trailing "expose..." affordance)
       // render dimmed.
       const face = boundaryFieldNode(bnode)
+      if (face !== undefined) this.drawNodeContent(ctx, face, { ...face, x, y }, detailLevel, bnode)
       for (const row of l.rows) {
-        if (row.kind === 'widget' && face !== undefined) {
-          this.drawFieldRow(ctx, face, { ...face, x, y }, row,
-            bnode.fields!.wired[row.valueKey])
-          ctx.font = `${t.fontSize}px ${t.fontFamily}`
-          ctx.textBaseline = 'middle'
-          continue
-        }
-        if (row.kind === 'editorSpace') {
-          this.paintEditorSpace(ctx, x, y + row.y, row, l.width)
-          continue
-        }
         if (row.kind !== 'ports') continue
         const rowY = y + row.y
         const slot = row.input ?? row.output
@@ -4976,6 +4986,7 @@ export class CanvasRenderer {
           ctx.lineWidth = screenAwareStroke(paint.focusStroke, scale, paint.focusStroke)
           ctx.stroke()
         }
+        if (face !== undefined) continue
         const dim = slot?.ghost === true
         if (dim) ctx.globalAlpha = GHOST_ALPHA
         if (row.input) {
