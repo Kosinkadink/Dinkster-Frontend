@@ -366,6 +366,11 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const room = (context.tooltipLines ?? Infinity) - measure(row.name ?? row.label) -
       (opts.detailed ? detail.reduce((sum, line) => sum + measure(line), 0) : 0)
     const state = t.companion?.state ?? (t.companion?.stale ? 'stale' : t.companion ? 'expected' : undefined)
+    const message = state === 'nothing'
+      ? 'Nothing: the node feeding this wire was skipped'
+      : state === 'unknown'
+        ? 'The wire has no known value yet'
+        : undefined
     const prefix = state === 'expected'
       ? 'Current expected value: '
       : state === 'cached'
@@ -381,13 +386,14 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const incomingValue = t.companion?.value ?? value
     const incomingReadout = context.widgetReadout?.(row, incomingValue) ?? [formatWidgetValue(incomingValue, row.spec)]
     const storedReadout = t.companion && t.connected
-      ? context.widgetReadout?.(row, value) ?? [formatWidgetValue(value, row.spec)] : []
+      ? [...(context.widgetReadout?.(row, value) ?? [formatWidgetValue(value, row.spec)])] : []
+    if (storedReadout.length > 0) storedReadout[0] = `${storedReadout[0]}, used again when the wire is removed`
     const storedMinimum = storedReadout.length === 0 ? 0 : measure(`${storedPrefix}${storedReadout[0]}`) +
       (storedReadout.length > 1 ? measure(translate('widgetSummary.more', { count: storedReadout.length - 1 })) : 0)
-    const incomingMinimum = incomingReadout.length === 0 ? 0 : measure(`${prefix}${incomingReadout[0]}`)
+    const incomingMinimum = message !== undefined ? measure(message) : incomingReadout.length === 0 ? 0 : measure(`${prefix}${incomingReadout[0]}`)
     // Reserve the stored summary and remainder before spending room on incoming items.
     const storedRoom = Math.min(storedMinimum, Math.max(0, room - incomingMinimum))
-    const incoming = widgetValueLines(incomingReadout, context, room - storedRoom, prefix)
+    const incoming = message !== undefined ? [message] : widgetValueLines(incomingReadout, context, room - storedRoom, prefix)
     const stored = t.companion && t.connected
       ? widgetValueLines(storedReadout, context, room - incoming.reduce((sum, line) => sum + measure(line), 0), storedPrefix) : []
     return {

@@ -11,7 +11,7 @@
 import { formatWidgetValue, t as translate, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, drawsPassedValueAsEditor, fitSummary, fitSummaryParts, summaryPartsWidth, summaryThumbnailReserve, paintSummaryParts, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type SummaryFit, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
+import { companionWords, defaultWidgetPainter, drawsPassedValueAsEditor, fitSummary, fitSummaryParts, summaryPartsWidth, summaryThumbnailReserve, paintSummaryParts, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type SummaryFit, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
 import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
@@ -151,7 +151,8 @@ export function subgraphMarkRect(
   const size = paint.subgraphMark.size
   if (companion) {
     const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, geometry)
-    return { x: field.left + (numeric ? geometry.stepperLabelInset : paint.labelInset), y: (rowHeight - size) / 2, size }
+    const left = row.viewId === 'core.asset' && openerIconOf(row, tokens) !== undefined ? paint.opener.iconReserve : field.left
+    return { x: left + (numeric ? geometry.stepperLabelInset : paint.labelInset), y: (rowHeight - size) / 2, size }
   }
   const opener = openerIconOf(row, tokens)
   const multiline = row.viewId === 'core.text'
@@ -216,7 +217,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       }
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
-      const compact = tokens.widgetRowLook === 'raised-editors'
+      const words = companionWords(args.companion)
+      const compact = words === undefined && tokens.widgetRowLook === 'raised-editors'
         ? compactSummary(view, args.companion.value, row.spec)
         : undefined
       const summary = compact === undefined ? undefined : {
@@ -224,9 +226,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         ...(args.editorSummary?.text === undefined ? {} : { text: args.editorSummary.text }),
         ...(!row.unfolded && args.editorSummary?.thumbnails !== undefined ? { thumbnails: args.editorSummary.thumbnails } : {}),
       }
-      const formatted = summary?.text ?? formatWidgetValue(args.companion.value, row.spec)
+      const formatted = words ?? summary?.text ?? formatWidgetValue(args.companion.value, row.spec)
       const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-      const field = assetIcon === undefined ? widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
+      const field = assetIcon === undefined ? widgetFieldBounds(width, rowHeight, numeric, words === undefined && row.controllerMode !== undefined, tokens.rowGeometry)
         : { left: paint.opener.iconReserve, right: width - paint.opener.trailingReserve }
       const lead = subgraphMarkReserve(row)
       const picturesWidth = summaryThumbnailReserve(ctx, summary?.thumbnails)

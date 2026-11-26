@@ -530,6 +530,34 @@ describe('wire-17 widget representations', () => {
     })
   })
 
+  it('resolves registered kind choices while keeping an explicit schema set authoritative', () => {
+    const declaration = widget('tint', {
+      widget: { widgetType: 'pack.tint', options: {} },
+    })
+    const registered: WidgetMeasure = Object.assign(
+      (spec: import('@dinkster/core').WidgetSpec) => ({ viewId: String(spec.options['display']), rows: 1 }),
+      { representations: () => ({
+        default: 'color', userSwitchable: true,
+        representations: [
+          { id: 'color', displayName: 'Color', widget: { widgetType: 'pack.tint', options: { display: 'color' } } },
+          { id: 'number', displayName: 'Number', widget: { widgetType: 'pack.tint', options: { display: 'number' } } },
+        ],
+      }) },
+    )
+    const layout = (item = declaration, selected = 'number') => layoutNode(
+      schemaOf([item]), { ...nodeData, values: { tint: 0x3366cc } }, defaultTokens, measure, registered,
+      { widgetRepresentations: { tint: selected } },
+    ).rows[0]
+    expect(layout()).toMatchObject({ kind: 'widget', representationId: 'number', viewId: 'number' })
+    expect(layout(declaration, 'removed')).toMatchObject({ kind: 'widget', representationId: 'color', viewId: 'color' })
+    expect(layout({ ...declaration, widget: {
+      ...declaration.widget!,
+      representations: { default: 'locked', userSwitchable: false, representations: [
+        { id: 'locked', displayName: 'Locked', widget: { widgetType: 'pack.tint', options: { display: 'locked' } } },
+      ] },
+    } })).toMatchObject({ kind: 'widget', representationId: 'locked', viewId: 'locked' })
+  })
+
 })
 
 describe('Switch branch display', () => {
