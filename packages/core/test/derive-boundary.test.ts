@@ -1007,9 +1007,22 @@ describe('Boundary sample acceptance compilation', () => {
     } })
     expect(extraction.ok, JSON.stringify(extraction.diagnostics)).toBe(true)
     const extracted = store.doc
+    expect(extracted.graphs.detail!.nodes.sample).toBeUndefined()
+    const shell = Object.values(extracted.graphs.detail!.nodes)[0]!
+    expect(shell.type.startsWith('#')).toBe(true)
+    const created = extracted.graphs[shell.type.slice(1)]!
+    expect(Object.keys(extracted.graphs)).toHaveLength(Object.keys(doc.graphs).length + 1)
+    expect(Object.values(created.nodes)).toMatchObject([{ type: 'Boundary sample', values: doc.graphs.detail!.nodes.sample!.values }])
+    expect(extracted.graphs.detail!.boundary!.body.find((row) => row.kind === 'input' && row.id === 'strength')).toMatchObject({
+      binds: { kind: 'port', node: shell.id, port: 'strength' },
+    })
     expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.detail!.nodes).toEqual(doc.graphs.detail!.nodes)
+    expect(store.doc.graphs.detail!.boundary).toEqual(doc.graphs.detail!.boundary)
+    expect(store.doc.graphs[created.id]).toBeUndefined()
     expect(store.redo()).toBe(true)
-    const reopened = loadDocument(JSON.parse(JSON.stringify(extracted)))
+    expect(store.doc).toEqual(extracted)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc)))
     expect(reopened.document).toBeDefined()
     const extractedRun = compile({ document: reopened.document!, revision: 1, resolve, scope: { kind: 'full' },
       connection: asConnectionId('boundary-grid'), schemaHash: 'boundary-sample' })
