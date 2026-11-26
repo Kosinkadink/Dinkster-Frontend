@@ -37,6 +37,7 @@ import {
   ProductProjectRows,
   ProductProjectSection,
   ProductProjectsView,
+  ProductSelect,
   ProductTextButton,
   ProductTextInput,
   ProductTile,
@@ -859,17 +860,30 @@ export function ProjectsView(props: {
   }
 
   const [name, setName] = createSignal('')
+  const [newInstallation, setNewInstallation] = createSignal<string>()
+  const chosenInstallation = () => installations()?.all.find((row) => row.root === newInstallation())
+    ?? installations()?.open ?? installations()?.all[0]
+  const [createError, setCreateError] = createSignal<string>()
   const [creating, setCreating] = createSignal(false)
+  let creatingId: string | undefined
   const create = async () => {
     const trimmed = name().trim()
     if (trimmed === '' || creating()) return
+    const installation = chosenInstallation()
     setCreating(true)
     try {
-      const project = await props.source.registerProject(`p-${crypto.randomUUID()}`, trimmed)
-      await setProjects((list) => byProjectTime([...(list ?? []), project]))
+      creatingId ??= `p-${crypto.randomUUID()}`
+      const registered = await props.source.registerProject(creatingId, trimmed)
+      const project = registered.name === trimmed ? registered : await props.source.renameProject(registered, trimmed)
+      if (installation) writeChoice(pageKey(project.id, 'runsOn'), installation.root)
+      await setProjects((list) => byProjectTime([...(list ?? []).filter((entry) => entry.id !== project.id), project]))
       setChosen(project.id)
       setName('')
+      setCreateError(undefined)
+      creatingId = undefined
       props.shell.showProjects()
+    } catch {
+      setCreateError(message('projects.new.failed'))
     } finally {
       setCreating(false)
     }
@@ -877,6 +891,7 @@ export function ProjectsView(props: {
   const newProjectForm = () => (
     <>
       <ProductProjectHeader title={message('projects.new.title')} />
+      <Show when={createError()}>{(error) => <ProductErrorBanner onDismiss={() => setCreateError(undefined)}>{error()}</ProductErrorBanner>}</Show>
       <form
         class="dinkster-project-form"
         onSubmit={(event) => {
@@ -889,10 +904,19 @@ export function ProjectsView(props: {
           id="new-project-name"
           value={name()}
           autofocus
+          disabled={creating()}
           onInput={(event) => setName(event.currentTarget.value)}
         />
+        <label for="new-project-runs-on">{message('projects.facts.runsOn')}</label>
+        <ProductSelect id="new-project-runs-on" value={chosenInstallation()?.root ?? ''}
+          disabled={creating() || (installations()?.all.length ?? 0) === 0}
+          onChange={(event) => setNewInstallation(event.currentTarget.value)}>
+          <Show when={(installations()?.all.length ?? 0) > 0} fallback={<option value="">{message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.facts.noInstallation')}</option>}>
+            <For each={installations()?.all}>{(row) => <option value={row.root}>{row.name} - {message('projects.facts.thisComputer')}</option>}</For>
+          </Show>
+        </ProductSelect>
         <div class="dinkster-actions">
-          <ProductButton onClick={() => props.shell.showProjects()}>{message('projects.action.cancel')}</ProductButton>
+          <ProductButton disabled={creating()} onClick={() => { creatingId = undefined; setCreateError(undefined); props.shell.showProjects() }}>{message('projects.action.cancel')}</ProductButton>
           <ProductButton type="submit" intent="add" fill="solid" disabled={name().trim() === '' || creating()}>
             {message('projects.new.create')}
           </ProductButton>

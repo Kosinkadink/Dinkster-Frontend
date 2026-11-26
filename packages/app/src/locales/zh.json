@@ -1906,6 +1906,7 @@
   "projects.new.title": "新建项目",
   "projects.new.name": "名称",
   "projects.new.create": "创建",
+  "projects.new.failed": "无法创建项目。已保留您的选择，请重试。",
   "projects.logoMenu": "Dinkster 菜单",
   "projects.place.projects": "项目",
   "projects.place.installations": "安装",

@@ -307,6 +307,56 @@ const button = (label: string) => [...document.querySelectorAll('button')].find(
 const menuItem = (label: string) =>
   [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === label) as HTMLElement | undefined
 
+it('keeps the chosen installation and one project identity across a lost creation response', async () => {
+  const [view, setView] = createSignal<ReturnType<ProjectsPageShell['view']>>({ kind: 'projects', newProject: true })
+  const data = source(projects)
+  const opened = vi.fn()
+  let saved: LibraryProject | undefined
+  const stored = new Map<string, LibraryProject>()
+  data.listProjects = async () => [...projects, ...stored.values()]
+  data.registerProject = async (id, name) => {
+    const existing = stored.get(id)
+    if (existing) return existing
+    const created = project(id, name, new Date(NOW).toISOString())
+    stored.set(id, created)
+    if (!saved) {
+      saved = created
+      throw new Error('response lost after saving')
+    }
+    return created
+  }
+  data.renameProject = async (entry, name) => {
+    const renamed = { ...entry, name, revision: entry.revision + 1 }
+    stored.set(entry.id, renamed)
+    return renamed
+  }
+  render(() => <ProjectsView shell={{ ...shell(), view, openProject: opened, showProjects: () => setView({ kind: 'projects', newProject: false }) }} source={data} />, document.body)
+  await settle()
+  const name = document.querySelector<HTMLInputElement>('#new-project-name')!
+  name.value = 'My film'
+  name.dispatchEvent(new Event('input', { bubbles: true }))
+  const installation = document.querySelector<HTMLSelectElement>('#new-project-runs-on')!
+  installation.value = nightly.root
+  installation.dispatchEvent(new Event('change', { bubbles: true }))
+  button('Create')!.click()
+  await settle()
+  expect(document.body.textContent).toContain('Could not finish creating the project. Your choices are kept. Try again.')
+  expect(name.value).toBe('My film')
+  expect(installation.value).toBe(nightly.root)
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  name.value = 'My revised film'
+  name.dispatchEvent(new Event('input', { bubbles: true }))
+  button('Create')!.click()
+  await settle()
+  expect(stored.size).toBe(1)
+  expect([...stored.values()][0]?.name).toBe('My revised film')
+  expect(rows().filter((row) => row?.startsWith('My revised film'))).toHaveLength(1)
+  expect(localStorage.getItem(`dinkster.p.${saved!.id}.projectsPage.runsOn`)).toBe(nightly.root)
+  document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')!.click()
+  expect(opened).toHaveBeenCalledWith(saved!.id, nightly)
+})
+
 it('renames the selected project at the revision it read', async () => {
   vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
   const data = source(projects)
