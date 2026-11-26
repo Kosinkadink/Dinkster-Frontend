@@ -319,6 +319,12 @@ export function SaveTargetSpace(props: {
     setListOpen(true)
   }
   return <div ref={(element) => {
+    const outside = (event: PointerEvent): void => {
+      if ((element.contains(document.activeElement) || listOpen()) && event.target instanceof Element &&
+        !element.contains(event.target) && !event.target.closest('.dinkster-canvas-editor-choice-list')) void store()
+    }
+    document.addEventListener('pointerdown', outside, true)
+    onCleanup(() => document.removeEventListener('pointerdown', outside, true))
     if (props.measured === undefined) return
     const observer = new ResizeObserver(() => props.measured?.(element.offsetHeight))
     observer.observe(element)
