@@ -96,6 +96,11 @@ describe('board document', () => {
     store.dispatch({ command: 'board.item.add', params: { items: [everyKind[0]!] } })
     expect(store.doc.items['picture-1']!.sectionId).toBe('section-1')
     expect(store.doc.items['sound-1']!.sectionId).toBeUndefined()
+    store.dispatch({ command: 'board.item.add', params: { items: [{ kind: 'section', name: 'Outer', rect: { x: -20, y: -20, width: 1000, height: 600 } }] } })
+    expect(store.doc.items['picture-1']!.sectionId).toBe('section-1')
+    expect(store.doc.items['section-1']!.sectionId).toBe('section-2')
+    store.dispatch({ command: 'board.item.move', params: { moves: [{ id: 'section-2', x: 80, y: 80 }] } })
+    expect(store.doc.items['picture-1']!.rect.x).toBe(140)
     const saved = JSON.parse(JSON.stringify(store.doc))
     saved.items['section-1'].sectionId = 'section-1'
     expect(loadBoard(saved).document).toBeUndefined()

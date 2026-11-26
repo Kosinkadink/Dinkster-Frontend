@@ -16,6 +16,7 @@ import {
   boardDropSection,
   loadBoard,
   readBoardItem,
+  rectContains,
   sectionMembers,
   type BoardDocument,
   type BoardItem,
@@ -94,6 +95,7 @@ export function planBoardCommand(
       for (const id of next.order) {
         const item = next.items[id]!
         const parent = boardDropSection(next, item, item.rect, created.includes(id) ? next.order : newSections)
+        if (!created.includes(id) && item.sectionId !== undefined && parent !== undefined && rectContains(next.items[parent]!.rect, next.items[item.sectionId]!.rect)) continue
         if (parent !== undefined) ops.push(...membershipOps(item, parent))
       }
       return { ok: true, forward: ops, created }
