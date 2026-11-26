@@ -83,7 +83,7 @@ export const canvasGalleryPages = [
   ['core-rows', 'Core widget rows'],
   ['declaration-rows', 'Declaration notes and lines'],
   ['row-editing', 'Editing in the row proposal'],
-  ['row-states', 'Declaration row states: representation, nothing and skipped'],
+  ['row-states', 'Declaration row states: Display, nothing and skipped'],
   ['row-automatic', 'Automatic values proposal'],
   ['row-lists', 'Lists in the row proposal'],
   ['lookups', 'Lookup states'],
