@@ -42,7 +42,7 @@ export function UploadDestination(props: {
   const writable = () => locations()?.activeMounts?.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready' &&
     settings()?.mounts.some((configured) => configured.id === mount.id && configured.mode === 'readwrite')) ?? []
   const selected = () => writable().find((mount) => mount.id === (props.value.mount || locations()?.importMount))
-  const unavailable = () => Boolean(props.value.mount) && selected() === undefined
+  const unavailable = () => settings() !== undefined && locations() !== undefined && Boolean(props.value.mount) && selected() === undefined
   return <section class="runtime-settings-body upload-destination" data-testid="upload-destination">
     <ProductField controlId={`${id}-mount`} label={message('uploadDestination.folder')} layout="stack"
       description={message('uploadDestination.machine', { machine: props.machine })}>
