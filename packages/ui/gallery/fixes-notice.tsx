@@ -268,11 +268,13 @@ function NodeCanvas(props: {
   registry: WidgetRegistry
   id: string
   stage?: 'wide' | 'node' | undefined
+  chosen?: string | undefined
 }) {
   let canvas!: HTMLCanvasElement
   createEffect(() => {
     const theme = props.theme
     const stage = props.stage
+    const chosen = props.chosen
     let disposed = false
     let renderer: CanvasRenderer | undefined
     void Promise.all([
@@ -321,10 +323,27 @@ function NodeCanvas(props: {
         createRegistryPainter(props.registry),
       )
       renderer.setReducedMotion(true)
-      renderer.setScene(fixture.scene)
+      renderer.setScene(
+        chosen === undefined
+          ? fixture.scene
+          : {
+              ...fixture.scene,
+              nodes: [
+                {
+                  ...node,
+                  node: { ...node.node, title: chosen },
+                  layout: { ...node.layout, title: chosen },
+                },
+              ],
+            },
+      )
       renderer.setNodeStates(fixture.states)
       renderer.setBadges(fixture.badges)
-      renderer.setOverlay(fixture.overlay)
+      renderer.setOverlay(
+        chosen === undefined
+          ? fixture.overlay
+          : { selection: new Set([node.id]) },
+      )
       renderer.setViewport({ x: 0, y: 0, scale: 1 })
       renderer.renderNow()
       canvas.dataset.ready = `${props.id}-${theme}`
@@ -339,7 +358,7 @@ function NodeCanvas(props: {
     <canvas
       ref={canvas}
       role="img"
-      aria-label={`Canvas with Sample image in ${props.theme} theme`}
+      aria-label={`Canvas with ${props.chosen ?? 'Sample image'}${props.chosen === undefined ? '' : ' selected'} in ${props.theme} theme`}
     />
   )
 }
@@ -374,6 +393,9 @@ function NoticeExample(props: {
               theme={props.theme}
               registry={props.registry}
               id={props.card.id}
+              chosen={
+                changes().find((change) => change.target === chosen())?.node
+              }
               stage={
                 props.card.dismissed && !shown() ? 'node' : props.card.stage
               }
