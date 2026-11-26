@@ -809,6 +809,45 @@ describe('what a press may write', () => {
     expect(args).toHaveLength(2)
   })
 
+  it('checks reads against preceding staged values and disconnections without making preflight calls', async () => {
+    const set = (field: string, value: unknown) => ({ step: 'set', field, value })
+    const cases = [
+      { id: 'disconnect', steps: [{ step: 'disconnect', input: 'upstream' }, set('marker', { formula: 'upstream + 1' })], values: { upstream: 97, marker: 98, result: 3 } },
+      { id: 'lazy', steps: [set('marker', { value: 0 }), set('result', { formula: 'upstream if marker else 23' })], values: { upstream: 97, marker: 0, result: 23 } },
+      { id: 'formula', steps: [set('marker', { formula: 'marker - 41' }), set('result', { formula: 'upstream if marker else 23' })], values: { upstream: 97, marker: 0, result: 23 } },
+      { id: 'disconnected_target', steps: [{ step: 'disconnect', input: 'upstream' }, set('upstream', { value: 17 })], values: { upstream: 17, marker: 41, result: 3 } },
+      { id: 'needed', steps: [set('marker', { value: 1 }), set('result', { formula: 'upstream if marker else 23' })] },
+      { id: 'call_before_needed', steps: [{ step: 'call', function: 'probe', args: [], writes: ['result'] }, set('marker', { value: 1 }), set('result', { formula: 'upstream if marker else 23' })] },
+    ]
+    addSchema('test.staged_availability', [
+      ...['upstream', 'marker', 'result'].map((id) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 7 })),
+      { kind: 'output', id: 'unknown', type: { kind: 'concrete', types: ['INT'] } },
+      ...cases.map(({ id, steps }) => ({ kind: 'button', id, label: id, steps })),
+    ])
+    let calls = 0
+    const host = hostOf({ call: async () => { calls++; return { kind: 'answer', fields: {}, notes: [] } } })
+    const doc = documentOf({ n1: { type: 'test.staged_availability', values: { upstream: 97, marker: 41, result: 3 } }, src: { type: 'test.staged_availability' } }, link('l1', ['src', 'unknown'], ['n1', 'upstream']))
+    for (const item of cases) {
+      const session = sessionOf(doc)
+      expect(buttonAvailability(doc, at(item.id), host), item.id).toEqual(item.values === undefined
+        ? { enabled: false, reason: 'Needs upstream, which is not known until a run.' } : { enabled: true })
+      expect(calls).toBe(0)
+      expect((await runPress(session, at(item.id), host)).kind, item.id).toBe(item.values === undefined ? 'failed' : 'done')
+      if (item.values === undefined) {
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+      } else {
+        expect(valuesOf(session), item.id).toEqual(item.values)
+        expect(session.undo()).toBe(true)
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+        expect(session.redo()).toBe(true)
+        expect(valuesOf(session)).toEqual(item.values)
+      }
+    }
+    expect(calls).toBe(0)
+  })
+
   it('checks nested Lookup arguments before making a Call or changing topology', async () => {
     addSchema('test.nested_lookup', [
       { kind: 'input', id: 'upstream', type: { kind: 'concrete', types: ['INT'] }, default: 13 },

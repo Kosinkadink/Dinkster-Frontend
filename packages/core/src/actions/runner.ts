@@ -23,6 +23,7 @@
 
 import type { CommandDefinition, CommandExecutionContext, CommandInvocation } from '../commands/contract.js'
 import { predictAllocatedId } from '../commands/alloc.js'
+import { coreCommandRegistry } from '../commands/core-commands.js'
 import type { DocumentSession } from '../commands/session.js'
 import { DocumentStore } from '../commands/store.js'
 import { planOccurrenceLinkCommand } from '../commands/occurrence-link-commands.js'
@@ -749,13 +750,13 @@ function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?
 }
 
 /** The names a formula reads that are wired inputs with no known value. */
-function unknownWired(context: FormulaContext, locals: Locals, text: string, wired = (name: string) => context.values.linked?.get(name) === true): string[] {
+function unknownWired(context: FormulaContext, locals: Locals, text: string, wired = (name: string) => context.values.linked?.get(name) === true, read = (name: string) => context.values.values?.get(name), onRead?: (name: string) => void): string[] {
   const needed: string[] = []
   const outcome = evaluateIn(context, locals, text, (name, availability) => {
-    const value = context.values.values?.get(name)
+    const value = read(name)
     if (!availability && (value === undefined || value === UNKNOWN) && wired(name)) needed.push(name)
     return value
-  })
+  }, onRead)
   return outcome.kind === 'unknown' ? needed : []
 }
 
@@ -1749,10 +1750,12 @@ const formulasOf = (value: StepValue | undefined): readonly string[] =>
  * has a wire.
  */
 export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, host: Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor'>): ButtonAvailability {
-  const view = viewOf(doc, target, host as ActionHost)
-  const button = view && buttonOf(view, target)
-  const context = button && view.contexts.get(button.prefix)
-  if (view === undefined || button === undefined || context === undefined) return { enabled: false, reason: 'This button is not on the node.' }
+  const initial = viewOf(doc, target, host as ActionHost)
+  const button = initial && buttonOf(initial, target)
+  const initialContext = button && initial!.contexts.get(button.prefix)
+  if (initial === undefined || button === undefined || initialContext === undefined) return { enabled: false, reason: 'This button is not on the node.' }
+  let view: View = initial
+  let context: FormulaContext = initialContext
   let steps: readonly Step[]
   try {
     steps = decodeSteps(button.spec.steps)
@@ -1782,7 +1785,23 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
     if (field === undefined || host.editorFor(field) === undefined) return { enabled: false, reason: NO_EDITOR_MESSAGE }
   }
 
-  const wiredName = (name: string, scope = context): boolean => {
+  const unknown = new Set<string>()
+  const pending = new Error('A preceding step has no preview value.')
+  const checkRead = (scope: FormulaContext, name: string): void => {
+    const path = scope.paths.get(name)
+    if (path !== undefined && [...unknown].some((field) => field === path || field.startsWith(`${path}.`) || path.startsWith(`${field}.`))) throw pending
+  }
+  const read = (scope: FormulaContext, name: string): Value | typeof UNKNOWN | undefined => {
+    checkRead(scope, name)
+    return scope.values.values?.get(name)
+  }
+  const valueOf = (value: StepValue, scope: FormulaContext): Value | typeof UNKNOWN => {
+    if (value.kind === 'literal') return literalOf(value.value)
+    if (value.kind === 'lookup') return UNKNOWN
+    const outcome = evaluateIn(scope, locals, value.text, (name) => read(scope, name), (name) => checkRead(scope, name))
+    return outcome.kind === 'value' ? outcome.value : UNKNOWN
+  }
+  const wiredName = (name: string, scope: FormulaContext): boolean => {
     const path = scope.paths.get(name)
     if (path === undefined) return scope.values.linked?.get(name) === true
     if (view.connectivity.isInputConnected(path)) return true
@@ -1794,6 +1813,8 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
     }
     return false
   }
+  let scratch: DocumentStore | undefined
+  let previewHost: ActionHost | undefined
   const targets: boolean[] = []
   let other = false
   for (const step of steps) {
@@ -1809,9 +1830,9 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
         return scope === undefined ? [] : [scope]
       })
     }
-    const target = targetsOf([step])
-    other ||= target.other
-    targets.push(...scopes.flatMap((scope) => target.fields.map((name) => wiredName(name, scope))))
+    const writes = targetsOf([step])
+    other ||= writes.other
+    targets.push(...scopes.flatMap((scope) => writes.fields.map((name) => wiredName(name, scope))))
     const texts: string[] = []
     const names: string[] = []
     const values = ['value', 'low', 'high', 'options', 'url'].map((key) => (step as Record<string, unknown>)[key] as StepValue | undefined)
@@ -1827,15 +1848,97 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
         else texts.push(arg.formula)
       }
     }
-    for (const scope of scopes) {
-      const needed = [...names.filter((name) => {
-        if (locals.kinds.has(name) || !wiredName(name, scope)) return false
-        const value = scope.values.values?.get(name)
-        if (value !== undefined) return value === UNKNOWN
+    try {
+      for (const scope of scopes) {
+        const needed = [...names.filter((name) => {
+          if (locals.kinds.has(name) || !wiredName(name, scope)) return false
+          const value = read(scope, name)
+          if (value !== undefined) return value === UNKNOWN
+          const path = scope.paths.get(name)
+          return path === undefined || view.incomingValue(path) === undefined
+        }), ...texts.flatMap((text) => unknownWired(scope, locals, text, (name) => wiredName(name, scope), (name) => read(scope, name), (name) => checkRead(scope, name)))]
+        if (needed.length > 0) return { enabled: false, reason: `Needs ${needed[0]}, which is not known until a run.` }
+      }
+    } catch (error) {
+      if (error !== pending) throw error
+      return { enabled: true }
+    }
+    // Only deterministic values are staged here. No host effect runs during a repaint.
+    try {
+      const actions: Action[] = []
+      const write = (name: string, value: Value | typeof UNKNOWN, scope = context): void => {
         const path = scope.paths.get(name)
-        return path === undefined || view.incomingValue(path) === undefined
-      }), ...texts.flatMap((text) => unknownWired(scope, locals, text, (name) => wiredName(name, scope)))]
-      if (needed.length > 0) return { enabled: false, reason: `Needs ${needed[0]}, which is not known until a run.` }
+        const field = path === undefined ? undefined : inputAt(view, path)
+        if (path === undefined || field === undefined || view.connectivity.isInputConnected(path)) return
+        unknown.add(path)
+        if (value === UNKNOWN) return
+        const stored = fieldValue(field, value, path)
+        if (field.materialize?.length) actions.push({ kind: 'materialize', frames: field.materialize })
+        actions.push({ kind: 'value', path, value: stored })
+        unknown.delete(path)
+      }
+      switch (step.step) {
+        case 'set': write(step.field, valueOf(step.value, context)); break
+        case 'toggle': {
+          const value = read(context, step.field)
+          write(step.field, typeof value === 'boolean' ? !value : UNKNOWN)
+          break
+        }
+        case 'swap':
+          if (!wiredName(step.a, context) && !wiredName(step.b, context)) {
+            const a = read(context, step.a), b = read(context, step.b)
+            write(step.a, b === undefined ? UNKNOWN : b); write(step.b, a === undefined ? UNKNOWN : a)
+          }
+          break
+        case 'append': {
+          const current = read(context, step.field), added = valueOf(step.value, context)
+          write(step.field, typeof current === 'string' && typeof added === 'string'
+            ? current === '' ? added : current + step.separator + added : UNKNOWN)
+          break
+        }
+        case 'reset': {
+          const path = context.paths.get(step.field), field = path === undefined ? undefined : inputAt(view, path)
+          if (field !== undefined && path !== undefined && !view.connectivity.isInputConnected(path)) {
+            if (field.materialize?.length) actions.push({ kind: 'materialize', frames: field.materialize })
+            actions.push({ kind: 'value', path, value: defaultValueOf(field, path) })
+            unknown.delete(path)
+          }
+          break
+        }
+        case 'setEach': {
+          const values = scopes.map((scope) => valueOf(step.value, scope))
+          scopes.forEach((scope, index) => write(step.field, values[index]!, scope))
+          break
+        }
+        case 'disconnect': {
+          const path = context.paths.get(step.input)
+          if (path !== undefined) actions.push({ kind: 'disconnect', path })
+          break
+        }
+        case 'setMode': break
+        case 'addMember': case 'removeMember': case 'clearMembers': {
+          const path = context.paths.get(step.group)
+          if (path !== undefined) unknown.add(path)
+          break
+        }
+        case 'addNode': {
+          const path = context.paths.get(step.to)
+          if (path !== undefined) unknown.add(path)
+          break
+        }
+        default:
+          for (const scope of scopes) for (const field of writes.fields) write(field, UNKNOWN, scope)
+      }
+      if (actions.length > 0) {
+        previewHost ??= { ...host, commands: coreCommandRegistry([], host.schemaResolverFor?.(doc)) } as ActionHost
+        scratch ??= scratchOf(doc, previewHost)
+        for (const action of actions) dispatchOn(scratch, invocationsOf(action, scratch.doc, target, undefined, previewHost), undefined)
+        view = viewOf(scratch.doc, target, previewHost)!
+        context = view.contexts.get(button.prefix)!
+      }
+    } catch {
+      // Runtime owns write validation; a failed preview must not invoke any host work.
+      return { enabled: true }
     }
   }
 
