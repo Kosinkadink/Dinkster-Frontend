@@ -10,10 +10,14 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
 import { decodeSteps } from '../src/actions/steps.js'
+import type { CommandDefinition } from '../src/commands/contract.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { createLocalSession, type DocumentSession } from '../src/commands/session.js'
+import { compile, documentResolver } from '../src/compile/compile.js'
+import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
+import { diag } from '../src/diagnostics.js'
 import type { GraphDef, Json, NodeData, WorkflowDocument } from '../src/format/document.js'
-import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
+import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, isPortEndpoint } from '../src/ids.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
@@ -108,6 +112,194 @@ function later<T>(): { promise: Promise<T>; settle: (value: T) => void } {
 }
 
 describe('one press is one undo step, or nothing', () => {
+  it('keeps multiple-choice Ask answers as list locals for later steps', async () => {
+    addSchema('test.ask-list', [
+      { kind: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+      { kind: 'button', id: 'ask', label: 'Choose', steps: [
+        { step: 'ask', title: 'Choose entries', rows: [{ id: 'choices', type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } }, default: ['alpha'], widget: { type: 'MULTI_COMBO', options: ['alpha', 'beta'] } }] },
+        { step: 'set', field: 'count', value: { formula: 'len(choices)' } },
+      ] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.ask-list', values: { count: 7 } } }))
+    const host = hostOf({ ask: async () => ({ choices: ['alpha', 'beta'] }) })
+    expect(await runPress(session, at('ask'), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ count: 2 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ count: 7 })
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ count: 2 })
+  })
+
+  it.each(['ready', 'failed', 'paused'] as const)('resolves a Lookup automatic after Reset before reading it: %s', async (state) => {
+    addSchema('test.lookup-reset', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { lookup: 'test.automatic', args: [] } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+      { kind: 'button', id: 'reset', label: 'Reset', steps: [{ step: 'reset', field: 'value' }, { step: 'set', field: 'read', value: { formula: 'value' } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.lookup-reset', values: { value: 6, read: 1 } } }))
+    let calls = 0
+    const host = hostOf({ lookup: async () => { calls++; return state === 'ready' ? { state, value: 8n } : state === 'failed' ? { state, reason: 'unknown' } : { state } } })
+    expect((await runPress(session, at('reset'), host)).kind).toBe(state === 'ready' ? 'done' : 'failed')
+    expect(calls).toBe(1)
+    if (state !== 'ready') {
+      expect(valuesOf(session)).toEqual({ value: 6, read: 1 })
+      expect(session.canUndo).toBe(false)
+      return
+    }
+    expect(valuesOf(session)).toEqual({ read: 8 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ value: 6, read: 1 })
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ read: 8 })
+    expect(calls).toBe(1)
+  })
+
+  it('reads dependent automatic formulas and ordered member values without freezing them', async () => {
+    addSchema('test.dependent-automatic', [
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 5,
+        keys: { numbered: { prefix: 'item_', start: 1, pad: 0 } }, member: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { lookup: 'test.member', args: [{ formula: 'index()' }] } },
+        ] },
+      { kind: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, default: 0, automatic: { formula: 'sum(items.value)' } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'button', id: 'read', label: 'Read', steps: [{ step: 'set', field: 'read', value: { formula: 'count' } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.dependent-automatic', dynamic: { items: { members: ['item_2', 'item_1'], seq: 2 } } } }))
+    const args: unknown[] = []
+    const host = hostOf({ lookup: async (request) => { args.push(request.args); return { state: 'ready', value: request.args[0] === 0n ? 11n : 23n } } })
+    expect(await runPress(session, at('read'), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ read: 34 })
+    expect(args).toEqual([[0n], [1n]])
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({})
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ read: 34 })
+    expect(args).toEqual([[0n], [1n]])
+  })
+
+  it('shares an automatic dependency across typed arguments and honors automatic numeric conversion', async () => {
+    addSchema('test.automatic-arguments', [
+      { kind: 'input', id: 'base', type: { kind: 'concrete', types: ['INT'] }, default: 1, automatic: { lookup: 'test.base', args: [] } },
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, widget: { type: 'NUMBER', min: 0, max: 10 }, automatic: { lookup: 'test.arguments', args: ['base', 'base', { formula: '2.0' }] } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'button', id: 'read', label: 'Read', steps: [{ step: 'set', field: 'read', value: { formula: 'value' } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.automatic-arguments' } }))
+    const calls: unknown[] = []
+    const host = hostOf({ lookup: async (request) => {
+      calls.push([request.function, request.args])
+      return { state: 'ready', value: request.function === 'test.base' ? 3n : 20 }
+    } })
+    expect(await runPress(session, at('read'), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ read: 20 })
+    expect(calls).toEqual([['test.base', []], ['test.arguments', [3n, 3n, 2]]])
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({})
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ read: 20 })
+    expect(calls).toHaveLength(2)
+  })
+
+  it.each(['17 if not known(value) else value', 'value if known(value) else other', 'int(known(value)) + other'])('does not resolve a Lookup guarded with known: %s', async (formula) => {
+    addSchema('test.automatic-guard', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { lookup: 'test.automatic', args: [] } },
+      { kind: 'input', id: 'other', type: { kind: 'concrete', types: ['INT'] }, default: 2, automatic: { lookup: 'test.other', args: [] } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'button', id: 'read', label: 'Read', steps: [{ step: 'set', field: 'read', value: { formula } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.automatic-guard' } }))
+    const calls: string[] = []
+    expect(await runPress(session, at('read'), hostOf({ lookup: async (request) => {
+      calls.push(request.function)
+      return request.function === 'test.other' ? { state: 'ready', value: 8n } : { state: 'failed', reason: 'unknown' }
+    } }))).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ read: formula.startsWith('17') ? 17 : 8 })
+    expect(calls).toEqual(formula.startsWith('17') ? [] : ['test.other'])
+  })
+
+  it.each(['10 // value', '"wrong" if value == 0 else 2'])('uses the declared automatic default after resolving a dependency: %s', async (formula) => {
+    addSchema('test.automatic-fallback', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { lookup: 'test.automatic', args: [] } },
+      { kind: 'input', id: 'derived', type: { kind: 'concrete', types: ['INT'] }, default: 7, automatic: { formula } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'button', id: 'read', label: 'Read', steps: [{ step: 'set', field: 'read', value: { formula: 'derived' } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.automatic-fallback' } }))
+    expect(await runPress(session, at('read'), hostOf({ lookup: async () => ({ state: 'ready', value: 0n }) }))).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ read: 7 })
+  })
+
+  it('resolves automatic reads of committed arguments again for outside steps', async () => {
+    addSchema('test.automatic-outside', [
+      { kind: 'input', id: 'arg', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { lookup: 'test.automatic', args: ['arg'] } },
+      { kind: 'button', id: 'copy', label: 'Copy', steps: [
+        { step: 'reset', field: 'value' }, { step: 'pick', name: 'chosen', options: { formula: '[str(value)]' } },
+        { step: 'copy', value: { formula: 'str(value)' } },
+      ] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.automatic-outside', values: { arg: 3, value: 6 } } }))
+    const host = hostOf({
+      lookup: async (request) => ({ state: 'ready', value: request.args[0] }),
+      pick: async () => {
+        expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'arg', value: 5 } }).ok).toBe(true)
+        return '3'
+      },
+    })
+    expect(await runPress(session, at('copy'), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ arg: 5 })
+    expect(host.log).toEqual(['copy 5'])
+  })
+
+  it.each(['INT', 'FLOAT'])('accepts a declared %s special outside ordinary bounds', async (type) => {
+    addSchema(`test.special.${type}`, [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: [type] }, default: 2, widget: { type: 'NUMBER', min: 0, max: 10, step: 2, special: [[-1, 'Automatic']] } },
+      { kind: 'button', id: 'set', label: 'Set', steps: [{ step: 'set', field: 'value', value: { value: type === 'INT' ? -1 : { float: -1 } } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: `test.special.${type}`, values: { value: 2 } } }))
+    expect((await runPress(session, at('set'), hostOf())).kind).toBe('done')
+    expect(valuesOf(session)).toEqual({ value: -1 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ value: 2 })
+  })
+
+  it('validates and randomizes integers on their declared offset grid', async () => {
+    addSchema('test.offset', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, widget: { type: 'NUMBER', min: 0, max: 20, step: 3, offset: 1 } },
+      ...[6, 7].map((value) => ({ kind: 'button', id: `set${value}`, label: 'Set', steps: [{ step: 'set', field: 'value', value: { value } }] })),
+      { kind: 'button', id: 'random', label: 'Random', steps: [{ step: 'randomize', field: 'value' }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.offset', values: { value: 4 } } }))
+    expect((await runPress(session, at('set6'), hostOf())).kind).toBe('failed')
+    expect(valuesOf(session)).toEqual({ value: 4 })
+    expect(session.canUndo).toBe(false)
+    expect((await runPress(session, at('set7'), hostOf())).kind).toBe('done')
+    expect(valuesOf(session)).toEqual({ value: 7 })
+    for (const [random, expected] of [[0, 1], [0.999999999999, 19]] as const) {
+      expect((await runPress(session, at('random'), hostOf({ random: () => random }))).kind).toBe('done')
+      expect(valuesOf(session)).toEqual({ value: expected })
+    }
+  })
+
+  it('resets an automatic field by unsetting its override before later steps read it', async () => {
+    addSchema('test.automatic-reset', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { formula: '8' } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+      { kind: 'button', id: 'reset', label: 'Reset', steps: [{ step: 'reset', field: 'value' }, { step: 'set', field: 'read', value: { formula: 'value' } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.automatic-reset', values: { value: 6, read: 1 } } }))
+    expect((await runPress(session, at('reset'), hostOf())).kind).toBe('done')
+    expect(valuesOf(session)).toEqual({ read: 8 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ value: 6, read: 1 })
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ read: 8 })
+  })
+
   it('reads a value an earlier step staged, and undo and redo move both fields together', async () => {
     const session = sessionOf(documentOf({ n1: { type: 'dev.buttons.field_steps', values: { width: 512, height: 768 } } }))
     const outcome = await runPress(session, at('double'), hostOf())
@@ -202,6 +394,47 @@ describe('each step', () => {
     expect((await press('dev.buttons.field_steps', 'swap', { width: 512, height: 1024 })).values).toMatchObject({ width: 1024, height: 512 })
   })
 
+  it('Swap reads a known wired operand and writes only the unwired operand atomically', async () => {
+    const input = (id: string) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 0 })
+    addSchema('test.swap_incoming', [
+      input('a'), input('b'), input('marker'),
+      { kind: 'output', id: 'unknown', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'button', id: 'only', label: 'Swap only', steps: [{ step: 'swap', a: 'a', b: 'b' }] },
+      { kind: 'button', id: 'swap', label: 'Swap', steps: [
+        { step: 'swap', a: 'a', b: 'b' },
+        { step: 'set', field: 'marker', value: { formula: 'a + b' } },
+      ] },
+    ])
+    for (const wired of ['a', 'b'] as const) {
+      const other = wired === 'a' ? 'b' : 'a'
+      for (const known of [true, false]) {
+        const doc = documentOf({ n1: { type: 'test.swap_incoming', values: { a: 7, b: 41, marker: 19 } }, src: { type: 'test.swap_incoming', values: { a: 23 } } }, {
+          l1: { id: asLinkId('l1'), from: known ? { node: asNodeId('src'), tap: asPortId('a') } : { node: asNodeId('src'), port: asPortId('unknown') }, to: { node: asNodeId('n1'), port: asPortId(wired) } },
+        })
+        const session = sessionOf(doc)
+        const host = hostOf()
+        expect(buttonAvailability(doc, at('swap'), host)).toEqual(known ? { enabled: true } : { enabled: false, reason: `Needs ${wired}, which is not known until a run.` })
+        expect(buttonAvailability(doc, at('only'), host)).toEqual(known ? { enabled: true } : { enabled: false, reason: `Needs ${wired}, which is not known until a run.` })
+        const outcome = await runPress(session, at('swap'), host)
+        if (!known) {
+          expect(outcome.kind).toBe('failed')
+          expect(session.doc).toEqual(doc)
+          expect(session.canUndo).toBe(false)
+          continue
+        }
+        expect(outcome).toMatchObject({ kind: 'done', skipped: [{ id: wired, why: 'wired' }] })
+        expect(valuesOf(session)).toEqual({ ...doc.graphs['g0']!.nodes['n1']!.values, [other]: 23, marker: 46 })
+        expect(session.doc.graphs['g0']!.links).toEqual(doc.graphs['g0']!.links)
+        const after = session.doc
+        expect(session.undo()).toBe(true)
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+        expect(session.redo()).toBe(true)
+        expect(session.doc).toEqual(after)
+      }
+    }
+  })
+
   it('Randomize keeps to its bounds and the field step, and Toggle, Reset and SetMode write what they name', async () => {
     const draws = [0, 0.999999, 0.5]
     const picked: Json[] = []
@@ -210,6 +443,104 @@ describe('each step', () => {
     expect((await press('dev.buttons.field_steps', 'toggle', { flag: false })).values['flag']).toBe(true)
     expect((await press('dev.buttons.field_steps', 'reset', { width: 1024, title: 'final' })).values).toMatchObject({ width: 512, title: 'draft' })
     expect((await press('dev.buttons.field_steps', 'increment', {})).node.controllers).toEqual({ seed: 'increment' })
+  })
+
+  it('Randomize honors supplied intervals and refuses invalid bounds without committing earlier writes', async () => {
+    for (const type of ['INT', 'FLOAT']) {
+      const cases = ['"not a number"', 'True', 'None'].flatMap((formula) => [
+        { low: { formula }, high: { formula: '20' } },
+        { low: { formula: '10' }, high: { formula } },
+      ])
+      cases.push(
+        { low: { formula: '20.5' }, high: { formula: '10.5' } },
+        { low: { formula: '101' }, high: { formula: '110' } },
+        { low: { formula: '-10' }, high: { formula: '-1' } },
+      )
+      if (type === 'INT') cases.push({ low: { formula: '10.2' }, high: { formula: '10.8' } })
+      addSchema(`test.random_bounds.${type}`, [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', types: [type] }, default: 5, widget: { type: 'NUMBER', min: 0, max: 100, step: 1 } },
+        { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+        ...cases.map((bounds, index) => ({ kind: 'button', id: `random${index}`, label: 'Random', steps: [
+          { step: 'set', field: 'marker', value: { value: 19 } },
+          { step: 'randomize', field: 'value', ...bounds },
+        ] })),
+      ])
+      const doc = documentOf({ n1: { type: `test.random_bounds.${type}`, values: { value: 5, marker: 41 } } })
+      for (const [index] of cases.entries()) {
+        let draws = 0
+        const session = sessionOf(doc)
+        const outcome = await runPress(session, at(`random${index}`), hostOf({ random: () => { draws++; return 0.25 } }))
+        expect(outcome.kind, `${type} ${index}`).toBe('failed')
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+        expect(draws).toBe(0)
+      }
+    }
+    const intervals: { kind: 'INT' | 'FLOAT'; min?: number; max?: number; step: number; offset?: number; low?: string; high?: string; expected?: readonly number[] }[] = [
+      { min: 0, max: 100, step: 1, low: '10.5', high: '20.5', expected: [11, 13, 20] },
+      { min: 0, max: 100, step: 5, low: '10.5', high: '20.5', expected: [15, 15, 20] },
+      { min: 0, max: 100, step: 5, offset: 1, low: '10.5', high: '20.5', expected: [11, 11, 16] },
+      { min: -9, max: 16, step: 5, low: '-6.5', high: '7.5', expected: [-4, -4, 6] },
+      { min: 0, max: 100, step: 1, low: '-30', high: '120', expected: [0, 25, 100] },
+      { min: 0, max: 100, step: 5, high: '20.5', expected: [0, 5, 20] },
+      { min: 0, max: 100, step: 5, low: '90.5', expected: [95, 95, 100] },
+      { min: 0, max: 100, step: 5, low: '20', high: '20', expected: [20, 20, 20] },
+      { min: 0, max: 100, step: 5, low: '10.2', high: '14.8' },
+    ].map((interval) => ({ kind: 'INT' as const, ...interval }))
+    intervals.push(
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '100', high: '120', expected: [100, 100, 100] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '-30', high: '0', expected: [0, 0, 0] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '20', high: '20', expected: [20, 20, 20] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '10.5', high: '20.5', expected: [11.75, 13, 19.25] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '-10', high: '20.5', expected: [2.5625, 5.125, 17.9375] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, high: '20.5', expected: [2.5625, 5.125, 17.9375] },
+      { kind: 'FLOAT', min: 0, max: 100, step: 5, low: '90.5', expected: [91.6875, 92.875, 98.8125] },
+      { kind: 'FLOAT', min: 0, max: 9007199254741000, step: 1, low: '9007199254740993', high: '9007199254740994', expected: [9007199254740994, 9007199254740994, 9007199254740994] },
+      { kind: 'FLOAT', min: 0, max: 9007199254741000, step: 1, low: '9007199254740994', high: '9007199254740995', expected: [9007199254740994, 9007199254740994, 9007199254740994] },
+      { kind: 'FLOAT', min: -9007199254741000, max: 0, step: 1, low: '-9007199254740995', high: '-9007199254740993', expected: [-9007199254740994, -9007199254740994, -9007199254740994] },
+      { kind: 'FLOAT', min: 0, max: 9007199254741000, step: 1, low: '9007199254740993', high: '9007199254740993' },
+      { kind: 'FLOAT', step: 1, low: '0', high: '2 ** 2000', expected: [Number.MAX_VALUE / 8, Number.MAX_VALUE / 4, Number.MAX_VALUE * 0.875] },
+      { kind: 'FLOAT', step: 1, low: '-(2 ** 2000)', high: '0', expected: [-Number.MAX_VALUE * 0.875, -Number.MAX_VALUE * 0.75, -Number.MAX_VALUE / 8] },
+    )
+    for (const kind of ['INT', 'FLOAT'] as const) intervals.push(
+      { kind, step: 1, min: 0 },
+      { kind, step: 1, max: 100 },
+      { kind, step: 1, low: '10.5', high: '20.5', expected: kind === 'INT' ? [11, 13, 20] : [11.75, 13, 19.25] },
+    )
+    for (const [index, { kind, low, high, expected, ...widget }] of intervals.entries()) {
+      const type = `test.random_interval.${index}`
+      addSchema(type, [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', types: [kind] }, default: widget.min ?? 0, widget: { type: 'NUMBER', ...widget } },
+        { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+        { kind: 'button', id: 'random', label: 'Random', steps: [
+          { step: 'set', field: 'marker', value: { value: 19 } },
+          { step: 'randomize', field: 'value', ...(low === undefined ? {} : { low: { formula: low } }), ...(high === undefined ? {} : { high: { formula: high } }) },
+        ] },
+      ])
+      for (const [drawIndex, draw] of (kind === 'INT' ? [0, 0.25, 0.999999] : [0.125, 0.25, 0.875]).entries()) {
+        const doc = documentOf({ n1: { type, values: { value: widget.min ?? 0, marker: 41 } } })
+        const session = sessionOf(doc)
+        let draws = 0
+        const outcome = await runPress(session, at('random'), hostOf({ random: () => { draws++; return draw } }))
+        if (expected === undefined) {
+          expect(outcome.kind).toBe('failed')
+          expect(session.doc).toEqual(doc)
+          expect(session.canUndo).toBe(false)
+          expect(draws).toBe(0)
+        } else {
+          expect(outcome.kind, `${index} ${draw}`).toBe('done')
+          expect(session.doc.graphs['g0']!.nodes['n1']!.values).toEqual({ value: expected[drawIndex], marker: 19 })
+          const after = session.doc
+          const drawn = draws
+          expect(session.undo()).toBe(true)
+          expect(session.doc).toEqual(doc)
+          expect(session.canUndo).toBe(false)
+          expect(session.redo()).toBe(true)
+          expect(session.doc).toEqual(after)
+          expect(draws).toBe(drawn)
+        }
+      }
+    }
   })
 
   it('Randomize picks a whole seed in the field limits, then fixes it', async () => {
@@ -320,6 +651,162 @@ describe('each step', () => {
     expect((await press('test.sum_each', 'sum', start.values, hostOf(), start.extra)).values).toMatchObject({
       'loras.lora_1.strength': 0.75, 'loras.lora_2.strength': 0.75, 'loras.lora_3.strength': 0.75,
     })
+    addSchema('test.minimum_each', [
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 2, maxMembers: 4,
+        keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: [
+          { kind: 'input', id: 'source', type: { kind: 'concrete', types: ['INT'] }, default: 13 },
+          { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+        ] },
+      { kind: 'button', id: 'copy', label: 'Copy', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: 'items.source[0] + index()' } }] },
+    ])
+    for (const members of [[], ['m0']]) {
+      const before = documentOf({ n1: { type: 'test.minimum_each', values: members.length === 0 ? {} : { 'items.m0.source': 31, 'items.m0.value': 43 },
+        ...(members.length === 0 ? {} : { dynamic: { items: { members, seq: 1 } } }) } })
+      const session = sessionOf(before)
+      expect((await runPress(session, at('copy'), hostOf())).kind).toBe('done')
+      const first = members.length === 0 ? 13 : 31
+      expect(valuesOf(session)).toMatchObject({ 'items.m0.value': first, 'items.m1.value': first + 1 })
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(valuesOf(session)).toEqual(before.graphs['g0']!.nodes['n1']!.values)
+      expect(session.doc.graphs['g0']!.nodes['n1']!.dynamic?.['items']?.members ?? []).toEqual(members)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+    }
+  })
+
+  it.each([1, 2])('AddNode shares the node and definition wires at depth %s', async (depth) => {
+    addSchema('test.add_target', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
+      { kind: 'input', id: 'other', type: { kind: 'concrete', types: ['INT'] }, default: 4 },
+      { kind: 'button', id: 'add', label: 'Add', steps: [{ step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} }] },
+    ])
+    addSchema('test.add_processor', [
+      { kind: 'input', id: 'input', type: { kind: 'concrete', types: ['INT'] }, default: 9 },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+    ])
+    for (const driver of ['none', 'inside', 'tap', 'reroute', 'net', 'local', 'outside', 'outsideReroute'] as const) {
+      const target = { node: asNodeId('inner'), port: asPortId('value') }
+      const from = driver === 'tap' ? { node: asNodeId('source'), tap: asPortId('input') }
+        : driver === 'reroute' || driver === 'outsideReroute' ? { reroute: 'junction' as never } : { node: asNodeId('source'), port: asPortId('out') }
+      const links = driver === 'none' || driver === 'outside' || driver === 'local' || driver === 'net' ? {} : {
+        shared: { id: asLinkId('shared'), from, to: target },
+        ...(driver === 'reroute' ? { upstream: { id: asLinkId('upstream'), from: { node: asNodeId('source'), port: asPortId('out') }, to: from } } : {}),
+      }
+      const initialBody = documentOf({ inner: { type: 'test.add_target' }, source: { type: 'test.add_processor' } }, links).graphs['g0']!
+      const body = { ...initialBody, ...(driver === 'reroute' || driver === 'outsideReroute' ? { reroutes: { junction: { id: 'junction' as never } } } : {}),
+        ...(driver === 'net' ? { nets: { shared: { id: 'shared' as never, name: 'Shared source', source: { node: asNodeId('source'), port: asPortId('out') }, sinks: [target] } } } : {}) }
+      const root = documentOf({ left: { type: depth === 1 ? '#g1' : '#g2' }, right: { type: depth === 1 ? '#g1' : '#g2' }, source: { type: 'test.add_processor' } },
+        driver === 'outside' || driver === 'outsideReroute' ? link('parent', ['source', 'out'], ['left', 'shown']) : {})
+      const middle = documentOf({ deep: { type: '#g1' } }).graphs['g0']!
+      const doc: WorkflowDocument = { ...root,
+        ...(driver === 'local' ? { occurrenceTopologies: { [depth === 1 ? 'left' : 'left.deep']: {
+          owner: { instancePath: depth === 1 ? [] : [asNodeId('left')], node: asNodeId(depth === 1 ? 'left' : 'deep') },
+          bodyGraph: asGraphDefId('g1'), nextOrdinal: 1,
+          links: { local: { id: asLinkId('local'), from: { kind: 'body' as const, endpoint: from }, to: { kind: 'body' as const, endpoint: target } } },
+        } } } : {}), graphs: { ...root.graphs,
+        g1: { ...body, id: asGraphDefId('g1'), name: 'Shared body', boundary: {
+          body: [{ kind: 'input', id: asPortId('shown'), promoted: true, binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('value'), ...(driver === 'outsideReroute' ? { viaReroute: 'junction' as never } : {}) } }],
+        } },
+        ...(depth === 1 ? {} : { g2: { ...middle, id: asGraphDefId('g2'), boundary: {
+          body: [{ kind: 'input', id: asPortId('shown'), promoted: true, binds: { kind: 'port', node: asNodeId('deep'), port: asPortId('shown') } }],
+        } } }),
+      } }
+      const path = (side: string) => (depth === 1 ? [side] : [side, 'deep']).map(asNodeId)
+      const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
+      const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+      const topology = (current: WorkflowDocument, side: string) => {
+        const hops = path(side)
+        const found = effectiveOccurrenceTopology(current, resolve, { instancePath: hops.slice(0, -1), node: hops.at(-1)! })
+        return [...found.links, ...found.projectedParentLinks]
+      }
+      const siblingPrompt = (current: WorkflowDocument) => {
+        const result = compile({ document: current, revision: 1, resolve, scope: { kind: 'partial', targets: [{ instancePath: path('right'), node: asNodeId('inner') }] }, connection: asConnectionId('test'), schemaHash: 'test' })
+        expect(result.ok, JSON.stringify(result)).toBe(true)
+        return result.ok ? result.artifact.prompt : undefined
+      }
+      const siblingBefore = topology(doc, 'right')
+      const promptBefore = siblingPrompt(doc)
+      const outcome = await runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: path('left'), button: 'add' }, host)
+      expect(outcome.kind, JSON.stringify(outcome)).toBe('done')
+      if (driver === 'outside' || driver === 'outsideReroute' || driver === 'local') {
+        expect(outcome.message).toBe('Nothing added. value is wired from outside this subgraph.')
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+        const mixed = await runSteps(session, [{ graphId: 'g1', nodeId: 'inner', instancePath: path('left'), prefix: '', steps: decodeSteps([
+          { step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} },
+          { step: 'addNode', nodeType: 'test.add_processor', to: 'other', values: {} },
+        ]) }], host)
+        expect(mixed).toMatchObject({ kind: 'done', message: 'Also added in the other use of "Shared body".\nSkipped value: it is wired from outside this subgraph.' })
+        expect(Object.keys(session.doc.graphs['g1']!.nodes)).toHaveLength(3)
+        expect(session.undo()).toBe(true)
+        expect(session.canUndo).toBe(false)
+        continue
+      }
+      expect(outcome.message).toBe('Also added in the other use of "Shared body".')
+      const fresh = Object.values(session.doc.graphs['g1']!.nodes).find((node) => !Object.hasOwn(body.nodes, node.id))!
+      expect(fresh.type).toBe('test.add_processor')
+      expect(Object.keys(session.doc.graphs['g1']!.nodes)).toHaveLength(3)
+      expect(session.doc.occurrenceTopologies).toEqual(doc.occurrenceTopologies)
+      const endpoints = topology(session.doc, 'left').map((item) => [item.from.endpoint, item.to.endpoint])
+      expect(endpoints).toContainEqual([{ node: fresh.id, port: 'out' }, { node: 'inner', port: 'value' }])
+      if (driver !== 'none') expect(endpoints).toContainEqual([from, { node: fresh.id, port: 'input' }])
+      expect(topology(session.doc, 'right').map((item) => [item.from.endpoint, item.to.endpoint])).toEqual(endpoints)
+      const promptAfter = siblingPrompt(session.doc)
+      expect(promptAfter).not.toEqual(promptBefore)
+      expect(Object.values(promptAfter!).filter((node) => node.class_type === 'test.add_processor')).toHaveLength(
+        Object.values(promptBefore!).filter((node) => node.class_type === 'test.add_processor').length + 1)
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(session.doc.graphs['g1']).toEqual({ ...doc.graphs['g1'], nextOrdinal: after.graphs['g1']!.nextOrdinal })
+      expect(topology(session.doc, 'left')).toEqual(topology(doc, 'left'))
+      expect(topology(session.doc, 'right')).toEqual(siblingBefore)
+      expect(siblingPrompt(session.doc)).toEqual(promptBefore)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+      if (driver === 'none') {
+        const commands = coreCommandRegistry([], resolve) as Map<string, CommandDefinition>
+        const connect = commands.get('link.connect')!
+        commands.set(connect.id, { ...connect, validateDispatch: () => [diag('error', 'command', 'test.refusal', 'The wire was refused.')] })
+        const refusedHost = { ...host, commands }
+        const refused = createLocalSession(doc, commands, { schemaResolverFor: host.schemaResolverFor! })
+        expect(await runPress(refused, { graphId: 'g1', nodeId: 'inner', instancePath: path('left'), button: 'add' }, refusedHost))
+          .toMatchObject({ kind: 'failed', message: 'Nothing was changed. The wire was refused.', notes: [] })
+        expect(refused.doc).toEqual(doc)
+        expect(refused.canUndo).toBe(false)
+        for (const uses of [1, 3]) {
+          const { right, ...single } = doc.graphs['g0']!.nodes
+          const nodes = uses === 1 ? single : { ...doc.graphs['g0']!.nodes, third: { ...right!, id: asNodeId('third') } }
+          const varied = createLocalSession({ ...doc, graphs: { ...doc.graphs, g0: { ...doc.graphs['g0']!, nodes } } }, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+          const result = await runPress(varied, { graphId: 'g1', nodeId: 'inner', instancePath: path('left'), button: 'add' }, host)
+          expect(result.kind).toBe('done')
+          expect(result.notes).toEqual(uses === 1 ? [] : ['Also added in the other 2 uses of "Shared body".'])
+        }
+      }
+      if (driver === 'reroute') {
+        const waiting = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+        const changedHost = { ...host, pick: async () => {
+          expect(waiting.dispatch({ command: 'batch', params: { invocations: [
+            { command: 'link.disconnect', params: { graphId: 'g1', linkId: 'upstream' } },
+            { command: 'boundary.setBinding', params: { graphId: 'g1', side: 'inputs', itemId: 'shown', node: 'inner', port: 'value', viaReroute: 'junction' } },
+            { command: 'link.connect', params: { graphId: 'g0', from: { node: 'source', port: 'out' }, to: { node: 'left', port: 'shown' } } },
+          ] } }).ok).toBe(true)
+          return 'go'
+        } }
+        const outcome = await runSteps(waiting, [{ graphId: 'g1', nodeId: 'inner', instancePath: path('left'), prefix: '', steps: decodeSteps([
+          { step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} },
+          { step: 'pick', name: 'chosen', options: { value: ['go'] } },
+        ]) }], changedHost)
+        expect(outcome).toMatchObject({ kind: 'done', message: 'Nothing added. value is wired from outside this subgraph.', notes: [] })
+        expect(Object.keys(waiting.doc.graphs['g1']!.nodes)).toHaveLength(2)
+        expect(waiting.doc.occurrenceTopologies).toBeUndefined()
+        expect(waiting.undo()).toBe(true)
+        expect(waiting.doc.graphs['g1']!.links).toEqual(body.links)
+        expect(waiting.canUndo).toBe(false)
+      }
+    }
   })
 
   it('Disconnect removes the wire and AddNode connects a new node beside this one', async () => {
@@ -367,6 +854,147 @@ describe('what a press may write', () => {
     expect(valuesOf(session)).toEqual({ first: 24, second: 12 })
   })
 
+  it('reads effective asset filenames and kinds in scope and after staged picker changes as one undo step', async () => {
+    const asset = (name: string, mediaType = 'image/png') => ({ digest: `blake3:${'a'.repeat(64)}`, name, size: 123, mediaType, virtualPath: `input/${name}` })
+    const rows = [
+      { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: ['image/*'] } },
+      { kind: 'input', id: 'result', type: { kind: 'concrete', types: ['STRING'] }, default: 'old' },
+      { kind: 'input', id: 'after', type: { kind: 'concrete', types: ['STRING'] }, default: 'before' },
+      { kind: 'button', id: 'fact', label: 'Read filename', steps: [
+        { step: 'set', field: 'result', value: { formula: 'filename(image) + ":" + kind(image)' } },
+        { step: 'disconnect', input: 'image' },
+        { step: 'openPicker', field: 'image' },
+        { step: 'set', field: 'after', value: { formula: 'filename(image) + ":" + kind(image)' } },
+      ] },
+    ]
+    addSchema('test.asset_fact', rows)
+    addSchema('test.asset_fact_member', [{ kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+      keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: rows }])
+    addSchema('test.asset_fact_output', [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['ASSET'] } }])
+    for (const prefix of ['', 'items.m0.']) for (const driver of ['saved', 'tap', 'output']) {
+      const wired = driver !== 'saved'
+      const doc = documentOf({
+        n1: { type: prefix === '' ? 'test.asset_fact' : 'test.asset_fact_member',
+          values: { [prefix + 'image']: asset('saved.png'), [prefix + 'result']: 'old', [prefix + 'after']: 'before' },
+          ...(prefix === '' ? {} : { dynamic: { items: { members: ['m0'], seq: 1 } } }) },
+        src: { type: driver === 'output' ? 'test.asset_fact_output' : 'test.asset_fact', values: { image: asset('incoming.png') } },
+      }, wired ? { feed: { id: asLinkId('feed'), from: driver === 'output' ? { node: asNodeId('src'), port: asPortId('out') }
+        : { node: asNodeId('src'), tap: asPortId('image') },
+        to: { node: asNodeId('n1'), port: asPortId(prefix + 'image') } } } : {})
+      const session = sessionOf(doc)
+      const host = hostOf({ openPicker: async () => asset('picked.webm', 'video/webm') })
+      const target = at(prefix + 'fact')
+      if (driver === 'output') {
+        expect(buttonAvailability(doc, target, host)).toEqual({ enabled: false, reason: 'Needs image, which is not known until a run.' })
+        expect((await runPress(session, target, host)).kind).toBe('failed')
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+        const part = (formula: string) => [{ graphId: 'g0', nodeId: 'n1', prefix, steps: decodeSteps([
+          { step: 'set', field: 'result', value: { formula } },
+        ]) }]
+        expect((await runSteps(session, part('filename(image) if known(filename(image)) else "unknown"'), host)).kind).toBe('done')
+        expect(valuesOf(session)[prefix + 'result']).toBe('unknown')
+        expect((await runSteps(session, part('"lazy" if True else filename(image)'), host)).kind).toBe('done')
+        expect(valuesOf(session)[prefix + 'result']).toBe('lazy')
+        continue
+      }
+      expect(buttonAvailability(doc, target, host)).toEqual({ enabled: true })
+      expect((await runPress(session, target, host)).kind).toBe('done')
+      expect(valuesOf(session)).toEqual({ [prefix + 'image']: asset('picked.webm', 'video/webm'),
+        [prefix + 'result']: wired ? 'incoming.png:image' : 'saved.png:image', [prefix + 'after']: 'picked.webm:video' })
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(session.doc).toEqual(doc)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+    }
+    for (const [mediaType, expected] of [['image/gif', 'image'], ['video/webm', 'video'], ['audio/flac', 'audio'],
+      ['model/gltf+json', '3d'], ['text/plain', 'text'], ['application/pdf', 'file'], ['image', 'file'], ['', 'unknown']]) {
+      const session = sessionOf(documentOf({ n1: { type: 'test.asset_fact', values: { image: asset('folder\\nested/file.ext', mediaType) } } }))
+      const outcome = await runSteps(session, [{ graphId: 'g0', nodeId: 'n1', prefix: '', steps: decodeSteps([
+        { step: 'set', field: 'result', value: { formula: 'filename(image)' } },
+        { step: 'set', field: 'after', value: { formula: 'kind(image) if known(kind(image)) else "unknown"' } },
+      ]) }], hostOf())
+      expect(outcome.kind, mediaType).toBe('done')
+      expect(valuesOf(session)).toMatchObject({ result: 'file.ext', after: expected })
+    }
+  })
+
+  it('keeps decoded asset facts unknown with a stored reference and rolls back earlier writes', async () => {
+    addSchema('test.decoded_asset_fact', [
+      { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['ASSET'] } },
+      { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+      { kind: 'button', id: 'read', label: 'Read width', steps: [
+        { step: 'set', field: 'marker', value: { value: 23 } },
+        { step: 'set', field: 'marker', value: { formula: 'width(image)' } },
+      ] },
+    ])
+    const doc = documentOf({ n1: { type: 'test.decoded_asset_fact', values: {
+      image: { digest: `blake3:${'a'.repeat(64)}`, name: '640x480.png', size: 123, mediaType: 'image/png', virtualPath: 'input/640x480.png' }, marker: 41,
+    } } })
+    const session = sessionOf(doc)
+    expect(await runPress(session, at('read'), hostOf())).toMatchObject({ kind: 'failed', message: 'Nothing was changed. A value this button needs is not known yet.' })
+    expect(session.doc).toEqual(doc)
+    expect(session.canUndo).toBe(false)
+  })
+
+  it('reads connected types without execution values and refreshes facts after Disconnect', async () => {
+    const int = (id: string) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 7 })
+    const rows = [
+      int('source'),
+      { kind: 'input', id: 'result', type: { kind: 'concrete', types: ['STRING'] }, default: 'old' },
+      { kind: 'input', id: 'after', type: { kind: 'concrete', types: ['STRING'] }, default: 'before' },
+      { kind: 'button', id: 'fact', label: 'Read type', steps: [
+        { step: 'set', field: 'result', value: { formula: 'linked_type(source) if linked(source) else "unwired"' } },
+        { step: 'disconnect', input: 'source' },
+        { step: 'set', field: 'after', value: { formula: '"disconnected" if linked_type(source) == None else "still linked"' } },
+      ] },
+    ]
+    addSchema('test.type_fact', rows)
+    addSchema('test.type_fact_member', [{ kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+      keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: rows }])
+    addSchema('test.type_fact_source', [int('value'), { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }])
+    addSchema('test.type_fact_generic', [
+      { kind: 'input', id: 'value', type: { kind: 'variable', templateId: 'T' } },
+      { kind: 'output', id: 'out', type: { kind: 'variable', templateId: 'T' } },
+    ])
+    for (const prefix of ['', 'items.m0.']) for (const driver of ['none', 'output', 'tap', 'net', 'reroute', 'generic', 'bypass']) {
+      const connected = driver !== 'none'
+      const from = driver === 'tap' ? { node: asNodeId('src'), tap: asPortId('value') }
+        : driver === 'reroute' ? { reroute: 'junction' as never } : { node: asNodeId('src'), port: asPortId('out') }
+      const to = { node: asNodeId('n1'), port: asPortId(prefix + 'source') }
+      const initial = documentOf({
+        n1: { type: prefix === '' ? 'test.type_fact' : 'test.type_fact_member', values: { [prefix + 'result']: 'old', [prefix + 'after']: 'before' },
+          ...(prefix === '' ? {} : { dynamic: { items: { members: ['m0'], seq: 1 } } }) },
+        src: { type: driver === 'generic' ? 'test.type_fact_generic' : 'test.type_fact_source', ...(driver === 'bypass' ? { mode: 'bypassed' as const } : {}) },
+        upstream: { type: 'test.type_fact_source' },
+      }, {
+        ...(connected && driver !== 'net' ? { feed: { id: asLinkId('feed'), from, to } } : {}),
+        ...(driver === 'reroute' ? { bridge: { id: asLinkId('bridge'), from: { node: asNodeId('src'), port: asPortId('out') }, to: from } } : {}),
+        ...(driver === 'generic' || driver === 'bypass' ? link('bridge', ['upstream', 'out'], ['src', 'value']) : {}),
+      })
+      const doc: WorkflowDocument = { ...initial, graphs: { g0: { ...initial.graphs['g0']!,
+        ...(driver === 'net' ? { nets: { feed: { id: 'feed' as never, name: 'Typed source', source: { node: asNodeId('src'), port: asPortId('out') }, sinks: [to] } } } : {}),
+        ...(driver === 'reroute' ? { reroutes: { junction: { id: 'junction' as never } } } : {}),
+      } } }
+      const session = sessionOf(doc)
+      const host = hostOf()
+      const target = at(prefix + 'fact')
+      expect(buttonAvailability(doc, target, host), driver + prefix).toEqual({ enabled: true })
+      const outcome = await runPress(session, target, host)
+      expect(outcome.kind, driver + prefix + ': ' + outcome.message).toBe('done')
+      expect(valuesOf(session)).toEqual({ [prefix + 'result']: connected ? 'INT' : 'unwired', [prefix + 'after']: 'disconnected' })
+      expect(Object.values(session.doc.graphs['g0']!.links).some((link) => isPortEndpoint(link.to) && link.to.node === 'n1')).toBe(false)
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(session.doc).toEqual(doc)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+    }
+  })
+
   it('fails on an off-step whole number or an option the field does not have, and stores a decimal off its step', async () => {
     const session = sessionOf(documentOf({ n1: { type: 'dev.buttons.field_steps', values: { width: 512, mode: 'fast', scale: 0.5 } } }))
     expect((await runPress(session, at('off_step'), hostOf())).message).toBe('Nothing was changed. width moves in steps of 64; the button gave 100.')
@@ -383,6 +1011,51 @@ describe('what a press may write', () => {
     const outcome = await runPress(session, at('double'), hostOf())
     expect(outcome).toMatchObject({ kind: 'done', message: 'Set 1 field. height has a wire and was left as it is.' })
     expect(valuesOf(session)).toMatchObject({ width: 1024, height: 768 })
+  })
+
+  it('checks SetEach member targets and lazy dependencies before making a Call', async () => {
+    const input = (id: string) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 7 })
+    addSchema('test.each_availability', [
+      input('upstream'), input('marker'),
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+        keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: [input('source'), input('value')] },
+      { kind: 'button', id: 'all', label: 'Fill', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { value: 23 } }] },
+      ...['upstream', 'source', '31 if index() == 0 else source', '31 if True else source', 'source if known(source) else 37', 'sum(items.source)', 'amount + (31 if True else source)'].map((formula, index) => ({
+        kind: 'button', id: `read_${index}`, label: 'Read', steps: [
+          { step: 'set', field: 'marker', value: { value: 17 } },
+          { step: 'pick', name: 'amount', options: { value: [5] } },
+          { step: 'call', function: 'probe.wait', args: [], writes: ['marker'] },
+          { step: 'setEach', group: 'items', field: 'value', value: { formula } },
+        ],
+      })),
+    ])
+    const values = { marker: 7, upstream: 13, 'items.m0.source': 19, 'items.m1.source': 29, 'items.m0.value': 41, 'items.m1.value': 43 }
+    const base = documentOf({ n1: { type: 'test.each_availability', values, dynamic: { items: { members: ['m0', 'm1'], seq: 2 } } }, src: { type: 'test.each_availability' } })
+    let calls = 0
+    const host = hostOf({ pick: async () => 5, call: async () => { calls++; return { kind: 'answer', fields: { marker: 47n }, notes: [] } } })
+    const wired = (ports: string[]) => ({ ...base, graphs: { ...base.graphs, g0: { ...base.graphs['g0']!, links: Object.assign({}, ...ports.map((port, i) => link(`l${i}`, ['src', 'out'], ['n1', port]))) } } })
+    const all = wired(['items.m0.value', 'items.m1.value'])
+    expect(buttonAvailability(all, at('all'), host)).toEqual({ enabled: false, reason: 'Every field this would set has a wire.' })
+    const partial = sessionOf(wired(['items.m0.value']))
+    expect(buttonAvailability(partial.doc, at('all'), host)).toEqual({ enabled: true })
+    expect((await runPress(partial, at('all'), host)).kind).toBe('done')
+    expect(valuesOf(partial)).toMatchObject({ 'items.m0.value': 41, 'items.m1.value': 23 })
+    for (const [button, port, needed] of [['read_0', 'upstream', 'upstream'], ['read_1', 'items.m1.source', 'source'], ['read_2', 'items.m1.source', 'source'], ['read_5', 'items.m1.source', 'items.source']]) {
+      const session = sessionOf(wired([port!]))
+      expect(buttonAvailability(session.doc, at(button!), host)).toEqual({ enabled: false, reason: `Needs ${needed}, which is not known until a run.` })
+      expect((await runPress(session, at(button!), host)).kind).toBe('failed')
+      expect(session.doc).toEqual(wired([port!]))
+      expect(session.canUndo).toBe(false)
+    }
+    expect(calls).toBe(0)
+    for (const [button, first, second] of [['read_3', 31, 31], ['read_4', 19, 37], ['read_6', 36, 36]] as const) {
+      const session = sessionOf(wired(['items.m1.source']))
+      expect(buttonAvailability(session.doc, at(button), host)).toEqual({ enabled: true })
+      expect((await runPress(session, at(button), host)).kind).toBe('done')
+      expect(valuesOf(session)).toMatchObject({ marker: 47, 'items.m0.value': first, 'items.m1.value': second })
+    }
+    expect(calls).toBe(3)
   })
 
   it('is turned off before a press when every target is wired, when it needs a wired value, or when the pack says so', () => {
@@ -404,6 +1077,174 @@ describe('what a press may write', () => {
     const mask = documentOf({ n1: { type: 'dev.buttons.ask_steps' } })
     expect(buttonAvailability(mask, at('mask'), host)).toEqual({ enabled: false, reason: 'This editor is not available yet.' })
   })
+
+  it('reads known incoming values rather than dormant fields, with one undo and deterministic redo', async () => {
+    addSchema('test.known_incoming', [
+      { kind: 'input', id: 'upstream', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+      { kind: 'output', id: 'known', type: { kind: 'concrete', types: ['INT'] }, knownValue: { input: 'upstream' } },
+      { kind: 'output', id: 'unknown', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'button', id: 'read', label: 'Read incoming', steps: [
+        { step: 'set', field: 'marker', value: { formula: 'upstream + 1' } },
+        { step: 'call', function: 'probe.read', args: ['upstream'], writes: ['marker'] },
+      ] },
+    ])
+    const args: unknown[] = []
+    const host = hostOf({ call: async (request) => { args.push(request.args); return { kind: 'answer', fields: {}, notes: [] } } })
+    for (const kind of ['tap', 'known', 'unknown'] as const) {
+      const doc = documentOf({ n1: { type: 'test.known_incoming', values: { upstream: 97, marker: 41 } }, src: { type: 'test.known_incoming', values: { upstream: 13 } } }, {
+        l1: { id: asLinkId('l1'), from: kind === 'tap' ? { node: asNodeId('src'), tap: asPortId('upstream') } : { node: asNodeId('src'), port: asPortId(kind) }, to: { node: asNodeId('n1'), port: asPortId('upstream') } },
+      })
+      const session = sessionOf(doc)
+      expect(buttonAvailability(doc, at('read'), host), kind).toEqual(kind === 'unknown'
+        ? { enabled: false, reason: 'Needs upstream, which is not known until a run.' } : { enabled: true })
+      expect((await runPress(session, at('read'), host)).kind).toBe(kind === 'unknown' ? 'failed' : 'done')
+      if (kind === 'unknown') {
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+      } else {
+        expect(valuesOf(session)).toEqual({ upstream: 97, marker: 14 })
+        expect(args.at(-1)).toEqual([13n])
+        const calls = args.length
+        expect(session.undo()).toBe(true)
+        expect(valuesOf(session)).toEqual({ upstream: 97, marker: 41 })
+        expect(session.canUndo).toBe(false)
+        expect(session.redo()).toBe(true)
+        expect(valuesOf(session).marker).toBe(14)
+        expect(args).toHaveLength(calls)
+      }
+    }
+    expect(args).toHaveLength(2)
+  })
+
+  it('checks reads against preceding staged values and disconnections without making preflight calls', async () => {
+    const set = (field: string, value: unknown) => ({ step: 'set', field, value })
+    const cases = [
+      { id: 'disconnect', steps: [{ step: 'disconnect', input: 'upstream' }, set('marker', { formula: 'upstream + 1' })], values: { upstream: 97, marker: 98, result: 3 } },
+      { id: 'lazy', steps: [set('marker', { value: 0 }), set('result', { formula: 'upstream if marker else 23' })], values: { upstream: 97, marker: 0, result: 23 } },
+      { id: 'formula', steps: [set('marker', { formula: 'marker - 41' }), set('result', { formula: 'upstream if marker else 23' })], values: { upstream: 97, marker: 0, result: 23 } },
+      { id: 'disconnected_target', steps: [{ step: 'disconnect', input: 'upstream' }, set('upstream', { value: 17 })], values: { upstream: 17, marker: 41, result: 3 } },
+      { id: 'needed', steps: [set('marker', { value: 1 }), set('result', { formula: 'upstream if marker else 23' })] },
+      { id: 'call_before_needed', steps: [{ step: 'call', function: 'probe', args: [], writes: ['result'] }, set('marker', { value: 1 }), set('result', { formula: 'upstream if marker else 23' })] },
+    ]
+    addSchema('test.staged_availability', [
+      ...['upstream', 'marker', 'result'].map((id) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 7 })),
+      { kind: 'output', id: 'unknown', type: { kind: 'concrete', types: ['INT'] } },
+      ...cases.map(({ id, steps }) => ({ kind: 'button', id, label: id, steps })),
+    ])
+    let calls = 0
+    const host = hostOf({ call: async () => { calls++; return { kind: 'answer', fields: {}, notes: [] } } })
+    const doc = documentOf({ n1: { type: 'test.staged_availability', values: { upstream: 97, marker: 41, result: 3 } }, src: { type: 'test.staged_availability' } }, link('l1', ['src', 'unknown'], ['n1', 'upstream']))
+    for (const item of cases) {
+      const session = sessionOf(doc)
+      expect(buttonAvailability(doc, at(item.id), host), item.id).toEqual(item.values === undefined
+        ? { enabled: false, reason: 'Needs upstream, which is not known until a run.' } : { enabled: true })
+      expect(calls).toBe(0)
+      expect((await runPress(session, at(item.id), host)).kind, item.id).toBe(item.values === undefined ? 'failed' : 'done')
+      if (item.values === undefined) {
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+      } else {
+        expect(valuesOf(session), item.id).toEqual(item.values)
+        expect(session.undo()).toBe(true)
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+        expect(session.redo()).toBe(true)
+        expect(valuesOf(session)).toEqual(item.values)
+      }
+    }
+    expect(calls).toBe(0)
+  })
+
+  it('checks independent required inputs even after uncertain Call results', async () => {
+    const set = (formula: string) => ({ step: 'set', field: 'result', value: { formula } })
+    const cases = [
+      { id: 'later', steps: [set('marker + 1'), set('upstream + 1')], enabled: false },
+      { id: 'left', steps: [set('marker + upstream')], enabled: false },
+      { id: 'right', steps: [set('upstream + marker')], enabled: false },
+      { id: 'argument', steps: [set('min(marker, upstream)')], enabled: false },
+      { id: 'comparison', steps: [set('1 if marker < upstream else 0')], enabled: false },
+      { id: 'list', steps: [set('sum([marker, upstream])')], enabled: false },
+      { id: 'index', steps: [set('[marker][upstream]')], enabled: false },
+      { id: 'members', steps: [set('sum([marker if x else upstream for x in [1, 0]])')], enabled: false },
+      { id: 'lazy', steps: [set('upstream if marker else 23')], enabled: true },
+      { id: 'known', steps: [set('upstream if known(marker) else 23')], enabled: true },
+    ]
+    addSchema('test.uncertain_reads', [
+      ...['upstream', 'marker', 'result'].map((id) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 7 })),
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+      ...cases.map(({ id, steps }) => ({ kind: 'button', id, label: id, steps: [
+        { step: 'call', function: 'probe', args: [], writes: ['marker'] }, ...steps,
+      ] })),
+    ])
+    const doc = documentOf({ n1: { type: 'test.uncertain_reads', values: { upstream: 97, marker: 41, result: 3 } }, src: { type: 'test.uncertain_reads' } }, link('l1', ['src', 'out'], ['n1', 'upstream']))
+    for (const item of cases) {
+      let calls = 0
+      const host = hostOf({ call: async () => { calls++; return { kind: 'answer', fields: { marker: 0n }, notes: [] } } })
+      const session = sessionOf(doc)
+      expect(buttonAvailability(doc, at(item.id), host), item.id).toEqual(item.enabled
+        ? { enabled: true } : { enabled: false, reason: 'Needs upstream, which is not known until a run.' })
+      expect(calls).toBe(0)
+      const outcome = await runPress(session, at(item.id), host)
+      expect(calls, item.id).toBe(item.enabled ? 1 : 0)
+      if (item.id === 'lazy') {
+        expect(outcome.kind).toBe('done')
+        expect(valuesOf(session)).toEqual({ upstream: 97, marker: 0, result: 23 })
+        expect(session.undo()).toBe(true)
+        expect(session.doc).toEqual(doc)
+      } else {
+        expect(outcome.kind).toBe('failed')
+        expect(session.doc).toEqual(doc)
+      }
+      expect(session.canUndo).toBe(false)
+    }
+  })
+
+  it('checks nested Lookup arguments before making a Call or changing topology', async () => {
+    addSchema('test.nested_lookup', [
+      { kind: 'input', id: 'upstream', type: { kind: 'concrete', types: ['INT'] }, default: 13 },
+      { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+        keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+        ] },
+      ...['addMember', 'addNode'].flatMap((step) => ['upstream', { formula: 'upstream' }, { formula: '37 if True else upstream' }, 'amount'].map((arg, index) => ({
+        kind: 'button', id: `${step}_${index}`, label: 'Add', steps: [
+          { step: 'pick', name: 'amount', options: { value: [19] } },
+          { step: 'call', function: 'probe.wait', args: [], writes: ['marker'] },
+          { step, ...(step === 'addMember' ? { group: 'items' } : { nodeType: 'test.nested_lookup', to: 'upstream' }),
+            values: { [step === 'addMember' ? 'value' : 'marker']: { lookup: 'probe.value', args: [arg] } } },
+        ],
+      }))),
+    ])
+    let calls = 0, lookups = 0
+    const host = hostOf({ pick: async () => 19, call: async () => { calls++; return { kind: 'answer', fields: { marker: 29n }, notes: [] } },
+      lookup: async ({ args }) => { lookups++; return { state: 'ready', value: args[0] } } })
+    for (const step of ['addMember', 'addNode']) {
+      const before = documentOf({ n1: { type: 'test.nested_lookup', values: { marker: 41 } }, src: { type: 'test.nested_lookup' } },
+        link('l1', ['src', 'out'], ['n1', 'upstream']))
+      for (const index of [0, 1]) {
+        const session = sessionOf(before)
+        expect(buttonAvailability(before, at(`${step}_${index}`), host)).toEqual({ enabled: false, reason: 'Needs upstream, which is not known until a run.' })
+        expect((await runPress(session, at(`${step}_${index}`), host)).kind).toBe('failed')
+        expect(session.doc).toEqual(before)
+        expect(session.canUndo).toBe(false)
+      }
+      expect(calls).toBe(0)
+      expect(lookups).toBe(0)
+    }
+    for (const step of ['addMember', 'addNode']) for (const [index, value] of [[2, 37], [3, 19]]) {
+      const session = sessionOf(documentOf({ n1: { type: 'test.nested_lookup' }, src: { type: 'test.nested_lookup' } },
+        link('l1', ['src', 'out'], ['n1', 'upstream'])))
+      expect(buttonAvailability(session.doc, at(`${step}_${index}`), host)).toEqual({ enabled: true })
+      expect((await runPress(session, at(`${step}_${index}`), host)).kind).toBe('done')
+      if (step === 'addMember') expect(valuesOf(session)['items.m0.value']).toBe(value)
+      else expect(Object.values(session.doc.graphs['g0']!.nodes).find((node) => node.id !== 'n1' && node.id !== 'src')?.values['marker']).toBe(value)
+    }
+    expect(calls).toBe(4)
+    expect(lookups).toBe(4)
+  })
 })
 
 describe('while a press waits', () => {
@@ -423,6 +1264,93 @@ describe('while a press waits', () => {
     expect(valuesOf(session)).toMatchObject({ first: 'old', second: 2 })
     expect(outcome.skipped).toEqual([{ id: 'first', why: 'edited' }])
     expect(outcome.message).toBe('Set 1 field. first was changed while the button waited and keeps that value.')
+  })
+
+  it('rolls back all staged writes when a saved member is removed during Pick', async () => {
+    addSchema('test.removed-saved-member', [
+      { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['STRING'] }, default: 'before' },
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+        keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+        ] },
+      { kind: 'button', id: 'apply', label: 'Apply', steps: [
+        { step: 'set', field: 'marker', value: { value: 'after' } },
+        { step: 'setEach', group: 'items', field: 'value', value: { formula: 'value * 2' } },
+        { step: 'pick', name: 'answer', options: { value: ['continue'] } },
+      ] },
+    ])
+    const session = sessionOf(documentOf({ n1: {
+      type: 'test.removed-saved-member',
+      values: { marker: 'before', 'items.m0.value': 7, 'items.m1.value': 13 },
+      dynamic: { items: { members: ['m0', 'm1'], seq: 2 } },
+    } }))
+    const entered = later<void>()
+    const answer = later<string>()
+    const pressing = runPress(session, at('apply'), hostOf({ pick: () => { entered.settle(); return answer.promise } }))
+    await entered.promise
+    expect(session.dispatch({ command: 'dynamic.removeMember', params: {
+      graphId: 'g0', nodeId: 'n1', construct: 'items', member: 'm0',
+    } }).ok).toBe(true)
+    const beforeReply = structuredClone(session.doc)
+    answer.settle('continue')
+    expect(await pressing).toMatchObject({ kind: 'failed', message: 'Nothing was changed. A member this button needs was removed while it waited.' })
+    expect(session.doc).toEqual(beforeReply)
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ marker: 'before', 'items.m0.value': 7, 'items.m1.value': 13 })
+    expect(session.canUndo).toBe(false)
+  })
+
+  it('rolls back when a formula source disappears during Call, but permits ordinary edits', async () => {
+    const reads = [
+      { formula: 'items.value[0] + 11', option: false, result: 40 },
+      { formula: 'len(items) + 11', option: false, result: 12 },
+      { formula: '11 if linked(mode.value) else 12', option: true, result: 12 },
+      { formula: '11 if linked_type(mode.value) == None else 12', option: true, result: 11 },
+    ]
+    addSchema('test.removed-read-member', [
+      { kind: 'input', id: 'result', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
+      { kind: 'input', id: 'answer', type: { kind: 'concrete', types: ['INT'] }, default: 5 },
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+        keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+        ] },
+      { kind: 'choice', id: 'mode', required: true, default: 'a', options: [
+        { key: 'a', rows: [{ kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 23 }] },
+        { key: 'b', rows: [] },
+      ] },
+      ...reads.map(({ formula }, index) => ({ kind: 'button', id: `apply_${index}`, label: 'Apply', steps: [
+        { step: 'set', field: 'result', value: { formula } },
+        { step: 'call', function: 'probe.wait', args: [], writes: ['answer'] },
+      ] })),
+    ])
+    for (const [index, { option, result }] of reads.entries()) for (const remove of [true, false]) {
+      const session = sessionOf(documentOf({ n1: {
+        type: 'test.removed-read-member', values: { result: 3, answer: 5, 'items.m0.value': 29, 'mode.value': 23 },
+        dynamic: { items: { members: ['m0'], seq: 1 }, mode: { selected: 'a' } },
+      } }))
+      const entered = later<void>()
+      const answer = later<CallAnswer>()
+      const pressing = runPress(session, at(`apply_${index}`), hostOf({ call: () => { entered.settle(); return answer.promise } }))
+      await entered.promise
+      expect(valuesOf(session)).toMatchObject({ result: 3, answer: 5 })
+      expect(session.dispatch(remove
+        ? option
+          ? { command: 'dynamic.selectOption', params: { graphId: 'g0', nodeId: 'n1', construct: 'mode', option: 'b' } }
+          : { command: 'dynamic.removeMember', params: { graphId: 'g0', nodeId: 'n1', construct: 'items', member: 'm0' } }
+        : { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'items.m0.value', value: 83 } }).ok).toBe(true)
+      const beforeReply = structuredClone(session.doc)
+      answer.settle({ kind: 'answer', fields: { answer: 71n }, notes: [] })
+      expect((await pressing).kind).toBe(remove ? 'failed' : 'done')
+      if (remove) expect(session.doc).toEqual(beforeReply)
+      else {
+        expect(valuesOf(session)).toEqual({ result, answer: 71, 'items.m0.value': 83, 'mode.value': 23 })
+        expect(session.undo()).toBe(true)
+        expect(session.doc).toEqual(beforeReply)
+      }
+      expect(session.undo()).toBe(true)
+      expect(valuesOf(session)).toEqual({ result: 3, answer: 5, 'items.m0.value': 29, 'mode.value': 23 })
+      expect(session.canUndo).toBe(false)
+    }
   })
 
   describe('changes to what the press writes into', () => {
@@ -559,6 +1487,22 @@ describe('call answers', () => {
 })
 
 describe('lists, forms and lookups', () => {
+  it.each([{ answer: 2n, accepted: true }, { answer: 2, accepted: false }])('keeps lookup numeric kind for an integer target: $answer', async ({ answer, accepted }) => {
+    addSchema('test.typed_lookup', [
+      { kind: 'input', id: 'first', type: { kind: 'concrete', types: ['STRING'] }, required: true, default: '' },
+      { kind: 'input', id: 'second', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 1 },
+      { kind: 'button', id: 'read', label: 'Read', steps: [
+        { step: 'set', field: 'first', value: { value: 'staged' } },
+        { step: 'set', field: 'second', value: { lookup: 'test.mod.count', args: [] } },
+      ] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.typed_lookup', values: { first: 'old', second: 1 } } }))
+    const outcome = await runPress(session, at('read'), hostOf({ lookup: async () => ({ state: 'ready', value: answer }) }))
+    expect(outcome.kind).toBe(accepted ? 'done' : 'failed')
+    expect(valuesOf(session)).toEqual(accepted ? { first: 'staged', second: 2 } : { first: 'old', second: 1 })
+    expect(session.canUndo).toBe(accepted)
+  })
+
   it('Pick offers a stale list and passes its choice to later steps, which store a looked-up value', async () => {
     const session = sessionOf(documentOf({ n1: { type: 'dev.buttons.lora_preset' } }))
     const asked: unknown[] = []
@@ -648,6 +1592,204 @@ describe('steps outside the workflow', () => {
     const copied = hostOf()
     await runPress(menu, at('menu_copy', 'n1', true), copied)
     expect(copied.log).toEqual(['copy 640x768'])
+  })
+})
+
+describe('steps inside a subgraph occurrence', () => {
+  it('reports only shared values left changed at commit, after restored writes and skipped targets', async () => {
+    addSchema('test.shared_source', [{ kind: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } }])
+    addSchema('test.shared_restored', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
+      { kind: 'input', id: 'other', type: { kind: 'concrete', types: ['INT'] }, default: 11 },
+      { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['dev.image'] } },
+    ])
+    const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
+    for (const changed of [false, true]) for (const add of [false, true]) for (const wired of [false, true]) {
+      const root = documentOf({ left: { type: '#g1' }, right: { type: '#g1' } })
+      const inner = documentOf({ inner: { type: 'test.shared_restored', values: { value: 3, other: 11 } }, source: { type: 'test.shared_source' } },
+        wired ? link('feed', ['source', 'value'], ['inner', 'other']) : {}).graphs['g0']!
+      const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), name: 'shared' } } }
+      const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+      const outcome = await runSteps(session, [{ graphId: 'g1', nodeId: 'inner', instancePath: ['left'], prefix: '', steps: decodeSteps([
+        { step: 'set', field: 'value', value: { value: 4 } },
+        { step: 'set', field: 'value', value: { value: 3 } },
+        ...(changed ? [{ step: 'set', field: 'other', value: { value: 17 } }] : []),
+        ...(add ? [{ step: 'addNode', nodeType: 'dev.image.gradient', to: 'image', values: {} }] : []),
+      ]) }], host)
+      expect(outcome, outcome.message).toMatchObject({ kind: 'done', notes: [
+        ...(add ? ['Also added in the other use of "shared".'] : []),
+        ...(changed && !wired ? ['Also changed in the other use of "shared".'] : []),
+      ] })
+      expect(session.doc.graphs.g1!.nodes.inner!.values).toEqual({ value: 3, other: changed && !wired ? 17 : 11 })
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(session.doc.graphs.g1!.nodes).toEqual(inner.nodes)
+      expect(session.doc.graphs.g1!.links).toEqual(inner.links)
+      expect(session.doc.graphs.g0).toEqual(root.graphs.g0)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+    }
+  })
+
+  it('reports shared field changes while keeping promoted writes instance-local in one undo step', async () => {
+    addSchema('test.shared_value', [
+      { kind: 'input', id: 'owned', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { kind: 'input', id: 'shared', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
+      { kind: 'button', id: 'increase', label: 'Increase', steps: [
+        { step: 'set', field: 'owned', value: { formula: 'owned + 1' } },
+        { step: 'set', field: 'shared', value: { formula: 'shared + 1' } },
+      ] },
+    ])
+    const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
+    for (const uses of [1, 2, 3]) for (const promoted of [false, true]) {
+      const root = documentOf({ left: { type: '#g1', values: { shown: 41, ...(promoted ? { ownShared: 3 } : {}) } },
+        ...(uses > 1 ? { right: { type: '#g1', values: { shown: 73 } } } : {}),
+        ...(uses > 2 ? { third: { type: '#g1', values: { shown: 97 } } } : {}),
+      })
+      const inner = documentOf({ inner: { type: 'test.shared_value', values: { shared: 3 } } }).graphs['g0']!
+      const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), name: 'shared', boundary: {
+        body: [{ kind: 'input', id: asPortId('shown'), binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('owned') }, promoted: true },
+          ...(promoted ? [{ kind: 'input' as const, id: asPortId('ownShared'), binds: { kind: 'port' as const, node: asNodeId('inner'), port: asPortId('shared') }, promoted: true }] : [])],
+      } } } }
+      const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+      const outcome = await runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: ['left'], button: 'increase' }, host)
+      expect(outcome).toMatchObject({ kind: 'done', notes: !promoted && uses > 1
+        ? [`Also changed in the other ${uses === 2 ? 'use' : '2 uses'} of "shared".`] : [] })
+      expect(valuesOf(session, 'left')).toEqual({ shown: 42, ...(promoted ? { ownShared: 4 } : {}) })
+      expect(session.doc.graphs['g1']!.nodes['inner']!.values).toEqual({ shared: promoted ? 3 : 4 })
+      for (const id of ['right', 'third']) if (root.graphs['g0']!.nodes[id]) {
+        expect(session.doc.graphs['g0']!.nodes[id]).toEqual(root.graphs['g0']!.nodes[id])
+      }
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(session.doc).toEqual(doc)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+    }
+  })
+
+  it('materializes and edits whole promoted groups outside, keeping definition members and sibling instances', async () => {
+    addSchema('test.owned_group', [
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 1, maxMembers: 5,
+        keys: { numbered: { prefix: 'item_', start: 1, pad: 0 } }, member: [
+          { kind: 'input', id: 'label', type: { kind: 'concrete', types: ['STRING'] }, default: 'old' },
+        ] },
+      { kind: 'button', id: 'fill', label: 'Fill', steps: [{ step: 'setEach', group: 'items', field: 'label', value: { value: 'changed' } }] },
+      { kind: 'button', id: 'add', label: 'Add', steps: [{ step: 'addMember', group: 'items', values: { label: { value: 'new' } } }] },
+      { kind: 'button', id: 'remove', label: 'Remove', steps: [{ step: 'removeMember', group: 'items', which: 'last' }] },
+    ])
+    const root = documentOf({ left: { type: '#g1' }, right: { type: '#g1' } })
+    const inner = documentOf({ inner: { type: 'test.owned_group' } }).graphs['g0']!
+    const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), boundary: {
+      body: [{ kind: 'input', id: asPortId('shown'), binds: { kind: 'construct', node: asNodeId('inner'), port: asPortId('items') }, promoted: true }],
+    } } } }
+    const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
+    const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    const target = { graphId: 'g1', nodeId: 'inner', instancePath: ['left'] }
+    expect(await runPress(session, { ...target, button: 'fill' }, host)).toMatchObject({ kind: 'done' })
+    expect(session.doc.graphs['g1']).toEqual(doc.graphs['g1'])
+    expect(valuesOf(session, 'left')).toEqual({ 'shown.item_1.label': 'changed' })
+    expect(valuesOf(session, 'right')).toEqual({})
+    expect(session.doc.graphs['g0']!.nodes['left']!.dynamic?.['shown']).toEqual({ members: ['item_1'], seq: 1 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session, 'left')).toEqual({})
+    expect(session.doc.graphs['g0']!.nodes['left']!.dynamic?.['shown']?.members ?? []).toEqual([])
+    expect(session.doc.graphs['g1']).toEqual(doc.graphs['g1'])
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(await runPress(session, { ...target, button: 'add' }, host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session, 'left')).toEqual({ 'shown.item_1.label': 'changed', 'shown.item_2.label': 'new' })
+    expect(await runPress(session, { ...target, button: 'remove' }, host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session, 'left')).toEqual({ 'shown.item_1.label': 'changed' })
+    expect(session.doc.graphs['g1']).toEqual(doc.graphs['g1'])
+    expect(valuesOf(session, 'right')).toEqual({})
+
+    const withDefinitionMember: WorkflowDocument = { ...doc, graphs: { ...doc.graphs,
+      g1: { ...doc.graphs['g1']!, nodes: { inner: { ...inner.nodes['inner']!,
+        dynamic: { items: { members: ['item_1'], seq: 1 } }, values: { 'items.item_1.label': 'definition' },
+      } } },
+    } }
+    const offset = createLocalSession(withDefinitionMember, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    expect(await runPress(offset, { ...target, button: 'add' }, host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(offset, 'left')).toEqual({ 'shown.item_1.label': 'new' })
+    expect(valuesOf(offset, 'right')).toEqual({})
+    expect(offset.doc.graphs['g1']).toEqual(withDefinitionMember.graphs['g1'])
+  })
+
+  it('materializes nested minimum members through an outer construct before writing', async () => {
+    addSchema('test.nested_owned_group', [
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 1, maxMembers: 5,
+        keys: { numbered: { prefix: 'item_', start: 1, pad: 0 } }, member: [
+          { kind: 'group', id: 'children', grows: 'button', minMembers: 1, maxMembers: 5,
+            keys: { numbered: { prefix: 'child_', start: 1, pad: 0 } }, member: [
+              { kind: 'input', id: 'label', type: { kind: 'concrete', types: ['STRING'] }, default: 'old' },
+            ] },
+        ] },
+    ])
+    const root = documentOf({ left: { type: '#g1' }, right: { type: '#g1' } })
+    const inner = documentOf({ inner: { type: 'test.nested_owned_group' } }).graphs['g0']!
+    const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), boundary: {
+      body: [{ kind: 'input', id: asPortId('shown'), binds: { kind: 'construct', node: asNodeId('inner'), port: asPortId('items') }, promoted: true }],
+    } } } }
+    const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve) })
+    const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    expect(await runSteps(session, [{ graphId: 'g1', nodeId: 'inner', instancePath: ['left'],
+      prefix: 'items.item_1.children.child_1.', steps: decodeSteps([{ step: 'set', field: 'label', value: { value: 'changed' } }]),
+    }], host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session, 'left')).toEqual({ 'shown.item_1.children.child_1.label': 'changed' })
+    expect(valuesOf(session, 'right')).toEqual({})
+    expect(session.doc.graphs['g1']).toEqual(doc.graphs['g1'])
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session, 'left')).toEqual({})
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session, 'left')).toEqual({ 'shown.item_1.children.child_1.label': 'changed' })
+  })
+
+  it.each([false, true])('disconnects only the original projected delivery, replacement during wait: %s', async (replace) => {
+    addSchema('test.owned_disconnect', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'button', id: 'set', label: 'Set', steps: [
+        { step: 'disconnect', input: 'value' },
+        ...(replace ? [{ step: 'call', function: 'test.wait', args: [], writes: ['value'] }] : []),
+        { step: 'set', field: 'value', value: { value: 99 } },
+      ] },
+    ])
+    const root = documentOf({ left: { type: '#g1', values: { shown: 41 } }, right: { type: '#g1', values: { shown: 73 } }, source: { type: 'test.owned_disconnect' } }, {
+      ...link('left-wire', ['source', 'out'], ['left', 'shown']), ...link('right-wire', ['source', 'out'], ['right', 'shown']),
+    })
+    const inner = documentOf({ inner: { type: 'test.owned_disconnect', values: { value: 3 } } }).graphs['g0']!
+    const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'), boundary: {
+      body: [{ kind: 'input', id: asPortId('shown'), binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('value') }, promoted: true }],
+    } } } }
+    const answer = later<CallAnswer>()
+    const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve), call: () => answer.promise })
+    const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    const pending = runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: ['left'], button: 'set' }, host)
+    if (replace) {
+      expect(session.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'left-wire' } }).ok).toBe(true)
+      expect(session.dispatch({ command: 'link.connect', params: { graphId: 'g0', from: { node: 'source', port: 'out' }, to: { node: 'left', port: 'shown' } } }).ok).toBe(true)
+      const live = session.doc
+      answer.settle({ kind: 'answer', fields: {}, notes: [] })
+      const result = await pending
+      expect(result.kind, JSON.stringify(result)).toBe('done')
+      expect(result.skipped).toEqual([{ id: 'value', why: 'wired' }])
+      expect(session.doc).toEqual(live)
+      return
+    }
+    expect(await pending).toMatchObject({ kind: 'done', skipped: [] })
+    expect(valuesOf(session, 'left')).toEqual({ shown: 99 })
+    expect(valuesOf(session, 'right')).toEqual({ shown: 73 })
+    expect(session.doc.graphs['g1']).toEqual(doc.graphs['g1'])
+    expect(session.doc.graphs['g0']!.links['right-wire']).toEqual(doc.graphs['g0']!.links['right-wire'])
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(doc)
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session, 'left')).toEqual({ shown: 99 })
   })
 })
 

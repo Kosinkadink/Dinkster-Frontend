@@ -226,8 +226,9 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
       event.preventDefault()
       const direction = event.shiftKey ? -1 : 1
       const target = ed.target
-      if (target.kind !== 'input') return
-      void commit().then((closed) => { if (closed) host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, direction) })
+      void commit().then((closed) => {
+        if (closed && target.kind === 'input') host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, direction)
+      })
     }
   }
 

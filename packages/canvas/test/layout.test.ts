@@ -238,11 +238,11 @@ describe('pairing', () => {
     expect(widths).toHaveLength(3)
     expect(new Set(widths).size).toBe(1)
     // Beside a field, a button with an icon is a square and the field takes the rest of the line.
-    for (const field of [widget('rate'), widget('name', { widget: { widgetType: 'STRING', options: { multiline: true } } })]) {
-      const beside = doLayout([{ kind: 'row', rows: [field, { ...button('reset', 'Reset the frame rate'), icon: 'rotate-ccw' }] }])
-      const [rate, reset] = beside.rows
-      expect(reset).toMatchObject({ kind: 'button', width: reset!.height - defaultTokens.rowGeometry.fieldInsetY * 2 })
-      expect(rate!.kind === 'widget' && rate!.width).toBeGreaterThan(beside.width / 2)
+    for (const field of [widget('rate'), widget('text', { widget: { widgetType: 'STRING', options: { multiline: true } } })]) {
+      const beside = doLayout([{ kind: 'row', rows: [field, { ...button('reset', 'Reset'), icon: 'rotate-ccw' }] }])
+      const [value, reset] = beside.rows
+      expect(reset).toMatchObject({ kind: 'button', y: value!.y, width: reset!.height - defaultTokens.rowGeometry.fieldInsetY * 2 })
+      expect(value!.kind === 'widget' && value!.width).toBeGreaterThan(beside.width / 2)
     }
   })
 
@@ -287,22 +287,26 @@ describe('pairing', () => {
         kind: 'button', id: 'reset', label: 'Reset', steps: [], ...(icon === undefined ? {} : { icon }),
       }] }],
     }])
-    const layoutWith = (members: string[]) => layoutNode(schema,
+    const layoutWith = (members: string[], width?: number) => layoutNode(schema,
       { ...nodeData, dynamic: { files: { members } } },
-      { ...defaultTokens, memberRemoveCross: true }, measure, widgetMeasure)
-    const layout = layoutWith(['file0', 'file1'])
-    const cells = layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
+      { ...defaultTokens, memberRemoveCross: true }, measure, widgetMeasure,
+      width === undefined ? {} : { size: { width, height: 200 } })
+    const cells = layoutWith(['file0', 'file1']).rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
     expect(cells.map((row) => row.kind)).toEqual(['widget', 'button', 'widget', 'button'])
     expect(cells.map((row) => row.crossInset !== undefined)).toEqual([false, true, false, true])
     expect(cells[1]).toMatchObject({ remove: { construct: 'files', member: 'file0' } })
     expect(cells[3]).toMatchObject({ remove: { construct: 'files', member: 'file1' } })
-    for (const [index, cell] of cells.entries()) {
-      if (cell.kind !== 'button') continue
-      const field = cells[index - 1]!
-      expect(cell.inset - field.inset - field.width!).toBeCloseTo(4)
-      expect(layout.width - cell.crossInset! - canvasPaintTokens.node.box.cross.size - cell.inset - cell.width!).toBeCloseTo(4)
-      expect(cell.width).toBeCloseTo(icon === undefined ? field.width! : cell.height - defaultTokens.rowGeometry.fieldInsetY * 2)
-      expect(field.kind === 'widget' && field.reorder).toMatchObject({ construct: 'files' })
+    for (const width of [undefined, 817]) {
+      const layout = layoutWith(['file0', 'file1'], width)
+      const cells = layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
+      for (const [index, cell] of cells.entries()) {
+        if (cell.kind !== 'button') continue
+        const field = cells[index - 1]!
+        expect(cell.inset - field.inset - field.width!).toBeCloseTo(4)
+        expect(layout.width - cell.crossInset! - canvasPaintTokens.node.box.cross.size - cell.inset - cell.width!).toBeCloseTo(4)
+        expect(cell.width).toBeCloseTo(icon === undefined ? field.width! : cell.height - defaultTokens.rowGeometry.fieldInsetY * 2)
+        expect(field.kind === 'widget' && field.reorder).toMatchObject({ construct: 'files' })
+      }
     }
     const leastLayout = layoutWith(['file0'])
     const least = leastLayout.rows.find((row) => row.kind === 'button')!

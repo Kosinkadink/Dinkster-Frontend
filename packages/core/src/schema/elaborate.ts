@@ -68,7 +68,7 @@ import type {
   WidgetSpec,
 } from './model.js'
 import { isAssetWidgetInput, isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
-import { readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
+import { isAssetRefValue, readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
 import { normalizeComboOption } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
@@ -230,6 +230,8 @@ export interface ElaboratedInput {
   readonly materialize?: readonly MaterializeFrame[]
   /** A field that declares `automatic` with nothing stored and no wire: the value in use. */
   readonly automatic?: AutomaticState
+  /** The declaration's read scope, including forwarded field bindings. */
+  readonly automaticContext?: FormulaContext
   /** A field that declares `automatic` and holds a fixed value: what it would work out to if emptied. */
   readonly automaticIfEmptied?: AutomaticState
   /** Direct user value edits are blocked; wires and action writes are unchanged. */
@@ -714,12 +716,18 @@ export interface ElaborateOptions {
    * it to work out a step's formulas where the button sits.
    */
   readonly formulaContexts?: Map<string, FormulaContext>
+  /** Document-static value delivered to a linked input; undefined remains unknown. */
+  readonly incomingValue?: (path: string) => Json | undefined
+  /** Connected producer's resolved type, independent of its execution value. */
+  readonly incomingType?: (path: string) => string | undefined
 }
 
 /** What a formula sees in one scope of a node, and where each name it reads is stored. */
 export interface FormulaContext {
   readonly scope: FormulaScope
   readonly values: FormulaValues
+  /** Unexposed values captured by a forwarded declaration, including asset references. */
+  readonly fixed?: ReadonlyMap<string, { readonly value: unknown; readonly linked?: true }>
   /** Each name's flattened id. */
   readonly paths: ReadonlyMap<string, string>
   /** The scope is a member the node shows but does not store. */
@@ -869,7 +877,9 @@ function automaticKindOf(type: TypeExpr): AutomaticKind | undefined {
  * exactly whole, a whole number fills a decimal one, and a choice is one of
  * its static options.
  */
-function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: InputSpec): Json | undefined {
+export function automaticValueOf(row: InputSpec, value: FormulaValue | Json): Json | undefined {
+  const kind = automaticKindOf(row.type)
+  if (kind === undefined) return undefined
   if (kind === 'bool') return typeof value === 'boolean' ? value : undefined
   if (kind === 'text' || kind === 'choice') {
     if (typeof value !== 'string') return undefined
@@ -884,13 +894,16 @@ function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: 
 }
 
 /** Formula values worked out only when the formula reads them. */
-class LazyValues extends Map<string, FormulaValue | Unknown> {
-  private readonly thunks = new Map<string, () => FormulaValue | Unknown>()
-  setLazy(name: string, thunk: () => FormulaValue | Unknown): void {
+class LazyValues<T = FormulaValue | Unknown> extends Map<string, T> {
+  private readonly thunks = new Map<string, () => T | undefined>()
+  setLazy(name: string, thunk: () => T | undefined): void {
     this.thunks.set(name, thunk)
   }
-  override get(name: string): FormulaValue | Unknown | undefined {
-    if (!super.has(name) && this.thunks.has(name)) super.set(name, this.thunks.get(name)!())
+  override get(name: string): T | undefined {
+    if (!super.has(name) && this.thunks.has(name)) {
+      const value = this.thunks.get(name)!()
+      if (value !== undefined) super.set(name, value)
+    }
     return super.get(name)
   }
 }
@@ -1065,7 +1078,10 @@ function elaboratePass(
       const key = unsettledKey(path)
       if (key !== undefined) return key
     }
-    if (linked(path)) return UNKNOWN
+    if (linked(path)) {
+      const value = options.incomingValue?.(path)
+      return value === undefined ? UNKNOWN : formulaValueOf(value, kind)
+    }
     if (!Object.hasOwn(node.values, path)) {
       const automatic = automaticInUse(path)
       if (automatic !== undefined) return automatic === UNKNOWN ? UNKNOWN : formulaValueOf(automatic, kind)
@@ -1194,7 +1210,7 @@ function elaboratePass(
       if (outcome.kind === 'failed') return standIn('failed')
       found = outcome.value
     }
-    const value = automaticValueOf(kind, found, row)
+    const value = automaticValueOf(row, found)
     if (value === undefined) return standIn('wrong-type', call)
     return { value, state: 'worked-out', ...(call !== undefined ? { call } : {}), ...(kept !== undefined ? { kept } : {}) }
   }
@@ -1332,7 +1348,22 @@ function elaboratePass(
     const member = [...scope.formulaFrames].reverse().find((frame) => frame.index !== undefined)
     const values = new LazyValues()
     const wired = new Map<string, boolean>()
+    const linkedTypes = new LazyValues<string | null>()
+    const facts = new LazyValues<FormulaValue>()
     const sizes = new Map<string, number>()
+    for (const name of names.assets) for (const fact of ['filename', 'kind']) facts.setLazy(`${fact}(${name})`, () => {
+      if (unknown.has(name)) return undefined
+      const constant = fixed.get(name)
+      const path = where.get(name)
+      const value = constant !== undefined ? (constant.linked === true ? undefined : constant.value)
+        : path === undefined ? undefined : linked(path) ? options.incomingValue?.(path)
+          : Object.hasOwn(node.values, path) ? node.values[path] : defaults.get(path)
+      if (!isAssetRefValue(value)) return undefined
+      if (fact === 'filename') return value.name.split(/[\\/]/).at(-1)
+      if (value.mediaType === '') return undefined
+      const kind = /^(image|video|audio|model|text)\//.exec(value.mediaType)?.[1]
+      return kind === 'model' ? '3d' : kind ?? 'file'
+    })
     for (const [name, kind] of names.names) {
       const path = where.get(name)!
       const constant = fixed.get(name)
@@ -1361,6 +1392,7 @@ function elaboratePass(
       } else {
         if (kind !== 'opaque') values.setLazy(name, () => valueFor(path, kind, defaults.get(path)))
         if (names.inputs.has(name)) wired.set(name, linked(path))
+        if (names.inputs.has(name) && linked(path)) linkedTypes.setLazy(name, () => options.incomingType?.(path) ?? null)
       }
     }
     return {
@@ -1375,10 +1407,13 @@ function elaboratePass(
       values: {
         values,
         linked: wired,
+        linkedTypes,
+        facts,
         groupSizes: sizes,
         memberIndex: member?.index ?? null,
         memberKey: member?.key ?? null,
       },
+      fixed,
       paths: where,
       ...(scope.ghost ? { ghost: true as const } : {}),
     }
@@ -2626,7 +2661,7 @@ function elaboratePass(
     const found = item.kind === 'input' ? outcomes.get(item.address.port) : undefined
     if (found === undefined || item.kind !== 'input') continue
     const outcome = labelled(found)
-    items[index] = { ...item, automatic: outcome }
+    items[index] = { ...item, automatic: outcome, automaticContext: contextOf(sites.get(item.address.port)!.scope) }
     if (outcome.state === 'default') {
       const shown = typeof outcome.value === 'string' ? outcome.value : JSON.stringify(outcome.value)
       diagnostics.push(diag('warning', 'schema', 'automatic.default',
