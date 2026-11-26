@@ -366,9 +366,9 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
       running.get(buttonKey(place))?.abort()
     },
     /** The next click clears every result box. */
-    dismissBoxes(): void {
-      if ([...states().values()].some((state) => state.box !== undefined)) {
-        setStates(new Map([...states()].filter(([, state]) => state.box === undefined)))
+    dismissBoxes(shown: readonly ButtonState[] = [...states().values()]): void {
+      if (shown.some((state) => state.box !== undefined)) {
+        setStates(new Map([...states()].filter(([, state]) => state.box === undefined || !shown.includes(state))))
       }
     },
   }

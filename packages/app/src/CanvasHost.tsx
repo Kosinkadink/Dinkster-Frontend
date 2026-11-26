@@ -63,7 +63,7 @@ import {
   outputRowKey,
   problemBoxPlacement,
 } from '@dinkster/canvas'
-import { buttonKey, createButtonPresses, type ButtonBox, type ButtonPlace } from './button-presses.js'
+import { buttonKey, createButtonPresses, type ButtonBox, type ButtonPlace, type ButtonState } from './button-presses.js'
 import { ButtonAskForm, ButtonBoxView, ButtonLinkConfirm, type ScreenRect } from './ButtonOverlays.js'
 import { canvasMeasures } from './canvas-measures.js'
 import { VideoPreview } from './VideoPreview.js'
@@ -1741,7 +1741,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [sceneVersion, setSceneVersion] = createSolidSignal(0)
   let clientRectToWorld = (_rect: DOMRect): { x: number; y: number; width: number; height: number } | undefined => undefined
   /** A button's line in world space; a menu button's is its whole node. */
-  let buttonWorldRect = (_place: ButtonPlace): { x: number; y: number; width: number; height: number } | undefined => undefined
+  let buttonWorldRect = (_place: ButtonPlace, _notice = false): { x: number; y: number; width: number; height: number } | undefined => undefined
   /**
    * The field a press's list or form opens on: the button's own cell inside
    * its row's insets, as a field sharing a line opens on its cell. A menu
@@ -1749,9 +1749,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
    * the menu's work shows.
    */
   let buttonFieldBox = (_place: ButtonPlace): RowBox | undefined => undefined
-  const buttonScreenRect = (place: ButtonPlace): ScreenRect | undefined => {
+  const buttonScreenRect = (place: ButtonPlace, notice = false): ScreenRect | undefined => {
     sceneVersion()
-    const rect = buttonWorldRect(place)
+    const rect = buttonWorldRect(place, notice)
     if (rect === undefined) return undefined
     const viewport = editorViewport()
     const canvas = canvasClientRect()
@@ -1882,6 +1882,24 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const tab = activeTab()
     return tab !== undefined && (place.tab === tab || props.app.liveTabContinuing(place.tab.store) === tab) && place.graphId === currentGraphId(tab) &&
       JSON.stringify(place.instancePath ?? []) === JSON.stringify(viewInstancePath(tab) ?? [])
+  }
+  const buttonBoxHeights = new WeakMap<ButtonBox, number>()
+  const [buttonBoxMeasureVersion, setButtonBoxMeasureVersion] = createSolidSignal(0)
+  const buttonNoticeHeights = createMemo(() => {
+    buttonBoxMeasureVersion()
+    const heights: Record<string, Record<string, number>> = {}
+    const scale = editorViewport().scale
+    for (const state of buttonPresses.states().values()) {
+      if (state.box === undefined || state.place.menu || !shownOnThisGraph(state.place)) continue
+      const height = buttonBoxHeights.get(state.box)
+      if (height !== undefined) (heights[state.place.nodeId] ??= {})[state.place.button] = height / scale
+    }
+    return heights
+  }, undefined, { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) })
+  const measureButtonBox = (box: ButtonBox, height: number): void => {
+    if (buttonBoxHeights.get(box) === height) return
+    buttonBoxHeights.set(box, height)
+    setButtonBoxMeasureVersion((version) => version + 1)
   }
   let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}
   let editsRowsInPlace = (): boolean => false
@@ -4370,7 +4388,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const end = renderer.toWorld(rect.right - canvas.left, rect.bottom - canvas.top)
       return { x: start.x, y: start.y, width: end.x - start.x, height: end.y - start.y }
     }
-    buttonWorldRect = (place) => {
+    buttonWorldRect = (place, notice) => {
       if (!shownOnThisGraph(place)) return undefined
       const node = scene.nodes.find((candidate) => candidate.id === place.nodeId)
       if (node === undefined) return undefined
@@ -4381,7 +4399,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const line = node.layout.rows.filter((item) => item.y === row.y && item.kind !== 'ports')
       const left = Math.min(...line.map((item) => 'inset' in item ? item.inset : 0))
       const right = Math.max(...line.map((item) => 'inset' in item ? item.inset + ('width' in item && item.width !== undefined ? item.width : node.layout.width - item.inset * 2) : node.layout.width))
-      return { x: node.x + left, y: node.y + row.y, width: right - left, height: row.height }
+      const gap = defaultTokens.rowGeometry.fieldInsetY * 2
+      const notices = buttonNoticeHeights()[node.id]
+      const before = !notice ? 0 : line.slice(0, line.indexOf(row)).reduce((sum, item) =>
+        sum + (item.kind === 'button' && notices?.[item.buttonId] !== undefined ? notices[item.buttonId]! + gap : 0), 0)
+      return { x: node.x + left, y: node.y + row.y + before, width: right - left, height: notice ? Math.max(...line.map((item) => item.height)) : row.height }
     }
     buttonFieldBox = (place) => {
       const node = shownOnThisGraph(place) ? scene.nodes.find((candidate) => candidate.id === place.nodeId) : undefined
@@ -4423,9 +4445,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       untrack(() => refreshButtonPaint(tab))
     })
-    const dismissButtonBoxes = (): void => buttonPresses.dismissBoxes()
-    window.addEventListener('pointerdown', dismissButtonBoxes, { capture: true })
-    onCleanup(() => window.removeEventListener('pointerdown', dismissButtonBoxes, { capture: true }))
+    let pressedWithBoxes: readonly ButtonState[] = []
+    const rememberButtonBoxes = (): void => { pressedWithBoxes = [...buttonPresses.states().values()] }
+    const dismissButtonBoxes = (): void => {
+      // Keep the pressed rows still until the gesture has used its hit, and keep its new result.
+      buttonPresses.dismissBoxes(pressedWithBoxes)
+      pressedWithBoxes = []
+    }
+    window.addEventListener('pointerdown', rememberButtonBoxes, { capture: true })
+    window.addEventListener('pointerup', dismissButtonBoxes)
+    onCleanup(() => {
+      window.removeEventListener('pointerdown', rememberButtonBoxes, { capture: true })
+      window.removeEventListener('pointerup', dismissButtonBoxes)
+    })
 
     problemBoxHost = {
       owner: () => {
@@ -4503,6 +4535,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly recordedAutomatic: ExecutionState['automaticValues']
       readonly lookups: LookupClient | undefined
       readonly lookupGeneration: number
+      readonly buttonNoticeHeights: ReturnType<typeof buttonNoticeHeights>
     } | undefined
     // A frozen tab's run records what its automatic fields used; the record
     // arrives with the finished job, after the snapshot's first scene.
@@ -4582,6 +4615,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const lookupAnswers = lookups === undefined ? undefined : lookupAnswersOf(lookups)
       const currentExtensionRevision = props.app.extensionRevision.get()
       const previousBuild = sceneBuildContext
+      const noticeHeights = buttonNoticeHeights()
       const graphNodes = new Map(Object.entries(doc.graphs[graphId]?.nodes ?? {}))
       const canReuseScene = previousBuild !== undefined &&
         previousBuild.key === key &&
@@ -4593,7 +4627,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.plannerAvailable === plannerAvailable &&
         previousBuild.recordedAutomatic === recordedAutomatic &&
         previousBuild.lookups === lookups &&
-        previousBuild.lookupGeneration === lookupGeneration
+        previousBuild.lookupGeneration === lookupGeneration &&
+        previousBuild.buttonNoticeHeights === noticeHeights
       const valuesUpdated = canReuseScene && path.length === 0
         ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => shown?.resolve(type), lookupAnswers)
         : undefined
@@ -4611,6 +4646,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const fresh = buildScene({
           document: doc,
           seedControllerEnabled,
+          buttonNoticeHeights: noticeHeights,
           ...(lookupAnswers === undefined ? {} : { lookupAnswers }),
           graphId,
           resolve,
@@ -4659,6 +4695,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         recordedAutomatic,
         lookups,
         lookupGeneration,
+        buttonNoticeHeights: noticeHeights,
       }
       // A rebuild can produce a scene identical to the installed one: a
       // workspace-session swap re-reads an equal document, and an edit in
@@ -7848,8 +7885,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
       <For each={[...buttonPresses.states().values()].filter((state) => state.box !== undefined && shownOnThisGraph(state.place))}>
         {(state) => (
-          <Show when={buttonScreenRect(state.place)}>
-            {(rect) => <ButtonBoxView box={state.box!} under={rect()} />}
+          <Show when={buttonScreenRect(state.place, true)}>
+            {(rect) => <ButtonBoxView box={state.box!} under={rect()} {...(state.place.menu ? {} : {
+              gap: defaultTokens.rowGeometry.fieldInsetY * editorViewport().scale,
+              onHeight: (height: number) => measureButtonBox(state.box!, height),
+            })} />}
           </Show>
         )}
       </For>

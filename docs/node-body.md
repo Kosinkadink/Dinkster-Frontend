@@ -350,8 +350,9 @@ undo step.
   right end. A working button is not pressed a second time.
 - **Result.** A press that skipped something, left a note or failed leaves a
   box under the button's line until the next click, with a circled i or, for a
-  failure, a warning triangle; the same line goes in the activity log. A press
-  where every step did its work leaves no box.
+  failure, a warning triangle. It takes space inside the node and moves later
+  rows and pins down; a menu button's box stays under the node. The same line
+  goes in the activity log. A press where every step did its work leaves no box.
 - **Waits.** A field the user edits while the press waits keeps the user's
   value and is reported; a target that gained a wire is skipped and reported.
   A needed member, group or option that is gone fails the whole press, even

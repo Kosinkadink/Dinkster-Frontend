@@ -542,6 +542,8 @@ export interface NodeLayout {
   readonly titleSuffix?: string
   readonly rows: readonly LayoutRow[]
   readonly pins: readonly PinLayout[]
+  /** Room after the last body line for its transient button results, before output surfaces. */
+  readonly trailingButtonNoticeHeight?: number
   /** Body rows are hidden while title, compact preview, and endpoint anchors remain visible. */
   readonly minimized?: true
   /** On a minimized node: the preview region's height on the open node, which a caption-opened preview takes. */
@@ -916,7 +918,7 @@ export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): Nod
     ? Math.max(minHeight, layout.height)
     : boxedMinHeight(layout, tokens) + tokens.previewGap + previewPanelDefaultHeight(tokens)
   const rows = ownHeightRows(layout, tokens)
-  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight)
+  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight) + (layout.trailingButtonNoticeHeight ?? 0)
   return {
     ...layout,
     height,
@@ -971,7 +973,7 @@ export function withTextOutputRegion(
       : Math.max(minRows, Math.min(maxRows, Math.trunc(lineCount)))
   const regionHeight = tokens.previewCaptionHeight + tokens.rowHeight * rowCount
   const rows = ownHeightRows(open, tokens)
-  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), open.headerHeight)
+  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), open.headerHeight) + (open.trailingButtonNoticeHeight ?? 0)
   return {
     ...open,
     height: captionBottom + tokens.rowHeight * rowCount,
@@ -1087,6 +1089,8 @@ export interface LayoutOptions {
   readonly editorsStartFolded?: true
   /** Height of each unfolded editor's picture the user dragged, by value key (view.setPictureHeight). */
   readonly pictureHeights?: Readonly<Record<string, number>>
+  /** Measured result-box heights in world space, by elaborated button id; never stored. */
+  readonly buttonNoticeHeights?: Readonly<Record<string, number>>
   /**
    * Ports with a link/net attached, keyed by connectedPortKey over ELAB
    * KEYS. A CONNECTED port inside a collapsed section keeps a pin (anchored
@@ -1809,6 +1813,8 @@ export function layoutNode(
     const rowIndex = new Map<PendingRow, number>()
     const open: { decl: BoxDecl; top: number; first: number }[] = []
     let flexibleIndex = 0
+    let noticeHeight = 0
+    let trailingNoticeHeight = 0
     let y = tokens.headerHeight + stackInsets.top
     let slack = 0
     // Room under the last thing placed before the outline closing below it:
@@ -1877,6 +1883,7 @@ export function layoutNode(
       }
     }
     for (const row of pending) {
+      trailingNoticeHeight = 0
       if (row.header !== undefined) {
         const decl = row.header
         enter(row.boxes)
@@ -2042,19 +2049,31 @@ export function layoutNode(
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
         if (line.at(-1) === row) y = lineBottoms.get(line)!
       }
+      const line = lines.get(row)
+      if (line?.at(-1) === row) {
+        for (const cell of line) {
+          const notice = cell.button === undefined ? undefined : options.buttonNoticeHeights?.[cell.button.buttonId]
+          if (notice !== undefined) {
+            const height = notice + verticalInset * 2
+            y += height
+            noticeHeight += height
+            trailingNoticeHeight += height
+          }
+        }
+      }
       slack = verticalInset
       under = row.kind === 'growth' ? box.step : box.bottomGap
     }
     const endsInBox = open.length > 0
     close(0)
-    return { rows, pins, boxes, rowDepth, anchorY, rowIndex, bottom: y, endsInBox }
+    return { rows, pins, boxes, rowDepth, anchorY, rowIndex, bottom: y, endsInBox, noticeHeight, trailingNoticeHeight }
   }
 
   const natural = place(0, 0)
   const naturalHeight = natural.bottom + (natural.endsInBox ? boxEndInset(tokens) : stackInsets.bottom)
   const requestedExtra = options.size === undefined
     ? 0
-    : Math.max(0, options.size.height - naturalHeight)
+    : Math.max(0, options.size.height + natural.noticeHeight - naturalHeight)
   const flexibleShare = flexibleRows.length === 0 ? 0 : Math.floor(requestedExtra / flexibleRows.length)
   const flexibleRemainder = flexibleRows.length === 0
     ? 0
@@ -2161,7 +2180,7 @@ export function layoutNode(
   if (sizeOverride) {
     width = Math.max(minWidth, sizeOverride.width)
   }
-  const height = sizeOverride ? Math.max(minHeight, sizeOverride.height) : naturalHeight
+  const height = sizeOverride ? Math.max(minHeight, sizeOverride.height + natural.noticeHeight) : naturalHeight
 
   for (const line of new Set(lines.values())) {
     if (line.length < 2) continue
@@ -2283,6 +2302,7 @@ export function layoutNode(
     ...(elaborated.titleSuffix !== undefined ? { titleSuffix: elaborated.titleSuffix } : {}),
     rows,
     pins,
+    ...(placed.trailingNoticeHeight > 0 ? { trailingButtonNoticeHeight: placed.trailingNoticeHeight } : {}),
     ...(boxes.length > 0 ? { boxes } : {}),
   }
 }

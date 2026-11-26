@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import Info from 'lucide-solid/icons/info'
 import TriangleAlert from 'lucide-solid/icons/triangle-alert'
 import { formatWidgetValue, type AskRequest, type InputSpec, type IntegerWidgetValue, type Json, type WidgetKind, type WidgetSpec } from '@dinkster/core'
@@ -31,15 +31,28 @@ function placed(place: () => { readonly left: number; readonly top: number; read
 }
 
 /** A result, skip or reason box under a button's line, with its icon in the text. */
-export function ButtonBoxView(props: { readonly box: ButtonBox; readonly under: ScreenRect; readonly testId?: string; readonly onCancel?: () => void }) {
+export function ButtonBoxView(props: { readonly box: ButtonBox; readonly under: ScreenRect; readonly testId?: string; readonly onCancel?: () => void; readonly gap?: number; readonly onHeight?: (height: number) => void }) {
   const message = useAppMessage()
+  let box!: HTMLDivElement
+  onMount(() => {
+    if (props.onHeight === undefined) return
+    const measure = (): void => props.onHeight?.(box.getBoundingClientRect().height)
+    const observer = new ResizeObserver(measure)
+    observer.observe(box)
+    measure()
+    onCleanup(() => observer.disconnect())
+  })
   return (
     <div
       class="button-box"
       data-tone={props.box.tone}
+      data-in-node={props.onHeight !== undefined ? '' : undefined}
       data-testid={props.testId ?? 'button-box'}
       role={props.box.tone === 'warn' ? 'alert' : 'status'}
-      ref={placed(() => ({ left: props.under.x, top: props.under.y + props.under.height + 4, width: Math.max(180, props.under.width) }))}
+      ref={(el) => {
+        box = el
+        placed(() => ({ left: props.under.x, top: props.under.y + props.under.height + (props.gap ?? 4), width: props.onHeight === undefined ? Math.max(180, props.under.width) : props.under.width }))(el)
+      }}
     >
       <span class="button-box-icon" aria-hidden="true">
         <Show when={props.box.tone === 'warn'} fallback={<Info size={14} />}><TriangleAlert size={14} /></Show>

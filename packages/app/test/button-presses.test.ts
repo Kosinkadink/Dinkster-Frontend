@@ -64,6 +64,13 @@ describe('button press authority and typed answers', () => {
       expect(store.undo()).toBe(true)
       expect(store.doc).toEqual(before)
       expect(store.canUndo).toBe(false)
+      const shownAtPointerDown = [...presses.states().values()]
+      await presses.press(place)
+      presses.dismissBoxes(shownAtPointerDown)
+      expect([...presses.states().values()][0]?.box?.message)
+        .toBe('The changes were made. Opening the link failed: The browser blocked the new tab.')
+      presses.dismissBoxes()
+      expect([...presses.states().values()]).toEqual([])
     } finally {
       vi.unstubAllGlobals()
     }
