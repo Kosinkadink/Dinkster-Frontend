@@ -36,8 +36,10 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
     await expect.poll(async () => {
       const bounds = (await stage.boundingBox())!
       const field = (await popup.locator('.dinkster-canvas-field').boundingBox())!
+      const panel = (await list.boundingBox())!
       return field.x >= bounds.x && field.y >= bounds.y &&
-        field.x + field.width <= bounds.x + bounds.width + 1 && field.y + field.height <= bounds.y + bounds.height + 1
+        field.x + field.width <= bounds.x + bounds.width + 0.1 && field.y + field.height <= bounds.y + bounds.height + 0.1 &&
+        panel.y >= bounds.y && panel.y + panel.height <= bounds.y + bounds.height + 0.1
     }).toBe(true)
     for (const option of await list.getByRole('option').all()) {
       expect(await option.evaluate((element) => {
@@ -73,6 +75,24 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
   await stage.getByRole('button', { name: 'Mount archive', exact: true }).click()
   await page.getByRole('heading', { name: 'Choice lists stay on the canvas' }).click()
   await expect(popup).toHaveCount(0)
+  // A below-opening list must budget its own filter height at canvas zoom.
+  for (const scale of [0.75, 1.5]) {
+    await stage.evaluate((element, zoom) => {
+      element.style.height = '160px'
+      const editor = element.querySelectorAll<HTMLElement>('.dinkster-canvas-editor')[1]!
+      editor.style.top = '10px'
+      editor.style.transformOrigin = 'top right'
+      editor.style.transform = `scale(${zoom})`
+    }, scale)
+    await stage.getByRole('button', { name: 'Mount archive', exact: true }).click()
+    await expect(popup.locator('.dinkster-canvas-field')).toHaveAttribute('data-panel', 'below')
+    await expect.poll(async () => {
+      const bounds = (await stage.boundingBox())!
+      const panel = (await list.boundingBox())!
+      return panel.y + panel.height <= bounds.y + bounds.height + 0.1
+    }).toBe(true)
+    await popup.getByRole('combobox').press('Escape')
+  }
 })
 
 /** Every example card on the page has painted its canvas. */

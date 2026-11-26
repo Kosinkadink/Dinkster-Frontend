@@ -315,8 +315,9 @@ export function CanvasEditorChoiceList(props: Omit<ComponentProps<typeof CanvasR
     const right = Math.min(box?.right ?? window.innerWidth, (view?.offsetLeft ?? 0) + (view?.width ?? window.innerWidth))
     const bottom = Math.min(box?.bottom ?? window.innerHeight, (view?.offsetTop ?? 0) + (view?.height ?? window.innerHeight))
     const width = Math.min(row.width, right - left)
-    const y = Math.max(top, Math.min(row.y, bottom - row.height))
-    const layout = canvasListLayout({ x: row.x, y, width, height: row.height },
+    const filterHeight = (popup?.querySelector<HTMLElement>('.dinkster-canvas-field-row')?.offsetHeight ?? anchor.offsetHeight) * scale
+    const y = Math.max(top, Math.min(row.y, bottom - filterHeight))
+    const layout = canvasListLayout({ x: row.x, y, width, height: filterHeight },
       { x: left, y: top, width: right - left, height: bottom - top }, height() * scale, { width: 0, height: 0 }, 1, 0, 0)
     const next = { x: Math.max(left, Math.min(row.x, right - width)), y, width: width / scale, scale,
       listPlace: layout.listPlace, listMaxHeight: (layout.listMaxHeight ?? height() * scale) / scale }
