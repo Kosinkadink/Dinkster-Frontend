@@ -710,11 +710,11 @@ documentTest('FR14 a disabled menu item cannot be invoked by mouse or Enter, and
   await expect(reset).toHaveClass(/disabled/)
   const before = await revision(page)
 
-  // Mouse: mousedown on the disabled row invokes nothing; the menu stays
-  // open. (force: the row carries aria-disabled, which Playwright's
-  // actionability check refuses to click - the point IS clicking it.)
-  await reset.click({ force: true })
+  // Exercise the disabled guard on the actual mouse handler without geometry checks.
+  await reset.dispatchEvent('mousedown', { button: 0 })
   await expect(menu(page)).toBeVisible()
+  expect((await activeDoc(page)).graphs['g0']!.nodes['s0']!.values['w']).toBe(20)
+  expect(await revision(page)).toBe(before)
 
   // Hover may highlight it (pointer honesty), but Enter still refuses.
   await reset.hover()

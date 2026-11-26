@@ -386,11 +386,14 @@ describe('Dinkster app menu', () => {
       button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }))
       await settle()
       expect(controller.visible).toBeUndefined()
+      button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
       root.querySelector('[data-testid="context-menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       await settle()
       expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
       expect(document.activeElement).toBe(button)
+      expect(controller.visible).toBeUndefined()
       button.blur()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
       button.focus()
       await settle()
       expect(controller.visible?.lines).toEqual(['Dinkster'])
@@ -1841,6 +1844,7 @@ describe('left rail tooltip hover session', () => {
     library!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Library\nBrowse saved workflows'])
     library!.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     pack!.focus()
     expect(controller.visible?.lines).toEqual(['Pack'])
     pack!.blur()
@@ -1992,6 +1996,34 @@ describe('stateful tooltip labels', () => {
     return controller
   }
 
+  it('shows hover-only help on rest, dismisses it on press, and never restores it from focus', () => {
+    vi.useFakeTimers()
+    const root = document.createElement('div')
+    const plot = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    plot.setAttribute('tabindex', '0')
+    plot.dataset['tooltipLabel'] = 'Double-click to add a point'
+    plot.dataset['tooltipTrigger'] = 'hover'
+    root.append(plot)
+    document.body.append(root)
+    const controller = labelController()
+    const detach = attachDomTooltips(root, controller)
+    try {
+      plot.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+      vi.runOnlyPendingTimers()
+      expect(controller.visible?.lines).toEqual(['Double-click to add a point'])
+      plot.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      plot.focus()
+      plot.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+      expect(controller.visible).toBeUndefined()
+      plot.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      plot.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }))
+      vi.runOnlyPendingTimers()
+      expect(controller.visible?.lines).toEqual(['Double-click to add a point'])
+      plot.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      expect(controller.visible).toBeUndefined()
+    } finally { detach(); vi.useRealTimers() }
+  })
+
   it('re-reads the label when the shown control rewrites it after activation', async () => {
     const root = document.createElement('div')
     const toggle = document.createElement('button')
@@ -2001,8 +2033,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Hide minimap'])
     toggle.dataset['tooltipLabel'] = 'Show minimap'
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -2019,8 +2051,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Assets'])
     delete toggle.dataset['tooltipLabel']
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -2037,8 +2069,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Assets'])
     toggle.remove() // no attribute mutation: only the tree watch sees this
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -2055,8 +2087,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Hide minimap'])
     toggle.blur()
     toggle.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))

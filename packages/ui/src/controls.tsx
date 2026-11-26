@@ -17,7 +17,7 @@ import githubMark from '../../../branding/providers/github-mark.svg?url'
 import googleMark from '../../../branding/providers/google-mark.svg?url'
 
 export type ProductRole = keyof typeof rules.buttonRoles
-export type ProductFill = Exclude<keyof typeof rules.buttonFills, 'quiet'>
+export type ProductFill = keyof typeof rules.buttonFills
 
 type ButtonAttributes = Omit<
   JSX.ButtonHTMLAttributes<HTMLButtonElement>,
@@ -193,7 +193,7 @@ export function ProductWindowAction(
         <span class="dinkster-window-action-icon" aria-hidden="true">
           <ProductIcon icon={local.icon} />
         </span>
-        <span class="dinkster-window-action-label">
+        <span class="dinkster-window-action-label" data-tooltip-visible-label="">
           {local.labelContent ?? local.label}
         </span>
         <Show when={local.shortcut}>
