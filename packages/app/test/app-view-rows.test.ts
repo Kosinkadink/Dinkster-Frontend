@@ -209,6 +209,9 @@ describe('buildParamRows', () => {
       ] as const) {
         const chosen = live(rows()[index]!)
         expect(chosen.valueKey, `boundary/${feature}/app-view`).toBe(inputId)
+        expect(chosen.linked).toBe(false)
+        expect(chosen.derived).toBe(false)
+        expect(chosen.spec?.widgetType).toBe(feature === 'described-inputs' ? 'STRING' : 'FLOAT')
         const before = values()
         dispatch('node.setValue', { graphId: chosen.entry.graphId, nodeId: chosen.entry.nodeId,
           inputId: chosen.valueKey, value })
@@ -240,6 +243,12 @@ describe('buildParamRows', () => {
       const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc)))
       expect(reopened.document, JSON.stringify(reopened.diagnostics)).toBeDefined()
       expect(rows(reopened.document!).map((row) => live(row).value)).toEqual(values())
+      expect(reopened.document!.graphs.root!.nodes.first!.dynamic?.layers?.members).toEqual(['layer1', 'layer0'])
+      const reopenedRun = compile({ document: reopened.document!, revision: 1, resolve: resolveBoundarySample,
+        scope: { kind: 'full' }, connection: 'app-view' as never, schemaHash: 'boundary-sample' })
+      expect(reopenedRun.ok).toBe(true)
+      if (!reopenedRun.ok) throw new Error(JSON.stringify(reopenedRun.diagnostics))
+      expect(reopenedRun.artifact.prompt).toEqual(compiled.artifact.prompt)
       dispatch('link.connect', { graphId: 'root', from: port('first', 'result'), to: port('second', 'layers.layer0.strength') })
       expect(live(rows()[0]!).linked).toBe(false)
       expect(live(rows()[4]!).linked).toBe(true)
