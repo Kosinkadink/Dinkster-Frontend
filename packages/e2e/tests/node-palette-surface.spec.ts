@@ -130,11 +130,14 @@ test('palette insertion awaits acceptance without stealing newer selection or na
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     const dispatch = app.dispatchTo.bind(app)
-    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
-      ;(window as any).__completePalette = (accepted: boolean) => resolve(accepted
-        ? dispatch(tab, invocation)
-        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.rejected', message: 'Palette insertion refused for test' }] })
-    })
+    app.dispatchTo = (tab: any, invocation: any) => {
+      if (invocation.command !== 'node.add') return dispatch(tab, invocation)
+      return new Promise((resolve) => {
+        ;(window as any).__completePalette = (accepted: boolean) => resolve(accepted
+          ? dispatch(tab, invocation)
+          : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.rejected', message: 'Palette insertion refused for test' }] })
+      })
+    }
   })
   const state = () => page.evaluate(() => ({
     nodes: Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes),

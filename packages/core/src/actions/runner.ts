@@ -1173,7 +1173,7 @@ class Press {
         ? sourceView && elabOutputsOf(sourceView.elaborated).find((candidate) => candidate.address.port === trace.ref.port)?.spec.type
         : sourceView && inputAt(sourceView, trace.input)?.spec.type
       if (sourceType === undefined) return refuse(`The wire feeding ${to} could not be resolved.`)
-      const input = elabInputsOf(added).find((candidate) => candidate.wireable !== false && typesCompatible(sourceType, candidate.spec.type))
+      const input = elabInputsOf(added).find((candidate) => candidate.spec.socketless !== true && typesCompatible(sourceType, candidate.spec.type))
       if (input === undefined) return refuse(`${type} has no input that fits the wire feeding ${to}.`)
       between = { from: driver.from, input: valueKeyOf(input) }
     }
