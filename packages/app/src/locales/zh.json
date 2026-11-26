@@ -1617,7 +1617,7 @@
   "canvas.absence.source.optionalDefault": "可选输入的默认值",
   "canvas.absence.source.requiredDefault": "默认必填项",
   "canvas.absence.summary": "若缺失：{policy} ({source}) - {behavior}。",
-  "canvas.navigator.help": "方向键浏览，Enter 选择，Esc 退出。",
+  "canvas.navigator.help": "`\u2191` `\u2193` 浏览 `Enter` 选择 `Esc` 退出",
   "canvas.corner.label": "小地图和缩放",
   "canvas.corner.hideMinimap": "隐藏小地图",
   "canvas.corner.showMinimap": "显示小地图",

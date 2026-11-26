@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
 import { formatWidgetValue, typeExprFromTypeId, typeProblemWords, type NodeProgress } from '@dinkster/core'
+import { ProductShortcutText } from '@dinkster/ui'
 import {
   boundarySceneId,
   nodesInGroup,
@@ -560,6 +561,9 @@ export function CanvasSemanticNavigator(props: {
             aria-selected={selected(entry.item.target)}
             data-kind={entry.item.category}
             data-active={entry.index === cursor() ? 'true' : undefined}
+            onPointerMove={(event) => {
+              if (event.movementX !== 0 || event.movementY !== 0) move(entry.index)
+            }}
             onClick={() => move(entry.index)}
           >
             <span class="canvas-semantic-kind">{entry.item.kindLabel}</span> {entry.item.name}
@@ -568,7 +572,7 @@ export function CanvasSemanticNavigator(props: {
         )}</For>
       </div>
       <span id={helpId()} class="canvas-semantic-help">
-        {message('canvas.navigator.help')}
+        <ProductShortcutText text={message('canvas.navigator.help')} />
       </span>
     </div>
   )

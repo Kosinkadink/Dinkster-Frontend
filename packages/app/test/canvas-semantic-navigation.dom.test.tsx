@@ -331,6 +331,19 @@ describe('CanvasSemanticNavigator', () => {
     expect(activate).not.toHaveBeenCalled()
     expect(root.querySelector('[data-active="true"]')?.textContent).toBe('Node 2')
 
+    const pointerMove = (movementY: number): void => {
+      const event = new PointerEvent('pointermove', { bubbles: true })
+      Object.defineProperties(event, { movementX: { value: 0 }, movementY: { value: movementY } })
+      root.querySelector('[role="option"][aria-posinset="4"]')!.dispatchEvent(event)
+    }
+    pointerMove(1)
+    expect(root.querySelector('[data-active="true"]')?.textContent).toBe('Node 4')
+    navigator.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+    pointerMove(0)
+    expect(root.querySelector('[data-active="true"]')?.textContent).toBe('Node 3')
+    expect(activate).not.toHaveBeenCalled()
+    navigator.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+
     for (let index = 0; index < 13; index += 1) {
       navigator.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
     }

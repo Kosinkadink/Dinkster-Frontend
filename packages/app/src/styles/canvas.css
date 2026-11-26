@@ -243,9 +243,11 @@
   pointer-events: auto;
 }
 .canvas-semantic-help {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--dinkster-space-4);
   flex: none;
-  padding: var(--dinkster-space-8);
+  padding: calc(var(--dinkster-space-4) / 2) var(--dinkster-space-8);
   color: var(--dinkster-text-secondary);
   font-size: var(--dinkster-type-metadata-size);
   line-height: var(--dinkster-type-metadata-line);
@@ -273,8 +275,10 @@
   line-height: var(--dinkster-type-metadata-line);
 }
 .canvas-semantic-nav .dinkster-list-row-detail { display: inline; }
-.canvas-semantic-nav .canvas-semantic-help { padding: var(--dinkster-space-4); }
 .canvas-semantic-kind { color: var(--dinkster-text-secondary); }
+.canvas-semantic-nav .dinkster-list-row:hover:not([data-active='true']):not([aria-selected='true']) {
+  background: transparent;
+}
 .canvas-semantic-nav .dinkster-list-row[data-active='true']:not([aria-selected='true']) {
   background: var(--dinkster-interaction-hover);
 }
