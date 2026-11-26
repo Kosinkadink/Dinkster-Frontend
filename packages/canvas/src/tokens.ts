@@ -138,7 +138,7 @@ export const canvasPaintTokens = {
     },
     widgetLabelPadding: canvasSemanticTokens.space[12],
     widgetValueMinWidth: 90,
-    widgetColumnGap: 20,
+    lineCellGap: canvasSemanticTokens.space[4],
     /** Rows an open text result shows by default at most; the node's bottom edge sizes it past that. */
     textOutputMaxRows: 6,
     /** Rows an open text result shows at least. */
@@ -156,6 +156,8 @@ export const canvasPaintTokens = {
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
     modeOpacity: canvasSemanticTokens.interaction.disabledOpacity,
+    /** Rows of a node a run skipped: it gave nothing, so its rows are quiet. */
+    skippedRowOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     /** `crisp` is the idle outline of a node look with crisp edges. */
     outline: { idle: 1.25, crisp: 1, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
     /**
@@ -295,7 +297,7 @@ export const canvasPaintTokens = {
     /** A pointed pin's radius grows by this many pixels, so an 11px disc becomes 13px on the same whole-pixel center. */
     hoverGrowth: 1,
     statusRingGap: 3.5,
-    statusRingStroke: canvasSemanticTokens.interaction.focusRingWidth,
+    statusRingStroke: canvasSemanticTokens.interaction.indicatorWidth,
     outlineStroke: 1,
     optionalMinRadius: 1.5,
     optionalRadiusRatio: 0.32,
@@ -334,7 +336,7 @@ export const canvasPaintTokens = {
     separatorWidth: 1,
     separatorHeightRatio: 0.6,
     nodeSelectionOutset: 3,
-    selectionStroke: canvasSemanticTokens.interaction.focusRingWidth,
+    selectionStroke: canvasSemanticTokens.interaction.indicatorWidth,
     selectionMinScreenStroke: 2,
     cullScreenPadding: 1,
     boundarySelectionOutset: 2,
@@ -536,6 +538,7 @@ export const canvasPaintTokens = {
     opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 20, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
     /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
     subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
+    readOnlyMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     /**
      * A folded curve in the raised look: a square before its count, `inset`
      * inside the row and as tall as the row allows, `gap` before the count;
@@ -622,9 +625,22 @@ export const canvasPaintTokens = {
     fallback: { opacity: 0.75, textInset: 4, labelRatio: 0.45, valueRatio: 0.5 },
     /**
      * A button on a node (a group's add row, a declared button): its outline,
-     * the room kept beside its words, and how far a disabled one fades.
+     * the room kept beside its words, how far a disabled one fades, and a
+     * declared button's icon, working spinner and Cancel.
      */
-    button: { stroke: 1, textPadding: canvasSemanticTokens.space[8], disabledOpacity: canvasSemanticTokens.interaction.disabledOpacity },
+    button: {
+      stroke: 1,
+      textPadding: canvasSemanticTokens.space[8],
+      disabledOpacity: canvasSemanticTokens.interaction.disabledOpacity,
+      iconSize: 12,
+      iconGap: canvasSemanticTokens.space[4],
+      spinnerRadius: 5,
+      spinnerStroke: 1.5,
+      cancelUnderlineOffset: 7,
+      cancelUnderlineDash: [1, 2],
+      cancelUnderlineStroke: 1,
+      labelGap: 6,
+    },
   },
   minimap: {
     fallbackWidth: 160,
@@ -722,6 +738,7 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   // Interpolation; Position; Value; Delete point; and, for a curve that declares a histogram,
   // the histogram's line after them.
   'core.curve': { picture: 180, controlRows: 4, histogramLine: 4 },
+  'core.saveTarget': { controlRows: 2 },
 }
 
 /** Minimum zoom for text detail and transient media DOM. */
@@ -785,6 +802,7 @@ export interface DesignTokens {
   readonly pinRadius: number
   readonly cornerRadius: number
   readonly fontFamily: string
+  readonly fontMono: string
   readonly fontSize: number
   readonly titleFontSize: number
   /**
@@ -797,10 +815,7 @@ export interface DesignTokens {
    * curve described in text and a passed structured value shown as code.
    */
   readonly widgetRowLook: 'inset-raised' | 'raised-editors'
-  /**
-   * A remove cross on each member of a group that grows by hand. Off until
-   * pressing it removes the member: nothing is drawn that does nothing.
-   */
+  /** A remove cross on each stored member of a group that grows by hand. */
   readonly memberRemoveCross: boolean
   /**
    * How number, single-line text and seed rows are edited: in a card under
@@ -846,6 +861,8 @@ export interface DesignTokens {
     readonly skippedOutline: string
     readonly nodeBody: string
     readonly nodeHeader: string
+    readonly nodeSelectedHeader: string
+    readonly nodeSelectedEdge: string
     /** Face of a raised opener row, lighter than the node body. */
     readonly widgetRaised: string
     /** Rule under a title bar drawn in the body's own color. */
@@ -998,10 +1015,11 @@ export const defaultTokens: DesignTokens = {
   pinRadius: 5.5,
   cornerRadius: 6,
   fontFamily: canvasSemanticTokens.type.fontFamily,
+  fontMono: canvasSemanticTokens.type.fontMono,
   fontSize: 12,
   titleFontSize: 13,
   widgetRowLook: 'raised-editors',
-  memberRemoveCross: false,
+  memberRemoveCross: true,
   widgetEditing: 'in-row',
   nodeLook: 'flat-title',
   crispEdges: true,
@@ -1085,6 +1103,8 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     // keeps its original surfaces.
     nodeBody: theme === 'dark' ? tokens.surface.panel : tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
+    nodeSelectedHeader: tokens.surface.selected,
+    nodeSelectedEdge: tokens.text.secondary,
     widgetRaised: theme === 'dark' ? tokens.surface.raised : tokens.surface.panel,
     nodeHeaderRule: tokens.border.divider,
     nodeOutline: tokens.border.strong,

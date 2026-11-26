@@ -11,7 +11,7 @@
 import { formatWidgetValue, t as translate, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, drawsPassedValueAsEditor, fitSummary, fitSummaryParts, summaryPartsWidth, summaryThumbnailReserve, paintSummaryParts, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type SummaryFit, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
+import { companionWords, defaultWidgetPainter, drawsPassedValueAsEditor, fitSummary, fitSummaryParts, summaryPartsWidth, summaryThumbnailReserve, paintSummaryParts, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type SummaryFit, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
 import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
@@ -129,9 +129,12 @@ function openerIconOf(row: WidgetRow, tokens: DesignTokens): NonNullable<Toolbox
       : undefined
 }
 
-/** Space a field's name gives up to the subgraph mark before it. */
-const subgraphMarkReserve = (row: WidgetRow): number =>
-  row.subgraphMark === undefined ? 0 : paint.subgraphMark.size + paint.subgraphMark.gap
+const readOnlyReserve = (row: WidgetRow): number =>
+  row.readOnly ? paint.readOnlyMark.size + paint.readOnlyMark.gap : 0
+
+/** Space before the name for the lock and current boundary mark. */
+const labelMarkReserve = (row: WidgetRow): number =>
+  readOnlyReserve(row) + (row.subgraphMark === undefined ? 0 : paint.subgraphMark.size + paint.subgraphMark.gap)
 
 /**
  * Row-local square of the cyan subgraph icon before the name of a field
@@ -151,22 +154,26 @@ export function subgraphMarkRect(
   const size = paint.subgraphMark.size
   if (companion) {
     const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, geometry)
-    return { x: field.left + (numeric ? geometry.stepperLabelInset : paint.labelInset), y: (rowHeight - size) / 2, size }
+    const left = row.viewId === 'core.asset' && openerIconOf(row, tokens) !== undefined ? paint.opener.iconReserve : field.left
+    return { x: readOnlyReserve(row) + left + (numeric ? geometry.stepperLabelInset : paint.labelInset), y: (rowHeight - size) / 2, size }
   }
   const opener = openerIconOf(row, tokens)
   const multiline = row.viewId === 'core.text'
   const leftControl = multiline ? 0 : opener !== undefined ? paint.opener.iconReserve : numeric ? geometry.stepperZone : 0
   return {
-    x: leftControl + (numeric && opener === undefined ? geometry.stepperLabelInset : paint.labelInset),
+    x: readOnlyReserve(row) + leftControl + (numeric && opener === undefined ? geometry.stepperLabelInset : paint.labelInset),
     y: multiline ? geometry.fieldInsetY + (tokens.multilineText.labelHeight - size) / 2 : (rowHeight - size) / 2,
     size,
   }
 }
 
-function paintSubgraphMark(args: WidgetPaintArgs, companion: boolean, numeric: boolean): void {
+function paintLabelMarks(args: WidgetPaintArgs, companion: boolean, numeric: boolean): void {
   const { ctx, row, x, y, width, rowHeight, tokens } = args
-  if (row.subgraphMark === undefined) return
   const rect = subgraphMarkRect(row, width, rowHeight, tokens, companion, numeric)
+  if (row.readOnly) {
+    paintToolboxIcon(ctx, 'lock', x + rect.x - readOnlyReserve(row), y + rect.y, paint.readOnlyMark.size, tokens.colors.label)
+  }
+  if (row.subgraphMark === undefined) return
   const alpha = ctx.globalAlpha
   // The mark keeps its full color on a dimmed (driven) row.
   if (args.markAlpha !== undefined) ctx.globalAlpha = args.markAlpha
@@ -216,7 +223,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       }
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
-      const compact = tokens.widgetRowLook === 'raised-editors'
+      const words = companionWords(args.companion)
+      const compact = words === undefined && tokens.widgetRowLook === 'raised-editors'
         ? compactSummary(view, args.companion.value, row.spec)
         : undefined
       const summary = compact === undefined ? undefined : {
@@ -224,15 +232,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         ...(args.editorSummary?.text === undefined ? {} : { text: args.editorSummary.text }),
         ...(!row.unfolded && args.editorSummary?.thumbnails !== undefined ? { thumbnails: args.editorSummary.thumbnails } : {}),
       }
-      const formatted = summary?.text ?? formatWidgetValue(args.companion.value, row.spec)
+      const formatted = words ?? summary?.text ?? formatWidgetValue(args.companion.value, row.spec)
       const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-      const field = assetIcon === undefined ? widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
+      const field = assetIcon === undefined ? widgetFieldBounds(width, rowHeight, numeric, words === undefined && row.controllerMode !== undefined, tokens.rowGeometry)
         : { left: paint.opener.iconReserve, right: width - paint.opener.trailingReserve }
-      const lead = subgraphMarkReserve(row)
+      const lead = labelMarkReserve(row)
       const picturesWidth = summaryThumbnailReserve(ctx, summary?.thumbnails)
       const companionZone = shareRowWidth(field.right - field.left, lead + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + picturesWidth + paint.labelWidthPadding)
       ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - lead - paint.labelClipPadding)), x + field.left + lead + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
-      paintSubgraphMark(args, true, numeric)
+      paintLabelMarks(args, true, numeric)
       paintCompanionValue(args, summary, field)
       return
     }
@@ -282,8 +290,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       paintToolboxIcon(ctx, openerIcon, x + paint.opener.iconInset,
         nameY - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.value)
       // An editor shown in the node points down while it is unfolded under this row.
-      paintToolboxIcon(ctx, row.unfolded ? 'chevron-down' : 'chevron-right', x + width - paint.opener.trailingInset - paint.opener.iconSize,
-        (sketch === undefined ? y + rowHeight / 2 : chrome.y + chrome.height / 2) - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.label)
+      if (!row.readOnly && !row.disabled) {
+        paintToolboxIcon(ctx, row.unfolded ? 'chevron-down' : 'chevron-right', x + width - paint.opener.trailingInset - paint.opener.iconSize,
+          (sketch === undefined ? y + rowHeight / 2 : chrome.y + chrome.height / 2) - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.label)
+      }
     }
     const geometry = tokens.rowGeometry
     // The name sits as far from the opener icon as a row's mode icon from its label.
@@ -292,7 +302,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       || (rowsRaisedForEditors && row.viewId === 'core.mount')
     const rightControl = openerIcon !== undefined ? paint.opener.trailingReserve : numeric || combo ? geometry.stepperZone : geometry.textEndInset
     const usableWidth = Math.max(0, width - leftControl - rightControl)
-    const lead = subgraphMarkReserve(row)
+    const lead = labelMarkReserve(row)
     const naturalLabelWidth = lead + measureWidth(ctx, row.label) + paint.labelWidthPadding
     // Deficit-proportional label/value split (text-fit.ts): when both fit,
     // the label takes exactly its natural width; when they do not, each side
@@ -315,6 +325,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       : resolved === null || typeof resolved === 'object'
         ? undefined
         : formatWidgetValue(resolved, row.spec)
+    const rowFont = ctx.font
+    const colorValue = row.viewId === 'core.color' || row.viewId === 'core.integerColor'
+    if (colorValue) ctx.font = `${tokens.fontSize}px ${tokens.fontMono}`
     const naturalValueWidth = row.viewId === 'core.integerColor'
       ? measureWidth(ctx, '#ffffff') + paint.colorValueReserve
       : valuePreview === undefined
@@ -325,6 +338,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         + (args.editorSummary?.thumbnail !== undefined && !row.unfolded ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
         + (!row.unfolded ? summaryThumbnailReserve(ctx, args.editorSummary?.thumbnails) : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
+    ctx.font = rowFont
     const controller = row.controllerMode !== undefined && modeIcon === undefined
       ? controllerChipRect(width, rowHeight, geometry)
       : undefined
@@ -354,7 +368,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         x + lead + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
         multiline ? chrome.y + multilineLabelHeight / 2 : nameY,
       )
-      paintSubgraphMark(args, false, numeric)
+      paintLabelMarks({ ...args, value: resolved }, false, numeric)
     }
     const sliderMin = row.spec.options['min']
     const sliderMax = row.spec.options['max']
@@ -379,8 +393,26 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       {
         rect: (rx, ry, rw, rh, style) => {
           if (style['role'] === 'widgetBackground') return // chrome already drawn
+          if (style['role'] === 'widgetProblem') {
+            if (row.unfolded) return
+            const color = style['severity'] === 'error' ? tokens.colors.error : tokens.colors.warningMark
+            ctx.save()
+            ctx.strokeStyle = color
+            ctx.lineWidth = paint.diagnosticStroke
+            ctx.beginPath()
+            ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
+            ctx.stroke()
+            const size = paint.opener.iconSize
+            const left = x + paint.opener.iconInset
+            const top = y + rowHeight / 2 - size / 2
+            ctx.fillStyle = tokens.colors.widgetRaised
+            ctx.fillRect(left, top, size, size)
+            paintToolboxIcon(ctx, 'triangle-alert', left, top, size, color)
+            ctx.restore()
+            return
+          }
           if (style['role'] === 'numericRangeFill') {
-            if (!declaredSlider) return
+            if (!declaredSlider || row.disabled) return
             const rawFraction = Number(style['fraction'])
             if (!Number.isFinite(rawFraction)) return
             const fraction = Math.max(0, Math.min(1, rawFraction))
@@ -402,7 +434,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const checked = style['checked'] === true
             const trackX = contentStart + contentWidth - paint.toggle.trailingInset
             const trackY = y + rowHeight / 2 - paint.toggle.halfHeight
-            ctx.fillStyle = checked
+            ctx.fillStyle = checked && !row.disabled
               ? tokens.colors.widgetAffordanceActive
               : tokens.colors.widgetAffordance
             ctx.beginPath()
@@ -421,6 +453,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             return
           }
           if (style['role'] === 'comboChevron') {
+            if (row.readOnly || row.disabled) return
             const center = x + edgeActionCenterX(width, 'trailing', geometry)
             const middle = y + rowHeight / 2
             ctx.save()
@@ -477,6 +510,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const summary = viewStyle['role'] === 'widgetValue' ? args.editorSummary : undefined
           const run = summary?.text ?? viewRun
           const style = summary === undefined ? viewStyle : { ...viewStyle,
+            ...(summary.text === undefined ? {} : { parts: undefined, shorter: undefined, items: undefined }),
             placeholder: summary.placeholder ?? (summary.text === undefined && viewStyle['placeholder'] === true),
           }
           ctx.fillStyle = tokens.colors.value
@@ -491,6 +525,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
             const role = style['role']
+            const valueFont = ctx.font
+            const colorCode = row.viewId === 'core.color' || typeof style['swatch'] === 'string'
+            if (colorCode && (role === undefined || role === 'widgetValue') && style['placeholder'] !== true) ctx.font = `${tokens.fontSize}px ${tokens.fontMono}`
             const marked = valueWord !== undefined && (role === undefined || role === 'widgetValue')
             const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
             const items = stringList(style['items'])
@@ -563,6 +600,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
                 const wordRight = alignRight ? textX - (parts === undefined ? measureWidth(ctx, text) : summaryPartsWidth(ctx, parts)) - markReserve - paint.valueWordGap : textX - paint.valueWordGap
                 ctx.textAlign = 'right'
                 ctx.fillStyle = tokens.colors.label
+                const codeFont = ctx.font
+                ctx.font = valueFont
                 ctx.fillText(valueWord!, wordRight, textY)
                 if (automaticDot > 0) {
                   const radius = paint.automaticDot.radius
@@ -571,6 +610,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
                   ctx.arc(wordRight - measureWidth(ctx, valueWord!) - paint.automaticDot.gap - radius, textY, radius, 0, Math.PI * 2)
                   ctx.fill()
                 }
+                ctx.font = codeFont
               }
               // A host's editor summary is what the editor shows, an arriving value included, so it is never struck.
               if (args.connected && summary === undefined && (role === undefined || role === 'widgetValue')) {
@@ -578,6 +618,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               }
               ctx.restore()
             }
+            ctx.font = valueFont
             ctx.textAlign = 'left'
             return
           }
@@ -685,16 +726,32 @@ function paintCurveSketch(
   ctx.setLineDash([])
   if (samples.length > 1) {
     const line = new Path2D()
-    samples.forEach((sample, index) => {
-      const point = at(index / (samples.length - 1), sample)
-      if (index === 0) line.moveTo(point.x, point.y)
-      else line.lineTo(point.x, point.y)
-    })
+    if (style['interpolation'] === 'step' && points.length > 0) {
+      let previous = samples[0]!
+      const firstPoint = at(0, previous)
+      line.moveTo(firstPoint.x, firstPoint.y)
+      for (const [position, value] of points) {
+        if (position! <= 0 || position! > 1) continue
+        const next = Math.max(0, Math.min(1, value!))
+        const before = at(position!, previous)
+        const after = at(position!, next)
+        line.lineTo(before.x, before.y)
+        line.lineTo(after.x, after.y)
+        previous = next
+      }
+      line.lineTo(left + span, at(0, previous).y)
+    } else {
+      samples.forEach((sample, index) => {
+        const point = at(index / (samples.length - 1), sample)
+        if (index === 0) line.moveTo(point.x, point.y)
+        else line.lineTo(point.x, point.y)
+      })
+    }
     ctx.lineWidth = paint.lineWidth
     ctx.lineJoin = 'round'
     // Before the first point and after the last the curve holds that point's value, drawn muted.
-    const first = held.length === 2 ? at(held[0]!, 0).x : left
-    const last = held.length === 2 ? at(held[1]!, 0).x : left + span
+    const first = held.length === 2 ? at(Math.max(0, Math.min(1, held[0]!)), 0).x : left
+    const last = held.length === 2 ? at(Math.max(0, Math.min(1, held[1]!)), 0).x : left + span
     for (const [from, to, color] of [
       [square.x, first, tokens.colors.valueMark],
       [first, last, tokens.colors.widgetAffordanceActive],
@@ -713,6 +770,7 @@ function paintCurveSketch(
   // Small solid dots on the line, so close points still read apart and hide little of it.
   ctx.fillStyle = tokens.colors.widgetAffordanceActive
   for (const [position, value] of points) {
+    if (position! < 0 || position! > 1 || value! < 0 || value! > 1) continue
     const point = at(position!, value!)
     ctx.beginPath()
     ctx.arc(point.x, point.y, paint.pointRadius, 0, Math.PI * 2)
@@ -767,10 +825,11 @@ function paintValueParts(
   const last = parts.length - 1
   let tail = parts[last]!.text
   if (total > fitWidth) {
-    // Only a plain last part is cut, and only while some of it stays.
+    // The location keeps its missing and resolved mount names before its path.
     if (parts[last]!.look !== undefined) return false
-    tail = fitText(ctx, tail, fitWidth - (total - widths[last]!))
-    if (tail.length <= 3) return false
+    const remaining = fitWidth - (total - widths[last]!)
+    if (remaining < 0) return false
+    tail = remaining === 0 ? '' : fitText(ctx, tail, remaining)
     widths[last] = measureWidth(ctx, tail)
   }
   let x = right

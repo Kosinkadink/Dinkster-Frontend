@@ -14,6 +14,7 @@ import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
   CircleAlert,
+  Download,
   Ellipsis,
   LayoutList,
   PanelLeft,
@@ -34,6 +35,8 @@ import {
   ProductWindowChrome,
   ProductWindowToolbar,
   ProductWindowAction,
+  ProductShortcut,
+  ProductShortcutText,
   ProductAccountMenu,
   ProductSignInControl,
   ProductBrandMark,
@@ -67,12 +70,14 @@ import {
   ProductPage,
   ProductRadio,
   ProductSection,
+  ProductSegmented,
   ProductSelect,
   ProductShell,
   ProductSpinner,
   ProductStringsProvider,
   ProductTable,
   ProductTextArea,
+  ProductTextButton,
   ProductTextInput,
   ProductToast,
   reportProductEvent,
@@ -88,7 +93,7 @@ import {
   selectCanvasPage,
 } from './canvas.js'
 import { ContextMenuGallery } from './context-menus.js'
-import { PageLoadingGallery } from './page-loading.js'
+import { PageLoadingGallery, ProjectLoadingGallery } from './page-loading.js'
 import { CanvasChromeGallery } from './canvas-chrome.js'
 import { RunControlsGallery } from './run-controls.js'
 import { SiteGallery } from './site.js'
@@ -98,6 +103,8 @@ import { TemplatesGallery } from './templates.js'
 import { EngineStatesGallery } from './engine-states.js'
 import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
+import { NodeSearchGallery } from './node-search.js'
+import { ModelsGallery } from './models.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -128,6 +135,29 @@ function Section(props: {
   )
 }
 
+/** Choices that cannot be chosen keep their place, dimmed, with the reason as their description. */
+function SegmentedStates() {
+  const [scope, setScope] = createSignal('all')
+  const [range, setRange] = createSignal('day')
+  return (
+    <Section title="Unavailable choices" components="ProductSegmented">
+      <div><ProductSegmented label="Runs scope" value={scope()} onChange={setScope} options={[
+        { value: 'workflow', label: 'This workflow', disabled: 'A page is in front, not a workflow.' },
+        { value: 'all', label: 'All workflows' },
+      ]} /></div>
+      <div><ProductSegmented label="History range" value={range()} onChange={setRange} options={[
+        { value: 'day', label: 'Day' },
+        { value: 'week', label: 'Week', disabled: 'Not enough history yet.' },
+        { value: 'month', label: 'Month' },
+      ]} /></div>
+      <div><ProductSegmented label="Chosen but unavailable" value="workflow" onChange={() => {}} options={[
+        { value: 'workflow', label: 'This workflow', disabled: 'A page is in front, not a workflow.' },
+        { value: 'all', label: 'All workflows' },
+      ]} /></div>
+    </Section>
+  )
+}
+
 function Gallery() {
   const [route, setRoute] = createSignal(window.location.hash || '#controls')
   const [toast, setToast] = createSignal<{ readonly message: string }>()
@@ -142,6 +172,10 @@ function Gallery() {
   const [activity, setActivity] = createSignal('No action yet')
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
+  const [serverOpen, setServerOpen] = createSignal(false)
+  const [progressOpen, setProgressOpen] = createSignal(false)
+  const [versionSelected, setVersionSelected] = createSignal(false)
+  let versionButton: HTMLButtonElement | undefined
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
@@ -174,7 +208,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#engine-states'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -190,14 +224,14 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
+              (route() === '#models' ? 'Models' : route() === '#project-loading' ? 'Project loading' : route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas' || route() === '#search'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#node-search'}
       >
         <Show
           when={!loading()}
@@ -208,6 +242,12 @@ function Gallery() {
           >
             <Match when={route() === '#page-loading'}>
               <PageLoadingGallery activity={activity()} />
+            </Match>
+            <Match when={route() === '#segmented-states'}>
+              <SegmentedStates />
+            </Match>
+            <Match when={route() === '#project-loading'}>
+              <ProjectLoadingGallery />
             </Match>
             <Match when={route() === '#menu-filter'}>
               <Section title="Filtered menu" components="ProductMenu, ProductTextInput">
@@ -276,6 +316,8 @@ function Gallery() {
               <Section title="Card memory" components="ProductResourceUsage">
                 <For each={[false, true]}>
                   {(compact) => (
+                    <section class="dinkster-resource-card">
+                    <header class="dinkster-resource-card-heading"><strong>{compact ? 'RTX 3090' : 'RTX 4090'}</strong><span class="dinkster-resource-total"><strong>12.0</strong> <span>of 24.0 GB</span></span></header>
                     <ProductResourceUsage
                       label={compact ? 'Compact card memory' : 'Card memory'}
                       total={24}
@@ -297,8 +339,23 @@ function Gallery() {
                       limitLabel="Limit"
                       compact={compact}
                     />
+                    <dl class="dinkster-resource-live"><div><dt>Busy</dt><dd>73%</dd></div><div><dt>Temperature</dt><dd>61 C</dd></div><div><dt>Power</dt><dd>310 W</dd></div></dl>
+                    </section>
                   )}
                 </For>
+              </Section>
+              <Section title="Loaded model actions" components="ProductButton">
+                <For each={[false, true]}>{(inUse) => (
+                  <div class="dinkster-resource-model">
+                    <span>Flux model</span><span>3.0 GB</span>
+                    <span class="dinkster-resource-model-action">
+                      <span aria-hidden="true">Unload</span>
+                      <Show when={inUse} fallback={<ProductButton intent="remove" fill="quiet" data-resource-release>Unload</ProductButton>}>
+                        <span>In use</span>
+                      </Show>
+                    </span>
+                  </div>
+                )}</For>
               </Section>
               <Section
                 title="Partial telemetry"
@@ -407,6 +464,12 @@ function Gallery() {
             </Match>
             <Match when={route() === '#search'}>
               <SearchGallery />
+            </Match>
+            <Match when={route() === '#node-search'}>
+              <NodeSearchGallery />
+            </Match>
+            <Match when={route() === '#models'}>
+              <ModelsGallery />
             </Match>
             <Match when={route() === '#run-controls'}>
               <Section title="Run controls" components="RunActivityControl, WorkflowQueueControl, RunRow, RunSection, ProductCancelButton">
@@ -779,6 +842,43 @@ function Gallery() {
               </ProductForm>
             </Match>
             <Match when={route() === '#lists'}>
+              <Section title="Grouped expandable rows" components="ProductList, ProductListRow, ProductFacts, ProductMenu">
+                <ProductList label="Backend servers" variant="grouped">
+                  <ProductListRow
+                    title="This computer"
+                    trailing="Dinkster, 70 node types"
+                    expanded={serverOpen()}
+                    onToggle={setServerOpen}
+                    action={<ProductMenu label="Server actions" icon={Ellipsis} iconOnly fill="quiet" items={[{ label: 'Change access token', onSelect: () => complete('Change access token chosen') }]} />}
+                  >
+                    <ProductFacts label="This computer" items={[{ label: 'Address', value: 'This computer' }, { label: 'Engine', value: 'Running' }]} />
+                    <ProductTextButton label="Restart engine" onClick={() => complete('Restart engine chosen')} />
+                  </ProductListRow>
+                  <ProductListRow title="Studio" trailing="Not connected" />
+                </ProductList>
+              </Section>
+              <Section title="Plain navigation rows" components="ProductList, ProductListRow">
+                <ProductList label="Asset folders" variant="plain">
+                  <ProductListRow title="Renders" description={<code>/home/name/Portraits/renders</code>} trailing="24 files" onActivate={() => complete('Renders opened')} />
+                </ProductList>
+              </Section>
+              <Section title="Rows with progress" components="ProductList, ProductListRow, ProductProgress">
+                <ProductList label="Model downloads" variant="plain">
+                  <ProductListRow title="Studio checkpoint" description="Checkpoint" trailing="42%" expanded={progressOpen()} onToggle={setProgressOpen}
+                    status={<ProductProgress label="Downloading Studio checkpoint" value={0.42} />}>
+                    <p class="dinkster-metadata">Download continues when details are closed.</p>
+                  </ProductListRow>
+                  <ProductListRow title="Pending checkpoint" description="Checkpoint, not downloaded"
+                    action={<ProductTextButton icon={Download} label="7.1 GB" aria-label="Download Pending checkpoint, 7.1 GB" intent="add" onClick={() => complete('Checkpoint download chosen')} />} />
+                </ProductList>
+              </Section>
+              <Section title="Selectable rows" components="ProductList, ProductListRow, ProductTextButton">
+                <ProductTextButton label="Focus version" onClick={() => versionButton?.focus()} />
+                <ProductList label="Model versions" variant="plain">
+                  <ProductListRow title="Studio checkpoint fp16" ref={(element) => { versionButton = element }} tabIndex={-1}
+                    pressed={versionSelected()} onActivate={() => setVersionSelected(!versionSelected())} />
+                </ProductList>
+              </Section>
               <Section title="Storage folders" components="ProductDisclosure, ProductMenu">
                 <div class="storage-folders">
                   <div class="storage-group-heading"><h3>Models</h3><ProductButton intent="add" onClick={() => complete('Add models folder chosen')}>Add</ProductButton></div>
@@ -1151,7 +1251,7 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <Show when={route() !== '#canvas' && route() !== '#page-loading'}>
+        <Show when={route() !== '#canvas' && route() !== '#page-loading' && route() !== '#project-loading'}>
           <p class="dinkster-metadata" role="status">
             {activity()}
           </p>
@@ -1253,6 +1353,28 @@ function WindowToolbarGallery() {
         <ProductLink href="#desktop-about">
           Back to Desktop information
         </ProductLink>
+        <ProductSection title="Shortcut keys">
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Compact</span>
+            <div class="dinkster-search-row-keys">
+              <ProductShortcut keys="Ctrl+Shift+O" />
+              <ProductShortcut keys="Cmd+," />
+              <ProductShortcut keys={['Alt', '+']} />
+            </div>
+          </div>
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Settings</span>
+            <ProductShortcut keys="Ctrl+Shift+O" size="settings" />
+          </div>
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Two presses in sequence</span>
+            <div class="dinkster-search-row-keys">
+              <ProductShortcut keys="Ctrl+K" />
+              <ProductShortcut keys="Ctrl+C" />
+            </div>
+          </div>
+          <p class="dinkster-description"><ProductShortcutText text="Pan moves the canvas; `Ctrl+wheel` zooms. `Cmd+,` opens settings." /></p>
+        </ProductSection>
         <ProductField label="Execution state">
           {(attributes) => (
             <ProductSelect
@@ -1344,8 +1466,8 @@ function WindowToolbarGallery() {
               value={shortcut()}
               onChange={(event) => setShortcut(event.currentTarget.value)}
             >
-              <option value="Ctrl+K">Ctrl+K</option>
-              <option value="Alt+K">Alt+K</option>
+              <option value="Ctrl+K">Default binding</option>
+              <option value="Alt+K">Alternate binding</option>
               <option value="">No shortcut</option>
             </ProductSelect>
           )}
@@ -1573,7 +1695,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs', '#models'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'

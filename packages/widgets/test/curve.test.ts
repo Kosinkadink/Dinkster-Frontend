@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { curveInterpolator, isCurveValue } from '../src/kinds.js'
 
 describe('CURVE values', () => {
-  it('accepts legacy linear records and both authored interpolation modes', () => {
+  it('accepts legacy linear records and all authored interpolation modes', () => {
     expect(isCurveValue({ points: [{ position: 0, value: 2 }] })).toBe(true)
     expect(isCurveValue({ interpolation: 'linear', points: [{ position: 0, value: 0 }] })).toBe(true)
     expect(isCurveValue({ interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] })).toBe(true)
+    expect(isCurveValue({ interpolation: 'step', points: [{ position: 0.25, value: 3 }, { position: 0.5, value: -2 }] })).toBe(true)
   })
 
   it('requires finite strictly increasing object points within cardinality bounds', () => {
@@ -32,6 +33,17 @@ describe('CURVE values', () => {
     expect(interpolate(3)).toBe(7)
     expect(interpolate(-1)).toBe(4)
     expect(interpolate(20)).toBe(10)
+  })
+
+  it('holds Step values until each exact next point, including immediate float predecessors', () => {
+    const interpolate = curveInterpolator({ interpolation: 'step', points: [
+      { position: 0.25, value: -3.5 }, { position: 0.5, value: 7.25 }, { position: 0.875, value: 2.75 },
+    ] })
+    for (const [position, expected] of [
+      [-1, -3.5], [0.24999999999999997, -3.5], [0.25, -3.5],
+      [0.49999999999999994, -3.5], [0.5, 7.25],
+      [0.8749999999999999, 7.25], [0.875, 2.75], [2, 2.75],
+    ]) expect(interpolate(position!)).toBe(expected)
   })
 
 })

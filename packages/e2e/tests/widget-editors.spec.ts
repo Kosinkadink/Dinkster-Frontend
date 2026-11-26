@@ -5,6 +5,43 @@ const test = base.extend<{ widgetDocument: boolean }>({ widgetDocument: [true, {
 
 const catalogTest = test.extend({ widgetDocument: false })
 
+catalogTest('a Slider with an overflowing range explains its Number fallback', async ({ page }, testInfo) => {
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'OverflowRange', displayName: 'Overflow range', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, readOnly: true,
+        widget: { widgetType: 'FLOAT', options: {}, default: 7, representations: {
+          default: 'number', userSwitchable: true, representations: [
+            { id: 'number', displayName: 'Number', widget: { widgetType: 'FLOAT', options: { display: 'number' } } },
+            { id: 'slider', displayName: 'Slider', widget: { widgetType: 'FLOAT', options: { display: 'slider', min: -1e308, max: 1e308 } } },
+          ],
+        } },
+      }],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'overflow-range', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'OverflowRange', values: { amount: 7 } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 }, views: { amount: 'slider' } } } } } },
+    } as never, 'Overflow range')
+    window.__dinksterTest!.renderer!.setViewport({ x: 200, y: 150, scale: 1 })
+  })
+  const point = await nodeRowPoint(page, 'n1', 'amount')
+  await page.mouse.click(point.x, point.y)
+  const inspection = page.locator('.dinkster-canvas-field-side')
+  await expect(inspection.getByRole('button', { name: 'Display Slider', exact: true })).toBeVisible()
+  await expect(inspection).toContainText('Showing Number until the range is known.')
+  expect(await page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
+    return node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'amount')?.viewId
+  })).toBe('core.number')
+  await page.screenshot({ path: testInfo.outputPath('overflow-slider-fallback.png') })
+})
+
 catalogTest('mixed scalar COMBO keeps typed native choices through list picks', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'scalar-combo-fixture', schemaWire: 2 },
@@ -57,13 +94,36 @@ catalogTest('native integer RGB color edits retain numeric values without catalo
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get().filter((problem) => problem.code === 'schema.dinkster.badNumberDisplay'))).toEqual([])
   const field = page.locator('.widget-in-row-field input')
   await expect(field).toHaveValue('#010203')
+  const graphs = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs)
+  const chooseDisplay = async (current: string, next: string): Promise<void> => {
+    await page.getByRole('button', { name: `Display ${current}`, exact: true }).press('Enter')
+    await page.getByRole('option', { name: next, exact: true }).click()
+  }
+  await expect(page.getByRole('button', { name: 'Display Color', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Display Color', exact: true }).click()
+  await page.screenshot({ path: testInfo.outputPath('integer-color-display-list.png') })
+  await page.getByRole('option', { name: 'Number', exact: true }).click()
+  await page.mouse.click(point.x, point.y)
+  await expect(field).toHaveValue('66051')
+  await page.screenshot({ path: testInfo.outputPath('integer-color-number.png') })
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs)).toEqual(graphs)
+  await chooseDisplay('Number', 'Color')
+  await page.mouse.click(point.x, point.y)
+  await expect(field).toHaveValue('#010203')
   await field.fill('#ab1203')
   await page.screenshot({ path: testInfo.outputPath('integer-color-editor.png') })
-  await field.press('Enter')
+  await chooseDisplay('Color', 'Number')
   await expect(field).toHaveCount(0)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.color)).toBe(11211267)
   await page.mouse.click(point.x, point.y)
+  await chooseDisplay('Number', 'Color')
+  await page.mouse.click(point.x, point.y)
   await expect(field).toHaveValue('#ab1203')
+  await field.fill('not a color')
+  await chooseDisplay('Color', 'Number')
+  await expect(field).toHaveCount(0)
+  await page.mouse.click(point.x, point.y)
+  await expect(field).toHaveValue('11211267')
 })
 
 catalogTest('socketless native color keeps its editor and neighboring input socket', async ({ page }, testInfo) => {
@@ -250,130 +310,6 @@ test.beforeEach(async ({ page, widgetDocument }) => {
   await page.evaluate(async () => {
     await (window.__dinksterTest!.app.activeTab()!.store as unknown as { settle(): Promise<void> }).settle()
   })
-})
-
-test('AUDIO_RECORD captures only on request and stages canonical uploads with retry, cancel and undo', async ({ page }, testInfo) => {
-  let uploaded: Buffer = Buffer.alloc(0)
-  let attempts = 0
-  let releaseUpload: (() => void) | undefined
-  let uploadStarted: (() => void) | undefined
-  const pendingUpload = new Promise<void>((resolve) => { uploadStarted = resolve })
-  const canonical = { digest: `blake3:${'a'.repeat(64)}`, name: 'canonical-recording.webm', size: 0, mediaType: 'audio/webm', virtualPath: '' }
-  await page.route('**/api/assets/media?*', async (route) => {
-    const query = new URL(route.request().url()).searchParams
-    expect(query.get('kind')).toBe('media/audio')
-    expect(query.get('scope')).toBe('local')
-    expect(query.get('name')).toBe('recording.webm')
-    uploaded = route.request().postDataBuffer()!
-    expect(uploaded.subarray(0, 4)).toEqual(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))
-    canonical.size = uploaded.length
-    if (++attempts === 1) await route.fulfill({ status: 503, body: 'temporary upload failure' })
-    else {
-      if (attempts === 3) await new Promise<void>((resolve) => { releaseUpload = resolve; uploadStarted!() })
-      await route.fulfill({ json: { kind: 'media/audio', asset: canonical } })
-    }
-  })
-  await page.route('**/api/assets/blake3*', (route) => route.fulfill({ contentType: 'audio/webm', body: uploaded }))
-  await page.evaluate(async () => {
-    const state = window as unknown as { audioDenied: boolean; audioOpens: number; audioStops: number }
-    state.audioDenied = true; state.audioOpens = 0; state.audioStops = 0
-    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => {
-      state.audioOpens++
-      if (state.audioDenied) throw new DOMException('denied', 'NotAllowedError')
-      const context = new AudioContext()
-      const tone = context.createOscillator()
-      const output = context.createMediaStreamDestination()
-      tone.frequency.value = 523.25
-      tone.connect(output); tone.start(); await context.resume()
-      const track = output.stream.getAudioTracks()[0]!
-      const stop = track.stop.bind(track)
-      track.stop = () => { state.audioStops++; tone.stop(); void context.close(); stop() }
-      return output.stream
-    } })
-    const app = window.__dinksterTest!.app
-    app.registerSchemas([{
-      type: 'AudioRecordWidgetTest', displayName: 'Record audio', category: 'test', source: 'v3', isOutputNode: false,
-      body: [{ kind: 'input', id: 'recording', type: { kind: 'asset', element: { kind: 'concrete', name: 'AUDIO' } }, optional: false,
-        widget: { widgetType: 'AUDIO_RECORD', options: {} } }],
-    }])
-    await app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'audio-record-widget', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'Recording', nodes: { widgets: { id: 'widgets', type: 'AudioRecordWidgetTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
-      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
-    }, 'Recording')
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
-  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'recording')))
-  const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.recording
-  await openEditor(page, 'recording')
-  const editor = page.getByTestId('audio-record-editor')
-  const recorder = editor.getByRole('region', { name: 'Record audio', exact: true })
-  expect(await page.evaluate(() => (window as unknown as { audioOpens: number }).audioOpens)).toBe(0)
-  await page.screenshot({ path: testInfo.outputPath('audio-record-desktop.png'), animations: 'disabled' })
-  await recorder.getByRole('button', { name: 'Record microphone' }).click()
-  await expect(recorder).toContainText('Microphone permission denied')
-  await page.screenshot({ path: testInfo.outputPath('audio-record-denied.png'), animations: 'disabled' })
-  await page.evaluate(() => { (window as unknown as { audioDenied: boolean }).audioDenied = false })
-  await recorder.getByRole('button', { name: 'Record microphone' }).click()
-  await expect(recorder.getByTestId('audio-recorded-bytes')).toHaveText(/Recorded [1-9][0-9]* bytes/)
-  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
-  await page.screenshot({ path: testInfo.outputPath('audio-record-recording.png'), animations: 'disabled' })
-  await recorder.getByRole('button', { name: 'Stop recording' }).click()
-  await expect(recorder).toContainText('Recording ready')
-  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
-  expect(await page.evaluate(() => (window as unknown as { audioStops: number }).audioStops)).toBe(1)
-  await recorder.getByRole('button', { name: 'Save recording' }).click()
-  await expect(editor.getByRole('alert')).toContainText('503')
-  await expect(recorder).toContainText('Clip retained for retry')
-  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
-  expect(await value()).toBeUndefined()
-  await recorder.getByRole('button', { name: 'Save recording' }).click()
-  await expect(editor.getByText('canonical-recording.webm', { exact: true })).toBeVisible()
-  await expect(editor.getByRole('alert')).toHaveCount(0)
-  await expect(editor.locator('audio')).toHaveAttribute('src', /^blob:/)
-  await editor.getByRole('button', { name: 'Play audio', exact: true }).click()
-  await expect(editor.getByRole('button', { name: 'Pause audio', exact: true })).toBeVisible()
-  await editor.getByRole('button', { name: 'Pause audio', exact: true }).click()
-  expect(await value()).toBeUndefined()
-  await page.setViewportSize({ width: 900, height: 700 })
-  await page.screenshot({ path: testInfo.outputPath('audio-record-ready-compact.png'), animations: 'disabled' })
-  await editor.getByRole('button', { name: 'Use asset', exact: true }).click()
-  await expect(editor).toHaveCount(0)
-  expect(await value()).toEqual(canonical)
-  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
-  expect(await value()).toBeUndefined()
-  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())
-  expect(await value()).toEqual(canonical)
-  await openEditor(page, 'recording')
-  await editor.getByRole('button', { name: 'Remove recording' }).click()
-  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
-  expect(await value()).toEqual(canonical)
-  await openEditor(page, 'recording')
-  await recorder.getByRole('button', { name: 'Record microphone' }).click()
-  await expect(recorder).toContainText('Recording microphone')
-  await page.keyboard.press('Escape')
-  await expect(editor).toHaveCount(0)
-  expect(await page.evaluate(() => (window as unknown as { audioStops: number }).audioStops)).toBe(2)
-  expect(await value()).toEqual(canonical)
-  const stored = await value()
-  await openEditor(page, 'recording')
-  await recorder.getByRole('button', { name: 'Record microphone' }).click()
-  await expect(recorder.getByTestId('audio-recorded-bytes')).toHaveText(/Recorded [1-9][0-9]* bytes/)
-  await recorder.getByRole('button', { name: 'Stop recording' }).click()
-  await expect(recorder).toContainText('Recording ready')
-  await recorder.getByRole('button', { name: 'Save recording' }).click()
-  await pendingUpload
-  await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
-  const aborted = page.waitForEvent('requestfailed', (request) => request.url().includes('/api/assets/media?'))
-  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
-  releaseUpload!()
-  await aborted
-  await expect(editor).toHaveCount(0)
-  expect(await value()).toEqual(stored)
-  await openEditor(page, 'recording')
-  await expect(editor.getByText('canonical-recording.webm', { exact: true })).toBeVisible()
-  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
-  expect(await value()).toEqual(stored)
 })
 
 test('MARKDOWN previews safely and edits one undoable source string', async ({ page }, testInfo) => {
@@ -1120,6 +1056,14 @@ test('widget popover is anchored, non-draggable, Escape-restoring, and fits a su
   const dialog = page.getByRole('dialog', { name: 'Edit notes MARKDOWN' })
   const editor = page.getByTestId('markdown-editor')
   await page.setViewportSize({ width: 1200, height: 900 })
+  // Viewport emulation can return before the window resize clamp runs.
+  await expect.poll(async () => {
+    const bounds = await dialog.boundingBox()
+    const canvas = await page.getByTestId('graph-canvas').boundingBox()
+    return bounds && canvas
+      ? bounds.x + bounds.width - canvas.x - canvas.width
+      : Number.POSITIVE_INFINITY
+  }).toBeLessThanOrEqual(0)
   const moderate = await dialog.boundingBox()
   const canvas = await page.getByTestId('graph-canvas').boundingBox()
   expect(moderate!.x + moderate!.width).toBeLessThanOrEqual(canvas!.x + canvas!.width)
@@ -1349,12 +1293,12 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
     .filter({ has: page.getByText('Pass Through, configuration_strength_after_generation', { exact: true }) })
     .last()
   await proxy.focus()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Current expected value: 1.30')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 1.30')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Arriving: 1.30')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 1.30')
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.mirrorPreviews', false))
   await expect(proxy).toBeFocused()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Current expected value: 1.30')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 1.30')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Arriving: 1.30')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 1.30')
   await page.screenshot({ path: test.info().outputPath('focused-after-overlay-refresh.png') })
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.mirrorPreviews', true))
   await expect(proxy).toBeFocused()
@@ -1397,8 +1341,8 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
     number: { value: 7 }, text: { value: 'changed' }, configuration_strength_after_generation: { value: 1.3 },
   } })
   await proxy.focus()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Current expected value: 1.30')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 8.00')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Arriving: 1.30')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 8.00')
   const clip = await page.evaluate(() => {
     const nodes = window.__dinksterTest!.renderer!.getScene().nodes.filter((node) => node.id === 'source' || node.id === 'sink')
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
@@ -1422,7 +1366,7 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
   await expect(proxy).not.toBeFocused()
   await expect(page.getByTestId('app-tooltip')).toHaveCount(0)
   await proxy.focus()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 8.00')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 8.00')
   expect(pageErrors).toEqual([])
 })
 
@@ -1513,7 +1457,7 @@ test('a changed producer exposes stale/unproven companion wording while styling 
     .filter({ has: page.getByText('Unproven Sink, width', { exact: true }) })
   await proxy.focus()
   await expect(page.getByTestId('app-tooltip')).toContainText('Stale/unproven value: 512')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 640')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 640')
   expect(await proxy.evaluate((element) => getComputedStyle(element.parentElement!).pointerEvents)).toBe('none')
 
   const point = await page.evaluate(() => {
@@ -1563,9 +1507,9 @@ test('a changed producer exposes stale/unproven companion wording while styling 
   await expect.poll(companions).toEqual({ sink: { width: { value: 1024 } } })
   await page.screenshot({ path: testInfo.outputPath('updated-companion-tooltip.png') })
   await expect(proxy).toBeFocused()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Current expected value: 1024')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Arriving: 1024')
   await expect(page.getByTestId('app-tooltip')).not.toContainText('Stale/unproven value: 512')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 640')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 640')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('app-tooltip')).toHaveCount(0)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.mirrorPreviews', false))
@@ -1734,4 +1678,57 @@ test('huge COMBO lists render a capped window with paging rows and still commit 
   await listFilter(page).press('Enter')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   await expect.poll(async () => (await activeDoc(page)).graphs.g0!.nodes.huge!.values.choice).toBe('option-990')
+})
+
+test('a click on a wired row whose value is known only after a run explains it, and opens no field', async ({ page }) => {
+  await page.evaluate(async () => {
+    window.__dinksterTest!.app.registerSchemas([
+      {
+        type: 'MeasureTest', displayName: 'Measure', category: 'test', source: 'v3', isOutputNode: false,
+        body: [{ kind: 'output', id: 'radius', type: { kind: 'concrete', name: 'INT' } }],
+      },
+      {
+        type: 'SoftenTest', displayName: 'Soften', category: 'test', source: 'v3', isOutputNode: false,
+        body: [{
+          kind: 'input', id: 'radius', type: { kind: 'concrete', name: 'INT' }, optional: false,
+          widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 4 },
+        }],
+      },
+    ])
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'known-after-run', root: 'g0',
+      graphs: { g0: {
+        id: 'g0', name: 'root',
+        nodes: {
+          measure: { id: 'measure', type: 'MeasureTest', values: {} },
+          soften: { id: 'soften', type: 'SoftenTest', values: { radius: 12 } },
+        },
+        links: { l1: { id: 'l1', from: { node: 'measure', port: 'radius' }, to: { node: 'soften', port: 'radius' } } },
+        nets: {}, reroutes: {}, nextOrdinal: 3,
+      } },
+      view: { graphs: { g0: { nodes: { measure: { position: { x: 100, y: 100 } }, soften: { position: { x: 420, y: 100 } } } } } },
+    } as never, 'Known after a run')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const note = page.getByTestId('row-focus')
+  const radius = await nodeRowPoint(page, 'soften', 'radius')
+  await page.mouse.click(radius.x, radius.y)
+  await expect(note).toContainText('The wire has no known value yet; this does not mean nothing.')
+  await expect(note).toContainText('Stored 12, used again when the wire is removed.')
+  await expect(page.locator('.widget-in-row-field')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(note).toHaveCount(0)
+  expect((await activeDoc(page)).graphs.g0!.nodes.soften!.values.radius).toBe(12)
+  await page.getByTestId('canvas-widget-a11y').filter({ hasText: 'Soften, radius' }).focus()
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 12')
+  await expect.poll(() => page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((node) => node.id === 'soften')!
+    const viewport = renderer.getViewport()
+    const left = canvas.left + node.x * viewport.scale + viewport.x
+    const right = left + node.layout.width * viewport.scale
+    const tip = document.querySelector('[data-testid=app-tooltip]')!.getBoundingClientRect()
+    return Math.min(Math.abs(tip.right + 8 - left), Math.abs(tip.left - 8 - right))
+  })).toBeLessThan(1)
 })

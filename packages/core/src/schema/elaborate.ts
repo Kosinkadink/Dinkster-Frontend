@@ -28,7 +28,7 @@ import { diag, type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
 import { boundaryItems, type DynamicPortState, type GraphDef, type Json, type NodeData } from '../format/document.js'
 import { outerConstructAddress, projectConstructs } from '../compile/crossing.js'
 import { asPortId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, type DynamicMemberId, type NodeId } from '../ids.js'
-import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaValue, type Unknown } from '../mirror/formula.js'
+import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaScope, type FormulaValue, type FormulaValues, type Unknown } from '../mirror/formula.js'
 import {
   applyUse,
   choiceScopeRows,
@@ -70,7 +70,7 @@ import type {
   WidgetSpec,
 } from './model.js'
 import { isAssetWidgetInput, isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
-import { readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
+import { isAssetRefValue, readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
 import { normalizeComboOption } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
@@ -232,10 +232,16 @@ export interface ElaboratedInput {
   readonly materialize?: readonly MaterializeFrame[]
   /** A field that declares `automatic` with nothing stored and no wire: the value in use. */
   readonly automatic?: AutomaticState
+  /** The declaration's read scope, including forwarded field bindings. */
+  readonly automaticContext?: FormulaContext
   /** A field that declares `automatic` and holds a fixed value: what it would work out to if emptied. */
   readonly automaticIfEmptied?: AutomaticState
   /** Hidden dependencies requested only while this fixed field is open. */
   readonly automaticIfEmptiedLookups?: readonly LookupSite[]
+  /** Direct user value edits are blocked; wires and action writes are unchanged. */
+  readonly readOnly?: true
+  readonly disabled?: true
+  readonly disabledReason?: string
   /** Keys of the boxes the node draws around this row, outermost first. */
   readonly boxes?: readonly string[]
   /** The rows its widget's `writes` and `reads` name, when it names any. */
@@ -538,7 +544,7 @@ const jsonOf = (value: FormulaValue): Json => {
 const limitOf = (value: unknown): bigint | number | undefined =>
   typeof value === 'number' ? value : isCanonicalUnsafeInteger(value) ? BigInt(value) : undefined
 
-/** An action drawn as a row. The editor does not run its steps. */
+/** An action drawn as a row; the button runner (actions/runner.ts) runs its steps. */
 export interface ElaboratedButton {
   readonly kind: 'button'
   /** Flattened id. */
@@ -548,6 +554,8 @@ export interface ElaboratedButton {
   readonly enabled?: false
   readonly disabledReason?: string
   readonly tooltip?: string
+  /** The declaration: its steps, icon, tooltip and the formulas that enable it. */
+  readonly spec: ButtonSpec
   readonly section?: string
   readonly boxes?: readonly string[]
   /** Line key of the cell drawn before this one in a `Row`. */
@@ -721,6 +729,29 @@ export interface ElaborateOptions {
    * when its `visible` is false.
    */
   readonly problemRows?: ReadonlySet<string>
+  /**
+   * When given, receives the formula context of every scope the walk enters,
+   * keyed by the scope's flattened prefix ('' for the body, 'loras.lora_1.'
+   * for a member, 'format.' for a choice's option). The button runner reads
+   * it to work out a step's formulas where the button sits.
+   */
+  readonly formulaContexts?: Map<string, FormulaContext>
+  /** Document-static value delivered to a linked input; undefined remains unknown. */
+  readonly incomingValue?: (path: string) => Json | undefined
+  /** Connected producer's resolved type, independent of its execution value. */
+  readonly incomingType?: (path: string) => string | undefined
+}
+
+/** What a formula sees in one scope of a node, and where each name it reads is stored. */
+export interface FormulaContext {
+  readonly scope: FormulaScope
+  readonly values: FormulaValues
+  /** Unexposed values captured by a forwarded declaration, including asset references. */
+  readonly fixed?: ReadonlyMap<string, { readonly value: unknown; readonly linked?: true }>
+  /** Each name's flattened id. */
+  readonly paths: ReadonlyMap<string, string>
+  /** The scope is a member the node shows but does not store. */
+  readonly ghost?: true
 }
 
 // ---------------------------------------------------------------------------
@@ -867,7 +898,9 @@ function automaticKindOf(type: TypeExpr): AutomaticKind | undefined {
  * exactly whole, a whole number fills a decimal one, and a choice is one of
  * its static options.
  */
-function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: InputSpec): Json | undefined {
+export function automaticValueOf(row: InputSpec, value: FormulaValue | Json): Json | undefined {
+  const kind = automaticKindOf(row.type)
+  if (kind === undefined) return undefined
   if (kind === 'bool') return typeof value === 'boolean' ? value : undefined
   if (kind === 'text' || kind === 'choice') {
     if (typeof value !== 'string') return undefined
@@ -882,13 +915,16 @@ function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: 
 }
 
 /** Formula values worked out only when the formula reads them. */
-class LazyValues extends Map<string, FormulaValue | Unknown> {
-  private readonly thunks = new Map<string, () => FormulaValue | Unknown>()
-  setLazy(name: string, thunk: () => FormulaValue | Unknown): void {
+class LazyValues<T = FormulaValue | Unknown> extends Map<string, T> {
+  private readonly thunks = new Map<string, () => T | undefined>()
+  setLazy(name: string, thunk: () => T | undefined): void {
     this.thunks.set(name, thunk)
   }
-  override get(name: string): FormulaValue | Unknown | undefined {
-    if (!super.has(name) && this.thunks.has(name)) super.set(name, this.thunks.get(name)!())
+  override get(name: string): T | undefined {
+    if (!super.has(name) && this.thunks.has(name)) {
+      const value = this.thunks.get(name)!()
+      if (value !== undefined) super.set(name, value)
+    }
     return super.get(name)
   }
 }
@@ -1064,7 +1100,10 @@ function elaboratePass(
       const key = unsettledKey(path)
       if (key !== undefined) return key
     }
-    if (linked(path)) return UNKNOWN
+    if (linked(path)) {
+      const value = options.incomingValue?.(path)
+      return value === undefined ? UNKNOWN : formulaValueOf(value, kind)
+    }
     if (!Object.hasOwn(node.values, path)) {
       const automatic = automaticInUse(path)
       if (automatic !== undefined) return automatic === UNKNOWN ? UNKNOWN : formulaValueOf(automatic, kind)
@@ -1214,7 +1253,7 @@ function elaboratePass(
       if (outcome.kind === 'failed') return standIn('failed')
       found = outcome.value
     }
-    const value = automaticValueOf(kind, found, row)
+    const value = automaticValueOf(row, found)
     if (value === undefined) return standIn('wrong-type', call)
     return { value, state: 'worked-out', ...(call !== undefined ? { call } : {}), ...(kept !== undefined ? { kept } : {}) }
   }
@@ -1393,7 +1432,8 @@ function elaboratePass(
     return { writes: resolve(widget.writes), reads: resolve(widget.reads) }
   }
 
-  const evaluate = (text: string, scope: Scope): ReturnType<Formula['evaluate']> => {
+  /** The names a formula sees in `scope`, their values in the stored state, and where each is stored. */
+  const contextOf = (scope: Scope): FormulaContext => {
     const names = framesNamesOf(scope.formulaFrames.map((frame) => frame.rows))
     const { where, unknown, fixed } = namesAt(scope)
     const defaults = new Map<string, unknown>()
@@ -1407,22 +1447,31 @@ function elaboratePass(
       }
     }
     const member = [...scope.formulaFrames].reverse().find((frame) => frame.index !== undefined)
-    let formula: Formula
-    try {
-      formula = Formula.parse(text, {
-        names: names.names, inputs: names.inputs, assets: names.assets, tables, derived,
-        inMember: member !== undefined,
-      })
-    } catch (error) {
-      if (error instanceof FormulaRefused) return { kind: 'failed', reason: error.message }
-      throw error
-    }
-    const used = formula.uses().names
     const values = new LazyValues()
-    const wired = new Map<string, boolean>()
+    const wired = new LazyValues<boolean>()
+    const linkedTypes = new LazyValues<string | null>()
+    const facts = new LazyValues<FormulaValue>()
     const sizes = new Map<string, number>()
+    const fixedValues = new LazyValues<{ readonly value: unknown; readonly linked?: true }>()
+    for (const [name, reference] of fixed) fixedValues.setLazy(name, () => {
+      const constant = readFixedValue(reference)
+      return constant === undefined ? undefined : { value: constant.value, ...(constant.linked === true ? { linked: true as const } : {}) }
+    })
+    for (const name of names.assets) for (const fact of ['filename', 'kind']) facts.setLazy(`${fact}(${name})`, () => {
+      if (unknown.has(name)) return undefined
+      const reference = fixed.get(name)
+      const constant = reference === undefined ? undefined : readFixedValue(reference)
+      const path = where.get(name)
+      const value = constant !== undefined ? (constant.linked === true ? undefined : constant.value)
+        : path === undefined ? undefined : linked(path) ? options.incomingValue?.(path)
+          : Object.hasOwn(node.values, path) ? node.values[path] : defaults.get(path)
+      if (!isAssetRefValue(value)) return undefined
+      if (fact === 'filename') return value.name.split(/[\\/]/).at(-1)
+      if (value.mediaType === '') return undefined
+      const kind = /^(image|video|audio|model|text)\//.exec(value.mediaType)?.[1]
+      return kind === 'model' ? '3d' : kind ?? 'file'
+    })
     for (const [name, kind] of names.names) {
-      if (!used.has(name)) continue
       const path = where.get(name)!
       const reference = fixed.get(name)
       if (reference !== undefined) {
@@ -1430,7 +1479,7 @@ function elaboratePass(
           const constant = readFixedValue(reference)
           return constant === undefined || constant.unknown === true || constant.linked === true || constant.pending === true ? UNKNOWN : formulaValueOf(constant.value, kind)
         })
-        if (names.inputs.has(name)) wired.set(name, fixedValue(reference)?.linked === true)
+        if (names.inputs.has(name)) wired.setLazy(name, () => fixedValue(reference)?.linked === true)
       } else if (unknown.has(name)) {
         // A group's size with no entry in `sizes` reads unknown.
         if (kind !== 'opaque' && kind !== 'group') values.setLazy(name, () => UNKNOWN)
@@ -1453,16 +1502,37 @@ function elaboratePass(
       } else {
         if (kind !== 'opaque') values.setLazy(name, () => valueFor(path, kind, defaults.get(path)))
         if (names.inputs.has(name)) wired.set(name, linked(path))
+        if (names.inputs.has(name) && linked(path)) linkedTypes.setLazy(name, () => options.incomingType?.(path) ?? null)
       }
     }
-    try {
-      return formula.evaluate({
+    return {
+      scope: {
+        names: names.names,
+        inputs: names.inputs,
+        assets: names.assets,
+        tables,
+        derived,
+        inMember: member !== undefined,
+      },
+      values: {
         values,
         linked: wired,
+        linkedTypes,
+        facts,
         groupSizes: sizes,
         memberIndex: member?.index ?? null,
         memberKey: member?.key ?? null,
-      })
+      },
+      fixed: fixedValues,
+      paths: where,
+      ...(scope.ghost ? { ghost: true as const } : {}),
+    }
+  }
+
+  const evaluate = (text: string, scope: Scope): ReturnType<Formula['evaluate']> => {
+    const context = contextOf(scope)
+    try {
+      return Formula.parse(text, context.scope).evaluate(context.values)
     } catch (error) {
       if (error instanceof FormulaRefused) return { kind: 'failed', reason: error.message }
       throw error
@@ -1746,6 +1816,9 @@ function elaboratePass(
     // A field that is not sent is drawn and edited but never reaches the run.
     const sent = !(scope.ghost || scope.dormant || row.sent === false || row.unavailable !== undefined)
     const hiddenByScope = scope.hidden && row.hidden !== true
+    const readOnly = answer(row.readOnly, scope, 'boolean') === true
+    const disabled = answer(row.disabled, scope, 'boolean') === true
+    const disabledReason = disabled ? answer(row.disabledReason, scope, 'string') : undefined
     // A census also visits rows not chosen; they never replace a chosen row's entry.
     if (!scope.dormant || !unsetReads.has(path)) unsetReads.set(path, readWhenUnset(sent ? sentSpecOf(spec, hiddenByScope) : { ...spec, sent: false }))
     if (!scope.ghost && !scope.dormant && scope.kept === undefined) formulaDefaults.set(path, unsetReads.get(path))
@@ -1755,6 +1828,9 @@ function elaboratePass(
       ...(sent ? { apiName: path } : {}),
       spec,
       ...common(scope),
+      ...(readOnly ? { readOnly: true as const } : {}),
+      ...(disabled ? { disabled: true as const } : {}),
+      ...(disabledReason ? { disabledReason } : {}),
       ...(parts !== undefined ? { parts } : {}),
       ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
       ...(row.unavailable !== undefined ? { kept: row.unavailable.message } : {}),
@@ -1810,6 +1886,9 @@ function elaboratePass(
   }
 
   const rows = (list: readonly OptionRow[], scope: Scope): void => {
+    if (options.formulaContexts !== undefined && !options.formulaContexts.has(scope.prefix)) {
+      options.formulaContexts.set(scope.prefix, contextOf(scope))
+    }
     for (const raw of list) {
       if (halted) return
       let row: BodyRow
@@ -1940,7 +2019,7 @@ function elaboratePass(
       const reason = enabled === false ? answer(row.disabledReason, scope, 'string') : undefined
       const tooltip = answer(row.tooltip, scope, 'string')
       item = {
-        kind: 'button', id, label: row.label, ...placed,
+        kind: 'button', id, label: row.label, spec: row, ...placed,
         ...(enabled === false ? { enabled: false as const } : {}),
         ...(reason ? { disabledReason: reason } : {}),
         ...(tooltip ? { tooltip } : {}),
@@ -2717,7 +2796,7 @@ function elaboratePass(
     const found = item.kind === 'input' ? outcomes.get(item.address.port) : undefined
     if (found === undefined || item.kind !== 'input') continue
     const outcome = labelled(found)
-    items[index] = { ...item, automatic: outcome }
+    items[index] = { ...item, automatic: outcome, automaticContext: contextOf(sites.get(item.address.port)!.scope) }
     useLookups([...(formulaLookups.get(item.address.port) ?? [])].filter((site) => site.call !== outcome.call))
     if (outcome.state === 'default') {
       const shown = typeof outcome.value === 'string' ? outcome.value : JSON.stringify(outcome.value)

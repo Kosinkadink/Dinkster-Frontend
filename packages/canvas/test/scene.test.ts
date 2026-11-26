@@ -59,6 +59,47 @@ function sceneOf(workflow: string, graphId = 'g0') {
 }
 
 describe('buildScene', () => {
+  it('keeps mapped Save wires on their real inputs through folding and undo', () => {
+    const schema: NodeSchema = {
+      type: 'Save', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
+      body: [
+        { kind: 'input', id: 'destination', optional: true, type: { kind: 'concrete', name: 'MOUNT' } },
+        { kind: 'input', id: 'filename', optional: false, type: { kind: 'concrete', name: 'STRING' } },
+        { kind: 'editor', id: 'save', widget: { widgetType: 'SAVE_TARGET', options: {}, writes: { mount: 'destination', name: 'filename' } } },
+      ],
+    }
+    const source: NodeSchema = { ...schema, type: 'Source', body: [
+      { kind: 'output', id: 'disk', type: { kind: 'concrete', name: 'MOUNT' } },
+      { kind: 'output', id: 'path', type: { kind: 'concrete', name: 'STRING' } },
+    ] }
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'mapped-save', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Save', nextOrdinal: 3, nodes: {
+        save: { id: 'save', type: 'Save', values: { destination: 'archive', filename: 'portraits/final' } },
+        source: { id: 'source', type: 'Source', values: {} },
+      }, links: {
+        mount: { id: 'mount', from: { node: 'source', port: 'disk' }, to: { node: 'save', port: 'destination' } },
+        name: { id: 'name', from: { node: 'source', port: 'path' }, to: { node: 'save', port: 'filename' } },
+      }, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { save: { position: { x: 400, y: 0 } }, source: { position: { x: 0, y: 0 } } } } } },
+    })
+    const session = createLocalSession(loaded.document!, coreCommandRegistry())
+    const scene = () => buildScene({ document: session.doc, graphId: 'g0', resolve: (type) => type === 'Save' ? schema : source,
+      tokens: defaultTokens, measure, widgetMeasure: () => ({ viewId: 'core.saveTarget', rows: 1 }) })
+    const folded = scene()
+    const pins = folded.nodes.find((node) => node.id === 'save')!.layout.pins
+    expect(pins.map((pin) => pin.portId)).toEqual(['destination', 'filename'])
+    expect(pins[1]!.y - pins[0]!.y).toBe(7)
+    const graph = session.doc.graphs.g0
+    expect(session.dispatch({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', nodeId: 'save', valueKey: 'save', unfolded: true } }).ok).toBe(true)
+    const open = scene()
+    expect(open.links.map((link) => link.id)).toEqual(folded.links.map((link) => link.id))
+    expect(open.nodes.find((node) => node.id === 'save')!.layout.pins.map((pin) => pin.portId)).toEqual(['destination', 'filename'])
+    expect(session.doc.graphs.g0).toEqual(graph)
+    expect(session.undo()).toBe(true)
+    expect(scene()).toEqual(folded)
+  })
+
   it('gives folded editors and sections their height back through one-step undo and redo, sized or not', async () => {
     const base = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
     const editorViews = [
@@ -2150,6 +2191,27 @@ describe('boundary pseudo-nodes', () => {
       expect(scene.reroutes.map((reroute) => reroute.id)).toEqual(['junction'])
     }
     expect(JSON.stringify(doc)).toBe(before)
+  })
+
+  it('draws only the local delivery when it replaces a promoted boundary value', () => {
+    const original = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document!
+    const source: NodeSchema = { type: 'IntegerSource', displayName: 'Integer source', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'output', id: 'number', type: { kind: 'concrete', name: 'INT' } }] }
+    const doc: WorkflowDocument = { ...original, graphs: { ...original.graphs, g1: { ...original.graphs.g1!,
+      nodes: { ...original.graphs.g1!.nodes, source: { id: asNodeId('source'), type: source.type, values: {} } },
+      links: { drive: { id: asLinkId('drive'), from: { node: asNodeId('source'), port: asPortId('number') },
+        to: { node: asNodeId('n0'), port: asPortId('color') } } },
+    } } }
+    const resolve = documentResolver(doc, (type) => type === source.type ? source : schemas.get(type))
+    const definition = buildScene({ document: doc, graphId: 'g1', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    expect(definition.links.some((link) => link.id === 'boundary:inputs:color')).toBe(true)
+    const occurrence = { owner: { instancePath: [], node: asNodeId('n0') }, plannerAvailable: true }
+    const local = buildScene({ document: doc, graphId: 'g1', resolve, tokens: defaultTokens, measure, widgetMeasure, occurrence })
+    expect(local.links.filter((link) => link.to.kind === 'port' && link.to.node === 'n0' && link.to.port === 'color')
+      .map((link) => link.from)).toEqual([{ kind: 'port', node: 'source', port: 'number' }])
+    const unwired = buildScene({ document: original, graphId: 'g1', resolve: documentResolver(original, (type) => schemas.get(type)),
+      tokens: defaultTokens, measure, widgetMeasure, occurrence })
+    expect(unwired.links.some((link) => link.id === 'boundary:inputs:color')).toBe(true)
   })
 
   it('saved view positions win over defaults, per side', () => {

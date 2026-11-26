@@ -289,6 +289,7 @@ type WorkspaceExecutionMessage =
       readonly timestamp?: number
       readonly jobRef?: string
       readonly sourceDocument?: string
+      readonly workflowName?: string
     }
 
 interface WorkspaceRegistration {
@@ -302,6 +303,7 @@ interface WorkspaceRegistration {
   readonly timestamp?: number
   readonly jobRef?: string
   readonly sourceDocument?: string
+  readonly workflowName?: string
 }
 
 const workspaceRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {
@@ -406,10 +408,12 @@ const decodeWorkspaceRegistration = (
   const timestamp = value['timestamp']
   const jobRef = value['jobRef']
   const sourceDocument = value['sourceDocument']
+  const workflowName = value['workflowName']
   if (ref === undefined || rawArtifact === undefined ||
     (timestamp !== undefined && !workspaceNumber(timestamp)) ||
     (jobRef !== undefined && !workspaceString(jobRef)) ||
     (sourceDocument !== undefined && !workspaceString(sourceDocument)) ||
+    (workflowName !== undefined && !workspaceString(workflowName)) ||
     !workspaceInteger(rawArtifact['revision']) ||
     !workspaceString(rawArtifact['connection']) || rawArtifact['connection'] !== ref.connection ||
     !workspaceString(rawArtifact['schemaHash']) || !workspaceString(rawArtifact['semanticHash']) ||
@@ -432,6 +436,7 @@ const decodeWorkspaceRegistration = (
     ...(timestamp === undefined ? {} : { timestamp }),
     ...(jobRef === undefined ? {} : { jobRef }),
     ...(sourceDocument === undefined ? {} : { sourceDocument }),
+    ...(workflowName === undefined ? {} : { workflowName }),
   }
 }
 
@@ -2506,6 +2511,7 @@ export class AppState {
   /** Incremented to open the top bar's layout menu from a command. */
   readonly layoutMenuRequests = createSignal(0)
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
+  readonly searchCatalogRequests = createSignal(0)
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
   readonly projectPackNotification = createSignal<{ readonly message: string } | undefined>(undefined)
@@ -4690,6 +4696,11 @@ export class AppState {
           this.replaceProblems(schemaProblemsOwner, (registry.get()?.diagnostics ?? []).map((problem) => ({
             ...problem, message: `[${label}] ${problem.message}`,
           })))
+          for (const tab of this.tabs.get()) {
+            if (tab.execution || this.backendForTab(tab).id !== id || this.schemaDiagnosticsPending.has(tab.id)) continue
+            this.reportEnvironmentDrift(tab)
+            this.reportUnresolvedTypes(tab)
+          }
           this.backendsTick.update((v) => v + 1)
           this.flushWorkspaceRegistrations(id)
           // Schema refresh can invalidate an in-flight reconnect read. The
@@ -5533,7 +5544,7 @@ export class AppState {
    * A node type the target backend cannot resolve renders as a red error
    * shell - correct on canvas, but silently: nothing else says WHY a
    * workflow is dead or that queueing will refuse. Report every unresolved
-   * type once when schemas arrive, so "all my nodes
+   * type when schemas arrive or change, so "all my nodes
    * are red" always has a matching Problems entry naming the types and the
    * backend that lacks them. Subgraph-derived '#' types resolve locally and
    * are never reported.
@@ -5554,18 +5565,21 @@ export class AppState {
         continue
       missing.set(node.type, (missing.get(node.type) ?? 0) + 1)
     }
-    if (missing.size === 0) return
     const backend = this.backendForTab(tab)
-    this.reportProblems(tab.id,
-      [...missing].map(([type, count]) =>
-        diag(
-          'warning',
-          'schema',
-          'schema.unresolvedType',
-          `${type}${count > 1 ? ` (${count})` : ''}: not available on backend ${backend.label}`,
+    batch(() => {
+      this.problems.update((problems) => problems.filter((entry) =>
+        entry.owner !== tab.id || entry.origin !== 'schema' || entry.code !== 'schema.unresolvedType'))
+      this.reportProblems(tab.id,
+        [...missing].map(([type, count]) =>
+          diag(
+            'warning',
+            'schema',
+            'schema.unresolvedType',
+            `${type}${count > 1 ? ` (${count})` : ''}: not available on backend ${backend.label}`,
+          ),
         ),
-      ),
-    )
+      )
+    })
   }
 
   /**
@@ -7843,7 +7857,7 @@ export class AppState {
   }
 
   /**
-   * Advisory load-time drift check: compare the document's environment
+   * Advisory drift check: compare the document's environment
    * stamp (if any) against the tab's live registry and surface findings
    * in Problems. Never blocks anything - stamps are records, not identity.
    */
@@ -7856,7 +7870,12 @@ export class AppState {
       resolve: reg.resolve,
       ...(reg.packs !== undefined ? { packs: reg.packs } : {}),
     })
-    this.reportProblems(tab.id, drift)
+    batch(() => {
+      this.problems.update((problems) => problems.filter((entry) =>
+        entry.owner !== tab.id || entry.origin !== 'environment' ||
+        !['env.node-missing', 'env.node-drift', 'env.pack-updated'].includes(entry.code)))
+      this.reportProblems(tab.id, drift)
+    })
   }
 
   private importLegacy(json: unknown, registry: SchemaRegistry | undefined, translations: readonly ComfyTranslation[] = [], unavailable = false): {
@@ -8133,6 +8152,7 @@ export class AppState {
       automaticValues: automaticValuesOfJob(job),
       jobRef: result.jobRef,
       sourceDocument: result.sourceDocument,
+      ...(history.workflowName === undefined ? {} : { workflowName: history.workflowName }),
       queuedAt: result.queuedAt,
       endedAt: result.endedAt,
     }
@@ -8959,7 +8979,7 @@ export class AppState {
     artifact: CompileArtifact,
     plan: AdvancementPlan | undefined,
     timestamp?: number,
-    identity?: { readonly jobRef?: string; readonly sourceDocument?: string },
+    identity?: { readonly jobRef?: string; readonly sourceDocument?: string; readonly workflowName?: string },
   ): void {
     if (plan) this.advancementPlans.set(executionKey(ref), plan)
     // Belt-and-braces retention for artifacts that did not come through
@@ -8980,6 +9000,7 @@ export class AppState {
       ...(timestamp === undefined ? {} : { timestamp }),
       ...(identity?.jobRef === undefined ? {} : { jobRef: identity.jobRef }),
       ...(identity?.sourceDocument === undefined ? {} : { sourceDocument: identity.sourceDocument }),
+      ...(identity?.workflowName === undefined ? {} : { workflowName: identity.workflowName }),
     } satisfies WorkspaceExecutionMessage)
   }
 
@@ -9042,6 +9063,7 @@ export class AppState {
       this.store.register(registration.ref, registered, registration.timestamp, {
         ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
         ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
+        ...(registration.workflowName === undefined ? {} : { workflowName: registration.workflowName }),
       })
       this.pendingWorkspaceRegistrations.delete(key)
     }
@@ -9472,6 +9494,8 @@ export class AppState {
         ...(hasWorkflow ? { extraPnginfo: { workflow: originalWorkflow } as JsonObject } : {}),
       } : undefined
       const sourceDocument = await this.sourceDocumentFor(tab, backend)
+      // The name the run is recorded under, as the tab read when it was sent.
+      const workflowName = tab.title
       if (lease.signal.aborted) return
       // Shared authority can adopt this editing session after queue entry.
       // Independent replacements do not have a recorded continuation.
@@ -9487,6 +9511,7 @@ export class AppState {
       lease.markPosted()
       const submitted = await backend.connection.submit(result.artifact, {
         ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+        workflowName,
         ...(exportSnapshot !== undefined ? { exportSnapshot } : {}),
         // Overrides come from the artifact snapshot (the exact document
         // that compiled), layered global < workflow < node.
@@ -9513,6 +9538,7 @@ export class AppState {
             compiledDocument,
             backend,
             sourceDocument,
+            workflowName,
             lease,
           )
           consentOwnsLease = true
@@ -9529,6 +9555,7 @@ export class AppState {
       this.installRun(submitted.execution, result.artifact, plan, undefined, {
         ...(submitted.jobRef === undefined ? {} : { jobRef: submitted.jobRef }),
         ...(sourceDocument?.sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+        workflowName,
       })
       this.log('info', backend.label, `job submitted: ${submitted.execution.prompt}`)
     } catch (e) {
@@ -9585,6 +9612,7 @@ export class AppState {
     compiledDocument: WorkflowDocument,
     backend: Backend,
     sourceDocument: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
+    workflowName: string,
     lease: { readonly signal: AbortSignal; readonly release: () => void },
   ): void {
     // Problems callbacks re-prove exact-object tab liveness at fire time: a
@@ -9616,6 +9644,7 @@ export class AppState {
         this.installRun(ok.execution, artifact, plan, undefined, {
           ...(ok.jobRef === undefined ? {} : { jobRef: ok.jobRef }),
           ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+          workflowName,
         })
         this.log(
           'info',

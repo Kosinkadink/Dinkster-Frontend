@@ -1,15 +1,18 @@
 import {
   For,
+  Index,
   Show,
   createEffect,
   createSignal,
+  createUniqueId,
   onCleanup,
   onMount,
   untrack,
   type JSX,
 } from 'solid-js'
-import { Dynamic } from 'solid-js/web'
-import { ArrowDown, ArrowUp, Dice5, Lock, Minus, Plus } from 'lucide-solid'
+import { Dynamic, Portal } from 'solid-js/web'
+import { ArrowDown, ArrowUp, ChevronDown, Dice5, Lock, Minus, Plus } from 'lucide-solid'
+import { CanvasRowList, canvasListLayout } from './canvas-list.js'
 
 /** A box in screen pixels. */
 export interface CanvasBox {
@@ -64,6 +67,8 @@ export interface CanvasSideSize {
  * `nodeBelow` and `nodeAbove` are the distances, at normal size, from the
  * field's top down to where the side part starts under the node and up to
  * where it ends over the node.
+ * `edges` marks the ends of the horizontal line: a cell may join a side part only
+ * at an exposed edge, never through another cell on its line.
  */
 export function canvasSideLayout(
   row: CanvasBox,
@@ -72,6 +77,7 @@ export function canvasSideLayout(
   scale: number,
   nodeBelow: number,
   nodeAbove: number,
+  edges?: { readonly left: boolean; readonly right: boolean },
 ): CanvasSideLayout {
   // Zoomed in, the field and its side part scale with the canvas.
   const zoom = Math.max(1, scale)
@@ -82,9 +88,9 @@ export function canvasSideLayout(
   const beside: CanvasSidePlace | undefined =
     scale < 1 || side.height > bottom - top
       ? undefined
-      : row.x + row.width + sideWidth <= bounds.x + bounds.width
+      : edges?.right !== false && row.x + row.width + sideWidth <= bounds.x + bounds.width
         ? 'right'
-        : row.x - sideWidth >= bounds.x
+        : edges?.left !== false && row.x - sideWidth >= bounds.x
           ? 'left'
           : undefined
   if (beside !== undefined) {
@@ -247,6 +253,8 @@ export type CanvasPanelPlace = 'below' | 'above'
 interface CanvasRowFrameProps {
   /** Width of the row at normal size. */
   rowWidth: number
+  /** Height of a painted row whose focus frame has no content of its own. */
+  rowHeight?: number
   place: CanvasSidePlace
   /**
    * The side part's top at normal size, from the row's top, or from the
@@ -305,6 +313,7 @@ function CanvasRowFrame(
   let reported: CanvasSideSize | undefined
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
+    row.style.height = props.rowHeight === undefined ? '' : `${props.rowHeight}px`
     setRowHeight(row.offsetHeight)
     if (panel) {
       panel.style.maxHeight =
@@ -351,6 +360,7 @@ function CanvasRowFrame(
   createEffect(() => {
     void [
       props.rowWidth,
+      props.rowHeight,
       props.place,
       props.sideTop,
       props.sideMaxHeight,
@@ -595,12 +605,11 @@ export function CanvasClosedRow(props: {
   onStep?: (direction: -1 | 1, fast: boolean) => void
   /**
    * Names minus and plus and makes them reachable by keyboard, for a row
-   * outside a node; `detail` is the tooltip's second line, such as a
-   * shortcut.
+   * outside a node, with optional shortcut chips in the tooltip.
    */
   steps?: {
-    readonly decrease: { readonly label: string; readonly detail?: string | undefined }
-    readonly increase: { readonly label: string; readonly detail?: string | undefined }
+    readonly decrease: { readonly label: string; readonly shortcut?: string | undefined }
+    readonly increase: { readonly label: string; readonly shortcut?: string | undefined }
   }
   choice?: boolean
 }) {
@@ -609,7 +618,7 @@ export function CanvasClosedRow(props: {
     return (
       <button type="button" class="dinkster-canvas-field-step" tabindex={named() === undefined ? -1 : 0}
         aria-label={named()?.label ?? (direction < 0 ? 'Decrease' : 'Increase')}
-        data-tooltip-label={named()?.label} data-tooltip-detail={named()?.detail}
+        data-tooltip-label={named()?.label} data-tooltip-shortcut={named()?.shortcut}
         onClick={(event) => props.onStep?.(direction, event.shiftKey)}>
         <StepGlyph path={direction < 0 ? MINUS_PATH : PLUS_PATH} />
       </button>
@@ -663,6 +672,8 @@ export function CanvasSidePart(props: {
   children?: JSX.Element
   facts?: readonly CanvasSideFact[]
   help?: string
+  /** The field's switchable looks, shown last. */
+  representation?: CanvasSideRepresentationProps
 }) {
   return (
     <>
@@ -694,24 +705,323 @@ export function CanvasSidePart(props: {
       <Show when={props.help}>
         <p class="dinkster-canvas-side-help">{props.help}</p>
       </Show>
+      <Show when={props.representation}>
+        {(representation) => <CanvasSideRepresentation {...representation()} />}
+      </Show>
     </>
+  )
+}
+
+export interface CanvasSideRepresentationProps {
+  /** The declared looks, by id with their display names, in declared order. */
+  readonly choices: readonly { readonly id: string; readonly label: string }[]
+  /** The chosen look. */
+  readonly selected: string
+  /** A sentence about the look drawn now, such as a fallback while a range is unknown. */
+  readonly note?: string
+  /** Show every choice at once, as the list looks while it is open. */
+  readonly expanded?: boolean
+  readonly onChoose: (id: string) => void
+}
+
+/**
+ * The lines a wired row that cannot show an arriving value gives when it is
+ * clicked: why nothing arrives or the arriving value is unknown, and the stored value
+ * that comes back when the wire is removed.
+ */
+export function CanvasRowAbsence(props: { state: 'nothing' | 'unknown'; stored: string }) {
+  return (
+    <>
+      <p class="dinkster-canvas-side-result">
+        {props.state === 'nothing'
+          ? 'Nothing arrives: the node feeding this wire was skipped.'
+          : 'The wire has no known value yet; this does not mean nothing.'}
+      </p>
+      <p class="dinkster-canvas-side-result">Stored {props.stored}, used again when the wire is removed.</p>
+    </>
+  )
+}
+
+/**
+ * The control at the end of the side part that switches how a field is
+ * drawn, such as Number or Slider. It changes the view only, never the value.
+ */
+export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
+  const [open, setOpen] = createSignal(props.expanded === true)
+  const [query, setQuery] = createSignal('')
+  const [highlight, setHighlight] = createSignal<number>()
+  const [listHeight, setListHeight] = createSignal(0)
+  const [mount, setMount] = createSignal<HTMLElement>()
+  const [position, setPosition] = createSignal({ x: 0, y: 0, width: 0, scale: 1, listPlace: 'below' as 'below' | 'above', listMaxHeight: 0 })
+  let line!: HTMLDivElement
+  let popup: HTMLDivElement | undefined
+  createEffect(() => {
+    const labels = props.choices.map((choice) => choice.label)
+    let disposed = false
+    const size = (): void => {
+      if (disposed || !line) return
+      const label = line.querySelector<HTMLElement>('.dinkster-canvas-field-label')!
+      const value = line.querySelector<HTMLElement>('.dinkster-canvas-closed-row-value')!
+      const chevron = line.querySelector<HTMLElement>('.dinkster-canvas-closed-row-chevron')!
+      const context = document.createElement('canvas').getContext('2d')!
+      const font = getComputedStyle(value)
+      context.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
+      const widest = Math.max(...labels.map((text) => context.measureText(text).width))
+      const labelFont = getComputedStyle(label)
+      context.font = `${labelFont.fontWeight} ${labelFont.fontSize} ${labelFont.fontFamily}`
+      const labelWidth = context.measureText(label.textContent ?? '').width +
+        parseFloat(labelFont.paddingLeft) + parseFloat(labelFont.paddingRight)
+      const row = getComputedStyle(label.parentElement!)
+      const inset = parseFloat(row.borderLeftWidth) + parseFloat(row.borderRightWidth) +
+        parseFloat(row.paddingLeft) + parseFloat(row.paddingRight)
+      // The shared row reserves at most half its width for the label.
+      line.style.minWidth = `${Math.ceil(inset + Math.max(labelWidth * 2,
+        labelWidth + widest + parseFloat(font.paddingLeft) + parseFloat(font.paddingRight) + chevron.offsetWidth))}px`
+    }
+    queueMicrotask(size)
+    void document.fonts.ready.then(size)
+    onCleanup(() => { disposed = true })
+  })
+  const choices = () => props.choices.filter((choice) => choice.label.toLowerCase().includes(query().toLowerCase()))
+  const close = (restoreFocus = true): void => {
+    setOpen(false)
+    if (restoreFocus) line.querySelector('button')?.focus()
+  }
+  const choose = (index: number): void => {
+    const choice = choices()[index]
+    if (choice === undefined) return
+    close()
+    if (choice.id !== props.selected) props.onChoose(choice.id)
+  }
+  const show = (): void => {
+    setQuery('')
+    setHighlight(Math.max(0, props.choices.findIndex((choice) => choice.id === props.selected)))
+    setOpen(true)
+  }
+  const place = (): void => {
+    const parent = mount()
+    if (!open() || !parent) return
+    const box = line.getBoundingClientRect()
+    const scale = box.width / line.offsetWidth
+    const origin = parent.getBoundingClientRect()
+    const boundaryElement = parent.closest('.widget-popover-layer, .dinkster-canvas-example-stage')
+    const boundary = boundaryElement?.getBoundingClientRect()
+    const example = boundaryElement?.matches('.dinkster-canvas-example-stage') === true
+    const view = window.visualViewport
+    const left = example ? boundary!.left : Math.max(boundary?.left ?? 0, view?.offsetLeft ?? 0)
+    const top = example ? boundary!.top : Math.max(boundary?.top ?? 0, view?.offsetTop ?? 0)
+    const right = example ? boundary!.right : Math.min(boundary?.right ?? window.innerWidth, (view?.offsetLeft ?? 0) + (view?.width ?? window.innerWidth))
+    const bottom = example ? boundary!.bottom : Math.min(boundary?.bottom ?? window.innerHeight, (view?.offsetTop ?? 0) + (view?.height ?? window.innerHeight))
+    const layout = canvasListLayout({ x: box.x, y: box.y, width: box.width, height: box.height },
+      { x: left, y: top, width: right - left, height: bottom - top }, listHeight(), { width: 0, height: 0 }, scale, 0, 0)
+    setPosition({ x: (box.x - origin.left) / scale, y: (box.y - origin.top) / scale,
+      width: line.offsetWidth, scale, listPlace: layout.listPlace, listMaxHeight: layout.listMaxHeight ?? listHeight() })
+  }
+  createEffect(() => { void [open(), listHeight(), mount()]; queueMicrotask(place) })
+  createEffect(() => {
+    const current = position()
+    if (popup) { popup.style.left = `${current.x}px`; popup.style.top = `${current.y}px` }
+  })
+  onMount(() => {
+    setMount(line.closest<HTMLElement>('.dinkster-canvas-field') ?? document.body)
+    const outside = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !line.contains(event.target) && !popup?.contains(event.target)) close(false)
+    }
+    const observer = new ResizeObserver(place)
+    observer.observe(line)
+    const movement = new MutationObserver(place)
+    const field = mount()
+    if (field) movement.observe(field, { attributes: true, attributeFilter: ['style', 'data-place'] })
+    const side = line.closest('.dinkster-canvas-field-side')
+    if (side) movement.observe(side, { attributes: true, attributeFilter: ['style'] })
+    document.addEventListener('pointerdown', outside, true)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    window.visualViewport?.addEventListener('resize', place)
+    onCleanup(() => {
+      observer.disconnect()
+      movement.disconnect()
+      document.removeEventListener('pointerdown', outside, true)
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+      window.visualViewport?.removeEventListener('resize', place)
+    })
+  })
+  return (
+    <div class="dinkster-canvas-side-representation">
+      <div ref={line} class="dinkster-canvas-side-representation-line" data-open={open()}>
+        <CanvasClosedRow
+          label="Display"
+          value={props.choices.find((choice) => choice.id === props.selected)?.label ?? props.selected}
+          choice
+          onOpen={show}
+        />
+      </div>
+      <Show when={open() && mount()}>
+        <Portal mount={mount()!}>
+          <div ref={popup} class="dinkster-canvas-side-representation-list">
+            <CanvasRowList
+              rowWidth={position().width}
+              place="right"
+              label="Display"
+              query={query()}
+              onQuery={(text) => { setQuery(text); setHighlight(0) }}
+              inputLabel="Display"
+              options={choices().map((choice) => ({ key: choice.id, label: choice.label, saved: choice.id === props.selected }))}
+              {...(highlight() === undefined ? {} : { highlight: highlight()! })}
+              onHighlight={setHighlight}
+              onPick={choose}
+              empty="No matching displays"
+              listPlace={position().listPlace}
+              listMaxHeight={position().listMaxHeight}
+              onListSize={setListHeight}
+              inputRef={(input) => { if (props.expanded !== true) queueMicrotask(() => input.focus()) }}
+              onKeyDown={(event) => {
+                if (event.isComposing) return
+                if (['Escape', 'Tab', 'Enter', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) event.stopPropagation()
+                if (event.key === 'Escape') { event.preventDefault(); close() }
+                else if (event.key === 'Tab') close(false)
+                else if (event.key === 'Enter') { event.preventDefault(); if (highlight() !== undefined) choose(highlight()!) }
+                else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                  event.preventDefault()
+                  const next = event.key === 'Home' ? 0 : event.key === 'End' ? choices().length - 1
+                    : (highlight() ?? (event.key === 'ArrowDown' ? -1 : choices().length)) + (event.key === 'ArrowDown' ? 1 : -1)
+                  setHighlight(choices().length === 0 ? undefined : Math.max(0, Math.min(choices().length - 1, next)))
+                }
+              }}
+            />
+          </div>
+        </Portal>
+      </Show>
+      <Show when={props.note}>
+        <p class="dinkster-canvas-side-representation-note">{props.note}</p>
+      </Show>
+    </div>
   )
 }
 
 /** The side part's link, such as the default that puts the default back. */
 export function CanvasSideLink(props: {
   children: JSX.Element
-  onClick: () => void
+  onClick: (event: MouseEvent) => void
+  ref?: (element: HTMLButtonElement) => void
+  expanded?: boolean
+  controls?: string | undefined
 }) {
   return (
     <button
+      ref={props.ref}
       type="button"
       class="dinkster-canvas-side-link"
+      aria-expanded={props.expanded}
+      aria-controls={props.controls}
       onPointerDown={(event) => event.preventDefault()}
-      onClick={() => props.onClick()}
+      onClick={(event) => props.onClick(event)}
     >
       <span>{props.children}</span>
     </button>
+  )
+}
+
+/**
+ * A field row inside a side part, drawn as the canvas draws one on a node:
+ * the name on the left and the value on the right, with the minus and plus
+ * on a number, a chevron on a choice and a switch on a toggle. Pressing the
+ * row opens it as a row on a node opens; the minus and plus step it.
+ */
+export function CanvasSideRow(props: {
+  label: string
+  value: string
+  kind: 'number' | 'choice' | 'toggle' | 'text'
+  /** A toggle's state. */
+  on?: boolean
+  onOpen: (row: HTMLElement) => void
+  onStep?: (direction: -1 | 1, fast: boolean) => void
+  testId?: string
+}) {
+  let row!: HTMLDivElement
+  const step = (direction: -1 | 1) => (
+    <Show when={props.onStep}>
+      {(onStep) => (
+        <button
+          type="button"
+          class="dinkster-canvas-side-row-step"
+          tabindex="-1"
+          aria-label={`${direction < 0 ? 'Decrease' : 'Increase'} ${props.label}`}
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={(event) => onStep()(direction, event.shiftKey)}
+        >
+          <StepGlyph path={direction < 0 ? MINUS_PATH : PLUS_PATH} />
+        </button>
+      )}
+    </Show>
+  )
+  return (
+    <div
+      ref={(element) => (row = element)}
+      class="dinkster-canvas-side-row"
+      data-kind={props.kind}
+      data-steppers={props.onStep !== undefined}
+    >
+      {step(-1)}
+      <button
+        type="button"
+        class="dinkster-canvas-side-row-open"
+        data-testid={props.testId}
+        {...(props.kind === 'toggle' ? { 'aria-pressed': props.on === true } : {})}
+        onClick={() => props.onOpen(row)}
+      >
+        <span class="dinkster-canvas-side-row-label">{props.label}</span>
+        <Show
+          when={props.kind === 'toggle'}
+          fallback={<span class="dinkster-canvas-side-row-value">{props.value}</span>}
+        >
+          <span
+            class="dinkster-canvas-side-row-switch"
+            data-on={props.on === true}
+            aria-hidden="true"
+          />
+        </Show>
+        <Show when={props.kind === 'choice'}>
+          <ChevronDown class="dinkster-canvas-side-row-chevron" aria-hidden="true" />
+        </Show>
+      </button>
+      {step(1)}
+    </div>
+  )
+}
+
+/**
+ * The buttons that end a side part, such as Cancel and Apply, drawn as a
+ * node's buttons sharing one line; the primary one is marked.
+ */
+export function CanvasSideActions(props: {
+  actions: readonly {
+    readonly label: string
+    readonly onClick: () => void
+    readonly primary?: boolean
+    readonly disabled?: boolean
+    readonly testId?: string
+  }[]
+}) {
+  return (
+    <div class="dinkster-canvas-side-actions">
+      {/* By place, so a button stays the same element while its state changes under a press. */}
+      <Index each={props.actions}>
+        {(action) => (
+          <button
+            type="button"
+            class="dinkster-canvas-side-action"
+            data-primary={action().primary === true}
+            data-testid={action().testId}
+            disabled={action().disabled === true}
+            onClick={() => action().onClick()}
+          >
+            {action().label}
+          </button>
+        )}
+      </Index>
+    </div>
   )
 }
 

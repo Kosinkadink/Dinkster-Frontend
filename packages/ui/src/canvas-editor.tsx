@@ -1,4 +1,5 @@
-import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, onMount, splitProps, untrack, type ComponentProps, type JSX } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import {
   Camera,
   Circle,
@@ -6,10 +7,11 @@ import {
   RotateCcw,
   Square,
   Trash2,
+  TriangleAlert,
   type LucideIcon,
 } from 'lucide-solid'
-import { CanvasClosedRow, CanvasRowField, CanvasSidePart } from './canvas-field.js'
-import { CanvasRowList } from './canvas-list.js'
+import { CanvasClosedRow, CanvasRowField, CanvasSideLink, CanvasSidePart } from './canvas-field.js'
+import { CanvasRowList, canvasListLayout } from './canvas-list.js'
 import { ProductButton, ProductIcon, ProductIconButton, ProductSpinner } from './controls.js'
 
 /**
@@ -74,21 +76,132 @@ export function CanvasEditorPicture(props: {
 }
 
 /** One line of an editor's own controls, as tall as a canvas row. */
-export function CanvasEditorLine(props: { dimmed?: boolean; children: JSX.Element }) {
+export function CanvasEditorLine(props: { dimmed?: boolean; readOnly?: boolean | undefined; children: JSX.Element }) {
   return (
-    <div class="dinkster-canvas-editor-line" data-dimmed={props.dimmed === true ? 'true' : undefined} inert={props.dimmed === true}>
+    <div class="dinkster-canvas-editor-line" data-dimmed={props.dimmed === true ? 'true' : undefined} inert={props.dimmed === true || props.readOnly === true}>
       {props.children}
     </div>
   )
 }
 
 /** A line naming what the editor stores, or a message about it; `tone` colors a problem. */
-export function CanvasEditorNote(props: { tone?: 'problem' | 'muted' | undefined; wrap?: boolean; children: JSX.Element }) {
+export function CanvasEditorNote(props: {
+  tone?: 'problem' | 'warning' | 'muted' | undefined
+  wrap?: boolean
+  children: JSX.Element
+  details?: {
+    readonly label: string
+    readonly title: string
+    readonly body?: string
+    readonly action?: { readonly label: string; readonly onClick: () => void }
+  } | undefined
+}) {
+  const [open, setOpen] = createSignal(false)
+  const [keyboard, setKeyboard] = createSignal(false)
+  const id = createUniqueId()
+  let link!: HTMLButtonElement
   return (
     <div class="dinkster-canvas-editor-note" data-tone={props.tone} data-wrap={props.wrap === true ? 'true' : undefined}>
-      {props.children}
+      <Show when={props.details} fallback={props.children}>{(details) => <>
+        <TriangleAlert class="dinkster-canvas-editor-note-icon" aria-hidden="true" />
+        <span class="dinkster-canvas-editor-note-summary">{props.children}</span>
+        <CanvasSideLink ref={(element) => { link = element }} expanded={open()} controls={open() ? id : undefined}
+          onClick={(event) => { setKeyboard(event.detail === 0); setOpen(!open()) }}>{details().label}</CanvasSideLink>
+        <Show when={open()}>
+          <CanvasEditorProblemNote anchor={link} id={id} keyboard={keyboard()} tone={props.tone} title={details().title}
+            body={details().body} action={details().action} onClose={() => setOpen(false)} />
+        </Show>
+      </>}</Show>
     </div>
   )
+}
+
+/** The full editor problem stays over the canvas, outside clipped editor spaces. */
+function CanvasEditorProblemNote(props: {
+  anchor: HTMLButtonElement
+  id: string
+  keyboard: boolean
+  tone: ComponentProps<typeof CanvasEditorNote>['tone']
+  title: string
+  body: string | undefined
+  action: { readonly label: string; readonly onClick: () => void } | undefined
+  onClose: () => void
+}) {
+  let popup!: HTMLDivElement
+  let point!: HTMLSpanElement
+  const close = (restore: boolean): void => {
+    if (restore) props.anchor.focus()
+    props.onClose()
+  }
+  onMount(() => {
+    const place = (): void => {
+      const anchor = props.anchor
+      const row = anchor.getBoundingClientRect()
+      const scale = row.width / anchor.offsetWidth
+      let boundary = anchor.closest<HTMLElement>('.dinkster-canvas-example-stage')
+      for (let parent = anchor.parentElement; boundary === null && parent; parent = parent.parentElement)
+        boundary = parent.querySelector<HTMLElement>('canvas.graph-canvas')
+      const box = boundary?.getBoundingClientRect()
+      const view = window.visualViewport
+      const left = Math.max(box?.left ?? 0, view?.offsetLeft ?? 0)
+      const top = Math.max(box?.top ?? 0, view?.offsetTop ?? 0)
+      const right = Math.min(box?.right ?? window.innerWidth, (view?.offsetLeft ?? 0) + (view?.width ?? window.innerWidth))
+      const bottom = Math.min(box?.bottom ?? window.innerHeight, (view?.offsetTop ?? 0) + (view?.height ?? window.innerHeight))
+      popup.style.scale = String(scale)
+      popup.style.maxWidth = `${Math.max(0, right - left) / scale}px`
+      popup.style.maxHeight = `${Math.max(0, bottom - top) / scale}px`
+      const width = popup.offsetWidth * scale
+      const height = popup.offsetHeight * scale
+      const gap = 8 * scale
+      const below = bottom - row.bottom
+      const above = row.top - top
+      const placeBelow = below >= height + gap || below >= above
+      const x = Math.max(left, Math.min(row.left, right - width))
+      const y = Math.max(top, Math.min(placeBelow ? row.bottom + gap : row.top - height - gap, bottom - height))
+      popup.style.left = `${x}px`
+      popup.style.top = `${y}px`
+      point.style.left = `${Math.max(12, Math.min((row.left + row.width / 2 - x) / scale, popup.offsetWidth - 12))}px`
+      popup.dataset.place = placeBelow ? 'below' : 'above'
+    }
+    const outside = (event: Event): void => {
+      if (event.target instanceof Node && !popup.contains(event.target) && !props.anchor.contains(event.target)) close(false)
+    }
+    const entering = (event: FocusEvent): void => {
+      if (event.relatedTarget instanceof Node && popup.contains(event.relatedTarget)) event.stopPropagation()
+    }
+    const keydown = (event: KeyboardEvent): void => {
+      popup.dataset.keyboard = 'true'
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true) }
+    }
+    const owner = props.anchor.parentElement!
+    owner.addEventListener('focusout', entering as EventListener)
+    popup.addEventListener('keydown', keydown)
+    document.addEventListener('pointerdown', outside, true)
+    document.addEventListener('focusin', outside)
+    let frame = 0
+    const follow = (): void => { place(); frame = requestAnimationFrame(follow) }
+    place()
+    frame = requestAnimationFrame(follow)
+    ;(popup.querySelector<HTMLButtonElement>('button') ?? popup).focus()
+    onCleanup(() => {
+      cancelAnimationFrame(frame)
+      owner.removeEventListener('focusout', entering as EventListener)
+      popup.removeEventListener('keydown', keydown)
+      document.removeEventListener('pointerdown', outside, true)
+      document.removeEventListener('focusin', outside)
+    })
+  })
+  return <Portal><div ref={popup} id={props.id} class="dinkster-canvas-editor-problem-note" data-tone={props.tone} data-keyboard={props.keyboard}
+    role="dialog" aria-labelledby={`${props.id}-title`} tabindex={-1}>
+    <span ref={point} class="dinkster-canvas-editor-problem-point" aria-hidden="true" />
+    <div class="dinkster-canvas-editor-problem-note-content">
+    <strong id={`${props.id}-title`}>{props.title}</strong>
+    <Show when={props.body}>{(body) => <p>{body()}</p>}</Show>
+    <Show when={props.action}>{(action) => <CanvasEditorButtons buttons={[{
+      get label() { return action().label }, onClick: () => { close(true); action().onClick() },
+    }]} />}</Show>
+    </div>
+  </div></Portal>
 }
 
 /** A closed or open section of an editor's own rows, its header drawn as the node draws a section's header. */
@@ -287,11 +400,91 @@ export function CanvasEditorNumber(props: {
   )
 }
 
+/** A choice list shared by editor rows, outside their clipped editor space. */
+export function CanvasEditorChoiceList(props: Omit<ComponentProps<typeof CanvasRowList>, 'rowWidth' | 'place' | 'listPlace' | 'listMaxHeight' | 'onListSize'> & {
+  anchor: HTMLElement
+  onClose: () => void
+}) {
+  const [local, list] = splitProps(props, ['anchor', 'onClose', 'onPick', 'onKeyDown'])
+  const [height, setHeight] = createSignal(0)
+  const [position, setPosition] = createSignal({ x: 0, y: 0, width: 0, scale: 1, listPlace: 'below' as 'above' | 'below', listMaxHeight: 0 })
+  let popup!: HTMLDivElement
+  const close = (restore = true): void => {
+    if (restore) (local.anchor.matches('button') ? local.anchor : local.anchor.querySelector('button'))?.focus()
+    local.onClose()
+  }
+  const place = (): void => {
+    const anchor = local.anchor
+    const row = anchor.getBoundingClientRect()
+    const scale = row.width / anchor.offsetWidth
+    let boundary = anchor.closest<HTMLElement>('.dinkster-canvas-example-stage')
+    for (let parent = anchor.parentElement; boundary === null && parent; parent = parent.parentElement)
+      boundary = parent.querySelector<HTMLElement>('canvas.graph-canvas')
+    const box = boundary?.getBoundingClientRect()
+    const view = window.visualViewport
+    const left = Math.max(box?.left ?? 0, view?.offsetLeft ?? 0)
+    const top = Math.max(box?.top ?? 0, view?.offsetTop ?? 0)
+    const right = Math.min(box?.right ?? window.innerWidth, (view?.offsetLeft ?? 0) + (view?.width ?? window.innerWidth))
+    const bottom = Math.min(box?.bottom ?? window.innerHeight, (view?.offsetTop ?? 0) + (view?.height ?? window.innerHeight))
+    const width = Math.min(row.width, right - left)
+    const filterHeight = (popup?.querySelector<HTMLElement>('.dinkster-canvas-field-row')?.offsetHeight ?? anchor.offsetHeight) * scale
+    const y = Math.max(top, Math.min(row.y, bottom - filterHeight))
+    const layout = canvasListLayout({ x: row.x, y, width, height: filterHeight },
+      { x: left, y: top, width: right - left, height: bottom - top }, height() * scale, { width: 0, height: 0 }, 1, 0, 0)
+    const next = { x: Math.max(left, Math.min(row.x, right - width)), y, width: width / scale, scale,
+      listPlace: layout.listPlace, listMaxHeight: (layout.listMaxHeight ?? height() * scale) / scale }
+    setPosition((previous) => Object.keys(next).every((key) => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next)
+  }
+  createEffect(() => { height(); queueMicrotask(place) })
+  createEffect(() => {
+    const current = position()
+    if (popup) {
+      popup.style.left = `${current.x}px`
+      popup.style.top = `${current.y}px`
+      popup.style.scale = String(current.scale)
+    }
+  })
+  onMount(() => {
+    const outside = (event: Event): void => {
+      if (event.target instanceof Node && !local.anchor.contains(event.target) && !popup.contains(event.target)) close(event.type === 'pointerdown')
+    }
+    // Focus moving from the row into its portal is still inside this editor.
+    const entering = (event: FocusEvent): void => {
+      if (event.relatedTarget instanceof Node && popup.contains(event.relatedTarget)) event.stopPropagation()
+    }
+    const observer = new ResizeObserver(place)
+    observer.observe(local.anchor)
+    let frame = 0
+    const follow = (): void => { place(); frame = requestAnimationFrame(follow) }
+    frame = requestAnimationFrame(follow)
+    const owner = local.anchor.closest('.dinkster-canvas-target-box') ?? local.anchor
+    owner.addEventListener('focusout', entering as EventListener)
+    document.addEventListener('pointerdown', outside, true)
+    document.addEventListener('focusin', outside)
+    onCleanup(() => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+      owner.removeEventListener('focusout', entering as EventListener)
+      document.removeEventListener('pointerdown', outside, true)
+      document.removeEventListener('focusin', outside)
+    })
+  })
+  return <Portal><div ref={popup} class="dinkster-canvas-editor-choice-list">
+    <CanvasRowList {...list} rowWidth={position().width} place="right"
+      listPlace={position().listPlace} listMaxHeight={position().listMaxHeight} onListSize={setHeight}
+      onPick={(index) => { close(); local.onPick?.(index) }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() }
+        else local.onKeyDown?.(event)
+      }} />
+  </div></Portal>
+}
+
 /**
  * A choice of an editor's own, drawn as the node's choice row is: the name,
  * the chosen entry and the chevron. Pressing the row opens it in place as
  * the node's choice row opens: the value becomes a filter and the entries
- * hang under the row at its width, inside one outline.
+ * open over the canvas at its width, flipping or shifting to stay inside.
  */
 export function CanvasEditorChoice(props: {
   label: string
@@ -304,32 +497,26 @@ export function CanvasEditorChoice(props: {
   const [open, setOpen] = createSignal(false)
   const [query, setQuery] = createSignal('')
   const [highlight, setHighlight] = createSignal(0)
-  const [width, setWidth] = createSignal(0)
   let slot!: HTMLDivElement
   const shown = () => props.options.filter((option) => option.toLowerCase().includes(query().toLowerCase()))
   const pick = (index: number) => {
     const chosen = shown()[index]
+    slot.querySelector('button')?.focus()
     if (chosen !== undefined) props.onChange?.(chosen)
     setOpen(false)
   }
   const begin = () => {
-    setWidth(slot.offsetWidth + 2)
     setQuery('')
     setHighlight(Math.max(0, props.options.indexOf(props.value)))
     setOpen(true)
     props.onOpen?.()
   }
   return (
-    <div class="dinkster-canvas-editor-field-slot" ref={slot}
-      onFocusOut={(event) => {
-        if (open() && !slot.contains(event.relatedTarget as Node | null)) setOpen(false)
-      }}>
+    <div class="dinkster-canvas-editor-field-slot" ref={slot}>
       <CanvasClosedRow label={props.label} value={props.value} onOpen={begin} choice />
       <Show when={open()}>
-        <CanvasRowList
+        <CanvasEditorChoiceList anchor={slot} onClose={() => setOpen(false)}
           look="flat-title"
-          rowWidth={width()}
-          place="right"
           label={props.label}
           query={query()}
           onQuery={(text) => { setQuery(text); setHighlight(0) }}
@@ -341,7 +528,8 @@ export function CanvasEditorChoice(props: {
           onHighlight={setHighlight}
           onPick={pick}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') pick(highlight())
+            if (event.isComposing) return
+            if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); pick(highlight()) }
             else if (event.key === 'Escape') setOpen(false)
             else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               event.preventDefault()
@@ -460,6 +648,8 @@ const CURVE_POINT_REACH = 8
 export function CanvasCurvePlot(props: {
   points: readonly CanvasCurvePoint[]
   sample: (position: number) => number
+  /** Hold each point until the next, with a vertical jump at that next point. */
+  step?: boolean
   disabled?: boolean | undefined
   selected?: number | undefined
   /** Bar heights from 0 to 1, from the low end of the input. */
@@ -479,6 +669,7 @@ export function CanvasCurvePlot(props: {
   onDelete?: (index: number) => void
 }) {
   const id = createUniqueId()
+  const [pointerFocus, setPointerFocus] = createSignal(false)
   // The plot and its strips sit at one margin on every side; the border sits
   // on the half pixel so it stays one pixel wide.
   const [size, setSize] = createSignal({ width: 320, height: 180 })
@@ -503,6 +694,15 @@ export function CanvasCurvePlot(props: {
     const last = props.points.at(-1)
     if (first === undefined || last === undefined) return []
     const run = (from: number, to: number, held: boolean) => {
+      if (props.step) {
+        const path = [{ position: from, value: props.sample(from) }]
+        for (const point of props.points) {
+          if (point.position <= from || point.position > to) continue
+          path.push({ position: point.position, value: path.at(-1)!.value }, point)
+        }
+        path.push({ position: to, value: props.sample(to) })
+        return { held, points: path.map((point) => `${x(point.position)},${y(Math.max(0, Math.min(1, point.value)))}`).join(' ') }
+      }
       const samples = Math.max(2, Math.ceil((x(to) - x(from)) / 2))
       const points = Array.from({ length: samples + 1 }, (_, index) => {
         const position = from + (to - from) * index / samples
@@ -510,10 +710,12 @@ export function CanvasCurvePlot(props: {
       }).join(' ')
       return { held, points }
     }
+    const start = Math.max(0, Math.min(1, first.position))
+    const end = Math.max(0, Math.min(1, last.position))
     return [
-      ...(first.position > 0 ? [run(0, first.position, true)] : []),
-      run(first.position, last.position, false),
-      ...(last.position < 1 ? [run(last.position, 1, true)] : []),
+      ...(start > 0 ? [run(0, start, true)] : []),
+      run(start, end, false),
+      ...(end < 1 ? [run(end, 1, true)] : []),
     ]
   }
   const [hover, setHover] = createSignal(untrack(() => props.hover))
@@ -563,6 +765,7 @@ export function CanvasCurvePlot(props: {
   }
   const press = (event: PointerEvent) => {
     if (props.disabled || event.button !== 0) return
+    setPointerFocus(true)
     svgElement?.focus({ preventScroll: true })
     const at = local(event)
     if (!at) return
@@ -590,6 +793,7 @@ export function CanvasCurvePlot(props: {
   }
   const key = (event: KeyboardEvent) => {
     if (props.disabled) return
+    setPointerFocus(false)
     const index = props.selected
     if ((event.key !== 'Delete' && event.key !== 'Backspace') || index === undefined || props.onDelete === undefined) return
     // The key is the curve's: the canvas behind it must not also delete the node.
@@ -603,6 +807,8 @@ export function CanvasCurvePlot(props: {
       data-disabled={props.disabled ? 'true' : undefined}
       tabindex={props.disabled || props.onSelect === undefined ? undefined : 0} role={props.disabled || props.onSelect === undefined ? 'img' : 'application'}
       aria-label={props.label} data-tooltip-label={props.tooltip}
+      data-tooltip-trigger="hover" data-tooltip-place="above"
+      data-pointer-focus={pointerFocus() ? 'true' : undefined} onBlur={() => setPointerFocus(false)}
       onPointerDown={press} onPointerMove={track} onPointerUp={release} onPointerCancel={release}
       onLostPointerCapture={release} onPointerLeave={() => setHover(undefined)} onDblClick={add} on:keydown={key}>
       <defs>
@@ -656,8 +862,10 @@ export function CanvasCurvePlot(props: {
       </For>
       <For each={props.points}>
         {(point, index) => (
-          <circle class="dinkster-canvas-curve-point" data-selected={index() === props.selected ? 'true' : 'false'}
-            cx={x(point.position)} cy={y(point.value)} r="5" />
+          <Show when={point.position >= 0 && point.position <= 1 && point.value >= 0 && point.value <= 1}>
+            <circle class="dinkster-canvas-curve-point" data-selected={index() === props.selected ? 'true' : 'false'}
+              cx={x(point.position)} cy={y(point.value)} r="5" />
+          </Show>
         )}
       </For>
       <Show when={props.disabled ? undefined : hover()}>

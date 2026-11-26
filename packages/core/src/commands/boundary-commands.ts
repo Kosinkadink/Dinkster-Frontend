@@ -229,16 +229,16 @@ const bindingMatchesEndpoint = (binding: BoundaryBinding, target: BoundaryBindin
 
 const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding | undefined => {
   if (typeof params.node !== 'string') return undefined
-  if (params.kind !== undefined && params.kind !== 'port' && params.kind !== 'construct') return undefined
+  if (params.kind !== undefined && params.kind !== 'port' && params.kind !== 'construct' && params.kind !== 'widgetTap') return undefined
   if (params.kind === 'construct') {
     return typeof params.port === 'string' && params.tap === undefined && params.viaReroute === undefined
       ? { kind: 'construct', node: asNodeId(params.node), port: asPortId(params.port) } : undefined
   }
   if (typeof params.tap === 'string' && params.tap.length > 0 && params.port === undefined) {
-    return side === 'outputs' && params.viaReroute === undefined
+    return side === 'outputs' && params.kind !== 'port' && params.viaReroute === undefined
       ? { kind: 'widgetTap', node: asNodeId(params.node), tap: asPortId(params.tap) } : undefined
   }
-  if (typeof params.port !== 'string' || params.tap !== undefined) return undefined
+  if (typeof params.port !== 'string' || params.tap !== undefined || params.kind === 'widgetTap') return undefined
   if (params.viaReroute !== undefined &&
       (side !== 'inputs' || typeof params.viaReroute !== 'string' || params.viaReroute.length === 0)) return undefined
   return {

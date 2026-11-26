@@ -4,6 +4,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
+import { widgetValueText } from '@dinkster/canvas'
 import { BrandMark } from './BrandMark.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
@@ -251,11 +252,11 @@ export function DinksterAppMenu(props: {
   const groups = (): readonly ResolvedMenuGroup[] => [...accountGroup(), ...APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }): ResolvedMenuGroup[] => {
     const items = ids.flatMap((id): MenuItem[] => {
       const command = props.commands.get(id)
-      const hint = props.keybindings.combo(id)
+      const shortcut = props.keybindings.combo(id)
       return command ? [{
         id,
         label: command.label,
-        ...(hint ? { hint } : {}),
+        ...(shortcut ? { shortcut } : {}),
         action: { kind: 'host', action: id },
         ...(command.enabled?.() === false ? { disabled: true } : {}),
       }] : []
@@ -462,7 +463,7 @@ export function App(props: {
   let shellEl!: HTMLElement
   tooltips.register({ id: 'core.dom', resolve: (target, opts) => {
     const dom = target as Partial<DomTooltipTarget>
-    return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
+    return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(dom.shortcut ? { shortcut: dom.shortcut } : {}), ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
   } })
   tooltips.register({ id: 'core.canvas', resolve: (target, opts) => {
     const tab = app.activeTab()
@@ -478,7 +479,10 @@ export function App(props: {
       // back to its plain text.
       widgetReadout: (row, value) => {
         try {
-          return widgets.viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.readout?.(value, row.spec)
+          const readout = widgets.viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.readout?.(value, row.spec)
+          if (readout !== undefined) return readout
+          const summary = widgetValueText(widgets, row.viewId, value, row.spec)
+          return summary === null ? [] : summary === undefined ? undefined : [summary]
         } catch {
           return undefined
         }
@@ -1286,8 +1290,11 @@ export function App(props: {
   </Show>
 
   const cancelling = useSignal(app.cancellingExecutions)
+  // A run is named by the workflow it was queued under, so renaming its tab later leaves the run's row alone.
+  const runName = (execution: ExecutionState): string => execution.workflowName ?? app.tabTitleFor(execution.ref)
   const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
     const live = () => liveTabOf(p.exec)
+    const pending = createMemo(() => runIsPending(p.exec))
     // A finished run shows its outputs while it is the chosen run; a running or
     // queued one only once its name is pressed, so the list stays one line each.
     const selected = () => selectedRunKey() === p.exec.key ||
@@ -1306,6 +1313,7 @@ export function App(props: {
       const nodes = Object.values(p.exec.nodes)
       const backend = app.backendFor(p.exec.ref.connection)
       return [
+        { label: message('runs.chosen.workflow'), text: p.exec.workflowName ?? message('runs.chosen.workflowUnknown') },
         ...(p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.finished'), text: formatCollectionDate(p.exec.endedAt) }]),
         ...(p.exec.startedAt === undefined || p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText((p.exec.endedAt - p.exec.startedAt) / 1000) }]),
         { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', {
@@ -1314,7 +1322,7 @@ export function App(props: {
         ...(backend === undefined ? [] : [{ label: message('runs.chosen.ranOn'), text: backend.label }]),
       ]
     }
-    return <RunRow entry={p.exec} name={app.tabTitleFor(p.exec.ref)} workflow={app.tabTitleFor(p.exec.ref)}
+    return <RunRow entry={p.exec} name={runName(p.exec)} workflow={runName(p.exec)}
       statusInNote all={p.all} testId="execution-row" nodeTitle={runtimeNodeTitle}
       cancelling={cancelling().has(executionKey(p.exec.ref))}
       onCancel={() => { void app.cancelExecution(p.exec.ref) }}
@@ -1327,7 +1335,7 @@ export function App(props: {
       <Show when={selected()}>
         <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
             entry={p.exec}
-            title={app.tabTitleFor(p.exec.ref)}
+            title={runName(p.exec)}
             testId="run-details"
             relation={overlayRoleOf(p.exec)}
             hideOpen
@@ -1338,7 +1346,7 @@ export function App(props: {
               else app.pinExecutionOverlay(tab.id, p.exec.ref)
             } : undefined}
           />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
-          {...(runIsPending(p.exec) ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
+          {...(pending() ? {} : { chosen: <ChosenRun name={runName(p.exec)} reason={reason()} facts={facts()}
             detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
             menuMount={menuMount()} onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
       </Show>
@@ -1606,6 +1614,7 @@ export function App(props: {
       backendsTick()
       const backend = app.backends.get().find((candidate) => candidate.id === p.entry.owner)
       return [
+        { label: message('runs.chosen.workflow'), text: run.workflowName ?? message('runs.chosen.workflowUnknown') },
         { label: message('runs.chosen.finished'), text: formatCollectionDate(run.finishedAt * 1000) },
         ...(run.startedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText(run.finishedAt - run.startedAt) }]),
         { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', { ran: run.executed, cached: run.cached }) },
@@ -1619,7 +1628,7 @@ export function App(props: {
       return run?.state === 'failed' ? run.error?.message : undefined
     }
     const act = (actionId: 'resubmit' | 'open' | 'delete') => () => libraryEntryAction('runs', p.entry, actionId)
-    const chosen = () => <ChosenRun name={known() ? app.tabTitleFor(known()!.ref) : p.entry.title} reason={reason()} facts={facts()}
+    const chosen = () => <ChosenRun name={known() ? runName(known()!) : p.entry.title} reason={reason()} facts={facts()}
       detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
       onRunAgain={record()?.state === 'interrupted' && record()?.sourceDocument !== undefined ? act('resubmit') : undefined}
       onOpenWorkflow={record()?.sourceDocument !== undefined ? act('open') : undefined}
@@ -1631,7 +1640,7 @@ export function App(props: {
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
         </span>
         <span class="run-row-text">
-          <span class="run-row-name">{known() ? app.tabTitleFor(known()!.ref) : p.entry.title}</span>
+          <span class="run-row-name">{known() ? runName(known()!) : p.entry.title}</span>
           <span class="run-row-note">{note()}</span>
         </span>
         <Show when={known()?.artifact && known()}>{(execution) =>
@@ -1656,10 +1665,16 @@ export function App(props: {
     executions()
     return executionActivity(app.executionList())
   }
+  /**
+   * A page in front is not a workflow, so the panel shows every workflow's
+   * runs then, and keeps the person's own choice for when a workflow is back.
+   */
+  const pageInFront = () => windowTabs().some((tab) => isPageTab(tab) && tab.id === activeTabId())
+  const shownRunScope = () => pageInFront() ? 'all' : runScope()
   /** The runs the panel's scope covers: this workflow's, or every workflow's. */
   const scopedRuns = (): readonly ExecutionState[] => {
     executions()
-    return runScope() === 'all' ? app.executionList() : workflowExecutions()
+    return shownRunScope() === 'all' ? app.executionList() : workflowExecutions()
   }
   const runningRuns = () => scopedRuns().filter((execution) => execution.status === 'running')
   const queuedRuns = () => {
@@ -1669,9 +1684,13 @@ export function App(props: {
   }
   const RunsPanel = () => (
     <div class="rail-panel-body runs-panel" data-testid="runs-panel">
-      <div class="runs-scope" data-testid="runs-scope" data-selected-id={runScope()}>
-        <ProductSegmented label={message('runs.scope')} value={runScope()}
-          options={(['workflow', 'all'] as const).map((scope) => ({ value: scope, label: message(`runs.scope.${scope}`) }))}
+      <div class="runs-scope" data-testid="runs-scope" data-selected-id={shownRunScope()}>
+        <ProductSegmented label={message('runs.scope')} value={shownRunScope()}
+          options={(['workflow', 'all'] as const).map((scope) => ({
+            value: scope,
+            label: message(`runs.scope.${scope}`),
+            disabled: scope === 'workflow' && pageInFront() ? message('runs.scope.workflowUnavailable') : undefined,
+          }))}
           onChange={(scope) => setRunScope(scope)} />
       </div>
       <Show when={runningRuns().length > 0}>
@@ -1684,7 +1703,7 @@ export function App(props: {
           <RunList runs={queuedRuns()} all={app.executionList()} />
         </RunSection>
       </Show>
-      <Show when={runScope() === 'workflow'} fallback={<>
+      <Show when={shownRunScope() === 'workflow'} fallback={<>
         <Show when={clearArmed() && clearArmOwner === activeBackend().id}>
           <ProductNotice tone="info" testId="runs-clear-confirmation">{message('runs.clear.confirmation')}</ProductNotice>
         </Show>
