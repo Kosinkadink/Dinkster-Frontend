@@ -517,7 +517,7 @@ export function accountView(options: AccountViewOptions) {
         : [],
     )
     const content = () => (
-      <div class="dinkster-stack">
+      <div class="dinkster-page-body dinkster-stack">
         <Show when={model()!.screen.back}>
           {(back) => action(back(), true)}
         </Show>
