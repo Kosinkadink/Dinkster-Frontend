@@ -14,6 +14,7 @@ import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
   CircleAlert,
+  Download,
   Ellipsis,
   LayoutList,
   PanelLeft,
@@ -846,6 +847,8 @@ function Gallery() {
                     status={<ProductProgress label="Downloading Studio checkpoint" value={0.42} />}>
                     <p class="dinkster-metadata">Download continues when details are closed.</p>
                   </ProductListRow>
+                  <ProductListRow title="Pending checkpoint" description="Checkpoint, not downloaded"
+                    action={<ProductTextButton icon={Download} label="7.1 GB" aria-label="Download Pending checkpoint, 7.1 GB" intent="add" onClick={() => complete('Checkpoint download chosen')} />} />
                 </ProductList>
               </Section>
               <Section title="Selectable rows" components="ProductList, ProductListRow, ProductTextButton">
