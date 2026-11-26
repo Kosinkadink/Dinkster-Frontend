@@ -5,8 +5,34 @@ import { asLinkId, asNodeId, asPortId, coreCommandRegistry, createSignal, Docume
 import type { ExecutionState } from '@dinkster/client'
 import type { AppState, Tab } from '../src/app-state.js'
 import { WidgetEditor, type WidgetEditorProps, type WidgetEditorState } from '../src/WidgetEditor.js'
+import { CurveSpace } from '../src/InNodeEditorSpaces.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('stores Step interpolation without changing points', async () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'linear' as const, points: [
+    { position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.9, value: 0.3 },
+  ] }
+  const commit = vi.fn()
+  const root = document.createElement('div'); document.body.append(root)
+  const mount = (interpolation: 'linear' | 'step') => render(() => <CurveSpace
+    value={{ ...value, interpolation }} options={{}} histogram={undefined} histogramInput="none" commit={commit}
+  />, root)
+  let dispose = mount('linear')
+  try {
+    const choice = root.querySelector('.dinkster-canvas-editor-field-slot')!
+    ;(choice.querySelector('button') as HTMLButtonElement).click()
+    const step = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent?.trim() === 'Step')!
+    expect(step).toBeDefined()
+    step.click()
+    expect(commit).toHaveBeenCalledExactlyOnceWith({ ...value, interpolation: 'step' })
+    dispose()
+    dispose = mount('step')
+    expect(root.textContent).toContain('Step')
+    expect(root.textContent).not.toContain('Histogram')
+  } finally { dispose() }
+})
 
 it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {
   const schema = parseDinksterSchema('SaveTargetFixture', { body: [
