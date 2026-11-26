@@ -1872,6 +1872,7 @@ const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
     typeof r['executed'] === 'number' &&
     typeof r['cached'] === 'number' &&
     typeof r['skipped'] === 'number' &&
+    (r['workflowName'] === undefined || (typeof r['workflowName'] === 'string' && r['workflowName'] !== '')) &&
     receiptsValid
   )) return undefined
   const {
@@ -1894,7 +1895,7 @@ const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
   return {
     ...record,
     ...(thumbnail === undefined ? {} : { thumbnail }),
-    ...(typeof wireWorkflowName === 'string' && wireWorkflowName !== '' ? { workflowName: wireWorkflowName } : {}),
+    ...(wireWorkflowName === undefined ? {} : { workflowName: wireWorkflowName }),
     ...(typeof r['principalId'] === 'string' ? { principalId: r['principalId'] } : {}),
     ...(r['principalKind'] === 'human' || r['principalKind'] === 'agent'
       ? { principalKind: r['principalKind'] }
