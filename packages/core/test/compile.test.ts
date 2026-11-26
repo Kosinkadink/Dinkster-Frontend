@@ -2774,7 +2774,7 @@ describe('a type variable fed two different types', () => {
       nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pair: { type: 'Pair' } },
       links: [[['img', 'out'], ['pair', 'first']], [['lat', 'out'], ['pair', 'second']]],
     }), 'pair')
-    expect(refusals(result)).toEqual([['These inputs must be the same type: first is IMAGE, second is LATENT.', 'pair']])
+    expect(refusals(result)).toEqual([['Pair: The inputs must be the same type, but the input first is an image and the input second is latent data.', 'pair']])
   })
 
   it.each([
@@ -2795,6 +2795,6 @@ describe('a type variable fed two different types', () => {
       ],
     }), 'sw')
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(ok)
-    if (!ok) expect(refusals(result)).toEqual([['These inputs must be the same type: a is IMAGE, b is LATENT.', 'sw']])
+    if (!ok) expect(refusals(result)).toEqual([['AnySwitch: The inputs must be the same type, but the input a is an image and the input b is latent data.', 'sw']])
   })
 })

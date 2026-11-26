@@ -16,6 +16,7 @@ import {
   companionSourcesOf,
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
+  diagnosticBlocksExecution,
   documentNodeResolver,
   documentPrimitiveResolver,
   primitiveOf,
@@ -384,9 +385,11 @@ export interface SceneLink {
   /**
    * The solver PROVED this edge's endpoint types incompatible. 'unknown'
    * verdicts (generic or wildcard endpoints) deliberately do not mark:
-   * uncertainty is normal, only demonstrated conflict earns error paint.
+   * uncertainty is normal, only demonstrated conflict earns problem paint.
    */
   readonly mismatch?: true
+  /** Strongest problem attributed to a mismatching edge. */
+  readonly mismatchKind?: 'error' | 'warning'
   /** Solver diagnostics attributed to this proven-mismatch noodle. */
   readonly diagnostics?: readonly Diagnostic[]
   /** The net's user-facing name (drawn as a midpoint label). */
@@ -465,6 +468,7 @@ export interface SceneNetStub {
   readonly role: 'source' | 'sink'
   /** Solver-proven mismatch for this sink, or any sink for a source tag. */
   readonly mismatch?: true
+  readonly mismatchKind?: 'error' | 'warning'
   readonly nodeId: string
   readonly portId: string
   /** Pin center the tag points at, world coords. */
@@ -1636,7 +1640,10 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(types.every((type) => tracedMaybeAbsent(c.from, type)) ? { maybeAbsent: true as const } : {}),
       ...(types.every((type) => tracedSourceMuted(c.from, type)) ? { sourceMuted: true as const } : {}),
       ...(from.kept === true ? { dimmed: true as const } : {}),
-      ...(c.mismatch === true ? { mismatch: true as const } : {}),
+      ...(c.mismatch === true ? {
+        mismatch: true as const,
+        mismatchKind: c.diagnostics?.some(diagnosticBlocksExecution) ? 'error' as const : 'warning' as const,
+      } : {}),
       ...(c.diagnostics !== undefined && c.diagnostics.length > 0 ? { diagnostics: c.diagnostics } : {}),
       ...(c.netId !== undefined ? { netId: c.netId } : {}),
       ...(c.netName !== undefined ? { netName: c.netName } : {}),
@@ -1648,14 +1655,14 @@ export function buildScene(input: BuildSceneInput): Scene {
   // Named nets expose one authorable Set view at the source and one Get view
   // per sink. collapsedNets controls noodles only; the endpoint views remain.
   const netStubs: SceneNetStub[] = []
-  const mismatchedNetSinkIds = new Set(
-    links.filter((link) => link.netId !== undefined && link.mismatch === true).map((link) => link.id),
+  const mismatchedNetSinks = new Map(
+    links.filter((link) => link.netId !== undefined && link.mismatch === true).map((link) => [link.id, link.mismatchKind!]),
   )
   for (const net of Object.values(def.nets)) {
     const sinkMismatches = net.sinks.map((_, i) =>
-      mismatchedNetSinkIds.has(netDeliveryLinkId(net.id, i)),
+      mismatchedNetSinks.get(netDeliveryLinkId(net.id, i)),
     )
-    const push = (role: 'source' | 'sink', ref: PortRef, mismatch: boolean): void => {
+    const push = (role: 'source' | 'sink', ref: PortRef, mismatchKind: 'error' | 'warning' | undefined): void => {
       const node = byId.get(ref.node)
       if (!node) return
       const direction = role === 'source' ? 'out' : 'in'
@@ -1682,7 +1689,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         netId: net.id,
         name: net.name,
         role,
-        ...(mismatch ? { mismatch: true as const } : {}),
+        ...(mismatchKind === undefined ? {} : { mismatch: true as const, mismatchKind }),
         nodeId: ref.node,
         portId: ref.port,
         pinX,
@@ -1697,7 +1704,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         ...(canonicalTypeIdOf(pin.type) !== undefined ? { typeName: canonicalTypeIdOf(pin.type)! } : {}),
       })
     }
-    push('source', net.source, sinkMismatches.some(Boolean))
+    push('source', net.source, sinkMismatches.includes('error') ? 'error' : sinkMismatches.includes('warning') ? 'warning' : undefined)
     for (const [i, sink] of net.sinks.entries()) push('sink', sink, sinkMismatches[i]!)
   }
 
