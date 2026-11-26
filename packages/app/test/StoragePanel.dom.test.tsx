@@ -89,6 +89,8 @@ it('groups model grants under one folder and switches project membership without
   const root = document.createElement('div'); document.body.append(root)
   disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
   await vi.waitFor(() => expect(root.querySelectorAll('[data-model-location]')).toHaveLength(1))
+  expect([...root.querySelectorAll('h3')].map((heading) => heading.textContent)).toEqual(['Model folders', 'Mounts'])
+  expect([...root.querySelectorAll('button')].some((button) => button.textContent === 'Default save folder')).toBe(false)
   expect(root.querySelectorAll('[data-mount-id]')).toHaveLength(2)
   const model = root.querySelector('[data-model-location="models"]')!
   expect(model.textContent).toContain('Checkpoints3')
@@ -110,4 +112,30 @@ it('groups model grants under one folder and switches project membership without
   await vi.waitFor(() => expect(root.textContent).toContain('2 folders used by this project'))
   expect(root.querySelector('[data-mount-id="plates"]')?.textContent).not.toContain('Open in Assets')
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
+})
+
+it('selects the default save folder from a writable mount menu', async () => {
+  const mounts: MountDescriptor[] = [
+    { id: 'renders', mode: 'readwrite', state: 'ready' },
+    { id: 'exports', mode: 'readwrite', state: 'ready' },
+    { id: 'reference', mode: 'read', state: 'ready' },
+  ]
+  let outputMount = 'renders'
+  const connection = {
+    fetchMountSettings: async () => ({ mounts, outputMount, mountChangesAllowed: true }),
+    fetchMountLocations: async () => ({ mounts }),
+    fetchModelSettings: async () => ({ locations: [], settings: { locations: [] }, changesAllowed: true }),
+    onMountsChanged: () => () => {},
+    selectOutputMount: async (id: string) => { outputMount = id },
+  } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
+  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here'))
+  root.querySelector<HTMLButtonElement>('[data-mount-id="reference"] [aria-haspopup="menu"]')!.click()
+  expect([...root.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent === 'Save new files here')).toBe(false)
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  root.querySelector<HTMLButtonElement>('[data-mount-id="exports"] [aria-haspopup="menu"]')!.click()
+  ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent === 'Save new files here')!.click()
+  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="exports"]')?.textContent).toContain('New saves go here'))
+  expect(root.querySelector('[data-mount-id="renders"]')?.textContent).not.toContain('New saves go here')
 })
