@@ -12,6 +12,7 @@ import { Dynamic } from 'solid-js/web'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
 import { useFieldFocus } from './field-focus.js'
+import { ProductShortcut, productShortcutKeys } from './shortcut.js'
 import githubMark from '../../../branding/providers/github-mark.svg?url'
 import googleMark from '../../../branding/providers/google-mark.svg?url'
 
@@ -184,9 +185,10 @@ export function ProductWindowAction(
         intent={local.intent ?? 'neutral'}
         pending={local.pending ?? false}
         aria-label={local.label}
-        title={
-          local.shortcut ? `${local.label} (${local.shortcut})` : local.label
-        }
+        title={local.shortcut ? undefined : local.label}
+        data-tooltip-label={local.label}
+        data-tooltip-shortcut={local.shortcut}
+        aria-description={local.shortcut ? productShortcutKeys(local.shortcut).join('+') : undefined}
       >
         <span class="dinkster-window-action-icon" aria-hidden="true">
           <ProductIcon icon={local.icon} />
@@ -196,7 +198,7 @@ export function ProductWindowAction(
         </span>
         <Show when={local.shortcut}>
           {(shortcut) => (
-            <kbd class="dinkster-window-action-shortcut">{shortcut()}</kbd>
+            <ProductShortcut keys={shortcut()} />
           )}
         </Show>
       </ProductButton>

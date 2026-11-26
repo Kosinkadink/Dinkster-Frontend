@@ -122,6 +122,17 @@ test('the left bar account menu opens beside the bar, upward from its trigger', 
     await expect(trigger).toHaveCSS('border-radius', '999px')
     await page.keyboard.press('Escape')
     await expect(trigger).toBeFocused()
+    for (const key of ['ArrowDown', 'ArrowUp']) {
+      const before = await page.evaluate(() => [window.scrollX, window.scrollY])
+      await trigger.press(key)
+      const items = menu.getByRole('menuitem')
+      await expect(key === 'ArrowDown' ? items.first() : items.last()).toBeFocused()
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+      await expect(menu).toBeVisible()
+      expect(await page.evaluate(() => [window.scrollX, window.scrollY])).toEqual(before)
+      await page.keyboard.press('Escape')
+      await expect(trigger).toBeFocused()
+    }
   }
 })
 

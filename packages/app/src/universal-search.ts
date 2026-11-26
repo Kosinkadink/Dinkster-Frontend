@@ -1,8 +1,7 @@
-import { decodeSearchHostAction, nodeSearchFields, rankSearch, scoreMatch, searchVisibilityOf, sha256Hex, t, typeExprFromTypeId, type NodeSchema, type PackInfo, type SearchAction, type SearchProvider, type SearchResult } from '@dinkster/core'
-import { typeIdDisplayLabel } from '@dinkster/canvas'
+import { decodeSearchHostAction, nodeSearchFields, rankSearch, scoreMatch, searchVisibilityOf, sha256Hex, t, type NodeSchema, type PackInfo, type SearchAction, type SearchProvider, type SearchResult } from '@dinkster/core'
 import { LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState } from './app-state.js'
 import { RemoteNodeCatalog, type CatalogNode } from './node-catalog.js'
-import { placementSchemaKey } from './palette-node-preview.js'
+import { palettePreviewSchema, placementSchemaKey } from './palette-node-preview.js'
 import type { SettingsRegistry } from './settings.js'
 import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel } from './settings-search.js'
 
@@ -10,7 +9,7 @@ export const SEARCH_RECENTS_SETTING = 'search.recentActivations'
 const fields = (title: string, detail = '', keywords: readonly string[] = []) => [
   { text: title, weight: 3 }, { text: detail, weight: 1 }, ...keywords.map((text) => ({ text, weight: 1 })),
 ]
-const catalogNodeKey = (entry: CatalogNode): string => sha256Hex(JSON.stringify([
+export const catalogNodeKey = (entry: CatalogNode): string => sha256Hex(JSON.stringify([
   entry.pack.name, entry.pack.version, entry.pack.digest, placementSchemaKey(entry.schema),
 ]))
 const result = (q: string, id: string, title: string, detail: string | undefined, action: SearchAction, keywords: readonly string[] = []): SearchResult | undefined => {
@@ -138,7 +137,7 @@ export function bindSearchCatalog(app: AppState): () => void {
       app.searchCatalog.set(catalog.cached())
     }
     const current = catalog!
-    if (!app.searchOpen.get()) return
+    if (!app.searchOpen.get() && !revalidate) return
     void current.refresh().then((nodes) => {
       if (!disposed && catalog === current) app.searchCatalog.set(nodes)
     })
@@ -146,7 +145,8 @@ export function bindSearchCatalog(app: AppState): () => void {
   refresh()
   const stop = app.settings.changed.subscribe(() => refresh())
   const stopOpen = app.searchOpen.subscribe((open) => { if (open) refresh(true) })
-  return () => { disposed = true; stop(); stopOpen() }
+  const stopRequest = app.searchCatalogRequests.subscribe(() => refresh(true))
+  return () => { disposed = true; stop(); stopOpen(); stopRequest() }
 }
 
 export function searchNodeSchema(app: AppState, action: SearchAction): NodeSchema | undefined {
@@ -157,20 +157,7 @@ export function searchNodeSchema(app: AppState, action: SearchAction): NodeSchem
   if (decoded.action === 'blueprint.armPlacement') {
     const entry = app.canvasBridge.get()?.blueprintEntries?.().find((item) => item.type === decoded.params.type)
     if (entry === undefined) return undefined
-    if (entry.schema !== undefined) return entry.schema
-    const descriptor = entry.blueprint?.descriptor
-    return {
-      type: entry.type, displayName: entry.name, category: entry.category,
-      source: 'v3', isOutputNode: false,
-      body: [
-        ...(descriptor?.boundaryInputs ?? []).map((type, index) => ({
-          kind: 'input' as const, id: `in-${index}`, displayName: typeIdDisplayLabel(type), type: typeExprFromTypeId(type), optional: false,
-        })),
-        ...(descriptor?.boundaryOutputs ?? []).map((type, index) => ({
-          kind: 'output' as const, id: `out-${index}`, displayName: typeIdDisplayLabel(type), type: typeExprFromTypeId(type),
-        })),
-      ],
-    }
+    return palettePreviewSchema(entry)
   }
   const installed = (app.registryForTab(tab) ?? app.keptRegistryForTab(tab))?.resolve(decoded.params.type)
   if (decoded.action === 'node.armPlacement') return installed !== undefined && placementSchemaKey(installed) === decoded.params.schemaKey ? installed : undefined
