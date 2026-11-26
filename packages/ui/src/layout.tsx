@@ -522,10 +522,10 @@ export function ProductListRow(props: {
     <span class="dinkster-row-copy">
       <span>{props.title}</span>
       <Show when={props.description}>
-        <span class="dinkster-metadata">{props.description}</span>
+        {(description) => <span class="dinkster-metadata">{description()}</span>}
       </Show>
     </span>
-    <Show when={props.trailing}><span class="dinkster-row-trailing">{props.trailing}</span></Show>
+    <Show when={props.trailing}>{(trailing) => <span class="dinkster-row-trailing">{trailing()}</span>}</Show>
   </>
   return (
     <li {...props.dataAttributes} class="dinkster-row" data-testid={props.testId} data-expanded={props.expanded}>
@@ -541,7 +541,7 @@ export function ProductListRow(props: {
             {copy()}
           </button>
         </Show>
-        <Show when={props.action}><div class="dinkster-row-action">{props.action}</div></Show>
+        <Show when={props.action}>{(action) => <div class="dinkster-row-action">{action()}</div>}</Show>
       </div>
       <Show when={expandable()}>
         <div id={detailsId} class="dinkster-row-details" hidden={!props.expanded}>
