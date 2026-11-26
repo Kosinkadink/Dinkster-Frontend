@@ -1,4 +1,4 @@
-import { For, Show, createSignal as createSolidSignal, createUniqueId, onCleanup, onMount, type JSX } from 'solid-js'
+import { For, Show, children, createEffect, createSignal as createSolidSignal, createUniqueId, onCleanup, onMount, type JSX } from 'solid-js'
 import type { ExecutionState } from '@dinkster/client'
 import { executionKey, type ExecutionRef, type LineageId } from '@dinkster/core'
 import Play from 'lucide-solid/icons/play'
@@ -34,6 +34,10 @@ export function WorkflowQueueControl(props: {
   readonly blockedReason?: string | undefined
   /** Absent on a frozen tab, which has no Run button: only its run list and progress. */
   readonly onQueue?: (() => void) | undefined
+  /** Replaces Run while its engine is unavailable, inside the progress/list anchor. */
+  readonly runControl?: JSX.Element
+  /** Hides the list and cancel controls, but keeps progress for an existing job. */
+  readonly hideRunList?: boolean | undefined
   readonly onOpenExecution: (ref: ExecutionRef) => void
   /** Absent where jobs cannot be cancelled, such as the component gallery. */
   readonly onCancel?: ((ref: ExecutionRef) => void) | undefined
@@ -42,7 +46,9 @@ export function WorkflowQueueControl(props: {
   readonly thumbnail?: ((entry: ExecutionState) => JSX.Element) | undefined
 }) {
   const message = useAppMessage()
+  const runControl = children(() => props.runControl)
   const [open, setOpen] = createSolidSignal(false)
+  createEffect(() => { if (props.hideRunList) setOpen(false) })
   const popoverId = `workflow-queue-popover-${createUniqueId()}`
   let root!: HTMLDivElement
   let toggle!: HTMLButtonElement
@@ -114,6 +120,7 @@ export function WorkflowQueueControl(props: {
       data-owner={props.owner.id}
     >
       <div class="workflow-queue-buttons">
+        <Show when={runControl()} fallback={
         <Show when={props.onQueue}>{(onQueue) => <button
           type="button"
           class="workflow-queue-submit"
@@ -126,6 +133,8 @@ export function WorkflowQueueControl(props: {
         >
           <Icon icon={Play} /> {message('appView.queue')}
         </button>}</Show>
+        }>{(control) => control()}</Show>
+        <Show when={!props.hideRunList}>
         <button
           ref={toggle}
           type="button"
@@ -165,6 +174,7 @@ export function WorkflowQueueControl(props: {
             </span>
           )}
         </Show>
+        </Show>
         <Show when={progress()}>
           {(current) => (
             <RunProgress class="workflow-queue-line" testId="workflow-progress" progress={current()}
@@ -172,7 +182,7 @@ export function WorkflowQueueControl(props: {
           )}
         </Show>
       </div>
-      <Show when={open()}>
+      <Show when={open() && !props.hideRunList}>
         <section
           id={popoverId}
           class="workflow-queue-popover"
