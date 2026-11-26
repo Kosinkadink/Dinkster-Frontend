@@ -395,7 +395,7 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   expect(
     await button.evaluate((element) => element.matches(':focus-visible')),
   ).toBe(true)
-  await expect(button).toHaveCSS('outline-width', '2px')
+  await expect(button).toHaveCSS('outline-width', '1px')
   await expect(samples).toHaveScreenshot('buttons-focus.png')
   await button.hover()
   await page.mouse.down()

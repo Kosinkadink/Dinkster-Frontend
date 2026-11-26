@@ -276,10 +276,10 @@
 .canvas-file-drop-surface[data-state='drag'],
 .canvas-file-drop-surface[data-state='disabled'] {
   background: color-mix(in srgb, var(--dinkster-surface-canvas) 62%, transparent);
-  box-shadow: inset 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-border-focus);
+  box-shadow: inset 0 0 0 var(--dinkster-indicator-width) var(--dinkster-border-focus);
 }
 .canvas-file-drop-surface[data-state='disabled'] {
-  box-shadow: inset 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-danger-border);
+  box-shadow: inset 0 0 0 var(--dinkster-indicator-width) var(--dinkster-danger-border);
 }
 .canvas-file-drop-card {
   display: grid;

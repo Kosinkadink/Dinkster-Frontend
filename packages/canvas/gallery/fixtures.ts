@@ -2221,7 +2221,7 @@ export const nodeLookExamples = [
     'A collapsed section with a changed value, and the open Advanced section with its wash.',
   ],
   ['collapsed', 'Collapsed', 'A collapsed node is its title bar alone.'],
-  ['selected', 'Selected', 'The selection outline.'],
+  ['selected', 'Selected', 'A thin edge and a lifted title bar.'],
   ['running', 'Running', 'Running, 45 percent done.'],
   ['error', 'Error', 'The run failed on this node.'],
   ['muted', 'Muted', 'A muted node is dimmed.'],

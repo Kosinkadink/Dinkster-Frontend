@@ -47,7 +47,6 @@ import {
   BOUNDARY_SELECTION_OUTLINE_OUTSET,
   MULTI_SELECTION_OUTLINE_PAD,
   MULTI_SELECTION_OUTLINE_STROKE_WIDTH,
-  NODE_SELECTION_OUTLINE_OUTSET,
   SELECTION_OUTLINE_STROKE_WIDTH,
   TOOLBOX_GAP_FROM_ATTACHED_BADGE,
   toolboxLayout,
@@ -1407,11 +1406,8 @@ export class CanvasRenderer {
     const paint = canvasPaintTokens.node.outline
     const stroke = screenAwareStroke(missing ? paint.idle * paint.unrecognizedFactor : strong ? paint.strong : paint.idle,
       this.viewport.scale, strong ? paint.strongScreen : paint.screen)
-    const selected = this.overlay.selection?.has(node.id) === true
     const hovered = this.overlay.hoveredBadge
     let outset = stroke / 2
-    if (selected) outset = Math.max(outset, NODE_SELECTION_OUTLINE_OUTSET +
-      screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, this.viewport.scale, canvasPaintTokens.toolbox.selectionMinScreenStroke) / 2)
     if (this.overlay.bodyDropNode === node.id) {
       const drop = canvasPaintTokens.node.drop
       outset = Math.max(outset, drop.outset + screenAwareStroke(drop.stroke, this.viewport.scale, drop.stroke) / 2)
@@ -3445,7 +3441,6 @@ export class CanvasRenderer {
     const scale = this.viewport.scale
     const contentDetail = detailLevel !== 'overview'
     const pinRadius = detailRadius(t.pinRadius, scale, detailLevel)
-    const selectionStrokeWidth = screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, scale, canvasPaintTokens.toolbox.selectionMinScreenStroke)
 
     if (this.overlay.bodyDropNode === node.id) {
       const paint = canvasPaintTokens.node.drop
@@ -3489,9 +3484,10 @@ export class CanvasRenderer {
     // Header.
     ctx.beginPath()
     ctx.roundRect(node.x, node.y, l.width, l.headerHeight, [t.cornerRadius, t.cornerRadius, 0, 0])
+    const headerColor = selected ? t.colors.nodeSelectedHeader : t.colors.nodeHeader
     ctx.fillStyle = unrecognized
-      ? tintHex(t.colors.nodeHeader, t.colors.error, canvasPaintTokens.node.errorHeaderTint)
-      : nodeColor === undefined ? t.colors.nodeHeader : tintHex(t.colors.nodeHeader, nodeColor, canvasPaintTokens.node.identityHeaderTint)
+      ? tintHex(headerColor, t.colors.error, canvasPaintTokens.node.errorHeaderTint)
+      : nodeColor === undefined ? headerColor : tintHex(headerColor, nodeColor, canvasPaintTokens.node.identityHeaderTint)
     ctx.fill()
     paintHeaderRule(ctx, t, node.x, node.y, l.width, l.headerHeight, l.height)
     // Bypass wash: over body+header, under text, so content stays legible.
@@ -3521,7 +3517,7 @@ export class CanvasRenderer {
               ? t.colors.nodeOutline
               : progress
                 ? t.stateColors[progress.state]
-                : t.colors.nodeIdleOutline
+                : selected ? t.colors.nodeSelectedEdge : t.colors.nodeIdleOutline
     // Running and, in the frozen view, done and cached draw quieter than an
     // error: 2 px, the running colour at 90%, done at half strength, cached
     // dashed in the neutral outline.
@@ -3533,7 +3529,7 @@ export class CanvasRenderer {
     const outlineWidth = unrecognized
       ? outline.idle * outline.unrecognizedFactor
       : ran ? (running ? canvasPaintTokens.running.outlineStroke : ranOutline.stroke)
-      : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
+      : strongOutline ? outline.strong : selected || t.crispEdges ? outline.crisp : outline.idle
     const outlineOpacity = !ran ? 1 : running ? canvasPaintTokens.running.outlineOpacity : progress?.state === 'done' ? ranOutline.opacity : 1
     const outlineDash = unrecognized || runtimeError
       ? nodeStateDash('error', scale)
@@ -3547,7 +3543,7 @@ export class CanvasRenderer {
     const outlineStroke = screenAwareStroke(outlineWidth, scale, strongOutline || unrecognized ? outline.strongScreen : outline.screen)
     // Crisp edges draw the outline inside the node's box, so a 1 px outline
     // covers whole pixels instead of straddling the box's edge.
-    const outlineInset = t.crispEdges ? outlineStroke / 2 : 0
+    const outlineInset = selected || t.crispEdges ? outlineStroke / 2 : 0
     ctx.beginPath()
     ctx.roundRect(node.x + outlineInset, node.y + outlineInset, l.width - outlineInset * 2, l.height - outlineInset * 2, Math.max(0, t.cornerRadius - outlineInset))
     ctx.strokeStyle = outlineColor
@@ -3565,21 +3561,6 @@ export class CanvasRenderer {
       ctx.strokeStyle = outlineColor
       ctx.lineWidth = screenAwareStroke(paint.stroke, scale, paint.stroke)
       ctx.stroke()
-    }
-
-    // Selection is the topmost outline so the error state cannot hide it.
-    // White stays distinct from the blue live-affordance accent.
-    if (selected) {
-      this.drawSelectionOutline(
-        ctx,
-        node.x,
-        node.y,
-        l.width,
-        l.height,
-        NODE_SELECTION_OUTLINE_OUTSET,
-        t.cornerRadius,
-        selectionStrokeWidth,
-      )
     }
 
     this.drawMinimizeArrow(ctx, node)

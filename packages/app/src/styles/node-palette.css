@@ -135,7 +135,7 @@
 .palette-type-options > button[aria-checked='true'] .palette-type-check {
   border-color: var(--dinkster-accent-border);
   background: var(--dinkster-accent-foreground);
-  box-shadow: inset 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-surface-raised);
+  box-shadow: inset 0 0 0 var(--dinkster-indicator-width) var(--dinkster-surface-raised);
 }
 .palette-type-options > span { display: block; padding: var(--dinkster-space-8); color: var(--dinkster-text-muted); }
 

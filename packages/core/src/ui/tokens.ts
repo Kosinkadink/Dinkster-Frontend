@@ -136,6 +136,7 @@ export interface SemanticDesignTokens {
     readonly primaryInputHeight: number
     readonly canvasInputHeight: number
     readonly focusRingWidth: number
+    readonly indicatorWidth: number
     readonly hoverOverlay: string
     readonly pressedOverlay: string
     readonly selectedOverlay: string
@@ -260,7 +261,7 @@ export interface CanvasSemanticTokenProjection {
   readonly shape: SemanticDesignTokens['shape']
   readonly interaction: Pick<
     SemanticDesignTokens['interaction'],
-    'focusRingWidth' | 'selectedOverlay' | 'disabledOpacity'
+    'focusRingWidth' | 'indicatorWidth' | 'selectedOverlay' | 'disabledOpacity'
   >
 }
 
@@ -279,6 +280,7 @@ export const canvasSemanticTokens: CanvasSemanticTokenProjection = deepFreeze({
   shape: semanticDesignTokens.shape,
   interaction: {
     focusRingWidth: semanticDesignTokens.interaction.focusRingWidth,
+    indicatorWidth: semanticDesignTokens.interaction.indicatorWidth,
     selectedOverlay: semanticDesignTokens.interaction.selectedOverlay,
     disabledOpacity: semanticDesignTokens.interaction.disabledOpacity,
   },
@@ -296,6 +298,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-action-primary-bg': semanticDesignTokens.action.primaryBg,
     '--dinkster-action-primary-text': semanticDesignTokens.action.primaryText,
     '--dinkster-action-remove-text': semanticDesignTokens.action.removeText,
+    '--dinkster-border-width': px(components.layout.borderWidth),
     '--dinkster-space-4': px(semanticDesignTokens.space[4]),
     '--dinkster-space-8': px(semanticDesignTokens.space[8]),
     '--dinkster-space-12': px(semanticDesignTokens.space[12]),
@@ -466,6 +469,9 @@ export const semanticCssVariablesForTheme = (
     ),
     '--dinkster-focus-ring-width': px(
       semanticDesignTokens.interaction.focusRingWidth,
+    ),
+    '--dinkster-indicator-width': px(
+      semanticDesignTokens.interaction.indicatorWidth,
     ),
     '--dinkster-interaction-hover':
       semanticDesignTokens.interaction.hoverOverlay,
