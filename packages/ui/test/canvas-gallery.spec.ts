@@ -337,6 +337,28 @@ test('An open row\'s side part draws its rules and keys in the node\'s divider a
 })
 
 for (const theme of ['dark', 'light'] as const) {
+  test(`Solver problems name their node once on each surface, ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await openPage(page, 'problem-box', theme)
+    await cardsReady(page, 'problem-box', theme)
+    for (const [id, title, sentence, kind] of [
+      ['type-warning', 'Decode', 'Samples needs latent data, but Load image sends an image.', 'warning'],
+      ['type-list-error', 'Blur image', 'Image needs one image, but Load images sends a list of images.', 'error'],
+      ['type-group-position', 'Pick value', 'Position 3 was chosen, but the group has 2 values.', 'error'],
+      ['type-selected', 'Choose model', 'Source is set to image, but Load latent sends latent data.', 'warning'],
+      ['type-switch-stored', 'Switch', 'The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', 'warning'],
+      ['type-switch-runtime', 'Switch', 'The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', 'error'],
+    ] as const) {
+      const card = page.locator('figure.dinkster-canvas-example', { has: page.getByTestId(`problem-box-${id}`) })
+      const box = card.getByRole('dialog', { name: `Problems of ${title}`, exact: true })
+      await expect(box.locator('.problem-box-text')).toHaveText(sentence)
+      await expect(box).toHaveAttribute('data-kind', kind)
+      await expect(card.locator('.problems-group-title')).toHaveText('This workflow')
+      await expect(card.locator('.problem-message')).toHaveText(`${title}: ${sentence}`)
+      await expect(card.locator('.problem')).toHaveAttribute('data-severity', kind)
+    }
+  })
+
   test(`Canvas text input preserves shared behavior at compact density, ${theme}`, async ({
     page,
   }) => {
