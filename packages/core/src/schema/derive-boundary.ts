@@ -858,6 +858,7 @@ export function deriveBoundarySchema(
     }
     const path = binds.port as string
     const prefix = path.slice(0, path.length - row.id.length)
+    const groupTargets = row.kind === 'group' ? [{ row, node, path }] : []
     for (const [index, other] of (item.alsoBinds ?? []).entries()) {
       const describe = `boundary input '${item.id}' fan-out target [${index}]`
       if (other.kind !== 'construct') {
@@ -871,24 +872,33 @@ export function deriveBoundarySchema(
         fail('boundary.constructShapeMismatch', `${describe}: '${other.port}' does not have the same rows, options, keys and growth as '${binds.port}'`)
         return undefined
       }
+      if (otherRow.kind === 'group') groupTargets.push({ row: otherRow, node: target.node, path: other.port as string })
     }
     let derived: BodyRow = withStoredDefaults(freshenRow(row, binds.node, typeBindingsFor(node)), prefix, node)
     if (derived.kind === 'group' && row.kind === 'group') {
-      const interior = interiorMembersOf(row, node.dynamic?.[path])
-      const count = interior.members.length
-      const limit = memberLimitOf(row)
-      if (count > limit) {
-        fail('boundary.familyOverCap', `boundary ${side} '${item.id}': the definition holds ${count} members of '${path}' but the group holds at most ${limit}`)
+      const occupied = groupTargets.map((target) => ({
+        row: target.row,
+        members: interiorMembersOf(target.row, target.node.dynamic?.[target.path]).members,
+      }))
+      const usedNames = new Set(occupied.flatMap((target) => target.members))
+      const keys = derived.keys.kind === 'named'
+        ? { kind: 'named' as const, names: derived.keys.names.filter((name) => !usedNames.has(name)) } : derived.keys
+      const remaining = Math.min(...occupied.map((target) => memberLimitOf(target.row) - target.members.length),
+        keys.kind === 'named' ? keys.names.length : Infinity)
+      const minimum = Math.max(0, ...occupied.map((target) => target.row.minMembers - target.members.length))
+      if (remaining < minimum) {
+        fail('boundary.familyOverCap', `boundary ${side} '${item.id}': its targets have ${remaining} common remaining member slots but require at least ${minimum}`)
         return undefined
       }
+      const count = Math.max(...occupied.map((target) => (target.row.interiorMembers ?? 0) + target.members.length))
       derived = {
         ...derived,
-        minMembers: Math.max(0, derived.minMembers - count),
+        keys,
+        minMembers: minimum,
         // Only a declared maximum is carried: it is the number a header shows.
-        ...(row.maxMembers !== undefined ? { maxMembers: limit - count } : {}),
-        ...(derived.keys.kind === 'named' ? { keys: { kind: 'named' as const, names: derived.keys.names.filter((name) => !interior.members.includes(name)) } } : {}),
+        ...(row.maxMembers !== undefined ? { maxMembers: remaining } : {}),
         // Members inside count through every level: an outer face numbers on from all of them.
-        ...(count > 0 ? { interiorMembers: (row.interiorMembers ?? 0) + count } : {}),
+        ...(count > 0 ? { interiorMembers: count } : {}),
       }
     }
     return {
@@ -896,7 +906,10 @@ export function deriveBoundarySchema(
       id: item.id,
       ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
       ...(item.tooltip !== undefined ? { tooltip: item.tooltip } : {}),
-      outer: outerScopeOf(binds, node, path, item.id),
+      outer: outerScopeOf(binds, node, path, item.id, row.outer),
+      ...(row.visibleWhen !== undefined ? { visibleWhen: row.visibleWhen.map((condition) => ({
+        ...condition, scope: outerScopeOf(binds, node, path, item.id, condition.scope),
+      })) } : {}),
     } as BodyRow
   }
 
@@ -1271,12 +1284,19 @@ export function deriveBoundarySchema(
   // reads (an input it names was removed) is a problem on the row, and the
   // row shows.
   const conditionScope = boundaryConditionScope({ body: derivedItems })
+  const visibleScope: OuterScope = { frames: [{ rows: derivedItems, names: Object.fromEntries(
+    [...conditionScope.names.keys()].map((name) => [name, { row: name }]),
+  ) }] }
   for (const item of boundaryItems(def.boundary, 'inputs')) {
     const visible = item.visible
     if (visible === undefined) continue
     try {
       Formula.parse(visible.formula, conditionScope)
-      derivedItems = derivedItems.map((row) => 'id' in row && row.id === item.id ? { ...row, visible } : row)
+      derivedItems = derivedItems.map((row) => 'id' in row && row.id === item.id
+        ? 'outer' in row
+          ? { ...row, visibleWhen: [...(row.visibleWhen ?? []), { formula: visible.formula, scope: visibleScope }] }
+          : { ...row, visible }
+        : row)
     } catch (error) {
       if (!(error instanceof FormulaRefused)) throw error
       diags.push(diag('warning', 'schema', 'boundary.visibleBroken', `[${def.id}] boundary input '${item.id}' shows only when "${visible.formula}", which no longer reads: ${error.message}. The row shows until its "Show" is set again.`, { refs: [{ graphId: def.id, portId: item.id }] }))

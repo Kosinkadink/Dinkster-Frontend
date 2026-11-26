@@ -753,6 +753,12 @@ export interface OuterScope {
   readonly frames: readonly { readonly rows: readonly OptionRow[]; readonly names: Readonly<Record<string, OuterName>> }[]
 }
 
+/** Each containing boundary's condition keeps its own input namespace. */
+export interface ScopedVisibility {
+  readonly formula: string
+  readonly scope: OuterScope
+}
+
 export type OuterName =
   | { readonly row: string }
   | { readonly value: unknown; readonly linked?: true }
@@ -783,6 +789,7 @@ export interface GroupSpec {
   /** On a subgraph node: how many members the definition holds before this node's own. */
   readonly interiorMembers?: number
   readonly outer?: OuterScope
+  readonly visibleWhen?: readonly ScopedVisibility[]
 }
 
 /** One option of a choice: its key and the rows it holds. */
@@ -829,6 +836,7 @@ export interface ChoiceSpec {
   readonly hidden?: true
   readonly onEdit?: readonly StepSpec[]
   readonly outer?: OuterScope
+  readonly visibleWhen?: readonly ScopedVisibility[]
 }
 
 /** One variant of a type choice: the type plugged in and the rows it reveals. */
@@ -857,6 +865,7 @@ export interface TypeChoiceSpec {
   /** On a subgraph node that shows it whole: the variant the definition picks, used while the node stores none. */
   readonly default?: string
   readonly outer?: OuterScope
+  readonly visibleWhen?: readonly ScopedVisibility[]
 }
 
 /** Rows listed by a stored description, stored under the row's own id. */
@@ -875,6 +884,7 @@ export interface DescribedSpec {
   /** The description a node starts with while it stores none of its own. */
   readonly default?: unknown
   readonly outer?: OuterScope
+  readonly visibleWhen?: readonly ScopedVisibility[]
 }
 
 export type BodyRow =

@@ -18,6 +18,7 @@ import { boundaryConditionScope, boundaryInnerInput, constructsAround, deriveBou
 import type { InputSpec } from '../schema/model.js'
 import { documentNodeResolver, documentResolver } from '../compile/compile.js'
 import { schemaResolverForCommand } from './command-support.js'
+import { elaborateInterface } from '../schema/elaborate.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -76,7 +77,28 @@ const boundaryAddBinding: CommandDefinition = {
     const errorsOf = (graph: GraphDef) => deriveBoundarySchema(graph, documentResolver(doc, resolve), undefined, resolveNode).diagnostics
       .filter((d) => d.severity === 'error')
     const before = new Set(errorsOf(def).map((d) => JSON.stringify([d.code, d.message])))
-    return errorsOf(withTarget).filter((d) => !before.has(JSON.stringify([d.code, d.message])))
+    const errors = errorsOf(withTarget).filter((d) => !before.has(JSON.stringify([d.code, d.message])))
+    if (errors.length > 0) return errors
+    // A new target can narrow a group's capacity on every containing boundary.
+    // Check stored members there too, before changing any definition or instance.
+    const capacityErrors = (document: WorkflowDocument): Diagnostic[] => {
+      const nodeSchema = documentNodeResolver(document, resolve)
+      const definitionSchema = documentResolver(document, resolve)
+      return Object.values(document.graphs).flatMap((graph) => [
+        ...(graph.boundary === undefined ? [] : deriveBoundarySchema(graph, definitionSchema, undefined,
+          (node) => nodeSchema(graph.id, node)).diagnostics.filter((d) => d.code === 'boundary.familyOverCap')),
+        ...Object.values(graph.nodes).flatMap((node) => {
+          if (!node.type.startsWith('#')) return []
+          const schema = nodeSchema(graph.id, node)
+          if (schema === undefined) return []
+          return elaborateInterface(schema, node).diagnostics.filter((d) =>
+            d.code === 'elab.autogrow.overMax' || d.code === 'elab.autogrow.badMember')
+            .map((d) => ({ ...d, refs: [{ graphId: graph.id, nodeId: node.id }] }))
+        }),
+      ])
+    }
+    const existing = new Set(capacityErrors(doc).map((d) => JSON.stringify(d)))
+    return capacityErrors({ ...doc, graphs: { ...doc.graphs, [def.id]: withTarget } }).filter((d) => !existing.has(JSON.stringify(d)))
   },
   run(doc, params, tx) {
     if (

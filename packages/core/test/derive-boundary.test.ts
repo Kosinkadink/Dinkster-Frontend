@@ -10,14 +10,14 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { compile } from '../src/compile/compile.js'
-import { asConnectionId, asNodeId } from '../src/ids.js'
+import { asConnectionId, asNodeId, asPortId } from '../src/ids.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { inputsOf, outputsOf, type GroupSpec, type NodeSchema } from '../src/schema/model.js'
 import { boundaryOf } from '../src/format/document.js'
 import { MAX_GROUP_MEMBERS, memberLimitOf } from '../src/schema/body.js'
-import { boundarySample, resolveBoundarySample } from './fixtures/boundary-sample.js'
+import { boundarySample, boundarySampleSchema, resolveBoundarySample } from './fixtures/boundary-sample.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { documentResolver } from '../src/compile/compile.js'
@@ -930,6 +930,43 @@ describe('Boundary sample acceptance compilation', () => {
     expect(prompt(loaded.document!)).toEqual(prompt(after))
   }
 
+  it('boundary/show-hide uses boundary names for a whole choice through renamed nested boundaries', () => {
+    const source = boundarySample(2)
+    const detail = source.graphs.detail!
+    const document = { ...source, graphs: { ...source.graphs, detail: { ...detail, boundary: {
+      body: detail.boundary!.body.map((row) => row.kind === 'input' && row.id === 'image' ? { ...row, id: 'photo' } : row),
+    } }, portrait: { ...source.graphs.portrait!, boundary: {
+      body: source.graphs.portrait!.boundary!.body.map((row) => row.kind === 'input' && row.id === 'image'
+        ? { ...row, id: 'picture', binds: { kind: 'port' as const, node: asNodeId('detail'), port: asPortId('photo') } }
+        : row.kind === 'input' && row.id === 'mode' ? { ...row, id: 'treatment' } : row),
+    } } } }
+    const store = storeFor(document)
+    edit(store, 'boundary.setVisible', { graphId: 'detail', itemId: 'mode', formula: 'linked(photo)' })
+    for (const [type, input, choice] of [['#detail', 'photo', 'mode'], ['#portrait', 'picture', 'treatment']]) {
+      const schema = documentResolver(store.doc, resolveBoundarySample)(type!)!
+      const hidden = elabInputsOf(elaborateInterface(schema, { values: {} })).find((row) => row.spec.id === `${choice}.mix`)
+      expect(hidden?.spec.hidden).toBe(true)
+      const shown = elabInputsOf(elaborateInterface(schema, { values: {} }, { isInputConnected: (id) => id === input, isOutputConnected: () => false }))
+        .find((row) => row.spec.id === `${choice}.mix`)
+      expect(shown).toBeDefined()
+      expect(shown?.spec.hidden).not.toBe(true)
+    }
+    edit(store, 'boundary.setVisible', { graphId: 'portrait', itemId: 'treatment', formula: 'linked(mask)' })
+    const outer = documentResolver(store.doc, resolveBoundarySample)('#portrait')!
+    for (const linked of [['mask'], ['picture'], ['mask', 'picture']]) {
+      const mix = elabInputsOf(elaborateInterface(outer, { values: {} }, {
+        isInputConnected: (id) => linked.includes(id), isOutputConnected: () => false,
+      })).find((row) => row.spec.id === 'treatment.mix')!
+      expect(mix.spec.hidden === true).toBe(linked.length !== 2)
+    }
+    edit(store, 'boundary.setVisible', { graphId: 'portrait', itemId: 'treatment', formula: null })
+    const inherited = documentResolver(store.doc, resolveBoundarySample)('#portrait')!
+    const mix = elabInputsOf(elaborateInterface(inherited, { values: {} }, {
+      isInputConnected: (id) => id === 'picture', isOutputConnected: () => false,
+    })).find((row) => row.spec.id === 'treatment.mix')!
+    expect(mix.spec.hidden).not.toBe(true)
+  })
+
   it('boundary/whole-choice/fan-out forwards one owner and unbinds only the selected target', () => {
     const source = boundarySample(1)
     const sample = source.graphs.detail!.nodes.sample!
@@ -953,6 +990,47 @@ describe('Boundary sample acceptance compilation', () => {
     expect(prompt(store.doc)['first.sample']!.inputs['mode.mix']).toBe(0.3)
     expect(prompt(store.doc)['first.extra']!.inputs['mode.mix']).toBe(0.84)
     expect(prompt(store.doc)['second.extra']!.inputs['mode.mix']).toBe(0.17)
+  })
+
+  it('boundary/whole-group/fan-out shares capacity and names, refusing targets that strand existing members', () => {
+    for (const named of [false, true]) {
+      const keys = Array.from({ length: 8 }, (_, index) => `layer${index}`)
+      const resolve: SchemaResolver = (type) => type === 'Boundary sample' && named ? {
+        ...boundarySampleSchema, body: boundarySampleSchema.body.map((row) => row.kind === 'group' && row.id === 'layers'
+          ? { ...row, keys: { kind: 'named', names: keys } } : row),
+      } : resolveBoundarySample(type)
+      const source = boundarySample(2)
+      const detail = source.graphs.detail!
+      const sample = detail.nodes.sample!
+      const document = { ...source, graphs: { ...source.graphs, detail: { ...detail, nodes: { ...detail.nodes,
+        extra: { ...sample, id: asNodeId('extra'), dynamic: { ...sample.dynamic, layers: { members: keys.slice(1, 7) } } },
+      } } } }
+      const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve) }))
+      const dispatch = (command: string, params: Record<string, Json>) => store.dispatch({ command, params })
+      const materialize = (members: string[]) => dispatch('dynamic.materialize', { graphId: 'root', nodeId: 'first', frames: [{ construct: 'layers', members }] })
+      expect(materialize(named ? ['layer6', 'layer7'] : ['layer0', 'layer1', 'layer2']).ok).toBe(true)
+      const before = store.doc
+      const target = { graphId: 'detail', itemId: 'layers', node: 'extra', port: 'layers' }
+      const refused = dispatch('boundary.addBinding', target)
+      expect(refused.ok).toBe(false)
+      expect(refused.diagnostics.some((d) => d.code === (named ? 'elab.autogrow.badMember' : 'elab.autogrow.overMax'))).toBe(true)
+      expect(store.doc).toBe(before)
+      expect(store.undo()).toBe(true)
+      expect(dispatch('boundary.addBinding', target).ok).toBe(true)
+      const schema = documentResolver(store.doc, resolve)('#portrait')!
+      const layers = schema.body.find((row) => row.kind === 'group' && row.id === 'layers') as GroupSpec
+      expect(memberLimitOf(layers)).toBe(named ? 1 : 2)
+      expect(materialize(named ? ['layer7'] : ['layer0', 'layer1']).ok).toBe(true)
+      const result = compile({ document: store.doc, revision: 1, resolve,
+        scope: { kind: 'full' }, connection: asConnectionId('boundary-grid'), schemaHash: 'boundary-sample' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) throw new Error('group fan-out did not compile')
+      expect(result.artifact.prompt['first.detail.extra']!.outputMembers?.layers)
+        .toEqual(named ? ['layer1', 'layer2', 'layer3', 'layer4', 'layer5', 'layer6', 'layer7']
+          : ['layer1', 'layer2', 'layer3', 'layer4', 'layer5', 'layer6', 'layer7', 'layer8'])
+      expect(result.artifact.prompt['second.detail.extra']!.outputMembers?.layers).toEqual(keys.slice(1, 7))
+    }
   })
 
   for (const [context, level, path] of [

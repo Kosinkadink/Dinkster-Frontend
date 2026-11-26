@@ -1724,7 +1724,9 @@ function elaboratePass(
     // A row hidden by its `visible` is still stored and sent to the run; a
     // row with a wire or a problem, or a box that holds one, shows anyway.
     const visible = 'visible' in row ? row.visible : undefined
-    const hides = visible !== undefined && !framed.hidden && answer(visible, framed, 'boolean') === false
+    const hides = !framed.hidden && ((visible !== undefined && answer(visible, framed, 'boolean') === false) ||
+      ('visibleWhen' in row && row.visibleWhen?.some((condition) =>
+        answer({ formula: condition.formula }, { ...framed, formulaFrames: outerFrames(condition.scope) }, 'boolean') === false)))
     if (hides) hid = true
     const scope = hides && !heldUnder(row, framed.prefix) ? { ...framed, hidden: true } : framed
     switch (row.kind) {
