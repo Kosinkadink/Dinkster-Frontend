@@ -390,6 +390,7 @@ export function ProjectsGallery() {
   const [templates, setTemplates] = createSignal(false)
   const [place, setPlace] = createSignal<Place>('projects')
   const [selected, setSelected] = createSignal('film-grain-tests')
+  const [narrowDetail, setNarrowDetail] = createSignal(false)
   const [hidden, setHidden] = createSignal<ReadonlySet<string>>(new Set())
   const [dialog, setDialog] = createSignal<'rename' | 'delete'>()
   const [banner, setBanner] = createSignal(true)
@@ -451,6 +452,7 @@ export function ProjectsGallery() {
       ])
     setDeleted(deleted().filter((entry) => entry.id !== id))
     setSelected(id)
+    setNarrowDetail(true)
     setActivity(`Restored ${row.name}`)
   }
   const project = () =>
@@ -794,7 +796,7 @@ export function ProjectsGallery() {
           />
         </span>
         <div class="dinkster-actions">
-          <ProductButton onClick={() => setState('ready')}>
+          <ProductButton onClick={() => { setState('ready'); setNarrowDetail(false) }}>
             Cancel
           </ProductButton>
           <ProductButton
@@ -954,6 +956,8 @@ export function ProjectsGallery() {
               </Match>
               <Match when={true}>
                 <ProductProjectsView
+                  narrowPanel={state() === 'new' || narrowDetail() ? 'detail' : 'list'}
+                  back={{ label: 'Projects', onSelect: () => { setState('ready'); setNarrowDetail(false) } }}
                   list={
                     <ProductProjectList
                       title="Projects"
@@ -965,6 +969,7 @@ export function ProjectsGallery() {
                         if (id === 'new') return
                         if (state() === 'new') setState('ready')
                         setSelected(id)
+                        setNarrowDetail(true)
                       }}
                       loadingLabel="Loading projects"
                       deleted={{

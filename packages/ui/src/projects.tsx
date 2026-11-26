@@ -1,5 +1,5 @@
 import { For, Index, Show, createUniqueId, type JSX } from 'solid-js'
-import { Plus, TriangleAlert } from 'lucide-solid'
+import { ChevronLeft, Plus, TriangleAlert } from 'lucide-solid'
 import { ProductButton, ProductIcon, ProductTextButton } from './controls.js'
 import { ProductDisclosure } from './account.js'
 
@@ -19,17 +19,30 @@ export interface ProductProjectEntry {
 export function ProductProjectsView(props: {
   list?: JSX.Element
   children: JSX.Element
+  narrowPanel?: 'list' | 'detail'
+  back?: { label: string; onSelect: () => void; disabled?: boolean }
 }) {
+  let backButton: HTMLDivElement | undefined
   return (
-    <div class="dinkster-projects" data-list={props.list ? undefined : 'none'}>
+    <div class="dinkster-projects-viewport" onKeyDown={(event) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || props.back?.disabled || !backButton?.getClientRects().length) return
+      if ((event.target as Element).closest('input, textarea, select, [contenteditable="true"], dialog, [role="menu"]')) return
+      event.preventDefault()
+      props.back?.onSelect()
+    }}>
+    <div class="dinkster-projects" data-list={props.list ? undefined : 'none'} data-narrow-panel={props.narrowPanel ?? 'detail'}>
       <Show when={props.list}>
         <div class="dinkster-projects-panel dinkster-projects-list">
           {props.list}
         </div>
       </Show>
       <div class="dinkster-projects-panel dinkster-projects-detail">
+        <Show when={props.back}>{(back) => <div class="dinkster-projects-back" ref={backButton}>
+          <ProductTextButton label={back().label} icon={ChevronLeft} disabled={back().disabled} onClick={() => back().onSelect()} />
+        </div>}</Show>
         {props.children}
       </div>
+    </div>
     </div>
   )
 }
