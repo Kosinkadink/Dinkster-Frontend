@@ -48,8 +48,10 @@ test('inspects simple and nested region iterations by exact retained runtime ide
         },
         body: {
           id: 'body', name: 'Body', links: {}, nets: {}, reroutes: {}, boundary: {
-            inputs: [{ id: 'item', binds: { kind: 'port', node: 'source', port: 'in' } }],
-            outputs: [{ id: 'value', binds: { kind: 'port', node: 'source', port: 'value' } }],
+            body: [
+              { kind: 'input', id: 'item', binds: { kind: 'port', node: 'source', port: 'in' } },
+              { kind: 'output', id: 'value', binds: { kind: 'port', node: 'source', port: 'value' } },
+            ],
           }, nextOrdinal: 4,
           nodes: {
             source: { id: 'source', type: 'ProofSource', title: 'Renamed selector', values: {} },
@@ -59,8 +61,10 @@ test('inspects simple and nested region iterations by exact retained runtime ide
         },
         nested: {
           id: 'nested', name: 'Nested', links: {}, nets: {}, reroutes: {}, boundary: {
-            inputs: [{ id: 'item', binds: { kind: 'port', node: 'leaf', port: 'in' } }],
-            outputs: [{ id: 'value', binds: { kind: 'port', node: 'leaf', port: 'value' } }],
+            body: [
+              { kind: 'input', id: 'item', binds: { kind: 'port', node: 'leaf', port: 'in' } },
+              { kind: 'output', id: 'value', binds: { kind: 'port', node: 'leaf', port: 'value' } },
+            ],
           }, nextOrdinal: 2,
           nodes: { leaf: { id: 'leaf', type: 'ProofSource', title: 'Nested result', values: {} } },
         },

@@ -107,7 +107,7 @@
 .execution-pin { min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); font: inherit; font-size: var(--dinkster-type-metadata-size); cursor: pointer; }
 .execution-pin:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .execution-pin:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
-.execution-pin:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.execution-pin:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
 .execution-pin.pinned { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
 
 .outputs {
@@ -454,47 +454,6 @@
 
 .conn-status.disconnected {
   color: var(--dinkster-danger-foreground);
-}
-
-/* -- supervisor startup narration ------------------------------------------ */
-
-.engine-banner {
-  display: flex;
-  align-items: center;
-  gap: var(--dinkster-space-8);
-  padding: var(--dinkster-space-8) var(--dinkster-space-12);
-  background: var(--dinkster-info-background);
-  border-bottom: 1px solid var(--dinkster-info-border);
-  color: var(--dinkster-info-foreground);
-  font-size: var(--dinkster-type-body-size);
-}
-
-.engine-banner[data-state='failed'] {
-  background: var(--dinkster-danger-background);
-  color: var(--dinkster-danger-foreground);
-  border-color: var(--dinkster-danger-border);
-}
-
-.engine-banner[data-state='stopped'] {
-  background: var(--dinkster-surface-raised);
-  color: var(--dinkster-text-muted);
-  border-color: var(--dinkster-border-subtle);
-}
-
-.engine-spinner {
-  width: 12px;
-  height: 12px;
-  border: var(--dinkster-focus-ring-width) solid var(--dinkster-border-subtle);
-  border-top-color: var(--dinkster-warning-border);
-  border-radius: var(--dinkster-radius-capsule);
-  animation: engine-spin var(--dinkster-motion-standard) linear infinite;
-  flex: none;
-}
-
-@keyframes engine-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .engine-chip {

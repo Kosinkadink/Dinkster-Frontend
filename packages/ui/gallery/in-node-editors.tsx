@@ -15,7 +15,7 @@ import {
   type TextMeasurer,
   type WidgetMeasure,
 } from '@dinkster/canvas'
-import { createWidgetRegistry, curveInterpolator, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
+import { createWidgetRegistry, curveEditorInterpolations, curveInterpolator, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import {
   GALLERY_NODE_WIDTH,
   createInNodeEditorScene,
@@ -221,10 +221,11 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
                 { label: 'Stop', icon: canvasEditorIcons.stop, intent: 'remove' },
               ]
             : [{ label: 'Start camera', icon: canvasEditorIcons.capture, disabled: camera() === 'wired' }]} />
-          <CanvasEditorNote tone={stored() || (camera() === 'wired' && state()['known'] !== false) ? undefined : 'muted'}>
-            {camera() === 'wired' ? state()['known'] === false ? 'Comes by wire' : 'The image from the last run'
-              : stored() ? `Stored: ${stored()!.name}` : 'Nothing stored'}
-          </CanvasEditorNote>
+          <Show when={camera() !== 'wired' || state()['known'] !== false}>
+            <CanvasEditorNote tone={stored() || camera() === 'wired' ? undefined : 'muted'}>
+              {camera() === 'wired' ? 'The image from the last run' : stored() ? `Stored: ${stored()!.name}` : 'Nothing stored'}
+            </CanvasEditorNote>
+          </Show>
         </>
       )
     }
@@ -301,7 +302,7 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
             <CanvasAnglePicture
               horizontal={{ degrees: wired() === 'horizontal_angle' && !known() ? undefined : wired() === 'horizontal_angle' ? 120 : 45,
                 fixed: wired() === 'horizontal_angle' }}
-              vertical={{ degrees: 20, fixed: false }}
+              vertical={{ degrees: wired() !== undefined && !known() ? undefined : 20, fixed: false }}
             />,
           )}
           <CanvasEditorNote tone={wired() !== undefined && !known() ? 'muted' : undefined}>
@@ -312,9 +313,11 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       )
     }
     case 'core.curve': {
-      const value = props.example.values?.[props.row.valueKey] as
-        { interpolation?: 'linear' | 'monotone_cubic'; points?: { position: number; value: number }[] } | undefined
-      const interpolation = value?.interpolation ?? 'monotone_cubic'
+      const wired = props.example.wired?.[props.row.inputId] !== undefined
+      const value = (wired ? props.example.carried?.[props.row.valueKey] ?? props.example.summaries?.[props.row.valueKey]?.value : props.example.values?.[props.row.valueKey]) as
+        { interpolation?: 'linear' | 'monotone_cubic' | 'step'; points?: { position: number; value: number }[] } | undefined
+      const kinds = curveEditorInterpolations(props.declared)
+      const interpolation = kinds.length === 1 ? kinds[0]! : value?.interpolation ?? 'monotone_cubic'
       const points = value?.points ?? []
       const selected = num(state(), 'selected')
       const strip = (key: string): CanvasCurveStrip | undefined => {
@@ -331,22 +334,25 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       return (
         <>
           {picture(
-            <CanvasCurvePlot points={points} sample={curveInterpolator({ interpolation, points })} selected={selected}
+            <CanvasCurvePlot points={points} sample={curveInterpolator({ interpolation, points })} step={interpolation === 'step'} selected={selected}
+              disabled={wired}
               histogram={bars()}
               inputStrip={inputStrip} outputStrip={outputStrip} {...(hover ? { hover } : {})} />,
           )}
-          <CanvasEditorLine>
-            <GalleryChoice label="Interpolation" value={interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic']} />
-          </CanvasEditorLine>
-          <CanvasEditorLine dimmed={selected === undefined}>
+          <Show when={kinds.length > 1}>
+            <CanvasEditorLine dimmed={wired}>
+              <GalleryChoice label="Interpolation" value={interpolation === 'step' ? 'Step' : interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={kinds.map((kind) => kind === 'step' ? 'Step' : kind === 'linear' ? 'Linear' : 'Monotone cubic')} />
+            </CanvasEditorLine>
+          </Show>
+          <CanvasEditorLine dimmed={wired || selected === undefined}>
             <GalleryNumber label="Position" value={selected === undefined ? undefined : points[selected]!.position} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>
-          <CanvasEditorLine dimmed={selected === undefined}>
+          <CanvasEditorLine dimmed={wired || selected === undefined}>
             <GalleryNumber label="Value" value={selected === undefined ? undefined : points[selected]!.value} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>
           {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
           <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, intent: 'remove',
-            disabled: selected === undefined || points.length < 2 }]} />
+            disabled: wired || selected === undefined || points.length < 2 }]} />
           {/* A curve that declares a histogram has this line, wired or not: its input's pin stands on it. */}
           <Show when={histogram !== undefined}>
             <CanvasEditorNote>Histogram</CanvasEditorNote>
@@ -367,7 +373,7 @@ function boxOf(scene: Scene, example: InNodeEditorExample): Pick<SceneNode, 'x' 
   return panel === undefined ? undefined : boundaryFieldNode(panel)
 }
 
-function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
+export function InNodeEditorExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
   let canvas!: HTMLCanvasElement
   const [scene, setScene] = createSignal<Scene>()
   createEffect(() => {
@@ -381,8 +387,6 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
         ...defaultTokens,
         widgetEditing: 'in-row',
         widgetRowLook: 'raised-editors',
-        // As the Node boxes page, the page shows the remove cross the editor leaves off until it works.
-        memberRemoveCross: true,
         ...canvasTypePaintForTheme(theme),
         colors: canvasColorsForTheme(theme),
       }
@@ -476,7 +480,8 @@ export function InNodeEditorsGallery(props: { theme: 'dark' | 'light' }) {
     ['Image comparison', (example) => example.card >= 27 && example.card <= 29],
     ['Camera angle', (example) => example.card >= 30 && example.card <= 32],
     ['Curve', (example) => example.card >= 34 && example.card <= 36],
-    ['Off the node', (example) => example.card >= 37],
+    ['Off the node', (example) => example.card >= 37 && example.card <= 39],
+    ['Curve to steps', (example) => example.card === 40],
   ]
   return (
     <For each={groups}>
@@ -484,7 +489,7 @@ export function InNodeEditorsGallery(props: { theme: 'dark' | 'light' }) {
         <ProductSection title={title}>
           <div class="dinkster-canvas-examples">
             <For each={inNodeEditorExamples.filter(matches)}>
-              {(example) => <ExampleCard example={example} theme={props.theme} registry={registry} />}
+              {(example) => <InNodeEditorExampleCard example={example} theme={props.theme} registry={registry} />}
             </For>
           </div>
         </ProductSection>

@@ -4,6 +4,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
+import { widgetValueText } from '@dinkster/canvas'
 import { BrandMark } from './BrandMark.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
@@ -44,9 +45,9 @@ import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostCo
 import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
-import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
+import { ProductConfirmation, ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import type { ShellNavigation } from './Shell.js'
@@ -124,6 +125,7 @@ import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { isPageTab, PageTabPanel } from './page-tabs.js'
 import type { AppTab } from './app-page-tabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
+import { EngineRunControl } from './EngineRunControl.js'
 import { ChosenRun, RunActivityControl, RunRow, tookText, type ChosenRunFact, RunSection, placeInLine, runAge, runIsPending, useNow } from './RunControls.js'
 import { ExecutedImageFacts, ExecutedImageViewer, SavedOutputFiles, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { executedImageInventory, executedImageLabel, executionThumbnail, type ExecutedImage } from './executed-image-inventory.js'
@@ -250,11 +252,11 @@ export function DinksterAppMenu(props: {
   const groups = (): readonly ResolvedMenuGroup[] => [...accountGroup(), ...APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }): ResolvedMenuGroup[] => {
     const items = ids.flatMap((id): MenuItem[] => {
       const command = props.commands.get(id)
-      const hint = props.keybindings.combo(id)
+      const shortcut = props.keybindings.combo(id)
       return command ? [{
         id,
         label: command.label,
-        ...(hint ? { hint } : {}),
+        ...(shortcut ? { shortcut } : {}),
         action: { kind: 'host', action: id },
         ...(command.enabled?.() === false ? { disabled: true } : {}),
       }] : []
@@ -375,6 +377,7 @@ export function dispatchAppCommandKey(
 
 export function App(props: {
   app: AppState
+  initialProjectName?: string | undefined
   desktopWindow?: { readonly context: DesktopWindowContext; readonly layout: DesktopWindowLayout }
   /** Under the always-on process: the projects page and project switches stay in this page. */
   shell?: Pick<ShellNavigation, 'openProject' | 'showProjects'>
@@ -460,7 +463,7 @@ export function App(props: {
   let shellEl!: HTMLElement
   tooltips.register({ id: 'core.dom', resolve: (target, opts) => {
     const dom = target as Partial<DomTooltipTarget>
-    return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
+    return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(dom.shortcut ? { shortcut: dom.shortcut } : {}), ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
   } })
   tooltips.register({ id: 'core.canvas', resolve: (target, opts) => {
     const tab = app.activeTab()
@@ -476,7 +479,10 @@ export function App(props: {
       // back to its plain text.
       widgetReadout: (row, value) => {
         try {
-          return widgets.viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.readout?.(value, row.spec)
+          const readout = widgets.viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.readout?.(value, row.spec)
+          if (readout !== undefined) return readout
+          const summary = widgetValueText(widgets, row.viewId, value, row.spec)
+          return summary === null ? [] : summary === undefined ? undefined : [summary]
         } catch {
           return undefined
         }
@@ -679,38 +685,59 @@ export function App(props: {
     }
     if (sourceId !== 'runs' || entry.owner === undefined) return
     const runId = runIdOfEntry(entry)
-    if (actionId === 'delete') void app.deleteHistoryRun(runId, entry.owner)
+    if (actionId === 'delete' && !deletingRun()) {
+      setDeleteRunError('')
+      setPendingDeleteRun({ owner: entry.owner, id: entry.id, runId, name: entry.title })
+    }
     if (actionId === 'open') void app.openRunWorkflow(runId, entry.owner)
     if (actionId === 'resubmit') void app.resubmitRunWorkflow(runId, entry.owner)
   }
-  // Clearing the whole runs scope is destructive: the button arms on the
-  // first click ("Confirm clear") and executes only on a second click
-  // within the arming window - no native dialogs, no accidental wipes.
-  // Both clicks act on the COMMITTED page's owner (the backend whose runs
-  // are actually on screen, handed over by CollectionPanel) - never on
-  // whatever backend is current when the click lands. While a replacement
-  // page is in flight the panel disables the button AND reports no owner,
-  // so old items lingering during a backend switch can never route a
-  // clear to the incoming backend; if the page owner changes between arm
-  // and confirm, the confirm re-arms instead of clearing a scope the user
-  // never looked at.
-  const [clearArmed, setClearArmed] = createSolidSignal(false)
-  let clearArmTimer: ReturnType<typeof setTimeout> | undefined
-  let clearArmOwner: string | undefined
-  const librarySourceAction = (sourceId: string, actionId: string, owner?: string): void => {
-    if (sourceId !== 'runs' || actionId !== 'clear') return
-    if (owner === undefined) return
-    if (!clearArmed() || clearArmOwner !== owner) {
-      clearArmOwner = owner
-      setClearArmed(true)
-      if (clearArmTimer !== undefined) clearTimeout(clearArmTimer)
-      clearArmTimer = setTimeout(() => setClearArmed(false), 4000)
-      return
-    }
-    if (clearArmTimer !== undefined) clearTimeout(clearArmTimer)
-    setClearArmed(false)
-    void app.clearRunHistory(owner)
+  const [pendingDeleteRun, setPendingDeleteRun] = createSolidSignal<{ owner: string; id: string; runId: string; name: string }>()
+  const [deletingRun, setDeletingRun] = createSolidSignal(false)
+  const [deleteRunError, setDeleteRunError] = createSolidSignal('')
+  const confirmDeleteRun = async (): Promise<void> => {
+    const target = pendingDeleteRun()
+    if (!target || deletingRun()) return
+    setDeletingRun(true)
+    setDeleteRunError('')
+    try {
+      await app.deleteHistoryRun(target.runId, target.owner)
+      setPendingDeleteRun(undefined)
+    } catch (cause) {
+      setDeleteRunError(message('runs.delete.failed', { name: target.name, reason: cause instanceof Error ? cause.message : String(cause) }))
+    } finally { setDeletingRun(false) }
   }
+  createEffect(() => {
+    if (!deletingRun() && pendingDeleteRun()?.owner !== activeBackend().id) setPendingDeleteRun(undefined)
+  })
+  // The confirmation keeps the committed collection page's owner, never
+  // routing a clear to a backend selected while that page is being replaced.
+  const [pendingClear, setPendingClear] = createSolidSignal<{ owner: string; name: string }>()
+  const [clearing, setClearing] = createSolidSignal(false)
+  const [clearError, setClearError] = createSolidSignal('')
+  const librarySourceAction = (sourceId: string, actionId: string, owner?: string): void => {
+    if (sourceId !== 'runs' || actionId !== 'clear' || owner === undefined || clearing()) return
+    const backend = backends().find((candidate) => candidate.id === owner)
+    if (backend) {
+      setClearError('')
+      setPendingClear({ owner, name: backend.label })
+    }
+  }
+  const confirmClear = async (): Promise<void> => {
+    const target = pendingClear()
+    if (!target || clearing()) return
+    setClearing(true)
+    setClearError('')
+    try {
+      await app.clearRunHistory(target.owner)
+      setPendingClear(undefined)
+    } catch (cause) {
+      setClearError(message('runs.clear.failed', { reason: cause instanceof Error ? cause.message : String(cause) }))
+    } finally { setClearing(false) }
+  }
+  createEffect(() => {
+    if (!clearing() && pendingClear()?.owner !== activeBackend().id) setPendingClear(undefined)
+  })
   const multiBackend = () => backends().length > 1
 
   // Pending close is validated by (id, DocumentSession): a same-id
@@ -1252,17 +1279,9 @@ export function App(props: {
     backendsTick()
     return b.registry.get()?.schemas.size
   }
-  /** Last /supervisor/status answer (native backends behind a supervisor). */
-  const supervisorOf = (b: Backend) => {
+  const engineGate = (tab: Tab) => {
     backendsTick()
-    return b.supervisor.get()
-  }
-  /**
-   * Supervisor state that gates the active backend (anything but ready):
-   * rendered as "Dinkster is starting", never a connection failure (Ask 1).
-   */
-  const engineGate = () => {
-    const sup = supervisorOf(activeBackend())
+    const sup = app.backendForTab(tab).supervisor.get()
     return sup && sup.state !== 'ready' ? sup : undefined
   }
 
@@ -1291,8 +1310,11 @@ export function App(props: {
   </Show>
 
   const cancelling = useSignal(app.cancellingExecutions)
+  // A run is named by the workflow it was queued under, so renaming its tab later leaves the run's row alone.
+  const runName = (execution: ExecutionState): string => execution.workflowName ?? app.tabTitleFor(execution.ref)
   const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
     const live = () => liveTabOf(p.exec)
+    const pending = createMemo(() => runIsPending(p.exec))
     // A finished run shows its outputs while it is the chosen run; a running or
     // queued one only once its name is pressed, so the list stays one line each.
     const selected = () => selectedRunKey() === p.exec.key ||
@@ -1311,6 +1333,7 @@ export function App(props: {
       const nodes = Object.values(p.exec.nodes)
       const backend = app.backendFor(p.exec.ref.connection)
       return [
+        { label: message('runs.chosen.workflow'), text: p.exec.workflowName ?? message('runs.chosen.workflowUnknown') },
         ...(p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.finished'), text: formatCollectionDate(p.exec.endedAt) }]),
         ...(p.exec.startedAt === undefined || p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText((p.exec.endedAt - p.exec.startedAt) / 1000) }]),
         { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', {
@@ -1319,7 +1342,7 @@ export function App(props: {
         ...(backend === undefined ? [] : [{ label: message('runs.chosen.ranOn'), text: backend.label }]),
       ]
     }
-    return <RunRow entry={p.exec} name={app.tabTitleFor(p.exec.ref)} workflow={app.tabTitleFor(p.exec.ref)}
+    return <RunRow entry={p.exec} name={runName(p.exec)} workflow={runName(p.exec)}
       statusInNote all={p.all} testId="execution-row" nodeTitle={runtimeNodeTitle}
       cancelling={cancelling().has(executionKey(p.exec.ref))}
       onCancel={() => { void app.cancelExecution(p.exec.ref) }}
@@ -1332,7 +1355,7 @@ export function App(props: {
       <Show when={selected()}>
         <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
             entry={p.exec}
-            title={app.tabTitleFor(p.exec.ref)}
+            title={runName(p.exec)}
             testId="run-details"
             relation={overlayRoleOf(p.exec)}
             hideOpen
@@ -1343,7 +1366,7 @@ export function App(props: {
               else app.pinExecutionOverlay(tab.id, p.exec.ref)
             } : undefined}
           />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
-          {...(runIsPending(p.exec) ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
+          {...(pending() ? {} : { chosen: <ChosenRun name={runName(p.exec)} reason={reason()} facts={facts()}
             detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
             menuMount={menuMount()} onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
       </Show>
@@ -1611,6 +1634,7 @@ export function App(props: {
       backendsTick()
       const backend = app.backends.get().find((candidate) => candidate.id === p.entry.owner)
       return [
+        { label: message('runs.chosen.workflow'), text: run.workflowName ?? message('runs.chosen.workflowUnknown') },
         { label: message('runs.chosen.finished'), text: formatCollectionDate(run.finishedAt * 1000) },
         ...(run.startedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText(run.finishedAt - run.startedAt) }]),
         { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', { ran: run.executed, cached: run.cached }) },
@@ -1624,19 +1648,20 @@ export function App(props: {
       return run?.state === 'failed' ? run.error?.message : undefined
     }
     const act = (actionId: 'resubmit' | 'open' | 'delete') => () => libraryEntryAction('runs', p.entry, actionId)
-    const chosen = () => <ChosenRun name={known() ? app.tabTitleFor(known()!.ref) : p.entry.title} reason={reason()} facts={facts()}
+    const chosen = () => <ChosenRun name={known() ? runName(known()!) : p.entry.title} reason={reason()} facts={facts()}
       detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
       onRunAgain={record()?.state === 'interrupted' && record()?.sourceDocument !== undefined ? act('resubmit') : undefined}
       onOpenWorkflow={record()?.sourceDocument !== undefined ? act('open') : undefined}
       onCopyJobId={() => { const jobId = record()?.jobId; if (jobId !== undefined) void navigator.clipboard?.writeText(jobId) }}
       onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
+      <Show when={pendingDeleteRun()?.owner === p.entry.owner && pendingDeleteRun()?.id === p.entry.id} fallback={<>
       <div class="run-row-line">
         <span class="run-row-thumbnail" aria-hidden="true">
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
         </span>
         <span class="run-row-text">
-          <span class="run-row-name">{known() ? app.tabTitleFor(known()!.ref) : p.entry.title}</span>
+          <span class="run-row-name">{known() ? runName(known()!) : p.entry.title}</span>
           <span class="run-row-note">{note()}</span>
         </span>
         <Show when={known()?.artifact && known()}>{(execution) =>
@@ -1655,16 +1680,28 @@ export function App(props: {
           {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />}
         </Show>
       </Show>
+      </>}>
+        <ProductConfirmation title={message('runs.delete.title', { name: pendingDeleteRun()!.name })}
+          consequence={message('runs.delete.consequence')} actionLabel={message('runs.chosen.delete')}
+          intent="remove" surface="inherit" pending={deletingRun()} error={deleteRunError()}
+          onCancel={() => { setDeleteRunError(''); setPendingDeleteRun(undefined) }} onConfirm={() => void confirmDeleteRun()} />
+      </Show>
     </div>
   }
   const allWorkflowActivity = () => {
     executions()
     return executionActivity(app.executionList())
   }
+  /**
+   * A page in front is not a workflow, so the panel shows every workflow's
+   * runs then, and keeps the person's own choice for when a workflow is back.
+   */
+  const pageInFront = () => windowTabs().some((tab) => isPageTab(tab) && tab.id === activeTabId())
+  const shownRunScope = () => pageInFront() ? 'all' : runScope()
   /** The runs the panel's scope covers: this workflow's, or every workflow's. */
   const scopedRuns = (): readonly ExecutionState[] => {
     executions()
-    return runScope() === 'all' ? app.executionList() : workflowExecutions()
+    return shownRunScope() === 'all' ? app.executionList() : workflowExecutions()
   }
   const runningRuns = () => scopedRuns().filter((execution) => execution.status === 'running')
   const queuedRuns = () => {
@@ -1674,9 +1711,13 @@ export function App(props: {
   }
   const RunsPanel = () => (
     <div class="rail-panel-body runs-panel" data-testid="runs-panel">
-      <div class="runs-scope" data-testid="runs-scope" data-selected-id={runScope()}>
-        <ProductSegmented label={message('runs.scope')} value={runScope()}
-          options={(['workflow', 'all'] as const).map((scope) => ({ value: scope, label: message(`runs.scope.${scope}`) }))}
+      <div class="runs-scope" data-testid="runs-scope" data-selected-id={shownRunScope()}>
+        <ProductSegmented label={message('runs.scope')} value={shownRunScope()}
+          options={(['workflow', 'all'] as const).map((scope) => ({
+            value: scope,
+            label: message(`runs.scope.${scope}`),
+            disabled: scope === 'workflow' && pageInFront() ? message('runs.scope.workflowUnavailable') : undefined,
+          }))}
           onChange={(scope) => setRunScope(scope)} />
       </div>
       <Show when={runningRuns().length > 0}>
@@ -1689,18 +1730,19 @@ export function App(props: {
           <RunList runs={queuedRuns()} all={app.executionList()} />
         </RunSection>
       </Show>
-      <Show when={runScope() === 'workflow'} fallback={<>
-        <Show when={clearArmed() && clearArmOwner === activeBackend().id}>
-          <ProductNotice tone="info" testId="runs-clear-confirmation">{message('runs.clear.confirmation')}</ProductNotice>
-        </Show>
+      <Show when={shownRunScope() === 'workflow'} fallback={<>
         <h3 class="run-section-title">{message('runs.section.finished')}</h3>
+        <Show when={pendingClear()}>{(target) => <ProductConfirmation
+          title={message('runs.clear.title', { backend: target().name })} consequence={message('runs.clear.confirmation')}
+          actionLabel={message('runs.clear.action')} intent="remove" pending={clearing()} error={clearError()}
+          onCancel={() => { setClearError(''); setPendingClear(undefined) }} onConfirm={() => void confirmClear()} />}</Show>
         <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
             ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
           entryContent={(entry, selected) => <StoredRun entry={entry()} selected={selected} />}
           onAction={libraryEntryAction}
-          sourceActions={[{ sourceId: 'runs', id: 'clear', label: message(clearArmed() ? 'runs.clear.confirm' : 'runs.clear.action') }]}
+          sourceActions={pendingClear() ? [] : [{ sourceId: 'runs', id: 'clear', label: message('runs.clear.action') }]}
           onSourceAction={librarySourceAction} />
       </>}>
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>
@@ -1782,7 +1824,6 @@ export function App(props: {
       id: 'learn', get title() { return message('learn.panel.title') }, icon: BookOpen,
       get description() { return message('learn.panel.description') }, get ariaLabel() { return message('learn.panel.ariaLabel') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 25,
-      when: () => learnBackend() !== undefined,
       toggleTestId: 'learn-toggle', component: () => {
         return <LearnPanel
           backend={learnBackend()}
@@ -2516,14 +2557,10 @@ export function App(props: {
     })
     observer.observe(trigger, { attributes: true, attributeFilter: ['aria-expanded'] })
   }), { defer: true }))
-  const [projectName, setProjectName] = createSolidSignal<string>()
-  const primaryConnected = createMemo(() => {
-    const backend = backends()[0]
-    return backend !== undefined && statusOf(backend) === 'connected' ? backend : undefined
-  })
+  const [projectName, setProjectName] = createSolidSignal(props.initialProjectName)
   // The name is read again when a modal closes, since the Projects dialog renames projects.
   createEffect(() => {
-    const backend = primaryConnected()
+    const backend = backends()[0]
     if (backend === undefined || modalPanel() !== '') return
     const controller = new AbortController()
     backend.connection.getProject(activeProjectId(), controller.signal)
@@ -2539,7 +2576,7 @@ export function App(props: {
   const readProjectList = (): void => {
     projectListRead?.abort()
     setProjectListFailed(false)
-    const backend = primaryConnected()
+    const backend = backends()[0]
     if (backend === undefined) {
       setProjectListFailed(true)
       return
@@ -2988,6 +3025,11 @@ export function App(props: {
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), app.registryForTab(tab()) !== undefined)}
                       blockedReason={(backendsTick(), app.engineOffReason(tab(), message))}
+                      runControl={<Show when={tab().execution === undefined ? engineGate(tab()) : undefined}>
+                        {(status) => <EngineRunControl status={status()} baseUrl={app.backendForTab(tab()).baseUrl}
+                          onRestart={() => app.restartEngine(app.backendForTab(tab()))} />}
+                      </Show>}
+                      hideRunList={engineGate(tab())?.state === 'failed'}
                       onQueue={tab().execution === undefined ? () => { void app.queue(tab()) } : undefined}
                       onOpenExecution={(ref) => { void app.openExecutionView(ref) }}
                     />
@@ -3076,42 +3118,30 @@ export function App(props: {
       <ImportAssetResolutionDialog app={app} />
       <Show when={pendingClose()} keyed>
         {(pending) => (
-          <ModalSurface
+          <ProductConfirmationDialog
             title={message('shell.close.title', { title: pending.title })}
-            ariaLabel={message('shell.close.confirm', { title: pending.title })}
+            consequence={message('shell.close.consequence')}
             modalId="close-tab"
             testId="close-tab-dialog"
-            closeLabel={message('shell.close.cancel')}
-            onRequestClose={() => setPendingClose(undefined)}
-          >
-            <div class="close-tab-confirm">
-              <p>{message('shell.close.confirm', { title: pending.title })}</p>
-              <ProductActionFooter>
-                <ProductButton type="button" autofocus onClick={() => setPendingClose(undefined)}>{message('shell.action.cancel')}</ProductButton>
-                <SharedProductButton intent="remove" fill="solid" onClick={confirmPendingClose}>{message('shell.close.discard')}</SharedProductButton>
-              </ProductActionFooter>
-            </div>
-          </ModalSurface>
+            intent="remove"
+            actionLabel={message('shell.close.discard')}
+            onCancel={() => setPendingClose(undefined)}
+            onConfirm={confirmPendingClose}
+          />
         )}
       </Show>
       <Show when={pendingCloseOthers()} keyed>{(pending) => (
-        <ModalSurface
-          title={message('shell.workflowTabs.closeOthers')}
-          ariaLabel={message('shell.workflowTabs.closeOthers')}
+        <ProductConfirmationDialog
+          title={message('shell.close.othersTitle', { count: pending.length })}
+          consequence={message('shell.close.othersConsequence', { count: pending.filter(isDirty).length })}
           modalId="close-other-tabs"
           testId="close-other-tabs-dialog"
-          closeLabel={message('shell.close.cancel')}
-          onRequestClose={() => setPendingCloseOthers(undefined)}
-        >
-          <div class="close-tab-confirm">
-            <p>{message('shell.close.othersConfirm')}</p>
-            <ul><For each={pending.filter(isDirty)}>{(tab) => <li>{tab.title}</li>}</For></ul>
-            <ProductActionFooter>
-              <ProductButton type="button" autofocus onClick={() => setPendingCloseOthers(undefined)}>{message('shell.action.cancel')}</ProductButton>
-              <SharedProductButton intent="remove" fill="solid" onClick={confirmCloseOthers}>{message('shell.close.discard')}</SharedProductButton>
-            </ProductActionFooter>
-          </div>
-        </ModalSurface>
+          items={pending.filter(isDirty).map((tab) => ({ name: tab.title, outcome: message('shell.close.unsaved') }))}
+          intent="remove"
+          actionLabel={message('shell.close.discard')}
+          onCancel={() => setPendingCloseOthers(undefined)}
+          onConfirm={confirmCloseOthers}
+        />
       )}</Show>
       <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
       <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}
@@ -3215,32 +3245,6 @@ export function App(props: {
             </ModalSurface>
           )
         }}
-      </Show>
-
-      <Show when={engineGate()}>
-        {(sup) => (
-          <div class="engine-banner" data-testid="engine-banner" data-state={sup().state} role="status" aria-live="polite">
-            <Show when={sup().state === 'starting'}>
-              <span class="engine-spinner" />
-            </Show>
-            <span class="engine-banner-text">
-              {sup().state === 'starting'
-                ? message('shell.engine.starting')
-                : sup().state === 'failed'
-                  ? message('shell.engine.failed')
-                  : message('shell.engine.stopped')}
-              {sup().detail ? ` - ${sup().detail}` : ''}
-            </span>
-            <Show when={sup().state === 'failed' || sup().state === 'stopped'}>
-              <ProductButton size="compact"
-                data-testid="engine-restart"
-                onClick={() => void app.restartEngine(activeBackend())}
-              >
-                {message('shell.engine.restart')}
-              </ProductButton>
-            </Show>
-          </div>
-        )}
       </Show>
 
       <Show when={problems().find((problem) => problem.code === 'workspace.recovery.storageFailed')} keyed>

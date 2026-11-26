@@ -6,6 +6,8 @@
 .status-connection-dot { width: var(--dinkster-space-8); height: var(--dinkster-space-8); border-radius: 50%; background: var(--dinkster-success-foreground); }
 .status-connection:not([data-state='connected'], [data-state='no-engine']) { color: var(--dinkster-warning-foreground); }
 .status-connection:not([data-state='connected'], [data-state='no-engine']) .status-connection-dot { background: var(--dinkster-warning-foreground); }
+.status-connection[data-state='failed'] { color: var(--dinkster-danger-foreground); }
+.status-connection[data-state='failed'] .status-connection-dot { background: var(--dinkster-danger-foreground); }
 .status-connection[data-state='no-engine'] .status-connection-dot { background: var(--dinkster-text-muted); }
 .status-problems[data-severity='error'] { color: var(--dinkster-danger-foreground); }
 .status-problems[data-severity='warning'] { color: var(--dinkster-warning-foreground); }

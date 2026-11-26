@@ -87,10 +87,10 @@ describe('registered widget disposition inventory', () => {
     expect(drawn({ prefix: 'renders/portrait' }).parts).toEqual([{ text: t('saveTargetWidget.projectDefault'), look: 'resolved' }, { text: '/renders/portrait' }])
     // An empty target reads as Project default with the declared name.
     expect(drawn(null, facts).run).toBe('output/ComfyUI')
-    // A project with no default output mount: Project default says so, and a missing mount has nothing after it.
+    // A missing mount still names the unavailable destination instead of suggesting a root path.
     const noDefault = { SAVE_TARGET: { ready: ['output', 'archive'] } }
     expect(drawn({ prefix: 'renders/portrait' }, noDefault).parts).toEqual([{ text: t('saveTargetWidget.noOutputMount'), look: 'resolved' }, { text: '/renders/portrait' }])
-    expect(drawn({ mount: 'usb1', prefix: 'renders/portrait' }, noDefault).parts).toEqual([{ text: 'usb1', look: 'gone' }, { text: '/renders/portrait' }])
+    expect(drawn({ mount: 'usb1', prefix: 'renders/portrait' }, noDefault).parts).toEqual([{ text: 'usb1', look: 'gone' }, { text: t('saveTargetWidget.noOutputMount'), look: 'resolved' }, { text: '/renders/portrait' }])
   })
 
   it('validates list elements and keeps display and submission defaults aligned', () => {

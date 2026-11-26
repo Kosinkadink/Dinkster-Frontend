@@ -138,7 +138,7 @@ export function wireLooksGallery(
     faces: {
       name: 'Faces',
       nodes: { find: { type: findFace, x: 190, y: 30, width: SOURCE_WIDTH } },
-      boundary: { inputs: [], outputs: [{ id: 'face', displayName: 'face', binds: { kind: 'port', node: 'find', port: 'IMAGE' } }] },
+      boundary: { body: [{ kind: 'output', id: 'face', displayName: 'face', binds: { kind: 'port', node: 'find', port: 'IMAGE' } }] },
       panels: { inputs: 0, outputs: 450 },
     },
   }

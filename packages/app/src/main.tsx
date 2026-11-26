@@ -10,7 +10,7 @@ import { DesktopSetup } from './DesktopSetup.js'
 import { desktopBridge, type DesktopLifecycleStatus } from './desktop-bridge.js'
 import { bindLocale, bindPersistedLocale } from './locale.js'
 import { bindTheme, bindPersistedTheme } from './theme.js'
-import { initializeProjectScope, projectIdFromSearch } from './projects.js'
+import { activeProjectId, initializeProjectScope, projectIdFromSearch } from './projects.js'
 import type { CanvasTestHandles } from './test-bridge.js'
 import './fonts.css'
 import './styles.css'
@@ -152,11 +152,15 @@ async function startEditor(
   }
   // Restored tabs draw from the kept node tables on their first frame. The
   // browser store is a cache, so a slow one only costs that, never startup.
-  await Promise.race([app.loadKeptSchemas(), new Promise((resolve) => setTimeout(resolve, 1000))])
+  const [, initialProjectName] = await Promise.all([
+    Promise.race([app.loadKeptSchemas(), new Promise((resolve) => setTimeout(resolve, 1000))]),
+    app.connection.getProject(activeProjectId()).then((project) => project.name, () => undefined),
+  ])
   const started = app.start()
 
   const disposeRender = render(() => <App
     app={app}
+    initialProjectName={initialProjectName}
     {...(desktopWindow ? { desktopWindow } : {})}
     {...(shell ? { shell } : {})}
   />, host)

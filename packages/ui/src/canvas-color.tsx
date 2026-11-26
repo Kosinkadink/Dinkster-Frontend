@@ -16,6 +16,7 @@ import {
   type CanvasBox,
   type CanvasPanelPlace,
   type CanvasSideLayout,
+  type CanvasSideRepresentationProps,
   type CanvasSideSize,
 } from './canvas-field.js'
 
@@ -519,6 +520,7 @@ export function CanvasColorSide(props: {
   defaultColor?: string
   onDefault?: () => void
   help?: string
+  representation?: CanvasSideRepresentationProps
   /** Lines about the picker control the keyboard is on. */
   children?: JSX.Element
 }) {
@@ -526,6 +528,7 @@ export function CanvasColorSide(props: {
     <CanvasSidePart
       {...(props.problem === undefined ? {} : { problem: props.problem })}
       {...(props.problemId === undefined ? {} : { problemId: props.problemId })}
+      {...(props.representation === undefined ? {} : { representation: props.representation })}
       facts={[
         ...(props.saved === undefined
           ? []
@@ -602,6 +605,7 @@ export function canvasColorLayout(
   panelHeight: number,
   side: CanvasSideSize,
   scale: number,
+  edges?: { readonly left: boolean; readonly right: boolean },
 ): CanvasSideLayout & {
   readonly panelPlace: CanvasPanelPlace
   readonly panelMaxHeight?: number
@@ -623,6 +627,6 @@ export function canvasColorLayout(
   return {
     panelPlace,
     ...(shown < panel ? { panelMaxHeight: shown / zoom } : {}),
-    ...canvasSideLayout(column, bounds, side, scale, Infinity, Infinity),
+    ...canvasSideLayout(column, bounds, side, scale, Infinity, Infinity, edges),
   }
 }

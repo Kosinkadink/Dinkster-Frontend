@@ -187,7 +187,7 @@ test('the split survives reload and repairs itself when a tab closes', async ({ 
   // Closing the second group's only tab needs no split-aware code: the
   // read-boundary repair prunes the emptied group and collapses the split.
   await tabIn(groupById(page, 'group-2'), 'Subgraph').click({ button: 'middle' })
-  await page.getByRole('dialog', { name: 'Close "Subgraph" and discard unsaved changes?' })
+  await page.getByRole('dialog', { name: 'Close "Subgraph"?' })
     .getByRole('button', { name: 'Close and discard' }).click()
   await expect(groups(page)).toHaveCount(1)
   expect(await stripTitles(groups(page))).toEqual(['Basic'])

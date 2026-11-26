@@ -246,7 +246,7 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
 
   const navigator = page.getByRole('listbox', { name: 'Canvas scene navigator' })
   await navigator.focus()
-  await expect(navigator.getByRole('option').filter({ hasText: 'Node: Math Expression' }))
+  await expect(navigator.getByRole('option', { name: /^Node: Math Expression/ }))
     .toContainText('live result estimated locally: float: 3.5, int: 3, boolean: true')
   await page.keyboard.press('Escape')
 

@@ -57,6 +57,8 @@ function fakeCtx(charWidth = 6) {
     fillRect(x: number, y: number, width: number, height: number) {
       fills.push({ x, y, width, height, fillStyle: String(this.fillStyle) })
     },
+    strokeRect: () => {},
+    setLineDash: () => {},
     measureText: (t: string) => ({ width: t.length * charWidth }),
     drawImage: (image: unknown, x: number, y: number, width: number, height: number) => { images.push({ image, x, y, width, height }) },
     fillText(text: string, x: number, y: number) {
@@ -125,6 +127,50 @@ const paint = (value: unknown, width: number): string[] => {
   createRegistryPainter(registry)(args)
   return texts
 }
+
+it('keeps a folded Step line inside the plot for out-of-range points and values', () => {
+  class RecordedPath {
+    readonly points: number[][] = []
+    moveTo(x: number, y: number) { this.points.push([x, y]) }
+    lineTo(x: number, y: number) { this.points.push([x, y]) }
+  }
+  const original = globalThis.Path2D
+  vi.stubGlobal('Path2D', RecordedPath)
+  try {
+    const recorded = fakeCtx()
+    let line: RecordedPath | undefined
+    Object.assign(recorded.ctx, {
+      strokeRect: () => {}, setLineDash: () => {},
+      stroke: (path?: RecordedPath) => { if (path?.points.length) line = path },
+    })
+    const view: WidgetView = {
+      ...stubView, id: 'core.curve', kind: 'CURVE',
+      drawCompact: (scene) => {
+        scene.rect(0, 0, 1, 2, {
+          role: 'curveSketch', interpolation: 'step', samples: [0.2, 1], held: [-1, 1.5],
+          points: [[-1, 0.2], [0.25, 2], [0.75, -0.5], [1, 2], [1.5, 0.4]],
+        })
+        scene.text(1, 0, '5 points', { role: 'widgetValue', align: 'right', width: 1 })
+      },
+    }
+    const curveRegistry = { ...registry, kind: () => stubKind, viewsFor: () => [view] }
+    createRegistryPainter(curveRegistry)({
+      ctx: recorded.ctx, row: { ...rowWith({}), viewId: 'core.curve', height: 52, spec: { widgetType: 'CURVE', options: {} } },
+      value: {}, x: 0, y: 0, width: 300, rowHeight: 26, connected: false,
+      tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' },
+    })
+    const square = recorded.fills.find((fill) => fill.width === fill.height)!
+    const inset = canvasPaintTokens.widget.curve.plotInset
+    const span = square.width - 2 * inset
+    const actual = line!.points.map(([x, y]) => [
+      (x! - square.x - inset) / span, 1 - (y! - square.y - inset) / span,
+    ])
+    const expected = [[0, 0.2], [0.25, 0.2], [0.25, 1], [0.75, 1], [0.75, 0], [1, 0], [1, 1], [1, 1]]
+    expect(actual).toHaveLength(expected.length)
+    actual.forEach((point, index) => point.forEach((coordinate, axis) => expect(coordinate).toBeCloseTo(expected[index]![axis]!)))
+    expect(recorded.arcs).toEqual([])
+  } finally { vi.stubGlobal('Path2D', original) }
+})
 
 const paintString = (value: string, width: number): string[] => {
   return paintStringDetails(value, width).texts
@@ -346,6 +392,72 @@ describe('registry painter label/value split', () => {
     expect(painted.transforms[at + 1]).toEqual({ method: 'scale', x: 14 / 24, y: 14 / 24 })
   })
 
+  it('keeps the lock and promoted mark separate before a read-only field name', () => {
+    const painted = fakeCtx()
+    const row = { ...rowWith(5), label: 'Radius', readOnly: true as const, subgraphMark: { item: 'radius', label: 'Radius' } }
+    createRegistryPainter(registry)({
+      ctx: painted.ctx, row, value: 5, x: 10, y: 20, width: 200, rowHeight: 24, connected: false, tokens: defaultTokens,
+    })
+    const icons = painted.transforms.filter((call) => call.method === 'translate')
+    const name = painted.textCalls.find((call) => call.text === 'Radius')!
+    expect(icons).toHaveLength(2)
+    expect(icons[1]!.x - icons[0]!.x).toBe(18)
+    expect(name.x - icons[1]!.x).toBe(18)
+    expect(painted.texts).toContain('5')
+  })
+
+  it('keeps a wired file icon, lock and promoted mark separate before its name', () => {
+    const assetRegistry: WidgetRegistry = {
+      ...registry,
+      kind: () => ({ ...stubKind, type: 'ASSET' }),
+      viewsFor: () => [{ ...stubView, id: 'core.asset', kind: 'ASSET',
+        drawCompact: (scene) => scene.text(0, 0, 'frame.png', { role: 'widgetValue' }) }],
+    }
+    const painted = fakeCtx()
+    const row = { ...rowWith(null), viewId: 'core.asset', label: 'Image', readOnly: true as const,
+      subgraphMark: { item: 'image', label: 'Image' }, spec: { widgetType: 'ASSET', options: {} } }
+    createRegistryPainter(assetRegistry)({ ctx: painted.ctx, row, value: null,
+      companion: { value: { name: 'frame.png' }, state: 'expected' },
+      x: 10, y: 20, width: 480, rowHeight: 24, connected: true,
+      tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' },
+    })
+    const icons = painted.transforms.filter((call) => call.method === 'translate')
+    expect(icons[2]!.x).toBe(36)
+    expect(icons[3]!.x - icons[2]!.x).toBe(18)
+    expect(painted.textCalls.find((call) => call.text === 'Image')!.x - icons[3]!.x).toBe(18)
+    expect(painted.texts).toContain('frame.png')
+  })
+
+  it.each([false, true])('keeps folded curve marks beside the name, clear of the sketch (promoted %s)', (promoted) => {
+    const tokens = { ...defaultTokens, widgetRowLook: 'raised-editors' as const }
+    const curveRegistry: WidgetRegistry = {
+      ...registry,
+      kind: () => ({ ...stubKind, type: 'CURVE', defaultValue: () => ({ points: [] }) }),
+      viewsFor: () => [{ ...stubView, id: 'core.curve', kind: 'CURVE', drawCompact: () => {} }],
+    }
+    for (const value of [{ points: [] }, null]) {
+      const painted = fakeCtx()
+      const row = {
+        ...rowWith(value), label: 'Curve', viewId: 'core.curve', height: 52, readOnly: true as const,
+        spec: { widgetType: 'CURVE', options: {}, default: value },
+        ...(promoted ? { subgraphMark: { item: 'curve', label: 'Curve' } } : {}),
+      }
+      createRegistryPainter(curveRegistry)({
+        ctx: painted.ctx, row, value, x: 10, y: 20, width: 300, rowHeight: 24, connected: true, tokens,
+      })
+      const icons = painted.transforms.filter((call) => call.method === 'translate')
+      const lock = icons[1]!
+      const name = painted.textCalls.find((call) => call.text === 'Curve')!
+      expect(lock.x).toBe(36)
+      expect(lock.y + 7).toBe(20 + 24 / 2)
+      expect(name.x - lock.x).toBe(promoted ? 36 : 18)
+      if (promoted) {
+        const mark = subgraphMarkRect(row, 300, 24, tokens, false, false)
+        expect(icons[2]).toMatchObject({ x: 10 + mark.x, y: 20 + mark.y })
+      }
+    }
+  })
+
   it('paints an empty multiline placeholder in muted italic type', () => {
     const painted = paintMultilineDetails(76, 160, '')
     const placeholder = painted.textCalls.find((call) => call.text === 'text' && call.y > 24)!
@@ -388,6 +500,47 @@ describe('registry painter label/value split', () => {
     expect(fills[0]!.y).toBeCloseTo(5.8)
     expect(fills[0]!.x).toBeGreaterThanOrEqual(0)
     expect(fills[0]!.x + fills[0]!.width).toBeLessThanOrEqual(160)
+  })
+
+  it('aligns color squares beside different equal-length codes without changing label type', () => {
+    const colorView: WidgetView = {
+      ...stubView, id: 'core.color', kind: 'COLOR',
+      drawCompact: (scene, value) => {
+        scene.text(0, 0, 'Tint', { role: 'widgetLabel', width: 0.42 })
+        scene.text(1, 0, String(value), {
+          role: 'widgetValue', align: 'right', width: 0.58, swatch: value,
+        })
+      },
+    }
+    const colorRegistry: WidgetRegistry = {
+      ...registry,
+      kind: () => ({ ...stubKind, type: 'COLOR' }),
+      viewsFor: () => [colorView],
+    }
+    const paintColor = (value: string) => {
+      const painted = fakeCtx()
+      painted.ctx.font = `13px ${defaultTokens.fontFamily}`
+      painted.ctx.measureText = (text) => ({
+        width: [...text].reduce((width, char) => width + (painted.ctx.font.includes('Mono') ? 7 : char === 'f' ? 4 : 7), 0),
+      } as TextMetrics)
+      createRegistryPainter(colorRegistry)({
+        ctx: painted.ctx,
+        row: { ...rowWith(value), label: 'color', viewId: 'core.color', spec: { widgetType: 'COLOR', options: {} } },
+        value, x: 0, y: 0, width: 240, rowHeight: 24, connected: false, tokens: defaultTokens,
+      })
+      return painted
+    }
+    const white = paintColor('#ffffff')
+    const black = paintColor('#000000')
+    const whiteSquare = white.fills.find((fill) => fill.fillStyle === '#ffffff')!
+    const blackSquare = black.fills.find((fill) => fill.fillStyle === '#000000')!
+    expect(whiteSquare).toBeDefined()
+    expect(blackSquare).toBeDefined()
+    expect(whiteSquare.x).toBe(blackSquare.x)
+    expect(white.textCalls.find((call) => call.text === 'color')?.font).toBe(`13px ${defaultTokens.fontFamily}`)
+    expect(white.textCalls.find((call) => call.text === 'Tint')?.font).toBe(`13px ${defaultTokens.fontFamily}`)
+    expect(white.textCalls.some((call) => call.text === '#ffffff')).toBe(true)
+    expect(black.textCalls.some((call) => call.text === '#000000')).toBe(true)
   })
 
   it('a long label beside a short value renders in full at comfortable widths', () => {
@@ -490,7 +643,10 @@ describe('registry painter label/value split', () => {
     }
     const editorView: WidgetView = {
       ...stubView, id: 'core.load3d', kind: 'LOAD_3D',
-      drawCompact: (scene) => scene.text(1, 0, '3D viewport', { role: 'widgetValue', align: 'right', width: 1 }),
+      drawCompact: (scene) => scene.text(1, 0, '3D viewport', {
+        role: 'widgetValue', align: 'right', width: 1,
+        parts: [{ text: '3D viewport' }], shorter: ['3D'],
+      }),
     }
     const editorRegistry: WidgetRegistry = {
       ...registry,
@@ -526,8 +682,47 @@ describe('registry painter label/value split', () => {
     const withPicture = paintSummary({ text: 'No model', thumbnail })
     const call = withPicture.textCalls.find((text) => text.text.startsWith('No'))!
     const { size, gap } = canvasPaintTokens.widget.valueThumbnail
-    expect(withPicture.images).toEqual([{ image: thumbnail, x: Math.round(call.x - call.text.length * 6 - gap - size), y: Math.round(call.y - size / 2), width: size, height: size }])
+    expect(withPicture.images).toEqual([{ image: thumbnail, x: Math.round(call.x - call.text.length * 6 - gap - size), y: (24 - size) / 2, width: size, height: size }])
     expect(paintSummary({ text: 'No model', placeholder: true }).images).toEqual([])
+  })
+
+  it.each([200, 360])('keeps a Curve header fixed when folded and puts its picture before the count at width %s', (width) => {
+    const curveKind: WidgetKind = { ...stubKind, type: 'CURVE', defaultValue: () => ({ points: [] }), defaultView: () => 'core.curve' }
+    const curveView: WidgetView = {
+      ...stubView, id: 'core.curve', kind: 'CURVE',
+      drawCompact: (scene) => {
+        scene.rect(0, 0, 1, 2, { role: 'curveSketch', samples: [], points: [], held: [] })
+        scene.text(1, 0, '3 points', { role: 'widgetValue', align: 'right', width: 1 })
+        scene.text(0, 1, 'Monotone cubic', { role: 'curveJoin' })
+      },
+    }
+    const painter = createRegistryPainter({ ...registry,
+      kind: (type) => type === 'CURVE' ? curveKind : undefined,
+      viewsFor: (type) => type === 'CURVE' ? [curveView] : [],
+    })
+    const draw = (unfolded: boolean) => {
+      const painted = fakeCtx()
+      painter({ ctx: painted.ctx, row: { ...rowWith(null), label: 'Curve', viewId: 'core.curve',
+        height: unfolded ? 24 : 48, rows: unfolded ? 1 : 2, ...(unfolded ? { unfolded: true as const } : {}),
+        spec: { widgetType: 'CURVE', options: {} } },
+      value: { points: [] }, x: 37, y: 61, width, rowHeight: 24, connected: false,
+      tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' } })
+      return painted
+    }
+    const folded = draw(false)
+    const open = draw(true)
+    const name = folded.textCalls.find((call) => call.text === 'Curve')!
+    const header = open.textCalls.find((call) => call.text === 'Curve')!
+    expect([name.x, name.y]).toEqual([header.x, header.y])
+    expect(folded.transforms[0]).toEqual(open.transforms[0])
+    const picture = folded.fills.find((fill) => fill.width === fill.height && fill.width > 16)!
+    const count = folded.textCalls.find((call) => call.text === '3 points')!
+    expect(picture.x).toBeGreaterThan(name.x + name.text.length * 6)
+    expect(picture.x + picture.width).toBeLessThan(count.x - count.text.length * 6)
+    const interpolation = folded.textCalls.find((call) => call.align === 'left' && call.y > name.y)!
+    expect(interpolation.x).toBe(name.x)
+    expect(interpolation.y).toBeGreaterThan(name.y)
+    expect(interpolation.x + interpolation.text.length * 6).toBeLessThan(picture.x)
   })
 
   it('measures a custom BOOLEAN label from the text the view paints', () => {
@@ -610,7 +805,7 @@ describe('registry painter label/value split', () => {
       const painted = paintMultilineDetails(height, width)
       expect(painted.texts).toEqual(['text', ...['one', 'two', 'three', 'four', 'five'].slice(0, textRows)])
       expect(painted.fills).toHaveLength(rectRows)
-      expect(painted.textCalls[0]).toMatchObject({ text: 'text', y: 10, align: 'left' })
+      expect(painted.textCalls[0]).toMatchObject({ text: 'text', align: 'left' })
       expect(painted.textCalls.slice(1).every((call) => call.x >= 0 && call.x <= width)).toBe(true)
       expect(painted.clips.every((clip) => clip.y >= 0 && clip.y + clip.height <= height)).toBe(true)
       if (height === 88) {

@@ -53,5 +53,6 @@ export function canvasMeasures(registry: () => WidgetRegistry, uploadsRefused?: 
     const rows = view.measure(spec).rows
     return viewId === 'core.audioRecord' && uploadsRefused?.() === true ? { viewId, rows, editorControls: noUploadsHeight() } : { viewId, rows }
   }
+  widgetMeasure.representations = (spec) => registry().kind(spec.widgetType)?.representations?.(spec)
   return { measure, widgetMeasure }
 }

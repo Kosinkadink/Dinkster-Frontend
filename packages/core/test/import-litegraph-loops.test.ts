@@ -12,6 +12,7 @@ import type {
   TypeExpr,
 } from '../src/schema/model.js'
 import { historicalSchemas } from './fixtures/historical-schemas.js'
+import { boundaryItems } from '../src/format/document.js'
 
 const nativeListSchemas = new Map<string, NodeSchema>([
   [
@@ -712,12 +713,12 @@ describe('explicit imported list utilities', () => {
         elementPorts: ['a', 'b'],
       })
       expect(
-        document.graphs['list-map-n4']!.boundary!.inputs.every(
+        boundaryItems(document.graphs['list-map-n4']!.boundary, 'inputs').every(
           (input) => !input.promoted,
         ),
       ).toBe(true)
       expect(
-        document.graphs['list-map-n3']!.boundary!.inputs.find(
+        boundaryItems(document.graphs['list-map-n3']!.boundary, 'inputs').find(
           (input) => input.id === 'b',
         )?.promoted,
       ).toBe(true)

@@ -315,8 +315,10 @@ test('drilled group-member MatchType resolves each occurrence independently and 
           },
         },
           links: {}, nets: {}, reroutes: {}, boundary: {
-            inputs: [{ id: 'in', binds: { kind: 'port', node: 'match', port: 'items.value1' } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'match', port: 'result' } }],
+            body: [
+              { kind: 'input', id: 'in', binds: { kind: 'port', node: 'match', port: 'items.value1' } },
+              { kind: 'output', id: 'out', binds: { kind: 'port', node: 'match', port: 'result' } },
+            ],
           }, nextOrdinal: 2 },
       },
       view: { graphs: {

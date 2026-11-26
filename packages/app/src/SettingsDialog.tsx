@@ -22,7 +22,7 @@ import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { LibraryStorageSettings } from './LibraryStorageSettings.js'
-import { ProductButton } from '@dinkster/ui'
+import { ProductButton, ProductShortcut } from '@dinkster/ui'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import type { Backend } from './app-state.js'
@@ -316,7 +316,7 @@ export function SettingsDialog(props: {
         aria-invalid={conflict() ? 'true' : undefined}
         aria-describedby={conflict() ? ids.message : undefined}
         onClick={() => setCapture({ command: command.id, pending: '' })}
-      >{captureText()}</button>
+      ><Show when={capture()?.command === command.id ? capture()?.pending : combo()} fallback={captureText()}>{(keys) => <ProductShortcut keys={keys()} />}</Show></button>
     </ProductField>
   }
 
