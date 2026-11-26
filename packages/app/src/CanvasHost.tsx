@@ -13,7 +13,6 @@ import type { ExecutionLogEntry, ExecutionState, LookupClient, PreviewData } fro
 import {
   buildScene,
   boundarySceneId,
-  CANVAS_DETAIL_MIN_SCALE,
   CanvasRenderer,
   canvasColorsForTheme,
   canvasTypePaintForTheme,
@@ -1384,6 +1383,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const backendsTick = useSignal(props.app.backendsTick)
   const tabTargets = useSignal(props.app.tabTargets)
   const settingsTick = useSignal(props.app.settings.changed)
+  const detailMinScale = (): number => (settingsTick(), props.app.settings.get<number>('canvas.detailMinPercent') / 100)
   const extensionRevision = useSignal(props.app.extensionRevision)
   const selectionScopesChanged = useSignal(props.app.selectionScopesChanged)
   const comparisonCompilesChanged = useSignal(props.app.comparisonCompilesChanged)
@@ -1637,7 +1637,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [outputViewerKey, setOutputViewerKey] = createSolidSignal<string>()
   const visibleMediaPreviewIds = (): readonly string[] => {
     const viewport = editorViewport()
-    if (viewport.scale < CANVAS_DETAIL_MIN_SCALE) return []
+    if (viewport.scale < detailMinScale()) return []
     const canvas = canvasClientRect()
     const active = activeCanvasMedia()
     const selected = selectedNodeIds()
@@ -1650,7 +1650,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
   const visibleOutputPreviewKeys = (): readonly string[] => {
     const viewport = editorViewport()
-    if (viewport.scale < CANVAS_DETAIL_MIN_SCALE) return []
+    if (viewport.scale < detailMinScale()) return []
     const canvas = canvasClientRect()
     const active = activeCanvasMedia()
     const selected = selectedNodeIds()
@@ -2835,6 +2835,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     createEffect(() => {
       settingsTick()
       renderer.setGridVisible(props.app.settings.get('canvas.grid.visible'))
+      renderer.setDetailMinScale(detailMinScale())
       if (!props.app.settings.get<boolean>('canvas.smoothWheelZoom')) renderer.cancelViewportAnimation()
       repaintMinimap?.()
     })
@@ -4509,7 +4510,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       place: (nodeId) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
-        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport(), canvasEl.clientWidth)
+        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport(), canvasEl.clientWidth, detailMinScale())
       },
       lines: (nodeId) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)

@@ -7,7 +7,7 @@ import { canvasSemanticTokens, DIM_FILL_SHARE, semanticTokensForTheme, canonical
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
-  detailMinScale: 0.5,
+  detailMinScale: 0.3,
   imageOpacityScale: IMAGE_OPACITY_MAX,
   editor: {
     imageCompare: { initialSplit: 50, percentScale: 100, dividerColor: '#ffffff', dividerWidth: 2 },
@@ -747,9 +747,9 @@ export const CANVAS_DETAIL_MIN_SCALE = canvasPaintTokens.detailMinScale
 /** Typed presentation density derived from the two shared Canvas thresholds. */
 export type CanvasDetailLevel = 'overview' | 'content' | 'controls'
 
-export function canvasDetailLevel(scale: number, mediaControlMinScale: number): CanvasDetailLevel {
+export function canvasDetailLevel(scale: number, mediaControlMinScale: number, detailMinScale: number = CANVAS_DETAIL_MIN_SCALE): CanvasDetailLevel {
   if (scale >= mediaControlMinScale) return 'controls'
-  return scale >= CANVAS_DETAIL_MIN_SCALE ? 'content' : 'overview'
+  return scale >= detailMinScale ? 'content' : 'overview'
 }
 
 export type NodeLook = 'original' | 'flat-title'
@@ -796,6 +796,7 @@ export interface DesignTokens {
   readonly previewCaptionHeight: number
   readonly previewGap: number
   readonly mediaTransportHeight: number
+  readonly detailMinScale: number
   readonly mediaControlMinScale: number
   readonly nodeMinWidth: number
   readonly nodeMaxAutoWidth: number
@@ -1009,6 +1010,7 @@ export const defaultTokens: DesignTokens = {
   previewCaptionHeight: 22,
   previewGap: 6,
   mediaTransportHeight: 64,
+  detailMinScale: CANVAS_DETAIL_MIN_SCALE,
   mediaControlMinScale: 0.75,
   nodeMinWidth: 140,
   nodeMaxAutoWidth: 420,

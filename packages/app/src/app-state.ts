@@ -3067,6 +3067,16 @@ export class AppState {
     ;(this.workspaceEvents as WorkspaceEventChannel & { unref?: () => void } | undefined)?.unref?.()
     this.workspaceEvents?.addEventListener('message', this.receiveWorkspaceEvent)
     this.settings.register({ id: 'canvas.grid.visible', get name() { return t('settings.canvas.grid.visible') }, type: 'boolean', defaultValue: true })
+    this.settings.register({
+      id: 'canvas.detailMinPercent',
+      get name() { return t('settings.canvas.detailMinPercent.name') },
+      get description() { return t('settings.canvas.detailMinPercent.description') },
+      type: 'number',
+      defaultValue: defaultTokens.detailMinScale * 100,
+      min: 10,
+      max: 75,
+      step: 1,
+    })
     registerLocaleSetting(this.settings)
     registerThemeSetting(this.settings)
     this.settings.register({

@@ -1436,6 +1436,8 @@
   "outputFile.writtenPath": "写入路径",
   "outputFile.writtenTo": "已写入 {path}",
   "settings.canvas.bookmarkTransitions": "书签切换动画",
+  "settings.canvas.detailMinPercent.name": "低于此缩放比例时隐藏节点细节",
+  "settings.canvas.detailMinPercent.description": "缩放百分比 (10-75%)。在此比例及以上显示细节。",
   "settings.canvas.grid.visible": "显示点网格",
   "settings.canvas.minimap.bookmarks": "在迷你图上显示书签编号",
   "settings.canvas.minimap.errors": "小地图：错误",
