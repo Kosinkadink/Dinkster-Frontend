@@ -220,7 +220,7 @@ export function rowStateExamples(
     },
     {
       id: 'skipped-selected',
-      caption: 'A skipped node, selected. The usual selection outline stays over the dotted outline and the quiet rows.',
+      caption: 'A skipped node, selected. The selected header stays visible with the dotted execution outline and the quiet rows.',
       scene: feed(),
       states: skipped,
       overlay: { selection: new Set(['measure']) },
