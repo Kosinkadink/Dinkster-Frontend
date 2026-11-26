@@ -404,6 +404,33 @@ describe('each step', () => {
     expect((await press('dev.buttons.field_steps', 'increment', {})).node.controllers).toEqual({ seed: 'increment' })
   })
 
+  it('refuses supplied nonnumeric Randomize bounds without committing earlier writes', async () => {
+    for (const type of ['INT', 'FLOAT']) {
+      const cases = ['"not a number"', 'True', 'None'].flatMap((formula) => [
+        { low: { formula }, high: { formula: '20' } },
+        { low: { formula: '10' }, high: { formula } },
+      ])
+      addSchema(`test.random_bounds.${type}`, [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', types: [type] }, default: 5, widget: { type: 'NUMBER', min: 0, max: 100, step: 1 } },
+        { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+        ...cases.map((bounds, index) => ({ kind: 'button', id: `random${index}`, label: 'Random', steps: [
+          { step: 'set', field: 'marker', value: { value: 19 } },
+          { step: 'randomize', field: 'value', ...bounds },
+        ] })),
+      ])
+      const doc = documentOf({ n1: { type: `test.random_bounds.${type}`, values: { value: 5, marker: 41 } } })
+      for (const [index] of cases.entries()) {
+        let draws = 0
+        const session = sessionOf(doc)
+        const outcome = await runPress(session, at(`random${index}`), hostOf({ random: () => { draws++; return 0.25 } }))
+        expect(outcome.kind, `${type} ${index}`).toBe('failed')
+        expect(session.doc).toEqual(doc)
+        expect(session.canUndo).toBe(false)
+        expect(draws).toBe(0)
+      }
+    }
+  })
+
   it('Randomize picks a whole seed in the field limits, then fixes it', async () => {
     // Draws of 0.25, 0 and 0 make exactly a quarter of the 2**51 + 1 allowed values.
     const draws = [0.25, 0, 0]

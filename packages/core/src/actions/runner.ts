@@ -1161,6 +1161,10 @@ class Press {
     const widget = field.spec.widget
     const low = step.low === undefined ? undefined : await this.value(step.low)
     const high = step.high === undefined ? undefined : await this.value(step.high)
+    if ((step.low !== undefined && typeof low !== 'bigint' && !(typeof low === 'number' && Number.isFinite(low)))
+      || (step.high !== undefined && typeof high !== 'bigint' && !(typeof high === 'number' && Number.isFinite(high)))) {
+      return refuse(`Randomize needs a lowest and a highest value for ${step.field}.`)
+    }
     const random = (): number => {
       const drawn = this.host.random()
       return drawn >= 0 && drawn < 1 ? drawn : 0
