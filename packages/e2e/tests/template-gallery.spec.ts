@@ -4,6 +4,71 @@ import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { expect, nativeTest as test } from './fixtures.js'
 
+test('reviews template models without opening or submitting a workflow and revokes on feature disable', async ({ page }) => {
+  const plans: unknown[] = []
+  const starts: string[] = []
+  await page.routeWebSocket('**/api/events*', () => {})
+  await page.route('/api/settings', (route) => route.fulfill({ json: {
+    features: { templates: { enabled: true } }, categories: { granted: [], available: [] }, settings: {},
+  } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'gallery-test', schemaWire: 2 }, packs: {}, nodes: {},
+  } }))
+  await page.route('/api/templates*', (route) => route.fulfill({ json: { templates: [{
+    pack: 'demo', id: 'models', name: 'Image starter', digest: 'sha256:test', models: ['missing.safetensors'],
+  }] } }))
+  await page.route('/api/models/settings*', (route) => route.fulfill({ json: {
+    settings: { version: 1, locations: [{ id: 'models', path: '/models', mode: 'readwrite', visibility: 'always-on' }], downloadLocation: 'models' },
+    locations: [{ id: 'models', path: '/models', mode: 'readwrite', visibility: 'always-on', mounts: ['models'], enabled: true, active: true }],
+    revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+  } }))
+  await page.route('/api/assets/guess*', (route) => route.fulfill({ json: { matches: [] } }))
+  await page.route('**/index/templates*', (route) => route.fulfill({ json: { catalogVersion: 1, templates: [] } }))
+  await page.route('/api/packs/demo/templates/models', (route) => route.fulfill({ json: {
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'review-only', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'Models', nodes: {
+      loader: { id: 'loader', type: 'ReviewLoader', values: { model: 'missing.safetensors' } },
+    }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: { g0: { nodes: {} } } },
+  } }))
+  await page.route('/api/models/presence', (route) => {
+    const { models } = route.request().postDataJSON() as { models: Array<{ name: string; kind: string }> }
+    return route.fulfill({ json: { models: models.map((model) => ({ ...model, status: 'missing', plannable: true })) } })
+  })
+  await page.route('/api/models/downloads?*', (route) => route.fulfill({ json: { instance: 'test', jobs: [] } }))
+  await page.route('/api/models/downloads/plan*', (route) => {
+    plans.push(route.request().postDataJSON())
+    return route.fulfill({ json: { status: 'picker-required', sources: [] } })
+  })
+  await page.route('/api/models/downloads/start*', (route) => { starts.push(route.request().url()); return route.abort() })
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'start from a template' })).toBeVisible()
+  await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
+    type: 'ReviewLoader', displayName: 'Load model', category: 'test', source: 'v3', isOutputNode: false,
+    body: [{ kind: 'input', id: 'model', optional: false, type: { kind: 'concrete', name: 'ASSET' },
+      widget: { widgetType: 'ASSET', kind: 'model/vae', options: {} } }],
+  }]))
+  await page.getByRole('button', { name: 'start from a template' }).click()
+  const count = await page.evaluate(() => window.__dinksterTest!.app.tabs.get().length)
+  await page.getByRole('button', { name: 'Download 1 model', exact: true }).click()
+  const dialog = page.getByTestId('asset-consent-dialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('missing.safetensors')
+  await expect(dialog.getByRole('button', { name: 'Run once', exact: true })).toHaveCount(0)
+  expect(plans).toEqual([])
+  expect(starts).toEqual([])
+  await captureProof(page, 'template-download-review.png')
+  await dialog.getByRole('button', { name: 'Review source', exact: true }).click()
+  await expect.poll(() => plans).toEqual([{ name: 'missing.safetensors', kind: 'model/vae', project: 'default', scope: 'local' }])
+  expect(await page.evaluate(() => window.__dinksterTest!.app.tabs.get().length)).toBe(count)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
+  await page.evaluate(() => {
+    const backend = window.__dinksterTest!.app.backends.get().find((item) => item.protocol === 'dinkster')!
+    ;(backend as unknown as { templatesEnabled: { set(enabled: boolean): void } }).templatesEnabled.set(false)
+  })
+  await expect(dialog).toBeHidden()
+  expect(starts).toEqual([])
+})
+
 const proofDir = process.env['DINKSTER_TEMPLATE_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
 const captureProof = async (page: import('@playwright/test').Page, name: string): Promise<void> => {

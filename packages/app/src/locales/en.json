@@ -1482,6 +1482,7 @@
   "templatesPage.openStorage": "Open Storage",
   "templatesPage.pack": "Pack",
   "templatesPage.result": "Result",
+  "templatesPage.reviewError": "Could not review models for {name}.",
   "templatesPage.search": "Search templates",
   "templatesPage.title": "Templates",
   "templatesPage.use": "Use template",

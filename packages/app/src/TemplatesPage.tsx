@@ -10,8 +10,13 @@ import {
 } from '@dinkster/ui'
 import type { AppState, Backend } from './app-state.js'
 import { formatByteSize, normalizeTemplateSearch, templatesSource, type TemplateCollectionRef } from './collections.js'
+import { installAssetConsent } from './dialog-requests.js'
+import { lookupAnswersOf } from './lookup-demand.js'
 import { useAppMessage } from './locale.js'
+import { activeProjectId } from './projects.js'
 import { useSignal } from './solid-adapter.js'
+import { RemoteTemplateCatalog } from './template-catalog.js'
+import { workflowModelOccurrences } from './workflow-asset-locations.js'
 
 const makes = ['image', 'video', 'audio', '3d', 'tool'] as const
 
@@ -23,7 +28,6 @@ export function TemplatesPage(props: {
   readonly onOpen: (entry: CollectionEntry) => Promise<boolean>
   readonly onBlank: () => void
   readonly onOpenStorage: () => void
-  readonly onDownload?: (entry: CollectionEntry) => void
 }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
@@ -160,7 +164,58 @@ export function TemplatesPage(props: {
     return source === undefined ? undefined : props.drawing(source)
   }
   let live = true
-  onCleanup(() => { live = false })
+  let review: AbortController | undefined
+  let reviewCurrent = () => true
+  onCleanup(() => { live = false; review?.abort() })
+  createEffect(() => {
+    backendTick()
+    settingsTick()
+    if (!available() || !reviewCurrent()) review?.abort()
+  })
+  const download = async (entry: CollectionEntry): Promise<void> => {
+    const owner = backend()
+    const registry = owner?.registry.get()
+    if (opening() || !owner || !registry || entry.owner !== owner.id || !available()) return
+    review?.abort()
+    const controller = new AbortController()
+    review = controller
+    const previousConsent = props.app.assetConsent.get()
+    const project = activeProjectId()
+    const current = () => live && !controller.signal.aborted && backend() === owner && available() &&
+      owner.registry.get() === registry && activeProjectId() === project
+    reviewCurrent = current
+    setOpening(true)
+    setError('')
+    setLoadFailed(false)
+    try {
+      const source = ref(entry)
+      const document = source.kind === 'remote'
+        ? await new RemoteTemplateCatalog(props.app.settings.get<string>('templates.registryUrl')).fetchBody(source.template)
+        : await owner.connection.fetchTemplateBody(source.pack, source.id)
+      if (!current()) return
+      if (!document) throw new Error('Template unavailable')
+      const requirements = [...new Map(workflowModelOccurrences(document, registry.resolve, lookupAnswersOf(owner.lookups))
+        .filter((model) => model.valid).map(({ name, kind }) => [JSON.stringify([name, kind]), { name, kind }])).values()]
+      if (requirements.length === 0 || missing(entry).some((model) => !requirements.some((item) => item.name === model.name))) {
+        throw new Error('Template has unresolved model requirements')
+      }
+      const presence = await owner.connection.checkModelPresence(requirements, controller.signal)
+      if (!current() || props.app.assetConsent.get() !== previousConsent) return
+      if (presence.every((model) => model.status === 'local')) {
+        setRefresh((value) => value + 1)
+        return
+      }
+      installAssetConsent({
+        models: presence.filter((model) => model.status !== 'local').map(({ name, kind }) => ({ name, kind })),
+        slot: props.app.assetConsent, signal: controller.signal, beforeRetry: current,
+        modelDownloads: { connection: owner.connection, providerConnection: owner.connection, backendUrl: owner.baseUrl, project },
+      })
+    } catch {
+      if (current()) setError(message('templatesPage.reviewError', { name: entry.title }))
+    } finally {
+      if (live) setOpening(false)
+    }
+  }
   const open = async (id: string): Promise<void> => {
     const entry = entries().find((candidate) => candidate.id === id)
     const owner = backend()
@@ -231,7 +286,7 @@ export function TemplatesPage(props: {
             <ProductButton fill="solid" pending={opening()} onClick={() => { void open(entry().id) }}>{message('templatesPage.use')}</ProductButton>
             <Show when={missing(entry()).length > 0}>
               <Show when={noFolders()} fallback={
-                <ProductButton disabled={opening() || noFolders() === undefined || props.onDownload === undefined} onClick={() => props.onDownload?.(entry())}>
+                <ProductButton disabled={opening() || noFolders() === undefined} onClick={() => { void download(entry()) }}>
                   {message('templatesPage.downloadCount', { count: missing(entry()).length })}
                   <Show when={amount(entry())}>{(size) => <span class="dinkster-template-fact-detail">{size()}</span>}</Show>
                 </ProductButton>

@@ -3,7 +3,7 @@
 import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DINKSTER_SCHEMA_WIRE_VERSION } from '@dinkster/core'
+import { asNodeId, DINKSTER_SCHEMA_WIRE_VERSION, type NodeSchema } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { templatesSource } from '../src/collections.js'
@@ -109,6 +109,24 @@ describe('TemplatesPage', () => {
         { id: 'vae', name: 'VAE', digest: 'blake3:vae', size: 2097152 },
       ] } },
     }))
+    const schema: NodeSchema = {
+      type: 'ModelLoader', displayName: 'Load models', category: 'test', source: 'v3', isOutputNode: false,
+      body: ['base', 'vae', 'repeated'].map((id) => ({
+        kind: 'input', id, optional: false, type: { kind: 'concrete', name: 'ASSET' },
+        widget: { widgetType: 'ASSET', kind: id === 'base' ? 'model/checkpoint' : 'model/vae', options: {} },
+      })),
+    }
+    backend.registry.set({ ...backend.registry.get()!, resolve: (type) => type === schema.type ? schema : undefined,
+      schemas: new Map([[schema.type, schema]]) })
+    const workflow = app.createWorkflow().store.doc
+    vi.spyOn(backend.connection, 'fetchTemplateBody').mockResolvedValue({ ...workflow, graphs: {
+      [workflow.root]: { ...workflow.graphs[workflow.root]!, nodes: {
+        loader: { id: asNodeId('loader'), type: schema.type, values: { base: 'Base', vae: 'VAE', repeated: 'VAE' } },
+      } },
+    } })
+    vi.spyOn(backend.connection, 'checkModelPresence').mockImplementation(async (wanted) => wanted.map((model) =>
+      model.name === 'Base' ? { ...model, status: 'local' } : { ...model, status: 'missing', plannable: true }))
+    vi.spyOn(backend.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'test', jobs: [] })
     vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({ templates: [
       { pack: 'native', id: 'image', name: 'Image starter', description: '\u56fe\u50cf', digest: 'sha256:a', family: 'SD 1.5', tags: ['image'], assets: ['base', 'vae'] },
       { pack: 'native', id: 'video', name: 'Video starter', digest: 'sha256:b', tags: ['video'], models: ['unknown-size'] },
@@ -128,7 +146,7 @@ describe('TemplatesPage', () => {
       const [opened, setOpened] = createSignal('Nothing opened')
       return <><TemplatesPage app={app} drawing={() => undefined}
         onOpen={async (entry) => { setOpened(entry.title); return true }}
-        onBlank={() => setOpened('Blank workflow')} onOpenStorage={() => undefined} onDownload={() => undefined} />
+        onBlank={() => setOpened('Blank workflow')} onOpenStorage={() => undefined} />
         <output>{opened()}</output></>
     }, host)
     const button = (name: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.trim() === name)!
@@ -137,6 +155,15 @@ describe('TemplatesPage', () => {
       await vi.waitFor(() => expect(options('Templates')).toHaveLength(3))
       expect(host.querySelector('.dinkster-template-detail')?.textContent).toContain('1 of 2 on this computer')
       expect(button('Download 1 model2 MiB')).toBeDefined()
+      const tabsBeforeReview = app.tabs.get().length
+      button('Download 1 model2 MiB').click()
+      await vi.waitFor(() => expect(app.assetConsent.get()?.models?.map((model) => model.requirement)).toEqual([
+        { name: 'VAE', kind: 'model/vae' },
+      ]))
+      expect(app.assetConsent.get()?.retry).toBeUndefined()
+      expect(app.tabs.get()).toHaveLength(tabsBeforeReview)
+      expect(app.store.executions.get().size).toBe(0)
+      app.assetConsent.set(undefined)
       const groupOptions = [...host.querySelectorAll<HTMLElement>('.dinkster-template-filter')]
       expect(groupOptions.map((item) => item.textContent)).toEqual(['All3', 'Image1', 'Video1', 'Loops and tools1', 'Other1', 'SD 1.51', 'No models1'])
       groupOptions.find((item) => item.dataset['group'] === 'makes:video')!.click()
@@ -175,7 +202,7 @@ describe('TemplatesPage', () => {
       const [action, setAction] = createSignal('')
       const [visible, setVisible] = createSignal(true)
       return <><Show when={visible()}><TemplatesPage app={app} drawing={() => undefined} onOpen={async () => true}
-        onBlank={() => setAction('Blank workflow')} onOpenStorage={() => setAction('Storage')} onDownload={() => setAction('Download')} /></Show>
+        onBlank={() => setAction('Blank workflow')} onOpenStorage={() => setAction('Storage')} /></Show>
         <output>{action()}</output>
         <button onClick={() => { setVisible(false); empty = true; queueMicrotask(() => setVisible(true)) }}>Reload empty</button></>
     }, host)
