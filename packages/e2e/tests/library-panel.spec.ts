@@ -50,6 +50,14 @@ async function installFixture(page: Page): Promise<{
   let templateRequests = 0
   let release: (() => void) | undefined
 
+  await page.routeWebSocket('**/api/events*', () => {})
+  await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
+  await page.route('/api/assets/guess', (route) => {
+    const request = route.request().postDataJSON() as { names: string[] }
+    return route.fulfill({ json: {
+      matches: request.names.map((query) => ({ query, candidates: [] })),
+    } })
+  })
   await page.route('/api/settings', (route) => route.fulfill({ json: {
     features: { templates: { enabled: true } },
     categories: { granted: [], available: [] },
