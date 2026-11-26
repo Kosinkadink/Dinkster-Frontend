@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, type Component } from 'solid-js'
 import { assetMultiSelect, type CollectionEntry, type WidgetSpec, type TypeExpr } from '@dinkster/core'
-import { CanvasRowField, ProductButton, ProductSegmented, canvasListLayout } from '@dinkster/ui'
+import { CanvasRowField, CanvasRowPopup, ProductButton, ProductSegmented } from '@dinkster/ui'
 import { CollectionPanel } from '../CollectionPanel.js'
 import { ProductNotice } from '../ProductForm.js'
 import { ProductSelect } from '../ProductSelect.js'
@@ -61,10 +61,8 @@ export const AssetQuickList: Component<WidgetEditorImplementationProps & {
   const [error, setError] = createSignal<string>()
   const [query, setQuery] = createSignal('')
   const [input, setInput] = createSignal<HTMLInputElement>()
-  const [listHeight, setListHeight] = createSignal(0)
   const bounds = visibleCanvas(host.boundary)
   let frame!: HTMLDivElement
-  let list!: HTMLDivElement
   let chooser!: HTMLInputElement
   let addButton!: HTMLButtonElement
   void mountAssetSources(backend.connection, kind).then((sources) => {
@@ -81,33 +79,8 @@ export const AssetQuickList: Component<WidgetEditorImplementationProps & {
       folders: false,
     }))
   })
-  const placement = createMemo(() => {
-    const row = rowPlacement({ rect: ed.rect, ...inRow }, host.viewport(), bounds(), { width: 0, height: 0 })
-    return { ...row, ...canvasListLayout(row.screen, bounds(), listHeight(), { width: 0, height: 0 }, row.scale,
-      (inRow.nodeBottom - ed.rect.y) * row.scale / Math.max(1, row.scale),
-      (ed.rect.y - inRow.nodeTop) * row.scale / Math.max(1, row.scale)) }
-  })
+  const placement = createMemo(() => rowPlacement({ rect: ed.rect, ...inRow }, host.viewport(), bounds(), { width: 0, height: 0 }))
   createEffect(() => placeRow(frame, placement()))
-  createEffect(() => {
-    const measure = (): void => {
-      const items = list.querySelector<HTMLElement>('.collection-items')
-      const cap = items === null ? 0 : Number.parseFloat(getComputedStyle(items).maxHeight)
-      // Keep measuring the unconstrained result area after it shrinks, so
-      // choosing above or below does not oscillate with the height limit.
-      const hidden = items === null ? 0 : Math.max(0, Math.min(items.scrollHeight, cap) - items.offsetHeight)
-      setListHeight(list.offsetHeight + hidden)
-    }
-    const observer = new ResizeObserver(measure)
-    observer.observe(list)
-    const changes = new MutationObserver(measure)
-    changes.observe(list, { childList: true, subtree: true, characterData: true })
-    measure()
-    onCleanup(() => { observer.disconnect(); changes.disconnect() })
-  })
-  createEffect(() => {
-    const limit = placement().listMaxHeight
-    list.style.maxHeight = limit === undefined ? '' : `${limit}px`
-  })
   host.bindClickAway?.(() => { if (props.commitPending()) return false; props.close(); return true })
   onCleanup(() => host.bindClickAway?.(undefined))
   const handOff = (file?: File): void => {
@@ -127,9 +100,9 @@ export const AssetQuickList: Component<WidgetEditorImplementationProps & {
     }}>
     <CanvasRowField look={inRow.look} rowWidth={placement().rowWidth} place={placement().place} zoomed={placement().scale > 1}
       label={ed.label} value={query()} onInput={setQuery} inputLabel={ed.label} placeholder={message('assets.quickList.placeholder')}
-      inputRef={(element) => { setInput(element); queueMicrotask(() => element.focus()) }}
-      panelPlace={placement().listPlace}
-      panel={<div ref={list} class="asset-quick-list">
+      inputRef={(element) => { setInput(element); queueMicrotask(() => element.focus()) }} />
+    <CanvasRowPopup row={placement().screen} bounds={bounds()} scale={placement().scale}>
+      <div class="asset-quick-list">
         <Show when={error()}>{(value) => <ProductNotice tone="error">{value()}</ProductNotice>}</Show>
         <Show when={adapters() !== undefined} fallback={<p role="status">{message('assets.quickList.loading')}</p>}>
           <Show when={sources().length > 0} fallback={<p>{message('assets.quickList.empty')}</p>}>
@@ -167,7 +140,8 @@ export const AssetQuickList: Component<WidgetEditorImplementationProps & {
           {message(policy.maxBytes === undefined ? 'assets.quickList.add' : 'assets.quickList.upload')}
           <span class="asset-scope">{policy.label === undefined ? message('assets.quickList.anySize') : message('assets.quickList.limit', { size: policy.label })}</span>
         </ProductButton>
-      </div>} />
+      </div>
+    </CanvasRowPopup>
     <ProductFileInput ref={chooser} accept={accept.join(',')} onChange={(event) => {
       const file = event.currentTarget.files?.[0]
       event.currentTarget.value = ''
