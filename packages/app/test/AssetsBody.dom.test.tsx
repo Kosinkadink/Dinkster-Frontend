@@ -50,7 +50,8 @@ describe('Assets dock body', () => {
         const request = new URL(url); requests.push(request)
         if (request.pathname === '/api/mounts') return new Response(JSON.stringify({ mounts, outputMount: 'output', activeOutputMount: 'output' }))
         const page = request.searchParams.has('cursor') ? { entries: [entry('last.bin')], total: 61 }
-          : request.pathname.includes('/output/') ? { entries: [entry('direct.bin')], total: 1 }
+          : request.pathname.includes('/output/') ? { entries: [entry('direct.bin')], total: 1,
+            folders: request.searchParams.get('recursive') === 'false' && request.searchParams.get('path') === '' ? ['photos'] : [] }
             : { entries: Array.from({ length: 60 }, (_, index) => entry(`newest-${index}.bin`)), cursor: 'more', total: 61 }
         return new Response(JSON.stringify(page))
       },
@@ -82,6 +83,7 @@ describe('Assets dock body', () => {
       search.value = 'direct'; search.dispatchEvent(new InputEvent('input', { bubbles: true }))
       await vi.waitFor(() => expect(requests.at(-1)?.searchParams.get('q')).toBe('direct'))
       expect(requests.at(-1)?.searchParams.get('recursive')).toBe('false')
+      await vi.waitFor(() => expect(root.querySelector('[data-entry="mount:output:photos"]')).toBeNull())
       expect(root.textContent).toContain('output, this folder only')
       expect(root.querySelector('[data-testid="collection-more"]')).toBeNull()
       const deep = root.querySelector<HTMLInputElement>('[aria-label="Folder depth"] input[value="true"]')!
@@ -92,6 +94,16 @@ describe('Assets dock body', () => {
       document.querySelector<HTMLElement>('[data-option-id="name"]')!.click()
       await vi.waitFor(() => expect(requests.at(-1)?.searchParams.get('sort')).toBe('name'))
       expect(requests.at(-1)?.searchParams.get('q')).toBe('direct')
+      search.value = ''; search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      shallow.checked = true; shallow.dispatchEvent(new Event('change', { bubbles: true }))
+      await vi.waitFor(() => expect(root.querySelector('[data-entry="mount:output:photos"]')).not.toBeNull())
+      root.querySelector<HTMLElement>('[data-entry="mount:output:photos"]')!.click()
+      await vi.waitFor(() => expect(requests.at(-1)?.searchParams.get('path')).toBe('photos'))
+      expect(root.textContent).toContain('output/photos, this folder only')
+      root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!.click()
+      document.querySelector<HTMLElement>('[data-option-id="mount:output"]')!.click()
+      await vi.waitFor(() => expect(requests.at(-1)?.searchParams.get('path')).toBe(''))
+      expect(root.textContent).toContain('output, this folder only')
     } finally { dispose() }
   })
 
@@ -172,7 +184,8 @@ describe('Assets dock body', () => {
   it('keeps scanning entries readable and resumes discovery after a transient failure', async () => {
     vi.useFakeTimers()
     const listMounts = vi.fn()
-      .mockResolvedValueOnce([{ id: 'input', mode: 'read', state: 'scanning', entryCount: 4 }])
+      .mockResolvedValueOnce([{ id: 'input', mode: 'read', state: 'scanning', entryCount: 4,
+        scanProgress: { filesDone: 4, filesTotal: 10, bytesDone: 28, bytesTotal: 70, elapsedSeconds: 1 } }])
       .mockRejectedValueOnce(new Error('temporary mount listing failure'))
       .mockResolvedValue([{ id: 'input', mode: 'read', state: 'ready', entryCount: 10 }])
     const connection = stubConnection({ listMounts, assetUrl: () => '', listMountEntries: async () => ({ entries: [
@@ -182,12 +195,12 @@ describe('Assets dock body', () => {
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
     try {
       await vi.waitFor(() => expect(root.textContent).toContain('indexed.bin'))
-      expect(root.textContent).toContain('Reading folder...')
+      expect(root.textContent).toContain('input: Scanning 4 of 10 files')
       await vi.advanceTimersByTimeAsync(1000)
       expect(root.textContent).toContain('temporary mount listing failure')
       expect(root.textContent).toContain('indexed.bin')
       await vi.advanceTimersByTimeAsync(1000)
-      expect(root.textContent).not.toContain('Reading folder...')
+      expect(root.textContent).not.toContain('Scanning 4 of 10 files')
       expect(root.textContent).not.toContain('temporary mount listing failure')
     } finally { dispose() }
   })

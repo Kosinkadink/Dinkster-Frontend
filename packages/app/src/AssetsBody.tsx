@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import type { DinksterConnection, MountDescriptor } from '@dinkster/client'
 import type { CollectionPageRequest, CollectionSource, MessageParams } from '@dinkster/core'
-import { ProductSegmented, ProductTextButton } from '@dinkster/ui'
+import { ProductErrorBanner, ProductNotice, ProductProgress, ProductSegmented, ProductTextButton } from '@dinkster/ui'
 import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js'
 import { assetCollectionSource } from './asset-browser/collection-adapter.js'
 import { VIEW_PREFERENCE_KEY } from './asset-browser/helpers.js'
@@ -11,7 +11,6 @@ import { AssetEntrySelection } from './asset-browser/rail.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductNotice } from './ProductForm.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
@@ -90,18 +89,27 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
 
   return <div class="assets-panel" data-testid="assets-overlay">
     <Show when={outputUnconfigured()}>
-      <ProductNotice tone="info" testId="assets-output-unconfigured">
-        {message('assets.output.none')}
+      <div data-testid="assets-output-unconfigured"><ProductNotice>
+        {message('assets.output.none')}{' '}
         <ProductTextButton label={message('assets.storage.open')} onClick={() => props.onOpenStorage?.()} />
-      </ProductNotice>
+      </ProductNotice></div>
     </Show>
     <Show when={discoveryError()}>
-      <ProductNotice tone="error" testId="assets-error">{discoveryError()}</ProductNotice>
-      <ProductButton data-testid="assets-retry" onClick={() => setRetryTick((tick) => tick + 1)}>{message('templateGallery.retry')}</ProductButton>
+      <div data-testid="assets-error"><ProductErrorBanner onDismiss={() => setDiscoveryError(undefined)}>
+        {discoveryError()}{' '}
+        <ProductButton data-testid="assets-retry" onClick={() => setRetryTick((tick) => tick + 1)}>{message('templateGallery.retry')}</ProductButton>
+      </ProductErrorBanner></div>
     </Show>
-    <Show when={mounts().some((mount) => mount.state === 'scanning')}>
-      <ProductNotice tone="status" testId="assets-reading-folder">{message('assets.readingFolder')}</ProductNotice>
-    </Show>
+    <For each={mounts().filter((mount) => mount.state === 'scanning')}>{(mount) => {
+      const label = `${mount.id}: ${mount.scanProgress
+        ? message('projectFolders.scanning', { done: mount.scanProgress.filesDone, total: mount.scanProgress.filesTotal })
+        : message('assets.readingFolder')}`
+      return <div class="asset-scan-progress" data-testid="assets-reading-folder" role="status">
+        <span>{label}</span>
+        <ProductProgress label={label} value={mount.scanProgress && mount.scanProgress.filesTotal > 0
+          ? mount.scanProgress.filesDone / mount.scanProgress.filesTotal : undefined} />
+      </div>
+    }}</For>
     <Show when={!loading()} fallback={<ProductEmptyState tone="loading" title={message('assets.state.loading.title')} />}>
       <CollectionPanel sources={sources()} pageSize={60} pagination="scroll" recursive={recursive()} sort={sort()}
         refreshTick={refreshTick} modeKey={VIEW_PREFERENCE_KEY} searchPriority="primary"
@@ -113,6 +121,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
           <nav class="asset-path" aria-label={message('collection.folder.ariaLabel')}>
             <ProductSelect class="asset-source-select" testId="asset-source-select" ariaLabel={message('assets.mounts.label')}
               selectedId={selectedId()} options={sources().map((source) => ({ id: source.id, label: source.label, value: source.id }))}
+              onReselect={() => navigate('')}
               onSelect={(option) => { setRecursive(true); select(option.value) }} />
             <For each={folder().split('/').filter(Boolean)}>{(part, index) => <>
               <span aria-hidden="true">/</span>

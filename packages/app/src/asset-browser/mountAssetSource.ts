@@ -39,7 +39,7 @@ export function mountAssetSource(connection: DinksterConnection, mount: string |
         const root = mountId ?? entry.virtualPath.split('/')[1]!
         return normalizeMountEntry(`mount:${root}`, root, entry)
       })
-      const folders = page.folders?.map((name): AssetBrowserItem => {
+      const folders = searching ? undefined : page.folders?.map((name): AssetBrowserItem => {
         const virtualPath = folder === '' ? name : `${folder}/${name}`
         return { id: `${id}:${virtualPath}`, name, folder: true, virtualPath, source: { id, label, path: virtualPath } }
       })
