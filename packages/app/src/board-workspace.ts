@@ -20,6 +20,9 @@ export class BoardWorkspace {
   readonly entries = createSignal<readonly BoardEntry[]>([])
   readonly scope: string
   private readonly pending = new Set<string>()
+  private readonly adopting = new Map<() => void, string>()
+  private readonly cancellations = new Map<string, number>()
+  private epoch = 0
   private disposed = false
 
   constructor(private readonly options: {
@@ -81,12 +84,14 @@ export class BoardWorkspace {
     const key = `join:${sessionId}`
     if (this.pending.has(key)) throw new Error('Joining this Board is already in progress')
     this.pending.add(key)
+    const epoch = this.epoch
     try {
       const descriptor = await this.options.transport.get(baseUrl, sessionId)
       if (!descriptor) throw new Error('That Board session no longer exists')
       if (this.entries.get().some((entry) => entry.id === descriptor.documentId))
         throw new Error('This Board is already open; close it before joining another session')
       return await this.adopt(descriptor, baseUrl, descriptor.documentId, () =>
+        (this.cancellations.get(descriptor.documentId) ?? 0) <= epoch &&
         this.options.backend() === baseUrl && !this.entries.get().some((entry) => entry.id === descriptor.documentId))
     } finally { this.pending.delete(key) }
   }
@@ -96,16 +101,24 @@ export class BoardWorkspace {
   ): Promise<BoardEntry> {
     if (descriptor.documentKind !== 'board' || descriptor.scope !== this.scope)
       throw new Error('That session does not belong to this project\'s Boards')
+    const assertCurrent = () => {
+      if (this.disposed || !current()) throw new Error('Board changed while joining; the current document was kept')
+    }
+    assertCurrent()
     const transport = this.options.transport
     const actorId = await transport.bindActor?.(baseUrl, descriptor.sessionId, this.options.actorId) ?? this.options.actorId
+    assertCurrent()
     const connection = transport.connect({ baseUrl, sessionId: descriptor.sessionId, actorId })
     let session: SharedBoardSession | undefined
+    const cancel = () => { if (session) session.close(); else connection.close() }
+    this.adopting.set(cancel, descriptor.documentId)
     try {
       session = await connectSharedBoardSession(connection, descriptor, {
         actorId, onConflict: ({ message }) => this.options.onConflict(descriptor.documentId, message),
       })
+      assertCurrent()
       await session.settle()
-      if (this.disposed || !current()) throw new Error('Board changed while joining; the current document was kept')
+      assertCurrent()
       if (session.status.get() === 'closed' || session.status.get() === 'error')
         throw new Error('The shared Board could not be opened')
       const entry: BoardEntry = { id: descriptor.documentId, title, baseUrl, session, shared: { descriptor, session } }
@@ -113,10 +126,9 @@ export class BoardWorkspace {
         ? entries.map((candidate) => candidate.id === entry.id ? entry : candidate) : [...entries, entry])
       return entry
     } catch (error) {
-      if (session) session.close()
-      else connection.close()
+      cancel()
       throw error
-    }
+    } finally { this.adopting.delete(cancel) }
   }
 
   leave(id: string): void {
@@ -135,6 +147,8 @@ export class BoardWorkspace {
   }
 
   close(id: string): void {
+    this.cancellations.set(id, ++this.epoch)
+    for (const [cancel, owner] of this.adopting) if (owner === id) cancel()
     const entry = this.entries.get().find((entry) => entry.id === id)
     entry?.shared?.session.close()
     this.entries.update((entries) => entries.filter((entry) => entry.id !== id))
@@ -142,6 +156,7 @@ export class BoardWorkspace {
 
   dispose(): void {
     this.disposed = true
+    for (const cancel of this.adopting.keys()) cancel()
     for (const entry of this.entries.get()) entry.shared?.session.close()
     this.entries.set([])
   }

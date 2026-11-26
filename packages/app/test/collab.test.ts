@@ -288,6 +288,42 @@ describe('Board workspace collaboration', () => {
     expect(entry.session.doc.items['note-1']).toMatchObject({ text: 'Keep me' })
     expect(server.sessions.size).toBe(0)
   })
+
+  it.each(['close', 'close-opened', 'dispose', 'dispose-binding'] as const)('cancels an in-flight Board join on %s', async (action) => {
+    const server = new FakeCollabServer()
+    const app = makeApp(server)
+    const document = emptyBoard()
+    const remote = server.createSession(app.boards.scope, document.lineage, document, 'board')
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let started!: () => void
+    const waiting = new Promise<void>((resolve) => { started = resolve })
+    const connect = server.transport.connect
+    let connection: FakeConn | undefined
+    server.transport.connect = (config) => {
+      connection = connect(config) as FakeConn
+      const fetchSnapshot = connection.fetchSnapshot.bind(connection)
+      connection.fetchSnapshot = async () => { started(); await gate; return fetchSnapshot() }
+      return connection
+    }
+    if (action === 'dispose-binding') server.transport.bindActor = async () => { started(); await gate; return 'actor' }
+    const joining = app.boards.join(remote.sessionId)
+    const rejected = expect(joining).rejects.toThrow('Board changed')
+    await waiting
+    let disconnected = false
+    try {
+      if (action === 'close-opened') app.boards.open(document, 'Opened while joining', 'http://collab')
+      if (action.startsWith('dispose')) app.dispose()
+      else app.boards.close(document.lineage)
+      expect(app.boards.entries.get()).toEqual([])
+      disconnected = connection === undefined || connection.closed
+    } finally { release() }
+    await rejected
+    expect(disconnected).toBe(true)
+    if (action === 'dispose-binding') expect(connection).toBeUndefined()
+    expect(app.boards.entries.get()).toEqual([])
+    expect(remote.connections.size).toBe(0)
+  })
 })
 
 // ---------------------------------------------------------------------------
