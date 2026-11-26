@@ -148,26 +148,24 @@ export function ProjectLoadingGallery() {
         loadingLabel="Loading projects"
         arrival="rise"
       >
-        {() => (
-          <ProductProjectRows
-            labelledBy={projectHeading}
-            projects={[
-              {
-                id: 'film-grain-tests',
-                name: 'Film grain tests',
-                detail: 'Opened today',
-              },
-              {
-                id: 'settings',
-                name: 'Settings audit',
-                detail: 'Opened today',
-              },
-            ]}
-            selected={selected()}
-            onSelect={setSelected}
-            loadingLabel="Loading projects"
-          />
-        )}
+        <ProductProjectRows
+          labelledBy={projectHeading}
+          projects={[
+            {
+              id: 'film-grain-tests',
+              name: 'Film grain tests',
+              detail: 'Opened today',
+            },
+            {
+              id: 'settings',
+              name: 'Settings audit',
+              detail: 'Opened today',
+            },
+          ]}
+          selected={selected()}
+          onSelect={setSelected}
+          loadingLabel="Loading projects"
+        />
       </ProductPageLoad>
     </ProductSection>
   )

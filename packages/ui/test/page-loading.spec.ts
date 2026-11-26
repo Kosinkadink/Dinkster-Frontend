@@ -296,6 +296,20 @@ test('project headings and actions stay mounted while rows and facts arrive and 
   await expect(
     list.getByRole('option', { name: /Settings audit/ }),
   ).toBeFocused()
+  await read.evaluate((button: HTMLButtonElement) => button.click())
+  await page.clock.runFor(500)
+  await expect(
+    list.getByRole('option', { name: /Settings audit/ }),
+  ).toBeFocused()
+  await page.clock.runFor(500)
+  await expect(
+    list.getByRole('option', { name: /Settings audit/ }),
+  ).toBeFocused()
+  await page.keyboard.press('Home')
+  await expect(
+    list.getByRole('option', { name: /Film grain tests/ }),
+  ).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('End')
   await read.click()
   await page.clock.runFor(500)
   await expect(

@@ -9,12 +9,26 @@ import { useProductStrings } from './strings.js'
 export function ProductPageAnswer<T>(props: {
   page: ReturnType<typeof createPageLoad<T>>
   arrival?: 'fade' | 'rise'
-  children: (value: T) => JSX.Element
+  children: JSX.Element | ((value: T) => JSX.Element)
 }) {
+  const content = props.children
   const answer = createMemo(() => {
     const value = props.page.value()
     return value === undefined ? undefined : { value }
   })
+  // Solid JSX can be a zero-argument accessor rather than a value renderer.
+  if (typeof content !== 'function' || content.length === 0) {
+    return (
+      <Show when={answer() !== undefined}>
+        <div
+          class="dinkster-page-load-answer"
+          data-arrival={props.arrival ?? 'rise'}
+        >
+          {content as JSX.Element}
+        </div>
+      </Show>
+    )
+  }
   return (
     <Show when={answer()} keyed>
       {(result) => (
@@ -22,7 +36,7 @@ export function ProductPageAnswer<T>(props: {
           class="dinkster-page-load-answer"
           data-arrival={props.arrival ?? 'rise'}
         >
-          {props.children(result.value)}
+          {content(result.value)}
         </div>
       )}
     </Show>
@@ -34,7 +48,7 @@ export function ProductPageLoad<T>(props: {
   read: () => Promise<T>
   loadingLabel: string
   arrival?: 'fade' | 'rise'
-  children: (value: T) => JSX.Element
+  children: JSX.Element | ((value: T) => JSX.Element)
 }) {
   const strings = useProductStrings()
   return (
@@ -59,7 +73,7 @@ export function ProductPageLoad<T>(props: {
           )}
         </Show>
         <ProductPageAnswer page={props.page} arrival={props.arrival ?? 'rise'}>
-          {(value) => props.children(value)}
+          {props.children}
         </ProductPageAnswer>
       </div>
     </div>
