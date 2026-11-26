@@ -591,6 +591,7 @@ export function CollectionPanel(props: {
         'dinkster-list-row': mode() === 'list',
         'collection-child': p.child === true,
         selected: highlighted(p.entry),
+        'collection-entry-open': props.detailPlacement === 'inline' && mode() === 'list' && p.entry.id === selectedId(),
         folder: p.entry.folder !== undefined,
         disabled: props.pick !== undefined && p.entry.folder === undefined && !props.pick.pickable(p.entry),
       }}
@@ -604,6 +605,7 @@ export function CollectionPanel(props: {
       tabindex={p.entry.id === rovingId() ? '0' : '-1'}
       onClick={() => activate(p.entry)}
     >
+      <Show when={props.detailPlacement === 'inline' && mode() === 'list' && p.entry.id === selectedId()} fallback={<>
       <Show when={props.entryContent} fallback={<>
       <Thumb entry={p.entry} />
       <div class="collection-text">
@@ -641,6 +643,9 @@ export function CollectionPanel(props: {
       </Show>
       <Show when={props.entryContent === undefined && p.entry.id === selectedId() && (p.entry.actions ?? []).length > 0}>
         <Actions entry={p.entry} />
+      </Show>
+      </>}>
+        <div class="collection-inline-detail" onClick={(event) => event.stopPropagation()}>{props.detailRail?.(p.entry)}</div>
       </Show>
     </div>
   )
@@ -767,7 +772,7 @@ export function CollectionPanel(props: {
         ariaLabel={props.searchLabel ?? message('collection.search.label')}
         testId="collection-search"
         clearTestId="collection-search-clear"
-        variant={props.searchPriority === 'primary' ? 'surface' : 'toolbar'}
+        variant={props.navigation !== undefined || props.searchPriority !== 'primary' ? 'toolbar' : 'surface'}
         inputRef={(element) => { searchEl = element }}
         onClear={clearSearch}
         onInput={(event) => setQuery(event.currentTarget.value)}
@@ -896,9 +901,6 @@ export function CollectionPanel(props: {
                 return <Show when={pickGroupChildren(entry())} fallback={
                   <>
                     <Entry entry={entry()} />
-                    <Show when={props.detailPlacement === 'inline' && mode() === 'list' && id === selectedId()}>
-                      <div class="collection-inline-detail" role="presentation">{props.detailRail?.(entry())}</div>
-                    </Show>
                     <Show when={expandedIds().has(id)}>
                       <div id={`${resultsId}-group-${id}`} class="collection-children" role="group" aria-label={message('collection.group.runsIn', { title: entry().title })}>
                         {/* Keyed by id, like the rows above, so a re-page keeps a chosen child's own state. */}

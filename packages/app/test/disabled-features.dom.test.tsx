@@ -38,9 +38,10 @@ it('replaces Assets backend ownership and rejects pending old file locations whe
   let resolveOld!: (paths: string[]) => void
   const pending = new Promise<string[]>((resolve) => { resolveOld = resolve })
   for (const [backend, assets] of [[old, [first, delayed]], [next, [current]]] as const) {
-    vi.spyOn(backend.connection, 'listMounts').mockResolvedValue([])
-    vi.spyOn(backend.connection, 'listLocalAssets').mockResolvedValue({ assets: assets.map((asset) => ({ asset, aliases: [asset.name], observations: [] })) })
-    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue(assets.map(({ digest }) => ({ digest, status: 'available' as const })))
+    const mounts = [{ id: 'output', mode: 'readwrite' as const, state: 'ready' as const }]
+    vi.spyOn(backend.connection, 'listMounts').mockResolvedValue(mounts)
+    vi.spyOn(backend.connection, 'fetchMountSettings').mockResolvedValue({ mounts, outputMount: 'output', mountChangesAllowed: false })
+    vi.spyOn(backend.connection, 'listMountEntries').mockResolvedValue({ entries: [...assets] })
   }
   vi.spyOn(old.connection, 'fetchAssetLocations').mockImplementation((digest) => digest === delayed.digest ? pending : Promise.resolve(['/old/output/old.bin']))
   vi.spyOn(next.connection, 'fetchAssetLocations').mockResolvedValue(['/next/output/current.bin'])
@@ -60,7 +61,7 @@ it('replaces Assets backend ownership and rejects pending old file locations whe
   const select = (name: string) => [...host.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((row) => row.textContent?.includes(name))!
   await vi.waitFor(() => expect(select(first.name)).toBeDefined())
   select(first.name).click()
-  await vi.waitFor(() => expect(host.querySelector('[data-testid="asset-file-location"]')?.textContent).toContain('/old/output/old.bin'))
+  await vi.waitFor(() => expect(host.querySelector('[data-testid="asset-file-location"] button[title="/old/output/old.bin"]')).not.toBeNull())
   select(delayed.name).click()
   await vi.waitFor(() => expect(old.connection.fetchAssetLocations).toHaveBeenCalledWith(delayed.digest))
 
@@ -70,16 +71,16 @@ it('replaces Assets backend ownership and rejects pending old file locations whe
   expect(select(first.name)).toBeUndefined()
   expect(host.querySelector('[data-testid="asset-file-location"]')).toBeNull()
   select(current.name).click()
-  await vi.waitFor(() => expect(host.querySelector('[data-testid="asset-file-location"]')?.textContent).toContain('/next/output/current.bin'))
+  await vi.waitFor(() => expect(host.querySelector('[data-testid="asset-file-location"] button[title="/next/output/current.bin"]')).not.toBeNull())
   resolveOld(['/old/output/delayed.bin'])
   await pending
   await Promise.resolve()
   const locations = host.querySelector('[data-testid="asset-file-location"]')!
-  expect(locations.textContent).toContain('Next workstation')
-  expect(locations.textContent).not.toContain('/old/')
-  ;[...locations.querySelectorAll('button')].find((button) => button.textContent === 'Copy server path')!.click()
+  expect(locations.querySelector('button[title="/next/output/current.bin"]')).not.toBeNull()
+  expect(locations.querySelector('button[title^="/old/"]')).toBeNull()
+  ;[...locations.querySelectorAll('button')].find((button) => button.textContent === 'Copy path')!.click()
   await vi.waitFor(() => expect(copy).toHaveBeenCalledWith('/next/output/current.bin'))
-  ;[...locations.querySelectorAll('button')].find((button) => button.textContent === 'Show file on this computer')!.click()
+  ;[...locations.querySelectorAll('button')].find((button) => button.textContent === 'Show on this computer')!.click()
   await vi.waitFor(() => expect(revealFile).toHaveBeenCalledWith('http://next.test:9000/', { digest: current.digest, scope: 'local', project: 'default' }))
   expect(revealFile).toHaveBeenCalledTimes(1)
 })

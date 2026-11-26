@@ -15,10 +15,11 @@ import { ProductEmptyState } from './ProductSurfaces.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
 
-function assetState(state: CollectionPanelState, message: AssetMessage) {
+function assetState(state: CollectionPanelState, message: AssetMessage, widen?: () => void, widerLabel?: string) {
   if (state.kind === 'loading') return <ProductEmptyState tone="loading" title={message('assets.state.loading.title')} />
-  if (state.kind === 'error') return <ProductEmptyState tone="error" title={message('assets.state.error.title')} hint={state.message} />
-  if (state.kind === 'no-match') return <ProductEmptyState title={message('assets.state.noMatch.title')} hint={message('assets.state.noMatch.detail')} />
+  if (state.kind === 'error') return <ProductNotice tone="error">{message('assets.state.error.title')}{state.message ? `: ${state.message}` : ''}</ProductNotice>
+  if (state.kind === 'no-match') return <ProductEmptyState title={message('assets.state.noMatch.title')} hint={message('assets.state.noMatch.detail')}
+    action={widen && widerLabel ? <ProductTextButton label={widerLabel} onClick={widen} /> : undefined} />
   return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source: state.sourceLabel })} />
 }
 
@@ -32,6 +33,8 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
   const [outputUnconfigured, setOutputUnconfigured] = createSignal(false)
   const [recursive, setRecursive] = createSignal(true)
   const [sort, setSort] = createSignal<NonNullable<CollectionPageRequest['sort']>>('newest')
+  const [widenSearch, setWidenSearch] = createSignal<(() => void)>()
+  const [widerLabel, setWiderLabel] = createSignal<string>()
 
   createEffect(() => {
     retryTick()
@@ -117,29 +120,40 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
         toolbarActions={<ProductSelect testId="asset-sort-select" ariaLabel={message('assets.order.label')} selectedId={sort()}
           options={(['newest', 'name', 'path'] as const).map((value) => ({ id: value, label: message(`assets.order.${value}`), value }))}
           onSelect={(option) => setSort(option.value)} />}
-        navigation={({ selectedId, select, folder, navigate, mode, setMode }) => <>
+        navigation={({ selectedId, select, folder, navigate, mode, setMode }) => {
+          createEffect(() => {
+            setWidenSearch(() => selectedId() === 'all-mounts' ? undefined : !recursive()
+              ? () => setRecursive(true) : () => { setRecursive(true); select('all-mounts') })
+            setWiderLabel(selectedId() === 'all-mounts' ? undefined : message(!recursive() ? 'assets.search.subfolders' : 'assets.search.allMounts'))
+          })
+          return <>
           <nav class="asset-path" aria-label={message('collection.folder.ariaLabel')}>
             <ProductSelect class="asset-source-select" testId="asset-source-select" ariaLabel={message('assets.mounts.label')}
               selectedId={selectedId()} options={sources().map((source) => ({ id: source.id, label: source.label, value: source.id }))}
               onReselect={() => navigate('')}
               onSelect={(option) => { setRecursive(true); select(option.value) }} />
-            <For each={folder().split('/').filter(Boolean)}>{(part, index) => <>
+            <div class="asset-path-segments"><For each={folder().split('/').filter(Boolean)}>{(part, index) => <>
               <span aria-hidden="true">/</span>
-              <ProductTextButton label={part} aria-current={index() === folder().split('/').length - 1 ? 'page' : undefined}
-                onClick={() => navigate(folder().split('/').slice(0, index() + 1).join('/'))} />
-            </>}</For>
+              <Show when={index() < folder().split('/').length - 1} fallback={<span aria-current="page">{part}</span>}>
+                <ProductTextButton label={part} onClick={() => navigate(folder().split('/').slice(0, index() + 1).join('/'))} />
+              </Show>
+            </>}</For></div>
+          </nav>
+          <div class="asset-view-controls">
+            <Show when={selectedId() !== 'all-mounts'}>
+              <ProductSegmented label={message('assets.depth.label')} value={String(recursive())} onChange={(value) => setRecursive(value === 'true')}
+                options={[{ value: 'false', label: message('assets.depth.this') }, { value: 'true', label: message('assets.depth.subfolders') }]} />
+            </Show>
+            <div class="asset-view-switch">
             <ProductSegmented label={message('assets.view.label')} value={mode()} onChange={(value) => setMode(value as 'list' | 'grid')}
               options={[{ value: 'list', label: message('assets.view.names') }, { value: 'grid', label: message('assets.view.pictures') }]} />
-          </nav>
-          <Show when={selectedId() !== 'all-mounts'}>
-            <ProductSegmented label={message('assets.depth.label')} value={String(recursive())} onChange={(value) => setRecursive(value === 'true')}
-              options={[{ value: 'false', label: message('assets.depth.this') }, { value: 'true', label: message('assets.depth.subfolders') }]} />
-          </Show>
+            </div>
+          </div>
           <p class="asset-scope" data-testid="asset-scope">{message(recursive() ? 'assets.scope.subfolders' : 'assets.scope.this', {
             path: `${selectedId() === 'all-mounts' ? message('assets.mounts.all') : selectedId().slice('mount:'.length)}${folder() ? `/${folder()}` : ''}`,
           })}</p>
-        </>}
-        renderState={(state) => assetState(state, message)} entryContent={(entry) => <AssetEntryContent entry={entry()} />}
+        </>}}
+        renderState={(state) => assetState(state, message, widenSearch(), widerLabel())} entryContent={(entry) => <AssetEntryContent entry={entry()} />}
         detailPlacement="inline" detailRail={(entry) => <Show when={entry}>{(selected) => <AssetEntrySelection entry={selected()} adapters={adapters()}
           backendId={props.backendId} connection={props.connection} backendUrl={props.baseUrl ?? ''} backendLabel={props.backendLabel} />}</Show>}
       />

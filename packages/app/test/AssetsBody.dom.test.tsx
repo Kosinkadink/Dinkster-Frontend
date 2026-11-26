@@ -71,6 +71,34 @@ describe('Assets dock body', () => {
     } finally { dispose() }
   })
 
+  it('widens an empty search from this folder to subfolders and then all mounts without dropping the name', async () => {
+    const connection = stubConnection({
+      listMounts: async () => [{ id: 'input', mode: 'read', state: 'ready' }, { id: 'output', mode: 'readwrite', state: 'ready' }],
+      listMountEntries: async (mount: string | undefined, request: { q?: string }) => ({ entries: mount === undefined && request.q === 'distant'
+        ? [{ virtualPath: 'mounts/input/distant.bin', name: 'distant.bin', digest: 'blake3:a', size: 7, mediaType: 'application/octet-stream' }]
+        : [] }),
+    })
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
+    const click = (text: string) => [...root.querySelectorAll<HTMLElement>('button, label')].find((element) => element.textContent === text)!.click()
+    try {
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-source-select"]')).not.toBeNull())
+      root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!.click()
+      document.querySelector<HTMLElement>('[data-option-id="mount:output"]')!.click()
+      click('This folder')
+      const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
+      search.value = 'distant'; search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      await vi.waitFor(() => expect(root.textContent).toContain('Search with subfolders'))
+      click('Search with subfolders')
+      await vi.waitFor(() => expect(root.textContent).toContain('Search all mounts'))
+      expect(root.querySelector('[data-testid="asset-scope"]')?.textContent).toBe('output, with subfolders')
+      click('Search all mounts')
+      await vi.waitFor(() => expect(root.textContent).toContain('distant.bin'))
+      expect(search.value).toBe('distant')
+      expect(root.querySelector('[data-testid="asset-scope"]')?.textContent).toBe('All mounts, with subfolders')
+    } finally { dispose() }
+  })
+
   it('opens on files in available non-model mounts and keeps scope and depth explicit while scrolling', async () => {
     const requests: URL[] = []
     const mounts = [
@@ -173,7 +201,7 @@ describe('Assets dock body', () => {
         expect(createUrl).not.toHaveBeenCalled()
         finish()
         if (scenario === 'accepted') {
-          await vi.waitFor(() => expect(root.querySelectorAll('img')).toHaveLength(2))
+          await vi.waitFor(() => expect(root.querySelectorAll('img')).toHaveLength(1))
           const image = root.querySelector<HTMLImageElement>('.asset-preview')!
           Object.defineProperties(image, { naturalWidth: { value: 640 }, naturalHeight: { value: 480 } })
           image.dispatchEvent(new Event('load'))
@@ -186,8 +214,7 @@ describe('Assets dock body', () => {
           expect(blob.type).toBe('image/png')
           expect([...new Uint8Array(await blob.arrayBuffer())]).toEqual([17, 31, 7])
           dispose(); closed = true
-          expect(revokeUrl.mock.calls.map(([url]) => url)).toContain('blob:image-1')
-          expect(revokeUrl.mock.calls.map(([url]) => url)).toContain('blob:image-2')
+          expect(new Set(revokeUrl.mock.calls.map(([url]) => url))).toEqual(new Set(createUrl.mock.results.map((result) => result.value)))
         } else {
           await Promise.resolve(); await Promise.resolve()
           expect(createUrl).not.toHaveBeenCalled()
@@ -319,12 +346,12 @@ describe('Shared asset selection', () => {
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <AssetEntrySelection entry={assetEntryOf(item)} adapters={[]} backendId="remote" connection={connection} backendUrl="http://remote.test:3639" backendLabel="Render workstation" />, root)
     try {
-      await vi.waitFor(() => expect(root.textContent).toContain('Copy server path'))
-      expect(root.textContent).toContain('Render workstation')
+      await vi.waitFor(() => expect(root.textContent).toContain('Copy path'))
+      expect(root.textContent).not.toContain('not necessarily this computer')
       expect(root.querySelector('[data-testid="asset-rail-details"]')?.textContent).toContain('output-job')
-      ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Copy server path')!.click()
+      ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Copy path')!.click()
       expect(copy).toHaveBeenCalledWith('/server/output/kept.bin')
-      const button = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Show file on this computer')
+      const button = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Show on this computer')
       if (reveal) {
         expect(button).toBeDefined()
         await vi.waitFor(() => expect(button!.disabled).toBe(false))

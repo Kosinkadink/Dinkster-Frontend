@@ -275,14 +275,21 @@
   min-width: 0;
   align-items: center;
   gap: var(--dinkster-space-8);
-  flex-wrap: wrap;
+  min-height: var(--dinkster-control-compact-height);
 }
 .asset-source-select.product-select {
-  flex: 1;
-  min-width: min(100%, 12ch);
+  flex: none;
+  min-width: 12ch;
 }
+.asset-path-segments { display: flex; min-width: 0; align-items: center; gap: var(--dinkster-space-4); overflow-x: auto; font-family: var(--dinkster-font-mono); white-space: nowrap; }
+.asset-path-segments > [aria-current] { color: var(--dinkster-text-primary); }
+.asset-path-segments button { font-family: inherit; }
+.asset-view-controls { display: flex; flex: none; min-height: var(--dinkster-control-compact-height); align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); margin-block: var(--dinkster-space-8); }
+.asset-view-switch { margin-left: auto; }
+.assets-panel .dinkster-segmented { padding: 2px; flex-wrap: nowrap; }
+.assets-panel .dinkster-segment { min-height: var(--dinkster-space-24); padding-inline: var(--dinkster-space-8); font-size: var(--dinkster-type-metadata-size); }
 .asset-scope {
-  margin: 0;
+  margin: 0 0 var(--dinkster-space-8);
   color: var(--dinkster-text-muted);
   font-size: var(--dinkster-type-metadata-size);
 }
@@ -299,10 +306,52 @@
 }
 .collection-panel[data-detail-placement='inline'] .collection-content { flex-direction: column; flex-wrap: nowrap; }
 .collection-panel[data-detail-placement='inline'] .collection-items.grid { grid-auto-rows: max-content; }
-.collection-inline-detail { padding: var(--dinkster-space-8) 0; }
-.assets-panel .asset-selection-summary { flex: none; width: 100%; max-height: 50%; }
+.collection-inline-detail { width: 100%; }
+.assets-panel .asset-selection-summary { flex: none; width: 100%; max-height: 50%; box-sizing: border-box; border: 0; }
 .collection-inline-detail .asset-selection-summary { max-height: none; }
 .assets-panel .collection-content > .asset-selection-summary .asset-preview { display: none; }
+.assets-panel .collection-search-field { align-self: center; }
+.assets-panel .collection-panel .collection-toolbar { flex-wrap: nowrap; align-items: center; }
+.assets-panel .collection-panel .collection-search-field { flex-basis: 0; }
+.assets-panel .collection-items { background: var(--dinkster-surface-inset); border-radius: var(--dinkster-radius-card); padding: 0 var(--dinkster-space-8); }
+.assets-panel .collection-items.list { gap: 0; }
+.assets-panel .collection-items.list > .collection-entry { display: flex; flex: none; flex-wrap: nowrap; align-items: center; gap: var(--dinkster-space-8); min-height: 38px; box-sizing: border-box; padding: var(--dinkster-space-4) 0; border-bottom: 1px solid var(--dinkster-border-subtle); border-radius: 0; }
+.assets-panel .collection-items.list > .collection-entry:last-child { border-bottom: 0; }
+.assets-panel .collection-items.list > .collection-entry::before { content: none; }
+.assets-panel .collection-items.list > .collection-entry-open { padding: var(--dinkster-space-8) 0; }
+.assets-panel .collection-title { font-weight: var(--dinkster-weight-regular); }
+.assets-panel .collection-items.list .collection-text { gap: 0; }
+.assets-panel .collection-items.list .collection-title { line-height: var(--dinkster-type-metadata-line); }
+.assets-panel .collection-badges { gap: 0; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); }
+.assets-panel .collection-badges > * + *::before { content: ', '; white-space: pre; }
+.assets-panel .collection-badge { padding: 0; color: inherit; background: none; font: inherit; }
+.assets-panel .folder .collection-badge:first-child { display: none; }
+.assets-panel .folder .collection-badge:nth-child(2)::before { content: none; }
+.assets-panel .folder .asset-entry-fallback { border: 0; background: none; color: var(--dinkster-text-muted); }
+.assets-panel .folder > svg { width: var(--dinkster-space-16); height: var(--dinkster-space-16); color: var(--dinkster-text-muted); }
+.assets-panel .collection-state .product-empty-state,
+.assets-panel > .product-empty-state { justify-items: center; text-align: center; background: none; border: 0; color: var(--dinkster-text-secondary); }
+.assets-panel .collection-state .product-empty-state strong { color: var(--dinkster-text-primary); }
+.assets-panel .collection-state { display: grid; justify-items: center; }
+.assets-panel .collection-state[data-collection-state='error'] { display: flex; align-items: center; gap: var(--dinkster-space-8); padding: var(--dinkster-space-8); border-radius: var(--dinkster-radius-control); background: var(--dinkster-danger-background); }
+.assets-panel .collection-state[data-collection-state='error'] > .dinkster-message { flex: 1; min-width: 0; padding: 0; background: none; }
+.assets-panel .collection-state[data-collection-state='error'] > .product-button { flex: none; padding: 0; border: 0; background: none; text-decoration: underline; text-underline-offset: var(--dinkster-space-4); }
+.asset-selection-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--dinkster-space-4) var(--dinkster-space-12); margin: 0; }
+.asset-selection-facts dt { color: var(--dinkster-text-muted); }
+.asset-selection-facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.asset-selection-folder { font-family: var(--dinkster-font-mono); }
+.asset-selection-quiet-facts { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); }
+.asset-selection-summary .asset-selection-quiet-facts { display: none; }
+.assets-panel .collection-content > .asset-selection-summary .asset-selection-facts { display: none; }
+.assets-panel .collection-content > .asset-selection-summary .asset-selection-quiet-facts { display: block; }
+.assets-panel .asset-selection-summary .asset-preview { max-height: 180px; border: 0; object-fit: cover; }
+.assets-panel .asset-selection-summary h3 { font-weight: var(--dinkster-weight-regular); }
+.assets-panel .asset-file-location { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-4); padding: 0; }
+.asset-rail-details .dinkster-disclosure > summary { display: flex; align-items: center; gap: var(--dinkster-space-4); list-style: none; }
+.asset-rail-details .dinkster-disclosure > summary::-webkit-details-marker { display: none; }
+.asset-rail-details .dinkster-disclosure > summary > .dinkster-icon { display: block; }
+.asset-rail-details .dinkster-disclosure[open] > summary > .dinkster-icon { transform: rotate(90deg); }
+.asset-rail-details .dinkster-disclosure dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--dinkster-space-4) var(--dinkster-space-8); margin: 0; }
 
 .asset-entry-fallback {
   display: grid;
@@ -583,8 +632,17 @@
 }
 
 .assets-panel .collection-items.grid {
-  grid-template-columns: repeat(auto-fill, minmax(min(132px, 100%), 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: var(--dinkster-space-8);
 }
+.assets-panel .collection-items.grid .collection-entry { gap: var(--dinkster-space-4); padding: var(--dinkster-space-4); border: 1px solid transparent; background: none; text-align: left; }
+.assets-panel .collection-items.grid .collection-entry:hover { background: var(--dinkster-interaction-hover); }
+.assets-panel .collection-items.grid .collection-title { display: block; min-height: 0; white-space: nowrap; }
+.assets-panel .collection-items.grid .collection-text { flex: none; width: 100%; }
+.assets-panel .collection-items.grid .collection-badges { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.assets-panel .collection-items.grid .collection-text:has(.asset-entry-dimensions) .collection-badge { display: none; }
+.assets-panel .collection-items.grid .asset-modified-time { display: none; }
+.assets-panel .collection-items.grid .collection-entry > svg { display: none; }
 
 .assets-panel .collection-subtitle,
 .assets-panel .collection-badge { color: var(--dinkster-text-secondary); }
@@ -597,8 +655,9 @@
 }
 .assets-panel .collection-items:not(.grid) .asset-modified-time { margin-left: auto; }
 .assets-panel .collection-items.grid .collection-entry.selected {
-  border-color: var(--dinkster-border-focus);
-  box-shadow: inset 0 0 0 1px var(--dinkster-border-focus);
+  border-color: var(--dinkster-border-strong);
+  background: var(--dinkster-surface-selected);
+  box-shadow: none;
 }
 
 .collection-initials {
