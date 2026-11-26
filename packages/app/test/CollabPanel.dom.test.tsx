@@ -16,6 +16,8 @@ import { SettingsRegistry } from '../src/settings.js'
 
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 const nextTask = async (): Promise<void> => { await new Promise((resolve) => setTimeout(resolve, 0)); await flush() }
+const confirmationButton = (root: HTMLElement, label: string): HTMLButtonElement =>
+  [...root.querySelectorAll<HTMLButtonElement>('[data-testid="collab-end-confirm"] button')].find((button) => button.textContent === label)!
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -422,7 +424,7 @@ describe('CollabPanel', () => {
 
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="collab-end"]')!.click()
     await flush()
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="collab-end-confirm-button"]')!.click()
+    confirmationButton(mounted.root, 'End session for everyone').click()
     mounted.emitClosed()
     await nextTask()
 
@@ -457,7 +459,7 @@ describe('CollabPanel', () => {
 
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="collab-end"]')!.click()
     await flush()
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="collab-end-confirm-button"]')!.click()
+    confirmationButton(mounted.root, 'End session for everyone').click()
     await flush()
     expect(mounted.root.querySelector('[role="status"]')?.textContent).toContain(
       'The collaboration session ended for everyone. The workflow is available locally.',
@@ -486,20 +488,20 @@ describe('CollabPanel', () => {
     end.focus()
     end.click()
     await flush()
-    const confirm = mounted.root.querySelector<HTMLButtonElement>('[data-testid="collab-end-confirm-button"]')!
-    expect(document.activeElement).toBe(confirm)
+    const confirm = confirmationButton(mounted.root, 'End session for everyone')
+    expect(document.activeElement).toBe(confirmationButton(mounted.root, 'Cancel'))
     expect(mounted.end).not.toHaveBeenCalled()
 
     confirm.click()
-    expect(confirm.textContent).toContain('Ending session')
+    expect(confirm.textContent).toBe('End session for everyone')
     expect(confirm.getAttribute('aria-busy')).toBe('true')
     ending.resolve('session owner refused the request')
     await flush()
-    expect(mounted.root.querySelector('[data-testid="collab-end-error"]')?.textContent).toContain('session owner refused')
+    expect(mounted.root.querySelector('[data-testid="collab-end-confirm"] [role="alert"]')?.textContent).toContain('session owner refused')
     expect(mounted.root.querySelector('[data-testid="collab-end-confirm"]')).not.toBeNull()
-    expect(document.activeElement).toBe(confirm)
+    expect(document.activeElement).toBe(confirmationButton(mounted.root, 'Cancel'))
 
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="collab-end-cancel"]')!.click()
+    confirmationButton(mounted.root, 'Cancel').click()
     await flush()
     const restored = mounted.root.querySelector<HTMLButtonElement>('[data-testid="collab-end"]')!
     expect(document.activeElement).toBe(restored)

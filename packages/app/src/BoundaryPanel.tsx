@@ -52,6 +52,7 @@ import {
   ProductButton as UiButton,
   ProductCheckbox as UiCheckbox,
   ProductField,
+  ProductConfirmation,
   ProductIcon,
   ProductLink,
   ProductTextInput as UiTextInput,
@@ -1163,7 +1164,7 @@ export function BoundaryPanel(props: { app: AppState }) {
             </div>
           )}
         </For>
-        <Show when={notice()?.key === rowKey(row())}>
+        <Show when={confirmingRemove() !== id() && notice()?.key === rowKey(row())}>
           <p class="boundary-message" data-tone="notice" data-testid="boundary-notice" role="status">{notice()!.text}</p>
         </Show>
         <Setting label={message('boundaryPanel.label')} for={`boundary-label-${id()}`}>
@@ -1331,7 +1332,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                 intent="remove"
                 data-testid="boundary-remove"
                 disabled={editingDisabled()}
-                onClick={() => setConfirmingRemove(id())}
+                onClick={() => { if (usedIn() > 1) setConfirmingRemove(id()); else void remove(row()) }}
               >
                 <ProductIcon icon={Trash2} />
                 {message('boundaryPanel.remove')}
@@ -1339,15 +1340,11 @@ export function BoundaryPanel(props: { app: AppState }) {
             </div>
           }>
             <div class="boundary-remove-confirm" role="group" data-testid="boundary-remove-confirm">
-              <span>{message('boundaryPanel.remove.question', { name: itemName(row()), count: usedIn() })}</span>
-              <div class="dinkster-actions boundary-tree-actions">
-                <UiButton type="button" density="panel" onClick={() => setConfirmingRemove(undefined)}>
-                  {message('boundaryPanel.remove.cancel')}
-                </UiButton>
-                <UiButton type="button" density="panel" intent="remove" fill="solid" data-testid="boundary-remove-yes" disabled={editingDisabled()} onClick={() => void remove(row())}>
-                  {message('boundaryPanel.remove.yes')}
-                </UiButton>
-              </div>
+              <ProductConfirmation title={message('boundaryPanel.remove.question', { name: itemName(row()), subgraph: context()!.def.name })}
+                consequence={message('boundaryPanel.remove.consequence', { count: usedIn() })}
+                actionLabel={message('boundaryPanel.remove')} intent="remove" disabled={frozen()} pending={pending() !== undefined}
+                error={notice()?.key === rowKey(row()) ? message('boundaryPanel.remove.failed', { name: itemName(row()), reason: notice()!.text }) : undefined}
+                onCancel={() => { setNotice(undefined); setConfirmingRemove(undefined) }} onConfirm={() => void remove(row())} />
             </div>
           </Show>
         </Show>

@@ -73,14 +73,14 @@ describe('buildCanvasSemanticItems', () => {
     expect(items.map((item) => item.label)).toEqual([
       'Node: Source, 0 inputs, 1 output, in Image pipeline, running 50 percent, live result estimated locally: float: 3.5, int: 3',
       'Button: Minimize Source',
-      'Output: Image of Source, IMAGE, 1 connection',
+      'Output: Image of Source, image, 1 connection',
       'Node: Sink, 1 input, 0 outputs, in Image pipeline, muted, error 2',
       'Button: Minimize Sink',
-      'Input: Image of Sink, IMAGE, optional, error, 1 connection',
+      'Input: Image of Sink, image, optional, error, 1 connection',
       'Row: strength of Sink, 0.50',
       'Row: caption of Sink, two lines',
       'Row: note of Sink, empty',
-      'Link: Source.Image to Sink.Image, IMAGE',
+      'Link: Source.Image to Sink.Image, image',
       'Group: Image pipeline, 2 nodes',
     ])
   })
@@ -151,9 +151,9 @@ describe('buildCanvasSemanticItems', () => {
 
     expect(items.map((item) => item.label)).toEqual([
       'Inputs boundary, 1 port',
-      'Output: prompt of inputs boundary, STRING, not connected',
-      'Reroute: r1, IMAGE',
-      'Named net get: latent, LATENT',
+      'Output: prompt of inputs boundary, text, not connected',
+      'Reroute: r1, image',
+      'Named net get: latent, latent data',
       'Group: Empty group, 0 nodes',
     ])
     expect(items.map((item) => item.target.kind)).toEqual([
@@ -216,18 +216,18 @@ describe('buildCanvasSemanticItems', () => {
     const items = buildCanvasSemanticItems({ scene: connected, states: {}, badges: {}, rowProblems: {}, outputTexts: {} })
 
     expect(items.find((item) => item.key === 'port:source:out:amount:tap')?.label)
-      .toBe('Output: Amount of Tap source, FLOAT, 2 connections')
+      .toBe('Output: Amount of Tap source, number, 2 connections')
     expect(items.find((item) => item.key === 'port:source:out:amount:tap')?.target)
       .toEqual({ kind: 'port', nodeId: 'source', id: 'amount', direction: 'out', widgetTap: true })
     expect(items.find((item) => item.key === 'port:sink:in:amount')?.label)
-      .toBe('Input: Amount of Sink, FLOAT, 2 connections')
+      .toBe('Input: Amount of Sink, number, 2 connections')
     // A wire into the row's input, not its tap, makes the row connected.
     expect(items.find((item) => item.key === 'widget:source:amount')?.label)
       .toBe('Row: Amount of Tap source, no value, connected')
     expect(items.find((item) => item.key === 'boundary-port:inputs:feed')?.label)
-      .toBe('Output: Feed of inputs boundary, FLOAT, 1 connection')
+      .toBe('Output: Feed of inputs boundary, number, 1 connection')
     expect(items.find((item) => item.key === 'boundary-port:outputs:result')?.label)
-      .toBe('Input: Result of outputs boundary, FLOAT, 1 connection')
+      .toBe('Input: Result of outputs boundary, number, 1 connection')
     expect(items.find((item) => item.key === 'link:tap')?.label)
       .toContain('Tap source.Amount to Sink.Amount')
     expect(items.find((item) => item.key === 'link:boundary-input')?.label)
@@ -249,15 +249,15 @@ describe('buildCanvasSemanticItems', () => {
 
     expect(items.find((item) => item.key === 'link:net1:0')).toBeUndefined()
     expect(items.find((item) => item.key === 'port:sink:in:image')?.label)
-      .toBe('Input: Image of Sink, IMAGE, optional, 1 connection')
+      .toBe('Input: Image of Sink, image, optional, 1 connection')
   })
 })
 
 describe('CanvasSemanticNavigator', () => {
   it('reports the active semantic port only while the navigator has focus', () => {
     const items: CanvasSemanticItem[] = [
-      { key: 'node:n1', category: 'node', label: 'Node', target: { kind: 'node', id: 'n1' } },
-      { key: 'port:n1:in:value', category: 'port', label: 'Input value', target: { kind: 'port', nodeId: 'n1', id: 'value', direction: 'in' } },
+      { key: 'node:n1', category: 'node', label: 'Node', kindLabel: 'Node', name: 'First', target: { kind: 'node', id: 'n1' } },
+      { key: 'port:n1:in:value', category: 'port', label: 'Input value', kindLabel: 'Input', name: 'value', target: { kind: 'port', nodeId: 'n1', id: 'value', direction: 'in' } },
     ]
     const activeChange = vi.fn()
     const root = document.createElement('div')
@@ -291,6 +291,8 @@ describe('CanvasSemanticNavigator', () => {
       key: `node:${index}`,
       category: 'node',
       label: `Node ${index + 1}`,
+      kindLabel: 'Node',
+      name: String(index + 1),
       target: { kind: 'node', id: String(index) },
     }))
     const [selectionVersion, setSelectionVersion] = createSignal(0)
@@ -328,6 +330,19 @@ describe('CanvasSemanticNavigator', () => {
     navigator.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
     expect(activate).not.toHaveBeenCalled()
     expect(root.querySelector('[data-active="true"]')?.textContent).toBe('Node 2')
+
+    const pointerMove = (movementY: number): void => {
+      const event = new PointerEvent('pointermove', { bubbles: true })
+      Object.defineProperties(event, { movementX: { value: 0 }, movementY: { value: movementY } })
+      root.querySelector('[role="option"][aria-posinset="4"]')!.dispatchEvent(event)
+    }
+    pointerMove(1)
+    expect(root.querySelector('[data-active="true"]')?.textContent).toBe('Node 4')
+    navigator.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+    pointerMove(0)
+    expect(root.querySelector('[data-active="true"]')?.textContent).toBe('Node 3')
+    expect(activate).not.toHaveBeenCalled()
+    navigator.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
 
     for (let index = 0; index < 13; index += 1) {
       navigator.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))

@@ -4940,17 +4940,20 @@ describe('text box height', () => {
 })
 
 describe('moving a member by its grip', () => {
-  const schema = (minMembers = 1): NodeSchema => ({
+  const schema = (minMembers = 1, boxed = false): NodeSchema => ({
     type: 'Stack', displayName: 'Stack', category: 'test', source: 'v3', isOutputNode: false,
     body: [{
       kind: 'group', id: 'loras', displayName: 'LoRAs', reorderable: true,
-      member: [{ kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } }],
+      member: [
+        { kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } },
+        ...(boxed ? [{ kind: 'input' as const, id: 'weight', type: { kind: 'concrete' as const, name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } }] : []),
+      ],
       keys: { kind: 'numbered', prefix: 'lora', start: 0, pad: 0 }, grows: 'button', minMembers, maxMembers: 4, addLabel: 'Add LoRA',
     }],
   })
-  const sceneWith = (members: readonly string[], tokens = { ...defaultTokens, memberRemoveCross: true }): Scene => {
+  const sceneWith = (members: readonly string[], tokens = { ...defaultTokens, memberRemoveCross: true }, boxed = false): Scene => {
     const node = { id: asNodeId('n1'), type: 'Stack', values: {}, dynamic: { loras: { members: [...members] } } }
-    const layout = layoutNode(schema(), node, tokens, (value) => value.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
+    const layout = layoutNode(schema(1, boxed), node, tokens, (value) => value.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
     return {
       graphId: 'g',
       nodes: [{ id: 'n1', x: 0, y: 0, layout, node, isSubgraph: false }],
@@ -4987,9 +4990,9 @@ describe('moving a member by its grip', () => {
     expect(gripRows(sceneWith(['lora0']))[0]!.reorder).toMatchObject({ member: 'lora0', alone: true })
   })
 
-  it('removes on a cross click, but not after a drag or at the least count', () => {
-    const scene = sceneWith(['lora0', 'lora1'])
-    const row = gripRows(scene)[1]!
+  it.each([false, true])('removes on a cross click, but not after a drag or at the least count (boxed: %s)', (boxed) => {
+    const scene = sceneWith(['lora0', 'lora1'], undefined, boxed)
+    const row = scene.nodes[0]!.layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'member').find((row) => row.remove?.member === 'lora1')!
     const x = scene.nodes[0]!.layout.width - row.crossInset! - canvasPaintTokens.node.box.cross.size / 2
     const y = row.y + defaultTokens.rowHeight / 2
     const remove = vi.fn()
@@ -5004,8 +5007,8 @@ describe('moving a member by its grip', () => {
     expect(remove).toHaveBeenCalledOnce()
     expect(harness.dispatched).toEqual([])
 
-    const least = sceneWith(['lora0'])
-    const leastRow = gripRows(least)[0]!
+    const least = sceneWith(['lora0'], undefined, boxed)
+    const leastRow = least.nodes[0]!.layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'member').find((row) => row.remove?.member === 'lora0')!
     const disabled = interactionHarness(least, { onMemberRemove: remove })
     const leastX = least.nodes[0]!.layout.width - leastRow.crossInset! - canvasPaintTokens.node.box.cross.size / 2
     const leastY = leastRow.y + defaultTokens.rowHeight / 2

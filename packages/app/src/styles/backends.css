@@ -41,7 +41,7 @@
 }
 
 .runtime-settings-toolbar p { margin: var(--dinkster-space-4) 0 0; color: var(--dinkster-text-secondary); line-height: var(--dinkster-type-body-line); }
-.runtime-setting-category > summary:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.runtime-setting-category > summary:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
 .backend-toolbar,
 .backend-row-actions,
 .backend-row-destinations { display: flex; align-items: center; flex-wrap: wrap; gap: var(--dinkster-space-8); min-width: 0; }

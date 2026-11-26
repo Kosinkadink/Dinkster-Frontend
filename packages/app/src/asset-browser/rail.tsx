@@ -16,6 +16,7 @@ import { CollectionImage } from '../CollectionImage.js'
 import { activeProjectId } from '../projects.js'
 import { ProductNotice } from '../ProductForm.js'
 import { ProductButton } from '../ProductControls.js'
+import { ProductConfirmation } from '@dinkster/ui'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { useAppMessage } from '../locale.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
@@ -174,14 +175,12 @@ function ModelVisibilityAction(props: {
     } finally { if (owner === generation) setBusy(false) }
   }
   return <section class="model-visibility-action" data-testid="model-visibility-action">
-    <Show when={error()}><ProductNotice tone="error">{message('modelVisibility.error')}</ProductNotice></Show>
     <Show when={hidden()} fallback={
       <Show when={confirming()} fallback={<ProductButton class="model-hide-outline" onClick={() => setConfirming(true)}>{message('modelVisibility.hide')}</ProductButton>}>
-        <ProductNotice tone="warning">{message('modelVisibility.confirm', { name: props.item.name })}</ProductNotice>
-        <div class="project-folder-actions">
-          <ProductButton disabled={busy()} onClick={() => setConfirming(false)}>{message('projectFolders.cancel')}</ProductButton>
-          <ProductButton variant="danger" disabled={busy()} onClick={() => void hide()}>{message('modelVisibility.hide')}</ProductButton>
-        </div>
+        <ProductConfirmation title={message('modelVisibility.hideTitle', { name: props.item.name })}
+          consequence={message('modelVisibility.confirm')} actionLabel={message('modelVisibility.hide')} intent="remove"
+          pending={busy()} error={error() ? message('modelVisibility.error') : undefined}
+          onCancel={() => { setError(false); setConfirming(false) }} onConfirm={() => void hide()} />
       </Show>
     }><ProductNotice tone="info">{message('modelVisibility.hidden')}</ProductNotice></Show>
   </section>
