@@ -1860,8 +1860,9 @@ function elaboratePass(
       }
       if (row.kind !== 'input') continue
       const path = scope.prefix + row.id
-      emitInput(previous === undefined || scope.kept !== undefined ? row : { ...row, adjacentTo: previous }, path, scope)
-      previous = path
+      one(previous === undefined || scope.kept !== undefined ? row : { ...row, adjacentTo: previous }, scope)
+      const input = items.at(-1)
+      if (input?.kind === 'input' && input.address.port === path && input.spec.hidden !== true) previous = path
     }
     depth--
   }

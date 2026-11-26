@@ -1448,17 +1448,25 @@ export function layoutNode(
         })
         continue
       }
-      outputs.push({
-        boxes: chain,
-        slot: {
-          portId: spec.id,
-          ...rowLabels(item),
-          type: spec.type,
-          index: outputIndex++,
-          ...(spec.optional ? { maybeAbsent: true as const } : {}),
-          ...annotate(item),
-        },
-      })
+      const slot = {
+        portId: spec.id,
+        ...rowLabels(item),
+        type: spec.type,
+        index: outputIndex++,
+        ...(spec.optional ? { maybeAbsent: true as const } : {}),
+        ...annotate(item),
+      }
+      if (schema.source === 'subgraph') {
+        // A subgraph node's outputs keep the place the author gave them: an
+        // output shares the line of the pin-only input directly above it in
+        // the same box, unless it is kept on a line of its own.
+        const above = pending.at(-1)
+        if (!spec.ownRow && above?.kind === 'ports' && above.input !== undefined &&
+          above.output === undefined && chainKey(above.boxes) === chainKey(chain)) above.output = slot
+        else pending.push({ kind: 'ports', boxes: chain, output: slot })
+        continue
+      }
+      outputs.push({ boxes: chain, slot })
       continue
     }
     // input
