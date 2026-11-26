@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import type { BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
+import type { BoundaryItem, GraphDef, Json, NodeData, WorkflowDocument } from '../src/format/document.js'
 import { compile } from '../src/compile/compile.js'
 import { asConnectionId, asNodeId, asPortId } from '../src/ids.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
@@ -1170,13 +1170,17 @@ describe('Boundary sample acceptance compilation', () => {
     const graph: GraphDef = { ...source, nodes: {
       a: { ...source.nodes.sample!, id: asNodeId('a'), type: 'Treatment', values: {}, dynamic: {} },
       b: { ...source.nodes.sample!, id: asNodeId('b'), type: 'Treatment', values: {}, dynamic: {} },
+      constructor: { id: asNodeId('constructor'), type: 'Missing', values: {} },
     }, boundary: boundaryOf([
       { id: 'amount', promoted: true, binds: { kind: 'port', node: asNodeId('a'), port: asPortId('strength') } },
       { id: 'other', promoted: true, binds: { kind: 'port', node: asNodeId('b'), port: asPortId('strength') } },
+      { id: 'unavailable', binds: { kind: 'port', node: asNodeId('constructor'), port: asPortId('missing') } },
     ], []) }
-    const derived = deriveBoundarySchema(graph, () => schema(0.1), undefined, (node) => schema(node.id === 'a' ? 0.1 : 0.9))
+    const resolveNode = (node: NodeData) => node.type === 'Missing' ? undefined : schema(node.id === 'a' ? 0.1 : 0.9)
+    const derived = deriveBoundarySchema(graph, (type) => type === 'Missing' ? undefined : schema(0.1), undefined, resolveNode)
     const fields = elabInputsOf(elaborateInterface(derived.schema!, { values: {} }))
-    expect(fields.map((field) => field.spec.displayName)).toEqual(['Mix 0.1', 'Mix 0.9'])
+    expect(fields.slice(0, 2).map((field) => field.spec.displayName)).toEqual(['Mix 0.1', 'Mix 0.9'])
+    expect(fields[2]!.spec.unavailable?.code).toBe('boundary.unresolvedSchema')
   })
 
   it('boundary/show-hide uses boundary names for a whole choice through renamed nested boundaries', () => {

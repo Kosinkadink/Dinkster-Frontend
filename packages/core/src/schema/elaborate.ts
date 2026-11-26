@@ -1330,7 +1330,8 @@ function elaboratePass(
     const cached = sourceNodes.get(source)
     if (cached !== undefined) return cached
     const parent = source.parent === undefined ? { node, connectivity } : sourceNode(source.parent)
-    const resolve = (inner: NodeData): NodeSchema | undefined => source.schemas[inner.id]
+    const resolve = (inner: NodeData): NodeSchema | undefined =>
+      Object.hasOwn(source.schemas, inner.id) ? source.schemas[inner.id] : undefined
     const projection = projectConstructs(source.graph, parent.node, resolve)
     const inner = buildGraphConnectivity(source.graph)(source.node.id)
     const connected = (port: string, side: 'inputs' | 'outputs'): boolean => {
