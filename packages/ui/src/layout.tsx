@@ -40,24 +40,33 @@ export function ProductAuthCard(props: {
   let card!: HTMLElement
   let content!: HTMLDivElement
   onMount(() => {
-    let height = card.getBoundingClientRect().height
+    let height: number | undefined
+    let width: number | undefined
     let animation: Animation | undefined
     const observer = new ResizeObserver(() => {
       const style = getComputedStyle(card)
+      const frame = content.getBoundingClientRect()
       const next =
-        content.getBoundingClientRect().height +
+        frame.height +
         parseFloat(style.paddingTop) +
         parseFloat(style.paddingBottom) +
         parseFloat(style.borderTopWidth) +
         parseFloat(style.borderBottomWidth)
-      if (next === height) return
+      const resized = width !== frame.width
+      width = frame.width
+      if (next === height && !resized) return
       const from =
         animation?.playState === 'running'
           ? card.getBoundingClientRect().height
           : height
       animation?.cancel()
       height = next
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      if (
+        from === undefined ||
+        resized ||
+        matchMedia('(prefers-reduced-motion: reduce)').matches
+      )
+        return
       // Animate the measured change, then return to intrinsic height.
       animation = card.animate(
         [{ height: `${from}px` }, { height: `${next}px` }],
