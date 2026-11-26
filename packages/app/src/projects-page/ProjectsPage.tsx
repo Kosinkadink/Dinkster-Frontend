@@ -177,8 +177,15 @@ export function processSource(connection: DinksterConnection = processConnection
     restoreProject: (project) => connection.restoreProject(project.id, project.revision),
     needs: (project) => connection.projectNeeds(project),
     async listWorkflows(project) {
-      const page = await connection.listLibrary({ scope: 'local', label: 'workflow', project, limit: 200 })
-      return page.records
+      const records: LibraryRecord[] = []
+      let cursor: string | undefined
+      do {
+        const page = await connection.listLibrary({ scope: 'local', mediaType: 'application/x-dinkster-workflow+json', project, limit: 200,
+          ...(cursor !== undefined ? { cursor } : {}) })
+        records.push(...page.records)
+        cursor = page.cursor
+      } while (cursor !== undefined)
+      return records
     },
     async workflowDocument(digest) {
       const response = await fetch(`/api/assets/${encodeURIComponent(digest)}`)

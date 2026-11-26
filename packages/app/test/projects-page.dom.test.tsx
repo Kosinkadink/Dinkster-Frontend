@@ -3,10 +3,11 @@
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { setLocale } from '@dinkster/core'
-import type { LibraryProject, ProjectCreation } from '@dinkster/client'
+import { asConnectionId, setLocale } from '@dinkster/core'
+import { DinksterConnection, type LibraryProject, type ProjectCreation } from '@dinkster/client'
 import '../src/locale.js'
 import {
+  processSource,
   ProjectsView,
   type PageInstallation,
   type ProjectsPageShell,
@@ -548,6 +549,31 @@ it('does not suggest opening a project to create workflows without an installati
   await settle()
   expect(document.body.textContent).toContain('No workflows yet.')
   expect(document.body.textContent).not.toContain('Open the project to make one.')
+})
+
+it('shows unlabeled workflows across library pages without including tagged non-workflows', async () => {
+  const records = [
+    { id: 'w1', name: 'Imported scene', mediaType: 'application/x-dinkster-workflow+json', labels: [] },
+    { id: 'image', name: 'Reference image', mediaType: 'image/png', labels: ['workflow'] },
+    { id: 'w2', name: 'Copied scene', mediaType: 'application/x-dinkster-workflow+json', labels: ['favorite'] },
+  ].map((record) => ({ ...record, scope: 'local', project: 'p-film', digest: 'blake3:1', created: 1, modified: 1, revision: 1 }))
+  const connection = new DinksterConnection({
+    id: asConnectionId('projects-test'), baseUrl: 'http://test', clientId: 'projects-test',
+    fetchFn: async (url) => {
+      const query = new URL(url).searchParams
+      const matching = records.filter((record) =>
+        record.project === query.get('project') &&
+        (!query.has('label') || record.labels.includes(query.get('label')!)) &&
+        (!query.has('mediaType') || record.mediaType === query.get('mediaType')))
+      const offset = Number(query.get('cursor') ?? 0)
+      return new Response(JSON.stringify({ records: matching.slice(offset, offset + 1),
+        cursor: offset + 1 < matching.length ? String(offset + 1) : null }))
+    },
+  })
+  render(() => <ProjectsView shell={shell()} source={{ ...source(projects), listWorkflows: processSource(connection).listWorkflows }} />, document.body)
+  await settle()
+  await settle()
+  expect([...document.querySelectorAll('.dinkster-tile-name')].map((name) => name.textContent)).toEqual(['Imported scene', 'Copied scene'])
 })
 
 it('keeps projects readable and restorable without an installation, but cannot open an editor from a workflow tile', async () => {
