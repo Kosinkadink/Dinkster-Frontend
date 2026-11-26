@@ -202,5 +202,20 @@ test('custom menu content keeps string names, separate descriptions and selectio
     await trigger.press('ArrowDown')
     await plain.click()
     await expect(page.getByTestId('custom-menu-chosen')).toHaveText('Image input')
+    await page.setViewportSize({ width, height: 180 })
+    await trigger.scrollIntoViewIfNeeded()
+    await trigger.focus()
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    const scroll = await page.evaluate(() => [window.scrollX, window.scrollY])
+    for (const key of ['ArrowDown', 'ArrowUp']) {
+      await trigger.press(key)
+      const target = key === 'ArrowDown' ? plain : described
+      await expect(target).toBeFocused()
+      await expect(target).toBeInViewport({ ratio: 1 })
+      await expect(menu.getByRole('menuitem', { name: 'Unavailable image type', exact: true })).toBeDisabled()
+      expect(await page.evaluate(() => [window.scrollX, window.scrollY])).toEqual(scroll)
+      await page.keyboard.press('Escape')
+      await expect(trigger).toBeFocused()
+    }
   }
 })

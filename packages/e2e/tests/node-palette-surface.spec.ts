@@ -581,3 +581,63 @@ test('Insert node opens both port constraints and splices a compatible choice in
   expect(Object.keys((await graph()).nodes)).toEqual(['source', 'sink'])
   expect(Object.keys((await graph()).links)).toEqual(['original'])
 })
+
+test('type menus open on either end without scrolling their host, retain keyboard reveal and dismiss on outside scroll', async ({ page }) => {
+  await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
+    type: 'PaletteTypeChoices', displayName: 'Palette type choices', category: 'Types', source: 'v3', isOutputNode: false,
+    body: Array.from({ length: 24 }, (_, index) => ({
+      kind: 'output' as const, id: `value${index}`, type: { kind: 'concrete' as const, name: `TYPE_${String(index).padStart(2, '0')}` },
+    })),
+  }]))
+  await setShellRegion(page, 'right', false)
+  for (const width of [240, 360, 600]) {
+    await page.setViewportSize({ width, height: 640 })
+    await openPalette(page, true)
+    const palette = page.getByTestId('node-palette')
+    const search = page.getByTestId('palette-search')
+    await search.fill('Palette transform')
+    const trigger = palette.getByRole('button', { name: /^Gives:/ })
+    const menu = palette.getByRole('menu')
+    const scroll = () => palette.evaluate((element) => {
+      const nodes = [element, ...Array.from(element.querySelectorAll('.dinkster-search-panel, .dinkster-search-list'))]
+      return nodes.map((node) => [node.scrollLeft, node.scrollTop])
+    })
+    for (const key of ['ArrowDown', 'ArrowUp']) {
+      await trigger.focus()
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+      const before = await scroll()
+      await trigger.press(key)
+      const items = menu.getByRole('menuitemcheckbox')
+      await expect(key === 'ArrowDown' ? items.first() : items.last()).toBeFocused()
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+      await expect(menu).toBeVisible()
+      await expect(key === 'ArrowDown' ? items.first() : items.last()).toBeInViewport()
+      expect(await scroll()).toEqual(before)
+      const bounds = (await menu.boundingBox())!
+      expect(bounds.x).toBeGreaterThanOrEqual(8)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8)
+      expect(bounds.y).toBeGreaterThanOrEqual(8)
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(632)
+      await capture(page, `app-menu-${width}-${key}`)
+      if (width === 600) {
+        await page.keyboard.press('Home')
+        await expect(items.first()).toBeFocused()
+        await page.keyboard.press('End')
+        await expect(items.last()).toBeFocused()
+        await expect(items.last()).toBeInViewport()
+        expect(await menu.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+        await page.keyboard.press('ArrowUp')
+        await expect(items.nth(await items.count() - 2)).toBeFocused()
+      }
+      await page.keyboard.press('Escape')
+      await expect(menu).toHaveCount(0)
+      await expect(trigger).toBeFocused()
+    }
+    await trigger.press('ArrowDown')
+    await expect(menu).toBeVisible()
+    await palette.getByRole('listbox').evaluate((element) => { element.scrollTop += 40 })
+    await expect(menu).toHaveCount(0)
+    await search.press('Escape')
+    await expect(palette).toHaveCount(0)
+  }
+})

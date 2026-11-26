@@ -111,6 +111,19 @@ function Menu(props: {
       '[role^="menuitem"]:not(:disabled)',
     ),
   ]
+  const focusInitialItem = (last: boolean) => {
+    const items = enabledItems()
+    const item = items[last ? items.length - 1 : 0]
+    if (item) {
+      const bounds = item.getBoundingClientRect()
+      const top = menu.getBoundingClientRect().top + menu.clientTop
+      const bottom = top + menu.clientHeight
+      // Reveal only inside the menu; scrolling its host would dismiss it.
+      if (bounds.top < top) menu.scrollTop += bounds.top - top
+      else if (bounds.bottom > bottom) menu.scrollTop += bounds.bottom - bottom
+    }
+    ;(item ?? menu).focus({ preventScroll: true })
+  }
   const show = (last = false) => {
     setOpen(true)
     props.onOpen?.()
@@ -138,8 +151,7 @@ function Menu(props: {
         menu.style.left = `${placement.left}px`
         menu.style.top = `${placement.top}px`
         menu.style.maxHeight = `${placement.maxHeight}px`
-        const items = enabledItems()
-        ;(items[last ? items.length - 1 : 0] ?? menu).focus()
+        focusInitialItem(last)
         return
       }
       // Explicit end alignment and triggers near the window's right edge
@@ -168,8 +180,7 @@ function Menu(props: {
       menu.style.left = `${placement.left}px`
       menu.style.top = `${placement.top}px`
       menu.style.maxHeight = `${placement.maxHeight}px`
-      const items = enabledItems()
-      ;(items[last ? items.length - 1 : 0] ?? menu).focus()
+      focusInitialItem(last)
     })
   }
   // Dismissal listeners exist only while the menu is open, so a page with

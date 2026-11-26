@@ -190,6 +190,12 @@ export function NodeSearchGallery() {
         items={[
           { label: 'Image input', labelContent: <ProductSearchTypeLabel label="image" direction="takes" color={typeColor(defaultTokens, 'IMAGE')} />, onSelect: () => setChosenLabel('Image input') },
           { label: 'Image output', labelContent: <ProductSearchTypeLabel label="image" direction="gives" color={typeColor(defaultTokens, 'IMAGE')} />, description: 'Accepts a picture from the node.', onSelect: () => setChosenLabel('Image output') },
+          ...['image', 'mask', 'model', 'latent'].map((type) => ({
+            label: `Unavailable ${type} type`,
+            description: 'This type cannot be selected in this example. Enabled choices remain reachable above these disabled rows.',
+            disabled: true,
+            onSelect: () => {},
+          })),
         ]} />
       <p class="dinkster-metadata" data-testid="custom-menu-chosen">{chosenLabel()}</p>
     </ProductSection>
