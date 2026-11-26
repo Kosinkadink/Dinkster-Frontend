@@ -141,6 +141,70 @@ describe('page tab host', () => {
 })
 
 describe('app page tabs', () => {
+  it('saves the active Board, tracks dirty undo, reports refused saves, and never saves through a page without a save handler', async () => {
+    const app = createWorkflowApp()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    const digest = `blake3:${'a'.repeat(64)}`
+    let uploaded = ''
+    const upload = vi.spyOn(app.connection, 'uploadAsset').mockImplementation(async (text) => { uploaded = String(text); return digest })
+    vi.spyOn(app.connection, 'createLibraryRecord').mockImplementation(async (value) => ({
+      ...value, id: 'saved-board', labels: value.labels ?? [], created: 1, modified: 1, revision: 1,
+    }))
+    vi.spyOn(app.connection, 'patchLibraryRecord').mockRejectedValue(new Error('Board write refused'))
+    try {
+      app.settings.set('features.board.enabled', true)
+      app.commands.get('board.new')!.run()
+      const entry = app.boards.entries.get()[0]!
+      entry.session.dispatch({ command: 'board.item.add', params: { items: [
+        { id: 'note', kind: 'note', text: 'Saved Board text', rect: { x: 20, y: 30, width: 180, height: 80 } },
+      ] } })
+      dispose = render(() => <App app={app} />, root)
+      const dirty = () => root.querySelector(`[data-tab-id="page:board:${entry.id}"]`)!.querySelector('.tab-dirty')
+      const save = app.commands.get('workflow.save')!
+      expect(save.enabled?.()).toBe(true)
+      save.run()
+      await vi.waitFor(() => expect(app.boards.isDirty(entry.id)).toBe(false))
+      expect(JSON.parse(uploaded).items.note.text).toBe('Saved Board text')
+      expect(save.enabled?.()).toBe(false)
+      expect(dirty()).toBeNull()
+      entry.session.dispatch({ command: 'board.note.edit', params: { id: 'note', text: 'Unsaved Board text' } })
+      expect(save.enabled?.()).toBe(true)
+      expect(dirty()).not.toBeNull()
+      entry.session.undo()
+      expect(save.enabled?.()).toBe(false)
+      expect(dirty()).toBeNull()
+      entry.session.redo()
+      save.run()
+      await vi.waitFor(() => expect(root.querySelector('.board-page [role="alert"]')?.textContent).toContain('Board write refused'))
+      expect(app.boards.isDirty(entry.id)).toBe(true)
+      root.querySelector<HTMLButtonElement>('.board-page [role="alert"] button')!.click()
+      expect(root.querySelector('.board-page [role="alert"]')).toBeNull()
+      entry.session.undo()
+      app.pages.register({ id: 'readonly', title: 'Read only', icon: Images, dirty: () => true, component: () => <h2>Read only</h2> })
+      app.pages.open('readonly')
+      const bytes = uploaded
+      const count = upload.mock.calls.length
+      expect(save.enabled?.()).toBe(false)
+      save.run()
+      await Promise.resolve()
+      expect(upload.mock.calls.length).toBe(count)
+      expect(uploaded).toBe(bytes)
+      app.pages.close('page:readonly')
+      app.pages.open(`board:${entry.id}`)
+      root.querySelector<HTMLButtonElement>('[aria-label="Close Board"]')!.click()
+      expect(root.querySelector('[data-testid="close-tab-dialog"]')).toBeNull()
+      expect(app.boards.entries.get()).toEqual([])
+    } finally {
+      dispose()
+      app.dispose()
+      root.remove()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('requires file confirmation, cancels late uploads without edits, and imports a confirmed batch with undo', async () => {
     const app = createWorkflowApp()
     const root = document.createElement('div')

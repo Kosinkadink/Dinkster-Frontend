@@ -15,9 +15,10 @@ import { UploadDestination } from './UploadDestination.js'
 import { activeProjectId } from './projects.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 
-function BoardPage(props: { app: AppState; entry: BoardEntry }) {
+function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string | undefined; clearSaveError: () => void }) {
   const [menu, setMenu] = createSignal<CanvasCornerMenu>()
   const [error, setError] = createSignal<string>()
+  const clearError = () => { setError(undefined); props.clearSaveError() }
   const backends = useSignal(props.app.backends)
   let live = true
   let drop = 0
@@ -75,7 +76,7 @@ function BoardPage(props: { app: AppState; entry: BoardEntry }) {
       }, abort.signal)
       if (!current()) return
       try { saveUploadDestination(String(request.backend.id), request.project, choice) } catch { /* Storage failure does not undo an import. */ }
-      setError(undefined)
+      clearError()
       setImporting(undefined)
     } catch (reason) {
       if (current()) { setError(reason instanceof Error ? reason.message : String(reason)); setImporting(undefined) }
@@ -102,7 +103,7 @@ function BoardPage(props: { app: AppState; entry: BoardEntry }) {
         stageImport([...event.currentTarget.files ?? []], pickerPoint)
         event.currentTarget.value = ''
       }} />
-    <Show when={error()}>{(message) => <ProductErrorBanner onDismiss={() => setError(undefined)}>{message()}</ProductErrorBanner>}</Show>
+    <Show when={error() ?? props.saveError}>{(message) => <ProductErrorBanner onDismiss={clearError}>{message()}</ProductErrorBanner>}</Show>
     <div class="board-page-canvas"><ProductBoard
     fill
     store={props.entry.session}
@@ -119,7 +120,7 @@ function BoardPage(props: { app: AppState; entry: BoardEntry }) {
           await props.app.boards.placeMedia(entry.id, { project, baseUrl, assets: [{
             digest: asset.digest, mediaType: asset.mediaType, name: asset.name.slice(0, BOARD_MAX_NAME),
           }] }, point)
-          if (live && props.entry === entry && request === drop) setError(undefined)
+          if (live && props.entry === entry && request === drop) clearError()
         } catch (reason) {
           if (live && props.entry === entry && request === drop)
             setError(reason instanceof Error ? reason.message : String(reason))
@@ -156,6 +157,8 @@ function BoardPage(props: { app: AppState; entry: BoardEntry }) {
 /** Register each Board identity once, over the same page host as other documents. */
 export function installBoardPages(app: AppState): () => void {
   const registrations = new Map<string, () => void>()
+  const [changed, setChanged] = createSignal(0)
+  const unsubscribeChanged = app.boards.changed.subscribe((value) => setChanged(value))
   let open = new Set<string>()
   const pageId = (id: string) => `board:${id}`
   const enabled = () => app.settings.get<boolean>('features.board.enabled')
@@ -168,14 +171,26 @@ export function installBoardPages(app: AppState): () => void {
     }
     for (const entry of entries) {
       if (registrations.has(entry.id)) continue
+      const [saveError, setSaveError] = createSignal<string>()
       registrations.set(entry.id, app.pages.register({
         id: pageId(entry.id), title: entry.title, icon: Images, enabled,
-        dirty: () => true,
+        dirty: () => { changed(); return app.boards.isDirty(entry.id) },
+        save: async () => {
+          const owner = app.boards.entries.get().find((candidate) => candidate.id === entry.id)
+          if (!owner) return
+          try {
+            await app.boards.save(entry.id)
+            if (app.boards.entries.get().includes(owner)) setSaveError(undefined)
+          } catch (reason) {
+            if (app.boards.entries.get().includes(owner))
+              setSaveError(reason instanceof Error ? reason.message : String(reason))
+          }
+        },
         snapshot: () => app.boards.entries.get().find((candidate) => candidate.id === entry.id)?.session.doc,
         component: () => {
           const entries = useSignal(app.boards.entries)
           return <Show when={entries().find((candidate) => candidate.id === entry.id)}>
-            {(current) => <BoardPage app={app} entry={current()} />}
+            {(current) => <BoardPage app={app} entry={current()} saveError={saveError()} clearSaveError={() => setSaveError(undefined)} />}
           </Show>
         },
       }))
@@ -214,6 +229,7 @@ export function installBoardPages(app: AppState): () => void {
     unsubscribeSettings()
     unsubscribeTabs()
     unsubscribeEntries()
+    unsubscribeChanged()
     unregisterCommand?.()
     for (const unregister of registrations.values()) unregister()
     registrations.clear()

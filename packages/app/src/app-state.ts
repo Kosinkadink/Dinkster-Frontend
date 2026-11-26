@@ -7,6 +7,7 @@
 
 import { desktopSaveBridge } from './desktop-bridge.js'
 import { createAppPageTabs } from './app-page-tabs.js'
+import { isPageTab } from './page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
 import {
   CORE_VIRTUAL_NODE_KINDS,
@@ -3201,7 +3202,21 @@ export class AppState {
         if (execution) void this.cancelExecution(execution.ref)
       },
     })
-    register('workflow.save', 'command.workflow.save', 'Ctrl+S', () => { const tab = activeTabNow(); if (tab) void this.saveWorkflow(tab.id) }, () => {
+    register('workflow.save', 'command.workflow.save', 'Ctrl+S', () => {
+      const page = this.pages.tabs().find((tab) => tab.id === this.activeTabId.get())
+      if (page && isPageTab(page)) {
+        const descriptor = this.pages.descriptor(page.pageId)
+        if (descriptor?.dirty?.() === true) void descriptor.save?.()
+        return
+      }
+      const tab = activeTabNow()
+      if (tab) void this.saveWorkflow(tab.id)
+    }, () => {
+      const page = this.pages.tabs().find((tab) => tab.id === this.activeTabId.get())
+      if (page && isPageTab(page)) {
+        const descriptor = this.pages.descriptor(page.pageId)
+        return descriptor?.save !== undefined && descriptor.dirty?.() === true
+      }
       const tab = activeTabNow()
       return tab !== undefined && tab.execution === undefined && this.backendForTab(tab).protocol === 'dinkster'
     })
