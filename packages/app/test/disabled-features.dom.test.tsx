@@ -143,7 +143,7 @@ it('does not expose obsolete environment management when an older Desktop host s
   expect(host.querySelector('[data-modal="desktop-management"]')).toBeNull()
 })
 
-it.each(['Linux x86_64', 'MacIntel'])('creates documents with physical shortcuts and keeps menu hints in sync on %s', async (platform) => {
+it.each(['Linux x86_64', 'MacIntel'])('leaves withdrawn document shortcuts unbound on %s', async (platform) => {
   vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform)
   app = new AppState()
   const backend = app.backends.get()[0]!
@@ -154,14 +154,12 @@ it.each(['Linux x86_64', 'MacIntel'])('creates documents with physical shortcuts
   const modifiers = { ctrlKey: true }
   const count = app.tabs.get().length
   window.dispatchEvent(new KeyboardEvent('keydown', { key: '!', code: 'Digit1', shiftKey: true, ...modifiers }))
-  expect(app.tabs.get()).toHaveLength(count + 1)
   window.dispatchEvent(new KeyboardEvent('keydown', { key: '@', code: 'Digit2', shiftKey: true, ...modifiers }))
-  await vi.waitFor(() => expect(host.querySelector('[data-testid="templates-page"]')).not.toBeNull())
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: '!', code: 'Digit1', shiftKey: true, ...modifiers }))
-  expect(app.tabs.get()).toHaveLength(count + 2)
-  app.keybindings.set('workflow.new', 'Alt+3')
+  expect(app.tabs.get()).toHaveLength(count)
+  expect(host.querySelector('[data-testid="templates-page"]')).toBeNull()
   host.querySelector<HTMLButtonElement>('[data-testid="new-tab"] button')!.click()
-  await vi.waitFor(() => expect([...host.querySelectorAll('[role="menuitem"] kbd')].map((key) => key.textContent)).toEqual(['Alt', '3', 'Ctrl', 'Shift', '2']))
+  await vi.waitFor(() => expect(host.querySelectorAll('[role="menuitem"]')).toHaveLength(2))
+  expect(host.querySelectorAll('[role="menuitem"] kbd')).toHaveLength(0)
 })
 
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {

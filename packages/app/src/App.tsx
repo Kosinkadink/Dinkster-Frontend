@@ -1934,7 +1934,6 @@ export function App(props: {
     get label() { return message('templatesEntry.blank') },
     run: () => { app.createWorkflow() },
   }))
-  onCleanup(app.keybindings.register({ command: 'workflow.new', combo: 'Ctrl+Shift+1' }))
   const documentKeys = (command: string): readonly string[] | undefined => {
     settingsTick()
     const combo = app.keybindings.combo(command)
@@ -1984,8 +1983,7 @@ export function App(props: {
       run: () => openTemplates(),
       enabled: () => app.libraryBackend()?.templatesEnabled.get() === true,
     })
-    const unregisterKeybinding = app.keybindings.register({ command: 'workflow.openTemplateGallery', combo: 'Ctrl+Shift+2' })
-    onCleanup(() => { unregisterKeybinding(); unregisterCommand(); unregisterSetting() })
+    onCleanup(() => { unregisterCommand(); unregisterSetting() })
   })
   // The center region resolves every editor through EditorRegistry rather
   // than shell JSX branches.
