@@ -1415,6 +1415,7 @@
 .dinkster-board { position: relative; width: 100%; height: 800px; min-height: 360px; overflow: hidden; touch-action: none; user-select: none; background: var(--dinkster-surface-canvas); border-radius: var(--dinkster-radius-card); outline: none; }
 .dinkster-board-grid circle { fill: var(--dinkster-border-subtle); }
 .dinkster-board:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; }
+:root[data-field-focus='pointer'] .dinkster-board:focus-visible { outline: none; }
 .dinkster-board-world { position: absolute; inset: 0; transform-origin: 0 0; pointer-events: none; }
 .dinkster-board-item { position: absolute; pointer-events: auto; cursor: move; }
 .dinkster-board-item[data-selected='true'] { outline: var(--dinkster-border-width) solid var(--dinkster-text-primary); }

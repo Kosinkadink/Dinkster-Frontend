@@ -41,9 +41,7 @@ test('pictures move and resize without changing their shape, and edits undo and 
   const expanded = (await picture.boundingBox())!
   expect(expanded.width).toBeCloseTo(anchored.width + 10)
   expect(expanded.x + expanded.width).toBeCloseTo(anchored.x + anchored.width)
-  expect(expanded.y + expanded.height).toBeCloseTo(
-    anchored.y + anchored.height,
-  )
+  expect(expanded.y + expanded.height).toBeCloseTo(anchored.y + anchored.height)
 })
 
 test('moving a section moves its contents, notes edit, and a new note is undoable', async ({
@@ -92,6 +90,10 @@ test('moving a section moves its contents, notes edit, and a new note is undoabl
   await expect(section.locator('.dinkster-board-caption')).toHaveCount(0)
   const noteItem = page.locator('[data-board-item="note-1"]')
   await noteItem.click()
+  await expect(page.locator('.dinkster-board')).toHaveCSS(
+    'outline-style',
+    'none',
+  )
   await expect(noteItem.getByRole('textbox')).toHaveCount(0)
   const text = await noteItem
     .locator('.dinkster-board-note-text')
@@ -240,6 +242,66 @@ test('sound and video play in place, and media can move, resize and undo removal
   }
 })
 
+test('moving a section keeps outside media loaded and above it', async ({
+  page,
+}) => {
+  await page.goto('/#board')
+  const video = page.locator('[data-board-item="video-1"]')
+  const sound = page.locator('[data-board-item="sound-1"]')
+  const waveform = sound.getByRole('slider').locator('path').first()
+  await expect(waveform).not.toHaveAttribute('d', '')
+  await video
+    .getByRole('button', { name: 'Play Rain on the window', exact: true })
+    .click()
+  await expect
+    .poll(() =>
+      video
+        .locator('video')
+        .evaluate((media: HTMLVideoElement) => media.currentTime),
+    )
+    .toBeGreaterThan(1)
+  await video
+    .getByRole('button', { name: 'Pause Rain on the window', exact: true })
+    .click()
+  const elapsed = await video
+    .locator('video')
+    .evaluate((media: HTMLVideoElement) => media.currentTime)
+  const section = page.locator('[data-board-item="section-1"]')
+  const bounds = (await section.boundingBox())!
+  await page.mouse.move(bounds.x + 650, bounds.y + 330)
+  await page.mouse.down()
+  await page.mouse.move(bounds.x + 680, bounds.y + 650)
+  await page.mouse.up()
+  expect(
+    await video
+      .locator('video')
+      .evaluate((media: HTMLVideoElement) => media.currentTime),
+  ).toBe(elapsed)
+  await expect(waveform).not.toHaveAttribute('d', '')
+  await expect(sound).toContainText('0:04')
+  await expect(page.locator('.dinkster-board')).toHaveCSS(
+    'outline-style',
+    'none',
+  )
+  for (const item of [video, sound]) {
+    const box = (await item.boundingBox())!
+    expect(
+      await item.evaluate(
+        (element, point) =>
+          element.contains(document.elementFromPoint(point.x, point.y)),
+        { x: box.x + 100, y: box.y + 20 },
+      ),
+    ).toBe(true)
+  }
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.locator('.dinkster-board')).toBeFocused()
+  await expect(page.locator('.dinkster-board')).toHaveCSS(
+    'outline-style',
+    'solid',
+  )
+})
+
 test('two fingers pan and zoom the board without moving its items', async ({
   page,
   context,
@@ -274,9 +336,7 @@ test('two fingers pan and zoom the board without moving its items', async ({
   expect(after.x).toBeCloseTo((before.x - (x + 40)) * 2 + x + 100)
   await page.getByTestId('canvas-fit-view').click()
   await expect(picture).toBeVisible()
-  expect((await picture.boundingBox())!.width).toBeLessThanOrEqual(
-    before.width,
-  )
+  expect((await picture.boundingBox())!.width).toBeLessThanOrEqual(before.width)
   await expect(page.getByTestId('minimap-toggle')).toHaveCount(0)
   await page.getByTestId('canvas-zoom-level').click()
   await page.getByTestId('canvas-zoom-reset').click()

@@ -2,6 +2,7 @@ import {
   For,
   Show,
   createEffect,
+  createMemo,
   createSignal,
   createUniqueId,
   onCleanup,
@@ -112,8 +113,8 @@ function BoardMedia(props: {
   const [waveformFailed, setWaveformFailed] = createSignal(false)
   const [playFailed, setPlayFailed] = createSignal(false)
   let media!: HTMLMediaElement
-  const fraction = () =>
-    duration() ? Math.min(1, elapsed() / duration()!) : 0
+  const mediaSource = createMemo(() => props.src)
+  const fraction = () => (duration() ? Math.min(1, elapsed() / duration()!) : 0)
   const seek = (seconds: number) => {
     if (!Number.isFinite(duration()) || !duration()) return
     media.currentTime = Math.max(0, Math.min(duration()!, seconds))
@@ -153,9 +154,12 @@ function BoardMedia(props: {
     event.stopPropagation()
     seek(time)
   }
+  const soundSource = createMemo(() =>
+    props.item.kind === 'sound' ? mediaSource() : undefined,
+  )
   createEffect(() => {
-    if (props.item.kind !== 'sound') return
-    const src = props.src
+    const src = soundSource()
+    if (src === undefined) return
     const controller = new AbortController()
     const context = new OfflineAudioContext(1, 1, 44100)
     let live = true
@@ -242,7 +246,7 @@ function BoardMedia(props: {
               ref={(element) => {
                 media = element
               }}
-              src={props.src}
+              src={mediaSource()}
               preload="metadata"
               onLoadedMetadata={metadata}
               onError={() => setPlayFailed(true)}
@@ -262,7 +266,7 @@ function BoardMedia(props: {
           ref={(element) => {
             media = element
           }}
-          src={props.src}
+          src={mediaSource()}
           preload="metadata"
           onLoadedMetadata={metadata}
           onPlay={() => setPlaying(true)}
@@ -351,9 +355,7 @@ export function ProductBoard(props: ProductBoardProps) {
   const [selected, setSelected] = createSignal<string>()
   const [editingSection, setEditingSection] = createSignal<string>()
   const [editingNote, setEditingNote] = createSignal<string>()
-  const [tool, setTool] = createSignal<'select' | 'note' | 'section'>(
-    'select',
-  )
+  const [tool, setTool] = createSignal<'select' | 'note' | 'section'>('select')
   const [camera, setCamera] = createSignal({ x: 16, y: 80, scale: 1 })
   let surface!: HTMLDivElement
   const gridId = createUniqueId()
@@ -467,8 +469,7 @@ export function ProductBoard(props: ProductBoardProps) {
         const dx = at.x - start.x
         const dy = at.y - start.y
         if (resize) rect = resizedRect(item, resize, dx, dy)
-        else
-          rect = { ...item.rect, x: item.rect.x + dx, y: item.rect.y + dy }
+        else rect = { ...item.rect, x: item.rect.x + dx, y: item.rect.y + dy }
         setPreview({ id: item.id, rect, moving: !resize })
       },
       (commit) => {
@@ -643,9 +644,7 @@ export function ProductBoard(props: ProductBoardProps) {
           surface.focus({ preventScroll: true })
           return
         }
-        if (
-          (event.target as Element).closest('input, textarea, audio, video')
-        )
+        if ((event.target as Element).closest('input, textarea, audio, video'))
           return
         if (
           event.key === 'Enter' &&
@@ -704,60 +703,62 @@ export function ProductBoard(props: ProductBoardProps) {
         <g
           transform={`translate(${camera().x} ${camera().y}) scale(${camera().scale})`}
         >
-          <For each={boardPaintOrder(document())}>
-            {(item) => {
+          <For each={boardPaintOrder(document()).map((item) => item.id)}>
+            {(id) => {
+              const item = () => document().items[id]!
+              const initialItem = item()
               let element!: HTMLDivElement
               const [metadata, setMetadata] = createSignal<{
                 width?: number
                 height?: number
                 duration?: number
-              }>('asset' in item ? item.asset : {})
+              }>('asset' in initialItem ? initialItem.asset : {})
               const facts = () => {
                 const value = metadata()
                 return [
-                  item.kind !== 'sound' && value.width && value.height
+                  item().kind !== 'sound' && value.width && value.height
                     ? `${value.width} x ${value.height}`
                     : '',
-                  item.kind !== 'picture'
-                    ? mediaLength(value.duration)
-                    : '',
+                  item().kind !== 'picture' ? mediaLength(value.duration) : '',
                 ]
                   .filter(Boolean)
                   .join(' / ')
               }
               createEffect(() => {
-                const rect = itemRect(item)
+                const rect = itemRect(item())
                 element.style.width = `${rect.width}px`
                 element.style.height = `${rect.height}px`
               })
               return (
                 <foreignObject
-                  x={itemRect(item).x}
-                  y={itemRect(item).y}
-                  width={itemRect(item).width + 40}
-                  height={itemRect(item).height + 40}
+                  x={itemRect(item()).x}
+                  y={itemRect(item()).y}
+                  width={itemRect(item()).width + 40}
+                  height={itemRect(item()).height + 40}
                   overflow="visible"
                 >
                   <div
                     ref={element}
                     class="dinkster-board-item"
-                    data-board-item={item.id}
-                    data-kind={item.kind}
-                    data-selected={selected() === item.id}
+                    data-board-item={id}
+                    data-kind={item().kind}
+                    data-selected={selected() === id}
                     data-drop-target={
                       preview()?.moving &&
                       boardDropSection(
                         document(),
                         document().items[preview()!.id]!,
                         preview()!.rect,
-                      ) === item.id
+                      ) === id
                     }
-                    onPointerDown={(event) => beginItem(event, item)}
+                    onPointerDown={(event) => beginItem(event, item())}
                     onDblClick={() => {
-                      if (item.kind === 'note') setEditingNote(item.id)
+                      if (item().kind === 'note') setEditingNote(id)
                     }}
                   >
-                    <Show when={item.kind === 'picture' && item}>
+                    <Show
+                      when={((item) => item.kind === 'picture' && item)(item())}
+                    >
                       {(picture) => (
                         <img
                           class="dinkster-board-picture"
@@ -775,10 +776,9 @@ export function ProductBoard(props: ProductBoardProps) {
                       )}
                     </Show>
                     <Show
-                      when={
+                      when={((item) =>
                         (item.kind === 'video' || item.kind === 'sound') &&
-                        item
-                      }
+                        item)(item())}
                     >
                       {(media) => (
                         <BoardMedia
@@ -788,10 +788,12 @@ export function ProductBoard(props: ProductBoardProps) {
                         />
                       )}
                     </Show>
-                    <Show when={item.kind === 'note' && item}>
+                    <Show
+                      when={((item) => item.kind === 'note' && item)(item())}
+                    >
                       {(note) => (
                         <Show
-                          when={editingNote() === item.id}
+                          when={editingNote() === id}
                           fallback={
                             <div class="dinkster-board-note-text">
                               {note().text}
@@ -801,16 +803,14 @@ export function ProductBoard(props: ProductBoardProps) {
                           <ProductTextArea
                             aria-label="Note text"
                             value={note().text}
-                            ref={(input) =>
-                              queueMicrotask(() => input.focus())
-                            }
-                            onFocus={() => setSelected(item.id)}
+                            ref={(input) => queueMicrotask(() => input.focus())}
+                            onFocus={() => setSelected(id)}
                             onBlur={() => setEditingNote(undefined)}
                             onChange={(event) =>
                               props.store.dispatch({
                                 command: 'board.note.edit',
                                 params: {
-                                  id: item.id,
+                                  id,
                                   text: event.currentTarget.value,
                                 },
                               })
@@ -819,20 +819,22 @@ export function ProductBoard(props: ProductBoardProps) {
                         </Show>
                       )}
                     </Show>
-                    <Show when={item.kind === 'section' && item}>
+                    <Show
+                      when={((item) => item.kind === 'section' && item)(item())}
+                    >
                       {(section) => (
                         <div
                           class="dinkster-board-section-name"
                           onPointerDown={(event) => {
                             event.stopPropagation()
-                            setSelected(item.id)
+                            setSelected(id)
                             if (!(event.target as Element).closest('input'))
                               surface.focus({ preventScroll: true })
                           }}
-                          onDblClick={() => setEditingSection(item.id)}
+                          onDblClick={() => setEditingSection(id)}
                         >
                           <Show
-                            when={editingSection() === item.id}
+                            when={editingSection() === id}
                             fallback={section().name}
                           >
                             <ProductTextInput
@@ -845,11 +847,11 @@ export function ProductBoard(props: ProductBoardProps) {
                                 })
                               }
                               onBlur={(event) => {
-                                if (editingSection() !== item.id) return
+                                if (editingSection() !== id) return
                                 props.store.dispatch({
                                   command: 'board.section.rename',
                                   params: {
-                                    id: item.id,
+                                    id,
                                     name: event.currentTarget.value,
                                   },
                                 })
@@ -867,12 +869,8 @@ export function ProductBoard(props: ProductBoardProps) {
                         </div>
                       )}
                     </Show>
-                    <Show
-                      when={
-                        selected() === item.id && editingNote() !== item.id
-                      }
-                    >
-                      <Show when={'asset' in item && item}>
+                    <Show when={selected() === id && editingNote() !== id}>
+                      <Show when={((item) => 'asset' in item && item)(item())}>
                         {(media) => (
                           <div class="dinkster-board-caption">
                             {media().asset.name}
@@ -905,7 +903,7 @@ export function ProductBoard(props: ProductBoardProps) {
                             aria-orientation="horizontal"
                             tabindex={0}
                             onPointerDown={(event) =>
-                              beginItem(event, item, corner)
+                              beginItem(event, item(), corner)
                             }
                             onKeyDown={(event) => {
                               const dx =
@@ -925,14 +923,14 @@ export function ProductBoard(props: ProductBoardProps) {
                               props.store.dispatch({
                                 command: 'board.item.resize',
                                 params: {
-                                  id: item.id,
-                                  rect: resizedRect(item, corner, dx, dy),
+                                  id,
+                                  rect: resizedRect(item(), corner, dx, dy),
                                 },
                               })
                               queueMicrotask(() =>
                                 surface
                                   .querySelector<HTMLElement>(
-                                    `[data-board-item="${item.id}"] [data-corner="${corner}"]`,
+                                    `[data-board-item="${id}"] [data-corner="${corner}"]`,
                                   )
                                   ?.focus({ preventScroll: true }),
                               )
