@@ -89,7 +89,7 @@ import {
   selectCanvasPage,
 } from './canvas.js'
 import { ContextMenuGallery } from './context-menus.js'
-import { PageLoadingGallery } from './page-loading.js'
+import { PageLoadingGallery, ProjectLoadingGallery } from './page-loading.js'
 import { CanvasChromeGallery } from './canvas-chrome.js'
 import { RunControlsGallery } from './run-controls.js'
 import { SiteGallery } from './site.js'
@@ -214,7 +214,7 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
+              (route() === '#project-loading' ? 'Project loading' : route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
@@ -235,6 +235,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#segmented-states'}>
               <SegmentedStates />
+            </Match>
+            <Match when={route() === '#project-loading'}>
+              <ProjectLoadingGallery />
             </Match>
             <Match when={route() === '#menu-filter'}>
               <Section title="Filtered menu" components="ProductMenu, ProductTextInput">
@@ -1178,7 +1181,7 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <Show when={route() !== '#canvas' && route() !== '#page-loading'}>
+        <Show when={route() !== '#canvas' && route() !== '#page-loading' && route() !== '#project-loading'}>
           <p class="dinkster-metadata" role="status">
             {activity()}
           </p>

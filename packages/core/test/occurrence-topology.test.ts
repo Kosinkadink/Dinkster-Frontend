@@ -8,6 +8,7 @@ import { loadDocument } from '../src/format/migrate.js'
 import { validateDocumentShape } from '../src/format/validate.js'
 import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, occurrenceKey } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
+import { boundaryOf } from '../src/format/document.js'
 
 type Mutable = Record<string, unknown>
 
@@ -65,14 +66,14 @@ function baseDocument(): WorkflowDocument {
         links: {},
         nets: {},
         reroutes: {},
-        boundary: {
-          inputs: [{
+        boundary: boundaryOf(
+          [{
             id: 'in',
             binds: binding('i', 'inner'),
             alsoBinds: [binding('side', 'alt')],
           }],
-          outputs: [{ id: 'out', binds: binding('i', 'outer') }],
-        },
+          [{ id: 'out', binds: binding('i', 'outer') }],
+        ),
         nextOrdinal: 0,
       },
       body: {
@@ -106,10 +107,7 @@ function baseDocument(): WorkflowDocument {
           },
         },
         reroutes: {},
-        boundary: {
-          inputs: [{ id: 'inner', binds: binding('sink', 'in') }],
-          outputs: [{ id: 'outer', binds: binding('source', 'out') }],
-        },
+        boundary: boundaryOf([{ id: 'inner', binds: binding('sink', 'in') }], [{ id: 'outer', binds: binding('source', 'out') }]),
         nextOrdinal: 2,
       },
     },

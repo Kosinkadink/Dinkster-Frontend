@@ -65,6 +65,7 @@ import { groupAllocationFloor } from '../group-alloc.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
 import { planSubgraphDefinitionCleanup } from '../lifecycle/definition-cleanup.js'
 import { NET_VIEWS_EXT_KEY, netViewToJson, parseNetViewPosition, type NetViewGeometry } from '../format/net-views.js'
+import { boundaryItems, boundaryOf, mapBoundaryItems } from '../format/document.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 const warn = (code: string, message: string): Diagnostic => diag('warning', 'command', code, message)
@@ -354,6 +355,9 @@ function remapNestedItem(
     ...(nested.alsoBinds !== undefined ? { alsoBinds: nested.alsoBinds.map((binding) => remapBinding(binding, ids.nodes, ids.reroutes)) } : {}),
     ...(nested.promoted === true ? { promoted: true } : {}),
     ...(nested.wireHidden === true ? { wireHidden: true } : {}),
+    ...(nested.tooltip !== undefined ? { tooltip: nested.tooltip } : {}),
+    ...(nested.limits !== undefined ? { limits: nested.limits } : {}),
+    ...(nested.visible !== undefined ? { visible: nested.visible } : {}),
     ...(nested.displayName !== undefined ? { displayName: nested.displayName } : {}),
   }
 }
@@ -685,7 +689,7 @@ const subgraphExtract: CommandDefinition = {
     }
     const innerBoundaryOutputs: BoundaryItem[] = []
     const wholeOutput = (cut: (typeof audit.outputs)[number]): boolean =>
-      cut.boundaryItems.some(({ itemIndex }) => parent.boundary!.outputs[itemIndex]!.binds.kind === 'construct')
+      cut.boundaryItems.some(({ itemIndex }) => boundaryItems(parent.boundary, 'outputs')[itemIndex]!.binds.kind === 'construct')
     for (const [index, cut] of audit.outputs.entries()) {
       innerBoundaryOutputs.push({
         id: outputNames[index]!.id,
@@ -774,8 +778,8 @@ const subgraphExtract: CommandDefinition = {
 
     let parentBoundary = parent.boundary
     if (parentBoundary !== undefined) {
-      const inputs = [...parentBoundary.inputs]
-      const outputs = [...parentBoundary.outputs]
+      const inputs = [...boundaryItems(parentBoundary, 'inputs')]
+      const outputs = [...boundaryItems(parentBoundary, 'outputs')]
       for (const cut of audit.boundaries) {
         if (cut.kind === 'in-cut') {
           inputs[cut.itemIndex] = rewriteEnclosingInput(inputs[cut.itemIndex]!, cut, occurrenceId, inputIdByBoundary.get(cut.itemId)!)
@@ -789,7 +793,7 @@ const subgraphExtract: CommandDefinition = {
           }
         }
       }
-      parentBoundary = { inputs, outputs }
+      parentBoundary = mapBoundaryItems(parentBoundary, (_item, side, index) => (side === 'inputs' ? inputs : outputs)[index])
     }
 
     const parentNodes: Record<string, NodeData> = { ...parent.nodes }
@@ -805,7 +809,7 @@ const subgraphExtract: CommandDefinition = {
       links: innerLinks,
       nets: innerNets,
       reroutes: innerReroutes,
-      boundary: { inputs: innerBoundaryInputs, outputs: innerBoundaryOutputs },
+      boundary: boundaryOf(innerBoundaryInputs, innerBoundaryOutputs),
       nextOrdinal: innerCursor.nextOrdinal,
       ...(innerCursor.actorCursors !== undefined ? { actorCursors: innerCursor.actorCursors } : {}),
     }
@@ -962,8 +966,8 @@ function flattenRoutePlanFromJson(
 ): ReadonlyMap<string, FlattenRouteKind> | undefined {
   if (!Array.isArray(value) || body.boundary === undefined) return undefined
   const expected = [
-    ...body.boundary.inputs.map((item) => ({ side: 'input', id: item.id, item })),
-    ...body.boundary.outputs.map((item) => ({ side: 'output', id: item.id, item })),
+    ...boundaryItems(body.boundary, 'inputs').map((item) => ({ side: 'input', id: item.id, item })),
+    ...boundaryItems(body.boundary, 'outputs').map((item) => ({ side: 'output', id: item.id, item })),
   ]
   if (value.length !== expected.length) return undefined
   const result = new Map<string, FlattenRouteKind>()
@@ -1059,8 +1063,8 @@ function flattenStatePlanFromJson(
           typeof entry.viaReroute === 'string' && entry.viaReroute.length > 0)
   )
   const expected = [
-    ...(body.boundary?.inputs ?? []).map((item) => ({ side: 'input', item })),
-    ...(body.boundary?.outputs ?? []).map((item) => ({ side: 'output', item })),
+    ...(boundaryItems(body.boundary, 'inputs') ?? []).map((item) => ({ side: 'input', item })),
+    ...(boundaryItems(body.boundary, 'outputs') ?? []).map((item) => ({ side: 'output', item })),
   ]
   if (value.routes.length !== expected.length) return undefined
   for (const [index, route] of value.routes.entries()) {
@@ -1216,7 +1220,7 @@ function validateFlattenDispatch(
 
   const snapshot = params.schemaSnapshot as unknown as Record<string, never>
   const boundAuthoredTypes = new Set(Object.values(body.nodes).map((node) => node.type))
-  for (const item of [...body.boundary.inputs, ...body.boundary.outputs]) {
+  for (const item of [...boundaryItems(body.boundary, 'inputs'), ...boundaryItems(body.boundary, 'outputs')]) {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
       if (!isNodeBoundaryBinding(binding)) continue
       const authoredType = body.nodes[binding.node]?.type
@@ -1257,8 +1261,8 @@ function validateFlattenDispatch(
     }
   }
   const expected = [
-    ...body.boundary.inputs.map((item) => ({ side: 'input', item } as const)),
-    ...body.boundary.outputs.map((item) => ({ side: 'output', item } as const)),
+    ...boundaryItems(body.boundary, 'inputs').map((item) => ({ side: 'input', item } as const)),
+    ...boundaryItems(body.boundary, 'outputs').map((item) => ({ side: 'output', item } as const)),
   ]
   for (const { side, item } of expected) {
     const route = routes.get(JSON.stringify([side, item.id]))
@@ -1397,9 +1401,9 @@ const subgraphFlatten: CommandDefinition = {
     if (occurrence.ext !== undefined && Object.keys(occurrence.ext).length > 0) {
       return [lifecycleError('subgraph.flatten.extensionStateUnsupported', 'subgraph.flatten: occurrence-owned extension state has no flattened owner', graphId, instancePath, nodeId)]
     }
-    const boundaryInputs = new Map(body.boundary.inputs.map((item) => [item.id, item]))
-    const boundaryOutputs = new Map(body.boundary.outputs.map((item) => [item.id, item]))
-    if ([...body.boundary.inputs, ...body.boundary.outputs].some((item) =>
+    const boundaryInputs = new Map(boundaryItems(body.boundary, 'inputs').map((item) => [item.id, item]))
+    const boundaryOutputs = new Map(boundaryItems(body.boundary, 'outputs').map((item) => [item.id, item]))
+    if ([...boundaryItems(body.boundary, 'inputs'), ...boundaryItems(body.boundary, 'outputs')].some((item) =>
       item.ext !== undefined && Object.keys(item.ext).length > 0)) {
       return [lifecycleError('subgraph.flatten.boundaryExtensionUnsupported', 'subgraph.flatten: body boundary extension state has no flattened owner', graphId, instancePath, nodeId)]
     }
@@ -1479,11 +1483,11 @@ const subgraphFlatten: CommandDefinition = {
 
     for (const link of Object.values(parent.links)) {
       if (isPortEndpoint(link.to) && link.to.node === nodeId) {
-        const match = matchBoundaryItem(body.boundary.inputs, link.to)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), link.to)
         if (!match.ok) return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: input '${link.to.port}' has no unique body boundary route`, graphId, instancePath, nodeId, link.to)]
       }
       if (isPortEndpoint(link.from) && link.from.node === nodeId) {
-        const match = matchBoundaryItem(body.boundary.outputs, link.from)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'outputs'), link.from)
         if (!match.ok) return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: output '${link.from.port}' has no unique body boundary route`, graphId, instancePath, nodeId, link.from)]
       }
       if (isWidgetTapRef(link.from) && link.from.node === nodeId) {
@@ -1496,11 +1500,11 @@ const subgraphFlatten: CommandDefinition = {
       }
     }
     for (const net of Object.values(parent.nets)) {
-      if (net.source.node === nodeId && !matchBoundaryItem(body.boundary.outputs, net.source).ok) {
+      if (net.source.node === nodeId && !matchBoundaryItem(boundaryItems(body.boundary, 'outputs'), net.source).ok) {
         return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: net source '${net.source.port}' has no unique body boundary route`, graphId, instancePath, nodeId, net.source)]
       }
       for (const sink of net.sinks) {
-        if (sink.node === nodeId && !matchBoundaryItem(body.boundary.inputs, sink).ok) {
+        if (sink.node === nodeId && !matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), sink).ok) {
           return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: net sink '${sink.port}' has no unique body boundary route`, graphId, instancePath, nodeId, sink)]
         }
       }
@@ -1508,12 +1512,12 @@ const subgraphFlatten: CommandDefinition = {
 
     const additionalDeliveries = occurrencePlan === undefined ? Object.values(parent.links).reduce((count, link) => {
       if (!isPortEndpoint(link.to) || link.to.node !== nodeId) return count
-      const match = matchBoundaryItem(body.boundary!.inputs, link.to)
+      const match = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), link.to)
       return count + (match.ok ? Math.max(0, match.item.alsoBinds?.length ?? 0) : 0)
     }, 0) : 0
     const netJunctionDeliveries = occurrencePlan === undefined ? Object.values(parent.nets).flatMap((net) =>
       net.sinks.filter((sink) => sink.node === nodeId).flatMap((sink) => {
-        const match = matchBoundaryItem(body.boundary!.inputs, sink)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), sink)
         return match.ok ? [match.item.binds, ...(match.item.alsoBinds ?? [])].filter((binding) => binding.kind === 'port' && binding.viaReroute !== undefined) : []
       })).length : 0
     const materializedDeliveryCount = occurrencePlan?.links.length ??
@@ -1550,7 +1554,7 @@ const subgraphFlatten: CommandDefinition = {
     if (occurrencePlan === undefined) {
       for (const link of Object.values(parent.links).sort((a, b) => compareStrings(a.id, b.id))) {
         if (!isPortEndpoint(link.to) || link.to.node !== nodeId) continue
-        const matched = matchBoundaryItem(body.boundary.inputs, link.to)
+        const matched = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), link.to)
         const additions = matched.ok ? matched.item.alsoBinds?.length ?? 0 : 0
         for (let index = 0; index < additions; index++) {
           deliveryIds.set(JSON.stringify([link.id, index]), allocator.mint('l'))
@@ -1581,7 +1585,7 @@ const subgraphFlatten: CommandDefinition = {
       if (seen.has(key)) return undefined
       seen.add(key)
       if (isPortEndpoint(endpoint) && endpoint.node === nodeId) {
-        const match = matchBoundaryItem(body.boundary!.outputs, endpoint)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'outputs'), endpoint)
         const targets = match.ok ? targetsAt(match.item, endpoint.port) : undefined
         return targets?.length === 1 ? redirectFrom(endpointFromBinding(targets[0]!), seen) : undefined
       }
@@ -1627,7 +1631,7 @@ const subgraphFlatten: CommandDefinition = {
       let from = link.from
       if (isPortEndpoint(from) && from.node === nodeId) {
         fromShellOutput.add(id)
-        const match = matchBoundaryItem(body.boundary.outputs, from)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'outputs'), from)
         const targets = match.ok ? targetsAt(match.item, from.port) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: output '${from.port}' has an unmapped materialized route`, graphId, instancePath, nodeId, from)]
@@ -1644,7 +1648,7 @@ const subgraphFlatten: CommandDefinition = {
         from = { node: target.node, tap: target.port }
       }
       if (isPortEndpoint(link.to) && link.to.node === nodeId) {
-        const match = matchBoundaryItem(body.boundary.inputs, link.to)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), link.to)
         const targets = match.ok ? targetsAt(match.item, link.to.port) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: input '${link.to.port}' has no materialized target`, graphId, instancePath, nodeId, link.to)]
@@ -1703,7 +1707,7 @@ const subgraphFlatten: CommandDefinition = {
       if (occurrencePlan !== undefined && net.source.node === nodeId) continue
       let source = net.source
       if (source.node === nodeId) {
-        const match = matchBoundaryItem(body.boundary.outputs, source)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'outputs'), source)
         const targets = match.ok ? targetsAt(match.item, source.port) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: net source '${source.port}' has no materialized target`, graphId, instancePath, nodeId, source)]
@@ -1726,7 +1730,7 @@ const subgraphFlatten: CommandDefinition = {
         if (sink.node !== nodeId) sinks.push(sink)
         else if (occurrencePlan !== undefined) continue
         else {
-          const match = matchBoundaryItem(body.boundary.inputs, sink)
+          const match = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), sink)
           const targets = match.ok ? targetsAt(match.item, sink.port) : undefined
           if (targets === undefined) {
             return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: net sink '${sink.port}' has no materialized target`, graphId, instancePath, nodeId, sink)]
@@ -1787,7 +1791,7 @@ const subgraphFlatten: CommandDefinition = {
         return { ...rest, binds: expanded[0]!, ...(expanded.length > 1 ? { alsoBinds: expanded.slice(1) } : {}) }
       }
       const inputs: BoundaryItem[] = []
-      for (const [itemIndex, item] of boundary.inputs.entries()) {
+      for (const [itemIndex, item] of boundaryItems(boundary, 'inputs').entries()) {
         const rewritten = rewriteItem(item, 'input', itemIndex)
         if (rewritten === undefined) {
           return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: enclosing input '${item.id}' cannot expand through the occurrence`, graphId, instancePath, nodeId)]
@@ -1795,14 +1799,14 @@ const subgraphFlatten: CommandDefinition = {
         inputs.push(rewritten)
       }
       const outputs: BoundaryItem[] = []
-      for (const [itemIndex, item] of boundary.outputs.entries()) {
+      for (const [itemIndex, item] of boundaryItems(boundary, 'outputs').entries()) {
         const rewritten = rewriteItem(item, 'output', itemIndex)
         if (rewritten === undefined || rewritten.alsoBinds !== undefined) {
           return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: enclosing output '${item.id}' has no unique inner producer`, graphId, instancePath, nodeId)]
         }
         outputs.push(rewritten)
       }
-      boundary = { inputs, outputs }
+      boundary = mapBoundaryItems(boundary, (_item, side, index) => (side === 'inputs' ? inputs : outputs)[index])
     }
 
     for (const [id, link] of Object.entries(links)) {

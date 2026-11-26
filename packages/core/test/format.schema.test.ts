@@ -37,13 +37,11 @@ describe('workflow document runtime validation', () => {
   })
 
   it('preserves typed unattached slots and rejects endpoint or widget decorations', () => {
-    const fixture = loadFixture('subgraph') as { graphs: Record<string, { boundary?: { inputs: unknown[]; outputs: unknown[] } }> }
+    const fixture = loadFixture('subgraph') as { graphs: Record<string, { boundary?: { body: unknown[] } }> }
     const boundary = Object.values(fixture.graphs).find((graph) => graph.boundary)!.boundary!
     const item = { id: 'unused', binds: { kind: 'unbound', type: { kind: 'concrete', name: 'FLOAT' } } }
-    for (const side of ['inputs', 'outputs'] as const) {
-      boundary.inputs = []
-      boundary.outputs = []
-      boundary[side] = [item]
+    for (const kind of ['input', 'output'] as const) {
+      boundary.body = [{ kind, ...item }]
       expect(isValid(fixture)).toBe(true)
       for (const invalid of [
         { ...item, binds: { ...item.binds, node: 'n0' } },
@@ -53,26 +51,25 @@ describe('workflow document runtime validation', () => {
         { ...item, promoted: false },
         { ...item, alsoBinds: [item.binds] },
       ]) {
-        boundary[side] = [invalid]
+        boundary.body = [{ kind, ...invalid }]
         expect(isValid(fixture)).toBe(false)
       }
     }
   })
 
   it('accepts mixed input junction attachments and rejects incompatible shapes', () => {
-    const fixture = loadFixture('subgraph') as { graphs: Record<string, { boundary?: { inputs: unknown[]; outputs: unknown[] } }> }
+    const fixture = loadFixture('subgraph') as { graphs: Record<string, { boundary?: { body: unknown[] } }> }
     const boundary = Object.values(fixture.graphs).find((graph) => graph.boundary)!.boundary!
     const binds = { kind: 'port', node: 'n0', port: 'seed', viaReroute: 'r1' }
     const item = { id: 'seed', binds, promoted: true }
-    boundary.inputs = [item]
-    boundary.outputs = []
+    boundary.body = [{ kind: 'input', ...item }]
     expect(isValid(fixture)).toBe(true)
     for (const mixed of [
       { ...item, alsoBinds: [{ kind: 'port', node: 'n1', port: 'seed' }] },
       { ...item, binds: { kind: 'port', node: 'n1', port: 'seed' }, alsoBinds: [binds] },
       { ...item, alsoBinds: [{ ...binds, node: 'n1', viaReroute: 'r2' }] },
     ]) {
-      boundary.inputs = [mixed]
+      boundary.body = [{ kind: 'input', ...mixed }]
       expect(isValid(fixture)).toBe(true)
     }
     for (const invalid of [
@@ -83,11 +80,10 @@ describe('workflow document runtime validation', () => {
       { ...item, alsoBinds: [{ ...binds, node: 'n1', viaReroute: '' }] },
       { ...item, alsoBinds: [{ ...binds, node: 'n1', kind: 'family' }] },
     ]) {
-      boundary.inputs = [invalid]
+      boundary.body = [{ kind: 'input', ...invalid }]
       expect(isValid(fixture)).toBe(false)
     }
-    boundary.inputs = []
-    boundary.outputs = [item]
+    boundary.body = [{ kind: 'output', ...item }]
     expect(isValid(fixture)).toBe(false)
   })
 
@@ -191,7 +187,7 @@ describe('workflow document runtime validation', () => {
       const d = structuredClone(loadFixture('subgraph')) as Record<string, unknown>
       const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g1']!
       const boundary = g['boundary'] as Record<string, Record<string, unknown>[]>
-      boundary[side]![0] = { id: 'tap', binds: binding, ...extra }
+      boundary['body']![side === 'inputs' ? 0 : 2] = { kind: side === 'inputs' ? 'input' : 'output', id: 'tap', binds: binding, ...extra }
       return d
     }
     expect(isValid(withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed' }))).toBe(true)
@@ -293,8 +289,8 @@ describe('workflow document runtime validation', () => {
         'boundary item without binds',
         mutate((d) => {
           const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g1']!
-          const boundary = g['boundary'] as Record<string, unknown[]>
-          boundary['inputs'] = [{ id: 'latent' }]
+          const boundary = g['boundary'] as Record<string, Record<string, unknown>[]>
+          boundary['body'] = [{ kind: 'input', id: 'latent' }, ...boundary['body']!.filter((entry) => entry['kind'] !== 'input')]
         }),
       ],
       [
