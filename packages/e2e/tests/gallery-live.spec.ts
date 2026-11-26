@@ -30,11 +30,9 @@ async function selectSource(page: Page, source: string): Promise<void> {
   await expect(sourceTab).toHaveCount(1)
   if (await sourceTab.isVisible()) await sourceTab.click()
   else {
-    const control = library.getByTestId('library-source-select')
+    const control = library.locator(`.library-source-segmented label:has(input[value="${source}"])`)
     await control.click()
-    const listboxId = await control.getAttribute('aria-controls')
-    await page.locator(`[id="${listboxId}"] [role="option"][data-option-id="${source}"]`).click()
-    await expect(control).toHaveAttribute('data-selected-id', source)
+    await expect(control.locator('input')).toBeChecked()
   }
 }
 

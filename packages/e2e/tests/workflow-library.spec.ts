@@ -65,7 +65,7 @@ async function openWorkflows(page: Page): Promise<void> {
   await expect(library).toBeVisible()
   const workflowsTab = library.locator('[data-testid=collection-source][data-source=workflows]')
   if (await workflowsTab.isVisible()) await workflowsTab.click()
-  else await selectProductOption(page, library.getByTestId('library-source-select'), 'workflows')
+  else await library.locator('.library-source-segmented label').filter({ hasText: /^Workflows$/ }).click()
 }
 
 function workflowRow(page: Page, title: string) {

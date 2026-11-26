@@ -63,7 +63,7 @@ async function openTemplatesPanel(page: Page): Promise<void> {
   await expect(library).toBeVisible()
   const templates = library.locator('[data-testid=collection-source][data-source=templates]')
   if (await templates.isVisible()) await templates.click()
-  else await selectProductOption(page, library.getByTestId('library-source-select'), 'templates')
+  else await library.locator('.library-source-segmented label').filter({ hasText: /^Templates$/ }).click()
   await expect(library.getByTestId('collection-entry')).toHaveCount(2)
 }
 

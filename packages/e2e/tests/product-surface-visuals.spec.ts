@@ -596,11 +596,9 @@ test('Library Assets and Runs use shared empty and loading states', async ({ pag
   const library = page.getByTestId('library-overlay')
   for (const state of ['empty', 'loading', 'error'] as const) {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await library.getByTestId('library-source-select').click()
-    await page.getByRole('option', { name: 'Packs', exact: true }).click()
+    await library.locator('.library-source-segmented label').filter({ hasText: /^Packs$/ }).click()
     mode = state
-    await library.getByTestId('library-source-select').click()
-    await page.getByRole('option', { name: 'Workflows', exact: true }).click()
+    await library.locator('.library-source-segmented label').filter({ hasText: /^Workflows$/ }).click()
     const presentation = library.locator('[data-collection-state]')
     await expect(presentation).toHaveAttribute('data-collection-state', state)
     if (state === 'loading') await expect(presentation.getByRole('status')).toContainText('Loading workflows')
