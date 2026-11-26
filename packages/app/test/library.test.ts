@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asPromptId, diag, type DinksterNodesPayload, type JsonObject, type NodeSchema } from '@dinkster/core'
+import { BOARD_MEDIA_TYPE, asPromptId, diag, emptyBoard, type DinksterNodesPayload, type JsonObject, type NodeSchema } from '@dinkster/core'
 import { buildDinksterRegistry, type LibraryRecord } from '@dinkster/client'
 import {
   AppState,
@@ -103,6 +103,106 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
   app.setTabTarget(tab.id, added.id)
   return { backend: added, tab }
 }
+
+describe('Board Library persistence', () => {
+  it('saves and reopens every item kind with membership and media facts, then patches the linked record without losing newer edits', async () => {
+    const { backend } = await nativeSetup()
+    const { connection, baseUrl } = backend
+    const entry = app.boards.open(emptyBoard(), 'References', baseUrl)
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [
+      { id: 'section', kind: 'section', name: 'Study', rect: { x: 1, y: 2, width: 900, height: 800 } },
+      { id: 'picture', kind: 'picture', sectionId: 'section', rect: { x: 20, y: 30, width: 100, height: 200 },
+        asset: { digest: DIGEST, mediaType: 'image/png', name: 'Portrait', width: 300, height: 600, origin: { source: 'upload' } } },
+      { id: 'video', kind: 'video', rect: { x: 210, y: 37, width: 320, height: 180 },
+        asset: { digest: DIGEST2, mediaType: 'video/webm', name: 'Motion', duration: 3.5, width: 1920, height: 1080 } },
+      { id: 'sound', kind: 'sound', rect: { x: 90, y: 220, width: 320, height: 80 },
+        asset: { digest: DIGEST, mediaType: 'audio/wav', name: 'Voice', duration: 7 } },
+      { id: 'note', kind: 'note', text: 'Keep the proportions', sectionId: 'section', rect: { x: 50, y: 320, width: 180, height: 90 } },
+    ] } })
+    const expected = structuredClone(entry.session.doc)
+    let bytes = ''
+    let saved = record({ name: entry.title, mediaType: BOARD_MEDIA_TYPE, labels: ['board'] })
+    vi.spyOn(connection, 'uploadAsset').mockImplementation(async (value) => { bytes = String(value); return DIGEST })
+    vi.spyOn(connection, 'createLibraryRecord').mockImplementation(async (value) => { saved = { ...saved, ...value }; return saved })
+    vi.spyOn(connection, 'getLibraryRecord').mockImplementation(async () => saved)
+    vi.spyOn(connection, 'fetchAssetText').mockImplementation(async () => bytes)
+    vi.spyOn(connection, 'patchLibraryRecord').mockImplementation(async (_id, patch) => {
+      if (patch.revision !== saved.revision) return { ok: false, conflict: true }
+      saved = { ...saved, ...patch, revision: saved.revision + 1 }
+      return { ok: true, record: saved }
+    })
+    expect(app.boards.isDirty(entry.id)).toBe(true)
+    await app.boards.save(entry.id)
+    expect(app.boards.isDirty(entry.id)).toBe(false)
+    expect(JSON.parse(bytes)).toEqual(expected)
+    app.boards.close(entry.id)
+    const reopened = await app.boards.openSaved(saved.id, baseUrl)
+    expect(reopened.session.doc).toEqual(expected)
+    expect(reopened.title).toBe('References')
+    expect(app.boards.isDirty(reopened.id)).toBe(false)
+    reopened.session.dispatch({ command: 'board.note.edit', params: { id: 'note', text: 'New version' } })
+    expect(app.boards.isDirty(reopened.id)).toBe(true)
+    expect(reopened.session.undo()).toBe(true)
+    expect(app.boards.isDirty(reopened.id)).toBe(false)
+    expect(reopened.session.redo()).toBe(true)
+    await Promise.all([app.boards.save(reopened.id), app.boards.save(reopened.id)])
+    expect(saved.revision).toBe(3)
+    expect(app.boards.isDirty(reopened.id)).toBe(false)
+    expect((await app.boards.openSaved(saved.id, baseUrl)).session.doc.items['note']).toMatchObject({ text: 'New version' })
+  })
+
+  it('keeps edits made during a save dirty and refuses foreign record changes rather than overwriting them', async () => {
+    const { backend } = await nativeSetup()
+    const { connection, baseUrl } = backend
+    const entry = app.boards.open(emptyBoard(), 'References', baseUrl)
+    let release!: (digest: string) => void
+    const waiting = new Promise<string>((resolve) => { release = resolve })
+    const upload = vi.spyOn(connection, 'uploadAsset').mockReturnValue(waiting)
+    vi.spyOn(connection, 'createLibraryRecord').mockResolvedValue(record({ mediaType: BOARD_MEDIA_TYPE }))
+    const saving = app.boards.save(entry.id)
+    await uploadStarted(upload)
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [
+      { id: 'note', kind: 'note', text: 'Not in saved snapshot', rect: { x: 20, y: 30, width: 160, height: 80 } },
+    ] } })
+    release(DIGEST)
+    await saving
+    expect(app.boards.isDirty(entry.id)).toBe(true)
+    expect(entry.session.undo()).toBe(true)
+    expect(app.boards.isDirty(entry.id)).toBe(false)
+    entry.session.redo()
+    vi.spyOn(connection, 'patchLibraryRecord').mockResolvedValue({ ok: false, conflict: true })
+    await expect(app.boards.save(entry.id)).rejects.toThrow('changed elsewhere')
+    expect(app.boards.isDirty(entry.id)).toBe(true)
+    expect(entry.session.doc.items['note']).toMatchObject({ text: 'Not in saved snapshot' })
+  })
+
+  it('does not save into a reopened owner or resurrect a Board closed while saved bytes load', async () => {
+    const { backend } = await nativeSetup()
+    const { connection, baseUrl } = backend
+    const entry = app.boards.open(emptyBoard(), 'References', baseUrl)
+    let release!: (digest: string) => void
+    const upload = vi.spyOn(connection, 'uploadAsset').mockReturnValue(new Promise<string>((resolve) => { release = resolve }))
+    const saving = app.boards.save(entry.id)
+    const refused = expect(saving).rejects.toThrow('changed while saving')
+    await uploadStarted(upload)
+    app.boards.close(entry.id)
+    const reopened = app.boards.open(entry.session.doc, 'Reopened', baseUrl)
+    release(DIGEST)
+    await refused
+    expect(app.boards.isDirty(reopened.id)).toBe(true)
+    let load!: (text: string) => void
+    vi.spyOn(connection, 'getLibraryRecord').mockResolvedValue(record({ mediaType: BOARD_MEDIA_TYPE }))
+    const fetch = vi.spyOn(connection, 'fetchAssetText').mockReturnValue(new Promise<string>((resolve) => { load = resolve }))
+    const opening = app.boards.openSaved('r1', baseUrl)
+    const cancelled = expect(opening).rejects.toThrow('closed while opening')
+    for (let i = 0; i < 50 && fetch.mock.calls.length === 0; i++) await Promise.resolve()
+    expect(fetch.mock.calls.length).toBe(1)
+    app.boards.close(reopened.id)
+    load(JSON.stringify(entry.session.doc))
+    await cancelled
+    expect(app.boards.entries.get()).toEqual([])
+  })
+})
 
 describe('saveWorkflow', () => {
   it.each(['available', 'denied', 'edited', 'timed out'] as const)('saves an early snapshot with optional location lookup %s', async (outcome) => {

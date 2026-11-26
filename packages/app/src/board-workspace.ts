@@ -1,11 +1,12 @@
 import {
-  BOARD_MAX_NAME, boardMediaKindOf, connectSharedBoardSession, createLocalBoardSession, createSignal, planBoardCommand,
-  type BoardAsset, type BoardDocument, type BoardItemInput, type BoardSession, type CollabSessionDescriptor, type SharedBoardSession,
+  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, boardMediaKindOf, connectSharedBoardSession, createLocalBoardSession, createSignal, jsonSameValue, loadBoard, planBoardCommand,
+  type BoardAsset, type BoardDocument, type BoardItemInput, type BoardSession, type CollabSessionDescriptor, type Json, type SharedBoardSession,
 } from '@dinkster/core'
-import type { AssetUploadDestination, DinksterConnection } from '@dinkster/client'
+import type { AssetUploadDestination, DinksterConnection, LibraryRecord } from '@dinkster/client'
 import type { CollabTransport } from './collab.js'
 
-type BoardMediaConnection = Pick<DinksterConnection, 'uploadMediaAsset' | 'checkAssetAvailability'>
+type BoardConnection = Pick<DinksterConnection, 'uploadMediaAsset' | 'checkAssetAvailability' |
+  'uploadAsset' | 'createLibraryRecord' | 'patchLibraryRecord' | 'getLibraryRecord' | 'fetchAssetText'>
 
 export interface BoardMediaFile {
   readonly file: File
@@ -28,11 +29,15 @@ export interface BoardEntry {
 /** Board documents share the existing transport, without pretending to be workflows. */
 export class BoardWorkspace {
   readonly entries = createSignal<readonly BoardEntry[]>([])
+  readonly changed = createSignal(0)
   readonly scope: string
   private readonly pending = new Set<string>()
   private readonly adopting = new Map<() => void, string>()
   private readonly cancellations = new Map<string, number>()
   private readonly importing = new Map<AbortController, string>()
+  private readonly saved = new Map<string, { connection: BoardConnection; record: LibraryRecord; snapshot: BoardDocument }>()
+  private readonly saving = new Map<BoardEntry, Promise<void>>()
+  private readonly opening = new Map<string, object>()
   private epoch = 0
   private disposed = false
 
@@ -41,10 +46,89 @@ export class BoardWorkspace {
     readonly project: string
     readonly actorId: string
     readonly backend: () => string | undefined
-    readonly mediaConnection: (baseUrl: string) => BoardMediaConnection | undefined
+    readonly mediaConnection: (baseUrl: string) => BoardConnection | undefined
     readonly onConflict: (id: string, message: string) => void
   }) {
     this.scope = `shared:board:${options.project}`
+    const subscriptions = new Map<BoardEntry, () => void>()
+    this.entries.subscribe((entries) => {
+      for (const [entry, unsubscribe] of subscriptions) {
+        if (!entries.includes(entry)) { unsubscribe(); subscriptions.delete(entry) }
+      }
+      for (const entry of entries) {
+        if (!subscriptions.has(entry)) subscriptions.set(entry, entry.session.document.subscribe(() => this.changed.update((value) => value + 1)))
+      }
+      this.changed.update((value) => value + 1)
+    })
+  }
+
+  isDirty(id: string): boolean {
+    const entry = this.entries.get().find((candidate) => candidate.id === id)
+    const saved = this.saved.get(id)
+    return entry !== undefined && (saved === undefined || saved.connection !== this.options.mediaConnection(entry.baseUrl) ||
+      !jsonSameValue(entry.session.doc as unknown as Json, saved.snapshot as unknown as Json))
+  }
+
+  /** Serialize saves for the exact open entry, never a same-identity replacement. */
+  async save(id: string): Promise<void> {
+    const entry = this.mediaEntry(id)
+    const previous = this.saving.get(entry) ?? Promise.resolve()
+    const next = previous.catch(() => undefined).then(() => this.saveEntry(entry))
+    this.saving.set(entry, next)
+    try { await next } finally { if (this.saving.get(entry) === next) this.saving.delete(entry) }
+  }
+
+  private async saveEntry(entry: BoardEntry): Promise<void> {
+    const connection = this.options.mediaConnection(entry.baseUrl)
+    if (!connection) throw new Error('This Board\'s backend is unavailable')
+    const current = () => !this.disposed && this.entries.get().includes(entry) && this.options.mediaConnection(entry.baseUrl) === connection
+    if (!current()) throw new Error('Board changed before saving')
+    const snapshot = entry.session.doc
+    const link = this.saved.get(entry.id)
+    const digest = await connection.uploadAsset(JSON.stringify(snapshot))
+    if (!current()) throw new Error('Board changed while saving')
+    let record: LibraryRecord
+    if (link?.connection === connection) {
+      const patched = await connection.patchLibraryRecord(link.record.id, { scope: 'local', revision: link.record.revision, digest })
+      if (!patched.ok) throw new Error('Saved Board changed elsewhere; close and reopen it before saving again')
+      record = patched.record
+    } else {
+      record = await connection.createLibraryRecord({ scope: 'local', name: entry.title, digest, mediaType: BOARD_MEDIA_TYPE, labels: ['board'] })
+    }
+    if (!current()) return
+    this.saved.set(entry.id, { connection, record, snapshot })
+    this.changed.update((value) => value + 1)
+  }
+
+  /** Resolve saved bytes on their owning project connection before opening a Board. */
+  async openSaved(recordId: string, baseUrl: string): Promise<BoardEntry> {
+    const connection = this.options.mediaConnection(baseUrl)
+    if (this.disposed || !connection) throw new Error('This Board\'s backend is unavailable')
+    const key = JSON.stringify([baseUrl, recordId])
+    const token = {}
+    this.opening.set(key, token)
+    const epoch = this.epoch
+    const current = () => !this.disposed && this.opening.get(key) === token && this.options.mediaConnection(baseUrl) === connection
+    try {
+      const record = await connection.getLibraryRecord(recordId, 'local')
+      if (!current()) throw new Error('Board backend changed while opening')
+      if (!record || record.mediaType !== BOARD_MEDIA_TYPE) throw new Error('Saved Board is unavailable')
+      const text = await connection.fetchAssetText(record.digest)
+      if (!current()) throw new Error('Board backend changed while opening')
+      if (text === undefined) throw new Error('Saved Board bytes are unavailable')
+      const loaded = loadBoard(JSON.parse(text) as unknown)
+      if (!loaded.document) throw new Error(loaded.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      if ((this.cancellations.get(loaded.document.lineage) ?? 0) > epoch) throw new Error('Board was closed while opening')
+      const existing = this.entries.get().find((entry) => entry.id === loaded.document!.lineage)
+      if (existing) {
+        if (existing.baseUrl !== baseUrl) throw new Error('This Board is already open on another backend')
+        return existing
+      }
+      const entry = this.open(loaded.document, record.name, baseUrl)
+      this.saved.set(entry.id, { connection, record, snapshot: entry.session.doc })
+      this.changed.update((value) => value + 1)
+      return entry
+    } finally { if (this.opening.get(key) === token) this.opening.delete(key) }
   }
 
   open(document: BoardDocument, title: string, baseUrl: string): BoardEntry {
@@ -128,7 +212,7 @@ export class BoardWorkspace {
     return entry
   }
 
-  private assertMediaCurrent(entry: BoardEntry, signal: AbortSignal, connection: BoardMediaConnection): void {
+  private assertMediaCurrent(entry: BoardEntry, signal: AbortSignal, connection: BoardConnection): void {
     signal.throwIfAborted()
     if (this.disposed || !this.entries.get().includes(entry) ||
         this.options.mediaConnection(entry.baseUrl) !== connection)
@@ -269,11 +353,14 @@ export class BoardWorkspace {
     this.cancelImports(id)
     const entry = this.entries.get().find((entry) => entry.id === id)
     entry?.shared?.session.close()
+    this.saved.delete(id)
     this.entries.update((entries) => entries.filter((entry) => entry.id !== id))
   }
 
   dispose(): void {
     this.disposed = true
+    this.opening.clear()
+    this.saved.clear()
     for (const abort of this.importing.keys()) abort.abort()
     for (const cancel of this.adopting.keys()) cancel()
     for (const entry of this.entries.get()) entry.shared?.session.close()
