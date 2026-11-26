@@ -15,7 +15,7 @@ const initial = {
   consumerDetails: { models: [{ itemId: 'flux', displayName: 'Flux model', bytesByResidency: { 'vram:cuda:0': 3e9, 'vram:cuda:1': 1e9, ram: 2e9 } }] },
 }
 
-test('Resources isolates card residency, preserves refresh focus and confirms actions', async ({ page }, testInfo) => {
+test('Resources isolates card residency, preserves refresh focus and releases unused memory immediately', async ({ page }, testInfo) => {
   let payload = initial
   let socket: WebSocketRoute | undefined
   const unloads: unknown[] = []
@@ -50,9 +50,9 @@ test('Resources isolates card residency, preserves refresh focus and confirms ac
   await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(BACKEND)
   await page.getByTestId('backend-add').click()
-  await expect(page.getByTestId('backend-row').filter({ hasText: BACKEND })).toBeVisible()
-  const backendRow = page.getByTestId('backend-row').filter({ hasText: BACKEND })
-  if (await backendRow.locator('details').first().getAttribute('open') === null) await backendRow.locator('summary').first().click()
+  const backendRow = page.getByTestId('backend-row').filter({ has: page.getByRole('button', { name: /resources\.test/ }) })
+  await expect(backendRow).toBeVisible()
+  if (await backendRow.locator('button[aria-controls]').getAttribute('aria-expanded') === 'false') await backendRow.locator('button[aria-controls]').click()
   await backendRow.getByRole('button', { name: 'Resources', exact: true }).click()
   const backendId = await page.evaluate((address) => window.__dinksterTest!.app.backends.get().find((backend) => backend.baseUrl === address)!.id, BACKEND)
   const backend = page.locator(`[data-testid="resources-panel"] [data-backend="${backendId}"]`)
@@ -63,7 +63,7 @@ test('Resources isolates card residency, preserves refresh focus and confirms ac
   await remoteToggle.click()
   await expect(remoteToggle).toHaveAttribute('aria-expanded', 'false')
   await page.getByTestId('backends-sidebar-toggle').click()
-  if (await backendRow.locator('details').first().getAttribute('open') === null) await backendRow.locator('summary').first().click()
+  if (await backendRow.locator('button[aria-controls]').getAttribute('aria-expanded') === 'false') await backendRow.locator('button[aria-controls]').click()
   await backendRow.getByRole('button', { name: 'Resources', exact: true }).click()
   await expect(remoteToggle).toHaveAttribute('aria-expanded', 'true')
   await expect(localToggle).toHaveAttribute('aria-expanded', 'true')
@@ -77,7 +77,7 @@ test('Resources isolates card residency, preserves refresh focus and confirms ac
     app.setTabTarget(app.activeTab()!.id, id)
   }, backendId)
   await page.getByTestId('status-memory').click()
-  await expect(backend).toContainText('7.0 GB of 12.0 GB')
+  await expect(backend).toContainText('7.0 of 12.0 GB')
   const backendToggle = backend.locator(':scope > .dinkster-resource-backend-toggle button')
   await backendToggle.click()
   await expect(backendToggle).toHaveAttribute('aria-expanded', 'false')
@@ -92,11 +92,6 @@ test('Resources isolates card residency, preserves refresh focus and confirms ac
   socket!.send(JSON.stringify({ type: 'memory_status', ...payload }))
   await expect(unload).toBeFocused()
   await unload.click()
-  expect(unloads).toEqual([])
-  await backend.getByRole('button', { name: 'Cancel', exact: true }).click()
-  expect(unloads).toEqual([])
-  await unload.click()
-  await backend.getByRole('button', { name: 'Unload', exact: true }).click()
   await expect.poll(() => unloads).toEqual([{ device: 'vram:cuda:0', consumers: ['models'], items: ['flux'] }])
   await backend.getByText('Details', { exact: true }).click()
   await expect(backend).toContainText('Peak since reset')
