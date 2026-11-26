@@ -1,32 +1,19 @@
 import type { LibraryProject } from '@dinkster/client'
 
-/**
- * The time the projects page shows for a project. Nothing records when a
- * project was last opened, so it is the start of the project's newest run, or
- * when the project was made if it has never run.
- */
-export interface ProjectTime {
-  readonly kind: 'ran' | 'created'
-  /** Milliseconds since the epoch. */
-  readonly at: number
+/** Last opening in milliseconds since the epoch, or null when never opened. */
+export function projectTime(project: Pick<LibraryProject, 'lastOpenedAt'>): number | null {
+  return project.lastOpenedAt ? Date.parse(project.lastOpenedAt) : null
 }
 
-export function projectTime(project: Pick<LibraryProject, 'created' | 'environment'>): ProjectTime {
-  const created = Date.parse(project.created)
-  const lastRun = project.environment?.lastRunAt
-  const ran = lastRun ? Date.parse(lastRun) : Number.NaN
-  return ran >= created ? { kind: 'ran', at: ran } : { kind: 'created', at: created }
-}
-
-/** Projects newest first by the time the page shows for them. */
-export function byProjectTime<T extends Pick<LibraryProject, 'created' | 'environment'>>(projects: readonly T[]): T[] {
-  return [...projects].sort((a, b) => projectTime(b).at - projectTime(a).at)
+/** Most recently opened first; never-opened projects retain their list order last. */
+export function byProjectTime<T extends Pick<LibraryProject, 'lastOpenedAt'>>(projects: readonly T[]): T[] {
+  return [...projects].sort((a, b) => (projectTime(b) ?? -Infinity) - (projectTime(a) ?? -Infinity))
 }
 
 const DAY = 24 * 60 * 60 * 1000
 
 /**
- * When something happened, for a line such as "Ran {when}": relative within
+ * When something happened, for a line such as "Opened {when}": relative within
  * the last week ("2 hours ago", "yesterday"), a date after that ("Nov 12"),
  * with the year once it is not this year.
  */

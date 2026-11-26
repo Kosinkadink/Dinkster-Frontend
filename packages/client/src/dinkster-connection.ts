@@ -1337,6 +1337,8 @@ export interface LibraryProject {
   readonly uid?: string
   readonly name: string
   readonly created: string
+  /** Last successful opening, independent of the project's revision. */
+  readonly lastOpenedAt?: string | null
   readonly revision: number
   readonly deleted: boolean
   /** When the record last changed; for a deleted project, when it was deleted. */
@@ -1421,6 +1423,11 @@ function decodeLibraryProject(value: unknown): LibraryProject {
   if (modified !== undefined && (typeof modified !== 'string' || !Number.isFinite(Date.parse(modified)))) {
     throw new Error('Malformed library project modification time')
   }
+  const lastOpenedAt = row['lastOpenedAt']
+  if (lastOpenedAt !== undefined && lastOpenedAt !== null &&
+    (typeof lastOpenedAt !== 'string' || !Number.isFinite(Date.parse(lastOpenedAt)))) {
+    throw new Error('Malformed library project opening time')
+  }
   return {
     ...(link === undefined ? {} : { accountProject: link }),
     id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'],
@@ -1428,6 +1435,7 @@ function decodeLibraryProject(value: unknown): LibraryProject {
     ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),
     ...(folder === undefined ? {} : { folder: folder as string | null }),
     ...(modified === undefined ? {} : { modified: modified as string }),
+    ...(lastOpenedAt === undefined ? {} : { lastOpenedAt: lastOpenedAt as string | null }),
   }
 }
 

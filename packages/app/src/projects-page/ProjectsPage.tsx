@@ -464,7 +464,7 @@ export function ProjectsView(props: {
       const entry: ProductProjectEntry = {
         id: project.id,
         name: project.name,
-        detail: message(time.kind === 'ran' ? 'projects.time.ran' : 'projects.time.created', { when: when(time.at) }),
+        detail: time === null ? message('projects.time.neverOpened') : message('projects.time.opened', { when: when(time) }),
       }
       if (now?.projectId === project.id) {
         entry.state = now.failed !== undefined ? 'failed' : 'opening'
@@ -584,9 +584,7 @@ export function ProjectsView(props: {
         known={<>
         <ProductProjectHeader
           title={project().name}
-          subtitle={message(time().kind === 'ran' ? 'projects.time.lastRun' : 'projects.time.created', {
-            when: when(time().at),
-          })}
+          subtitle={time() === null ? message('projects.time.neverOpened') : message('projects.time.opened', { when: when(time()!) })}
           actions={
             <Show
               when={here() && here()!.failed === undefined}

@@ -33,15 +33,14 @@ afterEach(() => {
 const NOW = Date.parse('2026-11-25T12:00:00Z')
 const hoursAgo = (hours: number) => new Date(NOW - hours * 3600_000).toISOString()
 
-const project = (id: string, name: string, created: string, lastRunAt?: string): LibraryProject => ({
+const project = (id: string, name: string, created: string, lastOpenedAt: string | null = null): LibraryProject => ({
   id,
   name,
   created,
+  lastOpenedAt,
   revision: 1,
   deleted: false,
-  environment: lastRunAt
-    ? { id: 'env', lastSnapshot: 's1', lastRunAt }
-    : { id: 'env', lastSnapshot: null, lastRunAt: null },
+  environment: { id: 'env', lastSnapshot: null, lastRunAt: null },
 })
 
 const stable: PageInstallation = { root: '/home/u/Dinkster/Stable', engine: 'main', name: 'Stable' }
@@ -83,11 +82,10 @@ function shell(opening?: ReturnType<ProjectsPageShell['opening']>) {
   } satisfies ProjectsPageShell
 }
 
-// A project edited but never run keeps its creation time; one that ran shows the run.
 const projects = [
   project('p-bookshop', 'Bookshop diorama', hoursAgo(72)),
   project('p-film', 'Film grain tests', hoursAgo(24 * 30), hoursAgo(2)),
-  project('p-valley', 'Valley matte paintings', hoursAgo(26)),
+  project('p-valley', 'Valley matte paintings', hoursAgo(26), hoursAgo(26)),
 ]
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -203,18 +201,26 @@ it('keeps the first painted elements unchanged as detail arrives, and keeps old 
   expect(document.querySelector('[aria-label="valley.png"]')).not.toBeNull()
 })
 
-it('lists projects newest first by their last run, or their creation when they never ran', async () => {
+it('lists projects by opening time, with never-opened projects last regardless of creation or runs', async () => {
   vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
-  render(() => <ProjectsView shell={shell()} source={source(projects)} />, document.body)
+  const opened = [
+    { ...projects[0]!, created: hoursAgo(1), lastOpenedAt: null },
+    { ...projects[1]!, lastOpenedAt: hoursAgo(2), environment: { id: 'env', lastSnapshot: 's1', lastRunAt: hoursAgo(48) } },
+    { ...projects[2]!, lastOpenedAt: hoursAgo(26), environment: { id: 'env', lastSnapshot: 's2', lastRunAt: hoursAgo(1) } },
+  ]
+  render(() => <ProjectsView shell={shell()} source={source(opened)} />, document.body)
   await settle()
   expect(rows()).toEqual([
-    'Film grain tests' + 'Ran 2 hours ago',
-    'Valley matte paintings' + 'Created yesterday',
-    'Bookshop diorama' + 'Created 3 days ago',
+    'Film grain tests' + 'Opened 2 hours ago',
+    'Valley matte paintings' + 'Opened yesterday',
+    'Bookshop diorama' + 'Never opened',
   ])
   expect(document.querySelector('h2')?.textContent).toBe('Film grain tests')
-  expect(document.body.textContent).toContain('Last run 2 hours ago')
+  expect(document.querySelector('.dinkster-project-header')?.textContent).toContain('Opened 2 hours ago')
   expect(document.body.textContent).toContain('No workflows yet. Open the project to make one.')
+  document.querySelectorAll<HTMLElement>('[role="option"]')[2]!.click()
+  await settle()
+  expect(document.querySelector('.dinkster-project-header')?.textContent).toContain('Never opened')
 })
 
 it('shows the opening line on the opening row and cancels through the shell', async () => {
@@ -284,7 +290,7 @@ it('renames the selected project at the revision it read', async () => {
   button('Save')!.click()
   await settle()
   expect(renamed).toHaveBeenCalledWith(expect.objectContaining({ id: 'p-film', revision: 1 }), 'Film grain')
-  expect(rows()).toContain('Film grain' + 'Ran 2 hours ago')
+  expect(rows()).toContain('Film grain' + 'Opened 2 hours ago')
 })
 
 it('moves a deleted project under Deleted projects, selects the next one, and restores it selected', async () => {
@@ -295,7 +301,7 @@ it('moves a deleted project under Deleted projects, selects the next one, and re
   render(() => <ProjectsView shell={shell()} source={data} />, document.body)
   await settle()
   const deletedRows = () => [...document.querySelectorAll('[data-testid="deleted-projects"] li')].map((row) => row.textContent)
-  expect(rows()).toEqual(['Film grain testsRan 2 hours ago', 'Valley matte paintingsCreated yesterday', 'Bookshop diorama' + 'Created 3 days ago'])
+  expect(rows()).toEqual(['Film grain testsOpened 2 hours ago', 'Valley matte paintingsOpened yesterday', 'Bookshop dioramaNever opened'])
   expect(document.querySelector('summary')?.textContent).toBe('Deleted projects (1)')
   expect(deletedRows()).toEqual(['Old storyboardDeleted 1 minute agoRestore'])
 
@@ -306,14 +312,14 @@ it('moves a deleted project under Deleted projects, selects the next one, and re
   expect(document.querySelector('dialog')?.textContent).toContain('It moves to Deleted projects at the bottom of this list')
   button('Delete project')!.click()
   await settle()
-  expect(rows().map((row) => row?.split(/Ran|Created/)[0])).toEqual(['Valley matte paintings', 'Bookshop diorama'])
+  expect(rows().map((row) => row?.split(/Opened|Never opened/)[0])).toEqual(['Valley matte paintings', 'Bookshop diorama'])
   expect(document.querySelector('h2')?.textContent).toBe('Valley matte paintings')
   expect(deletedRows()).toEqual(['Film grain testsDeleted just nowRestore', 'Old storyboardDeleted 1 minute agoRestore'])
 
   ;[...document.querySelectorAll<HTMLButtonElement>('[data-testid="deleted-projects"] button')][1]!.click()
   await settle()
   expect(restored).toHaveBeenCalledWith(expect.objectContaining({ id: 'p-old', revision: 3 }))
-  expect(rows().map((row) => row?.split(/Ran|Created/)[0])).toContain('Old storyboard')
+  expect(rows().map((row) => row?.split(/Opened|Never opened/)[0])).toContain('Old storyboard')
   expect(document.querySelector('h2')?.textContent).toBe('Old storyboard')
   expect(document.querySelector('[role="option"][aria-selected="true"]')?.textContent).toContain('Old storyboard')
   expect(deletedRows()).toEqual(['Film grain testsDeleted just nowRestore'])
