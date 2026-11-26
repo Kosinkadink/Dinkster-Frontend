@@ -72,7 +72,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     const control = refresh ? sourceSpec.controlAfterRefresh : undefined
     const plan = control === undefined && remoteComboRefreshCanAdvance(refresh, previous?.state)
       ? props.editor.app.prepareComboRefresh(ed.tab, sourceSpec.route) : undefined
-    const target = control !== undefined ? {
+    const target = control !== undefined && ed.target.kind === 'input' ? {
       graphId: ed.target.familyOwner?.graphId ?? ed.graphId,
       nodeId: ed.target.familyOwner?.nodeId ?? ed.target.nodeId,
       inputId: ed.target.familyOwner?.valueKey ?? ed.target.valueKey,
@@ -93,7 +93,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
           const currentGeneration = props.editor.app.widgetValueMutationGeneration(ed.tab, target.graphId, target.nodeId, target.inputId)
           if (current === expected && currentGeneration === generation && (expectedDraft === undefined || expectedDraft === draftGeneration)) {
             const selected = control === 'first' ? result[0]! : result[result.length - 1]!
-            props.commitCommand(withMaterializeFrames(target.graphId, target.nodeId, ed.target.materialize, { command: 'node.setValue', params: { ...target, value: multi ? [selected] : selected } }), multi)
+            props.commitCommand(withMaterializeFrames(target.graphId, target.nodeId, ed.target.kind === 'input' ? ed.target.materialize : undefined, { command: 'node.setValue', params: { ...target, value: multi ? [selected] : selected } }), multi)
           }
         } else if (refresh) return props.editor.app.completeComboRefresh(plan, result)
       })
@@ -176,7 +176,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     } as CommandInvocation))
   }
 
-  return <div ref={(el) => { root = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover combo-dropdown" classList={{ 'multi-combo-dropdown': multi, 'editable-combo-dropdown': editable }} data-testid={multi ? 'multi-combo-dropdown' : 'combo-dropdown'} data-remote={remote()?.state ?? 'static'} data-chip={multi ? spec.options['chip'] === true ? 'true' : spec.options['chip'] === false ? 'false' : 'absent' : undefined} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${multi ? 'MULTI_COMBO' : 'COMBO'}`} style={props.popoverStyle}>
+  return <div ref={(el) => { root = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover combo-dropdown" classList={{ 'multi-combo-dropdown': multi, 'editable-combo-dropdown': editable }} data-testid={multi ? 'multi-combo-dropdown' : 'combo-dropdown'} data-editor-target={ed.target.kind} data-remote={remote()?.state ?? 'static'} data-chip={multi ? spec.options['chip'] === true ? 'true' : spec.options['chip'] === false ? 'false' : 'absent' : undefined} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${multi ? 'MULTI_COMBO' : 'COMBO'}`} style={props.popoverStyle}>
     <props.header type={multi ? 'MULTI_COMBO' : 'COMBO'} />
     <Show when={editable}><div class="combo-authoring" data-testid="combo-authoring">
       <ProductField controlId="combo-selected-draft" label={message('comboAuthoring.selected')} description={message('comboAuthoring.selectedHint')} layout="stack" invalid={parsedSelection() === undefined}>
@@ -193,6 +193,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     <Show when={folder().length > 0}><div class="combo-folder-navigation" data-testid="combo-folder-navigation"><button type="button" aria-label="Back to parent folder" onMouseDown={(event) => event.preventDefault()} onClick={() => openFolder(folder().slice(0, -1))}><Icon icon={ChevronLeft} /> Back</button><span>{folder().join(' / ')}</span></div></Show>
     <div class="combo-options" role="listbox" aria-label={`${ed.label} options`} aria-multiselectable={multi ? 'true' : undefined}>
       <Show when={remoteStatus()}>{(status) => <div class="combo-status">{status()}</div>}</Show>
+      <Show when={ed.target.kind === 'local' ? ed.target.list : undefined}>{(list) => <div class="combo-status" data-testid="combo-lookup-state">{list().state === 'stale' ? 'options stale' : list().state === 'paused' ? 'Paused. Try again in a moment.' : 'options unavailable'}</div>}</Show>
       <Show when={window().hiddenBefore > 0}>
         <button type="button" class="combo-status combo-page" data-testid="combo-earlier" onMouseDown={(event) => event.preventDefault()} onClick={() => pageTo(window().start - 1)}>{`${window().hiddenBefore} earlier options`}</button>
       </Show>
@@ -207,6 +208,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
         <button type="button" class="combo-status combo-page" data-testid="combo-more" onMouseDown={(event) => event.preventDefault()} onClick={() => pageTo(window().end)}>{`${window().hiddenAfter} more options - type to narrow`}</button>
       </Show>
     </div>
+    <Show when={ed.target.kind === 'local' ? ed.target.list?.retry : undefined}>{(retry) => <ProductButton variant="ghost" size="compact" class="combo-refresh" data-testid="combo-try-again" onMouseDown={(event) => event.preventDefault()} onClick={() => { retry()(); props.close() }}>{message('common.tryAgain')}</ProductButton>}</Show>
     <Show when={spec.remote?.refreshButton === true}><button type="button" class="combo-refresh" data-testid={multi ? 'multi-combo-refresh' : 'remote-refresh'} onMouseDown={(event) => event.preventDefault()} onClick={() => load(true)}>refresh</button></Show>
     <Show when={multi}><ProductActionFooter><button type="button" data-testid="multi-combo-cancel" onClick={props.close}><Icon icon={X} /> Cancel</button><button type="button" data-testid="multi-combo-clear" onClick={() => mutateValues(() => [])}>Clear</button><button type="button" class="primary" data-testid="multi-combo-apply" onClick={() => props.commitValue(values())}><Icon icon={Check} /> Apply</button></ProductActionFooter></Show>
   </div>

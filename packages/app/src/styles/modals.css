@@ -30,7 +30,7 @@
 .subgraph-cleanup-intro { margin: 0 0 var(--dinkster-space-12); color: var(--dinkster-text-secondary); line-height: var(--dinkster-type-body-line); overflow-wrap: anywhere; }
 .subgraph-definition-list-hint { margin: 0 0 var(--dinkster-space-8); color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .subgraph-definition-list { display: grid; max-height: 380px; margin: 0; padding: var(--dinkster-space-4); overflow: auto; overscroll-behavior: contain; background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); scrollbar-gutter: stable; list-style: none; touch-action: pan-y; }
-.subgraph-definition-list:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; }
+.subgraph-definition-list:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 2px; }
 .subgraph-definition-row { display: grid; gap: var(--dinkster-space-12); min-width: 0; }
 .subgraph-definition-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; }
 .subgraph-definition-identity { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
@@ -52,7 +52,7 @@
 .subgraph-retained-definitions { margin-top: var(--dinkster-space-16); padding-top: var(--dinkster-space-12); border-top: 1px solid var(--dinkster-border-subtle); }
 .subgraph-retained-definitions summary { min-height: var(--dinkster-control-compact-height); margin-bottom: var(--dinkster-space-8); color: var(--dinkster-text-secondary); font-weight: var(--dinkster-weight-regular); cursor: pointer; }
 .subgraph-retained-definitions summary:hover { color: var(--dinkster-text-primary); }
-.subgraph-retained-definitions summary:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; }
+.subgraph-retained-definitions summary:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 2px; }
 @media (max-width: 520px) {
   .subgraph-definitions { padding: var(--dinkster-space-12); }
   .subgraph-definition-header { align-items: stretch; flex-direction: column; }
@@ -88,7 +88,7 @@
 .settings-search:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .settings-search::-webkit-search-cancel-button { appearance: none; }
 .settings-search::placeholder { color: var(--dinkster-text-muted); }
-.settings-search:focus-visible { border-color: var(--dinkster-border-focus); box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-interaction-selected); }
+.settings-search:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 2px; }
 .settings-search-clear,
 .product-field-actions button:not(.product-button),
 .product-form-add:not(.product-button) {
@@ -111,7 +111,7 @@
 .settings-categories button:focus-visible,
 .settings-result-heading:focus-visible,
 .binding-capture:focus-visible,
-.product-field-control > input:not(.product-text-input):focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
+.product-field-control > input:not(.product-text-input):focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: -1px; }
 .settings-body { flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: calc(var(--dinkster-space-32) * 8) minmax(0, 1fr); }
 .settings-categories { min-width: 0; padding: var(--dinkster-space-8); overflow: auto; background: var(--dinkster-surface-panel); border-inline-end: 1px solid var(--dinkster-border-subtle); }
 .settings-categories button { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); width: 100%; min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-secondary); background: transparent; border: 1px solid transparent; border-radius: var(--dinkster-radius-control); font: inherit; text-align: start; cursor: pointer; }
@@ -178,7 +178,7 @@
 .product-action-buttons button:not(.product-button) { display: inline-flex; align-items: center; justify-content: center; gap: var(--dinkster-space-4); min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-12); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); font: inherit; cursor: pointer; }
 .product-action-buttons button:not(.product-button):where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .product-action-buttons button:not(.product-button):hover:not(:disabled) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
-.product-action-buttons button:not(.product-button):focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.product-action-buttons button:not(.product-button):focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
 .product-action-buttons button:not(.product-button):disabled { color: var(--dinkster-text-disabled); cursor: not-allowed; opacity: var(--dinkster-interaction-disabled-opacity); }
 .product-action-buttons button:not(.product-button).primary { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-rest-border); }
 .product-action-buttons button:not(.product-button).danger { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-rest-border); }
@@ -353,7 +353,7 @@
 }
 .canvas-file-drop-action:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .canvas-file-drop-action:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
-.canvas-file-drop-action:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; }
+.canvas-file-drop-action:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 2px; }
 .canvas-file-drop-action svg { width: 16px; height: 16px; }
 
 @media (max-width: 520px) {
@@ -408,5 +408,5 @@
   cursor: pointer;
 }
 .gesture-refusal-toast button:hover { background: var(--dinkster-interaction-hover); }
-.gesture-refusal-toast button:focus-visible { outline: 2px solid var(--dinkster-border-focus); outline-offset: 1px; }
+.gesture-refusal-toast button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
 .gesture-refusal-toast svg { width: 15px; height: 15px; }
