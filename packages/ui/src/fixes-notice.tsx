@@ -51,7 +51,7 @@ export interface FixesNoticeStrings {
   readonly summary: (changes: number, nodes: number) => string
   /** A kind's group heading with its count, "Numbers corrected to limits (2)". */
   readonly group: (kind: string, count: number) => string
-  /** The link to the settings of automatic fixes. */
+  /** The link to Review upgrades, which governs node replacements only. */
   readonly settings: string
 }
 
@@ -217,15 +217,19 @@ export function ProductFixesNotice(props: {
               }}
             </For>
           </div>
-          <div class="dinkster-fixes-review-foot">
-            <button
-              type="button"
-              class="dinkster-fixes-settings"
-              onClick={() => props.onSettings()}
-            >
-              {props.strings.settings}
-            </button>
-          </div>
+          <Show
+            when={props.changes.some((change) => change.kind === 'replaced')}
+          >
+            <div class="dinkster-fixes-review-foot">
+              <button
+                type="button"
+                class="dinkster-fixes-settings"
+                onClick={() => props.onSettings()}
+              >
+                {props.strings.settings}
+              </button>
+            </div>
+          </Show>
         </div>
       </Show>
       <div class="dinkster-fixes-line" role="status">

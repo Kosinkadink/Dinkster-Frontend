@@ -34,6 +34,19 @@ test('choosing a fixes Review entry selects its named example on the canvas', as
   await openPage(page, 'fixes-notice')
   const card = page.getByTestId('fixes-notice-per-node')
   await expect(card.locator('canvas')).toHaveAttribute('data-ready', /-dark$/)
+  await expect(
+    card.getByRole('button', {
+      name: 'Open the Review upgrades setting', exact: true,
+    }),
+  ).toBeVisible()
+  const removedChoices = page.getByTestId('fixes-notice-removed-choices')
+  await expect(removedChoices.locator('canvas')).toHaveAttribute(
+    'data-ready', /-dark$/,
+  )
+  await expect(removedChoices.locator('.dinkster-fixes-settings')).toHaveCount(0)
+  await removedChoices.screenshot({
+    path: testInfo.outputPath('review-without-settings-dark.png'),
+  })
   let before = await card.locator('canvas').screenshot()
   for (const name of ['Sampler', 'Unpack frames', 'Resize image']) {
     await card
