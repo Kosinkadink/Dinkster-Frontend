@@ -19,6 +19,20 @@
 .runs-output-thumbnails .output-thumbnail { padding: 0; }
 .runs-output-thumbnails .output-thumbnail-preview { min-height: 0; aspect-ratio: 1; }
 .runs-output-thumbnails > [data-state] { width: 100%; font-size: var(--dinkster-type-metadata-size); color: var(--dinkster-text-muted); }
+/* A chosen stored run: four pictures, its actions, then Details. */
+.runs-output-thumbnails[data-chosen='true'] { flex-wrap: wrap; }
+.runs-output-thumbnails[data-chosen='true'] [role='listitem'], .runs-output-thumbnails[data-chosen='true'] > .product-button { flex: 0 0 calc((100% - 4 * var(--dinkster-space-4)) / 5); min-width: 0; }
+.runs-output-thumbnails[data-chosen='true'] > .product-button { aspect-ratio: 1; height: auto; }
+.runs-output-thumbnails > .output-file-tile { display: grid; place-content: center; justify-items: center; gap: 2px; padding: 0; color: var(--dinkster-text-secondary); background: var(--dinkster-surface-inset); font-size: var(--dinkster-type-metadata-size); }
+.run-chosen-inspection { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
+.run-chosen { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
+.run-chosen-reason { margin: 0; color: var(--dinkster-danger-foreground); }
+.run-chosen-actions { display: flex; align-items: center; min-width: 0; gap: var(--dinkster-space-8); }
+.run-chosen-menu { margin-left: auto; }
+.run-chosen-facts { display: grid; min-width: 0; gap: var(--dinkster-space-4); margin: 0; padding-top: var(--dinkster-space-8); border-top: 1px solid var(--dinkster-border-subtle); font-size: var(--dinkster-type-metadata-size); }
+.run-chosen-facts > div { display: grid; min-width: 0; grid-template-columns: 88px minmax(0, 1fr); gap: var(--dinkster-space-8); }
+.run-chosen-facts dt { color: var(--dinkster-text-muted); }
+.run-chosen-facts dd { min-width: 0; margin: 0; color: var(--dinkster-text-secondary); overflow-wrap: anywhere; }
 .runs-panel .collection-entry { display: grid; grid-template-columns: minmax(0, 1fr); }
 /* Stored runs sit in the same quiet boxes as the run rows above them. */
 .runs-panel .collection-items.list { gap: var(--dinkster-space-4); }
@@ -27,13 +41,6 @@
 .runs-panel .collection-panel { flex: none; min-height: 16rem; padding: 0; }
 .runs-panel .collection-toolbar { flex-wrap: wrap; }
 .runs-panel .collection-content { display: block; }
-
-.problems-selection-control {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--dinkster-space-4);
-  white-space: nowrap;
-}
 
 .execution-activity-card {
   display: grid;
@@ -169,58 +176,6 @@
   .output-viewer-toolbar .product-button { min-width: 44px; min-height: 44px; }
 }
 
-.problems-group {
-  margin: 6px 0;
-}
-
-.problems-group-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  border: 0;
-  border-left: 3px solid var(--dinkster-border-strong);
-  color: inherit;
-  background: var(--dinkster-surface-panel);
-  text-align: left;
-  cursor: pointer;
-}
-
-.problems-group[data-severity='error'] > .problems-group-header {
-  border-left-color: var(--dinkster-danger-border);
-}
-
-.problems-group[data-severity='warning'] > .problems-group-header {
-  border-left-color: var(--dinkster-warning-border);
-}
-
-.problems-group-title {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.problems-group-count,
-.problems-group-severity {
-  color: var(--dinkster-text-secondary);
-  font-size: 11px;
-}
-
-.problems-group-count::before {
-  content: '(';
-}
-
-.problems-group-count::after {
-  content: ')';
-}
-
-.problems-group-items {
-  margin-left: 8px;
-  min-width: 0;
-  user-select: text;
-}
-
 .imported-packs-report p {
   color: var(--dinkster-text-secondary);
   margin: 8px 6px;
@@ -254,77 +209,6 @@
 .imported-packs-report code {
   color: var(--dinkster-text-secondary);
   font-size: 11px;
-}
-
-.problems-group-header,
-.problem-show-on-canvas {
-  user-select: none;
-}
-
-.problem {
-  margin: 4px 0;
-  padding: 4px 6px;
-  min-width: 0;
-  border-radius: 4px;
-  background: var(--dinkster-surface-raised);
-  overflow-wrap: anywhere;
-}
-
-.problem[data-severity='error'] {
-  border-left: 3px solid var(--dinkster-danger-border);
-}
-
-.problem[data-severity='warning'] {
-  border-left: 3px solid var(--dinkster-warning-border);
-}
-
-.problem summary {
-  display: flex;
-  align-items: center;
-  gap: var(--dinkster-space-8);
-  cursor: pointer;
-  min-width: 0;
-}
-
-.problem summary::after {
-  content: '>';
-  margin-left: auto;
-}
-
-.problem[open] summary::after {
-  content: 'v';
-}
-
-.problem-severity {
-  flex: none;
-  width: var(--dinkster-space-16);
-  text-align: center;
-  color: var(--dinkster-info-foreground);
-  font-weight: var(--dinkster-weight-bold);
-}
-
-.problem[data-severity='error'] .problem-severity { color: var(--dinkster-danger-foreground); }
-.problem[data-severity='warning'] .problem-severity { color: var(--dinkster-warning-foreground); }
-
-.problem-message {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.problem-detail {
-  margin-top: var(--dinkster-space-8);
-  color: var(--dinkster-text-secondary);
-  overflow-wrap: anywhere;
-}
-
-.problem-detail pre {
-  white-space: pre-wrap;
-}
-
-.problem-show-on-canvas {
-  margin-top: 6px;
 }
 
 .region-iteration-inspector {
@@ -591,3 +475,9 @@
 .engine-chip.composing {
   color: var(--dinkster-info-foreground);
 }
+.run-row-menu { display: inline-flex; flex: none; }
+.run-row-menu > div { display: contents; }
+/* On the title line the menu is a quiet icon like the snowflake beside it. */
+.run-row-line .run-row-menu .dinkster-menu-trigger { width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-secondary); background: transparent; box-shadow: none; font: inherit; }
+.run-row-line .run-row-menu .dinkster-menu-trigger svg { width: 1em; height: 1em; }
+.run-row-line .run-row-menu .dinkster-menu-trigger:is(:hover, [aria-expanded='true']) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }

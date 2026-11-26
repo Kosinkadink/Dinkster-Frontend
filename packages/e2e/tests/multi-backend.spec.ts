@@ -8,7 +8,7 @@
  * than one exists, and outputs always route through the execution's OWN
  * backend - including after that backend is removed.
  */
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, inspectRun, selectProductOption, test, type Page } from './fixtures.js'
 
 
 const secondBackend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
@@ -112,7 +112,7 @@ test('frozen views route outputs through the run backend, surviving removal', as
   expect(run.connection).toBe(secondBackend)
 
   // Open the frozen view of the second-origin run.
-  await page.getByTestId('execution-row').first().locator('.runs-details > summary').click()
+  await inspectRun(page.getByTestId('execution-row').first())
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(page.getByTestId('status-connection').locator('.status-connection-name')).toHaveText(secondBackendLabel)
   await page.getByRole('tab', { name: 'Runs', exact: true }).click()

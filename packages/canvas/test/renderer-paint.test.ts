@@ -705,11 +705,15 @@ describe('graph image reuse', () => {
     const fallback = globalThis.OffscreenCanvas
     const images: { close: ReturnType<typeof vi.fn> }[] = []
     const painted = recordingCtx()
+    let lost = false
+    painted.ctx.isContextLost = () => lost
     vi.stubGlobal('OffscreenCanvas', class {
       width = 0
       height = 0
+      constructor() { lost = false }
       getContext() { return painted.ctx }
       transferToImageBitmap() {
+        if (lost) throw new DOMException('ImageBitmap construction failed', 'InvalidStateError')
         const image = { close: vi.fn() }
         images.push(image)
         return image
@@ -819,6 +823,14 @@ describe('graph image reuse', () => {
       renderer.renderNow()
       expect(images.length - beforeCommit).toBeGreaterThan(0)
       expect(images.length - beforeCommit).toBeLessThan(12)
+      const beforeLoss = images.length
+      painted.calls.length = 0
+      lost = true
+      renderer.setViewport({ x: -1025, y: -1, scale: 1 })
+      renderer.renderNow()
+      expect(painted.calls.some((call) => call.method === 'fillText')).toBe(true)
+      expect(images.length).toBeGreaterThan(beforeLoss)
+      expect(images.slice(0, beforeLoss).every((image) => image.close.mock.calls.length === 1)).toBe(true)
       const beforeZoom = images.length
       renderer.setViewport({ x: -513.25, y: -1, scale: 1.1 })
       renderer.renderNow()
@@ -1213,18 +1225,20 @@ const nodeBorder = (calls: PaintCall[], node: SceneNode): PaintCall | undefined 
 const ERR = defaultTokens.colors.error
 
 describe('diagnostic paint on the live renderer', () => {
-  it('a mismatch noodle strokes in error red; a healthy one keeps its type color', () => {
-    const scene = fixtureScene()
+  it.each([
+    ['warning', PROBLEM_WARNING_BADGE.color],
+    ['error', ERR],
+  ] as const)('a %s mismatch paints its wire and handle; a healthy wire keeps its type color', (kind, color) => {
+    const base = fixtureScene()
+    const scene = { ...base, links: base.links.map((link) => link.mismatch ? { ...link, mismatchKind: kind } : link) }
     expect(scene.links.find((l) => l.id === 'bad')!.mismatch).toBe(true)
     const calls = paint(scene)
     const strokes = calls.filter((c) => c.method === 'stroke')
-    // Mismatch noodle: error color at the widened link width.
-    expect(strokes.some((c) => c.strokeStyle === ERR && c.lineWidth === 3)).toBe(true)
+    expect(strokes.some((c) => c.strokeStyle === color && c.lineWidth === 3)).toBe(true)
     // Healthy noodle: LATENT's type color at the normal link width.
     const latent = typeColor(defaultTokens, 'LATENT')
     expect(strokes.some((c) => c.strokeStyle === latent && c.lineWidth === 2.5)).toBe(true)
-    // The mismatch noodle's grab dot follows the error paint.
-    expect(calls.some((c) => c.method === 'fill' && c.fillStyle === ERR)).toBe(true)
+    expect(calls.some((c) => c.method === 'fill' && c.fillStyle === color)).toBe(true)
   })
 
   it.each([
@@ -3304,12 +3318,15 @@ describe('construct paint on the live renderer', () => {
     }
   })
 
-  it('a mismatched endpoint tag uses error paint while a healthy tag keeps its type color', () => {
+  it.each([
+    ['warning', PROBLEM_WARNING_BADGE.color],
+    ['error', ERR],
+  ] as const)('a %s endpoint tag takes its problem color while a healthy tag keeps its type color', (kind, color) => {
     const base = constructsScene()
     const scene: Scene = {
       ...base,
       netStubs: base.netStubs.map((stub) =>
-        stub.role === 'source' ? { ...stub, mismatch: true } : stub,
+        stub.role === 'source' ? { ...stub, mismatch: true, mismatchKind: kind } : stub,
       ),
     }
     const source = scene.netStubs.find((stub) => stub.role === 'source')!
@@ -3325,7 +3342,7 @@ describe('construct paint on the live renderer', () => {
       expect(index).toBeGreaterThanOrEqual(0)
       return paintedAfter(calls, index, 'stroke')!
     }
-    expect(leadAfter(source)).toMatchObject({ strokeStyle: ERR, lineWidth: 3 })
+    expect(leadAfter(source)).toMatchObject({ strokeStyle: color, lineWidth: 3 })
     expect(leadAfter(sink)).toMatchObject({ strokeStyle: LATENT, lineWidth: 2 })
 
     const tagStroke = (stub: Scene['netStubs'][number]) => {
@@ -3336,7 +3353,7 @@ describe('construct paint on the live renderer', () => {
       expect(index).toBeGreaterThanOrEqual(0)
       return paintedAfter(calls, index, 'stroke')!
     }
-    expect(tagStroke(source)).toMatchObject({ strokeStyle: ERR, lineWidth: 2 })
+    expect(tagStroke(source)).toMatchObject({ strokeStyle: color, lineWidth: 2 })
     expect(tagStroke(sink)).toMatchObject({ strokeStyle: LATENT, lineWidth: 1 })
   })
 

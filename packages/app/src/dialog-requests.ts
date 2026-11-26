@@ -57,7 +57,7 @@ export interface AssetConsentRequest {
   readonly cancelModel?: (index: number) => Promise<void>
   readonly assets: readonly MissingAsset[]
   readonly busy: boolean
-  readonly retry: (digests: readonly string[]) => Promise<void>
+  readonly retry?: (digests: readonly string[]) => Promise<void>
   readonly enableLocation?: (location: string) => Promise<void>
   readonly enablingLocation?: string
 }
@@ -104,7 +104,8 @@ type AssetsMissingResult = Extract<DinksterSubmitResult, { assetsMissing: unknow
 type SubmitOk = Extract<DinksterSubmitResult, { ok: true }>
 
 /**
- * Install an asset-consent request and own its whole retry chain. One call
+ * Review model requirements without a submission, or install an asset-consent
+ * request and own its whole retry chain. One call
  * covers the full conversation with the server: retry may come back with
  * MORE missing assets (reopen), a terminal rejection, a transport failure,
  * or success. Each busy toggle and reopen installs a fresh request object
@@ -118,7 +119,6 @@ type SubmitOk = Extract<DinksterSubmitResult, { ok: true }>
  * reopening over the newer owner's dialog.
  */
 export function installAssetConsent(p: {
-  readonly result: AssetsMissingResult
   readonly slot: RequestSlot<AssetConsentRequest> & Pick<ReadonlySignal<AssetConsentRequest | undefined>, 'subscribe'>
   readonly signal?: AbortSignal
   /** Releases submission resources after the dialog and any posted retry settle. */
@@ -132,11 +132,16 @@ export function installAssetConsent(p: {
     readonly providerConnection?: ModelProviderConnection
     readonly backendUrl?: string
   }
+} & ({
+  readonly result: AssetsMissingResult
   readonly onSubmitted: (submitted: SubmitOk) => void
   readonly onRejected: (diagnostics: readonly Diagnostic[]) => void
   readonly onTransportError: (message: string) => void
   readonly onSuperseded: (assets: readonly MissingAsset[]) => void
-}): void {
+} | {
+  readonly models: readonly ModelRequirement[]
+  readonly result?: never
+})): void {
   /** The request object this chain most recently installed - its owner token. */
   let chain: AssetConsentRequest | undefined
   let inFlight = false
@@ -163,7 +168,7 @@ export function installAssetConsent(p: {
   }
   const unsubscribe = p.slot.subscribe(() => { if (!owned()) settle() })
   p.signal?.addEventListener('abort', cancel, { once: true })
-  const install = (result: AssetsMissingResult): void => {
+  const install = (assets: readonly MissingAsset[], models: readonly ModelRequirement[] | undefined, result?: AssetsMissingResult): void => {
     // This STAGE's own request (advanced to its busy copy). `chain` alone
     // is not enough: a retained retry closure from an earlier stage of the
     // same chain would otherwise see the reopened request as "current" and
@@ -263,6 +268,7 @@ export function installAssetConsent(p: {
       }
     }
     const retry = async (digests: readonly string[], location?: string): Promise<void> => {
+      if (!result || !p.result) return
       // Only this stage's CURRENT request may start a retry, and only once:
       // a stale closure (dialog replaced between render and click, or a
       // reopened stage of this same chain) or a double-click during flight
@@ -293,7 +299,7 @@ export function installAssetConsent(p: {
           p.onSubmitted(retried)
         } else if ('assetsMissing' in retried) {
           if (owned()) {
-            install(retried)
+            install(retried.assetsMissing.assets, retried.assetsMissing.models, retried)
           } else {
             chain = undefined
             p.onSuperseded(retried.assetsMissing.assets)
@@ -310,27 +316,29 @@ export function installAssetConsent(p: {
         if (!owned()) settle()
       }
     }
-    const request: AssetConsentRequest = { assets: result.assetsMissing.assets, busy: false, retry,
+    const request: AssetConsentRequest = { assets, busy: false,
+      ...(result === undefined ? {} : { retry }),
       ...(p.modelDownloads?.providerConnection ? {
         providerConnection: p.modelDownloads.providerConnection,
         ...(p.modelDownloads.backendUrl === undefined ? {} : { providerBackendUrl: p.modelDownloads.backendUrl }),
         providerChanged: () => providerChanged(request),
       } : {}),
-      ...(result.assetsMissing.models?.length ? {
-        models: result.assetsMissing.models.map((requirement) => ({ requirement, pending: false })),
+      ...(models?.length ? {
+        models: models.map((requirement) => ({ requirement, pending: false })),
         selectModelSource: (index: number, source: string) => selectModelSource(index, source, request),
         reviewModel: (index: number) => modelAction(index, 'review', request),
         downloadModel: (index: number) => modelAction(index, 'download', request),
         cancelModel: (index: number) => modelAction(index, 'cancel', request),
       } : {}),
-      ...(p.enableLocation ? { enableLocation: (location: string) => retry([], location) } : {}),
+      ...(p.enableLocation && result ? { enableLocation: (location: string) => retry([], location) } : {}),
     }
     owner = request
     chain = request
     p.slot.set(request)
   }
   if (p.signal?.aborted) settle()
-  else install(p.result)
+  else if (p.result) install(p.result.assetsMissing.assets, p.result.assetsMissing.models, p.result)
+  else install([], p.models)
 }
 
 /**

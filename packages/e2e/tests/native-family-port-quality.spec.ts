@@ -8,8 +8,7 @@ type DynamicState = Record<string, {
   readonly seq?: number
 }>
 
-// Node types whose live body holds a group; the reference-multi-latent image
-// group is optional and stores no member on a new node.
+// Node types whose live body holds a group.
 const groupNodeTypes = [
   'dinkster.image.batch_images_node',
   'dinkster.latent.batch_latents_node',
@@ -172,7 +171,7 @@ test.beforeEach(async ({ page, request }) => {
   await waitForWorkspaceReady(page)
 })
 
-test('every live group node persists minimums and reloads with a growth target', async ({ page }) => {
+test('every live group node persists minimums and reloads with member controls', async ({ page }) => {
   const familyNodeTypes = await page.evaluate(() => {
     const registry = window.__dinksterTest!.app.backends.get()[0]!.registry.get()!
     type Row = { kind?: string; rows?: readonly Row[]; member?: readonly Row[]; options?: readonly { rows: readonly Row[] }[]; shared?: readonly Row[] }
@@ -200,8 +199,8 @@ test('every live group node persists minimums and reloads with a growth target',
       return {
         dynamic: stored.dynamic ?? {},
         schemaBody: schema.body,
-        hasGrowthTarget:
-          node.layout.pins.some((pin) => pin.ghost === true) ||
+        hasMemberControl:
+          node.layout.pins.some((pin) => pin.familyMember === true) ||
           node.layout.rows.some((row) => row.kind === 'growth'),
         underMinimum: scene.diagnostics
           .filter((diagnostic) => diagnostic.code === 'elab.autogrow.underMin')
@@ -212,12 +211,12 @@ test('every live group node persists minimums and reloads with a growth target',
     // A new node stores exactly that state: an optional group stores no member.
     expect(result.dynamic, type).toEqual(required)
     // These nodes hold only the hidden dependencies group in loops.py.
-    const visibleGrowth = ![
+    const visibleMembers = ![
       'dinkster.utilities.loop_iteration',
       'dinkster.utilities.loop_progress',
       'dinkster.utilities.loop_result',
     ].includes(type)
-    expect(result.hasGrowthTarget, type).toBe(visibleGrowth)
+    expect(result.hasMemberControl, type).toBe(visibleMembers)
     expect(result.underMinimum, type).toEqual([])
 
     await page.evaluate(async ({ type }) => {
@@ -237,8 +236,8 @@ test('every live group node persists minimums and reloads with a growth target',
       const doc = app.activeTab()!.store.doc
       return {
         dynamic: doc.graphs[doc.root]!.nodes[nodeId]!.dynamic ?? {},
-        hasGrowthTarget:
-          node.layout.pins.some((pin) => pin.ghost === true) ||
+        hasMemberControl:
+          node.layout.pins.some((pin) => pin.familyMember === true) ||
           node.layout.rows.some((row) => row.kind === 'growth'),
         underMinimum: scene.diagnostics
           .filter((diagnostic) => diagnostic.code === 'elab.autogrow.underMin')
@@ -246,7 +245,7 @@ test('every live group node persists minimums and reloads with a growth target',
       }
     }, { nodeId })
     expect(reloaded.dynamic, `${type}:reload`).toEqual(required)
-    expect(reloaded.hasGrowthTarget, `${type}:reload`).toBe(visibleGrowth)
+    expect(reloaded.hasMemberControl, `${type}:reload`).toBe(visibleMembers)
     expect(reloaded.underMinimum, `${type}:reload`).toEqual([])
   }
 })
@@ -279,7 +278,7 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
   expect(state).toEqual({ members: ['a'], targets: ['values.a'] })
 
   const next = await pinPoint(page, mathId, 'in', 'values.b')
-  await drag(page, source, next)
+  await drag(page, await pinPoint(page, sourceId, 'out', 'FLOAT'), next)
   state = await page.evaluate((mathId) => {
     const doc = window.__dinksterTest!.app.activeTab()!.store.doc
     const graph = doc.graphs.g0!
@@ -305,7 +304,7 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
       valueWidgets: node.layout.rows.filter((row) =>
         row.kind === 'widget' && row.inputId?.startsWith('values.') === true,
       ).map((row) => row.inputId!),
-      pairedRows: node.layout.rows.filter((row) => row.kind === 'ports').map((row) => ({
+      portRows: node.layout.rows.filter((row) => row.kind === 'ports').map((row) => ({
         input: row.input?.portId,
         output: row.output?.portId,
       })),
@@ -318,10 +317,13 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
     { port: 'values.c', ghost: true },
   ]))
   expect(reloaded.valueWidgets).toEqual([])
-  expect(reloaded.pairedRows).toEqual([
-    { input: 'values.a', output: 'FLOAT' },
-    { input: 'values.b', output: 'INT' },
-    { input: 'values.c', output: 'BOOL' },
+  expect(reloaded.portRows).toEqual([
+    { input: 'values.a', output: undefined },
+    { input: 'values.b', output: undefined },
+    { input: 'values.c', output: undefined },
+    { input: undefined, output: 'FLOAT' },
+    { input: undefined, output: 'INT' },
+    { input: undefined, output: 'BOOL' },
   ])
 
   const preserved = await page.evaluate(async (mathId) => {
@@ -375,9 +377,8 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
     value: 2.5,
     links: [{ id: preserved.bLinkId, target: 'values.b' }],
     inputs: [
-      { port: 'values.a', ghost: false },
       { port: 'values.b', ghost: false },
-      { port: 'values.c', ghost: true },
+      { port: 'values.a', ghost: true },
     ],
   })
   const minimapToggle = page.getByTestId('minimap-toggle')
@@ -398,9 +399,8 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
     value: 2.5,
     links: [{ id: preserved.bLinkId, target: 'values.b' }],
     inputs: [
-      { port: 'values.a', ghost: false },
       { port: 'values.b', ghost: false },
-      { port: 'values.c', ghost: true },
+      { port: 'values.a', ghost: true },
     ],
   })
 })

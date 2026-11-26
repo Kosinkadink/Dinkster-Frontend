@@ -18,6 +18,12 @@ import BookOpen from 'lucide-solid/icons/book-open'
 import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
 import Users from 'lucide-solid/icons/users'
+import AudioLines from 'lucide-solid/icons/audio-lines'
+import Box from 'lucide-solid/icons/box'
+import FileIcon from 'lucide-solid/icons/file'
+import FileText from 'lucide-solid/icons/file-text'
+import Film from 'lucide-solid/icons/film'
+import type { LucideIcon } from 'lucide-solid'
 import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
@@ -25,7 +31,7 @@ import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, coreOccurrencePlanner } from './CanvasHost.js'
 import { CanvasViewControls } from './CanvasChrome.js'
 import { ContextMenu } from './ContextMenu.js'
-import { historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
+import { formatCollectionDate, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard, ExecutionOpenButton, executionStatusLabel } from './ExecutionActivityCard.js'
 import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
@@ -115,9 +121,11 @@ import {
   type PanelDragVisibleZoneGeometry,
 } from './panel-drag.js'
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
+import { isPageTab, PageTabPanel } from './page-tabs.js'
+import type { AppTab } from './app-page-tabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
 import { EngineRunControl } from './EngineRunControl.js'
-import { RunActivityControl, RunRow, RunSection, placeInLine, runAge, runIsPending, useNow } from './RunControls.js'
+import { ChosenRun, RunActivityControl, RunRow, tookText, type ChosenRunFact, RunSection, placeInLine, runAge, runIsPending, useNow } from './RunControls.js'
 import { ExecutedImageFacts, ExecutedImageViewer, SavedOutputFiles, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { executedImageInventory, executedImageLabel, executionThumbnail, type ExecutedImage } from './executed-image-inventory.js'
 import { RunThumbnail } from './RunThumbnail.js'
@@ -462,9 +470,22 @@ export function App(props: {
     const resolveSchema = registry
       ? (tab ? documentResolver(tab.store.doc, registry.resolve) : registry.resolve)
       : () => undefined
+    const widgets = app.widgetRegistryForTab(tab)
     return resolveCanvasTooltip(target, opts, {
       resolveSchema,
       resolvePack: (id) => registry?.packs?.get(id),
+      // Reading a value never edits it; a value the view cannot read falls
+      // back to its plain text.
+      widgetReadout: (row, value) => {
+        try {
+          return widgets.viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.readout?.(value, row.spec)
+        } catch {
+          return undefined
+        }
+      },
+      // The tooltip's 12px/1.4 lines fit between 8px window margins, after
+      // its padding, border and title gap.
+      tooltipLines: Math.floor((window.innerHeight - 16 - 21) / 16.8),
     })
   } })
   onMount(() => {
@@ -473,6 +494,7 @@ export function App(props: {
     onCleanup(() => { detach(); unsubscribe() })
   })
   const tabs = useSignal(app.tabs)
+  const shellTabs = useSignal(app.pages.changed)
   const activeTabId = useSignal(app.activeTabId)
   const dirtyTabs = useSignal(app.dirtyTabs)
   const tabResultClears = useSignal(app.clearedTabResults)
@@ -515,12 +537,12 @@ export function App(props: {
     entry.kind === 'workflow' ? [entry.workflowId] : []))
   const detachedPanelIds = (): ReadonlySet<string> => new Set(managedLayout().windows.flatMap((entry) =>
     entry.kind === 'panel' ? [entry.panelId] : []))
-  const windowTabs = (): readonly Tab[] => {
+  const windowTabs = (): readonly AppTab[] => {
     const context = managedContext()
     if (context.kind === 'workflow') return tabs().filter((tab) => tab.id === context.workflowId)
-    if (context.kind === 'panel') return tabs()
+    if (context.kind === 'panel') return shellTabs()
     const detached = detachedWorkflowIds()
-    return tabs().filter((tab) => !detached.has(tab.id))
+    return shellTabs().filter((tab) => !detached.has(tab.id))
   }
   createEffect(() => {
     const visible = windowTabs()
@@ -698,9 +720,13 @@ export function App(props: {
   // replacement (import or collaboration adoption) installs a new session,
   // invalidating the user's discard decision, while editor-kind switches
   // replace the Tab object but keep the session and must not dismiss it.
-  const [pendingClose, setPendingClose] = createSolidSignal<Tab>()
-  const pendingCloseStillCurrent = (pending: Tab): boolean =>
-    tabs().some((tab) => tab.id === pending.id && tab.store === pending.store)
+  const [pendingClose, setPendingClose] = createSolidSignal<AppTab>()
+  const pendingCloseStillCurrent = (pending: AppTab): boolean =>
+    isPageTab(pending) ? shellTabs().includes(pending) :
+      tabs().some((tab) => tab.id === pending.id && tab.store === pending.store)
+  const isDirty = (tab: AppTab): boolean => isPageTab(tab)
+    ? app.pages.descriptor(tab.pageId)?.dirty?.() === true
+    : dirtyTabs().has(tab.id)
   createEffect(() => {
     const pending = pendingClose()
     if (pending && !pendingCloseStillCurrent(pending)) setPendingClose(undefined)
@@ -716,7 +742,7 @@ export function App(props: {
     }
     return undefined
   }
-  const requestTabClose = (tab: Tab, restoreFocus: boolean): void => {
+  const requestTabClose = (tab: AppTab, restoreFocus: boolean): void => {
     const strip = stripContaining(document.activeElement)
     // Closing the global active tab: activate the successor the repaired
     // split layout keeps (next tab in the closing group, else the active
@@ -724,7 +750,8 @@ export function App(props: {
     // split-blind remaining[0] fallback never moves focus to another group.
     const successor = tab.id === activeTabId() ? closeSuccessor(tab.id) : undefined
     if (successor !== undefined) app.activeTabId.set(successor)
-    app.requestCloseTab(tab.id, () => true)
+    if (isPageTab(tab)) app.pages.close(tab.id)
+    else app.requestCloseTab(tab.id, () => true)
     if (restoreFocus || strip !== undefined) {
       queueMicrotask(() => {
         const target = strip?.isConnected
@@ -734,8 +761,8 @@ export function App(props: {
       })
     }
   }
-  const closeTab = (tab: Tab): void => {
-    if (!app.isTabDirty(tab.id)) {
+  const closeTab = (tab: AppTab): void => {
+    if (!isDirty(tab)) {
       requestTabClose(tab, false)
       return
     }
@@ -749,10 +776,10 @@ export function App(props: {
     requestTabClose(pending, true)
   }
 
-  const [pendingCloseOthers, setPendingCloseOthers] = createSolidSignal<readonly Tab[]>()
-  const closeOthers = (tab: Tab, groupTabs: readonly Tab[]): void => {
+  const [pendingCloseOthers, setPendingCloseOthers] = createSolidSignal<readonly AppTab[]>()
+  const closeOthers = (tab: AppTab, groupTabs: readonly AppTab[]): void => {
     const others = groupTabs.filter((candidate) => candidate.id !== tab.id)
-    if (others.some((candidate) => app.isTabDirty(candidate.id))) {
+    if (others.some(isDirty)) {
       setPendingCloseOthers(others)
       return
     }
@@ -769,7 +796,7 @@ export function App(props: {
     if (pending && !pending.every(pendingCloseStillCurrent)) setPendingCloseOthers(undefined)
   })
 
-  const activeTab = () => windowTabs().find((t) => t.id === activeTabId())
+  const activeTab = () => windowTabs().find((t): t is Tab => !isPageTab(t) && t.id === activeTabId())
   const [boundaryStateTick, setBoundaryStateTick] = createSolidSignal(0)
   createEffect(() => {
     const tab = activeTab()
@@ -993,7 +1020,7 @@ export function App(props: {
     const delta = event.key === increase ? 0.02 : -0.02
     updateSplitLayout((layout) => setSplitRatioAt(layout, divider.path, divider.ratio + delta))
   }
-  const beginTabDrag = (tab: Tab, down: PointerEvent, groupId: string): void => {
+  const beginTabDrag = (tab: AppTab, down: PointerEvent, groupId: string): void => {
     if (down.button !== 0) return
     const strip = stripElements.get(groupId)
     if (strip === undefined) return
@@ -1113,10 +1140,10 @@ export function App(props: {
           updateSplitLayout((layout) => moveTabToGroup(layout, tab.id, stripDrop.groupId, stripDrop.index))
         } else if (action === 'commit' && pane !== undefined) {
           updateSplitLayout((layout) => splitDropNextLayout(layout, pane, tab.id))
-        } else if (started && outsideRegion && !overSource && managedContext().kind === 'primary') {
+        } else if (started && outsideRegion && !overSource && managedContext().kind === 'primary' && !isPageTab(tab)) {
           popOutWorkflow(tab, event.screenX, event.screenY)
         } else if (action === 'commit' && overSource && preview !== undefined) {
-          app.tabs.set(applySubsetOrder(tabs(), preview.order))
+          app.pages.setTabs(applySubsetOrder(shellTabs(), preview.order))
           updateSplitLayout((layout) => setGroupTabOrder(layout, groupId, preview.order))
         }
       })
@@ -1266,6 +1293,27 @@ export function App(props: {
     const selected = () => selectedRunKey() === p.exec.key ||
       (selectedRunKey() === undefined && !runIsPending(p.exec) && selectedRun()?.key === p.exec.key)
     const thumbnail = () => runIsPending(p.exec) ? undefined : executionThumbnail(p.exec)
+    // A finished run reads as it does under All workflows; its inspection, opened
+    // from the menu, keeps the activity card with the overlay pin and errors. One
+    // open state serves both, so a run inspected while it ran stays inspected.
+    const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
+    const [inspectOpen, setInspectOpen] = createSolidSignal(false)
+    // No button goes beside a finished run's menu here, so the menu sits at the end of the title line.
+    const [menuMount, setMenuMount] = createSolidSignal<HTMLElement>()
+    const reason = (): string | undefined => p.exec.status === 'error'
+      ? p.exec.errors.map((error) => error.message).join(' ') || undefined : undefined
+    const facts = (): ChosenRunFact[] => {
+      const nodes = Object.values(p.exec.nodes)
+      const backend = app.backendFor(p.exec.ref.connection)
+      return [
+        ...(p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.finished'), text: formatCollectionDate(p.exec.endedAt) }]),
+        ...(p.exec.startedAt === undefined || p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText((p.exec.endedAt - p.exec.startedAt) / 1000) }]),
+        { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', {
+          ran: nodes.filter((node) => node.state === 'done').length, cached: nodes.filter((node) => node.state === 'cached').length,
+        }) },
+        ...(backend === undefined ? [] : [{ label: message('runs.chosen.ranOn'), text: backend.label }]),
+      ]
+    }
     return <RunRow entry={p.exec} name={app.tabTitleFor(p.exec.ref)} workflow={app.tabTitleFor(p.exec.ref)}
       statusInNote all={p.all} testId="execution-row" nodeTitle={runtimeNodeTitle}
       cancelling={cancelling().has(executionKey(p.exec.ref))}
@@ -1274,6 +1322,7 @@ export function App(props: {
       thumbnail={<Show when={thumbnail()}>{(asset) => <RunThumbnail
         url={app.assetUrlForExecution(p.exec.ref, asset().digest)} mediaType={asset().mediaType} />}</Show>}
       selected={selected()}
+      lineEnd={<Show when={selected() && !runIsPending(p.exec)}><span class="run-row-menu" ref={setMenuMount} /></Show>}
       onSelect={() => setSelectedRunKey(selected() && selectedRunKey() === p.exec.key ? undefined : p.exec.key)}>
       <Show when={selected()}>
         <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
@@ -1288,7 +1337,10 @@ export function App(props: {
               if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
               else app.pinExecutionOverlay(tab.id, p.exec.ref)
             } : undefined}
-          />} />
+          />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
+          {...(runIsPending(p.exec) ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
+            detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
+            menuMount={menuMount()} onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
       </Show>
     </RunRow>
   }
@@ -1342,12 +1394,23 @@ export function App(props: {
     />
     </BackendMetadataState>
   )
-  const [storageFocus, setStorageFocus] = createSolidSignal<{ readonly id: string }>()
+  const [storageFocus, setStorageFocus] = createSolidSignal<{ readonly id: string; readonly hiddenModels?: boolean }>()
   const openStorage = (backend = activeBackend()): void => {
     setStorageFocus({ id: backend.id })
     app.modalPanel.set('')
     setPanelOpen(app.panels, app.dock, 'storage', 'left', true)
   }
+  const storageRequest = useSignal(app.storageOpenRequest)
+  createEffect(() => {
+    const request = storageRequest()
+    if (request === undefined) return
+    const backend = backends().find((backend) => backend.id === request.id)
+    if (backend !== undefined) {
+      openStorage(backend)
+      setStorageFocus(request)
+    }
+    app.storageOpenRequest.set(undefined)
+  })
   const openBackendSettings = (backend: Backend): void => {
     app.settingsOpenRequest.set({ category: `backend:${backend.id}`, id: '' })
     app.modalPanel.set('settings')
@@ -1442,7 +1505,7 @@ export function App(props: {
       ? execution.key === entry.id
       : execution.ref.connection === entry.owner && execution.jobRef === runIdOfEntry(entry))
   }
-  const StoredRun = (p: { entry: CollectionEntry; selected: () => boolean; actions: JSX.Element }) => {
+  const StoredRun = (p: { entry: CollectionEntry; selected: () => boolean }) => {
     const [loaded, setLoaded] = createSolidSignal<{ execution: ExecutionState; values: DinksterValuesClient }>()
     const [loadError, setLoadError] = createSolidSignal<string>()
     const [loading, setLoading] = createSolidSignal(false)
@@ -1470,7 +1533,11 @@ export function App(props: {
         if (run === undefined || run.scope !== LIBRARY_SCOPE || (run.jobRef ?? run.runId) !== runId) throw new Error('Stored run is no longer available')
         const job = await backend.connection.fetchHistoryJob(run)
         if (!current()) return
-        if (job === undefined) throw new Error('Retained outputs are no longer available')
+        if (job === undefined) {
+          // An interrupted run never finished, so the engine kept no outputs to load; its reason line says so.
+          if (run.state === 'interrupted') return
+          throw new Error('Retained outputs are no longer available')
+        }
         if (job.state === 'queued' || job.state === 'running') throw new Error('Stored run is no longer terminal')
         const rawOutputs = job.outputs
         if (rawOutputs !== undefined && (typeof rawOutputs !== 'object' || rawOutputs === null || Array.isArray(rawOutputs) ||
@@ -1511,9 +1578,8 @@ export function App(props: {
       return asset !== undefined && backend?.protocol === 'dinkster'
         ? { url: backend.connection.assetUrl(asset.digest), mediaType: asset.mediaType } : undefined
     }
-    const Facts = () => <>
-      <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
-    </>
+    // The record's own facts (ids, client, source and each node's receipt), shown when the run is inspected.
+    const Facts = () => <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
     const known = () => storedExecution(p.entry)
     const record = () => historyRunOfEntry(p.entry)
     const now = useNow()
@@ -1532,6 +1598,33 @@ export function App(props: {
       ]
       return parts.join(', ')
     }
+    const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
+    const [inspectOpen, setInspectOpen] = createSolidSignal(false)
+    const facts = (): ChosenRunFact[] => {
+      const run = record()
+      if (run === undefined) return []
+      backendsTick()
+      const backend = app.backends.get().find((candidate) => candidate.id === p.entry.owner)
+      return [
+        { label: message('runs.chosen.finished'), text: formatCollectionDate(run.finishedAt * 1000) },
+        ...(run.startedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText(run.finishedAt - run.startedAt) }]),
+        { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', { ran: run.executed, cached: run.cached }) },
+        ...(backend === undefined ? [] : [{ label: message('runs.chosen.ranOn'), text: backend.label }]),
+      ]
+    }
+    // An interrupted run says when the engine stopped; a failed one says why.
+    const reason = (): string | undefined => {
+      const run = record()
+      if (run?.state === 'interrupted') return message(run.error?.['phase'] === 'running' ? 'runs.chosen.wasRunning' : 'runs.chosen.neverStarted')
+      return run?.state === 'failed' ? run.error?.message : undefined
+    }
+    const act = (actionId: 'resubmit' | 'open' | 'delete') => () => libraryEntryAction('runs', p.entry, actionId)
+    const chosen = () => <ChosenRun name={known() ? app.tabTitleFor(known()!.ref) : p.entry.title} reason={reason()} facts={facts()}
+      detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
+      onRunAgain={record()?.state === 'interrupted' && record()?.sourceDocument !== undefined ? act('resubmit') : undefined}
+      onOpenWorkflow={record()?.sourceDocument !== undefined ? act('open') : undefined}
+      onCopyJobId={() => { const jobId = record()?.jobId; if (jobId !== undefined) void navigator.clipboard?.writeText(jobId) }}
+      onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
       <div class="run-row-line">
         <span class="run-row-thumbnail" aria-hidden="true">
@@ -1546,16 +1639,16 @@ export function App(props: {
         }</Show>
       </div>
       <Show when={p.selected()}>
-        <p>{p.entry.subtitle}</p>
-        <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
         <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
         <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
-        <Show when={known()} fallback={<Show when={loaded()} fallback={<details class="runs-details" onClick={(event) => event.stopPropagation()}>
-          <summary>{message('runs.details')}</summary><Facts />
-        </details>}>{(source) => <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} />}</Show>}>
-          {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} />}
+        <Show when={known()} fallback={<Show when={loaded()} fallback={<>
+          {chosen()}
+          <Show when={inspectOpen()}><div class="run-chosen-inspection" data-testid="run-inspection"><Facts /></div></Show>
+        </>}>{(source) =>
+          <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />
+        }</Show>}>
+          {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />}
         </Show>
-        {p.actions}
       </Show>
     </div>
   }
@@ -1600,7 +1693,7 @@ export function App(props: {
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
             ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
-          entryContent={(entry, selected, actions) => <StoredRun entry={entry()} selected={selected} actions={actions} />}
+          entryContent={(entry, selected) => <StoredRun entry={entry()} selected={selected} />}
           onAction={libraryEntryAction}
           sourceActions={[{ sourceId: 'runs', id: 'clear', label: message(clearArmed() ? 'runs.clear.confirm' : 'runs.clear.action') }]}
           onSourceAction={librarySourceAction} />
@@ -2069,8 +2162,9 @@ export function App(props: {
       const style = getComputedStyle(bodyElement)
       const gap = Number.parseFloat(style.columnGap) || 0
       const sidebarWidth = sidebar.getBoundingClientRect().width
+      const sidebarShare = sidebarWidth > 0 ? sidebarWidth + gap + Number.parseFloat(getComputedStyle(sidebar).marginRight) : 0
       const available = bodyElement.clientWidth - Number.parseFloat(style.paddingLeft)
-        - Number.parseFloat(style.paddingRight) - sidebarWidth - (sidebarWidth > 0 ? gap : 0) - 320
+        - Number.parseFloat(style.paddingRight) - sidebarShare - 320
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
         : { single: Math.max(0, available - gap), both: Math.max(0, available - 2 * gap) })
@@ -2571,7 +2665,7 @@ export function App(props: {
     const paneFocused = (): boolean => displayLayout().focusedGroupId === p.groupId
     const soleGroup = (): boolean => layoutGroups(displayLayout().root).length === 1
     const paneRect = (): SplitRect | undefined => regionRects().groups.find((entry) => entry.id === p.groupId)?.rect
-    const groupTabs = (): readonly Tab[] => {
+    const groupTabs = (): readonly AppTab[] => {
       const byId = new Map(windowTabs().map((tab) => [tab.id, tab] as const))
       const drag = tabDrag()
       const ids = drag !== undefined && drag.sourceGroupId === p.groupId && drag.order !== undefined
@@ -2582,7 +2676,15 @@ export function App(props: {
         return tab !== undefined ? [tab] : []
       })
     }
-    const paneActiveTab = (): Tab | undefined => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const paneTab = () => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const paneActiveTab = (): Tab | undefined => {
+      const tab = paneTab()
+      return tab && !isPageTab(tab) ? tab : undefined
+    }
+    const panePage = () => {
+      const tab = paneTab()
+      return tab && isPageTab(tab) ? tab : undefined
+    }
     const paneTarget = (): Backend | undefined => {
       backendsTick()
       tabTargets()
@@ -2679,18 +2781,19 @@ export function App(props: {
         <div class="tab-strip">
           <WorkflowTabs
             tabs={groupTabs()}
+            {...(shellTabs().some(isPageTab) ? { label: message('shell.pageTabs.open') } : {})}
             activeId={group().activeTabId}
             draggedId={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.tabId : undefined}
             insertionIndex={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.insertionIndex : undefined}
             runState={(tab) => {
               executions()
               tabResultClears()
-              return app.tabRunState(tab)
+              return isPageTab(tab) ? 'idle' : app.tabRunState(tab)
             }}
-            isDirty={(tab) => dirtyTabs().has(tab.id)}
-            isFrozen={(tab) => tab.execution !== undefined}
+            isDirty={isDirty}
+            isFrozen={(tab) => !isPageTab(tab) && tab.execution !== undefined}
             tooltip={(tab) => {
-              if (tab.execution === undefined) return undefined
+              if (isPageTab(tab) || tab.execution === undefined) return undefined
               executions()
               const status = app.store.get(tab.execution)?.status
               return message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
@@ -2712,6 +2815,7 @@ export function App(props: {
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
             onRename={(tab, title) => app.renameTab(tab.id, title)}
             onDuplicate={(tab) => {
+              if (isPageTab(tab)) return
               void app.duplicateTab(tab.id).then((copy) => {
                 if (!copy) return
                 updateSplitLayout((layout) => {
@@ -2723,7 +2827,7 @@ export function App(props: {
             onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
-            canShare={(tab) => tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
+            canShare={(tab) => !isPageTab(tab) && tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
             onShare={(tab) => {
               app.activeTabId.set(tab.id)
               app.showTransientStatus(message('shell.share.sharing', { title: tab.title }))
@@ -2733,7 +2837,7 @@ export function App(props: {
                   : message('shell.share.failed', { error }))
               })
             }}
-            onPopOut={managedContext().kind === 'primary' ? popOutWorkflow : undefined}
+            onPopOut={managedContext().kind === 'primary' ? (tab) => { if (!isPageTab(tab)) popOutWorkflow(tab) } : undefined}
             showNew={paneFocused() && managedContext().kind === 'primary'}
             panelId={splitPanelDomId(p.groupId)}
             onSplitRight={managedContext().kind === 'primary'
@@ -2742,20 +2846,20 @@ export function App(props: {
             onSplitDown={managedContext().kind === 'primary'
               ? (tab) => updateSplitLayout((layout) => splitGroup(layout, p.groupId, 'column', tab.id))
               : undefined}
-            canSplit={managedContext().kind === 'primary' ? canSplitTab : undefined}
+            canSplit={managedContext().kind === 'primary' ? (tab) => !isPageTab(tab) && canSplitTab(tab) : undefined}
             onUnsplit={soleGroup() ? undefined : () => updateSplitLayout((layout) => dissolveGroup(layout, p.groupId))}
             targets={backends()}
             targetId={(tab) => {
               tabTargets()
-              return app.backendForTab(tab).id
+              return isPageTab(tab) ? '' : app.backendForTab(tab).id
             }}
             onSetTarget={(tab, id) => {
               const backend = backends().find((candidate) => candidate.id === id)
               if (backend) app.setTabTarget(tab.id, backend.id)
             }}
-            previews={(tab) => tab.store.doc.previews}
+            previews={(tab) => isPageTab(tab) ? undefined : tab.store.doc.previews}
             onSetPreviews={(tab, mode) => {
-              if (tab.execution !== undefined) return
+              if (isPageTab(tab) || tab.execution !== undefined) return
               app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: mode } })
             }}
           />
@@ -2780,10 +2884,11 @@ export function App(props: {
           id={splitPanelDomId(p.groupId)}
           class="canvas-stage"
           role="tabpanel"
-          aria-label={paneActiveTab() ? undefined : message('shell.workflow.editor')}
-          aria-labelledby={paneActiveTab() ? workflowTabDomId(paneActiveTab()!.id) : undefined}
+          aria-label={paneTab() ? undefined : message('shell.workflow.editor')}
+          aria-labelledby={paneTab() ? workflowTabDomId(paneTab()!.id) : undefined}
           tabindex="0"
         >
+          <Show when={panePage()} fallback={<>
           <Show when={managedContext().kind === 'primary' && !paneActiveTab() && detachedWorkflowIds().size > 0}>
             <div class="detached-workspace-state" data-testid="detached-workspace-state">
               <h2>{message('shell.workflow.detached.title')}</h2>
@@ -2900,6 +3005,9 @@ export function App(props: {
           >
             {(editor) => editor.component(host)}
           </Show>
+          </>}>
+            {(page) => <PageTabPanel host={app.pages} tab={page()} />}
+          </Show>
         </div>
       </section>
     )
@@ -2994,7 +3102,7 @@ export function App(props: {
         >
           <div class="close-tab-confirm">
             <p>{message('shell.close.othersConfirm')}</p>
-            <ul><For each={pending.filter((tab) => dirtyTabs().has(tab.id))}>{(tab) => <li>{tab.title}</li>}</For></ul>
+            <ul><For each={pending.filter(isDirty)}>{(tab) => <li>{tab.title}</li>}</For></ul>
             <ProductActionFooter>
               <ProductButton type="button" autofocus onClick={() => setPendingCloseOthers(undefined)}>{message('shell.action.cancel')}</ProductButton>
               <SharedProductButton intent="remove" fill="solid" onClick={confirmCloseOthers}>{message('shell.close.discard')}</SharedProductButton>
@@ -3389,14 +3497,64 @@ function outputIterationGroup(runtimeId: string, workflowLabel: string): { reado
   }
 }
 
+/**
+ * Opens a saved file in a new browser tab, where the browser plays audio and
+ * video and shows text. The engine serves assets as plain bytes, so the file
+ * is read and handed to the tab typed by its recorded media type.
+ */
+async function openSavedFile(url: string, mediaType: string): Promise<void> {
+  // Opened before the read, while the click still allows a new tab.
+  const tab = window.open('', '_blank')
+  if (tab === null) return
+  tab.opener = null
+  try {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const blob = new Blob([await response.arrayBuffer()], { type: mediaType })
+    const objectUrl = URL.createObjectURL(blob)
+    tab.location.href = objectUrl
+    // The tab plays from the object URL, so it is released only once the tab closes.
+    const watch = setInterval(() => {
+      if (!tab.closed) return
+      clearInterval(watch)
+      URL.revokeObjectURL(objectUrl)
+    }, 5000)
+  } catch {
+    tab.location.href = url
+  }
+}
+
+/** The kind of a saved file, as its tile's icon. */
+const fileIcon = (mediaType: string): LucideIcon => {
+  const [kind, subtype = ''] = mediaType.split('/')
+  if (kind === 'audio') return AudioLines
+  if (kind === 'video') return Film
+  if (kind === 'model' || /gltf|glb|obj|stl|ply|fbx|usd/.test(subtype)) return Box
+  if (kind === 'text' || subtype === 'json') return FileText
+  return FileIcon
+}
+/** A saved file's short kind, as its tile's label: "WAV", "MP4". */
+const fileExtension = (file: { readonly name: string; readonly virtualPath: string; readonly mediaType: string }): string => {
+  const name = file.name || file.virtualPath
+  const dot = name.lastIndexOf('.')
+  return (dot > 0 ? name.slice(dot + 1) : file.mediaType.split('/').at(-1) ?? '').slice(0, 5).toUpperCase()
+}
+
+/**
+ * A run's pictures and, behind a Details fold, what else it made and where.
+ * Given `chosen`, it is a chosen finished run instead: four pictures and a
+ * tile for each other saved file, then `chosen` (its actions and plain
+ * facts), then the same inspection while `inspectOpen`.
+ */
 function Outputs(props: { app: AppState; execution: ExecutionState; details?: JSX.Element; source?: {
   values: DinksterValuesClient
-} }) {
+}; chosen?: JSX.Element; inspectOpen?: boolean; onInspect?: (open: boolean) => void }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
   const [viewerIndex, setViewerIndex] = createSolidSignal<number>()
   const [viewerGrid, setViewerGrid] = createSolidSignal(false)
-  const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
+  const [localOpen, setLocalOpen] = createSolidSignal(false)
+  const detailsOpen = (): boolean => props.inspectOpen ?? localOpen()
   const [failed, setFailed] = createSolidSignal<ReadonlySet<string>>(new Set())
   const [loaded, setLoaded] = createSolidSignal<ReadonlySet<string>>(new Set())
   const currentExecutionKey = createMemo(() => props.execution.key)
@@ -3441,9 +3599,10 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     values: values(),
   }))
+  const shown = (): number => props.chosen === undefined ? 3 : 4
   const imageGroups = createMemo(() => {
     const groups = new Map<string, { readonly label: string; readonly images: { readonly image: ExecutedImage; readonly index: number }[] }>()
-    for (const [index, image] of images().slice(0, 3).entries()) {
+    for (const [index, image] of images().slice(0, shown()).entries()) {
       const { key, label } = outputIterationGroup(image.runtimeId, 'Workflow outputs')
       const group = groups.get(key) ?? { label, images: [] }
       group.images.push({ image, index })
@@ -3486,12 +3645,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
       detail: 'This execution completed without inspectable image descriptors or assets.',
     }
   }
-  return (
-    <>
-      <details class="runs-details" onClick={(event) => event.stopPropagation()}
-        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
-        <summary>{message('runs.details')}</summary>
-        <Show when={detailsOpen()}>
+  const Inspection = () => <>
         {props.details}
       <section class="output-execution-provenance output-rail-provenance" aria-label="Execution provenance">
         <div><span>Backend</span><strong>{provenance().backendLabel}</strong></div>
@@ -3517,12 +3671,30 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
         </section>
       )}</For>
       <For each={images()}>{(image) => <ExecutedImageFacts image={image} availability={availability(image.key)} />}</For>
-        </Show>
+  </>
+  // A finished run's saved files that are not pictures, each opened in a new browser tab.
+  const files = createMemo(() => {
+    if (props.chosen === undefined) return []
+    const seen = new Set<string>()
+    return props.execution.artifacts.filter((artifact) => {
+      if (artifact.mediaType.startsWith('image/') || seen.has(artifact.digest)) return false
+      seen.add(artifact.digest)
+      return true
+    })
+  })
+  return (
+    <>
+      <Show when={props.chosen === undefined}>
+      <details class="runs-details" open={detailsOpen()} onClick={(event) => event.stopPropagation()}
+        onToggle={(event) => { const open = event.currentTarget.open; if (open !== detailsOpen()) { setLocalOpen(open); props.onInspect?.(open) } }}>
+        <summary>{message('runs.details')}</summary>
+        <Show when={detailsOpen()}><Inspection /></Show>
       </details>
-      <div class="outputs runs-output-thumbnails" aria-label={`${images().length} execution images`}>
-        <For each={imageGroups()} fallback={
+      </Show>
+      <div class="outputs runs-output-thumbnails" data-chosen={props.chosen !== undefined} aria-label={`${images().length} execution images`}>
+        <For each={imageGroups()} fallback={<Show when={props.chosen === undefined || (emptyState().state !== 'empty' && emptyState().state !== 'error')}>
           <span data-state={emptyState().state} role="status" title={emptyState().detail}>{emptyState().title}</span>
-        }>
+        </Show>}>
           {(group) => (
             <section class="output-iteration-group" aria-label={group.label}>
               <h3>{group.label}</h3>
@@ -3548,11 +3720,26 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
             </section>
           )}
         </For>
-        <Show when={images().length > 3}>
+        <Show when={images().length > shown()}>
           <ProductButton size="compact" aria-label={message('runs.outputs.all', { count: images().length })}
-            onClick={(event) => { event.stopPropagation(); setViewerGrid(true); setViewerIndex(0) }}>+{images().length - 3}</ProductButton>
+            onClick={(event) => { event.stopPropagation(); setViewerGrid(true); setViewerIndex(0) }}>+{images().length - shown()}</ProductButton>
         </Show>
+        <For each={files()}>{(file) => (
+          <ProductButton type="button" class="output-file-tile" data-kind={file.mediaType.split('/')[0]}
+            aria-label={message('runs.chosen.openFile', { name: file.name || file.virtualPath })} data-tooltip-label={file.name || file.virtualPath}
+            onClick={(event) => {
+              event.stopPropagation()
+              void openSavedFile(props.app.assetUrlForExecution(props.execution.ref, file.digest), file.mediaType)
+            }}>
+            <ProductIcon icon={fileIcon(file.mediaType)} />
+            <span>{fileExtension(file)}</span>
+          </ProductButton>
+        )}</For>
       </div>
+      {props.chosen}
+      <Show when={props.chosen !== undefined && detailsOpen()}>
+        <div class="run-chosen-inspection" data-testid="run-inspection" onClick={(event) => event.stopPropagation()}><Inspection /></div>
+      </Show>
       <Show when={viewerIndex() !== undefined}>
         <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} initialMode={viewerGrid() ? 'grid' : 'single'} provenance={provenance()} backendUrl={props.app.backendFor(props.execution.ref.connection)?.baseUrl} onRequestClose={() => setViewerIndex(undefined)} />
       </Show>

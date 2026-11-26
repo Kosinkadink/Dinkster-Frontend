@@ -106,6 +106,11 @@ export const inNodeEditorSchemas: readonly NodeSchema[] = [
     socket('histogram', 'HISTOGRAM', true),
     output('curve', 'CURVE'),
   ]),
+  schema('Curve with hidden histogram', [
+    editor('curve', 'CURVE', { histogram: 'histogram', histogramVisible: false }),
+    socket('histogram', 'HISTOGRAM', true),
+    output('curve', 'CURVE'),
+  ]),
   // Each curve of a group names the histogram beside it in its own member.
   schema('Curves with histograms', [
     {
@@ -151,7 +156,7 @@ export interface InNodeEditorExample {
   readonly caption: string
   readonly type: string
   readonly values?: Readonly<Record<string, Json>>
-  readonly view?: Pick<NodeViewState, 'editors' | 'sections' | 'pictureHeights'>
+  readonly view?: Pick<NodeViewState, 'editors' | 'sections' | 'pictureHeights' | 'histogramVisibility'>
   /** Inputs a wire comes into, by input id and its type. */
   readonly wired?: Readonly<Record<string, string>>
   /** Members of a growing group, by group id. */
@@ -299,6 +304,9 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
   { id: 'curve-folded-primitive', card: 35, caption: 'Folded, fed by a Primitive holding 3 points, before a run: the curve it holds, muted with the row', type: 'Curve editor',
     wired: { curve: 'CURVE' },
     carried: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0.2 }, { position: 0.6, value: 0.4 }, { position: 1, value: 0.9 }] } } },
+  { id: 'curve-unfolded-wired', card: 35, caption: 'Unfolded, fed by a wire: its curve with muted points and dimmed editing controls', type: 'Curve editor',
+    wired: { curve: 'CURVE' }, view: unfold('curve'), states: { curve: { selected: 1 } },
+    carried: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0.2 }, { position: 0.6, value: 0.4 }, { position: 1, value: 0.9 }] } } },
   { id: 'curve-histogram-unwired', card: 36, caption: 'The histogram input has no wire: its pin is on the line Histogram inside the editor', type: 'Curve editor',
     values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } }, view: unfold('curve') },
   { id: 'curve-histogram-before', card: 36, caption: 'A histogram wired in, before a run: no bars yet', type: 'Curve editor',
@@ -307,6 +315,22 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
   { id: 'curve-histogram', card: 36, caption: 'A histogram wired in: after a run, its bars behind the curve', type: 'Curve editor',
     values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
     wired: { histogram: 'HISTOGRAM' }, view: unfold('curve'), states: { curve: { histogram: 'rising' } } },
+  { id: 'curve-histogram-default-hidden', card: 36, caption: 'The node defaults to hiding its histogram input: no line or pin, and the editor is one row shorter',
+    type: 'Curve with hidden histogram',
+    values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
+    view: unfold('curve') },
+  { id: 'curve-histogram-override-shown', card: 36, caption: 'The same hidden default with Show histogram input saved for this curve',
+    type: 'Curve with hidden histogram',
+    values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
+    view: { ...unfold('curve'), histogramVisibility: { curve: true } } },
+  { id: 'curve-histogram-override-hidden', card: 36, caption: 'The usual shown default with Hide histogram input saved for this curve',
+    type: 'Curve editor',
+    values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
+    view: { ...unfold('curve'), histogramVisibility: { curve: false } } },
+  { id: 'curve-histogram-hidden-wired', card: 36, caption: 'A connected histogram stays visible even with a hidden default and saved hide override',
+    type: 'Curve with hidden histogram', wired: { histogram: 'HISTOGRAM' },
+    values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
+    view: { ...unfold('curve'), histogramVisibility: { curve: false } } },
   { id: 'panel-curve', card: 37, caption: "On a subgraph's Inputs panel: the curve folded out under its field, and the panel grown downward", type: 'Curve editor',
     place: 'inputsPanel', values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } },
     view: unfold('curve') },

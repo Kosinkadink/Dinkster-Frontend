@@ -183,6 +183,19 @@ describe('open-tab persistence', () => {
     expect(second.activeTabId.get()).toBe(secondTabId)
   })
 
+  it('persists only real workflows while a session-only page is active', () => {
+    const first = createEditableApp()
+    first.pages.register({ id: 'example', title: 'Example', icon: () => undefined, component: () => null })
+    first.pages.open('example', { selectedImage: 'image-12' })
+    flush()
+    const stored = JSON.parse(g.localStorage!.getItem(TABS_KEY)!)
+    expect(stored.active).toBe(seedBasic.lineage)
+    expect(stored.tabs.map((tab: { doc: { lineage: string } }) => tab.doc.lineage)).toEqual([seedBasic.lineage, seedSubgraph.lineage])
+    const second = createEditableApp()
+    expect(second.pages.tabs().map((tab) => tab.id)).toEqual([seedBasic.lineage, seedSubgraph.lineage])
+    expect(second.activeTab()?.id).toBe(seedBasic.lineage)
+  })
+
   it('round-trips browser-local graph and app view positions without changing the document', () => {
     const first = prepareWorkflowApp(new AppState())
     const [basic, subgraph] = first.tabs.get()
