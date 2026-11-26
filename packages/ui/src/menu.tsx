@@ -155,6 +155,8 @@ function Menu(props: {
     props.onOpen?.()
     queueMicrotask(() => {
       if (!open()) return
+      // Measure in the top layer so dock stacking and clipping cannot hide actions.
+      menu.showPopover()
       const anchor = trigger.getBoundingClientRect()
       const surface = menu.getBoundingClientRect()
       const margin = tokens.space[8]
@@ -281,6 +283,7 @@ function Menu(props: {
           ref={menu}
           id={props.filter ? `${id}-surface` : id}
           class="dinkster-menu dinkster-menu-popover"
+          popover="manual"
           data-account={props.account ? '' : undefined}
           data-project={props.project ? '' : undefined}
           role={props.filter ? 'group' : 'menu'}

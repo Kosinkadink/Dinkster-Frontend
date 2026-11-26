@@ -62,6 +62,7 @@ import {
   SIDE_ROOM,
 } from './row-editing.js'
 import { InNodeEditorsGallery } from './in-node-editors.js'
+import { RowStatesGallery } from './row-states.js'
 import { RowAutomaticGallery } from './row-automatic.js'
 import { RowListsGallery } from './row-lists.js'
 import { BoundaryTreeGallery } from './boundary-tree.js'
@@ -98,6 +99,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widgets',
         'core-rows',
         'row-editing',
+        'row-states',
         'row-automatic',
         'row-lists',
         'lookups',
@@ -200,6 +202,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'row-states':
+    'What a row shows when a finished run proved that nothing arrives, for a skipped node, while a wired value is not known, for a promoted field, and the control at the end of the side part that switches how a field is drawn.',
   'row-automatic':
     'A number whose value is automatic: closed, opened, stepped, while a lookup loads, and when it cannot be worked out.',
   'row-lists':
@@ -221,7 +225,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'row-file-previews':
     'Closed file rows use the shared preview loader and production node renderer. The stored values, incoming values, empty fields and narrow fallbacks below never open an editor or change the document.',
   'widget-driven':
-    'A row whose value comes from a wire is dimmed and its stored value is struck through.',
+    'A wired row is dimmed and keeps its own widget look, with its stored value struck through until its arriving value is known.',
   'widget-offered':
     'Rows a node offers but does not have yet are dimmed until they are added.',
   'widget-companions':
@@ -663,7 +667,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
+    if (currentPage === 'row-editing' || currentPage === 'row-states' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -761,6 +765,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'row-states'}>
+          <RowStatesGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'row-lists'}>
           <RowListsGallery theme={theme()} />

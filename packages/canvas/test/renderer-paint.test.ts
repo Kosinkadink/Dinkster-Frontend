@@ -2022,14 +2022,15 @@ describe('node chrome paint on the live renderer', () => {
     expect(single.some((c) => c.method === 'roundRect' && c.args[0] === node.x - 3 && c.args[1] === node.y - 3)).toBe(false)
   })
 
-  it('dims connected widget rows and strikes only stored values without companions', () => {
+  it('keeps an unknown wired value in its own widget look with the stored value struck through', () => {
     const scene = constructsScene((json) => {
       json.graphs.g0.nodes.fs.values = { f: 3.5 }
     })
     const fs = nodeOf(scene, 'fs')
     const row = fs.layout.rows.find((candidate) => candidate.kind === 'widget')!
     const calls = paint(scene)
-    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label && c.args[1] === fs.x + row.inset + 6)
+    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label &&
+      (c.args[2] as number) >= fs.y + row.y && (c.args[2] as number) <= fs.y + row.y + row.height)
     expect(connectedText?.globalAlpha).toBeCloseTo(0.45)
     const valueText = calls.find((c) => c.method === 'fillText' && c.args[0] === '3.5')!
     const strike = calls.slice(calls.indexOf(valueText) + 1).find((c) => c.method === 'stroke')!

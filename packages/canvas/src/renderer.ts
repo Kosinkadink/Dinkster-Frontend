@@ -304,11 +304,21 @@ export interface CompanionDisplay {
   /**
    * expected=current proof, cached=recipe-proven older run, stale=unproven,
    * estimate=locally computed from a schema-declared mirror (display only).
+   * nothing=a finished run proved no value arrives; unknown=a wire whose
+   * value is not known yet. Nothing reads as words; unknown keeps the
+   * stored value in its own widget look, struck through.
    */
-  readonly state?: 'expected' | 'cached' | 'stale' | 'estimate'
+  readonly state?: 'expected' | 'cached' | 'stale' | 'estimate' | 'nothing' | 'unknown'
   /** Compatibility for existing callers; new retained values use state. */
   readonly stale?: boolean
 }
+
+/**
+ * The words a wired row reads when a run proved the value absent.
+ * Undefined for a companion that carries a value.
+ */
+export const companionWords = (companion: CompanionDisplay): string | undefined =>
+  companion.state === 'nothing' ? 'Nothing' : undefined
 
 /**
  * Whether a row draws a value arriving by wire with its own view, as it draws
@@ -996,6 +1006,17 @@ export class CanvasRenderer {
   private baseScene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   private scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   private connectedInputPins: ReadonlySet<string> = new Set()
+  /**
+   * Values a finished run proved absent: the pins and wires of a node it
+   * skipped, and the inputs those wires feed. Keys as connectedInputPins
+   * (`node\0port`), outputs and inputs apart because a field's output pin
+   * shares its input's id; links by id.
+   */
+  private nothingOutputs: ReadonlySet<string> = new Set()
+  private nothingInputs: ReadonlySet<string> = new Set()
+  /** Node alpha before any row dimming, for the problem outline on a field row. */
+  private problemMarkAlpha?: number
+  private nothingLinks: ReadonlySet<string> = new Set()
   /** Input pins whose wire comes from a muted node: drawn faded with that wire. */
   private mutedInputPins: ReadonlySet<string> = new Set()
   private connectedOutputPins: ReadonlySet<string> = new Set()
@@ -1219,10 +1240,46 @@ export class CanvasRenderer {
   }
 
   setNodeStates(states: Readonly<Record<string, NodeProgress>>): void {
+    const fedBefore = this.nothingFedNodes()
     this.updateNodePaint(this.nodeStates, states, () => {
       this.nodeStates = states
       this.hasRunningNodes = Object.values(states).some((state) => state.state === 'running')
+      this.refreshNothing()
     })
+    // A field fed by a skipped node reads "Nothing", so the nodes those
+    // wires reach repaint with it.
+    const fed = new Set([...fedBefore, ...this.nothingFedNodes()])
+    if (fed.size > 0) {
+      this.invalidateNodeTiles(fed)
+      this.requestRender()
+    }
+  }
+
+  /** Recompute the values a finished run proved absent (see `nothingOutputs`). */
+  private refreshNothing(): void {
+    const outputs = new Set<string>()
+    const inputs = new Set<string>()
+    const links = new Set<string>()
+    for (const node of this.scene.nodes) {
+      if (this.nodeStates[node.id]?.state !== 'skipped') continue
+      for (const pin of node.layout.pins) if (pin.direction === 'out') outputs.add(`${node.id}\u0000${pin.portId}`)
+    }
+    for (const link of this.scene.links) {
+      const from = link.from
+      if ((from.kind !== 'port' && from.kind !== 'widgetTap') || this.nodeStates[from.node]?.state !== 'skipped') continue
+      links.add(link.id)
+      if (link.to.kind === 'port') inputs.add(`${link.to.node}\u0000${link.to.port}`)
+    }
+    this.nothingOutputs = outputs
+    this.nothingInputs = inputs
+    this.nothingLinks = links
+  }
+
+  private nothingFedNodes(): Set<string> {
+    const nodes = new Set<string>()
+    for (const link of this.scene.links)
+      if (this.nothingLinks.has(link.id) && link.to.kind === 'port') nodes.add(link.to.node)
+    return nodes
   }
 
   setReducedMotion(reduced: boolean): void {
@@ -1408,8 +1465,7 @@ export class CanvasRenderer {
 
   /** Whether a field row paints a value arriving by wire in place of its own (WidgetPaintArgs.companion). */
   showsArrivingValue(nodeId: string, row: Extract<LayoutRow, { kind: 'widget' }>): boolean {
-    const panelKey = `${nodeId}\u0000${row.inputId}`
-    const arriving = this.panelFieldValues.has(panelKey) ? { value: this.panelFieldValues.get(panelKey)! } : this.companions[nodeId]?.[row.valueKey]
+    const arriving = this.rowCompanion(nodeId, row)
     return arriving !== undefined && !drawsPassedValueAsEditor(row, arriving, this.tokens)
   }
 
@@ -2084,6 +2140,7 @@ export class CanvasRenderer {
   }
 
   private refreshConnectivity(): void {
+    this.refreshNothing()
     this.mutedInputPins = new Set(this.scene.links.flatMap((link) =>
       link.sourceMuted === true && link.to.kind === 'port' ? [`${link.to.node}\u0000${link.to.port}`] : []))
     this.connectedInputPins = new Set(
@@ -2412,7 +2469,7 @@ export class CanvasRenderer {
       const batches = new Map<string | undefined, Array<readonly [number, number, number, number]>>()
       for (const link of scene.links) {
         if (link.hidden === true || this.overlay.hiddenLinkIds?.has(link.id) === true ||
-            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || link.dimmed === true || link.mismatch === true) continue
+            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || this.nothingLinks.has(link.id) || link.dimmed === true || link.mismatch === true) continue
         const bounds = linkBounds(link.x1, link.y1, link.x2, link.y2)
         if (bounds.maxX + paintPad < view.x || bounds.minX - paintPad > view.x + view.w ||
             bounds.maxY + paintPad < view.y || bounds.minY - paintPad > view.y + view.h) continue
@@ -2479,10 +2536,15 @@ export class CanvasRenderer {
           minScreenWidth: canvasPaintTokens.link.selectedMinScreenStroke,
         })
       }
-      // A dashed wire means only that it may carry nothing (an optional
-      // producer); every other wire, including one being dragged, is solid.
-      const dashed = link.maybeAbsent === true
-      if (dashed) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
+      // Maybe-absent (optional producer) links dash long-and-slow: a calm
+      // "this value might legitimately not exist" cue, deliberately distinct
+      // from the short [6,4] ghost-drag dash and from any error styling.
+      // A wire a finished run proved empty keeps its route and color and
+      // takes the skipped node's dots, distinct from the maybe-absent dash
+      // that only says a value might not exist.
+      const nothing = this.nothingLinks.has(link.id)
+      if (nothing) ctx.setLineDash(screenAwareDash(canvasPaintTokens.stateDash.skipped.world, canvasPaintTokens.stateDash.skipped.screen, scale))
+      else if (link.maybeAbsent === true) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
       // A proven conflict takes its strongest problem's color at the
       // wider mismatch stroke, without changing absence or mute hints.
       if (link.mismatch === true) {
@@ -2494,7 +2556,7 @@ export class CanvasRenderer {
       } else {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName)
       }
-      if (dashed) ctx.setLineDash([])
+      if (nothing || link.maybeAbsent === true) ctx.setLineDash([])
       // Midpoint grab dot: a visible handle for clicking the noodle (and
       // double-click reroute insertion). Boundary noodles carry it too -
       // they select and delete like any noodle (delete lowers to
@@ -3814,6 +3876,9 @@ export class CanvasRenderer {
         ? undefined
         : memberSpans(l, drag.construct).find((span) => span.member === drag.member)
       const rowsAlpha = ctx.globalAlpha
+      // A skipped node's fields are quiet; its problem marks keep contrast.
+      const skippedRows = progress?.state === 'skipped'
+      this.problemMarkAlpha = rowsAlpha
       for (const row of l.rows) {
         const rowY = node.y + row.y
         // A member box's header starts where its outline does.
@@ -3821,6 +3886,7 @@ export class CanvasRenderer {
         ctx.globalAlpha = dragged !== undefined && rowTop >= dragged.top && rowTop < dragged.bottom
           ? rowsAlpha * canvasPaintTokens.widget.inactiveOpacity
           : rowsAlpha
+        if (skippedRows) ctx.globalAlpha *= canvasPaintTokens.node.skippedRowOpacity
         if ((row.kind === 'widget' || row.kind === 'ports') && row.crossInset !== undefined) {
           paintCross(node.x + l.width - row.crossInset, rowY + t.rowHeight / 2)
         }
@@ -4362,7 +4428,7 @@ export class CanvasRenderer {
           px,
           py,
           this.viewport.scale,
-          pin.maybeAbsent === true ||
+          pin.maybeAbsent === true || (pin.direction === 'out' ? this.nothingOutputs : this.nothingInputs).has(`${node.id}\u0000${pin.portId}`) ||
             (pin.direction === 'in' && (pin.optional === true || pin.familyMember === true ||
               // An unwired input on a closed box's row is hollow.
               (pin.collapsedSection !== undefined && !connected))),
@@ -4427,6 +4493,35 @@ export class CanvasRenderer {
   }
 
   /**
+   * The value a field row shows in place of its own, or undefined when the
+   * row is not wired. A finished run can prove nothing arrives; an unknown
+   * arriving value leaves the stored value visible and struck through.
+   */
+  private rowCompanion(
+    nodeId: string,
+    row: Extract<LayoutRow, { kind: 'widget' }>,
+    driven?: { readonly value?: Json },
+  ): CompanionDisplay | undefined {
+    if (this.nothingInputs.has(`${nodeId}\u0000${row.inputId}`)) return { value: null, state: 'nothing' }
+    const arriving = driven !== undefined ? driven.value : this.panelFieldValues.get(`${nodeId}\u0000${row.inputId}`)
+    const known = driven !== undefined || arriving !== undefined
+      ? arriving === undefined ? undefined : { value: arriving }
+      : this.companions[nodeId]?.[row.valueKey]
+    // Selector rows ignore boundary bindings for inertness: the bound row
+    // remains the occurrence-local editor.
+    const linkSet = row.selector !== undefined ? this.valueDrivenInputPins : this.connectedInputPins
+    const wired = driven !== undefined || known !== undefined || linkSet.has(`${nodeId}\u0000${row.inputId}`)
+    return known ?? (wired ? { value: null, state: 'unknown' } : undefined)
+  }
+
+  /** What a node's field row shows in place of its stored value, as it is painted; undefined when unwired. */
+  fieldCompanion(nodeId: string, valueKey: string): CompanionDisplay | undefined {
+    const row = this.scene.nodes.find((node) => node.id === nodeId)?.layout.rows
+      .find((r): r is Extract<LayoutRow, { kind: 'widget' }> => r.kind === 'widget' && r.valueKey === valueKey)
+    return row === undefined ? undefined : this.rowCompanion(nodeId, row)
+  }
+
+  /**
    * One field row, painted the same on a node and on a subgraph's Inputs
    * panel. `node` is `sceneNode` with any drag offset applied; `driven` is
    * set for a panel field wired outside the subgraph, with the value the
@@ -4443,15 +4538,10 @@ export class CanvasRenderer {
     const l = node.layout
     const rowY = node.y + row.y
     if (this.openRows[sceneNode.id] === row.valueKey) return
-    const arriving = driven !== undefined ? driven.value : this.panelFieldValues.get(`${sceneNode.id}\u0000${row.inputId}`)
-    const companion = driven !== undefined || arriving !== undefined
-      ? arriving === undefined ? undefined : { value: arriving }
-      : this.companions[sceneNode.id]?.[row.valueKey]
     const widgetWidth = row.width ?? l.width - row.inset * 2
-    // Selector rows ignore boundary bindings for inertness: the bound row
-    // remains the occurrence-local editor.
-    const linkSet = row.selector !== undefined ? this.valueDrivenInputPins : this.connectedInputPins
-    const connected = driven !== undefined || companion !== undefined || linkSet.has(`${sceneNode.id}\u0000${row.inputId}`)
+    const arriving = this.rowCompanion(sceneNode.id, row, driven)
+    const connected = arriving !== undefined
+    const companion = arriving?.state === 'unknown' ? undefined : arriving
     const rowAlpha = ctx.globalAlpha
     if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
     if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
@@ -4540,9 +4630,12 @@ export class CanvasRenderer {
     // A problem on this field (out-of-range number, unknown choice, ...)
     // outlines the field, so the row shows where the user acts without
     // changing the node's height.
+    const problemAlpha = ctx.globalAlpha
+    ctx.globalAlpha = this.problemMarkAlpha ?? problemAlpha
     this.paintRowProblem(ctx, sceneNode.id,
       this.rowMarks[sceneNode.id]?.[row.valueKey] !== undefined ? row.valueKey : row.inputId,
       widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY))
+    ctx.globalAlpha = problemAlpha
     if (this.overlay.dropRow?.nodeId === sceneNode.id && this.overlay.dropRow.valueKey === row.valueKey) {
       // A held wire takes this field when dropped: the drop-target
       // outline sits inside the chrome, at full strength even on a
@@ -4935,6 +5028,7 @@ export class CanvasRenderer {
       // node outside. Ghost rows (the trailing "expose..." affordance)
       // render dimmed.
       const face = boundaryFieldNode(bnode)
+      this.problemMarkAlpha = ctx.globalAlpha
       for (const row of l.rows) {
         if (row.kind === 'widget' && face !== undefined) {
           this.drawFieldRow(ctx, face, { ...face, x, y }, row,
@@ -5061,9 +5155,10 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
   ctx.roundRect(x, y + tokens.rowGeometry.fieldInsetY, width, row.height - tokens.rowGeometry.fieldInsetY * 2, paint.radius)
   ctx.fill()
   if (args.companion !== undefined) {
-    const formatted = formatWidgetValue(args.companion.value, row.spec).split('\n')[0] ?? ''
+    const words = companionWords(args.companion)
+    const formatted = words ?? formatWidgetValue(args.companion.value, row.spec).split('\n')[0] ?? ''
     const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-    const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
+    const field = widgetFieldBounds(width, rowHeight, numeric, words === undefined && row.controllerMode !== undefined, tokens.rowGeometry)
     const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
@@ -5342,28 +5437,32 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const prevFont = ctx.font
   const prevAlpha = ctx.globalAlpha
   const estimate = companion.state === 'estimate'
+  const words = companionWords(companion)
   // The approx prefix keeps a mirror-computed estimate distinguishable from
   // an execution-recorded value even without color.
   const prefix = estimate ? '\u2248 ' : ''
-  const text = prefix + (summary?.text ?? formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
+  const text = words ?? prefix + (summary?.text ?? formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
   const swatch = summary?.swatch
   const swatchReserve = swatch === undefined ? 0 : canvasPaintTokens.widget.valueSwatch.size + canvasPaintTokens.widget.valueSwatch.gap
   const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-  const field = bounds ?? widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
+  const field = bounds ?? widgetFieldBounds(width, rowHeight, numeric, words === undefined && row.controllerMode !== undefined, tokens.rowGeometry)
   // The subgraph mark before the name widens the name's share, as the painter lays it out.
   const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
   const labelWidth = measureWidth(ctx, row.label)
-  const valueFont = summary !== undefined && (row.viewId === 'core.color' || swatch !== undefined)
+  const valueFont = words === undefined && summary !== undefined && (row.viewId === 'core.color' || swatch !== undefined)
     ? `${tokens.fontSize}px ${tokens.fontMono}` : prevFont
   ctx.font = valueFont
   const picturesWidth = summaryThumbnailReserve(ctx, summary?.thumbnails)
   const labelZone = shareRowWidth(field.right - field.left, mark + labelWidth + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + picturesWidth + canvasPaintTokens.widget.labelWidthPadding)
   const availableWidth = Math.max(0, field.right - field.left - labelZone - swatchReserve)
   const unproven = companion.state === 'stale' || (companion.state === undefined && companion.stale === true)
-  const color = unproven
-    ? tokens.colors.companionUnproven
-    : estimate ? tokens.colors.companionEstimate : tokens.colors.companionValue
-  ctx.font = `italic ${valueFont}`
+  // No value arrives: quiet upright words, never the italic of a value.
+  const color = words !== undefined
+    ? tokens.colors.label
+    : unproven
+      ? tokens.colors.companionUnproven
+      : estimate ? tokens.colors.companionEstimate : tokens.colors.companionValue
+  if (words === undefined) ctx.font = `italic ${valueFont}`
   ctx.globalAlpha = companionAlpha ?? prevAlpha
   const textY = y + rowHeight / 2
   const textRight = x + field.right

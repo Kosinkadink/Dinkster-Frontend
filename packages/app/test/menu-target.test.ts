@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildScene, defaultTokens, type Hit } from '@dinkster/canvas'
-import { asNodeId, boundaryItems, coreCommandRegistry, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { asNodeId, boundaryItems, coreCommandRegistry, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, resolveWidgetRepresentation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { intKind } from '@dinkster/widgets'
 import { toolboxMenuRequest } from '../src/CanvasHost.js'
 import { canvasMenuContext, curveHistogramMenuGroup, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
 
@@ -196,7 +197,7 @@ describe('widgetRepresentationMenuGroup', () => {
     })!
     expect(group.group).toBe('45-widget-representation')
     const submenu = group.items[0]!
-    expect(submenu.label).toBe('Representation')
+    expect(submenu.label).toBe('Display')
     expect(submenu.children?.map((entry) => ({ id: entry.id, checked: entry.checked }))).toEqual([
       { id: 'core.widget.representation.single-line', checked: false },
       { id: 'core.widget.representation.multiline', checked: true },
@@ -231,6 +232,19 @@ describe('widgetRepresentationMenuGroup', () => {
           representations: [spec.representations!.representations[1]!],
         },
       },
+    })).toBeUndefined()
+  })
+
+  it('offers Color and Number for a whole number shown as a color', () => {
+    const tint: WidgetSpec = { widgetType: 'INT', options: { min: 0, max: 0xffffff, display: 'color' } }
+    const color = widgetRepresentationMenuGroup({
+      graphId: 'g0', nodeId: 'n1', inputId: 'tint', selected: 'color',
+      spec: resolveWidgetRepresentation(tint, undefined, intKind.representations?.(tint)).spec,
+    })!
+    expect(color.items[0]?.children?.map((entry) => [entry.label, entry.checked])).toEqual([['Color', true], ['Number', false]])
+    expect(widgetRepresentationMenuGroup({
+      graphId: 'g0', nodeId: 'n1', inputId: 'count',
+      spec: { widgetType: 'INT', options: { min: 0, max: 10 } },
     })).toBeUndefined()
   })
 

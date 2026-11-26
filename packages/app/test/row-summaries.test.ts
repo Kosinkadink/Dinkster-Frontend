@@ -137,7 +137,6 @@ describe('closed file rows', () => {
     expect(result).toEqual({ n: {
       stored: { thumbnails: [bitmap] },
       incoming: { value: [second, audio, first], thumbnails: [null, undefined, bitmap] },
-      unknown: { text: 'Not known', placeholder: true, value: null },
     } })
     expect(images(audio)).toBeUndefined()
     expect(images(null)).toBeUndefined()
@@ -359,16 +358,16 @@ describe('pointing at a row reads out its whole value without changing it', () =
     expect(readout(stringList, items(5), undefined, 6)).toEqual(['Value: 5 items', '1. item 1', '2. item 2', '3. item 3', 'and 2 more'])
     expect(readout(stringList, ['a', 'b', 'c'], { value: ['only'], state: 'expected' }, 6)).toEqual([
       'Current expected value: 1 item', '1. only',
-      'Dormant stored value under connection: 3 items', '1. a', 'and 2 more',
+      'Dormant stored value under connection: 3 items, used again when the wire is removed', '1. a', 'and 2 more',
     ])
     for (const count of [4, 30]) {
       expect(readout(stringList, ['saved a', 'saved b', 'saved c'], { value: items(count), state: 'expected' }, 6)).toEqual([
         `Current expected value: ${count} items`, '1. item 1', `and ${count - 1} more`,
-        'Dormant stored value under connection: 3 items', 'and 3 more',
+        'Dormant stored value under connection: 3 items, used again when the wire is removed', 'and 3 more',
       ])
     }
     expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 3)).toEqual([
-      'Current expected value: 4 items', 'Dormant stored value under connection: 1 item',
+      'Current expected value: 4 items', 'Dormant stored value under connection: 1 item, used again when the wire is removed',
     ])
     expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 2)).toEqual([
       'Current expected value: 4 items',
@@ -386,15 +385,15 @@ describe('pointing at a row reads out its whole value without changing it', () =
     const measure = (text: string) => text.includes('long ') ? 4 : text.startsWith('Dormant stored') ? 2 : 1
     expect(tip.fit!(10, measure).lines).toEqual([
       'Current expected value: 4 items', '1. long first item', 'and 3 more',
-      'Dormant stored value under connection: 3 items', 'and 3 more',
+      'Dormant stored value under connection: 3 items, used again when the wire is removed', 'and 3 more',
     ])
     expect(tip.fit!(14, measure).lines).toEqual([
       'Current expected value: 4 items', '1. long first item', '2. long second item', 'and 2 more',
-      'Dormant stored value under connection: 3 items', 'and 3 more',
+      'Dormant stored value under connection: 3 items, used again when the wire is removed', 'and 3 more',
     ])
     expect(tip.fit!(6, measure).lines).toEqual([
       'Current expected value: 4 items', 'and 4 more',
-      'Dormant stored value under connection: 3 items', 'and 3 more',
+      'Dormant stored value under connection: 3 items, used again when the wire is removed', 'and 3 more',
     ])
   })
 
@@ -413,7 +412,18 @@ describe('pointing at a row reads out its whole value without changing it', () =
   it('reads the incoming value first and the stored one under it', () => {
     expect(readout(stringList, ['a', 'b', 'c'], { value: ['only'], state: 'expected' })).toEqual([
       'Current expected value: 1 item', '1. only',
-      'Dormant stored value under connection: 3 items', '1. a', '2. b', '3. c',
+      'Dormant stored value under connection: 3 items, used again when the wire is removed', '1. a', '2. b', '3. c',
+    ])
+  })
+
+  it('keeps the stored removal explanation when items are capped or do not fit', () => {
+    const stored = Array.from({ length: 25 }, (_, index) => `saved ${index + 1}`)
+    const companion = { value: ['incoming'], state: 'expected' as const }
+    const heading = 'Dormant stored value under connection: 25 items, used again when the wire is removed'
+    expect(readout(stringList, stored, companion)).toContain(heading)
+    expect(readout(stringList, stored, companion)?.at(-1)).toBe('and 5 more')
+    expect(readout(stringList, stored, companion, 6)).toEqual([
+      'Current expected value: 1 item', '1. incoming', heading, '1. saved 1', 'and 24 more',
     ])
   })
 })
