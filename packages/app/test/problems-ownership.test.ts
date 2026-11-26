@@ -358,17 +358,29 @@ describe('workflow model presence', () => {
     expect(app.store.executions.get().size).toBe(0)
   })
 
-  it('reviews only the selected model without a run and cancels when its document changes', async () => {
-    const { backend, tab } = await setup({ first: 'first.safetensors', second: 'second.safetensors' })
-    await vi.waitFor(() => expect(models(tab)).toHaveLength(2))
+  it('reviews the workflow models from either entry without a run and cancels when its document changes', async () => {
+    const { backend, tab } = await setup({ first: 'first.safetensors', second: 'second.safetensors',
+      repeated: 'first.safetensors', vae: 'first.safetensors' }, [
+      field('first'), field('second'), field('repeated'), field('vae', 'model/vae'),
+    ])
+    await vi.waitFor(() => expect(models(tab)).toHaveLength(4))
     const diagnostic = models(tab).find((entry) => entry.data?.['name'] === 'second.safetensors')!
     vi.spyOn(backend.connection, 'planModelDownload').mockResolvedValue({ status: 'destination-required' })
     vi.spyOn(backend.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'test', jobs: [] })
     app.reviewModelDownload(tab, diagnostic)
     const request = app.assetConsent.get()!
-    expect(request.models).toHaveLength(1)
-    expect(request.models?.[0]?.requirement).toEqual({ name: 'second.safetensors', kind: 'model/checkpoint' })
+    expect(request.models?.map((entry) => entry.requirement)).toEqual([
+      { name: 'first.safetensors', kind: 'model/checkpoint' },
+      { name: 'second.safetensors', kind: 'model/checkpoint' },
+      { name: 'first.safetensors', kind: 'model/vae' },
+    ])
+    expect(request.workflowTitle).toBe(tab.title)
     expect(request.retry).toBeUndefined()
+    app.assetConsent.set(undefined)
+    app.reviewModelDownload(tab)
+    expect(app.assetConsent.get()?.models?.map((entry) => entry.requirement)).toEqual(request.models?.map((entry) => entry.requirement))
+    expect(app.assetConsent.get()?.workflowTitle).toBe(tab.title)
+    expect(app.assetConsent.get()?.retry).toBeUndefined()
     expect(app.store.executions.get().size).toBe(0)
     await app.dispatchTo(tab, { command: 'node.setValue', params: {
       graphId: 'g0', nodeId: 'n0', inputId: 'second', value: 'replacement.safetensors',

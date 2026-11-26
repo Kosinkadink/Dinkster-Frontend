@@ -4226,16 +4226,27 @@ export class AppState {
     }).catch(unchecked)
   }
 
-  /** Open a row's model review only while that row still belongs to this document and backend. */
-  reviewModelDownload(tab: Tab, diagnostic: Diagnostic): void {
+  /** Review this workflow's missing models only while its checked document and backend remain current. */
+  reviewModelDownload(tab: Tab, diagnostic?: Diagnostic): void {
     const check = this.workflowModelChecks.get(tab.store)
     const backend = this.backendForTab(tab)
     const current = (): boolean => !this.disposed && this.tabs.get().includes(tab) &&
       check?.document === tab.store.doc && check.backend === this.backendForTab(tab) && check.registry === this.registryForTab(tab)
-    const data = diagnostic.data
-    if (!current() || backend.protocol !== 'dinkster' || diagnostic.code !== 'model.availability.missing' ||
-        data?.['plannable'] !== true || typeof data['name'] !== 'string' || typeof data['kind'] !== 'string' ||
-        !this.problems.get().some((entry) => entry === diagnostic && entry.owner === tab.id)) return
+    if (!current() || backend.protocol !== 'dinkster') return
+    const problems = this.problems.get().filter((entry) => entry.owner === tab.id &&
+      entry.code === 'model.availability.missing' && entry.data?.['plannable'] === true &&
+      entry.data['backend'] === backend.id && typeof entry.data['name'] === 'string' && typeof entry.data['kind'] === 'string')
+    if (diagnostic !== undefined && !problems.some((entry) => entry === diagnostic)) return
+    const keys = new Set<string>()
+    const models = problems.flatMap((entry) => {
+      const name = entry.data!['name'] as string
+      const kind = entry.data!['kind'] as string
+      const key = JSON.stringify([name, kind])
+      if (keys.has(key)) return []
+      keys.add(key)
+      return [{ name, kind }]
+    })
+    if (models.length === 0) return
     this.modelReview?.abort()
     const controller = new AbortController()
     this.modelReview = controller
@@ -4243,7 +4254,7 @@ export class AppState {
     const invalidate = (): void => { if (!current() || activeProjectId() !== project) controller.abort() }
     const unsubscribe = [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate), this.backendsTick.subscribe(invalidate)]
     installAssetConsent({
-      models: [{ name: data['name'], kind: data['kind'] }], slot: this.assetConsent, signal: controller.signal,
+      models, workflowTitle: tab.title, slot: this.assetConsent, signal: controller.signal,
       modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
       onSettled: () => {
@@ -9606,6 +9617,7 @@ export class AppState {
     // Problems instead of reopening over the newer owner's dialog.
     installAssetConsent({
       result: submitted,
+      workflowTitle: tab.title,
       slot: this.assetConsent,
       modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },

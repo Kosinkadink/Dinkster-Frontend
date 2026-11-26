@@ -38,6 +38,7 @@ export interface RequestSlot<T> {
 export type ModelConsentState = ModelDownloadState
 
 export interface AssetConsentRequest {
+  readonly workflowTitle?: string
   readonly modelDownloadController?: ModelDownloadsController
   readonly providerConnection?: ModelProviderConnection
   readonly providerChanged?: () => void
@@ -113,6 +114,7 @@ type SubmitOk = Extract<DinksterSubmitResult, { ok: true }>
  * reopening over the newer owner's dialog.
  */
 export function installAssetConsent(p: {
+  readonly workflowTitle?: string
   readonly slot: RequestSlot<AssetConsentRequest> & Pick<ReadonlySignal<AssetConsentRequest | undefined>, 'subscribe'>
   readonly signal?: AbortSignal
   /** Releases submission resources after the dialog and any posted retry settle. */
@@ -270,6 +272,7 @@ export function installAssetConsent(p: {
       }
     }
     const request: AssetConsentRequest = { assets, busy: false,
+      ...(p.workflowTitle === undefined ? {} : { workflowTitle: p.workflowTitle }),
       ...(transfers ? { modelDownloadController: transfers } : {}),
       ...(result === undefined ? {} : { retry }),
       ...(p.modelDownloads?.providerConnection ? {
