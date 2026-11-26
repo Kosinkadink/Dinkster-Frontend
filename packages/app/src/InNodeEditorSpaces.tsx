@@ -113,7 +113,7 @@ export function wiredEditorSummaries(nodes: readonly {
       }
       if (IN_NODE_EDITORS[row.viewId] === undefined && row.viewId !== 'core.asset') return []
       const carried = wires.carried(node.id, row.valueKey)
-      if (carried === undefined) return [[row.valueKey, { text: notKnown, placeholder: true, value: null }]]
+      if (carried === undefined) return row.viewId === 'core.asset' ? [] : [[row.valueKey, { text: notKnown, placeholder: true, value: null }]]
       const named = typeof carried === 'object' && carried !== null && !Array.isArray(carried) ? (carried as JsonObject)['name'] : undefined
       const name = typeof carried === 'string' ? carried : typeof named === 'string' ? named : undefined
       const pictures = row.viewId === 'core.asset' && !row.unfolded ? thumbnails?.(carried, node.layout.width ?? Infinity) : undefined

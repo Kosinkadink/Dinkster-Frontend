@@ -151,7 +151,8 @@ export function subgraphMarkRect(
   const size = paint.subgraphMark.size
   if (companion) {
     const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, geometry)
-    return { x: field.left + (numeric ? geometry.stepperLabelInset : paint.labelInset), y: (rowHeight - size) / 2, size }
+    const left = row.viewId === 'core.asset' && openerIconOf(row, tokens) !== undefined ? paint.opener.iconReserve : field.left
+    return { x: left + (numeric ? geometry.stepperLabelInset : paint.labelInset), y: (rowHeight - size) / 2, size }
   }
   const opener = openerIconOf(row, tokens)
   const multiline = row.viewId === 'core.text'

@@ -137,7 +137,6 @@ describe('closed file rows', () => {
     expect(result).toEqual({ n: {
       stored: { thumbnails: [bitmap] },
       incoming: { value: [second, audio, first], thumbnails: [null, undefined, bitmap] },
-      unknown: { text: 'Not known', placeholder: true, value: null },
     } })
     expect(images(audio)).toBeUndefined()
     expect(images(null)).toBeUndefined()
