@@ -1,11 +1,12 @@
 import { For, Show, createMemo, createSignal } from 'solid-js'
+import { LockKeyhole } from 'lucide-solid'
 import { captureKeydown, KeybindingRegistry, SettingsRegistry } from '../../app/src/settings.js'
 import { settingsCommandGroups } from '../../app/src/settings-search.js'
 import { useAppMessage } from '../../app/src/locale.js'
 import { useSignal } from '../../app/src/solid-adapter.js'
 import { ProductNumberInput } from '../../app/src/ProductNumberInput.js'
 import {
-  ProductPage, ProductSelect, ProductSettingRow,
+  ProductConfirmation, ProductDialog, ProductIcon, ProductPage, ProductSelect, ProductSettingRow, ProductTextButton,
   ProductSettingsPage, ProductSettingsSection, ProductShortcutCapture, ProductShortcutText, ProductSwitch,
   ProductTextArea, ProductTextInput, ProductToast, ProductErrorBanner, type ProductSearchGroup,
 } from '../src/index.js'
@@ -20,6 +21,8 @@ interface Setting {
   options?: readonly string[]
   multiline?: boolean
   unit?: string
+  locked?: boolean
+  list?: boolean
 }
 
 const groups = [
@@ -49,10 +52,24 @@ const settings: readonly Setting[] = [
   { id: 'canvas.minimap.bookmarks', label: 'Bookmark numbers', group: 'canvas', section: 'Minimap', value: false },
   { id: 'execution.previews', label: 'Live sampling previews', group: 'runs', section: 'Previews', value: 'Off', options: ['Off', 'Cheap', 'Quality', 'Auto'] },
   { id: 'execution.mirrorPreviews', label: 'Mirror previews', group: 'runs', section: 'Previews', value: true },
-  { id: 'storage.limit', label: 'Storage limit', group: 'storage', section: 'Local library', value: 100, unit: 'GB' },
+  { id: 'storage.limited', label: 'Limit the space run files may use', group: 'storage', section: 'Limit', value: true },
+  { id: 'storage.limit', label: 'Keep at most', group: 'storage', section: 'Limit', value: 10, unit: 'GB' },
   { id: 'pack.dinkster-nodes-dev.showTips', label: 'Show example tips', group: 'packs', section: 'Dinkster nodes (dev)', value: false, description: 'An example stored pack preference; it does not change node execution.' },
   { id: 'pack.example.enabled', label: 'Enable example pack feature', group: 'packs', section: 'Example pack', value: true, description: 'Gallery fixture, not a live pack setting.' },
-  { id: 'engine.logging', label: 'Log level', group: 'engine', section: 'Local engine', value: 'Info', options: ['Debug', 'Info', 'Warning'], description: 'Gallery fixture, not a live engine setting.' },
+  { id: 'engine.dtype.diffusion', label: 'Diffusion model precision', group: 'engine', section: 'Local engine', value: 'Auto', options: ['Auto', 'FP16', 'BF16', 'FP32'], description: 'Applies to workers started from now on.' },
+  { id: 'engine.dtype.textEncoder', label: 'Text encoder precision', group: 'engine', section: 'Local engine', value: 'Auto', options: ['Auto', 'FP16', 'BF16', 'FP32'], description: 'Applies to workers started from now on.' },
+  { id: 'engine.dtype.vae', label: 'VAE precision', group: 'engine', section: 'Local engine', value: 'Auto', options: ['Auto', 'FP16', 'BF16', 'FP32'], description: 'Applies to workers started from now on.' },
+  { id: 'engine.fp8', label: 'Native FP8 matrix multiplication', group: 'engine', section: 'Local engine', value: false, description: 'Applies to workers started from now on.' },
+  { id: 'engine.jobs', label: 'Maximum running jobs', group: 'engine', section: 'Local engine', value: 1 },
+  { id: 'engine.arguments', label: 'Worker arguments', group: 'engine', section: 'Local engine', value: '', list: true, description: 'Applies to workers started from now on.' },
+  { id: 'engine.logging', label: 'Default log level', group: 'engine', section: 'Local engine', value: 'Info', options: ['Debug', 'Info', 'Warning', 'Error', 'Critical'] },
+  { id: 'engine.loggers', label: 'Logger overrides', group: 'engine', section: 'Local engine', value: '', list: true },
+  { id: 'studio.dtype.diffusion', label: 'Diffusion model precision', group: 'engine', section: 'Studio server', value: 'Auto', locked: true },
+  { id: 'studio.dtype.textEncoder', label: 'Text encoder precision', group: 'engine', section: 'Studio server', value: 'BF16', locked: true },
+  { id: 'studio.dtype.vae', label: 'VAE precision', group: 'engine', section: 'Studio server', value: 'FP16', locked: true },
+  { id: 'studio.fp8', label: 'Native FP8 matrix multiplication', group: 'engine', section: 'Studio server', value: false, locked: true },
+  { id: 'studio.jobs', label: 'Maximum running jobs', group: 'engine', section: 'Studio server', value: 2, locked: true },
+  { id: 'studio.arguments', label: 'Worker arguments', group: 'engine', section: 'Studio server', value: 'None', locked: true },
   { id: 'features.appView.enabled', label: 'App view', group: 'experimental', section: 'Features', value: false },
   { id: 'diagnostics.frameRate', label: 'Show frame rate', group: 'advanced', section: 'Diagnostics', value: false },
   { id: 'search.registryUrl', label: 'Node registry address', group: 'advanced', section: 'Registries', value: 'https://registry.dinkster.org/static' },
@@ -85,6 +102,9 @@ export function SettingsGallery() {
   const [pendingKeys, setPendingKeys] = createSignal('')
   const [toast, setToast] = createSignal<{ message: string }>()
   const [copyError, setCopyError] = createSignal('')
+  const [editingList, setEditingList] = createSignal<string>()
+  const [confirmClear, setConfirmClear] = createSignal(false)
+  const [cleared, setCleared] = createSignal(false)
   const value = (setting: Setting) => values()[setting.id] ?? setting.value
   const update = (id: string, next: string | number | boolean) => setValues((old) => ({ ...old, [id]: next }))
   const copyId = async (id: string) => {
@@ -106,14 +126,21 @@ export function SettingsGallery() {
   const error = (setting: Setting) => typeof setting.value === 'number' && (!Number.isFinite(Number(value(setting))) || Number(value(setting)) < 0 || Number(value(setting)) > 5000) ? 'Enter a number between 0 and 5000.' : undefined
   const control = (setting: Setting, searching = false) => {
     const attributes = () => ({ id: setting.id, 'aria-label': setting.label, 'aria-describedby': error(setting) ? `${setting.id}-error` : !searching && setting.description ? `${setting.id}-description` : undefined, 'aria-invalid': error(setting) ? 'true' as const : undefined })
-    return <>
+    return <Show when={!setting.locked} fallback={<output id={setting.id} class="dinkster-setting-locked"><ProductIcon icon={LockKeyhole} />{typeof value(setting) === 'boolean' ? value(setting) ? 'On' : 'Off' : String(value(setting))}</output>}>
+      <Show when={setting.list} fallback={<>
       <Show when={typeof setting.value === 'boolean'}><ProductSwitch id={setting.id} label={setting.label} checked={value(setting) as boolean} onChange={(next) => update(setting.id, next)} /></Show>
       <Show when={setting.options}><ProductSelect {...attributes()} value={String(value(setting))} onChange={(event) => update(setting.id, event.currentTarget.value)}><For each={setting.options}>{(option) => <option>{option}</option>}</For></ProductSelect></Show>
       <Show when={typeof setting.value === 'number'}><ProductNumberInput id={setting.id} ariaLabel={setting.label} ariaInvalid={error(setting) !== undefined} ariaDescribedBy={attributes()['aria-describedby']} value={value(setting) as number} min={0} max={5000} unit={setting.unit} onCommit={(raw) => update(setting.id, Number(raw))} /></Show>
       <Show when={typeof setting.value === 'string' && !setting.options && !setting.multiline}><ProductTextInput {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} /></Show>
       <Show when={setting.multiline}><ProductTextArea {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} /></Show>
+      </>}>
+        <Show when={editingList() === setting.id} fallback={<><span class="dinkster-setting-none">{String(value(setting)).trim() === '' ? 'None' : `${String(value(setting)).split('\n').filter((line) => line.trim()).length} items`}</span><ProductTextButton id={setting.id} label="Edit" aria-label={`Edit ${setting.label.toLowerCase()}`} onClick={() => setEditingList(setting.id)} /></>}>
+          <ProductTextArea {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} />
+          <ProductTextButton label="Done" onClick={() => setEditingList(undefined)} />
+        </Show>
+      </Show>
       <Show when={searching && error(setting)}>{(message) => <p id={`${setting.id}-error`} class="dinkster-field-error" role="alert">{message()}</p>}</Show>
-    </>
+    </Show>
   }
   const shortcutError = (id: string) => combo(id) && keybindings.conflicts().get(combo(id)) ? message('settingsDialog.keybinding.conflict', { commands: commands.filter((other) => other.id !== id && combo(other.id) === combo(id)).map((other) => other.label).join(', ') }) : undefined
   const shortcutControl = (command: typeof commands[number]) => <ProductShortcutCapture id={command.id}
@@ -128,11 +155,13 @@ export function SettingsGallery() {
       { label: 'Copy command ID', description: command.id, onSelect: () => { void copyId(command.id) } },
     ] },
   })
+  const limited = createMemo(() => (values()['storage.limited'] ?? true) === true)
+  const visible = (setting: Setting) => setting.id !== 'storage.limit' || limited()
   const sections = () => [...new Set(settings.filter((setting) => setting.group === group()).map((setting) => setting.section))]
   const searchGroups = createMemo<readonly ProductSearchGroup[]>(() => {
     if (query().trim() === '') return []
     const words = query().toLocaleLowerCase().trim().split(/\s+/)
-    const matches = settings.filter((setting) => words.every((word) => `${setting.label} ${setting.id} ${setting.group} ${setting.section} ${setting.description ?? ''}`.toLocaleLowerCase().includes(word)))
+    const matches = settings.filter((setting) => visible(setting) && words.every((word) => `${setting.label} ${setting.id} ${setting.group} ${setting.section} ${setting.description ?? ''}`.toLocaleLowerCase().includes(word)))
     const shortcuts = commands.filter((command) => words.every((word) => `${command.label} ${command.id} Shortcuts`.toLocaleLowerCase().includes(word)))
     return [{ key: 'settings', label: `${matches.length} ${matches.length === 1 ? 'setting' : 'settings'}`, rows: matches.map((setting) => {
       const path = `${groups.find((entry) => entry.id === setting.group)?.label} - ${setting.section}`
@@ -154,6 +183,7 @@ export function SettingsGallery() {
     }
     const setting = settings.find((entry) => entry.id === id)
     if (!setting) return
+    if (setting.locked) return
     if (typeof setting.value === 'boolean') update(id, !value(setting))
     else {
       chooseGroup(setting.group)
@@ -162,7 +192,7 @@ export function SettingsGallery() {
   }
   const row = (setting: Setting) => {
     return <ProductSettingRow id={setting.id} label={setting.label} description={setting.description ? <ProductShortcutText text={setting.description} /> : undefined} error={error(setting)}
-      fullWidth={typeof setting.value === 'string' && !setting.options} modified={value(setting) !== setting.value} resetLabel="Reset" menuLabel={`Actions for ${setting.label}`}
+      fullWidth={!setting.locked && (setting.list ? editingList() === setting.id : typeof setting.value === 'string' && !setting.options)} modified={value(setting) !== setting.value} resetLabel="Reset" menuLabel={`Actions for ${setting.label}`}
       resetDefaultLabel="Reset to default" copyIdLabel="Copy setting ID"
       onReset={() => update(setting.id, setting.value)} onCopyId={() => { void copyId(setting.id) }}>
       {control(setting)}
@@ -184,7 +214,29 @@ export function SettingsGallery() {
     <div class="dinkster-settings-example" onKeyDown={record}>
       <ProductSettingsPage title="Settings" groupsLabel="Settings groups" groups={groups} group={group()} onGroup={chooseGroup}
         search={{ label: 'Search settings', placeholder: 'Search settings', get query() { return query() }, onQuery: (next) => { setCapture(undefined); setQuery(next); setCurrent('') }, get groups() { return searchGroups() }, get current() { return current() }, onCurrent: setCurrent, onActivate: activate, onClose: () => setQuery(''), empty: { title: 'No matching settings', detail: 'Try a setting name or its ID.' } }}>
-        <Show when={group() === 'shortcuts'} fallback={<For each={sections()}>{(section) => <ProductSettingsSection title={section}><For each={settings.filter((setting) => setting.group === group() && setting.section === section)}>{row}</For></ProductSettingsSection>}</For>}>
+        <Show when={group() === 'storage'}>
+          <p class="dinkster-settings-note">Mounts and model folders are in the Storage panel. <ProductTextButton label="Open Storage" onClick={() => setToast({ message: 'The Storage panel opens in the application.' })} /></p>
+          <ProductSettingsSection title="Run files kept by this engine, all projects">
+            <dl class="dinkster-settings-facts">
+              <div><dt>Total</dt><dd>{cleared() ? '9.3 GB' : '12.4 GB'}</dd></div>
+              <div><dt>Outputs</dt><dd>8.2 GB</dd></div>
+              <div><dt>Can be cleared</dt><dd>{cleared() ? '0 B' : '3.1 GB'} <ProductTextButton label="Clear" disabled={cleared()} onClick={() => setConfirmClear(true)} /></dd></div>
+            </dl>
+          </ProductSettingsSection>
+          <ProductSettingsSection title="Studio server - run files">
+            <dl class="dinkster-settings-facts">
+              <div><dt>Total</dt><dd>6.8 GB</dd></div>
+              <div><dt>Outputs</dt><dd>5.2 GB</dd></div>
+              <div><dt>Can be cleared</dt><dd>Not known</dd></div>
+            </dl>
+            <p class="dinkster-settings-note">The engine cannot tell which files are still in use, so nothing can be cleared.</p>
+          </ProductSettingsSection>
+        </Show>
+        <Show when={group() === 'shortcuts'} fallback={<For each={sections()}>{(section) => <ProductSettingsSection title={section}>
+          <Show when={section === 'Studio server'}><p class="dinkster-settings-note">This server does not allow changing these settings from here.</p></Show>
+          <For each={settings.filter((setting) => setting.group === group() && setting.section === section && visible(setting))}>{row}</For>
+          <Show when={section === 'Limit' && limited() && (cleared() ? 9.3 : 12.4) > Number(values()['storage.limit'] ?? 10)}><p class="dinkster-settings-note">Files in use are kept, so the total can stay above the limit.</p></Show>
+        </ProductSettingsSection>}</For>}>
           <For each={settingsCommandGroups(commands)}>{(area) => <ProductSettingsSection title={message(`settingsPage.commands.${area.id}`)}><For each={area.commands}>{(command) => <ProductSettingRow
             id={command.id} label={command.label} modified={combo(command.id) !== keybindings.defaultCombo(command.id)}
             warning={shortcutError(command.id)}
@@ -195,6 +247,10 @@ export function SettingsGallery() {
         </Show>
       </ProductSettingsPage>
     </div>
+    <Show when={confirmClear()}><ProductDialog title="Clear run files?" onDismiss={() => setConfirmClear(false)}>
+      <ProductConfirmation consequence="Removes 3.1 GB of files that no run or project is using. This cannot be undone." actionLabel="Clear" intent="remove"
+        onCancel={() => setConfirmClear(false)} onConfirm={() => { setCleared(true); setConfirmClear(false); setToast({ message: 'Run files cleared' }) }} />
+    </ProductDialog></Show>
     <ProductToast notification={toast()} onDismiss={() => setToast(undefined)} />
   </ProductPage>
 }
