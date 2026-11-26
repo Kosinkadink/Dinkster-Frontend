@@ -67,7 +67,7 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { BoundaryPromotionPreview, CanvasColorArriving } from '@dinkster/ui'
+import { BoundaryPromotionPreview, CanvasColorArriving, ProductDialog } from '@dinkster/ui'
 import {
   coreCommandRegistry,
   createTransactionBuilder,
@@ -1869,6 +1869,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [canvasDestination, setCanvasDestination] = createSolidSignal<UploadDestinationChoice>({ remember: false })
   const [ancestorPromotion, setAncestorPromotion] = createSolidSignal<{
     readonly definitions: readonly { readonly name: string; readonly uses: number; readonly changed: boolean }[]
+    readonly row: string
+    readonly destination: string
     readonly confirm: () => void
     readonly cancel: () => void
     readonly valid: () => boolean
@@ -3793,7 +3795,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const target = captureLifecycleTarget(m.tab, m.graphId)
         const valid = () => target.isCurrent() && m.tab.execution === undefined && m.tab.store.doc === before && props.app.registryForTab(m.tab) === reg
         const cancel = () => { setAncestorPromotion(undefined); target.dispose() }
-        setAncestorPromotion({ definitions, valid, cancel, confirm: () => {
+        const node = before.graphs[p.graphId as string]!.nodes[p.node as string]!
+        const schema = documentResolver(before, reg.resolve)(node.type)
+        const field = schema === undefined ? undefined : elabInputsOf(elaborateInterface(schema, node)).find((input) => input.address.port === p.port)
+        setAncestorPromotion({ definitions, row: field?.spec.displayName ?? p.port as string,
+          destination: definitions.at(-1)!.name, valid, cancel, confirm: () => {
           const current = valid()
           cancel()
           if (current) void dispatchGesture(m.tab, { command: 'boundary.showOnAncestor', params })
@@ -7144,11 +7150,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         </div>
       </Show>
       <CanvasPreviewA11y targets={previewA11yTargets()} />
-      <Show when={ancestorPromotion()} keyed>{(promotion) => <ModalSurface
-        title="Show on ancestor" modalId="boundary-ancestor" testId="boundary-ancestor-dialog"
-        onRequestClose={promotion.cancel}>
-        <BoundaryPromotionPreview definitions={promotion.definitions} onConfirm={promotion.confirm} onCancel={promotion.cancel} />
-      </ModalSurface>}</Show>
+      <Show when={ancestorPromotion()} keyed>{(promotion) => <ProductDialog
+        title={message('boundaryPanel.promotion.title', { row: promotion.row, name: promotion.destination })}
+        onDismiss={promotion.cancel}>
+        <BoundaryPromotionPreview definitions={promotion.definitions}
+          description={message('boundaryPanel.promotion.description')}
+          consequence={message('boundaryPanel.promotion.consequence')}
+          actionLabel={message('boundaryPanel.promotion.action', { name: promotion.destination })}
+          usageLabel={(count) => message('boundaryPanel.usedIn', { count })}
+          addedLabel={message('boundaryPanel.promotion.added')}
+          existingLabel={message('boundaryPanel.promotion.existing')}
+          onConfirm={promotion.confirm} onCancel={promotion.cancel} />
+      </ProductDialog>}</Show>
       <Show when={canvasImportChoice()} keyed>{(choice) => <ModalSurface
         title={message('canvasImport.title')} modalId="canvas-import" testId="canvas-import-dialog"
         onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); choice.cancel() } }}

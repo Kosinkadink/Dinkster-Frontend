@@ -90,11 +90,11 @@ export function ancestorPromotionMenuGroup(
     if (params === null || typeof params !== 'object' || Array.isArray(params)) return []
     const { graphId, node, port } = params as { readonly [key: string]: Json }
     if (typeof graphId !== 'string' || typeof node !== 'string' || typeof port !== 'string') return []
-    return [{ id: `ancestor.${item.id}`, label: item.label.replace(/^Remove (.+) from subgraph node$/, 'Show $1 on ancestor')
-      .replace('Remove from subgraph node', 'Show on ancestor').replace('on subgraph node', 'on ancestor'),
+    return [{ id: `ancestor.${item.id}`, label: item.label.replace(/^Remove (.+) from subgraph node$/, 'Show $1 on enclosing subgraph')
+      .replace('Remove from subgraph node', 'Show on enclosing subgraph').replace('on subgraph node', 'on enclosing subgraph'),
     disabled: disabled || item.disabled === true,
     children: graphStack.slice(1, -1).map((ancestor, index) => ({
-      id: `ancestor.${item.id}.${index}`, label: doc.graphs[ancestor]?.name || ancestor,
+      id: `ancestor.${item.id}.${index}`, label: `Show on ${doc.graphs[ancestor]?.name || ancestor}`,
       action: { kind: 'host' as const, action: 'showOnAncestor', params: {
         graphId, node, port,
         ancestors: graphStack.slice(index + 1, -1).map((parent, offset) => ({

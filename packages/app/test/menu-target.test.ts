@@ -25,8 +25,8 @@ it('offers each enclosing definition with the selected occurrence path, not its 
     inner: { boundary: { body: [{ kind: 'input', id: 'amount', promoted: true, binds: { kind: 'port', node: 'blend', port: 'mix' } }] } },
   } } as unknown as WorkflowDocument
   const result = ancestorPromotionMenuGroup(groups, document, ['root', 'outer', 'middle', 'inner'], ['portrait', 'right', 'second'], false)!
-  expect(result.items[0]!.label).toBe('Show on ancestor')
-  expect(result.items[0]!.children!.map((item) => item.label)).toEqual(['Detail pass', 'Portrait fix'])
+  expect(result.items[0]!.label).toBe('Show on enclosing subgraph')
+  expect(result.items[0]!.children!.map((item) => item.label)).toEqual(['Show on Detail pass', 'Show on Portrait fix'])
   expect(result.items[0]!.children![1]!.action).toEqual({ kind: 'host', action: 'showOnAncestor', params: {
     graphId: 'inner', node: 'blend', port: 'mix', ancestors: [{ graphId: 'middle', node: 'second' }, { graphId: 'outer', node: 'right' }],
   } })
@@ -35,7 +35,7 @@ it('offers each enclosing definition with the selected occurrence path, not its 
   expect(ancestorPromotionMenuGroup(groups, document, ['root', 'outer', 'inner'], ['portrait', 'right'], true)!.items[0]!.disabled).toBe(true)
   expect(ancestorPromotionMenuGroup([], document, ['root', 'outer', 'middle', 'inner'], ['portrait', 'right', 'second'], false, {
     kind: 'widget', nodeId: 'blend', inputId: 'mix', address: { port: 'mix' }, owner: { graphId: 'middle', nodeId: 'second', inputId: 'amount' },
-  })!.items[0]!.label).toBe('Show on ancestor')
+  })!.items[0]!.label).toBe('Show on enclosing subgraph')
 })
 
 describe('curve histogram menu', () => {
