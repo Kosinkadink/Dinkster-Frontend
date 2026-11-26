@@ -165,10 +165,15 @@ export async function checkDesignSystem(args = []) {
           /\bdinkster-(?:key|window-action-shortcut)\b/u.test(node.text)
         )
           report(path, line(node), 'Shortcut chips belong to ProductShortcut')
-        if (
-          ts.isJsxText(node) &&
-          /\b(?:Ctrl|Cmd|Alt|Shift|Meta)\+/iu.test(node.text)
-        )
+        const renderedText = ts.isJsxText(node)
+          ? node.text
+          : ts.isJsxExpression(node) &&
+              (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent)) &&
+              node.expression &&
+              ts.isStringLiteralLike(node.expression)
+            ? node.expression.text
+            : ''
+        if (/\b(?:Ctrl|Cmd|Alt|Shift|Meta)\+/iu.test(renderedText))
           report(path, line(node), 'Shortcut text must use ProductShortcut')
       }
       ts.forEachChild(node, visitShortcut)
