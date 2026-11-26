@@ -106,8 +106,9 @@ function resolveRow(
   const linked = connectivity.isInputConnected(item.address.port as string)
   const spec = item.spec.widget
   const stored = node.values[valueKey]
+  const derived = item.origin.kind === 'selector' || item.derivedValue !== undefined
   // An automatic field with nothing stored shows the value it has in use.
-  const value = item.derivedValue ?? stored ?? item.automatic?.value ?? (spec ? effectiveWidgetDefault(spec) : undefined)
+  const value = derived ? item.derivedValue : stored ?? item.automatic?.value ?? (spec ? effectiveWidgetDefault(spec) : undefined)
   return {
     kind: 'live',
     entry,
@@ -119,7 +120,7 @@ function resolveRow(
     spec,
     value,
     linked,
-    derived: item.derivedValue !== undefined,
+    derived,
   }
 }
 

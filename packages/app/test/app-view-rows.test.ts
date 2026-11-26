@@ -99,6 +99,27 @@ const live = (row: ParamRow): Extract<ParamRow, { kind: 'live' }> => {
 }
 
 describe('buildParamRows', () => {
+  it('keeps an unselected optional boundary choice read-only through one and two boundaries', () => {
+    const resolveOptional = (type: string): NodeSchema | undefined => {
+      const schema = resolveBoundarySample(type)
+      return type !== 'Boundary sample' || schema === undefined ? schema : { ...schema, body: schema.body.map((row) =>
+        row.kind === 'choice' && row.id === 'mode' ? { kind: 'choice', id: 'mode', required: false, shared: [], options: [
+          { key: 'image', rows: [] }, { key: 'text', rows: [] },
+        ] } : row) }
+    }
+    for (const depth of [1, 2] as const) {
+      const source = boundarySample(depth)
+      const detail = source.graphs.detail!
+      const document: WorkflowDocument = { ...source, graphs: { ...source.graphs, detail: { ...detail, nodes: {
+        ...detail.nodes, sample: { ...detail.nodes.sample!, dynamic: {} },
+      } } }, ext: { 'dinkster.exposed': [{ graphId: 'root', nodeId: 'first', inputId: 'mode' }] } }
+      const row = live(buildParamRows(document, resolveOptional)[0]!)
+      expect(row.value).toBeUndefined()
+      expect(row.derived).toBe(true)
+      expect(document.graphs.root!.nodes.first!.values).not.toHaveProperty('mode')
+    }
+  })
+
   it('boundary/plain-field/app-view edits only the chosen outer occurrence through one and two boundaries', () => {
     for (const depth of [1, 2] as const) {
       const source = boundarySample(depth)
