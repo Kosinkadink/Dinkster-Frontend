@@ -60,6 +60,30 @@ await page.addInitScript(() => {
     largeFileReader: 0,
     largeText: 0,
   }
+  window.__transferResponses = []
+  const fetchResponse = window.fetch
+  window.fetch = async function (input, init) {
+    const response = await fetchResponse.call(this, input, init)
+    const request = input instanceof Request ? input : undefined
+    const url = new URL(request?.url ?? String(input), window.location.href)
+    if (
+      (init?.method ?? request?.method ?? 'GET').toUpperCase() === 'POST' &&
+      url.pathname === '/api/assets/media'
+    ) {
+      try {
+        window.__transferResponses.push({
+          status: response.status,
+          payload: await response.clone().json(),
+        })
+      } catch (error) {
+        window.__transferResponses.push({
+          status: response.status,
+          error: String(error),
+        })
+      }
+    }
+    return response
+  }
   for (const [method, counter] of [
     ['arrayBuffer', 'largeArrayBuffer'],
     ['text', 'largeText'],
@@ -224,6 +248,9 @@ try {
         path: join(artifacts, `${surface}-${expectedPolicy}-before.png`),
       })
     }
+    await page.evaluate(() => {
+      window.__transferResponses = []
+    })
     const baseline = rss()
     const samples = [baseline]
     const sampler = setInterval(() => samples.push(rss()), 25)
@@ -315,7 +342,15 @@ try {
           response && [200, 201].includes(response.status()),
           `Media upload returned ${response?.status()}`,
         )
-        const payload = await response.json()
+        await page.waitForFunction(
+          () => window.__transferResponses.length === 1,
+        )
+        const captured = await page.evaluate(
+          () => window.__transferResponses[0],
+        )
+        assert.equal(captured.status, response.status())
+        assert.equal(captured.error, undefined)
+        const payload = captured.payload
         assert.equal(payload.asset.size, size)
         if (surface === 'field') {
           await expect(page.getByTestId('asset-apply')).toBeEnabled()
