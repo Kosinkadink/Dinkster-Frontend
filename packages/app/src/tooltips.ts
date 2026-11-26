@@ -6,6 +6,7 @@ export interface TooltipContent {
   readonly title?: string
   readonly lines: readonly string[]
   readonly detail?: readonly string[]
+  readonly shortcut?: string
   /** Refit whole readout items using the rendered width and available height. */
   readonly fit?: (lines: number, measure: (text: string) => number) => TooltipContent
 }
@@ -126,7 +127,7 @@ export class TooltipController {
   private emit(): void { for (const listener of this.listeners) listener() }
 }
 
-export interface DomTooltipTarget { readonly kind: 'dom'; readonly label: string; readonly detail?: readonly string[] }
+export interface DomTooltipTarget { readonly kind: 'dom'; readonly label: string; readonly detail?: readonly string[]; readonly shortcut?: string }
 
 /** Time a visible tooltip may bridge empty space inside one hover session. */
 export const DOM_TOOLTIP_SESSION_GRACE_MS = 300
@@ -450,7 +451,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     if (shown === element) return
     shown = element
     labelObserver.disconnect()
-    labelObserver.observe(element, { attributes: true, attributeFilter: ['data-tooltip-label', 'data-tooltip-detail'] })
+    labelObserver.observe(element, { attributes: true, attributeFilter: ['data-tooltip-label', 'data-tooltip-detail', 'data-tooltip-shortcut'] })
     labelObserver.observe(root, { childList: true, subtree: true })
   }
   const releaseShown = (): void => {
@@ -489,8 +490,9 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
   const domTargetOf = (element: HTMLElement) => {
     const rect = element.getBoundingClientRect()
     const detail = element.dataset['tooltipDetail']?.split('|').filter(Boolean)
+    const shortcut = element.dataset['tooltipShortcut']
     return {
-      target: { kind: 'dom', label: element.dataset['tooltipLabel']!, ...(detail ? { detail } : {}) },
+      target: { kind: 'dom', label: element.dataset['tooltipLabel']!, ...(detail ? { detail } : {}), ...(shortcut ? { shortcut } : {}) },
       anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 8, element },
     }
   }

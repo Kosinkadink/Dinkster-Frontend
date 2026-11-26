@@ -601,12 +601,11 @@ export function CanvasClosedRow(props: {
   onStep?: (direction: -1 | 1, fast: boolean) => void
   /**
    * Names minus and plus and makes them reachable by keyboard, for a row
-   * outside a node; `detail` is the tooltip's second line, such as a
-   * shortcut.
+   * outside a node, with optional shortcut chips in the tooltip.
    */
   steps?: {
-    readonly decrease: { readonly label: string; readonly detail?: string | undefined }
-    readonly increase: { readonly label: string; readonly detail?: string | undefined }
+    readonly decrease: { readonly label: string; readonly shortcut?: string | undefined }
+    readonly increase: { readonly label: string; readonly shortcut?: string | undefined }
   }
   choice?: boolean
 }) {
@@ -615,7 +614,7 @@ export function CanvasClosedRow(props: {
     return (
       <button type="button" class="dinkster-canvas-field-step" tabindex={named() === undefined ? -1 : 0}
         aria-label={named()?.label ?? (direction < 0 ? 'Decrease' : 'Increase')}
-        data-tooltip-label={named()?.label} data-tooltip-detail={named()?.detail}
+        data-tooltip-label={named()?.label} data-tooltip-shortcut={named()?.shortcut}
         onClick={(event) => props.onStep?.(direction, event.shiftKey)}>
         <StepGlyph path={direction < 0 ? MINUS_PATH : PLUS_PATH} />
       </button>

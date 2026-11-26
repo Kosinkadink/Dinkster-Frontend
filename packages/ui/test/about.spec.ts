@@ -510,6 +510,7 @@ test('toolbar search is outlined, capped and centered with native reservations',
 }) => {
   await page.setViewportSize({ width: 2000, height: 900 })
   await page.goto('/#window-toolbar')
+  await expect(page.getByRole('region', { name: 'Shortcut keys', exact: true }).locator('kbd')).toHaveText(['Ctrl', 'Shift', 'K', 'Cmd', ',', 'Alt', '+', 'Ctrl', 'Wheel', 'Cmd', ','])
   for (const theme of ['dark', 'light']) {
     for (const platform of ['linux', 'darwin', 'win32']) {
       const bar = page
@@ -791,7 +792,7 @@ for (const state of ['running', 'pending'])
           await text.evaluate((node) => node.scrollWidth > node.clientWidth),
         ).toBe(true)
         if (contentWidth >= 940) {
-          await expect(search.locator('kbd')).toBeVisible()
+          await expect(search.locator('.dinkster-shortcut')).toBeVisible()
           expect((await text.boundingBox())!.width).toBe(160)
           const projectBounds = (await project.boundingBox())!
           const searchBounds = (await search.boundingBox())!
@@ -805,7 +806,7 @@ for (const state of ['running', 'pending'])
           ).toBeGreaterThanOrEqual(4)
           expect(actionsBounds.x - searchBounds.x - searchBounds.width).toBe(4)
         } else {
-          await expect(search.locator('kbd')).toBeHidden()
+          await expect(search.locator('.dinkster-shortcut')).toBeHidden()
           const width = (await text.boundingBox())!.width
           expect(width).toBeGreaterThanOrEqual(64)
           expect(width).toBeLessThanOrEqual(160)
@@ -887,15 +888,15 @@ for (const state of ['idle', 'running', 'pending'])
         )
         const search = bar.getByRole('button', { name: 'Search', exact: true })
         const compact = right - left < 940
-        await expect(search).toHaveAttribute('title', 'Search (Ctrl+K)')
-        await expect(search).toHaveAccessibleDescription('Search (Ctrl+K)')
+        await expect(search).toHaveAttribute('data-tooltip-shortcut', 'Ctrl+K')
+        await expect(search).toHaveAccessibleDescription('Ctrl+K')
         if (compact) {
           await expect(search.locator('svg')).toBeVisible()
-          await expect(search.locator('kbd')).toBeHidden()
+          await expect(search.locator('.dinkster-shortcut')).toBeHidden()
         } else {
           await expect(search.locator('svg')).toBeHidden()
-          await expect(search.locator('kbd')).toBeVisible()
-          const hint = (await search.locator('kbd').boundingBox())!
+          await expect(search.locator('.dinkster-shortcut')).toBeVisible()
+          const hint = (await search.locator('.dinkster-shortcut').boundingBox())!
           const action = (await search.boundingBox())!
           expect(hint.x + hint.width).toBeLessThanOrEqual(
             action.x + action.width,
@@ -1004,10 +1005,10 @@ for (const state of ['idle', 'running', 'pending'])
     const first = sections.first()
     const search = first.getByRole('button', { name: 'Search', exact: true })
     await page.getByLabel('Search shortcut').selectOption('Alt+K')
-    await expect(search).toHaveAccessibleDescription('Search (Alt+K)')
+    await expect(search).toHaveAccessibleDescription('Alt+K')
     await page.setViewportSize({ width: 1440, height: 900 })
-    await expect(search.locator('kbd')).toHaveText('Alt+K')
-    await expect(search.locator('kbd')).toBeVisible()
+    await expect(search.locator('kbd')).toHaveText(['Alt', 'K'])
+    await expect(search.locator('kbd').first()).toBeVisible()
     await page.getByLabel('Search shortcut').selectOption('')
     await expect(search.locator('kbd')).toHaveCount(0)
     await expect(search).toHaveAttribute('title', 'Search')
