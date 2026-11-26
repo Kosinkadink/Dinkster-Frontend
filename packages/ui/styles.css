@@ -210,7 +210,7 @@
 .dinkster-menu-item { display: flex; align-items: center; gap: var(--dinkster-space-8); width: 100%; min-height: var(--dinkster-menu-row-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 0; border-radius: var(--dinkster-radius-small); background: transparent; color: var(--dinkster-text-primary); text-align: left; text-decoration: none; cursor: pointer; user-select: none; }
 .dinkster-menu-item[data-role='remove'] { color: var(--dinkster-danger-foreground); }
 .dinkster-menu-item[data-role='add'] { color: var(--dinkster-accent-foreground); }
-.dinkster-menu-item:not(:disabled):hover, .dinkster-menu-item:focus-visible { background: var(--dinkster-interaction-hover); }
+.dinkster-menu-item:not(:disabled):hover, .dinkster-menu-item:focus-visible, .dinkster-menu-item:not(:disabled)[data-active] { background: var(--dinkster-interaction-hover); }
 .dinkster-menu-item-copy { display: grid; min-width: 0; }
 .dinkster-menu-item-description { white-space: normal; overflow-wrap: anywhere; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .dinkster-product-progress { height: 4px; overflow: hidden; border-radius: 2px; background: var(--dinkster-surface-raised); }
@@ -548,6 +548,8 @@
 .dinkster-textarea { resize: vertical; }
 .dinkster-menu-anchor { position: relative; }
 .dinkster-menu-trigger { user-select: none; }
+.dinkster-menu-filter { position: sticky; top: 0; z-index: 1; padding: var(--dinkster-space-4); margin-bottom: var(--dinkster-space-4); border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-subtle); background: inherit; }
+.dinkster-menu-filter > .dinkster-input { width: 100%; min-width: 0; }
 /* Block-level so the trigger takes its anchor's width and the name, not the trigger, gives way. */
 .dinkster-menu-trigger[data-project] { display: flex; justify-content: flex-start; gap: var(--dinkster-space-4); width: 100%; min-width: 0; padding-inline: var(--dinkster-space-8); }
 .dinkster-menu-trigger[data-project] > .dinkster-icon { flex: none; }
