@@ -42,9 +42,14 @@ function setup(call: () => Promise<CallAnswer>, nodeSchema = schema, lookups?: L
 }
 
 describe('button press authority and typed answers', () => {
-  it.each([700, 250])('places an added node without moving or covering existing nodes (target x: %s)', async (targetX) => {
+  it.each([
+    { targetX: 700, wired: undefined }, { targetX: 250, wired: undefined },
+    { targetX: 700, wired: 'above' }, { targetX: 700, wired: 'below' },
+  ])('places an added node without moving or covering existing nodes (target x: $targetX, wired: $wired)', async ({ targetX, wired }) => {
     const target = parseDinksterSchema('test.target', { schemaVersion: 2, nodeType: 'test.target', displayName: 'Target', category: 'test', body: [
+      ...(wired === 'above' ? [{ kind: 'input', id: 'above', type: { kind: 'concrete', types: ['INT'] }, default: 2 }] : []),
       { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      ...(wired === 'below' ? [{ kind: 'input', id: 'below', type: { kind: 'concrete', types: ['INT'] }, default: 2 }] : []),
       { kind: 'button', id: 'add', label: 'Add', steps: [{ step: 'addNode', nodeType: 'test.processor', to: 'value', values: {} }] },
     ] }).schema!
     const processor = parseDinksterSchema('test.processor', { schemaVersion: 2, nodeType: 'test.processor', displayName: 'Processor with a longer title', category: 'test', body: [
@@ -55,8 +60,11 @@ describe('button press authority and typed answers', () => {
     const doc = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'placement', root: 'g0', graphs: {
       g0: { id: 'g0', name: 'root', nextOrdinal: 100, nodes: {
         target: { id: 'target', type: target.type, values: {} }, source: { id: 'source', type: processor.type, values: {} },
-      }, links: { feed: { id: 'feed', from: { node: 'source', port: 'out' }, to: { node: 'target', port: 'value' } } }, nets: {}, reroutes: {} },
-    }, view: { graphs: { g0: { nodes: { target: { position: { x: targetX, y: 100 } }, source: { position: { x: 0, y: 100 } } } } } } } as unknown as WorkflowDocument
+      }, links: {
+        ...(wired === undefined ? { feed: { id: 'feed', from: { node: 'source', port: 'out' }, to: { node: 'target', port: 'value' } } }
+          : { other: { id: 'other', from: { node: 'source', port: 'out' }, to: { node: 'target', port: wired } } }),
+      }, nets: {}, reroutes: {} },
+    }, view: { graphs: { g0: { nodes: { target: { position: { x: targetX, y: 100 } }, source: { position: { x: 0, y: wired === 'above' ? 74 : 100 } } } } } } } as unknown as WorkflowDocument
     const store = createLocalSession(doc, coreCommandRegistry([], resolve), { schemaResolverFor: () => resolve })
     const tab = { id: 'placement', store } as Tab
     const registry = { resolve }
@@ -76,7 +84,11 @@ describe('button press authority and typed answers', () => {
       expect(added.x + added.layout.width <= node.x || added.x >= node.x + node.layout.width ||
         added.y + added.layout.height <= node.y || added.y >= node.y + node.layout.height).toBe(true)
     }
-    if (targetX === 700) {
+    if (wired !== undefined) {
+      const delivery = scene.links.find((link) => link.to.kind === 'port' && link.to.node === 'target' && link.to.port === 'value')!
+      if (wired === 'above') expect(delivery.y1).toBeGreaterThan(delivery.y2)
+      if (wired === 'below') expect(delivery.y1).toBeLessThan(delivery.y2)
+    } else if (targetX === 700) {
       const source = scene.nodes.find((node) => node.id === 'source')!
       expect(added.x).toBeGreaterThan(source.x + source.layout.width)
       expect(added.x + added.layout.width).toBeLessThan(targetX)

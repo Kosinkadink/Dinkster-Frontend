@@ -44,7 +44,7 @@ export function ButtonBoxView(props: { readonly box: ButtonBox; readonly under: 
       <span class="button-box-icon" aria-hidden="true">
         <Show when={props.box.tone === 'warn'} fallback={<Info size={14} />}><TriangleAlert size={14} /></Show>
       </span>
-      <span>{props.box.message}</span>
+      <span class="button-box-lines"><For each={props.box.message.split('\n')}>{(line) => <span>{line}</span>}</For></span>
       <Show when={props.onCancel}>
         {(cancel) => <ProductButton size="compact" variant="ghost" class="button-box-cancel" onClick={() => cancel()()}>{message('common.cancel')}</ProductButton>}
       </Show>

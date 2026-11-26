@@ -189,8 +189,13 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         // Existing positions belong to every use of the definition. Only the
         // new node moves to a clear lane when the horizontal gap is too small.
         if (driver !== undefined) x = driver.x1 + gap
+        const targetY = destination.y + (destination.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === to)?.y ?? 0)
+        const wiredInputs = new Map(scene.links.flatMap((link) => !link.hidden && link.to.kind === 'port' && link.to.node === target.nodeId && link.to.port !== to
+          ? [[link.to.port, link.y2] as const] : []))
+        const crossings = (y: number): number => [...wiredInputs.values()].filter((inputY) =>
+          inputY > Math.min(y + layout.height / 2, targetY) && inputY < Math.max(y + layout.height / 2, targetY)).length
         const candidates = obstacles.flatMap((item) => [item.y - layout.height - gap, item.y + item.height + gap])
-          .sort((a, b) => Math.abs(a - destination.y) - Math.abs(b - destination.y) || b - a)
+          .sort((a, b) => crossings(a) - crossings(b) || Math.abs(a - destination.y) - Math.abs(b - destination.y) || b - a)
         return { x, y: candidates.find(clear)! }
       },
       async lookup(request, signal): Promise<LookupResult> {
