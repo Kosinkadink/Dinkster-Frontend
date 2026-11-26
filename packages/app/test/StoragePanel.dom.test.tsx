@@ -2,6 +2,8 @@ import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { DinksterConnection, ModelSettingsState, MountDescriptor, MountSettings } from '@dinkster/client'
+import { canvasTypePaintForTheme } from '@dinkster/canvas'
+import { semanticTokensForTheme } from '@dinkster/core'
 import { StorageFolders, StoragePanel } from '../src/StoragePanel.js'
 import { AppState } from '../src/app-state.js'
 
@@ -245,6 +247,59 @@ it('groups model grants under one folder and switches project membership without
   await vi.waitFor(() => expect(root.textContent).toContain('2 folders used by this project'))
   expect(root.querySelector('[data-mount-id="plates"] button:not([aria-haspopup])')).toBeNull()
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
+})
+
+it('aggregates model kinds by count with Other last and updates the pin colors with the theme', async () => {
+  const app = new AppState()
+  const backend = app.addBackend('http://studio.test:8188', 'Studio', false, 'dinkster', false)!
+  if (backend.protocol !== 'dinkster') throw new Error('Native backend missing')
+  app.settings.set('dinkster.theme', 'dark')
+  const mounts: MountDescriptor[] = [
+    { id: 'lora-a', mode: 'read', state: 'ready', kind: 'model/lora', entryCount: 2 },
+    { id: 'lora-b', mode: 'read', state: 'ready', kind: 'model/lora', entryCount: 5 },
+    { id: 'checkpoint', mode: 'read', state: 'ready', kind: 'model/checkpoint', entryCount: 4 },
+    { id: 'vae', mode: 'read', state: 'ready', kind: 'model/vae', entryCount: 4 },
+    { id: 'future', mode: 'read', state: 'ready', kind: 'model/future', entryCount: 12 },
+    { id: 'unnamed', mode: 'read', state: 'ready', entryCount: 3 },
+    { id: 'empty', mode: 'read', state: 'ready', kind: 'model/controlnet', entryCount: 0 },
+    { id: 'unknown-count', mode: 'read', state: 'pending', kind: 'model/text-encoder' },
+  ]
+  const location = { id: 'models', path: '/models', mode: 'read' as const, visibility: 'default-on' as const }
+  let changed = () => {}
+  backend.connection.fetchMountSettings = async () => ({ mounts, mountChangesAllowed: true })
+  backend.connection.fetchMountLocations = async () => ({ mounts: mounts.map((row) => ({ ...row, path: `/models/${row.id}` })) })
+  backend.connection.fetchModelSettings = async () => ({
+    settings: { version: 1, locations: [location], downloadLocation: null },
+    locations: [{ ...location, enabled: true, active: true, mounts: mounts.map((row) => row.id) }],
+    revision: 'revision', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+  })
+  backend.connection.onMountsChanged = (listener) => { changed = listener; return () => {} }
+  const root = document.createElement('div'); document.body.append(root)
+  const unmount = render(() => <StoragePanel app={app} focusBackend={{ id: backend.id, modelLocationId: 'models' }} activeBackend={() => backend} onOpenAssets={() => {}} />, root)
+  disposers.push(() => { unmount(); app.dispose(); localStorage.clear() })
+  const legend = () => root.querySelector('dl[aria-label="Model kinds"]')!
+  const rows = () => [...legend().querySelectorAll('dt')].map((row) => row.textContent)
+  const values = () => [...legend().querySelectorAll('dd')].map((row) => row.textContent)
+  await vi.waitFor(() => expect(rows()).toEqual(['LoRAs', 'Checkpoints', 'VAEs', 'Other']))
+  expect(values()).toEqual(['7', '4', '4', '15'])
+  const colors = () => [...legend().querySelectorAll('rect')].map((row) => row.getAttribute('fill'))
+  const dark = colors()
+  const darkPins = canvasTypePaintForTheme('dark').typeColors
+  expect(dark).toEqual([darkPins.LATENT, darkPins.MODEL, darkPins.VAE, semanticTokensForTheme('dark').text.muted])
+  app.settings.set('dinkster.theme', 'light')
+  await vi.waitFor(() => expect(colors().every((color, index) => color !== dark[index])).toBe(true))
+  const lightPins = canvasTypePaintForTheme('light').typeColors
+  expect(colors()).toEqual([lightPins.LATENT, lightPins.MODEL, lightPins.VAE, semanticTokensForTheme('light').text.muted])
+  expect(rows()).toEqual(['LoRAs', 'Checkpoints', 'VAEs', 'Other'])
+  mounts[0] = { ...mounts[0]!, entryCount: 1 }
+  mounts[1] = { ...mounts[1]!, entryCount: 1 }
+  changed()
+  await vi.waitFor(() => expect(rows()).toEqual(['Checkpoints', 'VAEs', 'LoRAs', 'Other']))
+  expect(values()).toEqual(['4', '4', '2', '15'])
+  mounts[0] = { id: 'lora-a', mode: 'read', state: 'pending', kind: 'model/lora' }
+  changed()
+  await vi.waitFor(() => expect(rows()).toEqual(['Checkpoints', 'VAEs', 'Other']))
+  expect(values()).toEqual(['4', '4', '15'])
 })
 
 it('selects the default save folder from a writable mount menu', async () => {

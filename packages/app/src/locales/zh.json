@@ -64,6 +64,7 @@
   "storagePanel.kind.image": "图像",
   "storagePanel.kind.video": "视频",
   "storagePanel.kind.audio": "音频",
+  "storagePanel.kind.other": "其他",
   "frozen.label": "冻结",
   "frozen.editHint": "打开为副本以编辑。",
   "frozen.refusal": "已冻结。{hint}",

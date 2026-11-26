@@ -48,6 +48,11 @@ test('Storage shows engine file and byte reading progress on model folders and m
     if (backend.protocol !== 'dinkster') throw new Error('Native backend missing')
     const mounts = [
       { id: 'models-checkpoint', path: '/home/kosin/ComfyUI/models/checkpoints', mode: 'read' as const, state: 'scanning', source: 'shared-models', kind: 'model/checkpoint', entryCount: 212, scanProgress: { filesDone: 136, filesTotal: 212, bytesDone: 61 * 1024 ** 3, bytesTotal: 96 * 1024 ** 3, elapsedSeconds: 4 } },
+      ...[
+        { kind: 'lora', entryCount: 38 }, { kind: 'controlnet', entryCount: 9 },
+        { kind: 'text-encoder', entryCount: 6 }, { kind: 'vae', entryCount: 4 },
+        { kind: 'upscaler', entryCount: 3 }, { kind: 'future', entryCount: 1 },
+      ].map(({ kind, entryCount }) => ({ id: `models-${kind}`, path: `/home/kosin/ComfyUI/models/${kind}`, mode: 'read' as const, state: 'ready', source: 'shared-models', kind: `model/${kind}`, entryCount })),
       { id: 'input', path: '/home/kosin/Dinkster/Portraits/input', mode: 'readwrite' as const, state: 'scanning', scanProgress: { filesDone: 7, filesTotal: 10, bytesDone: 8 * 1024 ** 2, bytesTotal: 32 * 1024 ** 2, elapsedSeconds: 2 } },
     ]
     const location = { id: 'ComfyUI', path: '/home/kosin/ComfyUI/models', mode: 'read' as const, visibility: 'default-on' as const }
@@ -55,7 +60,7 @@ test('Storage shows engine file and byte reading progress on model folders and m
     backend.connection.fetchMountSettings = async () => ({ mounts, mountChangesAllowed: true })
     backend.connection.fetchMountLocations = async () => ({ mounts: [...mounts, { id: 'archive', path: '/network/retained-project-footage/archive', mode: 'read', state: 'ready', entryCount: 37 }], importMount: 'input' })
     backend.connection.fetchModelSettings = async () => ({ settings: { version: 1, locations: [location, unused], downloadLocation: null },
-      locations: [{ ...location, enabled: true, active: true, mounts: ['models-checkpoint'] }, { ...unused, enabled: false, active: true, mounts: [] }], revision: 'reading-fixture', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
+      locations: [{ ...location, enabled: true, active: true, mounts: mounts.filter((row) => row.source === 'shared-models').map((row) => row.id) }, { ...unused, enabled: false, active: true, mounts: [] }], revision: 'reading-fixture', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
   })
   await page.getByTestId('storage-sidebar-toggle').click()
   const panel = page.getByTestId('storage-panel')
@@ -80,9 +85,15 @@ test('Storage shows engine file and byte reading progress on model folders and m
   const toggle = model.locator('button[aria-expanded]').first()
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
   await toggle.click()
-  await expect(model.getByRole('definition')).toHaveText('212')
+  await expect(model.getByRole('definition')).toHaveText(['212', '38', '9', '6', '4', '3', '1'])
+  await expect(model.getByRole('term')).toHaveText(['Checkpoints', 'LoRAs', 'ControlNet', 'Text encoders', 'VAEs', 'Upscalers', 'Other'])
   await expect(model.getByRole('progressbar')).toBeVisible()
   await panel.screenshot({ path: testInfo.outputPath('storage-model-open-dark.png') })
+  const darkColor = await model.locator('.dinkster-count-legend rect').first().getAttribute('fill')
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('dinkster.theme', 'light'))
+  await expect(model.locator('.dinkster-count-legend rect').first()).not.toHaveAttribute('fill', darkColor!)
+  await panel.screenshot({ path: testInfo.outputPath('storage-model-open-light.png') })
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('dinkster.theme', 'dark'))
   await model.getByRole('button', { name: 'Actions for ComfyUI', exact: true }).click()
   await expect(page.getByRole('menuitem', { name: 'Edit model folder', exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('storage-model-menu-dark.png') })
@@ -90,9 +101,13 @@ test('Storage shows engine file and byte reading progress on model folders and m
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByTestId('dock-zone-right').getByTestId('dock-zone-close').click()
-  await expect(model.getByRole('definition')).toHaveText('212')
+  await expect(model.getByRole('definition')).toHaveText(['212', '38', '9', '6', '4', '3', '1'])
   await expect(panel.locator('[data-mount-id="input"]')).toBeVisible()
   await panel.screenshot({ path: testInfo.outputPath('storage-model-open-390-dark.png') })
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('dinkster.theme', 'light'))
+  await expect(model.locator('.dinkster-count-legend rect').first()).not.toHaveAttribute('fill', darkColor!)
+  await panel.screenshot({ path: testInfo.outputPath('storage-model-open-390-light.png') })
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('dinkster.theme', 'dark'))
   await page.setViewportSize({ width: 1280, height: 900 })
   await toggle.click()
   await expect(model.getByRole('progressbar')).toBeVisible()

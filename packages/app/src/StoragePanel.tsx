@@ -1,8 +1,10 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import type { DinksterConnection, ModelSettingsState, MountDescriptor, MountLocations, MountSettings, MountScanProgress } from '@dinkster/client'
+import { canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
+import { semanticTokensForTheme } from '@dinkster/core'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
 import ChevronLeft from 'lucide-solid/icons/chevron-left'
-import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductList, ProductListRow, ProductLoading, ProductMenu, ProductNotice, ProductProgress, ProductSection, ProductTextButton, ProductToast } from '@dinkster/ui'
+import { ProductButton, ProductConfirmation, ProductCountStrip, ProductDisclosure, ProductErrorBanner, ProductList, ProductListRow, ProductLoading, ProductMenu, ProductNotice, ProductProgress, ProductSection, ProductTextButton, ProductToast } from '@dinkster/ui'
 import type { AppState, Backend } from './app-state.js'
 import { useSignal } from './solid-adapter.js'
 import { useAppMessage } from './locale.js'
@@ -23,6 +25,8 @@ export function StoragePanel(props: {
 }) {
   const message = useAppMessage()
   const backends = useSignal(props.app.backends)
+  const settingsTick = useSignal(props.app.settings.changed)
+  const theme = (): 'dark' | 'light' => (settingsTick(), props.app.settings.get('dinkster.theme'))
   const [selected, setSelected] = createSignal<string>()
   createEffect(() => setSelected(props.focusBackend?.id))
   const backend = createMemo(() => backends().find((row) => row.id === selected()) ?? props.activeBackend())
@@ -35,7 +39,7 @@ export function StoragePanel(props: {
     </Show>
     <Show when={backend().protocol === 'dinkster' ? backend() as NativeBackend : undefined} keyed
       fallback={<ProductNotice>{message('storagePanel.noFolders')}</ProductNotice>}>
-      {(native) => <StorageFolders connection={native.connection} backendUrl={native.baseUrl}
+      {(native) => <StorageFolders connection={native.connection} backendUrl={native.baseUrl} theme={theme()}
         focus={props.focusBackend?.id === native.id ? props.focusBackend : undefined} onOpenAssets={(id) => props.onOpenAssets(native, id)}
         onOpenModels={props.onOpenModels ? (id) => props.onOpenModels?.(native, id) : undefined} />}
     </Show>
@@ -45,6 +49,7 @@ export function StoragePanel(props: {
 export function StorageFolders(props: {
   readonly connection: DinksterConnection
   readonly backendUrl: string
+  readonly theme?: 'dark' | 'light'
   readonly onOpenAssets: (mountId?: string) => void
   readonly focus?: { readonly hiddenModels?: boolean; readonly modelLocationId?: string; readonly addModelFolder?: boolean } | undefined
   readonly onOpenModels?: ((modelLocationId: string) => void) | undefined
@@ -144,17 +149,18 @@ export function StorageFolders(props: {
   const kinds = (ids: readonly string[]) => {
     const result = new Map<string, number | undefined>()
     for (const row of counts(ids)) {
-      if (!row.kind || row.entryCount === 0) continue
-      const previous = result.get(row.kind)
-      result.set(row.kind, row.entryCount === undefined || (result.has(row.kind) && previous === undefined)
+      if (row.entryCount === 0) continue
+      const kind = row.kind && Object.hasOwn(modelKindColorMap, row.kind) ? row.kind : 'other'
+      const previous = result.get(kind)
+      result.set(kind, row.entryCount === undefined || (result.has(kind) && previous === undefined)
         ? undefined : (previous ?? 0) + row.entryCount)
     }
-    return [...result].map(([kind, count]) => ({ kind, count }))
-  }
-  const kindLabel = (kind: string) => {
-    const key = `storagePanel.kind.${kind.split('/').at(-1)}`
-    const label = message(key)
-    return label === key ? kind.split('/').at(-1)!.replaceAll('-', ' ') : label
+    const theme = props.theme ?? 'dark'
+    const colors = canvasTypePaintForTheme(theme).typeColors
+    return [...result].flatMap(([kind, count]) => count === undefined ? [] : [{
+      kind, label: message(`storagePanel.kind.${kind.split('/').at(-1)}`), count,
+      color: kind === 'other' ? semanticTokensForTheme(theme).text.muted : colors[modelKindColorMap[kind]!]!,
+    }]).sort((left, right) => left.kind === 'other' ? 1 : right.kind === 'other' ? -1 : right.count - left.count || left.label.localeCompare(right.label))
   }
   const setOutput = (mount: MountDescriptor) => void perform(() => props.connection.selectOutputMount(mount.id))
   const useFolder = (id: string) => void perform(() => props.connection.updateProjectFolders([...selected().map((row) => row.id), id], settings()?.outputMount ?? null))
@@ -215,7 +221,7 @@ export function StorageFolders(props: {
         ...(location.mode === 'readwrite' && models()?.settings.downloadLocation !== location.id
           ? [{ label: message('storagePanel.downloadHere'), disabled: disabled(), onSelect: () => { const state = models()!; void perform(() => props.connection.updateModelSettings({ ...state.settings, downloadLocation: location.id }, state.revision)) } }] : []),
       ]} />}>
-        <ProductFacts label={message('storagePanel.kinds')} items={kinds(location.mounts).map((row) => ({ label: kindLabel(row.kind), value: row.count }))} />
+        <ProductCountStrip label={message('storagePanel.kinds')} segments={kinds(location.mounts)} />
         <Show when={kinds(location.mounts).length === 0}><p class="dinkster-metadata">{message('storagePanel.noKinds')}</p></Show>
         <Show when={props.onOpenModels}><ProductTextButton label={message('storagePanel.showModels')} onClick={() => props.onOpenModels?.(location.id)} /></Show>
     </ProductListRow>

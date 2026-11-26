@@ -64,6 +64,7 @@
   "storagePanel.kind.image": "Images",
   "storagePanel.kind.video": "Video",
   "storagePanel.kind.audio": "Audio",
+  "storagePanel.kind.other": "Other",
   "frozen.label": "Frozen",
   "frozen.editHint": "Open as copy to edit.",
   "frozen.refusal": "Frozen. {hint}",

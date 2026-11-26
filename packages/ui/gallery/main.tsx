@@ -10,7 +10,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { render } from 'solid-js/web'
-import { canvasTypePaintForTheme } from '@dinkster/canvas'
+import { canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
 import { semanticTokensForTheme } from '@dinkster/core'
 import components from '@dinkster/branding/components' with { type: 'json' }
 import {
@@ -848,14 +848,14 @@ function Gallery() {
                   return <div class="dinkster-panel dinkster-stack" data-theme={theme}>
                     <h3 class="dinkster-heading">{theme === 'dark' ? 'Dark' : 'Light'}</h3>
                     <ProductCountStrip label={`Model kinds, ${theme}`} segments={[
-                      { label: 'LoRAs', count: 38, color: colors.LATENT! },
-                      { label: 'Checkpoints', count: 12, color: colors.MODEL! },
-                      { label: 'ControlNet', count: 9, color: colors.CONTROL_NET! },
-                      { label: 'Text encoders', count: 6, color: colors.CLIP! },
-                      { label: 'VAEs', count: 4, color: colors.VAE! },
-                      { label: 'Upscalers', count: 3, color: colors.IMAGE! },
-                      { label: 'Other', count: 1, color: semanticTokensForTheme(theme).text.muted },
-                    ]} />
+                      { label: 'LoRAs', count: 38, kind: 'model/lora' },
+                      { label: 'Checkpoints', count: 12, kind: 'model/checkpoint' },
+                      { label: 'ControlNet', count: 9, kind: 'model/controlnet' },
+                      { label: 'Text encoders', count: 6, kind: 'model/text-encoder' },
+                      { label: 'VAEs', count: 4, kind: 'model/vae' },
+                      { label: 'Upscalers', count: 3, kind: 'model/upscaler' },
+                      { label: 'Other', count: 1, kind: 'other' },
+                    ].map((segment) => ({ ...segment, color: Object.hasOwn(modelKindColorMap, segment.kind) ? colors[modelKindColorMap[segment.kind]!]! : semanticTokensForTheme(theme).text.muted }))} />
                   </div>
                 }}</For>
               </Section>
