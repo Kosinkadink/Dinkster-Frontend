@@ -768,7 +768,7 @@ test('menus support pointer dismissal, keyboard navigation and immediate sign ou
   await expect(
     page.getByRole('menuitem', { name: 'View package' }),
   ).toBeFocused()
-  await expect(page.getByRole('menuitem', { name: 'View package' }).locator('kbd')).toHaveText(['Ctrl', 'Shift', '1'])
+  await expect(page.getByRole('menuitem', { name: 'View package' }).locator('kbd')).toHaveText(['Ctrl+Shift+1'])
   expect((await page.getByRole('menu').boundingBox())!.x).toBe(
     (await trigger.boundingBox())!.x,
   )
