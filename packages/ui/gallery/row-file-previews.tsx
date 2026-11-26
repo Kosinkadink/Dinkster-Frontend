@@ -1,4 +1,4 @@
-import { For, createEffect, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
 import { loadDocument, type Json, type NodeSchema, type WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
@@ -13,9 +13,10 @@ import {
   type WidgetMeasure,
 } from '@dinkster/canvas'
 import { assetRowThumbnails, createPreviewLoader } from '../../app/src/node-previews.js'
+import { formatSize } from '../../app/src/asset-browser/helpers.js'
 import pictureUrl from '../../e2e/fixtures/media-overlay/with_metadata.png?url'
 import videoUrl from '../../e2e/fixtures/media-overlay/visible-2s.webm?url'
-import { ProductSection } from '../src/index.js'
+import { CanvasEditorSpace, CanvasFileCopy, ProductSection } from '../src/index.js'
 
 const asset = (name: string, mediaType = 'image/png', fill = 'a'): Json => ({
   digest: `blake3:${fill.repeat(64)}`, name, mediaType, size: 100, virtualPath: `input/${name}`,
@@ -32,6 +33,7 @@ interface FileExample {
   readonly accept: readonly string[]
   readonly width?: number
   readonly mode?: 'pending' | 'expected' | 'estimate' | 'stale' | 'unknown'
+  readonly copy?: 'copying' | 'checking'
 }
 
 const examples: readonly FileExample[] = [
@@ -53,12 +55,18 @@ const examples: readonly FileExample[] = [
   { title: 'No sound chosen', value: null, accept: ['audio/*'] },
   { title: 'No 3D file chosen', value: null, accept: ['model/gltf-binary'] },
   { title: 'No mixed file chosen', value: null, accept: mixed },
+  { title: 'Copying a video', value: asset('diner_take3.mp4', 'video/mp4'), accept: ['video/*'], width: 340, copy: 'copying' },
+  { title: 'Checking a video', value: asset('diner_take3.mp4', 'video/mp4'), accept: ['video/*'], width: 340, copy: 'checking' },
 ]
 
 function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
   let canvas!: HTMLCanvasElement
+  const [stopped, setStopped] = createSignal(false)
+  const [copyRow, setCopyRow] = createSignal<{ x: number; y: number; width: number }>()
   createEffect(() => {
     const { example, theme, registry } = props
+    const copying = example.copy !== undefined && !stopped()
+    const shown = stopped() ? null : example.value
     const width = example.width ?? 460
     const tokens: DesignTokens = {
       ...defaultTokens,
@@ -70,7 +78,7 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
       body: [{
         kind: 'input', id: 'files', displayName: 'files', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: [...example.accept] }, default: null },
-      }],
+      }, ...(copying ? [{ kind: 'note' as const, id: 'copy', text: '' }] : [])],
     }
     const wired = example.mode !== undefined && example.mode !== 'pending'
     const source: NodeSchema = {
@@ -81,7 +89,7 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'canvas-gallery', root: 'gallery',
       graphs: { gallery: {
         id: 'gallery', name: 'Gallery', nextOrdinal: 3,
-        nodes: { files: { id: 'files', type: schema.type, values: { files: wired ? sound : example.value } },
+        nodes: { files: { id: 'files', type: schema.type, values: { files: wired ? sound : shown } },
           ...(wired ? { source: { id: 'source', type: source.type, values: {} } } : {}) },
         links: wired ? { wire: { id: 'wire', from: { node: 'source', port: 'files' }, to: { node: 'files', port: 'files' } } } : {},
         nets: {}, reroutes: {},
@@ -106,6 +114,13 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
     const scene = buildScene({ document: loaded.document, graphId: 'gallery', tokens, measure, widgetMeasure,
       resolve: (type) => type === schema.type ? schema : source })
     const node = scene.nodes.find((item) => item.id === 'files')!
+    const note = node.layout.rows.find((row) => row.kind === 'note' && row.noteId === 'copy')
+    const pad = canvasPaintTokens.node.editorSpace.pad
+    setCopyRow(note?.kind === 'note' ? {
+      x: node.x + note.inset - pad,
+      y: node.y + note.y - pad,
+      width: width - note.inset * 2 + pad * 2,
+    } : undefined)
     canvas.style.width = `${width + 32}px`
     canvas.style.height = `${node.layout.height + 32}px`
     const renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(registry))
@@ -124,7 +139,7 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
     })
     const draw = () => {
       const thumbnails = example.mode === 'pending' ? [null, null] : example.mode === 'unknown' ? undefined
-        : assetRowThumbnails(example.value, loader, registry, width)
+        : assetRowThumbnails(shown, loader, registry, width)
       renderer.setEditorSummaries(example.mode === 'unknown' ? {} : { files: { files:
         { ...(thumbnails === undefined ? {} : { thumbnails }), ...(wired ? { value: example.value } : {}) } } })
       renderer.renderNow()
@@ -133,7 +148,23 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
     draw()
     onCleanup(() => { loader.dispose?.(); renderer.dispose(); delete canvas.dataset.ready })
   })
-  return <figure class="dinkster-canvas-example"><figcaption>{props.example.title}</figcaption><canvas ref={canvas} /></figure>
+  return <figure class="dinkster-canvas-example"><figcaption>{props.example.title}</figcaption>
+    <Show when={props.example.copy !== undefined} fallback={<canvas ref={canvas} />}>
+    <div class="dinkster-canvas-example-stage">
+      <canvas ref={canvas} />
+      <Show when={copyRow()}>{(row) => <CanvasEditorSpace ref={(element) => {
+        element.style.left = `${row().x}px`
+        element.style.top = `${row().y}px`
+        element.style.width = `${row().width}px`
+      }}>
+        <CanvasFileCopy state={props.example.copy === 'checking'
+          ? { phase: 'checking', label: 'Checking the file' }
+          : { phase: 'copying', label: `Copying to input, ${formatSize(210 * 1048576)} of ${formatSize(512 * 1048576)}`, value: 210 / 512,
+              stopLabel: 'Stop', onStop: () => setStopped(true) }} />
+      </CanvasEditorSpace>}</Show>
+    </div>
+    </Show>
+  </figure>
 }
 
 export function RowFilePreviewsGallery(props: { theme: 'dark' | 'light'; registry: WidgetRegistry }) {

@@ -13,6 +13,7 @@ import {
 import { CanvasClosedRow, CanvasRowField, CanvasSideLink, CanvasSidePart } from './canvas-field.js'
 import { CanvasRowList, canvasListLayout } from './canvas-list.js'
 import { ProductButton, ProductIcon, ProductIconButton, ProductSpinner } from './controls.js'
+import { ProductProgress } from './messages.js'
 
 /**
  * The controls of an editor shown in the node, laid over the space the
@@ -82,6 +83,27 @@ export function CanvasEditorLine(props: { dimmed?: boolean; readOnly?: boolean |
       {props.children}
     </div>
   )
+}
+
+export type CanvasFileCopyState = {
+  readonly phase: 'copying'
+  readonly label: string
+  readonly value?: number | undefined
+  readonly stopLabel: string
+  readonly onStop: () => void
+} | {
+  readonly phase: 'checking'
+  readonly label: string
+}
+
+/** Copying can be stopped; checking waits for the engine's canonical answer. */
+export function CanvasFileCopy(props: { state: CanvasFileCopyState }) {
+  const copying = () => props.state.phase === 'copying' ? props.state : undefined
+  return <div class="dinkster-canvas-file-copy" role="status">
+    <span class="dinkster-canvas-file-copy-label" title={props.state.label}>{props.state.label}</span>
+    <ProductProgress label={props.state.label} value={copying()?.value} />
+    <Show when={copying()}>{(state) => <CanvasSideLink onClick={() => state().onStop()}>{state().stopLabel}</CanvasSideLink>}</Show>
+  </div>
 }
 
 /** A line naming what the editor stores, or a message about it; `tone` colors a problem. */
