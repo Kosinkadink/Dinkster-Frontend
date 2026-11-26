@@ -42,7 +42,9 @@ export function mountAssetSource(connection: DinksterConnection, mount: string |
       })
       const folders = searching ? undefined : page.folders?.map((name): AssetBrowserItem => {
         const virtualPath = folder === '' ? name : `${folder}/${name}`
-        return { id: `${id}:${virtualPath}`, name, folder: true, virtualPath, source: { id, label, path: virtualPath } }
+        const childCount = page.folderCounts?.[name]
+        return { id: `${id}:${virtualPath}`, name, folder: true, virtualPath,
+          ...(typeof childCount === 'number' ? { childCount } : {}), source: { id, label, path: virtualPath } }
       })
       return { items, ...(folders !== undefined ? { folders } : {}), ...(page.cursor ? { cursor: page.cursor } : {}), ...(page.total !== undefined ? { total: page.total } : {}) }
     },

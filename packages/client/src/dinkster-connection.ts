@@ -1094,6 +1094,7 @@ export interface MountEntryPage {
   readonly entries: readonly MountEntry[]
   /** Immediate subfolder names, present only on a non-recursive first page. */
   readonly folders?: readonly string[]
+  readonly folderCounts?: Readonly<Record<string, number>>
   readonly cursor?: string
   readonly total?: number
 }
@@ -3856,7 +3857,7 @@ export class DinksterConnection {
     const route = mountId === undefined ? '/api/mounts/entries' : `/api/mounts/${encodeURIComponent(mountId)}/entries`
     const res = await this.fetchFn(`${this.baseUrl}${route}?${params}`, req.signal !== undefined ? { signal: req.signal } : undefined)
     if (!res.ok) throw new Error(`GET mount entries failed: ${res.status}`)
-    const payload = await res.json() as { entries?: unknown; folders?: unknown; cursor?: unknown; total?: unknown }
+    const payload = await res.json() as { entries?: unknown; folders?: unknown; folderCounts?: unknown; cursor?: unknown; total?: unknown }
     const entries = Array.isArray(payload.entries) ? payload.entries.filter((value): value is MountEntry => {
       if (typeof value !== 'object' || value === null) return false
       const row = value as Record<string, unknown>
@@ -3865,9 +3866,13 @@ export class DinksterConnection {
         (row['modifiedAt'] === undefined || (typeof row['modifiedAt'] === 'number' && Number.isFinite(row['modifiedAt'])))
     }) : []
     const folders = Array.isArray(payload.folders) ? payload.folders.filter((value): value is string => typeof value === 'string') : undefined
+    const folderCounts = typeof payload.folderCounts === 'object' && payload.folderCounts !== null && !Array.isArray(payload.folderCounts)
+      ? Object.fromEntries(Object.entries(payload.folderCounts).filter((pair): pair is [string, number] => Number.isSafeInteger(pair[1]) && pair[1] >= 0))
+      : undefined
     return {
       entries,
       ...(folders !== undefined ? { folders } : {}),
+      ...(folderCounts !== undefined ? { folderCounts } : {}),
       ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}),
       ...(typeof payload.total === 'number' ? { total: payload.total } : {}),
     }

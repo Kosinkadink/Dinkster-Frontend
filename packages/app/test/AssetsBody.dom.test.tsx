@@ -115,7 +115,8 @@ describe('Assets dock body', () => {
         if (request.pathname === '/api/mounts') return new Response(JSON.stringify({ mounts, outputMount: 'output', activeOutputMount: 'output' }))
         const page = request.searchParams.has('cursor') ? { entries: [entry('last.bin')], total: 61 }
           : request.pathname.includes('/output/') ? { entries: [entry('direct.bin')], total: 1,
-            folders: request.searchParams.get('recursive') === 'false' && request.searchParams.get('path') === '' ? ['photos'] : [] }
+            folders: request.searchParams.get('recursive') === 'false' && request.searchParams.get('path') === '' ? ['photos', 'empty', 'unknown'] : [],
+            folderCounts: { photos: 3, empty: 0, unknown: '4' } }
             : { entries: Array.from({ length: 60 }, (_, index) => entry(`newest-${index}.bin`)), cursor: 'more', total: 61 }
         return new Response(JSON.stringify(page))
       },
@@ -143,6 +144,9 @@ describe('Assets dock body', () => {
       shallow.checked = true; shallow.dispatchEvent(new Event('change', { bubbles: true }))
       await vi.waitFor(() => expect(requests.at(-1)?.searchParams.get('recursive')).toBe('false'))
       expect(requests.at(-1)?.pathname).toBe('/api/mounts/output/entries')
+      await vi.waitFor(() => expect(root.querySelector('[data-entry="mount:output:photos"]')?.textContent).toContain('3 items'))
+      expect(root.querySelector('[data-entry="mount:output:empty"]')?.textContent).toContain('0 items')
+      expect(root.querySelector('[data-entry="mount:output:unknown"]')?.textContent).not.toContain('4 items')
       const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
       search.value = 'direct'; search.dispatchEvent(new InputEvent('input', { bubbles: true }))
       await vi.waitFor(() => expect(requests.at(-1)?.searchParams.get('q')).toBe('direct'))
