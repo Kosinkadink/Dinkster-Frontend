@@ -51,11 +51,15 @@
 .backend-row-destinations { margin-left: auto; }
 .backends-panel > .dinkster-list { flex: none; }
 .backends-panel .dinkster-row-heading { min-height: var(--dinkster-type-body-line); }
+.backends-panel .dinkster-row-action { width: var(--dinkster-type-body-line); }
+.backends-panel .dinkster-row-action > .dinkster-menu-anchor { display: flex; }
 .backends-panel .dinkster-row-main > .dinkster-icon { width: var(--dinkster-space-16); height: var(--dinkster-space-16); margin-top: calc((var(--dinkster-type-body-line) - var(--dinkster-space-16)) / 2); }
 .backends-panel .dinkster-row-details { padding-left: calc(var(--dinkster-space-16) + var(--dinkster-space-8) * 3); }
-.backend-row-identity { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--dinkster-space-4) var(--dinkster-space-12); }
+.backend-row-identity { display: flex; align-items: baseline; gap: var(--dinkster-space-4) var(--dinkster-space-12); line-height: var(--dinkster-type-body-line); }
 .backend-row-identity > strong { flex: 1 0 auto; max-width: 100%; overflow-wrap: anywhere; }
-.backend-row-summary { color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.backend-row-summary { flex: none; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.backends-panel[data-stacked-rows] .backend-row-identity { flex-direction: column; align-items: stretch; }
+.backends-panel[data-stacked-rows] .backend-row-summary { overflow-wrap: anywhere; }
 .backend-state-dot { flex: none; width: var(--dinkster-space-8); height: var(--dinkster-space-8); margin-top: calc((var(--dinkster-type-body-line) - var(--dinkster-space-8)) / 2); border: var(--dinkster-border-width) solid var(--dinkster-success-foreground); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-success-foreground); }
 .backend-state-dot[data-status='disconnected'] { border-color: var(--dinkster-text-muted); background: transparent; }
 .backend-state-dot:is([data-status='connecting'], [data-problem]) { border-color: var(--dinkster-warning-foreground); background: var(--dinkster-warning-foreground); }

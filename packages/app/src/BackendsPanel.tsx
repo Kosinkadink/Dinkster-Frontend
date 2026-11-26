@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from 'solid-js'
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
 import { ProductButton, ProductConfirmation, ProductErrorBanner, ProductFacts, ProductList, ProductListRow, ProductMenu, ProductNotice, ProductTextButton } from '@dinkster/ui'
 import type { AppState, Backend } from './app-state.js'
@@ -123,6 +123,27 @@ export function BackendsPanel(props: {
   const [token, setToken] = createSignal('')
   const [discovering, setDiscovering] = createSignal(false)
   const [addError, setAddError] = createSignal('')
+  let panel!: HTMLElement
+  onMount(() => {
+    const fit = () => {
+      if (!panel.isConnected) return
+      delete panel.dataset['stackedRows']
+      if ([...panel.querySelectorAll<HTMLElement>('.backend-row-identity')].some((identity) => identity.scrollWidth > identity.clientWidth)) {
+        panel.dataset['stackedRows'] = ''
+      }
+    }
+    const resize = new ResizeObserver(fit)
+    const mutation = new MutationObserver(fit)
+    resize.observe(panel)
+    mutation.observe(panel.querySelector('.dinkster-list')!, { subtree: true, childList: true, characterData: true })
+    document.fonts?.addEventListener('loadingdone', fit)
+    fit()
+    onCleanup(() => {
+      resize.disconnect()
+      mutation.disconnect()
+      document.fonts?.removeEventListener('loadingdone', fit)
+    })
+  })
   const nameHint = () => validProfileUrl(url().trim()) ? new URL(url().trim()).host : ''
   const add = async () => {
     if (discovering() || connections.busy()) return
@@ -143,7 +164,7 @@ export function BackendsPanel(props: {
     } catch { setAddError('backendsPanel.error.addFailed') }
     finally { setDiscovering(false) }
   }
-  return <section class="backends-panel" data-testid="backends-panel" aria-label={message('backendsPanel.title')}>
+  return <section ref={panel} class="backends-panel" data-testid="backends-panel" aria-label={message('backendsPanel.title')}>
     <div class="backend-toolbar">
       <span class="dinkster-metadata">{message('backendsPanel.count', { count: addresses().length })}</span>
       <ProductButton intent="add" aria-expanded={adding()} disabled={discovering()} onClick={() => setAdding(!adding())}>{message('backendsPanel.addBackend')}</ProductButton>
