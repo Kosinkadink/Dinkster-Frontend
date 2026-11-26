@@ -246,6 +246,16 @@ test.describe('native asset uploads', () => {
     await targetNativeBackend(page)
     const before = await value(page)
     await openAsset(page)
+    await page.setViewportSize({ width: 390, height: 500 })
+    const editor = page.getByTestId('asset-editor')
+    await expect(editor.locator('[data-search-state="loading"], [data-collection-state="loading"], [aria-busy="true"]')).toHaveCount(0)
+    const scroll = editor.locator('.asset-editor-scroll')
+    expect(await scroll.locator('*').evaluateAll((elements) => elements.filter((element) => {
+      const overflow = getComputedStyle(element).overflowY
+      return /^(auto|scroll)$/.test(overflow) && element.scrollHeight > element.clientHeight
+    }).map((element) => element.className))).toEqual([])
+    await scroll.evaluate((element) => { element.scrollTop = element.scrollHeight })
+    await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
     await page.route('**/api/assets/media*', async (route) => {
       if (route.request().method() === 'POST') {
         await route.fulfill({ status: 500, body: 'injected asset failure' })
@@ -259,7 +269,12 @@ test.describe('native asset uploads', () => {
       buffer: validPng(),
     })
 
-    await expect(page.getByTestId('asset-editor')).toContainText('POST /api/assets/media failed: 500')
+    const refusal = editor.locator('.asset-error').filter({ hasText: 'POST /api/assets/media failed: 500' })
+    await expect(refusal).toBeInViewport({ ratio: 1 })
+    const refusalBounds = await refusal.boundingBox()
+    const scrollBounds = await scroll.boundingBox()
+    expect(refusalBounds!.y).toBeGreaterThanOrEqual(scrollBounds!.y)
+    expect(refusalBounds!.y + refusalBounds!.height).toBeLessThanOrEqual(scrollBounds!.y + scrollBounds!.height)
     expect(await value(page)).toEqual(before)
   })
 

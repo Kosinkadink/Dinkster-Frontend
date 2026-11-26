@@ -143,6 +143,13 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
    * from the logical model picker: feeds the Details disclosure. */
   const [assetSelectedModel, setAssetSelectedModel] = createSolidSignal<LogicalModelPickDetail | undefined>(undefined)
   const [assetError, setAssetError] = createSolidSignal<string | undefined>(undefined)
+  let assetScroll: HTMLDivElement | undefined
+  createEffect(() => {
+    if (assetError() === undefined) return
+    queueMicrotask(() => {
+      if (live) assetScroll?.querySelector('.asset-error')?.scrollIntoView({ block: 'nearest' })
+    })
+  })
   const [assetUploading, setAssetUploading] = createSolidSignal(false)
   const uploadBackend = props.app.backendForTab(ed.tab)
   const project = activeProjectId()
@@ -735,7 +742,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               before this body sees the event, so the refusal is advertised
               through data-dismiss-blocked. */}
           <div class="widget-editor asset-editor widget-modal-editor" data-testid="asset-editor" data-dismiss-blocked={assetUploading() ? 'uploading' : undefined}>
-            <div class="asset-editor-scroll">
+            <div class="asset-editor-scroll" ref={assetScroll}>
             <div class="asset-editor-context" data-testid="asset-schema-metadata" aria-label="Asset requirements">
               <strong>{assetMulti ? `Multiple ${assetVocabulary().plural}` : `Single ${assetVocabulary().singular}`}</strong>
               <Show when={assetBrowseKind()}>{(kind) => <span>{kind()}</span>}</Show>
