@@ -17,7 +17,7 @@ import { useSignal } from './solid-adapter.js'
 import { productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { LibraryStorageSettings } from './LibraryStorageSettings.js'
-import { ProductButton, ProductShortcutCapture, ProductShortcutText, ProductSwitch, ProductSelect, ProductTextInput, ProductSettingRow, ProductSettingsPage, ProductSettingsSection, ProductToast, ProductErrorBanner, productSearchMarks, type ProductSearchGroup } from '@dinkster/ui'
+import { ProductButton, ProductTextButton, ProductShortcutCapture, ProductShortcutText, ProductSwitch, ProductSelect, ProductTextInput, ProductSettingRow, ProductSettingsPage, ProductSettingsSection, ProductToast, ProductErrorBanner, productSearchMarks, type ProductSearchGroup } from '@dinkster/ui'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import type { Backend } from './app-state.js'
@@ -333,9 +333,14 @@ export function SettingsDialog(props: {
         noneLabel={message('settingsPage.noneShortcut')} recordingLabel={message('settingsPage.pressKeys')} cancelLabel={message('settingsPage.escapeCancels')}
         onClick={() => setCapture({ command: command.id, pending: '' })}
       />
-    return <div data-command-id={command.id}><Show when={!inline} fallback={<>{control()}<Show when={conflictMessage()}>{(text) => <p id={`${controlId}-warning`} class="dinkster-setting-warning" role="status">{text()}</p>}</Show></>}>
+    const menuItems = () => [
+      ...(combo() ? [{ label: message('settingsPage.removeShortcut'), onSelect: () => props.keybindings.set(command.id, null) }] : []),
+      { label: message('settingsPage.copyCommandId'), description: command.id, onSelect: () => { void copyId(command.id) } },
+    ]
+    return <div data-command-id={command.id}><Show when={!inline} fallback={<><Show when={modified()}><ProductTextButton label={message('settingsDialog.action.reset')} onClick={() => props.keybindings.reset(command.id)} /></Show>{control()}<Show when={conflictMessage()}>{(text) => <p id={`${controlId}-warning`} class="dinkster-setting-warning" role="status">{text()}</p>}</Show></>}>
       <ProductSettingRow id={command.id} controlId={controlId} label={commandLabel()} modified={modified()} warning={conflictMessage()}
         resetLabel={message('settingsDialog.action.reset')} menuLabel={message('settingsPage.actions', { name: commandLabel() })} resetDefaultLabel={message('settingsPage.resetDefault')} copyIdLabel={message('settingsPage.copyCommandId')}
+        menuItems={menuItems()}
         onReset={() => props.keybindings.reset(command.id)} onCopyId={() => { void copyId(command.id) }}>{control()}</ProductSettingRow>
     </Show></div>
   }
@@ -344,8 +349,7 @@ export function SettingsDialog(props: {
     return { key: `${match.source}:${match.id}`, title: match.name, detail: match.detail, ...(match.note === undefined ? {} : { note: match.note }),
       control: match.source === 'setting' ? settingRow(match.definition, true, (next) => { reset = next }) : keybindingRow(match.command, true),
       menu: { label: message('settingsPage.actions', { name: match.name }), get items() { changed(); return [
-        { label: message('settingsPage.resetDefault'), disabled: match.source === 'setting' ? Object.is(props.settings.get(match.id), match.definition.defaultValue) : props.keybindings.combo(match.id) === props.keybindings.defaultCombo(match.id), onSelect: () => match.source === 'setting' ? reset() : props.keybindings.reset(match.id) },
-        ...(match.source === 'keybinding' ? [{ label: message('settingsDialog.action.clear'), onSelect: () => props.keybindings.set(match.id, null) }] : []),
+        ...(match.source === 'setting' ? [{ label: message('settingsPage.resetDefault'), disabled: Object.is(props.settings.get(match.id), match.definition.defaultValue), onSelect: () => reset() }] : props.keybindings.combo(match.id) ? [{ label: message('settingsPage.removeShortcut'), onSelect: () => props.keybindings.set(match.id, null) }] : []),
         { label: message(match.source === 'setting' ? 'settingsPage.copySettingId' : 'settingsPage.copyCommandId'), description: match.id, onSelect: () => { void copyId(match.id) } },
       ] } },
     }

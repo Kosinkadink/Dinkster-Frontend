@@ -103,6 +103,7 @@ export function SettingsGallery() {
   const [toast, setToast] = createSignal<{ message: string }>()
   const [copyError, setCopyError] = createSignal('')
   const [editingList, setEditingList] = createSignal<string>()
+  const [listDraft, setListDraft] = createSignal('')
   const [confirmClear, setConfirmClear] = createSignal(false)
   const [cleared, setCleared] = createSignal(false)
   const value = (setting: Setting) => values()[setting.id] ?? setting.value
@@ -119,8 +120,8 @@ export function SettingsGallery() {
   const settingMenu = (setting: Setting) => ({
     label: `Actions for ${setting.label}`,
     get items() { return [
-      { label: 'Reset to default', disabled: value(setting) === setting.value, onSelect: () => update(setting.id, setting.value) },
-      { label: 'Copy setting ID', description: setting.id, onSelect: () => { void copyId(setting.id) } },
+      ...(setting.group === 'engine' ? [] : [{ label: 'Reset to default', disabled: value(setting) === setting.value, onSelect: () => update(setting.id, setting.value) }]),
+      { label: setting.group === 'engine' ? 'Copy ID' : 'Copy setting ID', description: setting.id, onSelect: () => { void copyId(setting.id) } },
     ] },
   })
   const error = (setting: Setting) => typeof setting.value === 'number' && (!Number.isFinite(Number(value(setting))) || Number(value(setting)) < 0 || Number(value(setting)) > 5000) ? 'Enter a number between 0 and 5000.' : undefined
@@ -134,9 +135,10 @@ export function SettingsGallery() {
       <Show when={typeof setting.value === 'string' && !setting.options && !setting.multiline}><ProductTextInput {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} /></Show>
       <Show when={setting.multiline}><ProductTextArea {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} /></Show>
       </>}>
-        <Show when={editingList() === setting.id} fallback={<><span class="dinkster-setting-none">{String(value(setting)).trim() === '' ? 'None' : `${String(value(setting)).split('\n').filter((line) => line.trim()).length} items`}</span><ProductTextButton id={setting.id} label="Edit" aria-label={`Edit ${setting.label.toLowerCase()}`} onClick={() => setEditingList(setting.id)} /></>}>
-          <ProductTextArea {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} />
-          <ProductTextButton label="Done" onClick={() => setEditingList(undefined)} />
+        <Show when={editingList() === setting.id} fallback={<><span class="dinkster-setting-none">{String(value(setting)).trim() === '' ? 'None' : `${String(value(setting)).split('\n').filter((line) => line.trim()).length} items`}</span><ProductTextButton id={setting.id} label="Edit" aria-label={`Edit ${setting.label.toLowerCase()}`} onClick={() => { setListDraft(String(value(setting))); setEditingList(setting.id) }} /></>}>
+          <ProductTextArea {...attributes()} value={listDraft()} onInput={(event) => setListDraft(event.currentTarget.value)} />
+          <ProductTextButton label="Done" onClick={() => { update(setting.id, listDraft()); setEditingList(undefined) }} />
+          <ProductTextButton label="Cancel" onClick={() => setEditingList(undefined)} />
         </Show>
       </Show>
       <Show when={searching && error(setting)}>{(message) => <p id={`${setting.id}-error`} class="dinkster-field-error" role="alert">{message()}</p>}</Show>
@@ -151,7 +153,7 @@ export function SettingsGallery() {
   const shortcutMenu = (command: typeof commands[number]) => ({
     label: `Actions for ${command.label}`,
     get items() { return [
-      { label: 'Reset to default', disabled: combo(command.id) === keybindings.defaultCombo(command.id), onSelect: () => keybindings.reset(command.id) },
+      ...(combo(command.id) ? [{ label: message('settingsPage.removeShortcut'), onSelect: () => keybindings.set(command.id, null) }] : []),
       { label: 'Copy command ID', description: command.id, onSelect: () => { void copyId(command.id) } },
     ] },
   })
@@ -172,7 +174,7 @@ export function SettingsGallery() {
         ...(!nameMatches && descriptionMatches ? { note: setting.description! } : {}),
         control: control(setting, true), menu: settingMenu(setting),
       }
-    }) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, detail: `Shortcuts - ${message(`settingsPage.commands.${command.id.split('.')[0]}`)}`, control: <>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-warning`} class="dinkster-setting-warning" role="status">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
+    }) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, detail: `Shortcuts - ${message(`settingsPage.commands.${command.id.split('.')[0]}`)}`, control: <><Show when={combo(command.id) !== keybindings.defaultCombo(command.id)}><ProductTextButton label="Reset" onClick={() => keybindings.reset(command.id)} /></Show>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-warning`} class="dinkster-setting-warning" role="status">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
   })
   const chooseGroup = (id: string) => { setGroup(id); setQuery(''); setCapture(undefined) }
   const activate = (id: string) => {
@@ -192,8 +194,9 @@ export function SettingsGallery() {
   }
   const row = (setting: Setting) => {
     return <ProductSettingRow id={setting.id} label={setting.label} description={setting.description ? <ProductShortcutText text={setting.description} /> : undefined} error={error(setting)}
-      fullWidth={!setting.locked && (setting.list ? editingList() === setting.id : typeof setting.value === 'string' && !setting.options)} modified={value(setting) !== setting.value} resetLabel="Reset" menuLabel={`Actions for ${setting.label}`}
+      fullWidth={!setting.locked && (setting.list ? editingList() === setting.id : typeof setting.value === 'string' && !setting.options)} modified={setting.group !== 'engine' && value(setting) !== setting.value} resetLabel="Reset" menuLabel={`Actions for ${setting.label}`}
       resetDefaultLabel="Reset to default" copyIdLabel="Copy setting ID"
+      menuItems={settingMenu(setting).items}
       onReset={() => update(setting.id, setting.value)} onCopyId={() => { void copyId(setting.id) }}>
       {control(setting)}
     </ProductSettingRow>
@@ -241,6 +244,7 @@ export function SettingsGallery() {
             id={command.id} label={command.label} modified={combo(command.id) !== keybindings.defaultCombo(command.id)}
             warning={shortcutError(command.id)}
             resetLabel="Reset" menuLabel={`Actions for ${command.label}`} resetDefaultLabel="Reset to default" copyIdLabel="Copy command ID"
+            menuItems={shortcutMenu(command).items}
             onReset={() => keybindings.reset(command.id)} onCopyId={() => { void copyId(command.id) }}>
             {shortcutControl(command)}
           </ProductSettingRow>}</For></ProductSettingsSection>}</For>

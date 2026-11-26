@@ -91,6 +91,7 @@ export function ProductSettingRow(props: {
   menuLabel: string
   resetDefaultLabel: string
   copyIdLabel: string
+  menuItems?: ComponentProps<typeof ProductMenu>['items'] | undefined
   onReset: () => void
   onCopyId: () => void
   children: JSX.Element
@@ -108,7 +109,7 @@ export function ProductSettingRow(props: {
       {props.children}
     </div>
     <span class="dinkster-setting-menu">
-      <ProductMenu label={props.menuLabel} icon={Ellipsis} iconOnly fill="quiet" align="end" items={[
+      <ProductMenu label={props.menuLabel} icon={Ellipsis} iconOnly fill="quiet" align="end" items={props.menuItems ?? [
         { label: props.resetDefaultLabel, disabled: !props.modified, onSelect: props.onReset },
         { label: props.copyIdLabel, description: props.id, onSelect: props.onCopyId },
       ]} />
