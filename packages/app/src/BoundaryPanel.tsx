@@ -50,6 +50,7 @@ import {
   BoundaryTree,
   ProductButton as UiButton,
   ProductCheckbox as UiCheckbox,
+  ProductField,
   ProductIcon,
   ProductLink,
   ProductTextInput as UiTextInput,
@@ -692,6 +693,12 @@ export function BoundaryPanel(props: { app: AppState }) {
     })
   }
 
+  createEffect(() => {
+    selectedKey()
+    setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith('show:'))))
+    setNotice((current) => current?.key.startsWith('show:') ? undefined : current)
+  })
+
   /** Dispatches one invocation against the shown tab; a refusal becomes the notice under `key`. */
   const run = async (invocation: { command: string; params: JsonObject }, key: string): Promise<boolean> => {
     const ctx = context()
@@ -724,6 +731,21 @@ export function BoundaryPanel(props: { app: AppState }) {
   }
 
   const rowKey = (row: Row): string => `item:${row.item.id}`
+
+  const commitVisible = async (row: Row, value: string): Promise<void> => {
+    if (editingDisabled()) return
+    const key = `show:${row.item.id}`
+    const formula = value.trim()
+    if (formula === (row.item.visible?.formula ?? '')) {
+      clearDraft(key)
+      setNotice((current) => current?.key === key ? undefined : current)
+      return
+    }
+    const owner = lifetime
+    setDrafts((current) => ({ ...current, [key]: value }))
+    const accepted = await dispatch('boundary.setVisible', { itemId: row.item.id, formula: formula || null }, key)
+    if (accepted && lifetime === owner && drafts()[key] === value) clearDraft(key)
+  }
 
   /** Commits a text setting from its draft; an unchanged value commits nothing. */
   const commitText = async (row: Row, field: 'name' | 'help', value: string): Promise<void> => {
@@ -1217,12 +1239,46 @@ export function BoundaryPanel(props: { app: AppState }) {
               options={show().choices}
               selectedId={row().item.visible?.formula ?? 'always'}
               disabled={editingDisabled()}
-              onSelect={(option) => void dispatch('boundary.setVisible', { itemId: id(), formula: option.value }, rowKey(row()))}
+              onSelect={(option) => void commitVisible(row(), option.value ?? '')}
             />
             <Show when={show().unnamed}>
               <span class="boundary-tree-quiet" data-testid="boundary-show-unnamed">{message('boundaryPanel.show.unnamed')}</span>
             </Show>
           </Setting>
+          <ProductField
+            label={message('boundaryPanel.show.editor')}
+            error={notice()?.key === `show:${id()}` ? notice()!.text : ''}
+          >
+            {(attributes) => (
+              <UiTextInput
+                {...attributes}
+                density="panel"
+                data-testid="boundary-show-formula"
+                placeholder={message('boundaryPanel.show.always')}
+                value={drafts()[`show:${id()}`] ?? row().item.visible?.formula ?? ''}
+                disabled={editingDisabled()}
+                onInput={(event) => {
+                  setDrafts((current) => ({ ...current, [`show:${id()}`]: event.currentTarget.value }))
+                  setNotice((current) => current?.key === `show:${id()}` ? undefined : current)
+                }}
+                onChange={(event) => void commitVisible(row(), event.currentTarget.value)}
+                onBlur={(event) => void commitVisible(row(), event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    event.currentTarget.blur()
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    clearDraft(`show:${id()}`)
+                    setNotice((current) => current?.key === `show:${id()}` ? undefined : current)
+                    event.currentTarget.value = row().item.visible?.formula ?? ''
+                    event.currentTarget.blur()
+                  }
+                }}
+              />
+            )}
+          </ProductField>
         </Show>
         <Show when={row().side === 'inputs' && !isField(row()) && specOf(row())?.kind === 'input'}>
           <Setting label={message('boundaryPanel.empty')}>

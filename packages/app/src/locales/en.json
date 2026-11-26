@@ -1705,6 +1705,7 @@
   "boundaryPanel.show.linked": "When {name} is plugged in",
   "boundaryPanel.show.equals": "When {name} is {value}",
   "boundaryPanel.show.formula": "When {formula}",
+  "boundaryPanel.show.editor": "Formula",
   "boundaryPanel.show.unnamed": "Inputs from an imported workflow cannot be used in a condition yet.",
   "boundaryPanel.empty": "Empty",
   "boundaryPanel.empty.optional": "May be left empty. The nodes inside decide that.",

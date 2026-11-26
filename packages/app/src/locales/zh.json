@@ -1705,6 +1705,7 @@
   "boundaryPanel.show.linked": "当 {name} 已连接时",
   "boundaryPanel.show.equals": "当 {name} 为 {value} 时",
   "boundaryPanel.show.formula": "当 {formula} 时",
+  "boundaryPanel.show.editor": "公式",
   "boundaryPanel.show.unnamed": "来自导入工作流的输入暂时不能用于条件。",
   "boundaryPanel.empty": "留空",
   "boundaryPanel.empty.optional": "可以留空。由内部节点决定。",

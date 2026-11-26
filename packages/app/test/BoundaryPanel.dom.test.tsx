@@ -333,6 +333,60 @@ describe('BoundaryPanel rows and settings', () => {
     unmount()
   })
 
+  it('edits one Show condition, preserving saved state for invalid and cancelled drafts', async () => {
+    const { app, tab, root, unmount } = await mountPanel()
+    select(root, 'strength')
+    const input = () => root.querySelector<HTMLInputElement>('[data-testid="boundary-show-formula"]')!
+    const draft = (value: string) => {
+      input().focus()
+      input().value = value
+      input().dispatchEvent(new InputEvent('input', { bubbles: true }))
+    }
+    const stored = 'linked(mask) and mode == "screen"'
+    draft(stored)
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await idle(root)
+    expect(itemOf(app, 'strength')!.visible).toEqual({ formula: stored })
+    input().dispatchEvent(new Event('change', { bubbles: true }))
+    await idle(root)
+    expect(tab.store.undo()).toBe(true)
+    expect(itemOf(app, 'strength')!.visible).toBeUndefined()
+    expect(tab.store.redo()).toBe(true)
+
+    draft('missing > 0')
+    input().blur()
+    await idle(root)
+    expect(itemOf(app, 'strength')!.visible).toEqual({ formula: stored })
+    expect(input().value).toBe('missing > 0')
+    expect(input().getAttribute('aria-invalid')).toBe('true')
+    expect(document.getElementById(input().getAttribute('aria-describedby')!)!.textContent).toContain('missing')
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await idle(root)
+    expect(input().value).toBe(stored)
+    expect(input().hasAttribute('aria-invalid')).toBe(false)
+
+    draft('linked(')
+    input().blur()
+    await idle(root)
+    expect(input().getAttribute('aria-invalid')).toBe('true')
+    select(root, 'mask')
+    select(root, 'strength')
+    expect(input().value).toBe(stored)
+    expect(input().hasAttribute('aria-invalid')).toBe(false)
+
+    root.querySelector<HTMLButtonElement>('[data-testid="boundary-show-select"]')!.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'When image is plugged in')!.click()
+    await idle(root)
+    expect(input().value).toBe('linked(image)')
+    draft('')
+    input().blur()
+    await idle(root)
+    expect(itemOf(app, 'strength')!.visible).toBeUndefined()
+    expect(tab.store.undo()).toBe(true)
+    expect(itemOf(app, 'strength')!.visible).toEqual({ formula: 'linked(image)' })
+    unmount()
+  })
+
   it('refuses a limit wider than the inner field with a sentence naming its range', async () => {
     const { app, root, unmount } = await mountPanel()
     select(root, 'strength')
@@ -456,7 +510,7 @@ describe('BoundaryPanel rows and settings', () => {
     Object.defineProperty(tab, 'execution', { value: { backendId: 'proof', executionId: 'proof' }, configurable: true })
     app.tabs.set([...app.tabs.get()])
     expect(root.querySelector('[data-testid="boundary-frozen"]')?.getAttribute('role')).toBe('status')
-    for (const testId of ['boundary-name-input', 'boundary-help-input', 'boundary-remove']) {
+    for (const testId of ['boundary-name-input', 'boundary-help-input', 'boundary-show-formula', 'boundary-show-select', 'boundary-remove']) {
       expect([testId, root.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`)?.disabled]).toEqual([testId, true])
     }
     expect(root.querySelector('[data-testid="boundary-show-on-canvas"]')!.hasAttribute('disabled')).toBe(false)
