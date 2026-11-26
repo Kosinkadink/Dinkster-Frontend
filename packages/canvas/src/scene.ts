@@ -1044,9 +1044,11 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     if (isPortEndpoint(toEndpoint)) markConnected(toEndpoint, 'in')
   }
-  for (const net of effective === undefined ? Object.values(def.nets) : []) {
+  for (const net of Object.values(def.nets)) {
+    // A definition net's source tag remains a connection even in an
+    // occurrence with no effective sink deliveries.
     markConnected(net.source, 'out')
-    for (const sink of net.sinks) markConnected(sink, 'in')
+    if (effective === undefined) for (const sink of net.sinks) markConnected(sink, 'in')
   }
   // Boundary bindings are connections too: a bound port inside a collapsed
   // section must keep its pin so the boundary noodle never dangles. Family
