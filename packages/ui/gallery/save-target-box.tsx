@@ -33,6 +33,7 @@ import {
 import {
   CanvasRowField,
   CanvasTargetBox,
+  CanvasTargetFoldout,
   CanvasTargetSide,
   ProductSection,
   canvasTargetLayout,
@@ -95,10 +96,16 @@ function SaveTargetExampleCard(props: {
             .find((view) => view.id === kind?.defaultView(spec))
           return view ? { viewId: view.id, rows: view.measure(spec).rows } : undefined
         }
-        const built = createSaveTargetScene(tokens, measure, widgetMeasure, nodeAt, current.stored, {
+        const base = createSaveTargetScene(tokens, measure, widgetMeasure, nodeAt, current.stored, {
           ...(current.optional === true ? { optional: true } : {}),
           ...(current.arriving === undefined ? {} : { wired: true }),
         })
+        // Only the proposal's gallery node reserves this body space. Product layout is unchanged.
+        const built = current.foldout && current.open ? {
+          ...base,
+          nodes: base.nodes.map((node) => node.id === schema().type
+            ? { ...node, layout: { ...node.layout, height: node.layout.height + 64 } } : node),
+        } : base
         const node = built.nodes.find((item) => item.id === schema().type)!
         canvas.style.width = `${MARGIN + NODE_WIDTH + SIDE_ROOM}px`
         canvas.style.height = `${node.y + node.layout.height + MARGIN}px`
@@ -109,7 +116,7 @@ function SaveTargetExampleCard(props: {
         if (current.arriving !== undefined) renderer.setCompanions(wiredTargetCompanions(node.id, current.arriving))
         if ((current.mounts ?? 'ready') === 'ready')
           renderer.setWidgetFacts({ SAVE_TARGET: { ready: [...galleryMounts], ...(current.noDefault === true ? {} : { projectMount: galleryMounts[0] }) } })
-        renderer.setOpenRow(current.open === undefined ? undefined : { nodeId: node.id, valueKey: 'target' })
+        renderer.setOpenRow(current.open === undefined || current.foldout ? undefined : { nodeId: node.id, valueKey: 'target' })
         renderer.setViewport({ x: 0, y: 0, scale: 1 })
         renderer.renderNow()
         setScene(built)
@@ -246,8 +253,8 @@ function SaveTargetExampleCard(props: {
     >
       <CanvasTargetBox
         words={{
-          mount: t('saveTargetWidget.mount'),
-          prefix: t('saveTargetWidget.prefix'),
+          mount: example().foldout ? 'Mount' : t('saveTargetWidget.mount'),
+          prefix: example().foldout ? 'Name' : t('saveTargetWidget.prefix'),
           loading: t('saveTargetWidget.loading'),
           none: t('saveTargetWidget.none'),
           failed: t('saveTargetWidget.couldNotLoad'),
@@ -260,7 +267,7 @@ function SaveTargetExampleCard(props: {
         {...(listOn() === undefined ? {} : { highlight: listOn()! })}
         prefix={open()?.prefix ?? ''}
         {...(draft().prefixInvalid ? { prefixProblem: t('saveTargetWidget.invalid') } : {})}
-        focused={listOn() !== undefined ? 'mount' : 'prefix'}
+        {...(example().resting ? {} : { focused: listOn() !== undefined ? 'mount' as const : 'prefix' as const })}
       />
     </div>
   )
@@ -274,7 +281,21 @@ function SaveTargetExampleCard(props: {
           aria-label={`${example().id} in ${props.theme} theme`}
           data-testid={`save-target-box-${example().id}`}
         />
-        <Show when={open() !== undefined && placement()}>
+        <Show when={example().foldout && target()}>
+          {(found) => {
+            const value = () => (example().arriving ?? example().stored) as { mount?: string; prefix: string }
+            return <CanvasTargetFoldout label={found().row.label} mount={value().mount ?? galleryMounts[0]}
+              name={value().prefix} open={open() !== undefined} wired={example().arriving !== undefined}
+              ref={(element) => {
+                element.style.left = `${found().node.x + found().row.inset}px`
+                element.style.top = `${found().node.y + found().row.y + fieldInsetY()}px`
+                element.style.width = `${found().row.width ?? found().node.layout.width - found().row.inset * 2}px`
+              }}>
+              {box}
+            </CanvasTargetFoldout>
+          }}
+        </Show>
+        <Show when={!example().foldout && open() !== undefined && placement()}>
           {(current) => (
             <CanvasRowField
               ref={(element) => (field = element)}

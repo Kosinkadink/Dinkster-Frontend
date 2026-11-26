@@ -42,6 +42,8 @@ test('Controls inside an open row use ordinary borders and a secondary-text keyb
   const prefix = card.locator('.dinkster-canvas-target-input')
   await expect(mount).toBeVisible()
   await expect(mount).toHaveCSS('border-color', await tokenColor('--dinkster-border-subtle'))
+  const resting = page.getByTestId('save-target-box-open-rest').locator('..').locator('.dinkster-canvas-target-input')
+  await expect(resting).toHaveCSS('border-color', await tokenColor('--dinkster-border-subtle'))
   const outerOutline = card.locator('.dinkster-canvas-field-outline path')
   const outerStroke = await outerOutline.evaluate((element) => getComputedStyle(element).stroke)
   await prefix.focus()
@@ -94,6 +96,43 @@ test('Controls inside an open row use ordinary borders and a secondary-text keyb
   await expect(trigger).toBeFocused()
   await expect(trigger).toHaveCSS('outline-style', 'none')
   await expect(trigger).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
+})
+
+test('Save target fold-out proposal keeps its header and distinguishes rest from keyboard focus', async ({ page }) => {
+  for (const theme of ['dark', 'light'] as const) {
+    await openPage(page, 'save-target-box', theme)
+    const section = page.getByRole('heading', { name: 'Fold-out proposal', exact: true }).locator('..')
+    const stage = (id: string) => page.getByTestId(`save-target-box-foldout-${id}`).locator('..')
+    const folded = stage('folded').locator('.dinkster-canvas-target-header')
+    const rest = stage('rest').locator('.dinkster-canvas-target-header')
+    const typing = stage('typing').locator('.dinkster-canvas-target-input')
+    const wired = stage('wired').locator('.dinkster-canvas-target-header')
+    await expect(folded).toHaveAttribute('aria-expanded', 'false')
+    await expect(rest).toHaveAttribute('aria-expanded', 'true')
+    for (const header of [folded, rest, wired]) await expect(header.locator('svg').first()).toBeVisible()
+    const headerPosition = (header: typeof folded) => header.evaluate((element) => {
+      const stage = element.closest('.dinkster-canvas-example-stage')!.getBoundingClientRect()
+      return [...element.querySelectorAll('svg, .dinkster-canvas-target-label')].slice(0, 2).map((part) => {
+        const box = part.getBoundingClientRect()
+        return { x: box.x - stage.x, y: box.y - stage.y }
+      })
+    })
+    expect(await headerPosition(rest)).toEqual(await headerPosition(folded))
+    await expect(wired).toBeDisabled()
+    await expect(wired).not.toHaveAttribute('aria-expanded')
+    await expect(stage('wired').locator('input')).toHaveCount(0)
+    await expect(wired).toContainText('archive/from/upstream')
+    const restInput = stage('rest').locator('.dinkster-canvas-target-input')
+    const ordinary = await restInput.evaluate((element) => getComputedStyle(element).borderColor)
+    await typing.focus()
+    await expect(typing).toBeFocused()
+    await expect(typing).toHaveCSS('border-width', '1px')
+    await expect(typing).toHaveCSS('outline-style', 'none')
+    await expect(typing).toHaveCSS('border-color', theme === 'dark' ? 'rgb(164, 181, 183)' : 'rgb(88, 99, 109)')
+    expect(ordinary).toBe(theme === 'dark' ? 'rgb(50, 65, 67)' : 'rgb(211, 217, 222)')
+    await expect(restInput).toHaveCSS('border-color', ordinary)
+    await expect(section).toHaveScreenshot(`save-target-foldout-${theme}.png`)
+  }
 })
 
 test('Shared-line fields join exposed ends and keep the middle side part detached', async ({ page }) => {

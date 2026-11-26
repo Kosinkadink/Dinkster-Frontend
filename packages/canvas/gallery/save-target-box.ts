@@ -141,6 +141,10 @@ export interface SaveTargetExample {
   readonly noDefault?: boolean
   /** A wire brings this target. */
   readonly arriving?: Json
+  /** The proposed in-node fold-out, not the product's current hanging box. */
+  readonly foldout?: true
+  /** Show the text field without a host-managed keyboard highlight. */
+  readonly resting?: true
 }
 
 /** A target on Project default names only the prefix. */
@@ -159,11 +163,21 @@ export const saveTargetGroups: readonly {
   readonly examples: readonly SaveTargetExample[]
 }[] = [
   {
+    title: 'Fold-out proposal',
+    examples: [
+      { id: 'foldout-folded', caption: 'Folded: icon, target name, save location and opener. No name string pin is introduced by this gallery proposal.', stored: portrait, foldout: true },
+      { id: 'foldout-rest', caption: 'Open, at rest: the header stays in place; Mount and Name have ordinary dim borders. Neither field has the keyboard.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, foldout: true, resting: true },
+      { id: 'foldout-typing', caption: 'Open, typing in Name: its own 1 px secondary-text border, with no cyan or second ring inside. The Mount border remains dim.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, foldout: true },
+      { id: 'foldout-wired', caption: 'Whole target wired: folded, quiet, icon retained and no opener. This is not the proposed separate Name wire.', stored: portrait, arriving: { mount: 'archive', prefix: 'from/upstream' }, foldout: true },
+    ],
+  },
+  {
     title: 'Opening, picking a mount and leaving',
     examples: [
       { id: 'closed-default', caption: 'Closed, on Project default: the row names the mount it means here in italics, then the name.', stored: portrait },
       { id: 'closed', caption: 'Closed, on a named mount: the mount is upright, as stored.', stored: onOutput },
       { id: 'open', caption: 'Open on Project default, where a new target starts: the dropdown says Project default and stores no mount; the row and the side part name the mount it means here. The default is a link.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' } },
+      { id: 'open-rest', caption: 'The existing open editor at rest: the Name field has its ordinary dim border, not the brighter typing border.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, resting: true },
       { id: 'list', caption: 'The dropdown open: Project default first, naming the mount it means here, then this machine\'s writable mounts. The list lies over the box and past its lower edge.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, listOn: '' },
       { id: 'changed', caption: 'archive picked and a new name typed: the row and the side part show what leaving would store. Escape would keep the stored target.', stored: portrait, open: { mount: 'archive', prefix: 'renders/final' } },
       { id: 'left', caption: 'Left with Enter, Tab or a click outside: the new target is stored as one undo step.', stored: { mount: 'archive', prefix: 'renders/final' } },
