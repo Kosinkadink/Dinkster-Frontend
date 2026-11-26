@@ -144,6 +144,8 @@ test('Save target shared fold-out distinguishes rest, typing and a reopened wire
     const wiredName = stage('wired-open').locator('input')
     await expect(wiredName).toHaveValue('from/upstream')
     await expect(wiredName).toHaveAttribute('readonly', '')
+    await expect(stage('wired-open').locator('.dinkster-canvas-target-choice')).toHaveCSS('opacity', '1')
+    await expect(wiredName).toHaveCSS('opacity', '1')
     await expect(stage('invalid').getByText('Mount', { exact: true })).toBeVisible()
     const labels = await stage('rest').locator('.dinkster-canvas-target-label, .dinkster-canvas-target-caption').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().left))
     expect(labels[0]).toBe(labels[1])

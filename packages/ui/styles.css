@@ -1106,6 +1106,8 @@
 .dinkster-canvas-target-box[data-in-node='true'] .dinkster-canvas-target-input { padding-left: calc(var(--dinkster-space-32) + var(--dinkster-space-8)); text-align: right; }
 .dinkster-canvas-target-box[data-in-node='true'] .dinkster-canvas-target-input:not([aria-invalid='true']):focus-visible { outline: 0; }
 .dinkster-canvas-editor[data-state='dimmed'] .dinkster-canvas-target-box { opacity: var(--dinkster-interaction-disabled-opacity); pointer-events: none; }
+/* The frozen editor already dims both fields; page-root disabled styling must not dim Mount again. */
+.dinkster-canvas-target-box[data-frozen='true'] .dinkster-canvas-target-choice { opacity: 1; }
 .dinkster-canvas-target-box > [data-wired='true'] { opacity: var(--dinkster-interaction-disabled-opacity); }
 .dinkster-canvas-target-mount { position: relative; }
 .dinkster-canvas-target-choice, .dinkster-canvas-target-input { box-sizing: border-box; width: 100%; height: var(--dinkster-input-canvas-height); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-inset); color: var(--dinkster-text-primary); font: inherit; }
