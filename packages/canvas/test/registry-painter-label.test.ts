@@ -145,10 +145,13 @@ it('keeps a folded Step line inside the plot for out-of-range points and values'
     })
     const view: WidgetView = {
       ...stubView, id: 'core.curve', kind: 'CURVE',
-      drawCompact: (scene) => scene.rect(0, 0, 1, 2, {
-        role: 'curveSketch', interpolation: 'step', samples: [0.2, 1], held: [-1, 1.5],
-        points: [[-1, 0.2], [0.25, 2], [0.75, -0.5], [1, 2], [1.5, 0.4]],
-      }),
+      drawCompact: (scene) => {
+        scene.rect(0, 0, 1, 2, {
+          role: 'curveSketch', interpolation: 'step', samples: [0.2, 1], held: [-1, 1.5],
+          points: [[-1, 0.2], [0.25, 2], [0.75, -0.5], [1, 2], [1.5, 0.4]],
+        })
+        scene.text(1, 0, '5 points', { role: 'widgetValue', align: 'right', width: 1 })
+      },
     }
     const curveRegistry = { ...registry, kind: () => stubKind, viewsFor: () => [view] }
     createRegistryPainter(curveRegistry)({
