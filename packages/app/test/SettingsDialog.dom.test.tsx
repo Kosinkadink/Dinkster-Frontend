@@ -487,11 +487,12 @@ describe('SettingsDialog search', () => {
     capture.click()
 
     capture.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true, bubbles: true }))
-    expect(capture.textContent).toBe('ctrl')
+    expect([...capture.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Ctrl'])
     expect(keybindings.combo('workflow.save')).toBe('ctrl+s')
     capture.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', ctrlKey: true, bubbles: true }))
 
     expect(keybindings.combo('workflow.save')).toBe('ctrl+o')
+    expect([...capture.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Ctrl', 'O'])
     expect(saveRow.classList.contains('product-field-invalid')).toBe(true)
     expect(capture.getAttribute('aria-invalid')).toBe('true')
     expect(capture.getAttribute('aria-describedby')).toBe('keybinding-workflow.save-message')
