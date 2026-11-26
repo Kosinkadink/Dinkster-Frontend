@@ -571,7 +571,7 @@ describe('each step', () => {
           { step: 'addNode', nodeType: 'test.add_processor', to: 'value', values: {} },
           { step: 'addNode', nodeType: 'test.add_processor', to: 'other', values: {} },
         ]) }], host)
-        expect(mixed).toMatchObject({ kind: 'done', message: 'Nothing added for value. value is wired from outside this subgraph. Added to all 2 uses of Shared body. Wired only here.' })
+        expect(mixed).toMatchObject({ kind: 'done', message: 'Added to all 2 uses of Shared body. Wired only here.\nSkipped value: it is wired from outside this subgraph.' })
         expect(Object.keys(session.doc.graphs['g1']!.nodes)).toHaveLength(3)
         expect(session.undo()).toBe(true)
         expect(session.canUndo).toBe(false)
