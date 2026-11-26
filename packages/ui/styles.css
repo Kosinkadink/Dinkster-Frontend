@@ -990,6 +990,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-canvas-field[data-side-past='true'][data-place='left'] .dinkster-canvas-field-panel[data-place='below'] { border-bottom-left-radius: 0; }
 .dinkster-canvas-field[data-panel='below'][data-side='true'][data-place='below-field'] .dinkster-canvas-field-panel { border-radius: 0; }
 .dinkster-canvas-field[data-panel='above'][data-side='true'][data-place='above-field'] .dinkster-canvas-field-panel { border-radius: 0; }
+.dinkster-canvas-row-popup { position: absolute; z-index: 2; display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); }
 .dinkster-canvas-list { position: relative; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--dinkster-surface-panel); }
 .dinkster-canvas-list[data-scroll='whole'] { overflow-y: auto; }
 .dinkster-canvas-list-entries { position: relative; flex: 0 1 auto; overflow-y: auto; padding: var(--dinkster-space-4) 0; }
@@ -1060,6 +1061,8 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-canvas-example-stage { position: relative; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
 .dinkster-canvas-example-stage canvas { display: block; }
 .dinkster-canvas-example-stage[data-fixed-surfaces='true'] { transform: translate(0); }
+.dinkster-canvas-popup-example { position: absolute; transform-origin: top left; }
+.dinkster-canvas-popup-stage { width: 360px; height: 280px; }
 /* A declared button's result, skip or reason box: under its line, its icon in the text. */
 .button-box {
   position: fixed;
