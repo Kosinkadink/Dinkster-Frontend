@@ -1407,15 +1407,34 @@ describe('sections', () => {
     expect(pinIds).toEqual(['in:a', 'in:b', 'in:w', 'out:w', 'out:x'])
   })
 
-  it('collapsing hides member rows; a socket keeps its pin and an unwired field has none', () => {
+  it('collapsing hides optional unwired sockets and fields without removing their held-wire discovery', () => {
     const l = layout({ sectionOverrides: { adv: true } })
     // Output x pairs into input a's socket row (top-down pairing), so hiding
     // b's row leaves just the paired row and the section header.
     expect(l.rows.map((r) => r.kind)).toEqual(['ports', 'section'])
     expect(l.rows[1]).toMatchObject({ kind: 'section', collapsed: true })
     const pinIds = l.pins.map((p) => `${p.direction}:${p.portId}`).sort()
-    expect(pinIds).toEqual(['in:a', 'in:b', 'out:x'])
-    expect(l.pins.find((p) => p.portId === 'b')).toMatchObject({ collapsedSection: 'adv', label: 'b' })
+    expect(pinIds).toEqual(['in:a', 'out:x'])
+    expect(l.rows[1]).toMatchObject({ hiddenPorts: [
+      { portId: 'w', direction: 'in', widgetBacked: true },
+      { portId: 'b', direction: 'in', optional: true },
+    ] })
+
+    const schema = schemaOf([section('closed', [
+      input('required'), input('optional', { optional: true }), widget('field'),
+      widget('forced', { forceInput: true }), output('result'),
+    ], { collapsedByDefault: true })])
+    for (const wired of [false, true]) {
+      const closed = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
+        connectedPorts: new Set(wired ? ['in:optional', 'in:field', 'out:field', 'out:result'] : []),
+      })
+      expect(closed.pins.map((pin) => `${pin.direction}:${pin.portId}`).sort()).toEqual(wired
+        ? ['in:field', 'in:optional', 'in:required', 'out:field', 'out:result']
+        : ['in:forced', 'in:required'])
+      expect(closed.rows[0]).toMatchObject({ hiddenPorts: expect.arrayContaining([
+        { portId: 'result', direction: 'out', address: { port: 'result' }, label: 'result', type: { kind: 'concrete', name: 'IMAGE' } },
+      ]) })
+    }
   })
 
   it('draws at most three pins on a closed box side, wired first, and stacks further wires on the last', () => {
