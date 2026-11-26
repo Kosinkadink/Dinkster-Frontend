@@ -340,9 +340,16 @@ export function resolveBoundaryRoute(
             break
           }
           walk(row.rows, index + 1, `${full}.`, [...hops, { kind: 'slot', constructPath: full, spec: row }], top)
-          for (const variant of row.variants ?? []) {
-            if (found !== undefined) break
-            walk(variant.rows, index + 1, `${full}.`, [...hops, { kind: 'slotVariant', constructPath: full, key: variant.key, spec: row }], top)
+          if (found === undefined) {
+            let reached: BoundaryRoute | undefined
+            const selected = choices?.[full] ?? _dynamic?.[full]?.selected
+            for (const variant of row.variants ?? []) {
+              found = undefined
+              walk(variant.rows, index + 1, `${full}.`, [...hops, { kind: 'slotVariant', constructPath: full, key: variant.key, spec: row }], top)
+              const here = found as BoundaryRoute | undefined
+              if (here !== undefined && (reached === undefined || variant.key === selected)) reached = here
+            }
+            found = reached
           }
           break
         case 'described':
@@ -719,6 +726,7 @@ export function deriveBoundarySchema(
     if (route === undefined || route.hops.length === 0) return active.bindings
     const bindings = new Map(active.bindings)
     const choices = Object.fromEntries(route.hops.flatMap((hop) => {
+      if (hop.kind === 'slotVariant') return [[hop.constructPath, hop.key]]
       if (hop.kind !== 'combo') return []
       const selected = active.choices[hop.constructPath] ?? node.dynamic?.[hop.constructPath]?.selected ?? hop.spec.default
       const option = selected !== undefined && hop.options.includes(selected) ? selected : hop.options[0]
@@ -799,7 +807,8 @@ export function deriveBoundarySchema(
       fail('boundary.tapSide', `${describe} uses an output-only widget tap binding`)
       return undefined
     }
-    const result = resolveBoundaryRoute(schema, binds, expectedSide, node.values, node.dynamic)
+    typeBindingsFor(node)
+    const result = resolveBoundaryRoute(schema, binds, expectedSide, node.values, node.dynamic, slotTypeBindings.get(node)?.choices)
     if (!result.ok) {
       fail(result.code, `${describe}: ${result.message}`)
       return undefined

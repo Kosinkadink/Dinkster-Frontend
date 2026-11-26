@@ -419,7 +419,7 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
 
   const params = (node: string, port = 'in') => ({ graphId: 'sub', itemId: 'in', node, port })
 
-  it.each(['variable', 'inactive', 'nested', 'nested-shared-selector', 'competing', 'competing-reordered', 'competing-shared', 'competing-shared-reordered'])('uses boundary-facing types even when inner ports are solved or inactive: %s', (scenario) => {
+  it.each(['variable', 'inactive', 'nested', 'nested-shared-selector', 'nested-variant-selector', 'competing', 'competing-reordered', 'competing-shared', 'competing-shared-reordered'])('uses boundary-facing types even when inner ports are solved or inactive: %s', (scenario) => {
     const competing = scenario.startsWith('competing')
     const inactive = !competing && scenario !== 'variable'
     const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
@@ -436,6 +436,16 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
           ] },
         ] }],
       } : schemaOf('Target', [input('value', { type: competing ? IMAGE : { kind: 'concrete', name: 'STRING' } })]),
+    }
+    if (scenario === 'nested-variant-selector') local.Target = {
+      ...schemaOf('Target', []),
+      body: [{ kind: 'typeChoice', id: 'mode', required: false, rows: [], variants: [
+        { key: 'a', type: IMAGE, rows: [{ kind: 'typeChoice', id: 'source', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'float', type: IMAGE, rows: [] }] }] },
+        { key: 'b', type: FLOAT, rows: [
+          { kind: 'typeChoice', id: 'source', required: false, typeVariable: 'T', rows: [], variants: [{ key: 'float', type: FLOAT, rows: [] }] },
+          input('amount', { type: variable }),
+        ] },
+      ] }],
     }
     if (competing) local.Primary = {
       ...schemaOf('Primary', [input('value', { type: variable })]),
