@@ -2,13 +2,11 @@
  * Generic settings editor. Rendering switches only on the registry's public
  * type discriminator, so adding a setting never requires editing this dialog.
  *
- * This is a placement-agnostic BODY (registered as the 'settings' modal
- * panel): the shell's modal host (a native <dialog>) owns the backdrop,
- * dialog chrome, title, close button, and Escape-to-close. The body swallows
- * keys while a keybinding capture is active or a nonempty search is cleared.
+ * The shell page host owns the tab and close action. The body swallows keys
+ * while a keybinding capture is active or a nonempty search is cleared.
  * Controls that own Escape handle it before the body fallback.
  */
-import { createMemo, createSignal, For, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onMount, Show } from 'solid-js'
 import { activeLocale, type MessageParams } from '@dinkster/core'
 import type { DinksterConnection, PackSettings } from '@dinkster/client'
 import type { AppCommand, CommandRegistry, KeybindingRegistry, SettingDefinition, SettingsRegistry } from './settings.js'
@@ -221,13 +219,14 @@ export function SettingsDialog(props: {
   const [category, setCategory] = createSignal(initialSettingsCategory(definitions(), (d) => props.settings.categoryOf(d)))
   const [searchCategory, setSearchCategory] = createSignal<string>()
   const [capture, setCapture] = createSignal<{ readonly command: string; readonly pending: string }>()
-  if (props.request) {
-    setCategory(props.request.category)
-  }
-  onMount(() => {
+  createEffect(() => {
     const request = props.request
     if (!request) return
+    setQuery('')
+    setCapture(undefined)
+    setCategory(request.category)
     queueMicrotask(() => {
+      if (props.request !== request) return
       root.querySelector<HTMLElement>(`[data-setting-id="${CSS.escape(request.id)}"] input, [data-setting-id="${CSS.escape(request.id)}"] [role="checkbox"], [data-setting-id="${CSS.escape(request.id)}"] [role="combobox"], [data-command-id="${CSS.escape(request.id)}"] button`)?.focus()
       props.onRequestConsumed?.()
     })

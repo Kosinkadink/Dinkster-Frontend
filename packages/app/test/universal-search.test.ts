@@ -83,7 +83,7 @@ describe('universal search model', () => {
     const rows = provider.query('grid', { selection: { nodes: [] }, signal: new AbortController().signal }) as readonly SearchResult[]
     const row = rows.find((item) => item.id === 'canvas.grid.visible')!
     runSearchAction(app, row.action)
-    expect(app.modalPanel.get()).toBe('settings')
+    expect(app.modalPanel.get()).not.toBe('settings')
     expect(app.settingsOpenRequest.get()).toEqual({ category: 'canvas.grid', id: 'canvas.grid.visible' })
     expect((provider.query('recent activations', { selection: { nodes: [] }, signal: new AbortController().signal }) as readonly SearchResult[]).some((item) => item.id === SEARCH_RECENTS_SETTING)).toBe(false)
     dispose.forEach((fn) => fn())

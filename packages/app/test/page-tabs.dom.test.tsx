@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createPageTabHost, type PageTab } from '../src/page-tabs.js'
 import { App } from '../src/App.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { runSearchAction } from '../src/universal-search.js'
 import {
   layoutGroups,
   repairEditorLayout,
@@ -139,6 +140,37 @@ describe('page tab host', () => {
 })
 
 describe('app page tabs', () => {
+  it('opens Settings once and applies later search requests to the existing page without changing workflow tabs', async () => {
+    const app = createWorkflowApp()
+    const workflows = app.tabs.get()
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <App app={app} />, root)
+    try {
+      app.commands.get('settings.open')!.run()
+      await vi.waitFor(() => expect(root.querySelector('.settings-editor')).not.toBeNull())
+      expect(app.pages.tabs().filter((tab) => tab.id === 'page:settings')).toHaveLength(1)
+      expect(root.querySelector('[aria-modal="true"]')).toBeNull()
+      app.commands.get('settings.open')!.run()
+      expect(app.pages.tabs().filter((tab) => tab.id === 'page:settings')).toHaveLength(1)
+      runSearchAction(app, { kind: 'host', action: 'settings.open', params: { category: 'canvas.grid', id: 'canvas.grid.visible' } })
+      await vi.waitFor(() => expect(document.activeElement?.id).toBe('setting-canvas.grid.visible'))
+      runSearchAction(app, { kind: 'host', action: 'settings.open', params: { category: 'search', id: 'search.registryUrl' } })
+      await vi.waitFor(() => expect(document.activeElement?.id).toBe('setting-search.registryUrl'))
+      expect(app.pages.tabs().filter((tab) => tab.id === 'page:settings')).toHaveLength(1)
+      expect(app.tabs.get()).toBe(workflows)
+      expect(app.activeTabId.get()).toBe('page:settings')
+      app.pages.close('page:settings')
+      await vi.waitFor(() => expect(root.querySelector('.settings-editor')).toBeNull())
+      expect(app.activeTab()).toBeDefined()
+    } finally {
+      dispose()
+      app.dispose()
+      root.remove()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('renders pages in the shared shell, keeps workflows separate, and confirms discarding a dirty page', async () => {
     const app = createWorkflowApp()
     const workflows = app.tabs.get()

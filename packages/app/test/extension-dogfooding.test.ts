@@ -23,7 +23,7 @@ describe('core extension door dogfooding', () => {
     app.settingsOpenRequest.set({ category: 'canvas', id: 'old' })
     app.commands.get('settings.open')!.run()
     expect(app.settingsOpenRequest.get()).toBeUndefined()
-    expect(app.modalPanel.get()).toBe('settings')
+    expect(app.modalPanel.get()).toBe('')
     app.commands.get('layout.customize')!.run()
     expect(app.layoutMenuRequests.get()).toBe(1)
   })

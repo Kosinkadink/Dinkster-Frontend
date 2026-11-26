@@ -2558,6 +2558,12 @@ export class AppState {
   readonly transientStatus = createSignal<string | undefined>(undefined)
   private transientStatusTimer: ReturnType<typeof setTimeout> | undefined
   readonly settingsOpenRequest = createSignal<{ readonly category: string; readonly id: string } | undefined>(undefined)
+
+  openSettings(request?: { readonly category: string; readonly id: string }): void {
+    this.settingsOpenRequest.set(request)
+    this.pages.open('settings')
+  }
+
   /**
    * Shell panels are descriptors (identity, placement, component), and the
    * shell renders from them. The built-in shell registers panel descriptors
@@ -3273,8 +3279,7 @@ export class AppState {
       run: () => { setPanelOpen(this.panels, this.dock, 'backends', 'left', true) },
     })
     register('settings.open', 'command.settings.open', 'Ctrl+,', () => {
-      this.settingsOpenRequest.set(undefined)
-      this.modalPanel.set('settings')
+      this.openSettings()
     })
     register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
     this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })
