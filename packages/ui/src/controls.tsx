@@ -458,6 +458,7 @@ export function ProductCheckbox(
 
 /** An on/off setting that changes the moment it is pressed. */
 export function ProductSwitch(props: {
+  id?: string
   checked: boolean
   label: string
   disabled?: boolean
@@ -465,6 +466,7 @@ export function ProductSwitch(props: {
 }) {
   return (
     <button
+      id={props.id}
       type="button"
       role="switch"
       class="dinkster-switch"

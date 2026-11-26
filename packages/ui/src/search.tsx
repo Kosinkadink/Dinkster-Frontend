@@ -7,10 +7,11 @@ import {
   onMount,
   type JSX,
 } from 'solid-js'
-import { DraftingCompass, ChevronRight, Search, X, type LucideIcon } from 'lucide-solid'
+import { DraftingCompass, ChevronRight, Ellipsis, Search, X, type LucideIcon } from 'lucide-solid'
 import { parseAssetTypeId, parseListTypeId, parseStreamTypeId } from '@dinkster/core'
 import { ProductIcon, ProductSwitch } from './controls.js'
 import { ProductShortcut } from './shortcut.js'
+import { ProductMenu, type ProductMenuItem } from './menu.js'
 
 /** A kind of result, shown as a named tab; Tab steps through them. */
 export interface ProductSearchKind {
@@ -38,12 +39,16 @@ export interface ProductSearchRow {
   readonly detailIcon?: LucideIcon
   /** Keys shown as chips at the right, such as a command's shortcut. */
   readonly keys?: readonly string[]
+  /** An editor for a result that can be changed without leaving the search. */
+  readonly control?: JSX.Element
   /** A switch at the right that changes the thing in place without choosing the row. */
   readonly toggle?: {
     readonly checked: boolean
     readonly label: string
     readonly onChange: (next: boolean) => void
   }
+  /** Row actions, such as a setting's reset and canonical identifier. */
+  readonly menu?: { readonly label: string; readonly items: readonly (ProductMenuItem | 'separator')[] }
   /** The count of a folder row. */
   readonly count?: number
 }
@@ -237,6 +242,8 @@ export function ProductSearch(props: {
   /** Controls at the right of the kinds, such as type filters. */
   filters?: JSX.Element
   groups: readonly ProductSearchGroup[]
+  /** False keeps the field while collapsing its results; omitted callers stay expanded. */
+  resultsVisible?: boolean
   /** The current row's key; the first row when absent or not listed. */
   current?: string
   onCurrent: (key: string) => void
@@ -265,7 +272,7 @@ export function ProductSearch(props: {
   let root!: HTMLDivElement
   let list!: HTMLDivElement
   let floating: HTMLElement | undefined
-  const keys = () => productSearchKeys(props.groups)
+  const keys = () => props.resultsVisible === false ? [] : productSearchKeys(props.groups)
   const rows = () => props.groups.flatMap((group) => group.rows)
   const current = () => {
     const all = keys()
@@ -275,6 +282,7 @@ export function ProductSearch(props: {
   }
   const currentRow = () => rows().find((row) => row.key === current())
   const status = () => {
+    if (props.resultsVisible === false) return ''
     if (props.status !== undefined) return props.status
     const row = currentRow()
     const count = rows().filter((item) => (item.kind ?? 'result') === 'result').length
@@ -393,7 +401,7 @@ export function ProductSearch(props: {
             {(note) => <span class="dinkster-search-row-note"> {note()}</span>}
           </Show>
         </span>
-        <span class="dinkster-search-row-end">
+        <div class="dinkster-search-row-end">
           <Show when={row.detail}>
             {(detail) => (
               <span class="dinkster-search-row-detail">
@@ -420,6 +428,14 @@ export function ProductSearch(props: {
               />
             )}
           </Show>
+          <Show when={row.control}><div class="dinkster-search-row-control"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}>{row.control}</div></Show>
+          <Show when={row.menu}>{(menu) => <span class="dinkster-search-row-menu"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}>
+            <ProductMenu label={menu().label} icon={Ellipsis} iconOnly fill="quiet" align="end" items={menu().items} />
+          </span>}</Show>
           <Show when={kind === 'folder'}>
             <Show when={row.count !== undefined}>
               <span class="dinkster-search-row-detail">{row.count}</span>
@@ -428,7 +444,7 @@ export function ProductSearch(props: {
               <ProductIcon icon={ChevronRight} />
             </span>
           </Show>
-        </span>
+        </div>
       </div>
     )
   }
@@ -471,8 +487,8 @@ export function ProductSearch(props: {
             role="combobox"
             aria-label={props.label}
             aria-autocomplete="list"
-            aria-expanded="true"
-            aria-controls={listId}
+            aria-expanded={props.resultsVisible !== false}
+            aria-controls={props.resultsVisible === false ? undefined : listId}
             aria-activedescendant={
               current() === undefined ? undefined : optionId(current()!)
             }
@@ -484,6 +500,7 @@ export function ProductSearch(props: {
             onKeyDown={onKeyDown}
           />
         </div>
+        <Show when={props.resultsVisible !== false}>
         <Show when={(props.kinds?.length ?? 0) > 0 || props.filters !== undefined}>
           <div class="dinkster-search-kinds">
             <div role="tablist" aria-label={props.label} class="dinkster-search-tabs">
@@ -579,8 +596,9 @@ export function ProductSearch(props: {
             </For>
           </div>
         </Show>
+        </Show>
       </div>
-      <Show when={props.preview !== undefined && props.previewPlace === 'floating'}>
+      <Show when={props.resultsVisible !== false && props.preview !== undefined && props.previewPlace === 'floating'}>
         <aside
           ref={(element) => {
             floating = element

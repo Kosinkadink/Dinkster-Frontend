@@ -28,7 +28,7 @@ export function ProductSettingsPage(props: {
       </nav>
     </aside>
     <div class="dinkster-settings-main">
-      <ProductSearch {...props.search} />
+      <ProductSearch {...props.search} resultsVisible={props.search.query.trim() !== ''} />
       <Show when={props.search.query.trim() === ''}>
         <div class="dinkster-settings-content">{props.children}</div>
       </Show>

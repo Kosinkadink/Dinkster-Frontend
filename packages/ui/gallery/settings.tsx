@@ -1,9 +1,10 @@
 import { For, Show, createMemo, createSignal } from 'solid-js'
-import { captureKeydown } from '../../app/src/settings.js'
+import { captureKeydown, KeybindingRegistry, SettingsRegistry } from '../../app/src/settings.js'
+import { useSignal } from '../../app/src/solid-adapter.js'
 import {
   ProductButton, ProductPage, ProductSelect, ProductSettingRow,
   ProductSettingsPage, ProductSettingsSection, ProductShortcut, ProductSwitch,
-  ProductTextArea, ProductTextInput, type ProductSearchGroup,
+  ProductTextArea, ProductTextInput, ProductToast, ProductErrorBanner, type ProductSearchGroup,
 } from '../src/index.js'
 
 interface Setting {
@@ -60,21 +61,68 @@ export function SettingsGallery() {
   const [query, setQuery] = createSignal('')
   const [current, setCurrent] = createSignal('')
   const [values, setValues] = createSignal<Record<string, string | number | boolean>>({ 'canvas.smoothWheelZoom': false })
-  const [bindings, setBindings] = createSignal<Record<string, string>>({ 'workflow.open': 'Ctrl+Shift+O' })
+  const preferences = new SettingsRegistry({ getItem: () => null, setItem: () => {} })
+  const keybindings = new KeybindingRegistry(preferences)
+  for (const command of commands) keybindings.register({ command: command.id, combo: command.keys })
+  keybindings.set('workflow.open', 'Ctrl+Shift+O')
+  const changed = useSignal(preferences.changed)
+  const combo = (id: string) => { changed(); return keybindings.combo(id) ?? '' }
   const [capture, setCapture] = createSignal<string>()
-  const [status, setStatus] = createSignal('')
+  const [pendingKeys, setPendingKeys] = createSignal('')
+  const [toast, setToast] = createSignal<{ message: string }>()
+  const [copyError, setCopyError] = createSignal('')
   const value = (setting: Setting) => values()[setting.id] ?? setting.value
   const update = (id: string, next: string | number | boolean) => setValues((old) => ({ ...old, [id]: next }))
+  const copyId = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopyError('')
+      setToast({ message: `Copied ${id}` })
+    } catch {
+      setCopyError('The browser could not copy the ID. Use a secure browser connection and try again.')
+    }
+  }
+  const settingMenu = (setting: Setting) => ({
+    label: `Actions for ${setting.label}`,
+    get items() { return [
+      { label: 'Reset to default', disabled: value(setting) === setting.value, onSelect: () => update(setting.id, setting.value) },
+      { label: 'Copy setting ID', description: setting.id, onSelect: () => { void copyId(setting.id) } },
+    ] },
+  })
+  const error = (setting: Setting) => typeof setting.value === 'number' && (!Number.isFinite(Number(value(setting))) || Number(value(setting)) < 0 || Number(value(setting)) > 5000) ? 'Enter a number between 0 and 5000.' : undefined
+  const control = (setting: Setting, searching = false) => {
+    const attributes = () => ({ id: setting.id, 'aria-label': setting.label, 'aria-describedby': error(setting) ? `${setting.id}-error` : !searching && setting.description ? `${setting.id}-description` : undefined, 'aria-invalid': error(setting) ? 'true' as const : undefined })
+    return <>
+      <Show when={typeof setting.value === 'boolean'}><ProductSwitch id={setting.id} label={setting.label} checked={value(setting) as boolean} onChange={(next) => update(setting.id, next)} /></Show>
+      <Show when={setting.options}><ProductSelect {...attributes()} value={String(value(setting))} onChange={(event) => update(setting.id, event.currentTarget.value)}><For each={setting.options}>{(option) => <option>{option}</option>}</For></ProductSelect></Show>
+      <Show when={typeof setting.value !== 'boolean' && !setting.options && !setting.multiline}><ProductTextInput {...attributes()} inputmode={typeof setting.value === 'number' ? 'decimal' : 'text'} value={String(value(setting))} onInput={(event) => update(setting.id, typeof setting.value === 'number' ? Number(event.currentTarget.value) : event.currentTarget.value)} /></Show>
+      <Show when={setting.multiline}><ProductTextArea {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} /></Show>
+      <Show when={searching && error(setting)}>{(message) => <p id={`${setting.id}-error`} class="dinkster-field-error" role="alert">{message()}</p>}</Show>
+    </>
+  }
+  const shortcutError = (id: string) => combo(id) && keybindings.conflicts().get(combo(id)) ? `Also used by ${commands.filter((other) => other.id !== id && combo(other.id) === combo(id)).map((other) => other.label).join(', ')}.` : undefined
+  const shortcutControl = (command: typeof commands[number]) => <ProductButton id={command.id}
+    aria-label={`Record shortcut for ${command.label}`} aria-describedby={shortcutError(command.id) ? `${command.id}-error` : undefined}
+    onClick={() => { setPendingKeys(''); setCapture(command.id) }}>
+    <Show when={capture() !== command.id} fallback={<Show when={pendingKeys()} fallback="Press the keys, Esc cancels">{(keys) => <ProductShortcut keys={keys()} />}</Show>}><Show when={combo(command.id)} fallback="Set">{(keys) => <ProductShortcut keys={keys()} />}</Show></Show>
+  </ProductButton>
+  const shortcutMenu = (command: typeof commands[number]) => ({
+    label: `Actions for ${command.label}`,
+    get items() { return [
+      { label: 'Reset to default', disabled: combo(command.id) === keybindings.defaultCombo(command.id), onSelect: () => keybindings.reset(command.id) },
+      { label: 'Copy command ID', description: command.id, onSelect: () => { void copyId(command.id) } },
+    ] },
+  })
   const sections = () => [...new Set(settings.filter((setting) => setting.group === group()).map((setting) => setting.section))]
   const searchGroups = createMemo<readonly ProductSearchGroup[]>(() => {
     if (query().trim() === '') return []
     const words = query().toLocaleLowerCase().trim().split(/\s+/)
     const matches = settings.filter((setting) => words.every((word) => `${setting.label} ${setting.id} ${setting.group} ${setting.section}`.toLocaleLowerCase().includes(word)))
     const shortcuts = commands.filter((command) => words.every((word) => `${command.label} ${command.id} Shortcuts`.toLocaleLowerCase().includes(word)))
-    return [{ key: 'settings', label: `${matches.length} settings`, rows: matches.map((setting) => ({
+    return [{ key: 'settings', label: `${matches.length} ${matches.length === 1 ? 'setting' : 'settings'}`, rows: matches.map((setting) => ({
       key: setting.id, title: setting.label, detail: `${groups.find((entry) => entry.id === setting.group)?.label} - ${setting.section}`,
-      ...(typeof setting.value === 'boolean' ? { toggle: { checked: value(setting) as boolean, label: setting.label, onChange: (next: boolean) => update(setting.id, next) } } : {}),
-    })) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, detail: 'Shortcuts - Workflow', keys: (bindings()[command.id] ?? command.keys).split('+').filter(Boolean) })) }].filter((group) => group.rows.length > 0)
+      control: control(setting, true), menu: settingMenu(setting),
+    })) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, detail: 'Shortcuts - Workflow', control: <>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-error`} class="dinkster-field-error" role="alert">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
   })
   const chooseGroup = (id: string) => { setGroup(id); setQuery(''); setCapture(undefined) }
   const activate = (id: string) => {
@@ -92,16 +140,11 @@ export function SettingsGallery() {
     }
   }
   const row = (setting: Setting) => {
-    const error = () => typeof setting.value === 'number' && (Number(value(setting)) < 0 || Number(value(setting)) > 5000) ? 'Enter a number between 0 and 5000.' : undefined
-    const attributes = () => ({ id: setting.id, 'aria-labelledby': `${setting.id}-label`, 'aria-describedby': error() ? `${setting.id}-error` : setting.description ? `${setting.id}-description` : undefined, 'aria-invalid': error() ? 'true' as const : undefined })
-    return <ProductSettingRow id={setting.id} label={setting.label} description={setting.description} error={error()}
+    return <ProductSettingRow id={setting.id} label={setting.label} description={setting.description} error={error(setting)}
       modified={value(setting) !== setting.value} resetLabel="Reset" menuLabel={`Actions for ${setting.label}`}
       resetDefaultLabel="Reset to default" copyIdLabel="Copy setting ID"
-      onReset={() => update(setting.id, setting.value)} onCopyId={() => { void navigator.clipboard.writeText(setting.id); setStatus(`Copied ${setting.id}`) }}>
-      <Show when={typeof setting.value === 'boolean'}><ProductSwitch label={setting.label} checked={value(setting) as boolean} onChange={(next) => update(setting.id, next)} /></Show>
-      <Show when={setting.options}><ProductSelect {...attributes()} value={String(value(setting))} onChange={(event) => update(setting.id, event.currentTarget.value)}><For each={setting.options}>{(option) => <option>{option}</option>}</For></ProductSelect></Show>
-      <Show when={typeof setting.value !== 'boolean' && !setting.options && !setting.multiline}><ProductTextInput {...attributes()} inputmode={typeof setting.value === 'number' ? 'decimal' : 'text'} value={String(value(setting))} onInput={(event) => update(setting.id, typeof setting.value === 'number' ? Number(event.currentTarget.value) : event.currentTarget.value)} /></Show>
-      <Show when={setting.multiline}><ProductTextArea {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} /></Show>
+      onReset={() => update(setting.id, setting.value)} onCopyId={() => { void copyId(setting.id) }}>
+      {control(setting)}
     </ProductSettingRow>
   }
   const record = (event: KeyboardEvent) => {
@@ -110,26 +153,27 @@ export function SettingsGallery() {
     event.preventDefault(); event.stopPropagation()
     const result = captureKeydown(event)
     if (result.kind === 'cancel') setCapture(undefined)
+    else if (result.kind === 'pending') setPendingKeys(result.combo)
     else if (result.kind === 'complete') {
-      setBindings((old) => ({ ...old, [id]: result.combo })); setCapture(undefined)
+      keybindings.set(id, result.combo); setCapture(undefined)
     }
   }
   return <ProductPage table title="Settings page" description="Shared page and controls with in-memory settings, shortcuts and service examples.">
+    <Show when={copyError()}><ProductErrorBanner onDismiss={() => setCopyError('')}>{copyError()}</ProductErrorBanner></Show>
     <div class="dinkster-settings-example" onKeyDown={record}>
       <ProductSettingsPage title="Settings" groupsLabel="Settings groups" groups={groups} group={group()} onGroup={chooseGroup}
-        search={{ label: 'Search settings', placeholder: 'Search settings', get query() { return query() }, onQuery: (next) => { setQuery(next); setCurrent('') }, get groups() { return searchGroups() }, get current() { return current() }, onCurrent: setCurrent, onActivate: activate, onClose: () => setQuery(''), empty: { title: 'No matching settings', detail: 'Try a setting name or its ID.' } }}>
+        search={{ label: 'Search settings', placeholder: 'Search settings', get query() { return query() }, onQuery: (next) => { setCapture(undefined); setQuery(next); setCurrent('') }, get groups() { return searchGroups() }, get current() { return current() }, onCurrent: setCurrent, onActivate: activate, onClose: () => setQuery(''), empty: { title: 'No matching settings', detail: 'Try a setting name or its ID.' } }}>
         <Show when={group() === 'shortcuts'} fallback={<For each={sections()}>{(section) => <ProductSettingsSection title={section}><For each={settings.filter((setting) => setting.group === group() && setting.section === section)}>{row}</For></ProductSettingsSection>}</For>}>
           <ProductSettingsSection title="Workflow"><For each={commands}>{(command) => <ProductSettingRow
-            id={command.id} label={command.label} modified={(bindings()[command.id] ?? command.keys) !== command.keys}
+            id={command.id} label={command.label} modified={combo(command.id) !== keybindings.defaultCombo(command.id)}
+            error={shortcutError(command.id)}
             resetLabel="Reset" menuLabel={`Actions for ${command.label}`} resetDefaultLabel="Reset to default" copyIdLabel="Copy command ID"
-            onReset={() => setBindings((old) => ({ ...old, [command.id]: command.keys }))} onCopyId={() => { void navigator.clipboard.writeText(command.id) }}>
-            <ProductButton id={command.id} aria-label={`Record shortcut for ${command.label}`} onClick={() => setCapture(command.id)}>
-              <Show when={capture() !== command.id} fallback="Press the keys, Esc cancels"><Show when={bindings()[command.id] ?? command.keys} fallback="Set">{(keys) => <ProductShortcut keys={keys()} />}</Show></Show>
-            </ProductButton>
+            onReset={() => keybindings.reset(command.id)} onCopyId={() => { void copyId(command.id) }}>
+            {shortcutControl(command)}
           </ProductSettingRow>}</For></ProductSettingsSection>
         </Show>
       </ProductSettingsPage>
     </div>
-    <p class="dinkster-metadata" role="status">{status()}</p>
+    <ProductToast notification={toast()} onDismiss={() => setToast(undefined)} />
   </ProductPage>
 }
