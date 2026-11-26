@@ -403,6 +403,7 @@ export function CanvasSemanticNavigator(props: {
   readonly onExit: () => void
   readonly onFocusChange: (focused: boolean) => void
   readonly onActiveChange?: (item: CanvasSemanticItem | undefined) => void
+  readonly activePoint?: (item: CanvasSemanticItem) => { readonly x: number; readonly y: number } | undefined
 }) {
   const message = useAppMessage()
   let panel!: HTMLDivElement
@@ -414,17 +415,39 @@ export function CanvasSemanticNavigator(props: {
     const stage = panel.offsetParent
     if (!(stage instanceof HTMLElement)) return
     const bar = stage.querySelector<HTMLElement>('.canvas-corner-bar')
+    const toolbar = stage.querySelector<HTMLElement>('.canvas-stage-toolbar')
+    const item = props.items[cursor()]
+    const point = item === undefined ? undefined : props.activePoint?.(item)
     const place = (): void => {
       const bounds = stage.getBoundingClientRect()
-      const gap = Number.parseFloat(getComputedStyle(panel).left) || 0
+      const gap = Number.parseFloat(getComputedStyle(panel).paddingTop) || 0
+      const top = toolbar === null ? gap : toolbar.getBoundingClientRect().bottom - bounds.top + gap
       const bottom = bar === null ? gap : bounds.bottom - bar.getBoundingClientRect().top + gap
       panel.style.bottom = `${bottom}px`
-      panel.style.maxHeight = `${Math.max(0, bounds.height - bottom - gap)}px`
+      panel.style.top = 'auto'
+      panel.style.maxHeight = `${Math.max(0, bounds.height - bottom - top)}px`
+      if (point !== undefined) {
+        const rect = panel.getBoundingClientRect()
+        if (point.x >= rect.left - gap && point.x <= rect.right + gap &&
+            point.y >= rect.top - gap && point.y <= rect.bottom + gap) {
+          const above = point.y - bounds.top - gap - top
+          const below = bounds.height - bottom - (point.y - bounds.top + gap)
+          if (above >= rect.height || above >= below) {
+            panel.style.bottom = `${bounds.bottom - point.y + gap}px`
+            panel.style.maxHeight = `${Math.max(0, above)}px`
+          } else {
+            panel.style.top = `${point.y - bounds.top + gap}px`
+            panel.style.bottom = 'auto'
+            panel.style.maxHeight = `${Math.max(0, below)}px`
+          }
+        }
+      }
     }
     place()
     const observer = new ResizeObserver(place)
     observer.observe(stage)
     if (bar !== null) observer.observe(bar)
+    if (toolbar !== null) observer.observe(toolbar)
     onCleanup(() => observer.disconnect())
   })
   onCleanup(() => queueMicrotask(() => {
@@ -537,8 +560,8 @@ export function CanvasSemanticNavigator(props: {
             data-active={entry.index === cursor() ? 'true' : undefined}
             onClick={() => move(entry.index)}
           >
-            <span class="canvas-semantic-name"><span class="canvas-semantic-kind">{entry.item.kindLabel}</span> {entry.item.name}</span>
-            <Show when={entry.item.detail}><span class="dinkster-list-row-detail">{entry.item.detail}</span></Show>
+            <span class="canvas-semantic-kind">{entry.item.kindLabel}</span> {entry.item.name}
+            <Show when={entry.item.detail}> <span class="dinkster-list-row-detail">{entry.item.detail}</span></Show>
           </div>
         )}</For>
       </div>

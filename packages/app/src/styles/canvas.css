@@ -261,9 +261,17 @@
 .canvas-semantic-nav [role='listbox']:focus-visible {
   outline: none;
 }
-.canvas-semantic-name {
-  overflow-wrap: anywhere;
+.canvas-semantic-nav .dinkster-list-row {
+  display: block;
+  padding: var(--dinkster-space-4) var(--dinkster-space-8);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--dinkster-type-metadata-size);
+  line-height: var(--dinkster-type-metadata-line);
 }
+.canvas-semantic-nav .dinkster-list-row-detail { display: inline; }
+.canvas-semantic-nav .canvas-semantic-help { padding: var(--dinkster-space-4); }
 .canvas-semantic-kind { color: var(--dinkster-text-secondary); }
 .canvas-semantic-nav .dinkster-list-row[data-active='true']:not([aria-selected='true']) {
   background: var(--dinkster-interaction-hover);

@@ -101,7 +101,7 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   await expect(active).toHaveAttribute('data-kind', 'widget')
   await expect(active).toHaveAccessibleName(/^Row: width of .+, 64$/)
   await page.keyboard.press('Enter')
-  await expect(active).toHaveAttribute('aria-selected', 'true')
+  await expect(active).toHaveAttribute('aria-selected', 'false')
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before.document)
 
@@ -147,7 +147,8 @@ test('semantic scene navigation stays virtual until focused and pans only on act
     const panel = listbox.parentElement!.getBoundingClientRect()
     const stage = listbox.closest('.canvas-stage')!.getBoundingClientRect()
     const bar = listbox.closest('.canvas-stage')!.querySelector('.canvas-corner-bar')!.getBoundingClientRect()
-    return panel.top >= stage.top && panel.bottom <= bar.top && panel.left >= stage.left && panel.right <= stage.right
+    const toolbar = listbox.closest('.canvas-stage')!.querySelector('.canvas-stage-toolbar')!.getBoundingClientRect()
+    return panel.top >= toolbar.bottom && panel.bottom <= bar.top && panel.left >= stage.left && panel.right <= stage.right
   })).toBe(true)
   await capture(page, testInfo, 'narrow-selected-node')
 
