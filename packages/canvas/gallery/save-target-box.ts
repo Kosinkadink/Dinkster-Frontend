@@ -70,9 +70,12 @@ export function createSaveTargetScene(
   stored: Json,
   options: { readonly optional?: boolean; readonly wired?: boolean; readonly unfolded?: boolean } = {},
 ): Scene {
-  const schema = options.optional === true ? optionalSaveTargetSchema : saveTargetSchema
-  const id = schema.type
   const wired = options.wired === true
+  const schema = {
+    ...(options.optional === true ? optionalSaveTargetSchema : saveTargetSchema),
+    ...(wired ? { displayName: 'Save layers' } : {}),
+  }
+  const id = schema.type
   const loaded = loadDocument({
     format: 'dinkster-workflow',
     formatVersion: 1,
