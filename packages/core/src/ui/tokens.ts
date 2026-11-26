@@ -274,7 +274,7 @@ export interface CanvasSemanticTokenProjection {
   readonly space: SemanticDesignTokens['space']
   readonly type: Pick<
     SemanticDesignTokens['type'],
-    'fontFamily' | 'metadata' | 'body' | 'weight'
+    'fontFamily' | 'fontMono' | 'metadata' | 'body' | 'weight'
   >
   readonly surface: SemanticDesignTokens['surface']
   readonly text: SemanticDesignTokens['text']
@@ -291,6 +291,7 @@ export const canvasSemanticTokens: CanvasSemanticTokenProjection = deepFreeze({
   space: semanticDesignTokens.space,
   type: {
     fontFamily: semanticDesignTokens.type.fontFamily,
+    fontMono: semanticDesignTokens.type.fontMono,
     metadata: semanticDesignTokens.type.metadata,
     body: semanticDesignTokens.type.body,
     weight: semanticDesignTokens.type.weight,
