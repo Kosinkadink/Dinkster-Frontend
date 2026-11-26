@@ -70,7 +70,7 @@ import type {
 import { predictAllocatedId } from './alloc.js'
 import { isValidActorId } from '../ids.js'
 import { applyOps, type PatchOp } from './patch.js'
-import { DocumentStore, jsonSameValue, replayHistoryOps, type BoundaryPositionResolver, type DocumentCommitPolicy, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
+import { DocumentStore, jsonSameValue, replayHistoryOps, type BoundaryPositionResolver, type NodeHeightResolver, type DocumentCommitPolicy, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
 import { toWirePatch, type DocumentSession, type SessionOp, type WirePatchOp } from './session.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
@@ -158,6 +158,7 @@ export interface SharedSessionOptions {
   readonly onError?: (message: string) => void
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
   readonly boundaryPositionsFor?: BoundaryPositionResolver
+  readonly nodeHeightFor?: NodeHeightResolver
   /** Synchronous local command, history and rebased intention policy. */
   readonly validateCommit?: DocumentCommitPolicy
   /** Confirm ownership before adoption; the receipt callback runs after commit, before observers. */
@@ -247,6 +248,7 @@ class SharedDocumentSession implements DocumentSession {
   private readonly maxUndo: number
   private readonly schemaResolverFor: ((doc: WorkflowDocument) => SchemaResolver) | undefined
   private readonly boundaryPositionsFor: SharedSessionOptions['boundaryPositionsFor']
+  private readonly nodeHeightFor: SharedSessionOptions['nodeHeightFor']
   private readonly validateCommit: SharedSessionOptions['validateCommit']
   private readonly beforeRemoteDocument: SharedSessionOptions['beforeRemoteDocument']
   private rebasing = false
@@ -324,6 +326,7 @@ class SharedDocumentSession implements DocumentSession {
     this.maxUndo = options?.maxUndo ?? 200
     this.schemaResolverFor = options?.schemaResolverFor
     this.boundaryPositionsFor = options?.boundaryPositionsFor
+    this.nodeHeightFor = options?.nodeHeightFor
     this.validateCommit = options?.validateCommit
     this.beforeRemoteDocument = options?.beforeRemoteDocument
     this.snapshotPolicy = new SnapshotPublicationPolicy(
@@ -574,9 +577,16 @@ class SharedDocumentSession implements DocumentSession {
     const store = this.store
     const prepared = store.prepareDispatch(stamped)
     if (!prepared.ok) return prepared
-    // Keep schema-derived arrival folds in the intention: replay has no live schema authority.
-    const folds = (definition?.replaysHistory ? [] : prepared.forward).flatMap((op) => {
+    // Keep arrival folds and measured heights in the intention: replay has no live schema authority.
+    const folds = (definition?.replaysHistory ? [] : prepared.forward).flatMap<Json>((op) => {
       const [root, graphs, graphId, nodes, nodeId, editors, valueKey] = op.path
+      if (op.op !== 'remove' && op.path.length === 6 && root === 'view' && graphs === 'graphs' &&
+        nodes === 'nodes' && editors === 'size') {
+        const before = store.doc.view.graphs[graphId!]?.nodes[nodeId!]
+        const after = prepared.document.view.graphs[graphId!]?.nodes[nodeId!]
+        if (!jsonSameValue(before?.editors, after?.editors) || !jsonSameValue(before?.sections, after?.sections))
+          return [{ command: 'view.setNodeSize', params: { graphId: graphId!, nodeId: nodeId!, size: op.value } }]
+      }
       if (op.op === 'remove' || op.path.length !== 7 || root !== 'view' || graphs !== 'graphs' ||
         nodes !== 'nodes' || editors !== 'editors' || typeof op.value !== 'object' || op.value === null ||
         Array.isArray(op.value) || (op.value as JsonObject)['unfolded'] !== false) return []
@@ -1229,6 +1239,7 @@ class SharedDocumentSession implements DocumentSession {
         : ({ kind: 'initial', ...(this.schemaResolverFor ? { schemaResolverFor: this.schemaResolverFor } : {}) }),
       undefined,
       this.boundaryPositionsFor,
+      this.nodeHeightFor,
     )
   }
 

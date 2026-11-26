@@ -4193,8 +4193,8 @@ export class CanvasRenderer {
       }, { label: 'Preview', detail: 'no picture yet', detailColor: t.colors.valueMark, detailFont: smallFont, hovered: false })
     }
     if (previewEdgeShown(node) && contentDetail) {
-      // The text box's bar, on the node's bottom edge: it sizes the open
-      // preview through the node's height.
+      // The text box's bar, inside the node just above its bottom edge: it
+      // sizes the open preview through the node's height.
       const edge = canvasPaintTokens.widget.textBoxEdge
       const hot = this.overlay.previewEdge === sceneNode.id
       const barWidth = hot ? edge.hotWidth : edge.width
@@ -4364,8 +4364,8 @@ export class CanvasRenderer {
         const pinAlpha = ctx.globalAlpha
         if (pin.kept !== undefined) ctx.globalAlpha = pinAlpha * canvasPaintTokens.widget.inactiveOpacity
         else if (pin.direction === 'in' && this.mutedInputPins.has(`${node.id}\u0000${pin.portId}`)) ctx.globalAlpha = pinAlpha * canvasPaintTokens.node.modeOpacity
-        if (pin.collapsedSection !== undefined) {
-          // Each pin of a closed box's cluster cuts the one above it.
+        if (pin.collapsedSection !== undefined || pin.pressed === true) {
+          // Each pin of a compact cluster cuts the one above it.
           ctx.fillStyle = t.colors.nodeBody
           ctx.beginPath()
           ctx.arc(px, py, radius + canvasPaintTokens.node.box.clusterRing, 0, Math.PI * 2)

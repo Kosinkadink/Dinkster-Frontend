@@ -42,26 +42,53 @@ const doLayout = (items: NodeSchema['body'], displayName?: string) =>
   layoutNode(schemaOf(items, displayName), nodeData, defaultTokens, measure, widgetMeasure)
 
 describe('pairing', () => {
+  it('keeps a three-field line as tall as its tallest field with wired pins clustered at its ends', () => {
+    for (const middle of [widget('middle'), widget('middle', { widget: { widgetType: 'STRING', options: { multiline: true } } })]) {
+      const layout = layoutNode(schemaOf([
+        { kind: 'row', rows: [widget('first'), middle, widget('last')] },
+        widget('after'), output('first'),
+      ]), nodeData, defaultTokens, measure, widgetMeasure, {
+        connectedPorts: new Set(['in:first', 'in:last', 'out:middle']),
+      })
+      const height = doLayout([middle]).rows[0]!.height
+      const [first, second, last, after] = layout.rows
+      expect([first, second, last].map((row) => [row!.y, row!.height])).toEqual([
+        [first!.y, height], [first!.y, height], [first!.y, height],
+      ])
+      expect(after!.y).toBe(first!.y + height)
+      const center = first!.y + defaultTokens.rowHeight / 2
+      expect(layout.pins.filter((pin) => pin.pressed).map((pin) => [pin.direction, pin.portId, pin.y])).toEqual([
+        ['in', 'first', center - 3.5], ['in', 'last', center + 3.5], ['out', 'middle', center],
+      ])
+      expect(layout.pins.find((pin) => pin.portId === 'first' && pin.direction === 'out' && !pin.widgetTap)!.y)
+        .toBeGreaterThan(after!.y)
+    }
+  })
+
   it('places an appended adjacent widget after its sibling without changing schema or value order', () => {
     const items = [widget('prefix'), widget('quality'), widget('mount', { adjacentTo: 'prefix' }), widget('tail')]
     const before = JSON.stringify(items)
-    const layout = doLayout(items)
+    const layout = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
+      connectedPorts: new Set(['in:prefix', 'in:mount']),
+    })
     expect(layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
     expect(JSON.stringify(items)).toBe(before)
-    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
+    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId).sort()).toEqual(['mount', 'prefix', 'quality', 'tail'])
     const [prefix, mount, quality] = layout.rows
     expect(mount!.y).toBe(prefix!.y)
     expect(quality!.y).toBe(prefix!.y + prefix!.height)
     for (const projected of [layout, withPreviewRegion(layout, defaultTokens), withCompactPreviewRegion(layout, defaultTokens), withTextOutputRegion(layout, defaultTokens)]) {
       expect(projected.rows[1]!.y).toBe(projected.rows[0]!.y)
-      const inputs = projected.pins.filter((pin) => pin.direction === 'in')
-      expect(inputs[1]!.y - inputs[0]!.y).toBeGreaterThan(18)
+      const inputs = projected.pins.filter((pin) => pin.direction === 'in' && pin.pressed)
+      expect(inputs[1]!.y - inputs[0]!.y).toBe(7)
       expect(inputs[1]!.y).toBeLessThan(projected.rows[0]!.y + projected.rows[0]!.height)
     }
   })
 
   it('keeps a same-id real output separate from the adjacent widget value output', () => {
-    const layout = doLayout([widget('prefix'), widget('mount', { adjacentTo: 'prefix' }), output('prefix')])
+    const layout = layoutNode(schemaOf([widget('prefix'), widget('mount', { adjacentTo: 'prefix' }), output('prefix')]), nodeData, defaultTokens, measure, widgetMeasure, {
+      connectedPorts: new Set(['out:prefix']),
+    })
     const realOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.direction === 'out' && !pin.widgetTap)!
     const valueOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.widgetTap)!
     expect(realOutput.y).toBeGreaterThan(valueOutput.y)
@@ -108,12 +135,12 @@ describe('pairing', () => {
       kind: 'choice', id: 'mode', required: true, shared: [],
       options: [{ key: 'a', rows: [note('shown', 'under a')] }, { key: 'b', rows: [note('hidden', 'under b'), button('go', 'Go')] }],
     }
-    const layout = doLayout([
+    const layout = layoutNode(schemaOf([
       note('intro', 'Plain text'),
       { kind: 'row', rows: [widget('w'), note('size', { formula: 'w * 2' }, 'pending'), button('swap', 'Swap')] },
       widget('after'),
       mode,
-    ])
+    ]), nodeData, defaultTokens, measure, widgetMeasure, { connectedPorts: new Set(['in:w']) })
     const kinds = layout.rows.map((row) => row.kind === 'note' ? `note:${row.noteId}:${row.text}${row.unknown ? ':unknown' : ''}`
       : row.kind === 'button' ? `button:${row.buttonId}:${row.label}`
         : row.kind === 'widget' ? `widget:${row.inputId}` : row.kind)
@@ -128,8 +155,8 @@ describe('pairing', () => {
     expect(span(size)[1]).toBeLessThanOrEqual(span(swap)[0]!)
     expect(after!.y).toBe(w!.y + w!.height)
     // Neither kind is a pin target.
-    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['w', 'after'])
-    // The only field of the shared line keeps the line's height and its socket sits at the middle.
+    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId).sort()).toEqual(['after', 'w'])
+    // The only wired field's socket sits at the middle of the shared line.
     expect(layout.pins.find((pin) => pin.portId === 'w')!.y).toBe(w!.y + w!.height / 2)
   })
 

@@ -101,6 +101,9 @@ export type BoundaryPositionResolver = (
   graphId: string,
 ) => Readonly<Record<BoundarySide, BoundaryNodeViewState>>
 
+/** Natural row-stack height, measured by the renderer without manual-size surplus. */
+export type NodeHeightResolver = (document: WorkflowDocument, graphId: string, nodeId: string) => number | undefined
+
 /** Materialize only missing geometry; layout stays owned by the renderer. */
 export function initializeBoundaryViews(
   document: WorkflowDocument,
@@ -446,6 +449,7 @@ export class DocumentStore implements DocumentStoreContract {
     private readonly executionContext: () => CommandExecutionContext = () => ({ kind: 'initial' }),
     private readonly validateCommit?: DocumentCommitPolicy,
     private readonly boundaryPositionsFor?: BoundaryPositionResolver,
+    private readonly nodeHeightFor?: NodeHeightResolver,
   ) {
     // Ownership boundary (CO1): the store never retains or exposes caller-
     // mutable data. The initial document is validated, deep-copied, and
@@ -586,6 +590,23 @@ export class DocumentStore implements DocumentStoreContract {
       if (resolve !== undefined) {
         storeStartState(tx, resolve, nodesChangedBy(tx.current, tx.forward))
         if (!def.replaysHistory) foldEditorsOnWireArrival(this.doc, tx, resolve)
+      }
+      if (context.kind === 'initial' && !hasErrors(commandDiags) && !def.replaysHistory && this.nodeHeightFor) {
+        for (const [graphId, graph] of Object.entries(tx.current.view.graphs)) {
+          if (graph === this.doc.view.graphs[graphId]) continue
+          for (const [nodeId, view] of Object.entries(graph.nodes)) {
+            const before = this.doc.view.graphs[graphId]?.nodes[nodeId]
+            if (!view.size || !before?.size || !jsonSameValue(view.size, before.size) ||
+              (jsonSameValue(view.editors, before.editors) && jsonSameValue(view.sections, before.sections))) continue
+            const oldHeight = this.nodeHeightFor(this.doc, graphId, nodeId)
+            const newHeight = this.nodeHeightFor(tx.current, graphId, nodeId)
+            if (oldHeight === undefined || newHeight === undefined || oldHeight === newHeight) continue
+            tx.set(['view', 'graphs', graphId, 'nodes', nodeId, 'size'], {
+              width: view.size.width,
+              height: Math.max(0, Math.max(view.size.height, oldHeight) + newHeight - oldHeight),
+            })
+          }
+        }
       }
       if (!hasErrors(commandDiags) && !def.replaysHistory && tx.forward.length > 0 && this.boundaryPositionsFor) {
         const changedGraphs = new Set(Object.keys(tx.current.graphs).filter((id) =>
