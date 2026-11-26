@@ -204,7 +204,7 @@ for (const delivery of ['net', 'boundary', 'parent-boundary'] as const) {
           g0: {
             ...graph, links,
             nets: delivery === 'net' ? { feed: { id: 'feed', name: 'Histogram', source: histogramWire!.from, sinks: [histogramWire!.to] } } : {},
-            ...(delivery === 'net' ? {} : { boundary: { inputs: [{ id: 'feed', binds: { kind: 'port', node: 'editor', port: 'histogram' } }], outputs: [] } }),
+            ...(delivery === 'net' ? {} : { boundary: { body: [{ kind: 'input', id: 'feed', binds: { kind: 'port', node: 'editor', port: 'histogram' } }] } }),
           },
           outer: {
             id: 'outer', name: 'Outer', nextOrdinal: 1, nets: {}, reroutes: {},

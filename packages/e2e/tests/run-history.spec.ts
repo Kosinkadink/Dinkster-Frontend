@@ -347,6 +347,39 @@ test('runs lingering through a backend switch can never clear the incoming backe
   expect(clearCalls).toEqual([])
 })
 
+test('with a page tab in front Runs shows all workflows, and the earlier choice returns on the workflow tab', async ({ page }) => {
+  await queueAndComplete(page)
+  await openRailPanel(page, 'Runs')
+  const scope = page.getByTestId('runs-scope')
+  const thisWorkflow = scope.getByRole('radio', { name: 'This workflow', exact: true })
+  await chooseRunScope(page, 'workflow')
+  const workflowTab = await page.evaluate(() => window.__dinksterTest!.app.activeTabId.get())
+  const pageTab = await page.evaluate(() => {
+    const pages = (window.__dinksterTest!.app as unknown as { pages: {
+      register(page: unknown): unknown; open(id: string): { id: string } | undefined } }).pages
+    pages.register({ id: 'example', title: 'Example', icon: () => undefined, component: () => null })
+    return pages.open('example')!.id
+  })
+  const showTab = (id: string) => page.evaluate((id) => window.__dinksterTest!.app.activeTabId.set(id), id)
+
+  // A page is not a workflow: All workflows shows, and This workflow stays in place but cannot be chosen.
+  await expect(scope).toHaveAttribute('data-selected-id', 'all')
+  await expect(page.getByTestId('runs-panel').getByText('No runs for this workflow')).toHaveCount(0)
+  await expect(thisWorkflow).toBeDisabled()
+  await expect(thisWorkflow).toHaveAccessibleDescription('A page is in front, not a workflow.')
+  await expect(scope.locator('.dinkster-segment').first()).toHaveAttribute('data-tooltip-label', 'A page is in front, not a workflow.')
+
+  // Back on the workflow, its earlier choice returns; a choice of All workflows also survives the page.
+  await showTab(workflowTab)
+  await expect(scope).toHaveAttribute('data-selected-id', 'workflow')
+  await expect(thisWorkflow).toBeEnabled()
+  await chooseRunScope(page, 'all')
+  await showTab(pageTab)
+  await expect(scope).toHaveAttribute('data-selected-id', 'all')
+  await showTab(workflowTab)
+  await expect(scope).toHaveAttribute('data-selected-id', 'all')
+})
+
 nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('assets-toggle').click()

@@ -482,8 +482,8 @@ test('double-click Add node arms a title-centered ghost and commits only on the 
 
   const search = page.getByTestId('palette-search')
   await search.fill('audit KSampler')
-  await expect(page.getByTestId('palette-item').first()).toBeVisible()
-  await page.locator('[data-node-type="auditPlacementTest"]').click()
+  await expect(page.getByTestId('node-palette').getByRole('option').first()).toBeVisible()
+  await page.locator('[data-key="entry:auditPlacementTest"]').click()
 
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
   expect(await page.evaluate(() => Object.keys(
@@ -536,7 +536,7 @@ test('palette lists subgraph definitions and adds an instance', async ({ page })
 
   await page.mouse.dblclick(700, 600)
   await page.getByTestId('palette-search').fill('Image source')
-  await page.locator('[data-node-type="#g1"]').click()
+  await page.locator('[data-key="entry:#g1"]').click()
   await page.mouse.click(700, 600)
 
   const doc = await activeDoc(page)
