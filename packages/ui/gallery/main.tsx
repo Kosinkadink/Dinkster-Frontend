@@ -171,6 +171,7 @@ function Gallery() {
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
   const [serverOpen, setServerOpen] = createSignal(false)
+  const [progressOpen, setProgressOpen] = createSignal(false)
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
@@ -835,6 +836,14 @@ function Gallery() {
               <Section title="Plain navigation rows" components="ProductList, ProductListRow">
                 <ProductList label="Asset folders" variant="plain">
                   <ProductListRow title="Renders" description={<code>/home/name/Portraits/renders</code>} trailing="24 files" onActivate={() => complete('Renders opened')} />
+                </ProductList>
+              </Section>
+              <Section title="Rows with progress" components="ProductList, ProductListRow, ProductProgress">
+                <ProductList label="Model downloads" variant="plain">
+                  <ProductListRow title="Studio checkpoint" description="Checkpoint" trailing="42%" expanded={progressOpen()} onToggle={setProgressOpen}
+                    status={<ProductProgress label="Downloading Studio checkpoint" value={0.42} />}>
+                    <p class="dinkster-metadata">Download continues when details are closed.</p>
+                  </ProductListRow>
                 </ProductList>
               </Section>
               <Section title="Storage folders" components="ProductDisclosure, ProductMenu">

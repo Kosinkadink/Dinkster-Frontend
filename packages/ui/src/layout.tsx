@@ -507,6 +507,7 @@ export function ProductListRow(props: {
   leading?: JSX.Element
   trailing?: JSX.Element
   action?: JSX.Element
+  status?: JSX.Element
   expanded?: boolean
   onToggle?: (expanded: boolean) => void
   onActivate?: () => void
@@ -543,6 +544,7 @@ export function ProductListRow(props: {
         </Show>
         <Show when={props.action}>{(action) => <div class="dinkster-row-action">{action()}</div>}</Show>
       </div>
+      <Show when={props.status}>{(status) => <div class="dinkster-row-status">{status()}</div>}</Show>
       <Show when={expandable()}>
         <div id={detailsId} class="dinkster-row-details" hidden={!props.expanded}>
           <Show when={props.expanded}>{props.children}</Show>

@@ -222,6 +222,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-list[data-variant] .dinkster-row-action .dinkster-menu-trigger { opacity: 0; }
 .dinkster-list[data-variant] .dinkster-row:is(:hover, :focus-within) .dinkster-row-action .dinkster-menu-trigger { opacity: 1; }
 @media (hover: none) { .dinkster-list[data-variant] .dinkster-row-action .dinkster-menu-trigger { opacity: 1; } }
+.dinkster-row-status { min-width: 0; }
 .dinkster-row-details { display: grid; min-width: 0; gap: var(--dinkster-space-12); }
 .dinkster-table-scroll { max-width: 100%; overflow: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
 .dinkster-table { width: 100%; border-collapse: collapse; text-align: left; }
