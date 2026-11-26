@@ -469,7 +469,7 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await expect(page).toHaveScreenshot('frame-stays-when-scrolled.png')
 })
 
-test('gallery field borders show focus without adopting the trial on pages', async ({
+test('page field borders show focus without a second ring', async ({
   page,
 }) => {
   for (const theme of ['dark', 'light']) {
@@ -504,16 +504,6 @@ test('gallery field borders show focus without adopting the trial on pages', asy
     await disabled.focus()
     await expect(disabled).not.toBeFocused()
     await expect(disabled).toHaveCSS(
-      'border-top-color',
-      await token(page, '--dinkster-border-subtle'),
-    )
-    await page.evaluate(() => {
-      delete document.documentElement.dataset.fieldFocusMark
-    })
-    const field = page.getByLabel('Display name', { exact: true })
-    await field.focus()
-    await expect(field).toHaveCSS('outline-width', '2px')
-    await expect(field).toHaveCSS(
       'border-top-color',
       await token(page, '--dinkster-border-subtle'),
     )
