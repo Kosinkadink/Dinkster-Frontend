@@ -289,7 +289,7 @@ export function ShellResizeHandle(props: {
   }
   return (
     <div
-      class={`${props.region === 'left' ? 'dock' : props.region === 'right' ? 'rail' : 'bottom'}-resize`}
+      class={`${props.region === 'left' ? 'dock' : props.region === 'right' ? 'rail' : 'bottom'}-resize panel-resize-handle`}
       data-testid={props.testId}
       role="separator"
       tabindex="0"
@@ -298,7 +298,13 @@ export function ShellResizeHandle(props: {
       aria-valuemin={props.min}
       aria-valuemax={props.max}
       aria-valuenow={props.value}
-      onPointerDown={props.onPointerDown}
+      onPointerMove={positionResizeGrip}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        positionResizeGrip(event)
+        event.currentTarget.setPointerCapture(event.pointerId)
+        props.onPointerDown(event)
+      }}
       onKeyDown={resizeFromKey}
     />
   )
@@ -316,6 +322,13 @@ export interface DockZoneSectionView {
 
 /** Keyboard resize step for the section divider, as a share of the zone. */
 export const DOCK_SECTION_SPLIT_STEP = 0.05
+
+function positionResizeGrip(event: PointerEvent & { currentTarget: HTMLDivElement }): void {
+  const element = event.currentTarget
+  const rect = element.getBoundingClientRect()
+  const horizontal = element.getAttribute('aria-orientation') === 'horizontal'
+  element.style.setProperty('--dinkster-resize-grip-position', `${horizontal ? event.clientX - rect.left : event.clientY - rect.top}px`)
+}
 
 /**
  * Draggable, keyboard-operable divider between a zone's two sections. The
@@ -375,7 +388,7 @@ function DockSectionDivider(props: {
   return (
     <div
       ref={divider}
-      class="dock-section-divider"
+      class="dock-section-divider panel-resize-handle"
       data-testid={`dock-section-divider-${props.zone}`}
       role="separator"
       tabindex="0"
@@ -384,7 +397,11 @@ function DockSectionDivider(props: {
       aria-valuemin={Math.round(MIN_ZONE_SPLIT * 100)}
       aria-valuemax={Math.round(MAX_ZONE_SPLIT * 100)}
       aria-valuenow={Math.round(props.split * 100)}
-      onPointerDown={beginDrag}
+      onPointerMove={positionResizeGrip}
+      onPointerDown={(event) => {
+        positionResizeGrip(event)
+        beginDrag(event)
+      }}
       onKeyDown={resizeFromKey}
     />
   )

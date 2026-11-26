@@ -4690,6 +4690,11 @@ export class AppState {
           this.replaceProblems(schemaProblemsOwner, (registry.get()?.diagnostics ?? []).map((problem) => ({
             ...problem, message: `[${label}] ${problem.message}`,
           })))
+          for (const tab of this.tabs.get()) {
+            if (tab.execution || this.backendForTab(tab).id !== id || this.schemaDiagnosticsPending.has(tab.id)) continue
+            this.reportEnvironmentDrift(tab)
+            this.reportUnresolvedTypes(tab)
+          }
           this.backendsTick.update((v) => v + 1)
           this.flushWorkspaceRegistrations(id)
           // Schema refresh can invalidate an in-flight reconnect read. The
@@ -5533,7 +5538,7 @@ export class AppState {
    * A node type the target backend cannot resolve renders as a red error
    * shell - correct on canvas, but silently: nothing else says WHY a
    * workflow is dead or that queueing will refuse. Report every unresolved
-   * type once when schemas arrive, so "all my nodes
+   * type when schemas arrive or change, so "all my nodes
    * are red" always has a matching Problems entry naming the types and the
    * backend that lacks them. Subgraph-derived '#' types resolve locally and
    * are never reported.
@@ -5554,18 +5559,21 @@ export class AppState {
         continue
       missing.set(node.type, (missing.get(node.type) ?? 0) + 1)
     }
-    if (missing.size === 0) return
     const backend = this.backendForTab(tab)
-    this.reportProblems(tab.id,
-      [...missing].map(([type, count]) =>
-        diag(
-          'warning',
-          'schema',
-          'schema.unresolvedType',
-          `${type}${count > 1 ? ` (${count})` : ''}: not available on backend ${backend.label}`,
+    batch(() => {
+      this.problems.update((problems) => problems.filter((entry) =>
+        entry.owner !== tab.id || entry.origin !== 'schema' || entry.code !== 'schema.unresolvedType'))
+      this.reportProblems(tab.id,
+        [...missing].map(([type, count]) =>
+          diag(
+            'warning',
+            'schema',
+            'schema.unresolvedType',
+            `${type}${count > 1 ? ` (${count})` : ''}: not available on backend ${backend.label}`,
+          ),
         ),
-      ),
-    )
+      )
+    })
   }
 
   /**
@@ -7843,7 +7851,7 @@ export class AppState {
   }
 
   /**
-   * Advisory load-time drift check: compare the document's environment
+   * Advisory drift check: compare the document's environment
    * stamp (if any) against the tab's live registry and surface findings
    * in Problems. Never blocks anything - stamps are records, not identity.
    */
@@ -7856,7 +7864,12 @@ export class AppState {
       resolve: reg.resolve,
       ...(reg.packs !== undefined ? { packs: reg.packs } : {}),
     })
-    this.reportProblems(tab.id, drift)
+    batch(() => {
+      this.problems.update((problems) => problems.filter((entry) =>
+        entry.owner !== tab.id || entry.origin !== 'environment' ||
+        !['env.node-missing', 'env.node-drift', 'env.pack-updated'].includes(entry.code)))
+      this.reportProblems(tab.id, drift)
+    })
   }
 
   private importLegacy(json: unknown, registry: SchemaRegistry | undefined, translations: readonly ComfyTranslation[] = [], unavailable = false): {
