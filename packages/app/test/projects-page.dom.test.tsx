@@ -92,6 +92,7 @@ const projects = [
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 const rows = () => [...document.querySelectorAll('[role="option"]')].map((row) => row.textContent)
+const loading = (label: string) => [...document.querySelectorAll('[role="status"]')].find((node) => node.textContent === label)
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -118,7 +119,7 @@ it.each(['projects', 'installations'] as const)('waits for both deciding reads w
   installationsRead.resolve({ all: [] })
   await settle()
   expect(document.querySelector('[data-testid="projects-first-run"]')).not.toBeNull()
-  expect(document.querySelector('[data-testid="projects-loading"]')).toBeNull()
+  expect(loading('Loading projects')).toBeUndefined()
   const firstPaint = document.body.textContent
   await settle()
   expect(document.body.textContent).toBe(firstPaint)
@@ -130,16 +131,16 @@ it('shows slow loading at 200 ms and retains it for at least 300 ms', async () =
   render(() => <ProjectsView shell={shell()} source={{ ...source([]), listProjects: () => read.promise, installations: async () => ({ all: [] }) }} />, document.body)
   await vi.advanceTimersByTimeAsync(199)
   expect(document.querySelector('h1')?.textContent).toBe('Projects')
-  expect(document.querySelector('[data-testid="projects-loading"]')).toBeNull()
+  expect(loading('Loading projects')).toBeUndefined()
   await vi.advanceTimersByTimeAsync(1)
-  expect(document.querySelector('[data-testid="projects-loading"]')?.textContent).toBe('Loading projects')
+  expect(loading('Loading projects')).toBeDefined()
   read.resolve([])
   await vi.advanceTimersByTimeAsync(299)
   expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
-  expect(document.querySelector('[data-testid="projects-loading"]')).not.toBeNull()
+  expect(loading('Loading projects')).toBeDefined()
   await vi.advanceTimersByTimeAsync(1)
   expect(document.querySelector('[data-testid="projects-first-run"]')).not.toBeNull()
-  expect(document.querySelector('[data-testid="projects-loading"]')).toBeNull()
+  expect(loading('Loading projects')).toBeUndefined()
 })
 
 it('shows known headings and actions before slow project facts arrive', async () => {
@@ -149,10 +150,10 @@ it('shows known headings and actions before slow project facts arrive', async ()
     ...source(projects), listWorkflows: () => workflows.promise,
   }} />, document.body)
   await vi.advanceTimersByTimeAsync(199)
-  expect(document.querySelector('[data-testid="project-loading"]')).toBeNull()
+  expect(loading('Loading project')).toBeUndefined()
   await vi.advanceTimersByTimeAsync(1)
-  expect(document.querySelector('[data-testid="project-loading"]')?.textContent).toBe('Loading project')
-  expect(document.querySelector('[data-testid="projects-loading"]')).toBeNull()
+  expect(loading('Loading project')).toBeDefined()
+  expect(loading('Loading projects')).toBeUndefined()
   expect(document.querySelector('h2')?.textContent).toBe('Film grain tests')
   expect(document.querySelector('h3')?.textContent).toBe('Workflows')
   expect(document.body.textContent).not.toContain('Latest outputs')
@@ -160,7 +161,7 @@ it('shows known headings and actions before slow project facts arrive', async ()
   expect(document.body.textContent).not.toContain('No workflows yet.')
   workflows.resolve([])
   await vi.advanceTimersByTimeAsync(300)
-  expect(document.querySelector('[data-testid="project-loading"]')).toBeNull()
+  expect(loading('Loading project')).toBeUndefined()
   expect(document.querySelector('h2')?.textContent).toBe('Film grain tests')
   expect(document.body.textContent).toContain('No workflows yet.')
   expect(document.body.textContent).toContain('Latest outputs')
@@ -170,7 +171,8 @@ it('keeps the first painted elements unchanged as detail arrives, and keeps old 
   const film = deferred<readonly never[]>()
   const valley = deferred<readonly never[]>()
   render(() => <ProjectsView shell={shell()} source={{
-    ...source(projects), listWorkflows: (id) => id === 'p-film' ? film.promise : valley.promise,
+    ...source(projects), listProjects: async () => projects.map((project) => ({ ...project })),
+    listWorkflows: (id) => id === 'p-film' ? film.promise : valley.promise,
   }} />, document.body)
   await settle()
   expect(document.querySelector('.dinkster-skeleton')).toBeNull()
@@ -186,6 +188,11 @@ it('keeps the first painted elements unchanged as detail arrives, and keeps old 
   const detail = document.querySelector('[data-testid="projects-detail"]')!
   const original = detail.textContent
   const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) => entry.textContent?.startsWith('Valley'))!
+  row.focus()
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(document.activeElement).toBe(row)
+  expect(row.isConnected).toBe(true)
   row.click()
   await settle()
   expect(detail.isConnected).toBe(true)

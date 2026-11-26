@@ -1,7 +1,6 @@
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { activeLocale } from '@dinkster/core'
-import { ProductBrandMark, ProductButton, ProductDialog, ProductField, ProductLoading, ProductMenu, ProductNotice, ProductProgress, ProductTextButton, ProductTextInput } from '@dinkster/ui'
-import { createArrival } from './arrival.js'
+import { ProductBrandMark, ProductButton, ProductDialog, ProductField, ProductMenu, ProductNotice, ProductPageLoad, ProductProgress, ProductTextButton, ProductTextInput } from '@dinkster/ui'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { useAppMessage } from './locale.js'
 import { formatBytes } from './projects-page/project-facts.js'
@@ -24,30 +23,29 @@ export function SetupForm(props: {
     props.onStatusChange?.(setupJobActive(setup.job()) ? 'setting-up' : 'not-set-up')
     onCleanup(() => props.onStatusChange?.(undefined))
   })
-  const arrival = createArrival({ get latest() { return setup.plan() }, get loading() { return setup.planning() } })
   const [folder, setFolder] = createSignal<string>()
   const [folderBusy, setFolderBusy] = createSignal(false)
   const [folderError, setFolderError] = createSignal<string>()
-  const problem = () => setup.error()?.message ?? folderError() ?? setup.job()?.error?.message
+  const problem = () => (setup.page.error() ? undefined : setup.error()?.message) ?? folderError() ?? setup.job()?.error?.message
   const busy = () => setup.changing() || setup.planning() || setupJobActive(setup.job()) || folderBusy()
   const canChange = () => !setupJobActive(setup.job()) && setup.job()?.state !== 'completed'
   const bytes = (value: number) => formatBytes(value, activeLocale.get().tag)
   const buildLabel = () => {
-    const plan = arrival.value()
+    const plan = setup.plan()
     const job = setup.job()
     return setupJobActive(job) && job!.variant !== plan?.variant
       ? plan?.choices?.find((choice) => choice.variant === job!.variant)?.label
       : plan?.buildLabel
   }
   const cardNames = () => {
-    const variant = setupJobActive(setup.job()) ? setup.job()!.variant : arrival.value()?.variant
+    const variant = setupJobActive(setup.job()) ? setup.job()!.variant : setup.plan()?.variant
     if (variant?.endsWith('-cpu')) return []
     const counts = new Map<string, number>()
-    for (const card of arrival.value()?.detectedCards ?? []) counts.set(card.name, (counts.get(card.name) ?? 0) + 1)
+    for (const card of setup.plan()?.detectedCards ?? []) counts.set(card.name, (counts.get(card.name) ?? 0) + 1)
     return [...counts].map(([name, count]) => count > 1 ? `${count} x ${name}` : name)
   }
   const download = () => {
-    const plan = arrival.value()!
+    const plan = setup.plan()!
     return plan.downloadBytes !== null ? bytes(plan.downloadBytes)
       : plan.downloadEstimate ? message('setup.estimatedBytes', { size: bytes(plan.downloadEstimate.bytes) })
       : plan.runtimeDownloadBytes !== null ? message('setup.runtimeBytes', { size: bytes(plan.runtimeDownloadBytes) })
@@ -97,13 +95,9 @@ export function SetupForm(props: {
 
   return (
     <div class="setup-host" data-surface={props.surface} data-testid="setup-form">
-      <Show when={arrival.value()} fallback={
-        <Show when={setup.error()} fallback={<Show when={arrival.loading()}><ProductLoading label={message('setup.loading')} /></Show>}>
-          <ProductNotice tone="error">{setup.error()?.message}</ProductNotice>
-          <ProductButton onClick={() => void setup.refresh()}>{message('setup.retry')}</ProductButton>
-        </Show>
-      }>
-        {(plan) => <section class="setup-form setup-arrival">
+      <ProductPageLoad page={setup.page} read={() => setup.readPlan()} loadingLabel={message('setup.loading')} arrival="fade">
+      <Show when={setup.plan()}>
+        {(plan) => <section class="setup-form">
           <Show when={props.surface === 'editor'}><ProductBrandMark /></Show>
           <h1 class="dinkster-title">{message(props.surface === 'editor' ? 'setup.editorTitle' : 'projects.setup.title')}</h1>
           <dl class="setup-facts">
@@ -146,6 +140,7 @@ export function SetupForm(props: {
           <Show when={props.surface === 'editor' && setup.job()?.state !== 'completed'}><p class="dinkster-description">{message('setup.editorNote')}</p></Show>
         </section>}
       </Show>
+      </ProductPageLoad>
       <Show when={folder() !== undefined}>
         <ProductDialog title={message('setup.chooseFolder')} pending={setup.planning()} onDismiss={() => { if (!setup.planning()) setFolder(undefined) }}>
           <form class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); void replanRoot(folder()!) }}>

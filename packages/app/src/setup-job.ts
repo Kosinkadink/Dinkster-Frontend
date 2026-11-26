@@ -1,4 +1,5 @@
 import { createEffect, createSignal, onCleanup } from 'solid-js'
+import { createPageLoad } from '@dinkster/ui'
 
 export interface SetupProblem {
   readonly code: string
@@ -81,12 +82,13 @@ export function createSetupController(options: {
   readonly onInstallation?: (installation: NonNullable<SetupJob['installation']>) => void
   readonly onLostJob?: () => void
 } = {}) {
-  const [plan, setPlan] = createSignal<SetupPlan>()
+  const page = createPageLoad<SetupPlan>()
+  const plan = page.value
   const [job, setJob] = createSignal<SetupJob | null>(null)
-  const [planning, setPlanning] = createSignal(false)
+  const planning = page.pending
   const [changing, setChanging] = createSignal(false)
-  const [reviewed, setReviewed] = createSignal(false)
-  const [error, setError] = createSignal<SetupProblem>()
+  const [requestError, setError] = createSignal<SetupProblem>()
+  const error = () => requestError() ?? (page.error() ? problem(page.error()) : undefined)
   let query: SetupQuery = {}
   let generation = 0
   let disposed = false
@@ -106,30 +108,22 @@ export function createSetupController(options: {
     }
   }
 
-  async function refresh(next: SetupQuery = query): Promise<void> {
+  async function readPlan(next: SetupQuery = query): Promise<SetupPlan> {
     query = next
     const current = ++generation
-    setReviewed(false)
-    setPlanning(true)
     setError(undefined)
-    try {
-      const params = new URLSearchParams()
-      if (next.root !== undefined) params.set('root', next.root)
-      if (next.channel !== undefined) params.set('channel', next.channel)
-      if (next.variant !== undefined) params.set('variant', next.variant)
-      const result = await request<{ plan: SetupPlan; activeJob: SetupJob | null }>(`?${params}`)
-      if (disposed || current !== generation) return
-      setPlan(result.plan)
-      setJob(result.activeJob)
-      setReviewed(true)
-    } catch (failure) {
-      if (!disposed && current === generation) setError(problem(failure))
-    } finally {
-      if (!disposed && current === generation) setPlanning(false)
-    }
+    const params = new URLSearchParams()
+    if (next.root !== undefined) params.set('root', next.root)
+    if (next.channel !== undefined) params.set('channel', next.channel)
+    if (next.variant !== undefined) params.set('variant', next.variant)
+    const result = await request<{ plan: SetupPlan; activeJob: SetupJob | null }>(`?${params}`)
+    if (!disposed && current === generation) setJob(result.activeJob)
+    return result.plan
   }
 
-  const canStart = () => reviewed() && !planning() && !changing() && !setupJobActive(job()) &&
+  const refresh = (next: SetupQuery = query) => page.load(() => readPlan(next))
+
+  const canStart = () => !page.error() && !planning() && !changing() && !setupJobActive(job()) &&
     job()?.state !== 'completed' && plan()?.variant != null && plan()?.refusal === null
 
   async function start(): Promise<void> {
@@ -199,5 +193,5 @@ export function createSetupController(options: {
     for (const request of requests) request.abort()
   })
   void refresh()
-  return { plan, job, planning, changing, error, canStart, refresh, start, cancel }
+  return { page, readPlan, plan, job, planning, changing, error, canStart, refresh, start, cancel }
 }

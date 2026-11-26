@@ -12,9 +12,6 @@
 .editor-first-run-setup { position: absolute; inset: 0; padding: var(--dinkster-space-24); overflow: auto; pointer-events: none; }
 .editor-first-run-setup .setup-form, .editor-first-run-setup .dinkster-dialog { pointer-events: auto; }
 .setup-actions { justify-content: flex-end; }
-.setup-arrival { animation: setup-arrival 200ms var(--dinkster-motion-easing); }
-@keyframes setup-arrival { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .setup-arrival { animation: none; } }
 @media (max-width: 640px) {
   .editor-first-run-setup { top: var(--canvas-toolbar-bottom, 0px); bottom: var(--canvas-corner-inset, 0px); pointer-events: auto; }
   .setup-host { grid-template-rows: 0 max-content; }

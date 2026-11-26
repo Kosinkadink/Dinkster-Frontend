@@ -5,7 +5,8 @@
  * running. Opening a project goes through the shell, which writes the opening
  * line and the failure the page draws.
  */
-import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
+import { createEffect, createMemo, createSignal, createUniqueId, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
+import { createStore, reconcile } from 'solid-js/store'
 import { AudioLines, BookOpen, Database, Ellipsis, Eye, EyeOff, LayoutGrid, Search, Server, Workflow } from 'lucide-solid'
 import { activeLocale, asConnectionId, loadDocument, type SchemaResolver, type WorkflowDocument } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
@@ -25,11 +26,14 @@ import {
   ProductErrorBanner,
   ProductField,
   ProductIcon,
-  ProductLoading,
   ProductMenu,
+  createPageLoad,
+  ProductPageAnswer,
+  ProductPageLoad,
   ProductProjectFacts,
   ProductProjectHeader,
-  ProductProjectList,
+  ProductProjectListHeader,
+  ProductProjectRows,
   ProductProjectSection,
   ProductProjectsView,
   ProductTextButton,
@@ -41,7 +45,6 @@ import {
   type ProductProjectEntry,
 } from '@dinkster/ui'
 import { useAppMessage } from '../locale.js'
-import { createArrival } from '../arrival.js'
 import { SetupForm, type SetupStatus } from '../SetupForm.js'
 import { setupInProgress } from '../setup-job.js'
 import { AccountControl, createAccountSession } from '../AccountControl.js'
@@ -360,19 +363,24 @@ export function ProjectsView(props: {
   const message = useAppMessage()
   const locale = useSignal(activeLocale)
   // A read that fails resolves to null, so one missing route leaves the rest of the page working.
-  const [page, { mutate: setPage, refetch: rereadPage }] = createResource(async () => {
+  const readPage = async () => {
     const [projects, installations] = await Promise.all([
       props.source.listProjects().then(byProjectTime, () => null),
       props.source.installations().catch(() => null),
     ])
     return { projects, installations }
-  })
-  const arrival = createArrival(page)
-  const projects = () => arrival.value()?.projects
-  const installations = () => arrival.value()?.installations
-  const setProjects = (update: (list: LibraryProject[] | null) => LibraryProject[] | null | undefined) =>
-    setPage((current) => current && { ...current, projects: update(current.projects) ?? null })
-  const painted = () => arrival.value() !== undefined
+  }
+  const page = createPageLoad<Awaited<ReturnType<typeof readPage>>>()
+  const rereadPage = () => page.load(readPage)
+  const projects = () => page.value()?.projects
+  const installations = () => page.value()?.installations
+  const setProjects = (update: (list: LibraryProject[] | null) => LibraryProject[] | null | undefined) => {
+    const current = page.value()
+    return current && page.load(async () => ({ ...current, projects: update(current.projects) ?? null }))
+  }
+  const painted = () => page.value() !== undefined
+  const projectHeading = createUniqueId()
+  void rereadPage()
   const firstRun = () => installations()?.all.length === 0 || installations()?.settingUp === true
   onMount(() => {
     const reread = () => {
@@ -406,7 +414,7 @@ export function ProjectsView(props: {
   const selectedId = (): string | undefined =>
     chosen() ?? props.shell.selectedProjectId() ?? live()?.[0]?.id
   const selected = createMemo(() => live()?.find((project) => project.id === selectedId()))
-  const [projectDetail] = createResource(selected, async (project) => {
+  const readDetail = async (project: LibraryProject) => {
     const [workflows, outputs, usage, definitions] = await Promise.all([
       props.source.listWorkflows(project.id).catch(() => null),
       props.source.listOutputs(project.id, OUTPUT_LIMIT).catch(() => null),
@@ -417,8 +425,12 @@ export function ProjectsView(props: {
       [workflow.digest, await props.source.workflowDocument(workflow.digest).catch(() => undefined)] as const,
     )))
     return { project, workflows, outputs, usage, definitions, documents }
+  }
+  const projectDetail = createPageLoad<Awaited<ReturnType<typeof readDetail>>>()
+  createEffect(() => {
+    const project = selected()
+    if (project) void projectDetail.load(() => readDetail(project))
   })
-  const detailArrival = createArrival(projectDetail)
 
   const when = (at: number) => {
     locale()
@@ -438,11 +450,12 @@ export function ProjectsView(props: {
     return found.all.find((row) => row.root === root) ?? found.open ?? found.all[0]
   }
 
-  const entries = (): ProductProjectEntry[] | undefined => {
+  const [entries, setEntries] = createStore<ProductProjectEntry[]>([])
+  createEffect(() => {
     const list = live()
-    if (!list) return undefined
+    if (!list) return
     const now = opening()
-    return list.map((project) => {
+    setEntries(reconcile(list.map((project) => {
       const time = projectTime(project)
       const entry: ProductProjectEntry = {
         id: project.id,
@@ -455,8 +468,8 @@ export function ProjectsView(props: {
         entry.reason = now.reason
       }
       return entry
-    })
-  }
+    })))
+  })
 
   const [dialog, setDialog] = createSignal<'rename' | 'delete'>()
   const [dialogError, setDialogError] = createSignal<string>()
@@ -481,7 +494,7 @@ export function ProjectsView(props: {
   const rename = (project: LibraryProject) =>
     act(async () => {
       const renamed = await props.source.renameProject(project, newName().trim())
-      setProjects((list) => list?.map((entry) => (entry.id === renamed.id ? renamed : entry)))
+      await setProjects((list) => list?.map((entry) => (entry.id === renamed.id ? renamed : entry)))
     })
   const replace = (changed: LibraryProject) =>
     setProjects((list) => list && byProjectTime(list.map((entry) => (entry.id === changed.id ? changed : entry))))
@@ -490,13 +503,13 @@ export function ProjectsView(props: {
     act(async () => {
       const list = live() ?? []
       const index = list.findIndex((entry) => entry.id === project.id)
-      replace(await props.source.deleteProject(project))
+      await replace(await props.source.deleteProject(project))
       setChosen((list[index + 1] ?? list[index - 1])?.id)
     })
   const restore = async (project: LibraryProject) => {
     setRestoreFailed(undefined)
     try {
-      replace(await props.source.restoreProject(project))
+      await replace(await props.source.restoreProject(project))
       setChosen(project.id)
       if (newProject()) props.shell.showProjects()
     } catch {
@@ -519,36 +532,38 @@ export function ProjectsView(props: {
     setHiddenChange((n) => n + 1)
   }
 
-  const detail = (project: LibraryProject) => {
-    const data = () => detailArrival.value()?.project.id === project.id ? detailArrival.value() : undefined
+  const detail = (project: () => LibraryProject) => {
+    const data = () => projectDetail.value()?.project.id === project().id ? projectDetail.value() : undefined
     const workflows = () => data()?.workflows
     const outputs = () => data()?.outputs
     const usage = () => data()?.usage
     const definitions = () => data()?.definitions
-    const time = projectTime(project)
-    const here = () => opening()?.projectId === project.id ? opening() : undefined
-    const installation = () => runsOn(project.id)
+    const time = () => projectTime(project())
+    const here = () => opening()?.projectId === project().id ? opening() : undefined
+    const installation = () => runsOn(project().id)
     const unavailable = () => message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.open.noInstallation')
     const locationFacts = createMemo(() => [
-      ...(project.folder ? [{
+      ...(project().folder ? [{
         label: message('projects.facts.outputsFolder'),
-        value: project.folder,
+        value: <ProductPageAnswer page={page}>{project().folder}</ProductPageAnswer>,
         action: <Show when={installations()?.openFolder}>
           <ProductTextButton label={message('projects.facts.showInFolder')} onClick={() => {
             setFolderFailed(undefined)
-            props.source.openFolder(project.id).catch(() => setFolderFailed(project.id))
+            props.source.openFolder(project().id).catch(() => setFolderFailed(project().id))
           }} />
         </Show>,
       }] : []),
       {
         label: message('projects.facts.runsOn'),
-        value: installation()?.name ?? message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.facts.noInstallation'),
-        detail: installation() ? message('projects.facts.thisComputer') : undefined,
+        value: <ProductPageAnswer page={page}>
+          {installation()?.name ?? message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.facts.noInstallation')}
+          <Show when={installation()}><span class="dinkster-project-fact-detail">{' - '}{message('projects.facts.thisComputer')}</span></Show>
+        </ProductPageAnswer>,
         action: <Show when={(installations()?.all.length ?? 0) > 1}>
           <ProductMenu label={message('projects.facts.change')} items={(installations()?.all ?? []).map((row) => ({
             label: row.name,
             onSelect: () => {
-              writeChoice(pageKey(project.id, 'runsOn'), row.root)
+              writeChoice(pageKey(project().id, 'runsOn'), row.root)
               setRunsOnChoice((n) => n + 1)
             },
           }))} />
@@ -557,15 +572,10 @@ export function ProjectsView(props: {
     ])
     return (
       <div class="projects-page-detail" data-testid="projects-detail">
-        <Show when={!data() && detailArrival.loading()}>
-          <div class="projects-page-loading projects-page-arrival" data-testid="project-loading">
-            <ProductLoading label={message('projects.detail.loading')} />
-          </div>
-        </Show>
         <ProductProjectHeader
-          title={project.name}
-          subtitle={message(time.kind === 'ran' ? 'projects.time.lastRun' : 'projects.time.created', {
-            when: when(time.at),
+          title={project().name}
+          subtitle={message(time().kind === 'ran' ? 'projects.time.lastRun' : 'projects.time.created', {
+            when: when(time().at),
           })}
           actions={
             <Show
@@ -580,12 +590,12 @@ export function ProjectsView(props: {
                       {
                         label: message('projects.menu.rename'),
                         onSelect: () => {
-                          setNewName(project.name)
+                          setNewName(project().name)
                           setDialog('rename')
                         },
                       },
                       // The default project cannot be deleted, so it has no Delete.
-                      ...(project.id === DEFAULT_PROJECT_ID
+                      ...(project().id === DEFAULT_PROJECT_ID
                         ? []
                         : [
                             'separator' as const,
@@ -603,7 +613,7 @@ export function ProjectsView(props: {
                     data-tooltip-label={installation() ? undefined : unavailable()}
                     data-testid="projects-open"
                     onClick={() => {
-                      if (installation()) open(project)
+                      if (installation()) open(project())
                     }}
                   >
                     {here()?.failed !== undefined ? message('projects.action.tryAgain') : message('projects.action.open')}
@@ -620,7 +630,7 @@ export function ProjectsView(props: {
         />
         <Show when={here()?.failed !== undefined && bannerShown()}>
           <ProductErrorBanner onDismiss={() => setBannerShown(false)}>
-            {message('projects.failed.banner', { failed: here()!.failed!, project: project.name })}
+            {message('projects.failed.banner', { failed: here()!.failed!, project: project().name })}
           </ProductErrorBanner>
         </Show>
         <Show when={restoreFailed()}>
@@ -630,7 +640,7 @@ export function ProjectsView(props: {
             </ProductErrorBanner>
           )}
         </Show>
-        <Show when={folderFailed() === project.id}>
+        <Show when={folderFailed() === project().id}>
           <ProductErrorBanner onDismiss={() => setFolderFailed(undefined)}>
             {message('projects.facts.folderFailed')}
           </ProductErrorBanner>
@@ -646,7 +656,7 @@ export function ProjectsView(props: {
               ? [
                   {
                     label: message('projects.facts.size'),
-                    value: formatBytes(usage()!.bytes, locale().tag),
+                    value: <ProductPageAnswer page={projectDetail}>{formatBytes(usage()!.bytes, locale().tag)}</ProductPageAnswer>,
                     detail: message('projects.facts.outputs', { count: usage()!.outputs }),
                   },
                 ]
@@ -657,7 +667,7 @@ export function ProjectsView(props: {
           title={message('projects.workflows.title')}
           aside={<span class="dinkster-metadata">{workflows()?.length ?? ''}</span>}
         >
-          <Show when={data()}>
+          <ProductPageLoad page={projectDetail} read={() => readDetail(project())} loadingLabel={message('projects.detail.loading')} arrival="fade">
             <Show
               when={(workflows()?.length ?? 0) > 0}
               fallback={
@@ -685,27 +695,27 @@ export function ProjectsView(props: {
                           ) : undefined
                         }
                         empty={<ProductIcon icon={Workflow} />}
-                        onClick={() => open(project)}
+                        onClick={() => open(project())}
                       />
                     )
                   }}
                 </For>
               </ProductTileGrid>
             </Show>
-          </Show>
+          </ProductPageLoad>
         </ProductProjectSection>
-        <Show when={data()}><div class="projects-page-arrival">
+        <ProductPageAnswer page={projectDetail}>
         <ProductProjectSection
           title={message('projects.outputs.title')}
           aside={
             <Show when={(outputs()?.length ?? 0) > 0}>
               <Show
-                when={outputsHidden(project.id)}
+                when={outputsHidden(project().id)}
                 fallback={
                   <ProductTextButton
                     label={message('projects.outputs.hide')}
                     icon={EyeOff}
-                    onClick={() => toggleOutputs(project.id)}
+                    onClick={() => toggleOutputs(project().id)}
                   />
                 }
               >
@@ -714,7 +724,7 @@ export function ProjectsView(props: {
                   <ProductTextButton
                     label={message('projects.outputs.show')}
                     icon={Eye}
-                    onClick={() => toggleOutputs(project.id)}
+                    onClick={() => toggleOutputs(project().id)}
                   />
                 </span>
               </Show>
@@ -729,7 +739,7 @@ export function ProjectsView(props: {
               />
             }
           >
-            <Show when={!outputsHidden(project.id)}>
+            <Show when={!outputsHidden(project().id)}>
               <ProductTileGrid size="narrow">
                 <For each={outputs()}>
                   {(output) => (
@@ -744,7 +754,7 @@ export function ProjectsView(props: {
                           <span>{output.asset.mediaType.split('/')[0]}</span>
                         </>
                       }
-                      onClick={() => open(project)}
+                      onClick={() => open(project())}
                     />
                   )}
                 </For>
@@ -752,14 +762,14 @@ export function ProjectsView(props: {
             </Show>
           </Show>
         </ProductProjectSection>
-        </div></Show>
+        </ProductPageAnswer>
         <Show when={dialog() === 'rename'}>
           <ProductDialog title={message('projects.rename.title')} onDismiss={closeDialog} pending={busy()}>
             <form
               class="dinkster-stack"
               onSubmit={(event) => {
                 event.preventDefault()
-                if (newName().trim() !== '') void rename(project)
+                if (newName().trim() !== '') void rename(project())
               }}
             >
               <ProductField
@@ -786,7 +796,7 @@ export function ProjectsView(props: {
         </Show>
         <Show when={dialog() === 'delete'}>
           <ProductDialog
-            title={message('projects.delete.title', { project: project.name })}
+            title={message('projects.delete.title', { project: project().name })}
             onDismiss={closeDialog}
             pending={busy()}
           >
@@ -795,7 +805,7 @@ export function ProjectsView(props: {
               actionLabel={message('projects.delete.action')}
               intent="remove"
               pending={busy()}
-              onConfirm={() => void remove(project)}
+              onConfirm={() => void remove(project())}
               onCancel={closeDialog}
             />
           </ProductDialog>
@@ -812,7 +822,7 @@ export function ProjectsView(props: {
     setCreating(true)
     try {
       const project = await props.source.registerProject(`p-${crypto.randomUUID()}`, trimmed)
-      setProjects((list) => byProjectTime([...(list ?? []), project]))
+      await setProjects((list) => byProjectTime([...(list ?? []), project]))
       setChosen(project.id)
       setName('')
       props.shell.showProjects()
@@ -855,17 +865,24 @@ export function ProjectsView(props: {
         {setupInstructions()}
       </div>
   )
+  const displayed = createMemo(() => live()?.some((project) => project.id === projectDetail.value()?.project.id) ? projectDetail.value()?.project : selected())
 
   return (
     <div class="projects-page-content" data-testid="projects-content">
     <Show when={!setupOnly()} fallback={setup()}>
       <ProductProjectsView
         list={
-          <ProductProjectList
+          <>
+          <ProductProjectListHeader
+            id={projectHeading}
             title={message('projects.title')}
             newLabel={message('projects.action.new')}
             onNew={() => props.shell.showProjects({ newProject: true })}
-            projects={entries() ?? []}
+          />
+          <ProductPageAnswer page={page}>
+          <ProductProjectRows
+            labelledBy={projectHeading}
+            projects={entries}
             selected={newProject() ? undefined : selectedId()}
             onSelect={(id) => {
               setChosen(id)
@@ -888,26 +905,25 @@ export function ProjectsView(props: {
               },
             }}
           />
+          </ProductPageAnswer>
+          </>
         }
       >
         <Show when={!newProject()} fallback={newProjectForm()}>
-          <Show when={!painted() && arrival.loading()}>
-            <div class="projects-page-loading projects-page-arrival" data-testid="projects-loading">
-              <ProductLoading label={message('projects.loading')} />
-            </div>
-          </Show>
           <Show
-            when={detailArrival.value()?.project ?? selected()}
+            when={displayed()?.id}
             keyed
             fallback={
               <>
-              <Show when={painted() && !selected()}>
+              <ProductPageLoad page={page} read={readPage} loadingLabel={message('projects.loading')} arrival="fade">
+              <Show when={!selected()}>
                   <ProductEmptyState message={message(projects() === null ? 'projects.unreadable' : 'projects.empty')} />
               </Show>
+              </ProductPageLoad>
               </>
             }
           >
-            {(project) => detail(project)}
+            {(_id) => detail(() => displayed()!)}
           </Show>
         </Show>
       </ProductProjectsView>
