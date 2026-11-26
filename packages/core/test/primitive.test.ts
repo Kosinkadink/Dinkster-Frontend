@@ -228,6 +228,33 @@ describe('a primitive works out its value widget', () => {
     }
   })
 
+  it('preserves inner explicit limits unless an exposed field overrides them', () => {
+    for (const [depth, exposed] of [[1, false], [2, false], [1, true], [2, true]] as const) {
+      const graph = (id: string, node: string, type: string, value: string, target: string, output: string, values = {}) => ({
+        id, name: id, nodes: { [node]: { id: node, type, values } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
+        boundary: { body: [
+          { kind: 'input', id: value, promoted: true, binds: { kind: 'port', node, port: target } },
+          ...(exposed ? [{ kind: 'input', id: 'low', promoted: true, binds: { kind: 'port', node, port: node === 'prim' ? 'minimum' : 'low' } }] : []),
+          { kind: 'output', id: 'number', binds: { kind: 'port', node, port: output } },
+        ] },
+      })
+      const field = depth === 1 ? 'amount' : 'quantity'
+      const source = docOf({ first: { type: depth === 1 ? '#detail' : '#portrait', values: { [field]: 6, ...(exposed ? { low: 3 } : {}) } },
+        a: { type: 'Steps' } }, [['first', 'number', 'a', 'steps']])
+      const doc = { ...source, graphs: { ...source.graphs,
+        detail: graph('detail', 'prim', 'Int', 'amount', 'value', 'INT', { value: 6, minimum: 5, maximum: 7, step: 2, default: 6 }),
+        ...(depth === 2 ? { portrait: graph('portrait', 'detail', '#detail', 'quantity', 'amount', 'number') } : {}),
+      } } as unknown as WorkflowDocument
+      const primitive = documentPrimitiveResolver(doc, resolve)
+      const effective = primitive('g0', doc.graphs.g0!.nodes.first!, [])!
+      const expected = { options: { min: exposed ? 3 : 5, max: 7, step: 2 }, default: 6 }
+      expect(effective.spec).toMatchObject(expected)
+      expect([...effective.derived]).toEqual([])
+      const drawn = documentNodeResolver(doc, resolve, primitive)('g0', doc.graphs.g0!.nodes.first!, [])!
+      expect(inputsOf(drawn).find((row) => row.id === field)!.widget).toMatchObject(expected)
+    }
+  })
+
   it('draws a renamed general Primitive as the consumer widget through both boundary depths', () => {
     for (const depth of [1, 2]) {
       const graph = (id: string, node: string, type: string, input: string, target: string, output: string) => ({

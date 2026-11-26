@@ -181,7 +181,7 @@ export function documentPrimitiveResolver(doc: WorkflowDocument, base: SchemaRes
   const resolve = documentResolver(doc, base)
   let consumers: readonly FedConsumer[] | undefined
   const cache = new Map<string, EffectivePrimitiveSpec | undefined>()
-  return (graphId, node, instancePath) => {
+  const resolvePrimitive: DocumentPrimitiveResolver = (graphId, node, instancePath) => {
     const schema = resolve(node.type)
     const shape = schema && primitiveOf(schema)
     if (!shape) return undefined
@@ -211,12 +211,34 @@ export function documentPrimitiveResolver(doc: WorkflowDocument, base: SchemaRes
       if (source !== undefined) return source.kind === 'literal' ? source.value : undefined
       return wired(inputId) ? undefined : node.values[inputId]
     }
+    const explicit: Record<string, number> = {}
+    let explicitDefault: Json | undefined
+    const childId = subgraphDefIdOf(node.type)
+    const child = childId === undefined ? undefined : doc.graphs[childId]
+    const binding = child?.boundary && matchBoundaryItem(boundaryItems(child.boundary, 'outputs'), { port: shape.output.id })
+    if (binding?.ok && binding.item.binds.kind === 'port') {
+      const inner = child!.nodes[binding.item.binds.node]
+      const inherited = inner && resolvePrimitive(child!.id, inner, instancePath === undefined ? undefined : [...instancePath, node.id])
+      // Unexposed limits still belong to the inner primitive. An exposed
+      // field replaces them only when this occurrence actually supplies it.
+      for (const limit of ['min', 'max', 'step', 'default'] as const) {
+        const inputId = shape.limits[limit]
+        if (inputId !== undefined && (Object.hasOwn(node.values, inputId) || wired(inputId) || arriving?.has(inputId))) continue
+        if (inherited === undefined || inherited.derived.has(limit)) continue
+        if (limit === 'default') explicitDefault = inherited.spec?.default as Json | undefined
+        else {
+          const value = inherited.spec?.options[limit]
+          if (typeof value === 'number') explicit[limit] = value
+        }
+      }
+    }
     const effective = effectivePrimitiveSpec(node.id, shape,
       [...fed.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, field]) => field),
-      explicitPrimitiveLimits(shape, limitValue), explicitPrimitiveDefault(shape, limitValue))
+      { ...explicit, ...explicitPrimitiveLimits(shape, limitValue) }, explicitPrimitiveDefault(shape, limitValue) ?? explicitDefault)
     cache.set(key, effective)
     return effective
   }
+  return resolvePrimitive
 }
 
 export type DocumentNodeResolver = (graphId: string, node: NodeData, instancePath?: readonly NodeId[]) => NodeSchema | undefined
