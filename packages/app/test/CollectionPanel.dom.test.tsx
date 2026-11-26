@@ -19,6 +19,49 @@ afterEach(() => {
 })
 
 describe('CollectionPanel folder navigation', () => {
+  it('continues a scroll page once and discards it when the search changes', async () => {
+    let finish!: () => void
+    const requests: CollectionPageRequest[] = []
+    const source: CollectionSource = {
+      id: 'mounts', label: 'All mounts',
+      page: async (request) => {
+        requests.push(request)
+        if (request.query === 'new') return { items: [file('new-match')], total: 1 }
+        if (request.cursor) {
+          await new Promise<void>((resolve) => { finish = resolve })
+          if (request.cursor === 'next') return { items: [file('continued')], cursor: 'last', total: 62 }
+          return { items: [file('obsolete-continuation')], total: 61 }
+        }
+        return { items: Array.from({ length: request.limit }, (_, index) => file(`original-${index}`)), cursor: 'next', total: 62 }
+      },
+    }
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <CollectionPanel sources={[source]} pageSize={60} pagination="scroll" />, root)
+    try {
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-entry]')).toHaveLength(60))
+      expect(root.querySelector('[data-testid="collection-more"]')).toBeNull()
+      const viewport = root.querySelector<HTMLElement>('[data-testid="collection-items"]')!
+      Object.defineProperties(viewport, { clientHeight: { value: 200 }, scrollHeight: { value: 1000 } })
+      viewport.scrollTop = 800
+      viewport.dispatchEvent(new Event('scroll'))
+      viewport.dispatchEvent(new Event('scroll'))
+      await vi.waitFor(() => expect(requests.filter((request) => request.cursor === 'next')).toHaveLength(1))
+      finish()
+      await vi.waitFor(() => expect(root.textContent).toContain('continued.png'))
+      expect(root.querySelectorAll('[data-entry]')).toHaveLength(61)
+      viewport.dispatchEvent(new Event('scroll'))
+      await vi.waitFor(() => expect(requests.at(-1)?.cursor).toBe('last'))
+      const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
+      search.value = 'new'
+      search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      finish()
+      await vi.waitFor(() => expect(root.textContent).toContain('new-match.png'))
+      expect(root.textContent).not.toContain('obsolete-continuation')
+      expect(root.querySelectorAll('[data-entry]')).toHaveLength(1)
+      expect(requests.at(-1)?.cursor).toBeUndefined()
+    } finally { dispose() }
+  })
+
   it('updates mounted host chrome without refetching or translating collection data', async () => {
     registerCatalog('de-DE', {
       'collection.action.confirmDelete': '[Loschen bestatigen]',

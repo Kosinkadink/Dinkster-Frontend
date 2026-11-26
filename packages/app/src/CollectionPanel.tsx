@@ -74,6 +74,9 @@ export function CollectionPanel(props: {
   readonly onSourceAction?: (sourceId: string, actionId: string, owner?: string) => void
   /** Bump to re-fetch the current page (live corpus changed upstream). */
   readonly refreshTick?: () => number
+  readonly pageSize?: number
+  /** Scroll continuation is opt-in; other hosts retain the Load more control. */
+  readonly pagination?: 'button' | 'scroll'
   /**
    * Source picker presentation: 'tabs' (default, panel hosts) or 'select'
    * (compact embeddings like widget popups, aria-label "Source").
@@ -321,7 +324,7 @@ export function CollectionPanel(props: {
     const cur = append ? cursor() : undefined
     const req = {
       query: query().trim(),
-      limit: PAGE_SIZE,
+      limit: props.pageSize ?? PAGE_SIZE,
       filters: filters(),
       signal: controller.signal,
       ...(src.folders === true && folder() !== '' ? { folder: folder() } : {}),
@@ -856,6 +859,11 @@ export function CollectionPanel(props: {
             data-testid="collection-items"
             data-mode={mode()}
             role="listbox"
+            onScroll={(event) => {
+              const viewport = event.currentTarget
+              if (props.pagination === 'scroll' && !loading() && cursor() !== undefined
+                && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= viewport.clientHeight / 2) runPage(true)
+            }}
             aria-label={message('collection.result.ariaLabel', { source: source()?.label ?? message('collection.result.collectionFallback') })}
             aria-multiselectable={props.pick?.multi === true ? 'true' : undefined}
           >
@@ -891,7 +899,7 @@ export function CollectionPanel(props: {
             {message('collection.result.total', { count: items().length, total: total()! })}
           </span>
         </Show>
-        <Show when={cursor() !== undefined}>
+        <Show when={props.pagination !== 'scroll' && cursor() !== undefined}>
           <button
             class="collection-more"
             data-testid="collection-more"
