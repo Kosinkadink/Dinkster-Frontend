@@ -109,6 +109,148 @@ function later<T>(): { promise: Promise<T>; settle: (value: T) => void } {
 }
 
 describe('one press is one undo step, or nothing', () => {
+  it('keeps multiple-choice Ask answers as list locals for later steps', async () => {
+    addSchema('test.ask-list', [
+      { kind: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+      { kind: 'button', id: 'ask', label: 'Choose', steps: [
+        { step: 'ask', title: 'Choose entries', rows: [{ id: 'choices', type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } }, default: ['alpha'], widget: { type: 'MULTI_COMBO', options: ['alpha', 'beta'] } }] },
+        { step: 'set', field: 'count', value: { formula: 'len(choices)' } },
+      ] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.ask-list', values: { count: 7 } } }))
+    const host = hostOf({ ask: async () => ({ choices: ['alpha', 'beta'] }) })
+    expect(await runPress(session, at('ask'), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ count: 2 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ count: 7 })
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ count: 2 })
+  })
+
+  it.each(['ready', 'failed', 'paused'] as const)('resolves a Lookup automatic after Reset before reading it: %s', async (state) => {
+    addSchema('test.lookup-reset', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { lookup: 'test.automatic', args: [] } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+      { kind: 'button', id: 'reset', label: 'Reset', steps: [{ step: 'reset', field: 'value' }, { step: 'set', field: 'read', value: { formula: 'value' } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.lookup-reset', values: { value: 6, read: 1 } } }))
+    let calls = 0
+    const host = hostOf({ lookup: async () => { calls++; return state === 'ready' ? { state, value: 8n } : state === 'failed' ? { state, reason: 'unknown' } : { state } } })
+    expect((await runPress(session, at('reset'), host)).kind).toBe(state === 'ready' ? 'done' : 'failed')
+    expect(calls).toBe(1)
+    if (state !== 'ready') {
+      expect(valuesOf(session)).toEqual({ value: 6, read: 1 })
+      expect(session.canUndo).toBe(false)
+      return
+    }
+    expect(valuesOf(session)).toEqual({ read: 8 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ value: 6, read: 1 })
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ read: 8 })
+    expect(calls).toBe(1)
+  })
+
+  it('reads dependent automatic formulas and ordered member values without freezing them', async () => {
+    addSchema('test.dependent-automatic', [
+      { kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 5,
+        keys: { numbered: { prefix: 'item_', start: 1, pad: 0 } }, member: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { lookup: 'test.member', args: [{ formula: 'index()' }] } },
+        ] },
+      { kind: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, default: 0, automatic: { formula: 'sum(items.value)' } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'button', id: 'read', label: 'Read', steps: [{ step: 'set', field: 'read', value: { formula: 'count' } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.dependent-automatic', dynamic: { items: { members: ['item_2', 'item_1'], seq: 2 } } } }))
+    const args: unknown[] = []
+    const host = hostOf({ lookup: async (request) => { args.push(request.args); return { state: 'ready', value: request.args[0] === 0n ? 11n : 23n } } })
+    expect(await runPress(session, at('read'), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ read: 34 })
+    expect(args).toEqual([[0n], [1n]])
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({})
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ read: 34 })
+    expect(args).toEqual([[0n], [1n]])
+  })
+
+  it('shares an automatic dependency across typed arguments and honors automatic numeric conversion', async () => {
+    addSchema('test.automatic-arguments', [
+      { kind: 'input', id: 'base', type: { kind: 'concrete', types: ['INT'] }, default: 1, automatic: { lookup: 'test.base', args: [] } },
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, widget: { type: 'NUMBER', min: 0, max: 10 }, automatic: { lookup: 'test.arguments', args: ['base', 'base', { formula: '2.0' }] } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'button', id: 'read', label: 'Read', steps: [{ step: 'set', field: 'read', value: { formula: 'value' } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.automatic-arguments' } }))
+    const calls: unknown[] = []
+    const host = hostOf({ lookup: async (request) => {
+      calls.push([request.function, request.args])
+      return { state: 'ready', value: request.function === 'test.base' ? 3n : 20 }
+    } })
+    expect(await runPress(session, at('read'), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ read: 20 })
+    expect(calls).toEqual([['test.base', []], ['test.arguments', [3n, 3n, 2]]])
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({})
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ read: 20 })
+    expect(calls).toHaveLength(2)
+  })
+
+  it.each(['17 if not known(value) else value', 'value if known(value) else other', 'int(known(value)) + other'])('does not resolve a Lookup guarded with known: %s', async (formula) => {
+    addSchema('test.automatic-guard', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { lookup: 'test.automatic', args: [] } },
+      { kind: 'input', id: 'other', type: { kind: 'concrete', types: ['INT'] }, default: 2, automatic: { lookup: 'test.other', args: [] } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'button', id: 'read', label: 'Read', steps: [{ step: 'set', field: 'read', value: { formula } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.automatic-guard' } }))
+    const calls: string[] = []
+    expect(await runPress(session, at('read'), hostOf({ lookup: async (request) => {
+      calls.push(request.function)
+      return request.function === 'test.other' ? { state: 'ready', value: 8n } : { state: 'failed', reason: 'unknown' }
+    } }))).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ read: formula.startsWith('17') ? 17 : 8 })
+    expect(calls).toEqual(formula.startsWith('17') ? [] : ['test.other'])
+  })
+
+  it.each(['10 // value', '"wrong" if value == 0 else 2'])('uses the declared automatic default after resolving a dependency: %s', async (formula) => {
+    addSchema('test.automatic-fallback', [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { lookup: 'test.automatic', args: [] } },
+      { kind: 'input', id: 'derived', type: { kind: 'concrete', types: ['INT'] }, default: 7, automatic: { formula } },
+      { kind: 'input', id: 'read', type: { kind: 'concrete', types: ['INT'] }, default: 1 },
+      { kind: 'button', id: 'read', label: 'Read', steps: [{ step: 'set', field: 'read', value: { formula: 'derived' } }] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.automatic-fallback' } }))
+    expect(await runPress(session, at('read'), hostOf({ lookup: async () => ({ state: 'ready', value: 0n }) }))).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ read: 7 })
+  })
+
+  it('resolves automatic reads of committed arguments again for outside steps', async () => {
+    addSchema('test.automatic-outside', [
+      { kind: 'input', id: 'arg', type: { kind: 'concrete', types: ['INT'] }, default: 3 },
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 4, automatic: { lookup: 'test.automatic', args: ['arg'] } },
+      { kind: 'button', id: 'copy', label: 'Copy', steps: [
+        { step: 'reset', field: 'value' }, { step: 'pick', name: 'chosen', options: { formula: '[str(value)]' } },
+        { step: 'copy', value: { formula: 'str(value)' } },
+      ] },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.automatic-outside', values: { arg: 3, value: 6 } } }))
+    const host = hostOf({
+      lookup: async (request) => ({ state: 'ready', value: request.args[0] }),
+      pick: async () => {
+        expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'arg', value: 5 } }).ok).toBe(true)
+        return '3'
+      },
+    })
+    expect(await runPress(session, at('copy'), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ arg: 5 })
+    expect(host.log).toEqual(['copy 5'])
+  })
+
   it.each(['INT', 'FLOAT'])('accepts a declared %s special outside ordinary bounds', async (type) => {
     addSchema(`test.special.${type}`, [
       { kind: 'input', id: 'value', type: { kind: 'concrete', types: [type] }, default: 2, widget: { type: 'NUMBER', min: 0, max: 10, step: 2, special: [[-1, 'Automatic']] } },

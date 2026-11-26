@@ -39,6 +39,7 @@ import { constructsOf, keyPosition, rowKind } from '../schema/body.js'
 import { isComboValue, normalizeComboOption, normalizedComboOptions, type NormalizedComboOption } from '../schema/combo-options.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import {
+  automaticValueOf,
   buildGraphConnectivity,
   describedEntries,
   elaborateInterface,
@@ -55,7 +56,7 @@ import {
 import type { ButtonSpec, DescribedSpec, GroupSpec, InputSpec, NodeSchema, OptionRow } from '../schema/model.js'
 import { integerWidgetValue, numericStepConstraints } from '../schema/numeric-step.js'
 import { typesCompatible } from '../schema/type-relations.js'
-import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
+import { effectiveWidgetDefault, readWhenUnset } from '../schema/widget-defaults.js'
 import { decodeSteps, isOutsideStep, type Argument, type Step, type StepValue } from './steps.js'
 
 // ---------------------------------------------------------------------------
@@ -242,6 +243,10 @@ const refuse = (message: string, own = false): never => {
 
 class Cancelled extends Error {}
 
+class AutomaticNeeded extends Error {
+  constructor(readonly field: ElaboratedInput) { super() }
+}
+
 /** A literal from the wire: a whole number is an int, `{"float": n}` a decimal. */
 function literalOf(raw: unknown): Value {
   if (typeof raw === 'number') return Number.isInteger(raw) ? BigInt(raw) : raw
@@ -263,6 +268,11 @@ function display(value: unknown): string {
 
 /** A local of a Pick or an Ask as a formula reads it. */
 function localOf(raw: unknown, kind: FormulaNameKind): Value {
+  if (kind.endsWith('[]') && Array.isArray(raw)) return raw.map((item) => {
+    const value = localOf(item, kind.slice(0, -2) as FormulaNameKind)
+    if (Array.isArray(value)) return refuse('The form gave a value the button cannot use.')
+    return value as Exclude<Value, readonly unknown[]>
+  })
   if (kind === 'int' && typeof raw === 'number' && Number.isSafeInteger(raw)) return BigInt(raw)
   if (kind === 'int' && typeof raw === 'string' && /^-?[0-9]+$/.test(raw)) return BigInt(raw)
   if (typeof raw === 'number' || typeof raw === 'string' || typeof raw === 'boolean' || raw === null) return raw
@@ -594,13 +604,10 @@ interface Locals {
   readonly values: Map<string, Value>
 }
 
-function evaluateIn(context: FormulaContext, locals: Locals, text: string): FormulaOutcome {
+function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?: (name: string, availability: boolean) => Value | typeof UNKNOWN | undefined): FormulaOutcome {
   const scope = { ...context.scope, names: new Map([...context.scope.names, ...locals.kinds]) }
-  const values = { ...context.values, values: new class extends Map<string, FormulaValue | typeof UNKNOWN> {
-    override get(name: string): FormulaValue | typeof UNKNOWN | undefined {
-      return locals.values.has(name) ? locals.values.get(name) : context.values.values?.get(name)
-    }
-  }() }
+  const values = { ...context.values, read: (name: string, availability: boolean) =>
+    locals.values.has(name) ? locals.values.get(name) : read === undefined ? context.values.values?.get(name) : read(name, availability) }
   try {
     return Formula.parse(text, scope).evaluate(values)
   } catch (error) {
@@ -626,6 +633,9 @@ function unknownWired(context: FormulaContext, locals: Locals, text: string): st
 
 class Press {
   readonly locals: Locals = { kinds: new Map(), values: new Map() }
+  readonly declarationLocals: Locals = { kinds: new Map(), values: new Map() }
+  readonly automaticValues = new Map<string, Value>()
+  readonly resolvingAutomatic = new Set<string>()
   readonly actions: Action[] = []
   readonly notes: string[] = []
   readonly skipped: Skip[] = []
@@ -655,6 +665,7 @@ class Press {
       dispatchOn(this.store, invocations, this.session.allocationActor)
       this.actions.push(action.kind === 'disconnect' ? { ...action, delivery: JSON.stringify(invocations) } : action)
     }
+    this.automaticValues.clear()
     this.view = viewOf(this.store.doc, this.target, this.host) ?? refuse('The node is gone.')
     this.context = this.view.contexts.get(this.prefix) ?? refuse('The button is not on the node.')
   }
@@ -705,37 +716,102 @@ class Press {
   }
 
   /** The value a formula reads for `name`; a wired field with no known value refuses. */
-  read(name: string, context: FormulaContext = this.context): Value {
-    const value = this.locals.values.get(name) ?? context.values.values?.get(name)
-    if (value === undefined || value === UNKNOWN) return refuse(`Needs ${name}, which is not known until a run.`)
-    return value
+  async read(name: string, context: FormulaContext = this.context, locals = this.locals): Promise<Value> {
+    return this.formula(name, context, undefined, locals)
   }
 
-  formula(text: string, context: FormulaContext = this.context): Value {
-    const outcome = evaluateIn(context, this.locals, text)
-    if (outcome.kind === 'value') return outcome.value
-    if (outcome.kind === 'failed') return refuse(`A formula of this button failed: ${outcome.reason}`)
-    const needs = unknownWired(context, this.locals, text)
-    return refuse(needs.length > 0 ? `Needs ${needs[0]}, which is not known until a run.` : 'A value this button needs is not known yet.')
+  formulaRead(name: string, context: FormulaContext, availability: boolean): Value | typeof UNKNOWN | undefined {
+    const path = context.paths.get(name)
+    if (path === undefined) return context.values.values?.get(name)
+    if (this.automaticValues.has(path)) return this.automaticValues.get(path)
+    const field = inputAt(this.view, path)
+    if (field?.spec.automatic !== undefined && !this.wired(path) && !Object.hasOwn(this.view.node.values, path)) {
+      if (this.resolvingAutomatic.has(path)) return UNKNOWN
+      if (availability) return 'lookup' in field.spec.automatic ? UNKNOWN : context.values.values?.get(name)
+      throw new AutomaticNeeded(field)
+    }
+    if (field === undefined && context.scope.names.get(name)?.endsWith('[]') === true) {
+      const dot = path.lastIndexOf('.')
+      const group = path.slice(0, dot), row = path.slice(dot + 1)
+      const members = this.view.node.dynamic?.[group]?.members
+      if (members !== undefined) {
+        const values: Exclude<Value, readonly unknown[]>[] = []
+        for (const member of members) {
+          const scope = this.view.contexts.get(`${group}.${member}.`)
+          const value = scope && this.formulaRead(row, scope, availability)
+          if (value === undefined || value === UNKNOWN || Array.isArray(value)) return UNKNOWN
+          values.push(value as Exclude<Value, readonly unknown[]>)
+        }
+        return values
+      }
+    }
+    return context.values.values?.get(name)
   }
 
-  async argument(argument: Argument, context: FormulaContext = this.context): Promise<CallArg> {
-    if (typeof argument !== 'string') return this.formula(argument.formula, context) as CallArg
+  async formula(text: string, context: FormulaContext = this.context, fallback?: Value, locals = this.locals): Promise<Value> {
+    for (;;) {
+      let pending: ElaboratedInput
+      try {
+        const outcome = evaluateIn(context, locals, text, (name, availability) => this.formulaRead(name, context, availability))
+        if (outcome.kind === 'value') return outcome.value
+        if (fallback !== undefined) return fallback
+        if (outcome.kind === 'failed') return refuse(`A formula of this button failed: ${outcome.reason}`)
+        const needs = unknownWired(context, locals, text)
+        return refuse(needs.length > 0 ? `Needs ${needs[0]}, which is not known until a run.` : 'A value this button needs is not known yet.')
+      } catch (error) {
+        if (!(error instanceof AutomaticNeeded)) throw error
+        pending = error.field
+      }
+      const automatic = pending.spec.automatic!
+      const path = valueKeyOf(pending)
+      const scope = pending.automaticContext ?? context
+      const defaultValue = (readWhenUnset(pending.spec) ?? null) as Json
+      this.resolvingAutomatic.add(path)
+      try {
+        let value: unknown
+        if ('lookup' in automatic) {
+          const { result } = await this.lookup(automatic.lookup, automatic.args, 'value', scope, this.declarationLocals)
+          if (result.state === 'paused') return refuse(PAUSED_MESSAGE)
+          if (result.state !== 'ready') return refuse(LOOKUP_FAILED_MESSAGE)
+          value = result.value
+        } else {
+          value = await this.formula(automatic.formula, scope, localOf(defaultValue, rowKind(pending.spec)), this.declarationLocals)
+        }
+        this.automaticValues.set(path, localOf(automaticValueOf(pending.spec, value as Json) ?? defaultValue, rowKind(pending.spec)))
+      } finally {
+        this.resolvingAutomatic.delete(path)
+      }
+    }
+  }
+
+  async argument(argument: Argument, context: FormulaContext = this.context, locals = this.locals): Promise<CallArg> {
+    if (typeof argument !== 'string') return await this.formula(argument.formula, context, undefined, locals) as CallArg
     if (context.scope.names.get(argument) === 'opaque' || context.scope.assets?.has(argument)) {
+      const fixed = context.fixed?.get(argument)
+      if (fixed !== undefined) {
+        if (fixed.linked === true) return refuse(`Needs ${argument}, which is not known until a run.`)
+        return (fixed.value ?? null) as CallArg
+      }
       const path = this.pathOf(argument, context)
       if (this.wired(path)) return refuse(`Needs ${argument}, which is not known until a run.`)
       return (this.view.node.values[path] ?? null) as CallArg
     }
-    return this.read(argument, context) as CallArg
+    return await this.read(argument, context, locals) as CallArg
   }
 
-  async lookup(name: string, args: readonly Argument[], use: 'options' | 'value', context = this.context): Promise<{ request: LookupRequest; result: LookupResult }> {
+  async argumentsOf(args: readonly Argument[], context: FormulaContext, locals = this.locals): Promise<CallArg[]> {
+    const values: CallArg[] = []
+    for (const argument of args) values.push(await this.argument(argument, context, locals))
+    return values
+  }
+
+  async lookup(name: string, args: readonly Argument[], use: 'options' | 'value', context = this.context, locals = this.locals): Promise<{ request: LookupRequest; result: LookupResult }> {
     if (this.options.noWait === true) return refuse(NO_WAIT_MESSAGE)
     const request: LookupRequest = {
       nodeType: this.view.node.type,
       node: this.target.occurrence ?? this.target.nodeId,
       function: name,
-      args: await Promise.all(args.map((item) => this.argument(item, context))),
+      args: await this.argumentsOf(args, context, locals),
       use,
       asker: 'press',
     }
@@ -794,7 +870,7 @@ class Press {
       case 'toggle': {
         const { path } = this.fieldOf(step.field)
         if (this.wired(path)) return this.skip(path)
-        const current = this.read(step.field)
+        const current = await this.read(step.field)
         if (typeof current !== 'boolean') return refuse(`${step.field} is not a yes or no field.`)
         this.stage(this.write(step.field, !current))
         return
@@ -814,15 +890,15 @@ class Press {
           this.skip(b.path)
           return
         }
-        const valueA = this.read(step.a)
-        const valueB = this.read(step.b)
+        const valueA = await this.read(step.a)
+        const valueB = await this.read(step.b)
         this.stage([...this.write(step.a, valueB), ...this.write(step.b, valueA)])
         return
       }
       case 'append': {
         const { path } = this.fieldOf(step.field)
         if (this.wired(path)) return this.skip(path)
-        const current = this.read(step.field)
+        const current = await this.read(step.field)
         const added = await this.value(step.value)
         if (typeof current !== 'string' || typeof added !== 'string') return refuse(`Append joins text; ${step.field} or the added value is not text.`)
         this.stage(this.write(step.field, current === '' ? added : current + step.separator + added))
@@ -848,7 +924,7 @@ class Press {
         if (step.which === 'first') position = 0
         else if (step.which === 'last') position = group.members.length - 1
         else {
-          const raw = this.formula(step.which.formula)
+          const raw = await this.formula(step.which.formula)
           if (typeof raw !== 'bigint') return refuse(`The position of the member to remove is not a whole number.`)
           if (raw < 0n || raw >= BigInt(group.members.length)) return refuse(`${step.group} has no member at position ${raw}.`)
           position = Number(raw)
@@ -1075,7 +1151,7 @@ class Press {
     const request: CallRequest = {
       nodeType: this.view.node.type,
       function: step.function,
-      args: await Promise.all(step.args.map((item) => this.argument(item, context))),
+      args: await this.argumentsOf(step.args, context),
       ...(step.download !== undefined ? { download: step.download } : { writes: step.writes }),
     }
     this.progress({ text: 'Working' })
@@ -1386,6 +1462,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
     const part = parts[index]!
     const committed = viewOf(session.doc, part, host)
     if (committed !== undefined) {
+      press.automaticValues.clear()
       press.view = committed
       press.context = committed.contexts.get(part.prefix) ?? press.context
     }

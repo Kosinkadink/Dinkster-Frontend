@@ -85,6 +85,8 @@ export interface FormulaScope {
 /** The state a formula is evaluated against. A missing name is unknown. */
 export interface FormulaValues {
   readonly values?: ReadonlyMap<string, FormulaValue | Unknown>
+  /** A lazy read; availability checks must not start work to obtain a value. */
+  readonly read?: (name: string, availability: boolean) => FormulaValue | Unknown | undefined
   readonly linked?: ReadonlyMap<string, boolean>
   readonly linkedTypes?: ReadonlyMap<string, string | null>
   readonly groupSizes?: ReadonlyMap<string, number>
@@ -1421,6 +1423,7 @@ function blankTextLiterals(source: string): string {
 
 class Evaluator {
   private readonly locals = new Map<string, Value>()
+  private checkingAvailability = false
 
   constructor(
     private readonly scope: FormulaScope,
@@ -1445,6 +1448,13 @@ class Evaluator {
     if (this.locals.has(name)) return this.locals.get(name)!
     const derived = formula.derivedFormula(name)
     if (derived !== undefined) {
+      if (this.checkingAvailability) {
+        const evaluator = new Evaluator(this.scope, this.values, new Map())
+        evaluator.checkingAvailability = true
+        const result = evaluator.outcome(derived)
+        if (result.kind !== 'value') throw new Stop(result)
+        return result.value
+      }
       if (!this.derivedResults.has(name)) {
         this.derivedResults.set(name, new Evaluator(this.scope, this.values, this.derivedResults).outcome(derived))
       }
@@ -1456,7 +1466,7 @@ class Evaluator {
     if (table !== undefined) return table
     const kind = this.scope.names.get(name)!
     // A stored None is a value; only a missing name is unknown.
-    const stored = this.values.values?.get(name)
+    const stored = this.values.read === undefined ? this.values.values?.get(name) : this.values.read(name, this.checkingAvailability)
     const value = bind(kind, stored === undefined ? UNKNOWN : stored)
     if (value === UNKNOWN) throw STOP_UNKNOWN
     return check(value)
@@ -1563,12 +1573,16 @@ class Evaluator {
       return before.eval(node.args[0]!, formula)
     }
     if (name === 'known') {
+      const previous = this.checkingAvailability
+      this.checkingAvailability = true
       try {
         this.eval(node.args[0]!, formula)
       } catch (error) {
         if (error instanceof Stop) return false
         if (error instanceof ExpressionMirrorError) return false
         throw error
+      } finally {
+        this.checkingAvailability = previous
       }
       return true
     }

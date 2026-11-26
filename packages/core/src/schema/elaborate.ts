@@ -230,6 +230,8 @@ export interface ElaboratedInput {
   readonly materialize?: readonly MaterializeFrame[]
   /** A field that declares `automatic` with nothing stored and no wire: the value in use. */
   readonly automatic?: AutomaticState
+  /** The declaration's read scope, including forwarded field bindings. */
+  readonly automaticContext?: FormulaContext
   /** A field that declares `automatic` and holds a fixed value: what it would work out to if emptied. */
   readonly automaticIfEmptied?: AutomaticState
   /** Keys of the boxes the node draws around this row, outermost first. */
@@ -716,6 +718,8 @@ export interface ElaborateOptions {
 export interface FormulaContext {
   readonly scope: FormulaScope
   readonly values: FormulaValues
+  /** Unexposed values captured by a forwarded declaration, including asset references. */
+  readonly fixed?: ReadonlyMap<string, { readonly value: unknown; readonly linked?: true }>
   /** Each name's flattened id. */
   readonly paths: ReadonlyMap<string, string>
   /** The scope is a member the node shows but does not store. */
@@ -865,7 +869,9 @@ function automaticKindOf(type: TypeExpr): AutomaticKind | undefined {
  * exactly whole, a whole number fills a decimal one, and a choice is one of
  * its static options.
  */
-function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: InputSpec): Json | undefined {
+export function automaticValueOf(row: InputSpec, value: FormulaValue | Json): Json | undefined {
+  const kind = automaticKindOf(row.type)
+  if (kind === undefined) return undefined
   if (kind === 'bool') return typeof value === 'boolean' ? value : undefined
   if (kind === 'text' || kind === 'choice') {
     if (typeof value !== 'string') return undefined
@@ -1190,7 +1196,7 @@ function elaboratePass(
       if (outcome.kind === 'failed') return standIn('failed')
       found = outcome.value
     }
-    const value = automaticValueOf(kind, found, row)
+    const value = automaticValueOf(row, found)
     if (value === undefined) return standIn('wrong-type', call)
     return { value, state: 'worked-out', ...(call !== undefined ? { call } : {}), ...(kept !== undefined ? { kept } : {}) }
   }
@@ -1375,6 +1381,7 @@ function elaboratePass(
         memberIndex: member?.index ?? null,
         memberKey: member?.key ?? null,
       },
+      fixed,
       paths: where,
       ...(scope.ghost ? { ghost: true as const } : {}),
     }
@@ -2615,7 +2622,7 @@ function elaboratePass(
     const found = item.kind === 'input' ? outcomes.get(item.address.port) : undefined
     if (found === undefined || item.kind !== 'input') continue
     const outcome = labelled(found)
-    items[index] = { ...item, automatic: outcome }
+    items[index] = { ...item, automatic: outcome, automaticContext: contextOf(sites.get(item.address.port)!.scope) }
     if (outcome.state === 'default') {
       const shown = typeof outcome.value === 'string' ? outcome.value : JSON.stringify(outcome.value)
       diagnostics.push(diag('warning', 'schema', 'automatic.default',
