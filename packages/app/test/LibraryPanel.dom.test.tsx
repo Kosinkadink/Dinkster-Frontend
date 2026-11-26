@@ -22,9 +22,52 @@ afterEach(() => {
   localStorage.clear()
   setLocale('en')
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('LibraryPanel', () => {
+  it('keeps the current backend models when an earlier folder read finishes or fails late', async () => {
+    vi.useFakeTimers()
+    for (const failed of [false, true]) {
+      let finish!: (response: Response) => void
+      const pending = new Promise<Response>((resolve) => { finish = resolve })
+      const connection = (id: string, delayed: boolean) => new DinksterConnection({
+        id: asConnectionId(id), baseUrl: '', clientId: 'human', project: id,
+        fetchFn: async (input) => {
+          const path = new URL(String(input), 'http://example.test').pathname
+          if (path === '/api/models/settings') {
+            const locations = [{ id: 'models', path: `/${id}`, mode: 'read', visibility: 'default-on', mounts: ['models'], enabled: true, active: true }]
+            return Response.json({ settings: { version: 1, downloadLocation: null, locations }, locations, revision: id, project: id, changesAllowed: true, restartRequired: false, pendingRemovals: [] })
+          }
+          if (path === '/api/mounts') return Response.json({ mounts: [{ id: 'models', mode: 'read', state: 'ready', kind: 'model/checkpoint' }] })
+          if (path.endsWith('/entries')) return delayed ? pending : Response.json({ entries: [{ name: `${id}.safetensors`, virtualPath: `${id}.safetensors`, digest: `blake3:${'a'.repeat(64)}`, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] })
+          throw new Error(`Unexpected route ${path}`)
+        },
+      })
+      const [current, setCurrent] = createSignal(connection('previous', true))
+      const root = document.createElement('div')
+      document.body.append(root)
+      const dispose = render(() => <LibraryModels connection={current()} onOpenStorage={() => {}} onAddModelFolder={() => {}} />, root)
+      try {
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).toContain('Reading models')
+        setCurrent(connection('current', false))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).toContain('current.safetensors')
+        expect(root.textContent).toContain('1 model in 1 folder')
+        finish(failed ? new Response('Previous folder unavailable', { status: 503 }) : Response.json({ entries: [{ name: 'previous.safetensors', virtualPath: 'previous.safetensors', digest: `blake3:${'b'.repeat(64)}`, size: 2048, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] }))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).toContain('current.safetensors')
+        expect(root.textContent).toContain('1 model in 1 folder')
+        expect(root.textContent).not.toContain('previous.safetensors')
+        expect(root.querySelector('[role="alert"]')).toBeNull()
+        root.querySelector<HTMLButtonElement>('.dinkster-row-main')!.click()
+        expect(root.textContent).toContain('/current')
+        expect(root.textContent).not.toContain('/previous')
+      } finally { dispose(); root.remove() }
+    }
+  })
+
   it('filters equal-digest copies by their actual folder and hides the selected revision in its project', async () => {
     const digest = `blake3:${'a'.repeat(64)}`
     const otherDigest = `blake3:${'b'.repeat(64)}`
