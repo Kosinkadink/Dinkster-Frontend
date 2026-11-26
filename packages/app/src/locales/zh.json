@@ -1694,6 +1694,7 @@
   "boundaryPanel.promotion.added": "将添加该行",
   "boundaryPanel.promotion.existing": "已有该行",
   "boundaryPanel.button.existingFields": "显示此按钮及其已有字段。",
+  "boundaryPanel.button.consequence": "此子图的每处使用都会获得按钮和字段。每次按下仅更改所点击的实例。撤销会一步恢复此次显示操作。",
   "boundaryPanel.button.addFields": "同时显示此按钮写入的字段：{fields}。仅读取的字段保留在子图内部。",
   "boundaryPanel.button.description": "此按钮更改所点击子图的显示字段。移除它不会更改字段或内部按钮。",
   "boundaryPanel.button.unavailable": "内部按钮或其写入的字段已不再显示。",

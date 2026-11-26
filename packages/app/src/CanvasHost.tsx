@@ -2072,6 +2072,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [ancestorPromotion, setAncestorPromotion] = createSolidSignal<{
     readonly definitions: readonly { readonly name: string; readonly uses: number; readonly changed: boolean }[]
     readonly description?: string
+    readonly consequence?: string
     readonly row: string
     readonly destination: string
     readonly confirm: () => void
@@ -4097,6 +4098,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           definitions: [{ name: definition.name, uses: Object.values(before.graphs).reduce((count, graph) => count + Object.values(graph.nodes).filter((node) => node.type === `#${graphId}`).length, 0), changed: true }],
           description: added.length === 0 ? message('boundaryPanel.button.existingFields')
             : message('boundaryPanel.button.addFields', { fields: added.map((item) => item.displayName ?? item.id).join(', ') }),
+          consequence: message('boundaryPanel.button.consequence'),
           valid, cancel, confirm: () => { const current = valid(); cancel(); if (current) void dispatchGesture(m.tab, { command: 'boundary.showButton', params }) },
         })
       },
@@ -7800,7 +7802,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         onDismiss={promotion.cancel}>
         <BoundaryPromotionPreview definitions={promotion.definitions}
           description={promotion.description ?? message('boundaryPanel.promotion.description')}
-          consequence={message('boundaryPanel.promotion.consequence')}
+          consequence={promotion.consequence ?? message('boundaryPanel.promotion.consequence')}
           actionLabel={message('boundaryPanel.promotion.action', { name: promotion.destination })}
           usageLabel={(count) => message('boundaryPanel.usedIn', { count })}
           addedLabel={message('boundaryPanel.promotion.added')}
