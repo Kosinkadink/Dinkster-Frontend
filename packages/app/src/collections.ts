@@ -423,7 +423,7 @@ const runEntry = (r: HistoryRunRecord, owner: string): CollectionEntry => ({
   id: r.runId,
   ref: r,
   owner,
-  title: `${titleCase(r.state)} run`,
+  title: r.workflowName ?? `${titleCase(r.state)} run`,
   subtitle: `${timeText(r.finishedAt)} - ${r.jobId}`,
   badges: [
     ...attributionBadges({ principalId: r.principalId, kind: r.principalKind }),
