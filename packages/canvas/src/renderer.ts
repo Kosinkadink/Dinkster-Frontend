@@ -55,7 +55,7 @@ import {
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
-import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
+import { fitText, measureWidth, paintCenteredText, shareRowWidth, wrapText } from './text-fit.js'
 
 /**
  * Views whose editor is parked. Such a row opens nothing, so the
@@ -875,21 +875,6 @@ const paintPinLabel = (
   ctx.fillText(label, x, edgePinPoint(t, 'in', x, rowCenterY).y + t.fontSize * canvasPaintTokens.type.capHeight / 2)
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
-}
-
-const paintHeaderLabel = (
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  centerY: number,
-  fontSize: number,
-  maxWidth?: number,
-): void => {
-  ctx.textBaseline = 'alphabetic'
-  const baseline = centerY + fontSize * canvasPaintTokens.type.capHeight / 2
-  if (maxWidth === undefined) ctx.fillText(text, x, baseline)
-  else ctx.fillText(text, x, baseline, maxWidth)
-  ctx.textBaseline = 'middle'
 }
 
 /**
@@ -2862,7 +2847,7 @@ export class CanvasRenderer {
       ctx.beginPath()
       ctx.rect(g.x + this.tokens.padX, g.y, g.width - this.tokens.padX * 2, this.tokens.headerHeight)
       ctx.clip()
-      paintHeaderLabel(ctx, g.title, g.x + this.tokens.padX, g.y + this.tokens.headerHeight / 2, this.tokens.titleFontSize)
+      paintCenteredText(ctx, g.title, g.x + this.tokens.padX, g.y + this.tokens.headerHeight / 2, this.tokens.titleFontSize)
       ctx.restore()
       ctx.restore()
     }
@@ -3249,7 +3234,7 @@ export class CanvasRenderer {
       ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
-      paintHeaderLabel(ctx, group.title, x + t.padX, y + GROUP_HEADER_HEIGHT / 2, t.titleFontSize, group.width - t.padX * 2)
+      paintCenteredText(ctx, group.title, x + t.padX, y + GROUP_HEADER_HEIGHT / 2, t.titleFontSize, group.width - t.padX * 2)
     }
     ctx.restore()
   }
@@ -3463,7 +3448,7 @@ export class CanvasRenderer {
       ctx.fillStyle = t.colors.label
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
-      paintHeaderLabel(ctx, text, x, y, t.titleFontSize)
+      paintCenteredText(ctx, text, x, y, t.titleFontSize)
     }
     ctx.restore()
   }
@@ -3621,7 +3606,7 @@ export class CanvasRenderer {
         ctx.fillStyle = t.colors.title
         ctx.textBaseline = 'middle'
         ctx.textAlign = 'left'
-        paintHeaderLabel(ctx, title, node.x + TITLE_START, node.y + l.headerHeight / 2, t.titleFontSize)
+        paintCenteredText(ctx, title, node.x + TITLE_START, node.y + l.headerHeight / 2, t.titleFontSize)
         this.drawTitleSuffix(ctx, suffix, node.x + TITLE_START + measureWidth(ctx, title), node.x + l.width - t.padX, node.y + l.headerHeight / 2, false)
       }
     }
@@ -3654,16 +3639,16 @@ export class CanvasRenderer {
         ctx.fillStyle = t.colors.title
         ctx.fill()
         ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${Math.max(paint.fontMinSize, t.titleFontSize - paint.fontReduction)}px ${t.fontFamily}`
-        paintHeaderLabel(ctx, node.regionKind, titleX + paint.labelInset, glyphY, Math.max(paint.fontMinSize, t.titleFontSize - paint.fontReduction))
+        paintCenteredText(ctx, node.regionKind, titleX + paint.labelInset, glyphY, Math.max(paint.fontMinSize, t.titleFontSize - paint.fontReduction))
         titleX += paint.labelInset + ctx.measureText(node.regionKind).width + paint.titleGap
         ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       }
       const titleRoom = Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap)
       const titleWidth = measureWidth(ctx, title)
       if (t.titleOverflow === 'ellipsis') {
-        paintHeaderLabel(ctx, fitText(ctx, title, titleRoom), titleX, node.y + l.headerHeight / 2, t.titleFontSize)
+        paintCenteredText(ctx, fitText(ctx, title, titleRoom), titleX, node.y + l.headerHeight / 2, t.titleFontSize)
       } else {
-        paintHeaderLabel(ctx, title, titleX, node.y + l.headerHeight / 2, t.titleFontSize, titleRoom)
+        paintCenteredText(ctx, title, titleX, node.y + l.headerHeight / 2, t.titleFontSize, titleRoom)
       }
       if (titleWidth <= titleRoom) {
         this.drawTitleSuffix(ctx, suffix, titleX + titleWidth, titleX + titleRoom, node.y + l.headerHeight / 2, true)
@@ -3882,7 +3867,7 @@ export class CanvasRenderer {
             ctx.fillStyle = textColor
             ctx.textAlign = 'right'
             const text = fitText(ctx, target, (right - left) / 2)
-            paintHeaderLabel(ctx, text, textRight, cy, t.fontSize)
+            paintCenteredText(ctx, text, textRight, cy, t.fontSize)
             textRight -= ctx.measureText(text).width + boxPaint.dotGap
           } else if (row.collapsed || row.box === 'group') {
             ctx.font = `${boxPaint.countFontSize}px ${t.fontFamily}`
@@ -3890,7 +3875,7 @@ export class CanvasRenderer {
             ctx.textAlign = 'right'
             // A group that declares a maximum says how near it is: "3 of 16".
             const count = row.maxCount === undefined ? String(row.count) : translate('canvas.box.countOfMax', { count: row.count, max: row.maxCount })
-            paintHeaderLabel(ctx, count, textRight, cy, boxPaint.countFontSize)
+            paintCenteredText(ctx, count, textRight, cy, boxPaint.countFontSize)
             textRight -= ctx.measureText(count).width + boxPaint.dotGap
             ctx.font = `${t.fontSize}px ${t.fontFamily}`
           }
@@ -3904,7 +3889,7 @@ export class CanvasRenderer {
           const textX = arrowX + boxPaint.arrow.halfWidth + boxPaint.labelGap
           ctx.fillStyle = textColor
           ctx.textAlign = 'left'
-          paintHeaderLabel(ctx, fitText(ctx, row.label, Math.max(0, textRight - textX)), textX, cy, t.fontSize)
+          paintCenteredText(ctx, fitText(ctx, row.label, Math.max(0, textRight - textX)), textX, cy, t.fontSize)
         } else if (row.kind === 'member') {
           // A member's own box: its label and the remove cross.
           const rowAlpha = ctx.globalAlpha
@@ -3919,7 +3904,7 @@ export class CanvasRenderer {
           if (t.memberRemoveCross) paintCross(right - boxPaint.stroke - boxPaint.cross.fieldGap, cy)
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
-          paintHeaderLabel(ctx, fitText(ctx, row.label, Math.max(0, right - boxPaint.cross.reserve - textX)), textX, cy, t.fontSize)
+          paintCenteredText(ctx, fitText(ctx, row.label, Math.max(0, right - boxPaint.cross.reserve - textX)), textX, cy, t.fontSize)
           ctx.globalAlpha = rowAlpha
         } else if (row.kind === 'growth') {
           // A group that grows by hand ends in an Add button, as wide as a member's box.
@@ -4938,12 +4923,12 @@ export class CanvasRenderer {
       ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
-      paintHeaderLabel(ctx, l.title, x + t.padX, y + l.headerHeight / 2, t.titleFontSize, l.width - t.padX * 2)
+      paintCenteredText(ctx, l.title, x + t.padX, y + l.headerHeight / 2, t.titleFontSize, l.width - t.padX * 2)
       const subtitleX = x + t.padX + ctx.measureText(l.title).width + paint.subtitleGap
       ctx.font = `${t.fontSize}px ${t.fontFamily}`
       if (l.subtitle !== undefined) {
         ctx.fillStyle = t.colors.label
-        paintHeaderLabel(ctx, l.subtitle, subtitleX, y + l.headerHeight / 2, t.fontSize, Math.max(0, x + l.width - t.padX - subtitleX))
+        paintCenteredText(ctx, l.subtitle, subtitleX, y + l.headerHeight / 2, t.fontSize, Math.max(0, x + l.width - t.padX - subtitleX))
       }
 
       // Pin rows, and on an Inputs panel the field rows of the subgraph
@@ -5082,7 +5067,7 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
     const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
-    ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - paint.labelClipPadding)), x + field.left + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
+    paintCenteredText(ctx, fitText(ctx, row.label, Math.max(0, companionZone - paint.labelClipPadding)), x + field.left + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2, tokens.fontSize)
     paintCompanionValue(args)
     return
   }
@@ -5101,13 +5086,13 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
   const valueWidth = Math.max(0, usable - labelZone)
   ctx.fillStyle = tokens.colors.label
   ctx.textAlign = 'left'
-  ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - paint.labelClipPadding)), x + paint.labelInset, y + rowHeight / 2)
+  paintCenteredText(ctx, fitText(ctx, row.label, Math.max(0, labelZone - paint.labelClipPadding)), x + paint.labelInset, y + rowHeight / 2, tokens.fontSize)
   ctx.fillStyle = tokens.colors.value
   ctx.textAlign = 'right'
   const displayText = fitText(ctx, text, valueWidth)
   const textRight = x + valueRight
   const textY = y + rowHeight / 2
-  ctx.fillText(displayText, textRight, textY)
+  paintCenteredText(ctx, displayText, textRight, textY, tokens.fontSize)
   if (args.connected) paintStaleValueStrikethrough(ctx, displayText, textRight, textY, 'right', tokens.colors.value)
   ctx.textAlign = 'left'
 }
@@ -5300,7 +5285,7 @@ export function paintSummaryParts(ctx: CanvasRenderingContext2D, parts: readonly
   const align = ctx.textAlign
   if (parts.every((part) => part.thumbnail === undefined)) {
     ctx.textAlign = 'right'
-    ctx.fillText(parts.map((part) => (part.separator ?? '') + part.text).join(''), right, y)
+    paintCenteredText(ctx, parts.map((part) => (part.separator ?? '') + part.text).join(''), right, y, tokens.fontSize)
     ctx.textAlign = align
     return
   }
@@ -5309,7 +5294,7 @@ export function paintSummaryParts(ctx: CanvasRenderingContext2D, parts: readonly
     // The separator belongs before the next picture, not between that picture and its name.
     const separator = part.separator ?? ''
     if (separator !== '') {
-      ctx.fillText(separator, left, y)
+      paintCenteredText(ctx, separator, left, y, tokens.fontSize)
       left += measureWidth(ctx, separator)
     }
     if (part.thumbnail !== undefined) {
@@ -5329,7 +5314,7 @@ export function paintSummaryParts(ctx: CanvasRenderingContext2D, parts: readonly
       ctx.restore()
       left += size + fileNameGap
     }
-    if (part.text !== '') ctx.fillText(part.text, left, y)
+    if (part.text !== '') paintCenteredText(ctx, part.text, left, y, tokens.fontSize)
     left += measureWidth(ctx, part.text)
   }
   ctx.textAlign = align

@@ -27,35 +27,41 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
-test('Node title capitals are within half a pixel of the title bar center', async ({
+test('Node title and widget capitals are within half a pixel of their row center', async ({
   page,
 }) => {
   await page.addInitScript(() => {
-    const measurements: { text: string; error: number }[] = []
+    const measurements: { text: string; error: number; widget: boolean }[] = []
     Object.assign(window, { headerCapitalMeasurements: measurements })
     for (const prototype of [
       CanvasRenderingContext2D.prototype,
       OffscreenCanvasRenderingContext2D.prototype,
     ]) {
       const headers = new WeakMap<object, { top: number; height: number }>()
+      const rows = new WeakMap<object, { top: number; height: number }>()
       const roundRect = prototype.roundRect
       prototype.roundRect = function (x, y, width, height, radii) {
         if (Array.isArray(radii) && radii[2] === 0 && radii[3] === 0)
           headers.set(this, { top: y, height })
+        else if (width > 100 && height >= 20 && height <= 26)
+          rows.set(this, { top: y, height })
         return roundRect.call(this, x, y, width, height, radii)
       }
       const fillText = prototype.fillText
       prototype.fillText = function (text, x, y, maxWidth) {
-        const header = headers.get(this)
+        const widget = !this.font.startsWith('600 ')
+        const header = widget ? rows.get(this) : headers.get(this)
         if (
           header &&
-          this.font.startsWith('600 ') &&
+          (!widget ||
+            ['seed', '42', 'steps', '20', 'cfg', '7.5'].includes(text)) &&
           y > header.top &&
           y < header.top + header.height
         ) {
           const capitals = this.measureText('H')
           measurements.push({
             text,
+            widget,
             error:
               y +
               (capitals.actualBoundingBoxDescent -
@@ -75,11 +81,21 @@ test('Node title capitals are within half a pixel of the title bar center', asyn
     () =>
       (
         window as unknown as {
-          headerCapitalMeasurements: { text: string; error: number }[]
+          headerCapitalMeasurements: {
+            text: string
+            error: number
+            widget: boolean
+          }[]
         }
       ).headerCapitalMeasurements,
   )
   expect(measurements.some(({ text }) => text === 'Sampler')).toBe(true)
+  expect(
+    measurements.some(({ text, widget }) => widget && text === 'seed'),
+  ).toBe(true)
+  expect(measurements.some(({ text, widget }) => widget && text === '42')).toBe(
+    true,
+  )
   for (const { text, error } of measurements)
     expect(Math.abs(error), text).toBeLessThanOrEqual(0.5)
 })

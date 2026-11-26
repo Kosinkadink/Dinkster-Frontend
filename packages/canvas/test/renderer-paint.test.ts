@@ -2041,11 +2041,11 @@ describe('node chrome paint on the live renderer', () => {
     })
     expect(calls[strikeIndex - 2]).toMatchObject({
       method: 'moveTo',
-      args: [(valueText.args[1] as number) - 18, valueText.args[2]],
+      args: [(valueText.args[1] as number) - 18, fs.y + row.y + defaultTokens.rowHeight / 2],
     })
     expect(calls[strikeIndex - 1]).toMatchObject({
       method: 'lineTo',
-      args: [valueText.args[1], valueText.args[2]],
+      args: [valueText.args[1], fs.y + row.y + defaultTokens.rowHeight / 2],
     })
 
     const companionCalls = paintWith(scene, (renderer) => {
