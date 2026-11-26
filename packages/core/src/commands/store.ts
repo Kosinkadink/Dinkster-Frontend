@@ -17,11 +17,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import type { BoundarySide, BoundaryNodeViewState, Json, WorkflowDocument } from '../format/document.js'
 import { ownJson } from '../format/json.js'
-import { isPortEndpoint, isValidActorId, parseOccurrenceKey, sameEndpoint, type PortRef } from '../ids.js'
-import { effectiveOccurrenceTopology } from '../compile/effective-topology.js'
-import { canonicalJson } from '../compile/hash.js'
-import { buildGraphConnectivity, elaborateInterface } from '../schema/elaborate.js'
-import type { SchemaResolver } from '../schema/derive-boundary.js'
+import { isValidActorId, parseOccurrenceKey } from '../ids.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
 import { createSignal, type ReadonlySignal, type Signal } from '../reactive/signal.js'
 import {
@@ -37,65 +33,6 @@ import {
 import { applyOwnedOps, getAtPath, type PatchOp } from './patch.js'
 import { nodesChangedBy, storeStartState } from './start-state.js'
 import { groupMembershipAfter, type GroupGeometryResolver } from '../group-membership.js'
-
-/** New deliveries fold open editors in the wire's undo step, not on value arrivals or disconnects. */
-function foldEditorsOnWireArrival(before: WorkflowDocument, tx: ReturnType<typeof createTransactionBuilder>, resolve: SchemaResolver): void {
-  const arrivals = new Map<string, Map<string, Set<string>>>()
-  const add = (graphId: string, to: PortRef): void => {
-    let nodes = arrivals.get(graphId)
-    if (!nodes) arrivals.set(graphId, nodes = new Map())
-    let ports = nodes.get(to.node)
-    if (!ports) nodes.set(to.node, ports = new Set())
-    ports.add(to.port)
-  }
-  for (const [graphId, graph] of Object.entries(tx.current.graphs)) {
-    const old = before.graphs[graphId]
-    if (!old || old === graph) continue
-    for (const [id, link] of Object.entries(graph.links)) {
-      if (isPortEndpoint(link.to) && (!old.links[id] || !sameEndpoint(old.links[id]!.to, link.to))) add(graphId, link.to)
-    }
-    for (const [id, net] of Object.entries(graph.nets)) {
-      for (const to of net.sinks) {
-        if (!old.nets[id]?.sinks.some((sink) => sameEndpoint(sink, to))) add(graphId, to)
-      }
-    }
-  }
-  for (const [key, topology] of Object.entries(tx.current.occurrenceTopologies ?? {})) {
-    const old = before.occurrenceTopologies?.[key]
-    if (old === topology) continue
-    const previous = effectiveOccurrenceTopology(before, resolve, topology.owner)
-    const current = effectiveOccurrenceTopology(tx.current, resolve, topology.owner)
-    const deliveryKey = (link: (typeof current.links)[number]) => canonicalJson([link.identity, link.to] as unknown as Json)
-    const known = new Set([...previous.links, ...previous.projectedParentLinks].map(deliveryKey))
-    for (const link of [...current.links, ...current.projectedParentLinks]) {
-      if (!known.has(deliveryKey(link)) && isPortEndpoint(link.to.endpoint)) add(link.to.graphId, link.to.endpoint)
-    }
-  }
-  for (const [graphId, nodes] of arrivals) {
-    const graph = tx.current.graphs[graphId]!
-    const connectivity = buildGraphConnectivity(graph)
-    for (const [nodeId, ports] of nodes) {
-      const node = graph.nodes[nodeId]
-      const schema = node && resolve(node.type)
-      if (!node || !schema) continue
-      const items = elaborateInterface(schema, node, connectivity(node.id)).items
-      for (const item of items) {
-        if (item.kind !== 'input' && item.kind !== 'editor') continue
-        const key = item.kind === 'input' ? item.address.port : item.id
-        const widget = item.kind === 'input' ? item.spec.widget : item.widget
-        const view = tx.current.view.graphs[graphId]?.nodes[nodeId]
-        if (!(view?.editors?.[key]?.unfolded ?? (item.origin.kind !== 'member' && widget?.options['unfolded'] === true))) continue
-        const parts = item.parts === undefined ? [] : [...Object.values(item.parts.reads), ...Object.values(item.parts.writes)]
-        if (!ports.has(key) && !parts.some((part) => ports.has(part))) continue
-        if (!tx.current.view.graphs[graphId]) tx.set(['view', 'graphs', graphId], { nodes: {} })
-        const path = ['view', 'graphs', graphId, 'nodes', nodeId]
-        if (!view) tx.set(path, { editors: {} })
-        else if (!view.editors) tx.set([...path, 'editors'], {})
-        tx.set([...path, 'editors', key], { unfolded: false })
-      }
-    }
-  }
-}
 
 export type BoundaryPositionResolver = (
   document: WorkflowDocument,
@@ -591,7 +528,6 @@ export class DocumentStore implements DocumentStoreContract {
       const resolve = context.kind === 'initial' && !hasErrors(commandDiags) ? context.schemaResolverFor?.(tx.current) : undefined
       if (resolve !== undefined) {
         storeStartState(tx, resolve, nodesChangedBy(tx.current, tx.forward))
-        if (!def.replaysHistory) foldEditorsOnWireArrival(this.doc, tx, resolve)
       }
       if (context.kind === 'initial' && !hasErrors(commandDiags) && !def.replaysHistory && this.nodeHeightFor) {
         for (const [graphId, graph] of Object.entries(tx.current.view.graphs)) {

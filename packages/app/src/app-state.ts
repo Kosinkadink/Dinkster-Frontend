@@ -5914,7 +5914,7 @@ export class AppState {
       nodeHeightFor: (document, graphId, nodeId) => {
         const graph = document.view.graphs[graphId]
         const view = graph?.nodes[nodeId]
-        // Arrival can fold an editor while its whole node is minimized.
+        // Measure the expanded body even when the whole node is minimized.
         const expanded = view?.collapsed ? {
           ...document, view: { ...document.view, graphs: { ...document.view.graphs,
             [graphId]: { ...graph!, nodes: { ...graph!.nodes, [nodeId]: { ...view, collapsed: false } } },
