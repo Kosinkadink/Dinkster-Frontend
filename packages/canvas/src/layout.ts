@@ -1448,17 +1448,25 @@ export function layoutNode(
         })
         continue
       }
-      outputs.push({
-        boxes: chain,
-        slot: {
-          portId: spec.id,
-          ...rowLabels(item),
-          type: spec.type,
-          index: outputIndex++,
-          ...(spec.optional ? { maybeAbsent: true as const } : {}),
-          ...annotate(item),
-        },
-      })
+      const slot = {
+        portId: spec.id,
+        ...rowLabels(item),
+        type: spec.type,
+        index: outputIndex++,
+        ...(spec.optional ? { maybeAbsent: true as const } : {}),
+        ...annotate(item),
+      }
+      if (schema.source === 'subgraph') {
+        // A subgraph node's outputs keep the place the author gave them: an
+        // output shares the line of the pin-only input directly above it in
+        // the same box, unless it is kept on a line of its own.
+        const above = pending.at(-1)
+        if (!spec.ownRow && above?.kind === 'ports' && above.input !== undefined &&
+          above.output === undefined && chainKey(above.boxes) === chainKey(chain)) above.output = slot
+        else pending.push({ kind: 'ports', boxes: chain, output: slot })
+        continue
+      }
+      outputs.push({ boxes: chain, slot })
       continue
     }
     // input
@@ -1679,8 +1687,9 @@ export function layoutNode(
       const histogram = editor.histogramLine !== undefined &&
         (w.histogram?.connected === true || (options.histogramVisibility?.[w.valueKey] ?? w.spec.options['histogramVisible']) !== false)
         ? w.histogram : undefined
+      const fixedCurve = w.viewId === 'core.curve' && Array.isArray(w.spec.options['interpolations']) && w.spec.options['interpolations'].length === 1
       const controls = editorControlHeights.get(w.valueKey) ??
-        (editor.controlRows + (histogram !== undefined ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
+        (editor.controlRows - (fixedCurve ? 1 : 0) + (histogram !== undefined ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
       const spaceRow: PendingRow = {
         kind: 'editorSpace',
         boxes: cell.boxes,
@@ -1696,7 +1705,7 @@ export function layoutNode(
           ...(pictureHeight !== undefined ? { picture: { top: space.pad, height: pictureHeight } } : {}),
         },
       }
-      if (histogram !== undefined) spaceHistograms.set(spaceRow, { pin: histogram, line: editor.histogramLine! })
+      if (histogram !== undefined) spaceHistograms.set(spaceRow, { pin: histogram, line: editor.histogramLine! - (fixedCurve ? 1 : 0) })
       lines.set(spaceRow, [spaceRow])
       withSpaces.push(spaceRow)
     }

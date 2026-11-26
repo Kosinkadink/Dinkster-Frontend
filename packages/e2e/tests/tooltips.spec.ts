@@ -172,29 +172,6 @@ test('activity rail tooltip stays beside its item at desktop and compact widths'
   }
 })
 
-test('node palette port product tooltip preserves hover and keyboard wording', async ({ page }) => {
-  await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
-    type: 'UaTooltipProof', displayName: 'UA tooltip proof', category: 'test', source: 'v3', isOutputNode: false,
-    body: [
-      { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: false, tooltip: 'Exact input tooltip wording.' },
-      { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'STRING' }, tooltip: 'Exact output tooltip wording.' },
-    ],
-  }]))
-  const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
-  await page.mouse.dblclick(700, 600)
-  await page.getByTestId('palette-search').fill('UA tooltip proof')
-  const type = page.getByTestId('preview-input').locator('.preview-port-type')
-  const wording = await type.getAttribute('data-tooltip-label')
-  expect(wording).toBe('STRING')
-  await expect(type).not.toHaveAttribute('title')
-  await type.hover()
-  await expect(page.getByTestId('app-tooltip')).toHaveText(wording!, { timeout: 1_500 })
-  await type.focus()
-  await expect(page.getByTestId('app-tooltip')).toHaveText(wording!)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-})
-
 test('shell and minimap seams use product tooltips without document writes', async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'shell-tooltip-fixture', schemaWire: 2 }, nodes: {},

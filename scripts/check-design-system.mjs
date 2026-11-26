@@ -116,18 +116,19 @@ export async function checkDesignSystem(args = []) {
   }
   checkDeclarations(css, stylesheet)
 
-  async function visitDirectory(directory) {
+  async function visitDirectory(directory, shortcutsOnly = false) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (['node_modules', 'dist', '.git'].includes(entry.name)) continue
       const path = resolve(directory, entry.name)
-      if (entry.isDirectory()) await visitDirectory(path)
+      if (entry.isDirectory()) await visitDirectory(path, shortcutsOnly)
       else if (/\.(?:[cm]?[jt]sx?|css|html)$/u.test(entry.name))
-        await checkFile(path)
+        await checkFile(path, shortcutsOnly)
     }
   }
 
-  async function checkFile(path) {
+  async function checkFile(path, shortcutsOnly) {
     const text = await readFile(path, 'utf8')
+    if (shortcutsOnly && !/\.tsx$/u.test(path)) return
     if (path.endsWith('.css')) {
       if (path !== stylesheet)
         report(path, 1, 'Styles belong in packages/ui/styles.css')
@@ -152,6 +153,54 @@ export async function checkDesignSystem(args = []) {
     )
     const line = (node) =>
       source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
+    const shortcutSource = resolve(repository, 'packages/ui/src/shortcut.tsx')
+    const checkRenderedShortcut = (node) => {
+      if (ts.isStringLiteralLike(node) || ts.isJsxText(node)) {
+        if (/\b(?:Ctrl|Cmd|Alt|Shift|Meta)\+/iu.test(node.text))
+          report(path, line(node), 'Shortcut text must use ProductShortcut')
+      } else if (ts.isConditionalExpression(node)) {
+        checkRenderedShortcut(node.whenTrue)
+        checkRenderedShortcut(node.whenFalse)
+      } else if (ts.isParenthesizedExpression(node)) {
+        checkRenderedShortcut(node.expression)
+      } else if (
+        ts.isBinaryExpression(node) &&
+        [
+          ts.SyntaxKind.AmpersandAmpersandToken,
+          ts.SyntaxKind.BarBarToken,
+          ts.SyntaxKind.QuestionQuestionToken,
+          ts.SyntaxKind.PlusToken,
+        ].includes(node.operatorToken.kind)
+      ) {
+        if (node.operatorToken.kind !== ts.SyntaxKind.AmpersandAmpersandToken)
+          checkRenderedShortcut(node.left)
+        checkRenderedShortcut(node.right)
+      }
+    }
+    const visitShortcut = (node) => {
+      if (path !== shortcutSource) {
+        if (
+          (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+          node.tagName.getText(source) === 'kbd'
+        )
+          report(path, line(node), 'Shortcut keys must use ProductShortcut')
+        if (
+          ts.isStringLiteralLike(node) &&
+          /\bdinkster-(?:key|window-action-shortcut)\b/u.test(node.text)
+        )
+          report(path, line(node), 'Shortcut chips belong to ProductShortcut')
+        if (ts.isJsxText(node)) checkRenderedShortcut(node)
+        else if (
+          ts.isJsxExpression(node) &&
+          (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent)) &&
+          node.expression
+        )
+          checkRenderedShortcut(node.expression)
+      }
+      ts.forEachChild(node, visitShortcut)
+    }
+    visitShortcut(source)
+    if (shortcutsOnly) return
     const classExpression = (node) => {
       if (ts.isStringLiteralLike(node))
         checkClasses(node.text, path, line(node))
@@ -319,6 +368,8 @@ export async function checkDesignSystem(args = []) {
         report(path, line, `Class ${name} is not in the shared stylesheet`)
   }
   for (const directory of sources) await visitDirectory(directory)
+  if (!args.length)
+    await visitDirectory(resolve(repository, 'packages/app/src'), true)
   if (problems.length) throw new Error(problems.join('\n'))
 }
 

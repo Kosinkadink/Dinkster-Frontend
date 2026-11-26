@@ -15,6 +15,7 @@
 
 import type {
   BoundaryBinding,
+  BoundaryItem,
   BoundaryRouteLeg,
   GraphDef,
   Json,
@@ -27,6 +28,7 @@ import type {
 } from '../format/document.js'
 import { isRerouteRef, occurrenceKey } from '../ids.js'
 import { buildRerouteIndex, traceEndpoint } from '../reroute.js'
+import { boundaryItems } from '../format/document.js'
 
 /** Serialize JSON with object keys sorted, so equal values hash equally. */
 export function canonicalJson(value: unknown): string {
@@ -214,7 +216,11 @@ function semanticConnections(g: GraphDef): Json {
     .map(([, p]) => p)
 }
 
-function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean): Json {
+function semanticBoundaryItem({ displayName: _displayName, tooltip: _tooltip, limits: _limits, visible: _visible, ...item }: BoundaryItem): BoundaryItem {
+  return item
+}
+
+function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean, bypassed = false): Json {
   return {
     nodes: Object.fromEntries(
       Object.entries(g.nodes)
@@ -223,8 +229,16 @@ function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean): J
     ),
     links: semanticConnections(g),
     nets: g.nets,
-    // Whether a boundary input's wire is drawn is presentation only.
-    ...(g.boundary ? { boundary: { ...g.boundary, inputs: g.boundary.inputs.map(({ wireHidden: _wireHidden, ...item }) => item) } } : {}),
+    // Where a row sits among sections and lines, whether it keeps its own
+    // row, whether a boundary input's wire is drawn, and a row's help text,
+    // limits and condition are presentation only. Bypass separately keeps
+    // interface order because its positional passthrough depends on it.
+    ...(g.boundary ? { boundary: {
+      inputs: boundaryItems(g.boundary, 'inputs').map(({ kind: _kind, wireHidden: _wireHidden, ...item }: BoundaryItem & { kind?: unknown }) => semanticBoundaryItem(item))
+        .sort((a, b) => bypassed ? 0 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      outputs: boundaryItems(g.boundary, 'outputs').map(({ kind: _kind, ownRow: _ownRow, ...item }: BoundaryItem & { kind?: unknown; ownRow?: unknown }) => semanticBoundaryItem(item))
+        .sort((a, b) => bypassed ? 0 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    } } : {}),
   } as unknown as Json
 }
 
@@ -382,9 +396,11 @@ export function semanticHashOf(
   const occurrenceTopologies = Object.entries(doc.occurrenceTopologies ?? {})
     .map(([, topology]) => [occurrenceKey(topology.owner), semanticOccurrenceTopology(doc, topology)] as const)
     .filter((entry): entry is readonly [string, Json] => entry[1] !== undefined)
+  const bypassedTypes = new Set(Object.values(doc.graphs).flatMap((graph) =>
+    Object.values(graph.nodes).filter((node) => node.mode === 'bypassed').map((node) => node.type)))
   const semantic = {
     root: doc.root,
-    graphs: Object.fromEntries(Object.entries(doc.graphs).map(([k, g]) => [k, semanticGraph(g, isVirtualType)])),
+    graphs: Object.fromEntries(Object.entries(doc.graphs).map(([k, g]) => [k, semanticGraph(g, isVirtualType, bypassedTypes.has(`#${k}`))])),
     ...(occurrenceTopologies.length > 0
       ? { occurrenceTopologies: Object.fromEntries(occurrenceTopologies) }
       : {}),

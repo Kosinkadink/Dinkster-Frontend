@@ -160,6 +160,7 @@ import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { pendingClipboardText, writeClipboardText } from './clipboard-text.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
+import { catalogNodeKey, runSearchAction } from './universal-search.js'
 import { isNativeTextScopeTarget, shortcutSuppressed } from './settings.js'
 import { bookmarkJumpMode, bookmarkJumpPlan, bookmarkMarkerWorldPoint, bookmarkSaveMode, bookmarkViewFromViewport, bookmarkViewportForView, createCameraAnimator, viewportCenteredOnNode, type BookmarkJumpPlan } from './bookmark-camera.js'
 import { Icon } from './Icon.js'
@@ -203,6 +204,7 @@ import { readEditorCurve } from './in-node-editor-source.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
+import { boundaryItems } from '@dinkster/core'
 
 type WidgetLayoutRow = Extract<Hit, { kind: 'widget' }>['row']
 
@@ -803,7 +805,7 @@ export function selectionDeleteInvocation(args: {
     if (link.from.kind === 'boundary' && link.to.kind === 'port') {
       const boundaryFrom = link.from
       const primaryDeleted = boundaryFrom.side === 'inputs' &&
-        deletedNodes.has(def.boundary?.inputs.find((item) => item.id === boundaryFrom.item)?.binds.node ?? '')
+        deletedNodes.has(boundaryItems(def.boundary, 'inputs').find((item) => item.id === boundaryFrom.item)?.binds.node ?? '')
       if (deletedNodes.has(link.to.node) || primaryDeleted) continue
       boundaryOps.push({
         command: 'boundary.unbind',
@@ -850,7 +852,7 @@ export function selectionDeleteInvocation(args: {
       if (!deletedNodes.has(net.source.node)) continue
       for (const sink of net.sinks) if (!deletedNodes.has(sink.node)) freedNodes.add(sink.node)
     }
-    for (const item of def.boundary?.inputs ?? []) {
+    for (const item of boundaryItems(def.boundary, 'inputs') ?? []) {
       if (item.binds.kind === 'unbound') continue
       if (!deletedNodes.has(item.binds.node)) continue
       for (const binding of item.alsoBinds ?? []) {
@@ -1376,6 +1378,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const collabTabs = useSignal(props.app.collabTabs)
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
+  const boundaryFocus = useSignal(props.app.boundaryFocus)
   const problems = useSignal(props.app.problems)
   const reviewReplacements = (): boolean => (settingsTick(), props.app.settings.get<boolean>('execution.reviewUpgrades'))
   // Scene/widget diagnostics for THIS editor instance. The app-level
@@ -2182,6 +2185,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // (query, highlight, filters, clamping) lives in NodePalette and dies
   // with it when the anchor clears.
   const [palette, setPalette] = createSolidSignal<PaletteAnchor | undefined>(undefined)
+  const searchCatalog = useSignal(props.app.searchCatalog)
+  createEffect(on(() => palette() !== undefined, (open) => {
+    if (open) props.app.searchCatalogRequests.set(props.app.searchCatalogRequests.get() + 1)
+  }))
   const [linkDoubleClickMenu, setLinkDoubleClickMenu] = createSolidSignal<{ x: number; y: number; context: LinkDoubleClickContext } | undefined>(undefined)
   /**
    * When the link menu opened. A midpoint single click opens it on release,
@@ -2325,6 +2332,22 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
       }
     }
+    if (tab !== undefined && tab.execution === undefined) {
+      const installed = new Set(entries.map((entry) => entry.type))
+      for (const entry of searchCatalog()) {
+        const schema = entry.schema
+        if (installed.has(schema.type) || reg?.packs?.has(entry.pack.name) || searchVisibilityOf(schema) !== 'normal') continue
+        installed.add(schema.type)
+        entries.push({
+          type: schema.type, name: schema.displayName, category: schema.category, kind: 'node', schema,
+          ...(schema.description === undefined ? {} : { description: schema.description }),
+          pack: entry.pack.displayName, fields: nodeSearchFields(schema),
+          install: { kind: 'host', action: 'node.previewInstall', params: {
+            type: schema.type, backendId: props.app.backendForTab(tab).id, schemaKey: catalogNodeKey(entry),
+          } },
+        })
+      }
+    }
     return entries.sort((a, b) => a.name.localeCompare(b.name))
   }
 
@@ -2441,8 +2464,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (editorOpen && isInside(event, '.product-select[aria-expanded="true"]')) return
       // So does the open mount list in a save target's box: it closes before the box.
       if (editorOpen && isInside(event, '.dinkster-canvas-target-choice[aria-expanded="true"]')) return
-      // An expanded palette type filter owns the first Escape and restores its trigger focus.
-      if (paletteOpen && isInside(event, '.palette-type-filter[data-expanded="true"]')) return
+      // A shared type menu owns the first Escape and restores its trigger focus.
+      if (paletteOpen && isInside(event, '.dinkster-menu-popover')) return
       // A suggestion surface is part of the live text editor, not a
       // request to close that editor. Let its target handler close only the
       // surface; the ordinary host-owned editor Escape path resumes once the
@@ -3314,10 +3337,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           tooltipOwner,
         )
       },
+      onBoundaryRowSelect: (_side, itemId) => {
+        const tab = activeTab()
+        if (tab) props.app.boundaryFocus.set({ tabId: tab.id, graphId: currentGraphId(tab), item: itemId })
+      },
       onBoundaryRenameRequest: (side, itemId, screenX, screenY) => {
         const tab = activeTab()
         if (!tab || refuseFrozenEdit()) return
-        const item = tab.store.doc.graphs[currentGraphId(tab)]?.boundary?.[side]?.find((i) => i.id === itemId)
+        const item = boundaryItems(tab.store.doc.graphs[currentGraphId(tab)]?.boundary, side).find((i) => i.id === itemId)
         if (!item) return
         closePalette()
         setEditor(undefined)
@@ -5007,6 +5034,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // nodes (the Nodes 2.0 above-node control strip). Host-derived like
     // badges: recomputed on selection/document changes, placed by the canvas.
     // Frozen execution views are read-only, so they grow no toolbox.
+    // The row selected in the Boundary panel, marked where it is on screen:
+    // its boundary row and every inner pin or field it goes to.
+    createEffect(() => {
+      docTick()
+      const focus = boundaryFocus()
+      const tab = activeTab()
+      const def = tab && focus?.tabId === tab.id && focus.graphId === currentGraphId(tab)
+        ? tab.store.doc.graphs[focus.graphId] : undefined
+      const find = (side: 'inputs' | 'outputs') => boundaryItems(def?.boundary, side).find((candidate) => candidate.id === focus?.item)
+      const side = find('inputs') !== undefined ? 'inputs' as const : find('outputs') !== undefined ? 'outputs' as const : undefined
+      const item = side === undefined ? undefined : find(side)
+      if (!item || !side) {
+        renderer.setBoundaryFocus(undefined)
+        return
+      }
+      const inputs: Record<string, Set<string>> = {}
+      const outputs: Record<string, Set<string>> = {}
+      for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+        if (binding.kind === 'widgetTap') (inputs[binding.node] ??= new Set()).add(binding.tap)
+        else if (binding.kind !== 'unbound') {
+          ((side === 'inputs' ? inputs : outputs)[binding.node] ??= new Set()).add(binding.port)
+        }
+      }
+      renderer.setBoundaryFocus({ side, item: item.id, inputs, outputs })
+    })
     createEffect(on([selVersion, docTick], () => {
       // A hover belongs to this selection/document, not the next one.
       hoveredToolboxButtonId = undefined
@@ -5570,7 +5622,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     armPaletteEntry = (entry): boolean => {
       const tab = activeTab()
-      if (!tab || frozen() || entry.type === '__dinkster.reroute') {
+      if (!tab || frozen() || entry.install !== undefined || entry.type === '__dinkster.reroute') {
         clearArmedPlacement()
         return false
       }
@@ -6327,6 +6379,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const entry = paletteEntries().find((candidate) =>
           candidate.type === type &&
           candidate.kind === 'node' &&
+          candidate.install === undefined &&
           candidate.schema !== undefined &&
           (expected === undefined || placementSchemaKey(candidate.schema) === expected.schemaKey))
         if (
@@ -7271,7 +7324,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             recentTypes={recentNodeTypes}
             widgetRegistry={widgetRegistry()}
             bounds={() => canvasClientRect()}
-            onCommit={(entry) => paletteCommit(entry)}
+            onCommit={async (entry) => {
+              if (entry.install !== undefined) {
+                const anchor = palette()
+                if (await runSearchAction(props.app, entry.install) && palette() === anchor) closePalette()
+              } else paletteCommit(entry)
+            }}
+            onRemoveLinkDrop={() => {
+              const anchor = palette()
+              if (anchor === undefined) return
+              const { linkDrop: _drop, ...ordinary } = anchor
+              clearPaletteGhost()
+              setPalette(ordinary)
+            }}
             onHelp={(entry) => {
               const tab = activeTab()
               if (tab && props.app.openNodeHelp(tab, entry.type)) closePalette()

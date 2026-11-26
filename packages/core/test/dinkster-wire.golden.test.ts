@@ -399,7 +399,7 @@ describe('Dinkster schema wire', () => {
     const nested = { ...imported.document!, graphs: {
       g0: { ...graph, nodes: { a: instance('a', ['Detailed', 'Quick']), b: instance('b', ['Fine', 'Detailed']) } },
       soften: { ...graph, id: asGraphDefId('soften'), name: 'soften', nodes: { inner }, boundary: {
-        inputs: [{ id: 'choice', binds: { kind: 'port', node: 'inner', port: 'choice' }, promoted: true }], outputs: [],
+        body: [{ kind: 'input', id: 'choice', binds: { kind: 'port', node: 'inner', port: 'choice' }, promoted: true }],
       } },
     } }
     const compiledNested = compile({ document: nested as never, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('authored'), schemaHash: 'authored' })
@@ -657,6 +657,20 @@ describe('Dinkster schema wire', () => {
     const [tied, plain] = inputsOf(decoded.schema!)
     expect(tied!.widget!.options).toEqual({ inputStrip: ['#000000', '#ffffff'], histogram: 'bins' })
     expect(plain!.widget!.options).toEqual({})
+    for (const interpolations of [['step'], ['step', 'linear']]) {
+      const restricted = parseDinksterSchema('RestrictedCurve', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('curve', { interpolations })],
+      })
+      expect(restricted.diagnostics).toEqual([])
+      expect(inputsOf(restricted.schema!)[0]!.widget!.options).toEqual({ interpolations })
+    }
+    for (const interpolations of [null, 'step', [], ['step', 'step'], ['unknown'], [1]]) {
+      const rejected = parseDinksterSchema('BadCurve', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('curve', { interpolations })],
+      })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('interpolations must be distinct supported kinds') })])
+    }
     for (const histogramVisible of [false, true]) {
       const visible = parseDinksterSchema('Curves', {
         schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,

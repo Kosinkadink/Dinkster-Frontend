@@ -168,7 +168,7 @@ describe('a hidden row with a problem', () => {
             n: subgraph ? { id: 'n', type: '#body', values: {}, dynamic: { shown: { selected: 'image' } } } : node,
           }, links: {}, nets: {}, reroutes: {} },
           ...(subgraph ? { body: { id: 'body', name: 'Body', nextOrdinal: 1, nodes: { n: node }, links: {}, nets: {}, reroutes: {},
-            boundary: { inputs: [{ id: 'shown', binds: { kind: 'construct', node: 'n', port: 'mode' } }], outputs: [] },
+            boundary: { body: [{ kind: 'input', id: 'shown', binds: { kind: 'construct', node: 'n', port: 'mode' } }] },
           } } : {}),
         }, view: { graphs: {} },
       }).document!

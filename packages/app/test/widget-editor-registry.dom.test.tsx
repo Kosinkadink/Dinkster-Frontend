@@ -5,8 +5,85 @@ import { asLinkId, asNodeId, asPortId, coreCommandRegistry, createSignal, Docume
 import type { ExecutionState } from '@dinkster/client'
 import type { AppState, Tab } from '../src/app-state.js'
 import { WidgetEditor, type WidgetEditorProps, type WidgetEditorState } from '../src/WidgetEditor.js'
+import { CurveSpace } from '../src/InNodeEditorSpaces.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('stores Step interpolation without changing points', async () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'linear' as const, points: [
+    { position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.9, value: 0.3 },
+  ] }
+  const commit = vi.fn()
+  const root = document.createElement('div'); document.body.append(root)
+  const mount = (interpolation: 'linear' | 'step') => render(() => <CurveSpace
+    value={{ ...value, interpolation }} options={{}} histogram={undefined} histogramInput="none" commit={commit}
+  />, root)
+  let dispose = mount('linear')
+  try {
+    const choice = root.querySelector('.dinkster-canvas-editor-field-slot')!
+    ;(choice.querySelector('button') as HTMLButtonElement).click()
+    const step = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent?.trim() === 'Step')!
+    expect(step).toBeDefined()
+    step.click()
+    expect(commit).toHaveBeenCalledExactlyOnceWith({ ...value, interpolation: 'step' })
+    dispose()
+    dispose = mount('step')
+    expect(root.textContent).toContain('Step')
+    expect(root.textContent).not.toContain('Histogram')
+  } finally { dispose() }
+})
+
+it('draws a Step-only curve without a selector or a ramp even for an incoming linear value', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'linear' as const, points: [
+    { position: 0.1, value: 0.2 }, { position: 0.4, value: 0.8 }, { position: 0.9, value: 0.3 },
+  ] }
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn()
+  const dispose = render(() => <CurveSpace value={value} options={{ interpolations: ['step'] }}
+    histogram={undefined} histogramInput="none" commit={commit} />, root)
+  try {
+    expect(root.textContent).not.toContain('Interpolation')
+    expect(root.textContent).not.toContain('Histogram')
+    const vertices = root.querySelector('.dinkster-canvas-curve-line[data-held="false"]')!.getAttribute('points')!
+      .split(' ').map((point) => point.split(',').map(Number))
+    let jumps = 0
+    for (let index = 1; index < vertices.length; index++) {
+      const [x, y] = vertices[index]!
+      const [beforeX, beforeY] = vertices[index - 1]!
+      expect(x === beforeX || y === beforeY).toBe(true)
+      if (y !== beforeY) { expect(x).toBe(beforeX); jumps++ }
+    }
+    expect(jumps).toBe(2)
+    expect(commit).not.toHaveBeenCalled()
+    expect(value.interpolation).toBe('linear')
+  } finally { dispose() }
+})
+
+it('bounds an expanded Step plot without changing extreme source points', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const value = { interpolation: 'step' as const, points: [
+    { position: -1e308, value: -2 }, { position: 0.25, value: 0.4 },
+    { position: 0.75, value: 2 }, { position: 1e308, value: 0.8 },
+  ] }
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn()
+  const dispose = render(() => <CurveSpace value={value} options={{}} histogram={undefined} histogramInput="none" commit={commit} />, root)
+  try {
+    const vertices = Array.from(root.querySelectorAll('.dinkster-canvas-curve-line')).flatMap((line) =>
+      line.getAttribute('points')!.split(' ').map((point) => point.split(',').map(Number)))
+    const expected = [[8.5, 171.5], [84.25, 171.5], [84.25, 106.3], [235.75, 106.3], [235.75, 8.5], [311.5, 8.5]]
+    expect(vertices).toHaveLength(expected.length)
+    vertices.forEach((point, index) => point.forEach((coordinate, axis) => expect(coordinate).toBeCloseTo(expected[index]![axis]!)))
+    const handles = root.querySelectorAll('.dinkster-canvas-curve-point')
+    expect(handles).toHaveLength(1)
+    expect(Number(handles[0]!.getAttribute('cx'))).toBeCloseTo(84.25)
+    expect(Number(handles[0]!.getAttribute('cy'))).toBeCloseTo(106.3)
+    expect(commit).not.toHaveBeenCalled()
+    expect(value.points[0]!.position).toBe(-1e308)
+  } finally { dispose() }
+})
 
 it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {
   const schema = parseDinksterSchema('SaveTargetFixture', { body: [

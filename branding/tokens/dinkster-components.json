@@ -15,7 +15,8 @@
     "compactControlHeight": 32,
     "primaryInputHeight": 40,
     "canvasInputHeight": 24,
-    "focusRingWidth": 2,
+    "focusRingWidth": 1,
+    "indicatorWidth": 2,
     "disabledOpacity": 0.45,
     "unfocusedOpacity": 0.5
   },

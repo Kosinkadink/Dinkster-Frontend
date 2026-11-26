@@ -15,7 +15,7 @@ import {
   type TextMeasurer,
   type WidgetMeasure,
 } from '@dinkster/canvas'
-import { createWidgetRegistry, curveInterpolator, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
+import { createWidgetRegistry, curveEditorInterpolations, curveInterpolator, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import {
   GALLERY_NODE_WIDTH,
   createInNodeEditorScene,
@@ -315,8 +315,9 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
     case 'core.curve': {
       const wired = props.example.wired?.[props.row.inputId] !== undefined
       const value = (wired ? props.example.carried?.[props.row.valueKey] ?? props.example.summaries?.[props.row.valueKey]?.value : props.example.values?.[props.row.valueKey]) as
-        { interpolation?: 'linear' | 'monotone_cubic'; points?: { position: number; value: number }[] } | undefined
-      const interpolation = value?.interpolation ?? 'monotone_cubic'
+        { interpolation?: 'linear' | 'monotone_cubic' | 'step'; points?: { position: number; value: number }[] } | undefined
+      const kinds = curveEditorInterpolations(props.declared)
+      const interpolation = kinds.length === 1 ? kinds[0]! : value?.interpolation ?? 'monotone_cubic'
       const points = value?.points ?? []
       const selected = num(state(), 'selected')
       const strip = (key: string): CanvasCurveStrip | undefined => {
@@ -333,14 +334,16 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       return (
         <>
           {picture(
-            <CanvasCurvePlot points={points} sample={curveInterpolator({ interpolation, points })} selected={selected}
+            <CanvasCurvePlot points={points} sample={curveInterpolator({ interpolation, points })} step={interpolation === 'step'} selected={selected}
               disabled={wired}
               histogram={bars()}
               inputStrip={inputStrip} outputStrip={outputStrip} {...(hover ? { hover } : {})} />,
           )}
-          <CanvasEditorLine dimmed={wired}>
-            <GalleryChoice label="Interpolation" value={interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic']} />
-          </CanvasEditorLine>
+          <Show when={kinds.length > 1}>
+            <CanvasEditorLine dimmed={wired}>
+              <GalleryChoice label="Interpolation" value={interpolation === 'step' ? 'Step' : interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={kinds.map((kind) => kind === 'step' ? 'Step' : kind === 'linear' ? 'Linear' : 'Monotone cubic')} />
+            </CanvasEditorLine>
+          </Show>
           <CanvasEditorLine dimmed={wired || selected === undefined}>
             <GalleryNumber label="Position" value={selected === undefined ? undefined : points[selected]!.position} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>
@@ -479,7 +482,8 @@ export function InNodeEditorsGallery(props: { theme: 'dark' | 'light' }) {
     ['Image comparison', (example) => example.card >= 27 && example.card <= 29],
     ['Camera angle', (example) => example.card >= 30 && example.card <= 32],
     ['Curve', (example) => example.card >= 34 && example.card <= 36],
-    ['Off the node', (example) => example.card >= 37],
+    ['Off the node', (example) => example.card >= 37 && example.card <= 39],
+    ['Curve to steps', (example) => example.card === 40],
   ]
   return (
     <For each={groups}>

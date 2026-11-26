@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildScene, defaultTokens, type Hit } from '@dinkster/canvas'
-import { asNodeId, coreCommandRegistry, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { asNodeId, boundaryItems, coreCommandRegistry, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 import { toolboxMenuRequest } from '../src/CanvasHost.js'
 import { canvasMenuContext, curveHistogramMenuGroup, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
 
@@ -37,7 +37,7 @@ describe('curve histogram menu', () => {
       links: delivery === 'link' ? { wire: { id: 'wire', from: { node: 'source', port: 'out' }, to: port(1) } } : {},
       nets: delivery === 'net' ? { net: { id: 'net', name: 'Histogram', source: { node: 'source', port: 'out' }, sinks: [port(1), port(2)] } } : {},
       reroutes: {},
-      ...(delivery === 'boundary' ? { boundary: { inputs: [{ id: 'feed', binds: { kind: 'port', ...port(1) }, alsoBinds: [{ kind: 'port', ...port(2) }] }], outputs: [] } } : {}),
+      ...(delivery === 'boundary' ? { boundary: { body: [{ kind: 'input', id: 'feed', binds: { kind: 'port', ...port(1) }, alsoBinds: [{ kind: 'port', ...port(2) }] }] } } : {}),
     } }, view: { graphs: {} },
   }).document!
   const menu = (document: WorkflowDocument, member = 1, disabled = false, occurrence?: Parameters<typeof buildScene>[0]['occurrence']) => {
@@ -63,7 +63,7 @@ describe('curve histogram menu', () => {
       expect(menu(store.doc, 2).label).toBe('Hide histogram input')
       if (delivery === 'link') expect(store.doc.graphs.g0!.links).toEqual({})
       if (delivery === 'net') expect(store.doc.graphs.g0!.nets.net!.sinks).toEqual([port(2)])
-      if (delivery === 'boundary') expect(store.doc.graphs.g0!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', ...port(2) })
+      if (delivery === 'boundary') expect(boundaryItems(store.doc.graphs.g0!.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'port', ...port(2) })
       const saved = loadDocument(JSON.parse(JSON.stringify(store.doc)))
       expect(menu(saved.document!).label).toBe('Show histogram input')
       expect(store.undo()).toBe(true)
@@ -98,7 +98,7 @@ describe('curve histogram menu', () => {
       const body = fixture(delivery === 'net' ? 'net' : 'boundary')
       const document = loadDocument({ ...body, root: 'outer', graphs: { ...body.graphs,
         g0: { ...body.graphs.g0!, ...(delivery === 'parent-boundary' ? {
-          boundary: { inputs: [{ id: 'feed', binds: { kind: 'port', ...port(1) } }], outputs: [] },
+          boundary: { body: [{ kind: 'input', id: 'feed', binds: { kind: 'port', ...port(1) } }] },
         } : {}) },
         outer: {
           id: 'outer', name: 'Outer', nextOrdinal: 1, nets: {}, reroutes: {},
