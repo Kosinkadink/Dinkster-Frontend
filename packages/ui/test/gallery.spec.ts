@@ -693,6 +693,69 @@ test('menu end alignment preserves the trigger edge and viewport containment', a
   }
 })
 
+test('an unavailable segmented choice keeps its place and name, carries its reason as description and tooltip, and cannot be chosen', async ({ page }) => {
+  for (const theme of ['dark', 'light']) {
+    await page.goto(`/?theme=${theme}#segmented-states`)
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme
+    }, theme)
+    const range = page.getByRole('radiogroup', { name: 'History range', exact: true })
+    const day = range.getByRole('radio', { name: 'Day', exact: true })
+    const week = range.getByRole('radio', { name: 'Week', exact: true })
+    const month = range.getByRole('radio', { name: 'Month', exact: true })
+    await expect(week).toBeDisabled()
+    await expect(week).toHaveAccessibleName('Week')
+    await expect(week).toHaveAccessibleDescription('Not enough history yet.')
+    await expect(day).not.toHaveAttribute('aria-describedby')
+    // The shared tooltip shows the same reason on hover.
+    await expect(range.locator('.dinkster-segment').nth(1)).toHaveAttribute('data-tooltip-label', 'Not enough history yet.')
+    await expect(range.locator('.dinkster-segment').nth(0)).not.toHaveAttribute('data-tooltip-label')
+
+    // The option keeps its place and its padded width between the two others.
+    const labels = range.locator('.dinkster-segment')
+    const dayBox = (await labels.nth(0).boundingBox())!
+    const weekBox = (await labels.nth(1).boundingBox())!
+    const monthBox = (await labels.nth(2).boundingBox())!
+    const weekText = (await labels.nth(1).locator('span').boundingBox())!
+    expect(dayBox.x + dayBox.width).toBeLessThanOrEqual(weekBox.x)
+    expect(weekBox.x + weekBox.width).toBeLessThanOrEqual(monthBox.x)
+    expect(weekBox.width).toBeGreaterThanOrEqual(weekText.width + 23)
+
+    // Pointer and arrow keys skip it.
+    await labels.nth(1).click({ force: true })
+    await expect(day).toBeChecked()
+    await expect(week).not.toBeChecked()
+    await day.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(month).toBeChecked()
+    await expect(month).toBeFocused()
+    await page.keyboard.press('ArrowLeft')
+    await expect(day).toBeChecked()
+
+    // Dimmed at rest and on hover, with no fill; when it is the checked value it keeps the selected fill, dimmed.
+    const secondary = await token(page, '--dinkster-text-secondary')
+    const opacity = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dinkster-interaction-disabled-opacity').trim())
+    await labels.nth(1).hover()
+    await expect(labels.nth(1)).toHaveCSS('color', secondary)
+    await expect(labels.nth(1)).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    expect(Number(await labels.nth(1).evaluate((element) => getComputedStyle(element).opacity))).toBe(Number(opacity))
+    await expect(labels.nth(1).locator('span')).toHaveCSS('opacity', '1')
+    const chosen = page.getByRole('radiogroup', { name: 'Chosen but unavailable', exact: true })
+    await expect(chosen.getByRole('radio', { name: 'This workflow', exact: true })).toBeChecked()
+    const selectedFill = await background(range.locator('.dinkster-segment').first())
+    expect(selectedFill).not.toBe('rgba(0, 0, 0, 0)')
+    const chosenLabel = chosen.locator('.dinkster-segment').first()
+    await expect(chosenLabel).toHaveCSS('background-color', selectedFill)
+    await expect(chosenLabel).toHaveCSS('color', await token(page, '--dinkster-text-primary'))
+    expect(Number(await chosenLabel.evaluate((element) => getComputedStyle(element).opacity))).toBe(Number(opacity))
+
+    await page.mouse.move(0, 0)
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await expect(page.getByRole('region', { name: 'Unavailable choices', exact: true })).toHaveScreenshot(`segmented-states-${theme}.png`)
+  }
+  await expectNoAxeViolations(page)
+})
+
 test('menus support pointer dismissal, keyboard navigation and immediate sign out', async ({
   page,
 }) => {

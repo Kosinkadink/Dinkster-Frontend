@@ -4,9 +4,12 @@ import {
   ProductButton,
   ProductPageAnswer,
   ProductPageLoad,
+  ProductProjectHeader,
   ProductProjectFacts,
   ProductProjectListHeader,
   ProductProjectRows,
+  ProductProjectSection,
+  ProductProjectsView,
   ProductSection,
 } from '../src/index.js'
 
@@ -102,71 +105,125 @@ export function ProjectLoadingGallery() {
       setTimeout(() => resolve(['Alex Morgan', 'alex@example.test']), 1000)
     })
   return (
-    <ProductSection title="Project loading">
-      <ProductButton onClick={() => void page.load(read)}>
-        Read projects
-      </ProductButton>
-      <ProductProjectListHeader
-        id={projectHeading}
-        title="Projects"
-        newLabel="New"
-        onNew={() => setCreated(true)}
-      />
-      <p class="dinkster-metadata">
-        {created() ? 'New project opened' : 'New is available before the read'}
-      </p>
-      <div class="dinkster-project-load-example">
-        <ProductProjectFacts
-          label="Loaded project facts"
-          columns={[
-            [
-              {
-                label: 'Owner',
-                value: (
-                  <ProductPageAnswer page={page}>
-                    {(account) => account[0]}
-                  </ProductPageAnswer>
-                ),
-              },
-            ],
-            [
-              {
-                label: 'Email',
-                value: (
-                  <ProductPageAnswer page={page}>
-                    {(account) => account[1]}
-                  </ProductPageAnswer>
-                ),
-              },
-            ],
-          ]}
+    <>
+      <ProductSection title="Project loading">
+        <ProductButton onClick={() => void page.load(read)}>
+          Read projects
+        </ProductButton>
+        <ProductProjectListHeader
+          id={projectHeading}
+          title="Projects"
+          newLabel="New"
+          onNew={() => setCreated(true)}
         />
-      </div>
-      <ProductPageLoad
-        page={page}
-        read={read}
-        loadingLabel="Loading projects"
-        arrival="rise"
-      >
-        <ProductProjectRows
-          labelledBy={projectHeading}
-          projects={[
-            {
-              id: 'film-grain-tests',
-              name: 'Film grain tests',
-              detail: 'Opened today',
-            },
-            {
-              id: 'settings',
-              name: 'Settings audit',
-              detail: 'Opened today',
-            },
-          ]}
-          selected={selected()}
-          onSelect={setSelected}
+        <p class="dinkster-metadata">
+          {created()
+            ? 'New project opened'
+            : 'New is available before the read'}
+        </p>
+        <div class="dinkster-project-load-example">
+          <ProductProjectFacts
+            label="Loaded project facts"
+            columns={[
+              [
+                {
+                  label: 'Owner',
+                  value: (
+                    <ProductPageAnswer page={page}>
+                      {(account) => account[0]}
+                    </ProductPageAnswer>
+                  ),
+                },
+              ],
+              [
+                {
+                  label: 'Email',
+                  value: (
+                    <ProductPageAnswer page={page}>
+                      {(account) => account[1]}
+                    </ProductPageAnswer>
+                  ),
+                },
+              ],
+            ]}
+          />
+        </div>
+        <ProductPageLoad
+          page={page}
+          read={read}
           loadingLabel="Loading projects"
-        />
-      </ProductPageLoad>
+          arrival="rise"
+        >
+          <ProductProjectRows
+            labelledBy={projectHeading}
+            projects={[
+              {
+                id: 'film-grain-tests',
+                name: 'Film grain tests',
+                detail: 'Opened today',
+              },
+              {
+                id: 'settings',
+                name: 'Settings audit',
+                detail: 'Opened today',
+              },
+            ]}
+            selected={selected()}
+            onSelect={setSelected}
+            loadingLabel="Loading projects"
+          />
+        </ProductPageLoad>
+      </ProductSection>
+      <ProjectDetailLoadingGallery />
+    </>
+  )
+}
+
+function ProjectDetailLoadingGallery() {
+  const page = createPageLoad<string>()
+  const read = () =>
+    new Promise<string>((resolve) => {
+      setTimeout(() => resolve('Three workflows are ready to open.'), 1000)
+    })
+  return (
+    <ProductSection title="Project detail loading">
+      <ProductButton onClick={() => void page.load(read)}>
+        Read project detail
+      </ProductButton>
+      <div class="dinkster-project-detail-load-example dinkster-project-load-example">
+        <ProductProjectsView>
+          <ProductPageLoad
+            page={page}
+            read={read}
+            loadingLabel="Loading workflows"
+            known={
+              <>
+                <ProductProjectHeader
+                  title="Film grain tests"
+                  subtitle="Created November 20"
+                  actions={<ProductButton>Open</ProductButton>}
+                />
+                <ProductProjectFacts
+                  label="Project facts"
+                  columns={[
+                    [
+                      { label: 'Files', value: 'Local folder' },
+                      { label: 'Runs on', value: 'This computer' },
+                    ],
+                    [
+                      { label: 'Packs', value: 'Core and image tools' },
+                      { label: 'Size', value: 'Not measured' },
+                    ],
+                  ]}
+                />
+                <ProductProjectSection title="Workflows" />
+              </>
+            }
+          >
+            {(answer) => <p class="dinkster-description">{answer}</p>}
+          </ProductPageLoad>
+        </ProductProjectsView>
+      </div>
     </ProductSection>
   )
 }
