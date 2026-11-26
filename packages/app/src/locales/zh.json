@@ -601,7 +601,6 @@
   "inNodeWebcam.nothingStored": "未存储内容",
   "inNodeWebcam.stored": "已存储: {name}",
   "inNodeWebcam.notKnown": "尚不知道",
-  "inNodeWebcam.byWire": "由连线提供",
   "inNodeWebcam.lastRun": "上次运行的图像",
   "inNodeWebcam.native": "捕获画面需要原生 Dinkster 后端。",
   "inNodeLoad3d.loading": "正在加载模型",
