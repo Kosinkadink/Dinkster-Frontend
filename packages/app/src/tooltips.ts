@@ -424,6 +424,8 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
   let sessionGrace: ReturnType<typeof setTimeout> | undefined
   let hovered: HTMLElement | undefined
   let shown: HTMLElement | undefined
+  let navigationFocus = false
+  let keyboardFocused: HTMLElement | undefined
   // Stateful controls rewrite data-tooltip-label from click handlers that run
   // after the focus-driven show has already captured the old text. Watching
   // the shown element's tooltip attributes keeps the visible tooltip current.
@@ -472,10 +474,15 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
   const tooltipTargetOf = (target: EventTarget | null) =>
     (target instanceof Element ? target : undefined)?.closest<HTMLElement>('[data-tooltip-label]')
   const elementAt = (event: Event) => tooltipTargetOf(event.target)
-  const focusedElement = () => document.activeElement instanceof HTMLElement && document.activeElement.matches('[data-tooltip-label]')
-    ? document.activeElement
-    : undefined
-  const hasOpenMenu = (element: HTMLElement) => element.matches('[aria-haspopup="menu"][aria-expanded="true"]')
+  const focusedElement = () => document.activeElement === keyboardFocused ? keyboardFocused : undefined
+  const hasOpenSurface = (element: HTMLElement) => element.matches('[aria-haspopup]:not([aria-haspopup="false"])[aria-expanded="true"]')
+  const hasVisibleLabel = (element: HTMLElement) => {
+    const label = element.querySelector<HTMLElement>('[data-tooltip-visible-label]')
+    if (label === null || label.textContent?.trim() !== element.dataset['tooltipLabel']) return false
+    // Compact window actions clip their label to a 1px box.
+    const rect = label.getBoundingClientRect()
+    return rect.width > 1 && rect.height > 1
+  }
   const sessionOf = (element: Element | null | undefined) => element?.closest<HTMLElement>('[data-tooltip-session]')
   const domTargetOf = (element: HTMLElement) => {
     const rect = element.getBoundingClientRect()
@@ -487,7 +494,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     }
   }
   const showForElement = (element: HTMLElement, detailed?: boolean, immediate = false): void => {
-    if (hasOpenMenu(element)) { hideNow(); return }
+    if (hasOpenSurface(element) || hasVisibleLabel(element)) { hideNow(); return }
     const { target, anchor } = domTargetOf(element)
     observeShown(element)
     controller.show(target, anchor, detailed, immediate)
@@ -495,7 +502,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
   const refreshShown = (): void => {
     const element = shown
     if (element === undefined) return
-    if (!element.isConnected || element.dataset['tooltipLabel'] === undefined || hasOpenMenu(element)) { hideNow(); return }
+    if (!element.isConnected || element.dataset['tooltipLabel'] === undefined || hasOpenSurface(element) || hasVisibleLabel(element)) { hideNow(); return }
     if (hovered !== element && document.activeElement !== element) return
     const { target, anchor } = domTargetOf(element)
     controller.showInSession(target, anchor)
@@ -505,7 +512,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     if (!element || (event.relatedTarget instanceof Node && element.contains(event.relatedTarget))) return
     hovered = element
     clearSessionGrace()
-    if (hasOpenMenu(element)) { hideNow(); return }
+    if (hasOpenSurface(element) || hasVisibleLabel(element)) { hideNow(); return }
     const related = event.relatedTarget instanceof Element ? event.relatedTarget : undefined
     const session = sessionOf(element)
     const sharedSession = session !== undefined && session === sessionOf(related)
@@ -526,7 +533,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     }
     if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return
     if (hovered === element) hovered = undefined
-    if (document.activeElement === element) return
+    if (focusedElement() === element) return
     const focused = focusedElement()
     if (focused !== undefined) { showForElement(focused, undefined, true); return }
     const session = sessionOf(element)
@@ -534,24 +541,37 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     else if (!tooltipTargetOf(event.relatedTarget)) hideAfterSessionGrace()
   }
   const focusIn = (event: FocusEvent) => {
+    const arrivedByNavigation = navigationFocus
+    navigationFocus = false
     const element = elementAt(event)
-    if (element && event.target === element) { clearSessionGrace(); showForElement(element, undefined, true) }
+    keyboardFocused = arrivedByNavigation && element && event.target === element ? element : undefined
+    if (keyboardFocused) { clearSessionGrace(); showForElement(keyboardFocused, undefined, true) }
   }
   const focusOut = (event: FocusEvent) => {
     const element = elementAt(event)
     if (!element || event.target !== element) return
+    if (keyboardFocused === element) keyboardFocused = undefined
     if (hovered !== undefined) showForElement(hovered, undefined, true)
     else hideNow()
   }
-  const down = () => hideNow()
-  const keydown = (event: KeyboardEvent) => { if (event.key === 'Alt') controller.setDetailed(true); if (event.key === 'Escape') hideNow() }
-  const keyup = (event: KeyboardEvent) => { if (event.key === 'Alt') controller.setDetailed(false) }
+  const down = () => { navigationFocus = false; keyboardFocused = undefined; hovered = undefined; hideNow() }
+  const keydown = (event: KeyboardEvent) => {
+    navigationFocus = !event.altKey && !event.ctrlKey && !event.metaKey &&
+      ['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)
+    if (event.key === 'Alt') controller.setDetailed(true)
+    if (event.key === 'Escape') { keyboardFocused = undefined; hideNow() }
+  }
+  const keyup = (event: KeyboardEvent) => {
+    navigationFocus = false
+    if (event.key === 'Alt') controller.setDetailed(false)
+  }
   root.addEventListener('pointerover', enter)
   root.addEventListener('pointerout', leave)
   root.addEventListener('focusin', focusIn)
   root.addEventListener('focusout', focusOut)
-  root.addEventListener('pointerdown', down)
-  window.addEventListener('keydown', keydown)
+  window.addEventListener('pointerdown', down, true)
+  window.addEventListener('keydown', keydown, true)
   window.addEventListener('keyup', keyup)
-  return () => { clearSessionGrace(); releaseShown(); controller.hideMatching(isDomTooltipTarget); root.removeEventListener('pointerover', enter); root.removeEventListener('pointerout', leave); root.removeEventListener('focusin', focusIn); root.removeEventListener('focusout', focusOut); root.removeEventListener('pointerdown', down); window.removeEventListener('keydown', keydown); window.removeEventListener('keyup', keyup) }
+  window.addEventListener('resize', refreshShown)
+  return () => { clearSessionGrace(); releaseShown(); controller.hideMatching(isDomTooltipTarget); root.removeEventListener('pointerover', enter); root.removeEventListener('pointerout', leave); root.removeEventListener('focusin', focusIn); root.removeEventListener('focusout', focusOut); window.removeEventListener('pointerdown', down, true); window.removeEventListener('keydown', keydown, true); window.removeEventListener('keyup', keyup); window.removeEventListener('resize', refreshShown) }
 }
