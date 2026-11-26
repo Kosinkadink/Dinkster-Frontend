@@ -921,7 +921,7 @@ export function CollectionPanel(props: {
       <div class="collection-footer">
         <Show when={total() !== undefined}>
           <span class="collection-total" data-testid="collection-total">
-            {message('collection.result.total', { count: items().length, total: total()! })}
+            {message('collection.result.total', { count: items().filter((entry) => entry.folder === undefined).length, total: total()! })}
           </span>
         </Show>
         <Show when={props.pagination !== 'scroll' && cursor() !== undefined}>

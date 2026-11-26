@@ -298,17 +298,18 @@ describe('CollectionPanel folder navigation', () => {
       id: 'mount:input', label: 'input', folders: true,
       page: vi.fn(async (req) => {
         requests.push(req)
-        if (req.cursor === 'root-next') return { items: [file('root-page-two')] }
+        if (req.cursor === 'root-next') return { items: [file('root-page-two')], total: 2 }
         if (req.query !== '') return { items: [file('search-result')], cursor: 'search-next' }
         if (req.folder === 'photos/trips') return { items: [file('trip')] }
         if (req.folder === 'photos') return { items: [folder('photos/trips'), file('photo')], cursor: 'photos-next' }
-        return { items: [folder('photos'), file('root-file')], cursor: 'root-next' }
+        return { items: [folder('photos'), file('root-file')], cursor: 'root-next', total: 2 }
       }),
     }
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <CollectionPanel sources={[source]} />, root)
     await settle()
+    expect(root.querySelector('[data-testid="collection-total"]')?.textContent).toBe('1 of 2')
     const rootFile = root.querySelector<HTMLElement>('[data-entry="root-file"]')!
     expect(rootFile.getAttribute('data-tooltip-label')).toBe('root-file.png')
     expect(rootFile.querySelector('.collection-title')?.getAttribute('title')).toBeNull()
@@ -316,6 +317,7 @@ describe('CollectionPanel folder navigation', () => {
 
     root.querySelector<HTMLButtonElement>('[data-testid="collection-more"]')!.click()
     await vi.waitFor(() => expect(requests.at(-1)?.cursor).toBe('root-next'))
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-total"]')?.textContent).toBe('2 of 2'))
     await vi.waitFor(() => expect(root.querySelectorAll('[data-entry="folder:photos"]')).toHaveLength(1))
     root.querySelector<HTMLElement>('[data-entry="folder:photos"]')!.click()
     await vi.waitFor(() => expect(requests.at(-1)?.folder).toBe('photos'))

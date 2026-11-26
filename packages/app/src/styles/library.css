@@ -295,6 +295,7 @@
 .collection-inline-detail { padding: var(--dinkster-space-8) 0; }
 .assets-panel .asset-selection-summary { flex: none; width: 100%; max-height: 50%; }
 .collection-inline-detail .asset-selection-summary { max-height: none; }
+.assets-panel .collection-content > .asset-selection-summary .asset-preview { display: none; }
 
 .asset-entry-fallback {
   display: grid;

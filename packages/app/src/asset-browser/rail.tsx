@@ -122,7 +122,7 @@ function AssetEntrySelectionContent(props: {
         <Show when={props.item.size !== undefined}><span>{formatSize(props.item.size)}</span></Show>
       </header>
       <Show when={props.preview}>
-        {(entry) => <CollectionImage entry={entry()} class="asset-preview"
+        {(entry) => <CollectionImage entry={entry()} class="asset-preview" loading="eager"
           alt={message('assets.preview.alt', { name: props.item.name })}
           fallback={<Show when={previewFailed()}><div class="asset-preview asset-preview-fallback" data-testid="asset-image-fallback" role="status">{message('assets.preview.unavailable')}</div></Show>}
           onError={() => setPreviewFailed(true)}
