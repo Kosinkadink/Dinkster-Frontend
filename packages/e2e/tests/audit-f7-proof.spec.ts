@@ -54,7 +54,7 @@ test('product close confirmation preserves every decision boundary and keyboard 
   })
   const dirty = await activeSnapshot(page)
   const close = tabClose(page, dirty.id)
-  const dialogName = `Close "${dirty.title}" and discard unsaved changes?`
+  const dialogName = `Close "${dirty.title}"?`
   const dirtyGeometry = await page.locator(`.tab[data-tab-id="${dirty.id}"]`).evaluate((tab) => {
     const affordance = tab.querySelector('.tab-affordance')!.getBoundingClientRect()
     const dot = tab.querySelector('.tab-dirty')!.getBoundingClientRect()
@@ -66,8 +66,8 @@ test('product close confirmation preserves every decision boundary and keyboard 
   await close.press('Enter')
   const dialog = page.getByRole('dialog', { name: dialogName, exact: true })
   await expect(dialog).toBeVisible()
-  await expect(dialog.locator('.dock-title')).toHaveText(`Close "${dirty.title}"?`)
-  await expect(dialog.locator('.close-tab-confirm > p')).toHaveText(`Close "${dirty.title}" and discard unsaved changes?`)
+  await expect(dialog.getByRole('heading')).toHaveText(`Close "${dirty.title}"?`)
+  await expect(dialog.locator('.dinkster-description')).toHaveText('Its unsaved changes will be lost.')
   const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true })
   const confirm = dialog.getByRole('button', { name: 'Close and discard', exact: true })
   await expect(cancel).toBeFocused()
@@ -126,7 +126,7 @@ test('product close confirmation preserves every decision boundary and keyboard 
   await confirmClose.focus()
   await confirmClose.press('Enter')
   const confirmDialog = page.getByRole('dialog', {
-    name: `Close "${confirmTarget.title}" and discard unsaved changes?`, exact: true,
+    name: `Close "${confirmTarget.title}"?`, exact: true,
   })
   await expect(confirmDialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
@@ -170,7 +170,7 @@ test('a pending close decision does not transfer to a same-id replacement docume
   const close = tabClose(page, first.id)
   await close.focus()
   await close.press('Enter')
-  const dialog = page.getByRole('dialog', { name: `Close "${first.title}" and discard unsaved changes?`, exact: true })
+  const dialog = page.getByRole('dialog', { name: `Close "${first.title}"?`, exact: true })
   await expect(dialog).toBeVisible()
 
   // An editor-kind switch replaces the Tab object but keeps the same

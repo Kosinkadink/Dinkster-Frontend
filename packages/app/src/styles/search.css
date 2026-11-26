@@ -15,7 +15,7 @@
   align-items: flex-start;
 }
 .search-dialog-host[open] { display: flex; }
-.search-dialog-host::backdrop { background: color-mix(in srgb, var(--dinkster-surface-canvas) 72%, transparent); }
+.search-dialog-host::backdrop { background: var(--dinkster-modal-backdrop); }
 .search-dialog {
   display: flex;
   width: min(620px, calc(100vw - var(--dinkster-space-32)));

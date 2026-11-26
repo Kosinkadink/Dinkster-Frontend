@@ -9,8 +9,8 @@
  *   without it while the sourceDocument asset bytes survive;
  * - a delete transport failure lands in Problems (history.deleteFailed)
  *   and the record stays;
- * - 'Clear finished' arms to 'Confirm clear' and wipes the scope only on the
- *   second click.
+ * - 'Clear finished' opens a question and wipes the scope only after the
+ *   explicit loss action.
  *
  * The clear test wipes the ENTIRE local history scope of the target server
  * (that is the feature); runs there are e2e-produced. Requires a NATIVE
@@ -333,8 +333,16 @@ test('delete removes the record only: the collection re-pages and asset bytes su
   const sourceDoc = (await durableRecords()).find((record) => record.jobId === jobId)?.sourceDocument
   expect(sourceDoc).toMatch(/^blake3:[0-9a-f]{64}$/)
 
-  // Choosing Delete record removes the record at once, with no confirmation.
   await chosenRunMenu(page, entry, 'Delete record')
+  const question = entry.locator('.dinkster-confirmation')
+  await expect(question.getByRole('heading')).toContainText('Delete the record of')
+  await expect(question.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  expect((await durableRecords()).some((record) => record.jobId === jobId)).toBe(true)
+  await question.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(entry).toHaveCount(1)
+  await expect(entry).toHaveAttribute('aria-selected', 'true')
+  await chosenRunMenu(page, entry, 'Delete record')
+  await question.getByRole('button', { name: 'Delete record', exact: true }).click()
   await expect(entry).toHaveCount(0, { timeout: 10_000 })
 
   // Record-only by contract: the producing document's asset bytes survive.
@@ -358,6 +366,9 @@ test('a delete failure lands in Problems and keeps the record', async ({ page })
   const entry = entryFor(page, jobId)
   await entry.click()
   await chosenRunMenu(page, entry, 'Delete record')
+  await entry.locator('.dinkster-confirmation').getByRole('button', { name: 'Delete record', exact: true }).click()
+  await expect(entry.locator('.dinkster-confirmation')).toContainText('was not deleted.')
+  await expect(entry).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('problems-panel')).toContainText('history.deleteFailed')
   await expect(entry).toHaveCount(1)
   await chooseRunScope(page, 'workflow')
@@ -455,7 +466,7 @@ test('with a page tab in front Runs shows all workflows, and the earlier choice 
   await expect(scope).toHaveAttribute('data-selected-id', 'all')
 })
 
-nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ page }) => {
+nativeTest('clear asks first, wipes the whole scope on confirmation', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('assets-toggle').click()
   const assets = page.getByTestId('assets-overlay')
@@ -470,12 +481,12 @@ nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ p
   const clear = runs.getByTestId('collection-source-action')
   await expect(clear).toHaveText('Clear finished')
   await clear.click()
-  // Armed, not executed: entries survive the first click.
-  await expect(clear).toHaveText('Confirm clear')
-  await expect(runs.getByTestId('runs-clear-confirmation')).toHaveText('Removes every finished run on this backend, for all workflows. Saved files stay.')
+  const question = runs.locator('.dinkster-confirmation')
+  await expect(question.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  await expect(question).toContainText('Removes every finished run on this backend, for all workflows. Saved files stay.')
   await expect(runs.getByTestId('collection-entry').first()).toBeVisible()
 
-  await clear.click()
+  await question.getByRole('button', { name: 'Clear finished', exact: true }).click()
   await expect(runs.getByTestId('collection-empty')).toBeVisible({ timeout: 10_000 })
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=10`)).json() as
     { records: unknown[] }

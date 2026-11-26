@@ -4,7 +4,7 @@
    closed-dialog hiding is never overridden. */
 .modal-surface { min-width: calc(var(--dinkster-space-32) * 10); max-width: 90vw; max-height: 86vh; margin: auto; padding: 0; color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); box-shadow: var(--dinkster-elevation-high); }
 .modal-surface[open] { display: flex; flex-direction: column; }
-.modal-surface::backdrop { background: color-mix(in srgb, var(--dinkster-surface-canvas) 72%, transparent); }
+.modal-surface::backdrop { background: var(--dinkster-modal-backdrop); }
 .modal-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .modal-surface[data-modal='settings'] { width: min(900px, 90vw); height: min(680px, 86vh); }
 .desktop-management-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--dinkster-space-8); }
@@ -22,12 +22,9 @@
   .desktop-mount-form { grid-template-columns: minmax(0, 1fr); }
 }
 .modal-surface[data-modal='embedded-file-drop'] { width: min(520px, 90vw); }
-.modal-surface[data-modal='close-tab'] { width: min(460px, 90vw); }
 .modal-surface[data-modal='execution-images'] { width: min(1120px, calc(100vw - 24px)); height: min(820px, calc(100vh - 24px)); }
 .modal-surface[data-modal='asset-consent'] { width: min(820px, calc(100vw - var(--dinkster-space-32))); height: min(760px, calc(100vh - var(--dinkster-space-32))); }
 .modal-surface[data-modal='import-asset-resolution'] { width: min(900px, calc(100vw - var(--dinkster-space-32))); height: min(800px, calc(100vh - var(--dinkster-space-32))); }
-.close-tab-confirm { padding: var(--dinkster-space-16); }
-.close-tab-confirm p { margin: 0 0 var(--dinkster-space-16); color: var(--dinkster-text-secondary); }
 .subgraph-definitions { width: min(760px, 82vw); max-height: calc(86vh - 40px); padding: var(--dinkster-space-16); overflow-y: auto; color: var(--dinkster-text-primary); -webkit-user-select: text; user-select: text; }
 .subgraph-definitions h2 { margin: 0 0 var(--dinkster-space-8); color: var(--dinkster-text-primary); font-size: var(--dinkster-type-section-size); font-weight: var(--dinkster-weight-bold); line-height: var(--dinkster-type-section-line); }
 .subgraph-cleanup-intro { margin: 0 0 var(--dinkster-space-12); color: var(--dinkster-text-secondary); line-height: var(--dinkster-type-body-line); overflow-wrap: anywhere; }
