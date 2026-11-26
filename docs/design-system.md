@@ -205,11 +205,11 @@ every core tab once.
   by position, so a host that passes new item objects while the menu is open
   (a count arriving) does not move focus or close it. Disabled items are
   skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
-  to its trigger's left edge, or to its right edge with `align="end"` or when it would not fit, and
+  to its trigger's left edge by default, or to its right edge with `align="end"` or when it would not fit, and
   then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
   to clamp and to flip above when needed. Scroll outside or resize dismisses
   the menu rather than leaving a stale anchor. Its document listeners exist
-  only while it is open. Item text follows its intent; optional `description` is a muted second line associated as the item's accessible description, without changing its label. Removal callbacks open a
+  only while it is open. Item text follows its intent; optional non-interactive `labelContent` replaces visible trigger or item text while `label` and `triggerName` retain their accessible names, and `title` supplies the trigger tooltip. Optional `description` is a muted second line associated as the item's accessible description, without changing its label. Removal callbacks open a
   confirmation. Use `iconOnly` with an icon for compact folder actions; the
   label remains the trigger and menu's accessible name. `ProductAccountMenu` shows the person's initial and name on a
   borderless trigger (the initial alone below the breakpoint), reads out name
