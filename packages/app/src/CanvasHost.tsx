@@ -2692,7 +2692,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const summaries = { ...editorSummaries() }
       for (const [key, draft] of editorDrafts()) {
         const item = editorSpaceByKey().get(key)
-        if (item === undefined || item.wired) continue
+        if (item === undefined || item.wired || item.field.readOnly || item.field.disabled) continue
         summaries[draft.nodeId] = { ...summaries[draft.nodeId], [draft.valueKey]: { text: draft.text } }
       }
       renderer.setEditorSummaries(summaries)
@@ -7236,6 +7236,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }}</For>
       <For each={visibleEditorSpaceKeys()}>{(key) => {
         const item = () => editorSpaceByKey().get(key)
+        const readOnly = () => item()?.field.readOnly === true || item()?.field.disabled === true
         const projected = () => {
           const current = item()
           return current === undefined ? undefined : mediaScreenRect(dragged(current.node, current.nodeId), current.space, editorViewport(), canvasClientRect())
@@ -7450,21 +7451,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   : { nodeId: item()!.nodeId, valueKey: item()!.row.valueKey, height }),
                 commit: (height) => editorPictureHeights?.commitPictureHeight(item()!.nodeId, item()!.row.valueKey, height),
               }}>
+              <Show when={`${item()?.field.readOnly === true}:${item()?.field.disabled === true}`} keyed>{(_access) => <>
               <Show when={recorder()}>
-                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} wired={item()?.wired === true} />}
+                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} wired={item()?.wired === true} readOnly={readOnly()} />}
               </Show>
               <Show when={webcam()}>
                 {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
-                  wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
+                  wired={item()?.wired === true} readOnly={readOnly()} carried={item()?.carried} covered={covered()} />}
               </Show>
               <Show when={curve()}>
-                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wired={item()?.wired === true}
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wired={item()?.wired === true} readOnly={readOnly()}
                   histogramInput={item()?.row.histogram === undefined ? 'none' : item()!.row.histogram!.connected ? 'wired' : 'unwired'}
                   options={item()?.field.spec.options ?? {}} />}
               </Show>
               <Show when={saveTarget()}>
                 {(at) => <Show when={at().owner} keyed>{(_owner) => <SaveTargetSpace value={item()?.value ?? (item()?.wired ? undefined : effectiveWidgetDefault(item()!.field.spec))}
-                  wired={item()?.wired === true} fetchMounts={at().fetchMounts} commit={at().commit}
+                  wired={item()?.wired === true} readOnly={item()?.field.readOnly === true} disabled={item()?.field.disabled === true}
+                  fetchMounts={at().fetchMounts} commit={at().commit}
                   {...(effectiveWidgetDefault(item()!.field.spec) === undefined ? {} : { declared: effectiveWidgetDefault(item()!.field.spec)! })}
                   help={at().help}
                   measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}
@@ -7484,7 +7487,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   }} />}</Show>}
               </Show>
               <Show when={load3d()}>
-                {(at) => <Load3dSpace value={item()?.value} wired={item()?.wired === true}
+                {(at) => <Load3dSpace value={item()?.value} wired={item()?.wired === true} readOnly={readOnly()}
                   sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
                   live={liveModelViews().has(key) && !covered()}
                   onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}
@@ -7493,11 +7496,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   placementWired={item()?.wired === true || item()?.wiredParts.has('model_3d_info') === true} />}
               </Show>
               <Show when={cameraAngle()}>
-                {(at) => <CameraAngleSpace fields={at().fields} commit={at().commit} />}
+                {(at) => <CameraAngleSpace fields={at().fields} readOnly={readOnly()} commit={at().commit} />}
               </Show>
               <Show when={compare() !== undefined}>
                 <ImageCompareSpace frames={compare() ?? { image_a: [], image_b: [] }} pictureHeight={item()?.row.picture?.height ?? 0} />
               </Show>
+              </>}</Show>
             </NodeEditorSpaceOverlay>
           </Show>
         )

@@ -160,7 +160,8 @@ export function NodeEditorSpaceOverlay(props: {
     if (bar === undefined || event.button !== 0 || props.item.row.picture === undefined) return
     event.preventDefault()
     event.stopPropagation()
-    bar.setPointerCapture(event.pointerId)
+    const overlay = event.currentTarget as HTMLElement
+    overlay.setPointerCapture(event.pointerId)
     drag = { pointerId: event.pointerId, y: event.clientY, height: stored() }
   }
   const move = (event: PointerEvent): void => {
@@ -214,7 +215,7 @@ export function NodeEditorSpaceOverlay(props: {
         transform: `scale(${props.scale})`,
         '--node-editor-picture-height': `${shown()}px`,
       }}>
-        <CanvasEditorSpace ref={(element) => {
+        <CanvasEditorSpace {...(props.item.field.disabled ? { state: 'dimmed' } : {})} ref={(element) => {
           element.style.inset = '0'
         }}>
           {props.children}
@@ -231,6 +232,8 @@ export const editorSpaceInteractive = (scale: number): boolean => scale >= defau
 export function SaveTargetSpace(props: {
   readonly value: Json | undefined
   readonly wired: boolean
+  readonly readOnly?: boolean
+  readonly disabled?: boolean
   readonly declared?: Json
   readonly help?: string
   readonly measured?: (height: number) => void
@@ -256,8 +259,9 @@ export function SaveTargetSpace(props: {
   }
   const incoming = createMemo(() => props.value, undefined, { equals: jsonSameValue })
   const wired = createMemo(() => props.wired)
+  const blocked = createMemo(() => props.readOnly === true || props.disabled === true)
   const fetchMounts = createMemo(() => props.fetchMounts)
-  createEffect(on([incoming, wired], reset))
+  createEffect(on([incoming, wired, blocked], () => { setListOpen(false); reset() }))
   createEffect(on(fetchMounts, (fetch) => {
     let live = true
     setSettings(undefined)
@@ -279,7 +283,7 @@ export function SaveTargetSpace(props: {
     const value = props.value
     const unchanged = mount() === (isSaveTarget(value) ? value.mount : null) &&
       prefix() === (isSaveTarget(value) || isProjectDefaultTarget(value) ? value.prefix : '')
-    const text = props.wired || unchanged ? undefined : draft().rowText
+    const text = props.wired || blocked() || unchanged ? undefined : draft().rowText
     untrack(() => props.preview?.(text))
   })
   onCleanup(() => props.preview?.(undefined))
@@ -297,7 +301,7 @@ export function SaveTargetSpace(props: {
     return value !== undefined && (prefix() !== value.prefix || mount() !== (isSaveTarget(value) ? value.mount : null))
   }
   const store = async (): Promise<boolean> => {
-    if (props.wired || pending()) return false
+    if (props.wired || blocked() || pending()) return false
     const value = draft().store
     if (value === undefined) return true
     setPending(true)
@@ -306,13 +310,13 @@ export function SaveTargetSpace(props: {
   }
   const pick = (index: number) => {
     const entry = options()[index]
-    if (entry === undefined || 'unavailable' in entry || props.wired) return
+    if (entry === undefined || 'unavailable' in entry || props.wired || blocked()) return
     setMount(entry.id || null)
     setListOpen(false)
     mountButton?.focus()
   }
   const openList = () => {
-    if (props.wired || pending() || ready().length === 0) return
+    if (props.wired || blocked() || pending() || ready().length === 0) return
     const all = options()
     const picked = all.findIndex((entry) => entry.id === (mount() ?? '') && !('unavailable' in entry))
     setHighlight(picked >= 0 ? picked : 0)
@@ -363,19 +367,19 @@ export function SaveTargetSpace(props: {
       else void store()
     }
   }}>
-    <CanvasTargetBox inNode frozen={props.wired || pending()} help={props.help}
+    <CanvasTargetBox inNode frozen={props.wired || blocked() || pending()} help={props.help}
       words={{ mount: message('assets.fact.mount'), prefix: message('assets.fact.name'),
         loading: message('saveTargetWidget.loading'), none: message('saveTargetWidget.none'), failed: message('saveTargetWidget.couldNotLoad') }}
       mounts={failed() ? 'failed' : settings() === undefined ? 'loading' : ready().length === 0 ? 'none' : 'ready'}
       options={options()} mount={mount() ?? ''} prefix={prefix()} listOpen={listOpen()} {...(highlight() === undefined ? {} : { highlight: highlight()! })}
-      onPrefix={setPrefix} onToggleList={() => listOpen() ? setListOpen(false) : openList()} onHighlight={setHighlight}
+      onPrefix={(value) => { if (!blocked() && !props.wired) setPrefix(value) }} onToggleList={() => listOpen() ? setListOpen(false) : openList()} onHighlight={setHighlight}
       onPick={pick}
       {...(mountProblem() === undefined ? {} : { mountProblem: mountProblem()! })}
       {...(mountTone() === undefined ? {} : { tone: mountTone()! })}
-      {...(draft().mountGone && !noDefault() && !props.wired ? {
+      {...(draft().mountGone && !noDefault() && !props.wired && !blocked() ? {
         mountAction: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } },
       } : {})}
-      {...(!props.wired && differs() ? {
+      {...(!props.wired && !blocked() && differs() ? {
         reset: { label: message('saveTargetWidget.reset'), onClick: () => {
           const value = defaultTarget()!
           prefixInput?.focus()
@@ -386,7 +390,7 @@ export function SaveTargetSpace(props: {
       mountRef={(element) => { mountButton = element }}
       prefixRef={(element) => {
         prefixInput = element
-        if (!props.wired) queueMicrotask(() => { element.focus(); element.select() })
+        if (!props.wired && !blocked()) queueMicrotask(() => { if (!props.wired && !blocked()) { element.focus(); element.select() } })
       }}
       {...(draft().prefixInvalid ? { prefixProblem: message('saveTargetWidget.invalid') } : {})} />
   </div>
@@ -693,10 +697,10 @@ const isClip = (value: Json | undefined): value is AudioClip =>
   value !== null && audioRecordKind.valueSchema.validate(value)
 
 /** The recorder's controls in the node: the strip, the microphone, the limit and what is stored. */
-export function AudioRecordSpace(props: { readonly controller: AudioRecordController; readonly value: Json | undefined; readonly wired?: boolean }) {
+export function AudioRecordSpace(props: { readonly controller: AudioRecordController; readonly value: Json | undefined; readonly wired?: boolean; readonly readOnly?: boolean }) {
   const message = useAppMessage()
   const recorder = props.controller
-  createEffect(on(() => props.wired, (wired) => { if (wired) recorder.discard() }))
+  createEffect(on(() => props.wired || props.readOnly, (blocked) => { if (blocked) recorder.discard() }))
   const stored = () => isClip(props.value) ? props.value : undefined
   const shown = (): AudioRecordStatus | 'ready' => props.wired ? stored() === undefined ? 'idle' : 'ready'
     : recorder.status() === 'idle' && stored() !== undefined ? 'ready' : recorder.status()
@@ -717,7 +721,7 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
       return [
         { label: message(recorder.playing() ? 'inNodeAudio.stopPlaying' : 'inNodeAudio.play'),
           icon: recorder.playing() ? canvasEditorIcons.stop : canvasEditorIcons.play, onClick: () => void recorder.play(clip) },
-        { label: message('inNodeAudio.removeClip'), icon: canvasEditorIcons.remove, intent: 'remove' as const, disabled: props.wired === true, onClick: () => recorder.remove() },
+        { label: message('inNodeAudio.removeClip'), icon: canvasEditorIcons.remove, intent: 'remove' as const, disabled: props.wired === true || props.readOnly === true, onClick: () => recorder.remove() },
       ]
     }
     if (status === 'uploadFailed') {
@@ -742,14 +746,14 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
       <CanvasRecorderStrip
         recording={recording()}
         roundLabel={message(recording() ? 'inNodeAudio.stop' : 'inNodeAudio.record')}
-        roundDisabled={props.wired || busy()}
+        roundDisabled={props.wired || props.readOnly || busy()}
         onRound={() => recording() ? recorder.stop() : void recorder.record()}
         status={props.wired ? stored() === undefined ? message('inNodeEditor.notKnown') : '' : message(`inNodeAudio.status.${shown()}`)}
         {...(detail() === undefined ? {} : { detail: detail()! })}
         waveform={recorder.waveform()}
         actions={actions()}
       />
-      <CanvasEditorLine dimmed={props.wired || recording() || busy()}>
+      <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || recording() || busy()}>
         <CanvasEditorChoice label={message('inNodeAudio.microphone')} value={chosen()} options={choices()}
           onOpen={() => void recorder.findMicrophones()}
           onChange={(label) => {
@@ -757,7 +761,7 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
             recorder.setDevice(index < 0 ? '' : recorder.devices()[index]!.deviceId)
           }} />
       </CanvasEditorLine>
-      <CanvasEditorLine dimmed={props.wired || recording() || busy()}>
+      <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || recording() || busy()}>
         <CanvasEditorNumber label={message('inNodeAudio.limit')} value={recorder.limit()} min={1} max={300}
           onChange={(seconds) => recorder.setLimit(Math.round(seconds))} />
       </CanvasEditorLine>
@@ -828,6 +832,7 @@ const stripOf = (colors: unknown): CanvasCurveStrip | undefined =>
 export function CurveSpace(props: {
   readonly value: CurveValue | undefined
   readonly wired?: boolean
+  readonly readOnly?: boolean
   /** The curve widget's declared options, which name its strips. */
   readonly options: Readonly<Record<string, unknown>>
   /** The latest run's histogram bins for this curve, when it sent one. */
@@ -839,7 +844,7 @@ export function CurveSpace(props: {
   const message = useAppMessage()
   const [selected, setSelected] = createSignal<number>()
   const [draft, setDraft] = createSignal<CurveValue>()
-  createEffect(on(() => props.wired, (wired) => { if (wired) setDraft(undefined) }))
+  createEffect(on(() => props.wired || props.readOnly, (blocked) => { if (blocked) setDraft(undefined) }))
   const curve = () => draft() ?? props.value ?? { points: [] }
   const interpolation = () => curve().interpolation ?? 'linear'
   const points = () => curve().points
@@ -852,8 +857,9 @@ export function CurveSpace(props: {
     const index = selected()
     if (index !== undefined && index >= points().length) setSelected(undefined)
   })
-  const store = (next: readonly CurvePoint[], nextInterpolation = interpolation()) =>
-    props.commit({ interpolation: nextInterpolation, points: next.map((item) => ({ position: item.position, value: item.value })) })
+  const store = (next: readonly CurvePoint[], nextInterpolation = interpolation()) => {
+    if (!props.wired && !props.readOnly) props.commit({ interpolation: nextInterpolation, points: next.map((item) => ({ position: item.position, value: item.value })) })
+  }
   const bars = () => {
     const bins = props.histogramInput === 'wired' ? props.histogram : undefined
     const highest = bins === undefined ? 0 : Math.max(...bins)
@@ -883,8 +889,8 @@ export function CurveSpace(props: {
         {...(props.wired && props.value === undefined ? { message: message('inNodeEditor.notKnown') } : {})}>
         <CanvasCurvePlot
           label={message('inNodeCurve.plot')}
-          {...(props.wired ? {} : { tooltip: message('inNodeCurve.addPoint') })}
-          disabled={props.wired}
+          {...(props.wired || props.readOnly ? {} : { tooltip: message('inNodeCurve.addPoint') })}
+          disabled={props.wired || props.readOnly}
           points={points()}
           sample={curveInterpolator(curve())}
           selected={selected()}
@@ -909,22 +915,22 @@ export function CurveSpace(props: {
           onDelete={remove}
         />
       </CanvasEditorPicture>
-      <CanvasEditorLine dimmed={props.wired === true}>
+      <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired === true}>
         <CanvasEditorChoice label={message('inNodeCurve.interpolation')} value={props.wired && props.value === undefined ? '' : interpolation() === 'linear' ? linear() : cubic()}
           options={[linear(), cubic()]}
           onChange={(label) => store(points(), label === linear() ? 'linear' : 'monotone_cubic')} />
       </CanvasEditorLine>
-      <CanvasEditorLine dimmed={props.wired || point() === undefined}>
+      <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || point() === undefined}>
         <CanvasEditorNumber label={message('inNodeCurve.position')} value={point()?.position} min={0} max={1} step={0.01} precision={2}
           onChange={(position) => place({ position })} />
       </CanvasEditorLine>
-      <CanvasEditorLine dimmed={props.wired || point() === undefined}>
+      <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || point() === undefined}>
         <CanvasEditorNumber label={message('inNodeCurve.value')} value={point()?.value} min={0} max={1} step={0.01} precision={2}
           onChange={(value) => place({ value })} />
       </CanvasEditorLine>
       {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
       <CanvasEditorButtons buttons={[{ label: message('inNodeCurve.deletePoint'), icon: canvasEditorIcons.remove, intent: 'remove',
-        disabled: props.wired || selected() === undefined || points().length < 2, onClick: () => {
+        disabled: props.wired || props.readOnly || selected() === undefined || points().length < 2, onClick: () => {
           const index = selected()
           if (index !== undefined) remove(index)
         } }]} />
@@ -990,6 +996,7 @@ export function WebcamSpace(props: {
   readonly value: Json | undefined
   readonly ports: WebcamPorts
   readonly wired: boolean
+  readonly readOnly?: boolean
   /** What the wire brought in the last run, when it is known. */
   readonly carried: Json | undefined
   /** Something is drawn in front of the editor; a live camera turns off. */
@@ -1001,11 +1008,13 @@ export function WebcamSpace(props: {
   let stream: MediaStream | undefined
   let video: HTMLVideoElement | undefined
   let abort: AbortController | undefined
+  let cameraRequest = 0
   const stored = () => isFrame(props.value) ? props.value : undefined
   const carried = () => isFrame(props.carried) ? props.carried : undefined
   const shown = useAssetUrl(() => props.wired ? carried() : stored(), () => props.ports.fetchBytes)
   const live = () => camera() === 'live' || camera() === 'capturing'
   const release = () => {
+    cameraRequest++
     abort?.abort()
     abort = undefined
     for (const track of stream?.getTracks() ?? []) track.stop()
@@ -1014,7 +1023,7 @@ export function WebcamSpace(props: {
   }
   onCleanup(release)
   const start = async () => {
-    if (props.wired || camera() !== 'off' && camera() !== 'error') return
+    if (props.wired || props.readOnly || camera() !== 'off' && camera() !== 'error') return
     if (!navigator.mediaDevices?.getUserMedia) {
       setError(webcamError(new DOMException('Camera capture requires a secure browser context.', 'NotSupportedError')))
       setCamera('error')
@@ -1022,15 +1031,17 @@ export function WebcamSpace(props: {
     }
     setError(undefined)
     setCamera('starting')
+    const request = ++cameraRequest
     try {
       const opened = await navigator.mediaDevices.getUserMedia({ audio: false, video: true })
-      if (camera() !== 'starting') {
+      if (request !== cameraRequest || camera() !== 'starting') {
         for (const track of opened.getTracks()) track.stop()
         return
       }
       stream = opened
       setCamera('live')
     } catch (reason) {
+      if (request !== cameraRequest) return
       setError(webcamError(reason))
       setCamera('error')
     }
@@ -1041,11 +1052,11 @@ export function WebcamSpace(props: {
   }
   // Covered, the camera turns off as it does when its node leaves the screen.
   createEffect(() => {
-    if ((props.covered || props.wired) && untrack(camera) !== 'off' && untrack(camera) !== 'error') stop()
+    if ((props.covered || props.wired || props.readOnly) && untrack(camera) !== 'off' && untrack(camera) !== 'error') stop()
   })
   const capture = async () => {
     const upload = props.ports.upload
-    if (camera() !== 'live' || video === undefined || upload === undefined) return
+    if (props.readOnly || props.wired || camera() !== 'live' || video === undefined || upload === undefined) return
     setCamera('capturing')
     setError(undefined)
     abort = new AbortController()
@@ -1101,7 +1112,7 @@ export function WebcamSpace(props: {
             { label: message('inNodeWebcam.stop'), icon: canvasEditorIcons.stop, intent: 'remove', onClick: stop },
           ]
         : [{ label: message('inNodeWebcam.start'), icon: canvasEditorIcons.capture,
-            disabled: props.wired || camera() === 'starting' || props.ports.upload === undefined, onClick: () => void start() }]} />
+            disabled: props.wired || props.readOnly || camera() === 'starting' || props.ports.upload === undefined, onClick: () => void start() }]} />
       <Show when={note()}>{(text) => <CanvasEditorNote tone={noteTone()}>{text()}</CanvasEditorNote>}</Show>
     </>
   )
@@ -1139,15 +1150,17 @@ export function cameraAngleWords(message: ReturnType<typeof useAppMessage>, hori
  */
 export function CameraAngleSpace(props: {
   readonly fields: Readonly<Record<CameraAnglePart, CameraAngleField>>
+  readonly readOnly?: boolean
   readonly commit: (part: 'horizontal_angle' | 'vertical_angle', value: number) => void
 }) {
   const message = useAppMessage()
   const [draft, setDraft] = createSignal<{ readonly part: 'horizontal_angle' | 'vertical_angle'; readonly value: number }>()
+  createEffect(() => { if (props.readOnly || props.fields.horizontal_angle.wired || props.fields.vertical_angle.wired) setDraft(undefined) })
   const value = (part: CameraAnglePart): number | undefined => {
     const moving = draft()
     return moving !== undefined && moving.part === part ? moving.value : props.fields[part].value
   }
-  const angle = (part: 'horizontal_angle' | 'vertical_angle') => ({ degrees: value(part), fixed: props.fields[part].wired })
+  const angle = (part: 'horizontal_angle' | 'vertical_angle') => ({ degrees: value(part), fixed: props.readOnly === true || props.fields[part].wired })
   const place = () => {
     const [horizontal, vertical, zoom] = CAMERA_ANGLE_PARTS.map(value)
     return horizontal === undefined || vertical === undefined || zoom === undefined
@@ -1163,7 +1176,7 @@ export function CameraAngleSpace(props: {
           onMoveEnd={() => {
             const moved = draft()
             setDraft(undefined)
-            if (moved !== undefined && moved.value !== props.fields[moved.part].value) props.commit(moved.part, moved.value)
+            if (moved !== undefined && !props.readOnly && !props.fields[moved.part].wired && moved.value !== props.fields[moved.part].value) props.commit(moved.part, moved.value)
           }} />
       </CanvasEditorPicture>
       <CanvasEditorNote tone={place() === undefined ? 'muted' : undefined}>{place() ?? message('inNodeCameraAngle.notKnown')}</CanvasEditorNote>

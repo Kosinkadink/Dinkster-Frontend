@@ -75,9 +75,9 @@ export function CanvasEditorPicture(props: {
 }
 
 /** One line of an editor's own controls, as tall as a canvas row. */
-export function CanvasEditorLine(props: { dimmed?: boolean; children: JSX.Element }) {
+export function CanvasEditorLine(props: { dimmed?: boolean; readOnly?: boolean | undefined; children: JSX.Element }) {
   return (
-    <div class="dinkster-canvas-editor-line" data-dimmed={props.dimmed === true ? 'true' : undefined} inert={props.dimmed === true}>
+    <div class="dinkster-canvas-editor-line" data-dimmed={props.dimmed === true ? 'true' : undefined} inert={props.dimmed === true || props.readOnly === true}>
       {props.children}
     </div>
   )

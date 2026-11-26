@@ -10,6 +10,46 @@ import { SaveTargetSpace } from '../src/InNodeEditorSpaces.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it('drops an open Save target draft when access changes and keeps its stored name selectable without writing', async () => {
+  const root = document.createElement('div'); document.body.append(root)
+  const [access, setAccess] = createSolidSignal<'editable' | 'readOnly' | 'disabled'>('editable')
+  const commit = vi.fn(async () => true)
+  const queue = vi.fn()
+  const preview = vi.fn()
+  const dispose = render(() => <SaveTargetSpace value={{ mount: 'output', prefix: 'stored/name' }} wired={false}
+    readOnly={access() === 'readOnly'} disabled={access() === 'disabled'} preview={preview}
+    fetchMounts={async () => ({ activeOutputMount: 'output', mountChangesAllowed: false,
+      mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }] })}
+    commit={commit} queue={queue} />, root)
+  try {
+    const name = root.querySelector('input')!
+    const mount = root.querySelector('button')!
+    await vi.waitFor(() => expect(mount.textContent).toContain('output'))
+    for (const state of ['readOnly', 'disabled'] as const) {
+      name.value = 'uncommitted/name'
+      name.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      mount.click()
+      expect(document.querySelector('[role="listbox"]')).not.toBeNull()
+      setAccess(state)
+      expect(name.value).toBe('stored/name')
+      expect(name.readOnly).toBe(true)
+      expect(mount.getAttribute('aria-disabled')).toBe('true')
+      expect(document.querySelector('[role="listbox"]')).toBeNull()
+      name.focus(); name.select()
+      expect([name.selectionStart, name.selectionEnd]).toEqual([0, 11])
+      name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+      name.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      await Promise.resolve()
+      expect(commit).not.toHaveBeenCalled()
+      expect(queue).not.toHaveBeenCalled()
+      expect(preview).toHaveBeenLastCalledWith(undefined)
+      setAccess('editable')
+      expect(name.readOnly).toBe(false)
+      expect(name.value).toBe('stored/name')
+    }
+  } finally { dispose() }
+})
+
 it('keeps mount recovery and declared-default reset inside the Save target editor without changing a wired target', async () => {
   const root = document.createElement('div'); document.body.append(root)
   const [wired, setWired] = createSolidSignal(false)
