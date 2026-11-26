@@ -1293,12 +1293,12 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
     .filter({ has: page.getByText('Pass Through, configuration_strength_after_generation', { exact: true }) })
     .last()
   await proxy.focus()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Current expected value: 1.30')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 1.30')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Arriving: 1.30')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 1.30')
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.mirrorPreviews', false))
   await expect(proxy).toBeFocused()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Current expected value: 1.30')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 1.30')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Arriving: 1.30')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 1.30')
   await page.screenshot({ path: test.info().outputPath('focused-after-overlay-refresh.png') })
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.mirrorPreviews', true))
   await expect(proxy).toBeFocused()
@@ -1341,8 +1341,8 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
     number: { value: 7 }, text: { value: 'changed' }, configuration_strength_after_generation: { value: 1.3 },
   } })
   await proxy.focus()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Current expected value: 1.30')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 8.00')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Arriving: 1.30')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 8.00')
   const clip = await page.evaluate(() => {
     const nodes = window.__dinksterTest!.renderer!.getScene().nodes.filter((node) => node.id === 'source' || node.id === 'sink')
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
@@ -1366,7 +1366,7 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
   await expect(proxy).not.toBeFocused()
   await expect(page.getByTestId('app-tooltip')).toHaveCount(0)
   await proxy.focus()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 8.00')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 8.00')
   expect(pageErrors).toEqual([])
 })
 
@@ -1457,7 +1457,7 @@ test('a changed producer exposes stale/unproven companion wording while styling 
     .filter({ has: page.getByText('Unproven Sink, width', { exact: true }) })
   await proxy.focus()
   await expect(page.getByTestId('app-tooltip')).toContainText('Stale/unproven value: 512')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 640')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 640')
   expect(await proxy.evaluate((element) => getComputedStyle(element.parentElement!).pointerEvents)).toBe('none')
 
   const point = await page.evaluate(() => {
@@ -1507,9 +1507,9 @@ test('a changed producer exposes stale/unproven companion wording while styling 
   await expect.poll(companions).toEqual({ sink: { width: { value: 1024 } } })
   await page.screenshot({ path: testInfo.outputPath('updated-companion-tooltip.png') })
   await expect(proxy).toBeFocused()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Current expected value: 1024')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Arriving: 1024')
   await expect(page.getByTestId('app-tooltip')).not.toContainText('Stale/unproven value: 512')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Dormant stored value under connection: 640')
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 640')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('app-tooltip')).toHaveCount(0)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.mirrorPreviews', false))
@@ -1715,9 +1715,20 @@ test('a click on a wired row whose value is known only after a run explains it, 
   await page.mouse.click(radius.x, radius.y)
   await expect(note).toContainText('The wire has no known value yet; this does not mean nothing.')
   await expect(note).toContainText('Stored 12, used again when the wire is removed.')
-  await expect(note.locator('[data-testid="canvas-row-focus"]')).toHaveAttribute('data-neutral', 'true')
   await expect(page.locator('.widget-in-row-field')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(note).toHaveCount(0)
   expect((await activeDoc(page)).graphs.g0!.nodes.soften!.values.radius).toBe(12)
+  await page.getByTestId('canvas-widget-a11y').filter({ hasText: 'Soften, radius' }).focus()
+  await expect(page.getByTestId('app-tooltip')).toContainText('Stored: 12')
+  await expect.poll(() => page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((node) => node.id === 'soften')!
+    const viewport = renderer.getViewport()
+    const left = canvas.left + node.x * viewport.scale + viewport.x
+    const right = left + node.layout.width * viewport.scale
+    const tip = document.querySelector('[data-testid=app-tooltip]')!.getBoundingClientRect()
+    return Math.min(Math.abs(tip.right + 8 - left), Math.abs(tip.left - 8 - right))
+  })).toBeLessThan(1)
 })

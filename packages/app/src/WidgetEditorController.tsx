@@ -50,7 +50,7 @@ import {
 export { parseNumericCommit, widgetCommitError, type NumericCommitResult } from './widget-commit.js'
 export { withMaterializeFrames } from './widget-editor-command.js'
 
-/** What a widget editor writes to: a node input. */
+/** What a widget editor writes to: a node input, or a button press that asked for a value. */
 export type EditorTarget =
   | {
       readonly kind: 'input'
@@ -78,6 +78,18 @@ export type EditorTarget =
        */
       readonly parts?: WidgetParts
     }
+  /**
+   * A value a button press asks for (a Pick, an Ask row, a picker): the
+   * editor hands it to the press instead of writing the document. Closing
+   * without a value cancels it.
+   */
+  | {
+      readonly kind: 'local'
+      readonly commit: (value: Json) => void
+      readonly cancel: () => void
+      /** A Pick's lookup list that is not ready; Try again asks the lookup again. */
+      readonly list?: { readonly state: 'stale' | 'failed' | 'paused'; readonly retry?: () => void }
+    }
 
 /**
  * The node row a widget part names: the row the widget writes or reads under
@@ -85,7 +97,7 @@ export type EditorTarget =
  * the editor treats as absent.
  */
 export function partRow(target: EditorTarget, part: string): string | undefined {
-  const parts = target.parts
+  const parts = target.kind === 'input' ? target.parts : undefined
   if (parts === undefined) return undefined
   return Object.hasOwn(parts.writes, part) ? parts.writes[part] : Object.hasOwn(parts.reads, part) ? parts.reads[part] : undefined
 }
@@ -149,6 +161,7 @@ export interface WidgetEditorState {
     readonly look: 'original' | 'flat-title'
     readonly nodeTop: number
     readonly nodeBottom: number
+    readonly sideEdges?: { readonly left: boolean; readonly right: boolean }
     readonly help?: string
     /** The raw stored value when the field opened (null when none was stored). */
     readonly storedAtOpen: Json
@@ -177,6 +190,8 @@ export interface WidgetEditorState {
   /** Editor anchor rect in canvas world coordinates. */
   readonly rect: { x: number; y: number; width: number; height: number }
   readonly initial: Json | undefined
+  /** A clipboard image the asset picker starts uploading when it opens. */
+  readonly stagedFile?: File
   /** A known-missing stored ref must not issue an initial preview byte read. */
   readonly missingAssetDigest?: string
   readonly instancePath?: readonly string[]
@@ -305,7 +320,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
   // An editor that writes another row of its node never writes through that row's wire.
   const wiredWrite = ((): string | undefined => {
     const target = ed.target
-    if (target.familyOwner !== undefined || target.parts === undefined) return undefined
+    if (target.kind !== 'input' || target.familyOwner !== undefined || target.parts === undefined) return undefined
     if (!Object.values(target.parts.writes).includes(target.valueKey)) return undefined
     const graph = ed.tab.store.doc.graphs[ed.graphId]
     if (graph === undefined) return undefined
@@ -347,6 +362,11 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     // (or any unmount) would otherwise re-enter here and commit the discarded
     // text. Closed editors never commit.
     if (!live) return Promise.resolve(false)
+    if (ed.target.kind === 'local') {
+      ed.target.commit(value)
+      close()
+      return Promise.resolve(true)
+    }
     if (wiredWrite !== undefined) {
       setCommitError(message('widgetEditor.writeWired', { row: wiredWrite }))
       return Promise.resolve(false)

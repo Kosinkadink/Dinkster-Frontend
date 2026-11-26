@@ -23,6 +23,7 @@ import {
   canvasTypePaintForTheme,
   createRegistryPainter,
   defaultTokens,
+  rowSideEdges,
   widgetValueText,
   type DesignTokens,
   type LayoutRow,
@@ -393,18 +394,46 @@ export function RowEditingExample(props: {
             ? { viewId: view.id, rows: view.measure(spec).rows }
             : undefined
         }
-        widgetMeasure.representations = (spec) => props.registry.kind(spec.widgetType)?.representations?.(spec)
+        widgetMeasure.representations = (spec) =>
+          props.registry.kind(spec.widgetType)?.representations?.(spec)
         const width = example.nodeWidth ?? NODE_WIDTH
         const built =
           example.build !== undefined
-            ? example.build.scene(tokens, measure, widgetMeasure, example.node, width)
+            ? example.build.scene(
+                tokens,
+                measure,
+                widgetMeasure,
+                example.node,
+                width,
+              )
             : example.special === true
-            ? createRowSpecialScene(tokens, measure, widgetMeasure, example.node, width)
-            : example.focus === undefined
-            ? createRowEditingScene(tokens, measure, widgetMeasure, example.node, width)
-            : createRowFocusScene(tokens, measure, widgetMeasure, example.node, width, example.schema)
+              ? createRowSpecialScene(
+                  tokens,
+                  measure,
+                  widgetMeasure,
+                  example.node,
+                  width,
+                )
+              : example.focus === undefined
+                ? createRowEditingScene(
+                    tokens,
+                    measure,
+                    widgetMeasure,
+                    example.node,
+                    width,
+                  )
+                : createRowFocusScene(
+                    tokens,
+                    measure,
+                    widgetMeasure,
+                    example.node,
+                    width,
+                    example.schema,
+                  )
         const node = built.nodes[0]!
-        const bottom = Math.max(...built.nodes.map((drawn) => drawn.y + drawn.layout.height))
+        const bottom = Math.max(
+          ...built.nodes.map((drawn) => drawn.y + drawn.layout.height),
+        )
         const height = (bottom + MARGIN) * example.scale
         canvas.style.width = `${example.width}px`
         canvas.style.height = `${height}px`
@@ -493,7 +522,8 @@ export function RowEditingExample(props: {
             : widgetValueText(props.registry, row.viewId, declared, row.spec)
       if (defaultText === undefined && declared !== undefined)
         defaultText = formatWidgetValue(declared, row.spec)
-      if (defaultText == null && help === undefined && looks === undefined) return undefined
+      if (defaultText == null && help === undefined && looks === undefined)
+        return undefined
       return (
         <CanvasSidePart
           {...representation}
@@ -566,6 +596,7 @@ export function RowEditingExample(props: {
       scale,
       ((node.y + node.layout.height) * scale - screen.y) / zoom + MARGIN / 2,
       (screen.y - node.y * scale) / zoom + MARGIN / 2,
+      rowSideEdges(node.layout.rows, row),
     )
     const value = node.node.values[row.valueKey]
     return { row, numeric, screen, width, value, help, facts, ...layout }

@@ -590,7 +590,7 @@
 .app-tooltip-title { color: var(--dinkster-text-primary); font-weight: 600; margin-bottom: 3px; }
 .app-tooltip-detail { color: var(--dinkster-text-secondary); margin-top: 3px; }
 
-[data-tooltip-label][tabindex]:focus-visible {
+[data-tooltip-label][tabindex]:not([data-tooltip-trigger='hover']):focus-visible {
   outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: 2px;
 }

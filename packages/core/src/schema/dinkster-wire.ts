@@ -743,8 +743,13 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
   const socket = type.kind === 'concrete' ? type.name : undefined
   switch (descriptor['type']) {
     case 'STRING':
-    case 'MOUNT':
       if (socket !== 'STRING') throw new Error(`${where} requires a concrete STRING input`)
+      return
+    case 'MOUNT':
+      if (socket !== 'STRING' && socket !== 'MOUNT' && !(type.kind === 'union' &&
+        type.names.length === 2 && type.names.includes('MOUNT') && type.names.includes('STRING'))) {
+        throw new Error(`${where} requires MOUNT, STRING or their union`)
+      }
       return
     case 'COLOR':
       if (socket !== 'STRING' && socket !== 'COLOR') throw new Error(`${where} requires a concrete COLOR or STRING input`)
@@ -1612,7 +1617,7 @@ const COMMON_FIELDS = ['label', 'tooltip', 'visible'] as const
 const INPUT_FIELDS = [
   'kind', 'id', 'type', 'required', 'default', 'onAbsent', 'widget', 'tooltip', 'label', 'pinFirst', 'pin',
   'afterRun', 'onEdit', 'hidden', 'lazy', 'acceptsStorage', 'acceptsStream', 'acceptsList', 'sourceFilename',
-  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible', 'automatic', 'sent',
+  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible', 'automatic', 'sent', 'readOnly', 'disabled', 'disabledReason',
 ]
 
 /** A port's label, literal or worked out by formula, and whether it shows. */
@@ -1690,6 +1695,11 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
     ...(hidden ? { hidden: true } : {}),
     ...(lazy ? { lazy: true } : {}),
     ...(onEdit.length > 0 ? { onEdit } : {}),
+    ...(entry['readOnly'] !== undefined ? { readOnly: wireFormulated<boolean>(entry['readOnly'], `${where}.readOnly`, 'boolean') } : {}),
+    ...(entry['disabled'] !== undefined ? { disabled: wireFormulated<boolean>(entry['disabled'], `${where}.disabled`, 'boolean') } : {}),
+    ...(entry['disabledReason'] !== undefined
+      ? { disabledReason: wireFormulated<string>(entry['disabledReason'], `${where}.disabledReason`, 'string') }
+      : {}),
     ...(automatic !== undefined ? { automatic } : {}),
     ...acceptsStorageOf({ role: 'input', acceptsStorage: entry['acceptsStorage'] }, where),
     ...acceptsStreamOf({ role: 'input', ...(Object.hasOwn(entry, 'acceptsStream') ? { acceptsStream: entry['acceptsStream'] } : {}) }, where),

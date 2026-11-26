@@ -11,6 +11,23 @@ const canvas = (width: number, height: number) => ({ x: 0, y: 0, width, height }
 const at = (scale: number) => ({ x: 0, y: 0, scale })
 
 describe('rowPlacement', () => {
+  it('joins only exposed ends of a shared line and detaches its middle cell', () => {
+    const side = { width: 90, height: 120 }
+    for (const scale of [1, 1.3, 2]) {
+      const viewport = { x: 17, y: 11, scale }
+      const shared = { ...row, rect: { ...row.rect, x: 150 }, look: 'flat-title' as const }
+      expect(rowPlacement({ ...shared, sideEdges: { left: true, right: false } }, viewport, canvas(2000, 1800), side).place)
+        .toBe('left')
+      expect(rowPlacement({ ...shared, sideEdges: { left: false, right: true } }, viewport, canvas(2000, 1800), side).place)
+        .toBe('right')
+      expect(rowPlacement({ ...shared, sideEdges: { left: false, right: false } }, viewport, canvas(2000, 1800), side).place)
+        .toBe('below-node')
+    }
+    // A first cell without space on its left must not join through its right neighbor.
+    expect(rowPlacement({ ...row, sideEdges: { left: true, right: false } }, at(1), canvas(800, 700), side).place)
+      .toBe('below-node')
+  })
+
   it('opens beside the row at its top when there is room', () => {
     const placed = rowPlacement(row, at(1), canvas(800, 600), { width: 200, height: 120 })
     expect(placed).toMatchObject({ place: 'right', sideTop: 0 })
