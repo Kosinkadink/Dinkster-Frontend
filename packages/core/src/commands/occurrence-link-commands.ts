@@ -362,12 +362,7 @@ function buildPlan(
       const current = byIdentity.get(identityKey(identity))
       if (!current) return undefined
       if (identity.kind === 'parent' || identity.kind === 'parentNetSink') return undefined
-      if (identity.kind === 'parentLeg') {
-        const legCount = effective.projectedParentLinks.filter((link) =>
-          link.identity.kind === 'parentLeg' && canonicalJson(link.identity.delivery) === canonicalJson(identity.delivery),
-        ).length
-        if (legCount <= 1 || intent.command !== 'occurrence.link.disconnect') return undefined
-      }
+      if (identity.kind === 'parentLeg' && intent.command !== 'occurrence.link.disconnect') return undefined
       if ((identity.kind === 'definition' || identity.kind === 'definitionNetSink') &&
           ((intent.command === 'occurrence.link.rewire' && intent.to?.kind === 'body') ||
            (intent.command === 'occurrence.link.rewireSource' && intent.from?.kind === 'body'))) return undefined

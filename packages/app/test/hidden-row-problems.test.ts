@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { asConnectionId, compile, loadDocument, parseDinksterSchema, type Json } from '@dinkster/core'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
-import { AppState } from '../src/app-state.js'
+import { AppState, diagnosticFocusPlan } from '../src/app-state.js'
 import { storedValueProblems } from '../src/CanvasHost.js'
+import { deriveProblemProjection } from '../src/problem-display.js'
+import { problemBoxLines, problemBoxRows } from '../src/problem-box.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -91,6 +93,55 @@ describe('a hidden row with a problem', () => {
     // A muted or bypassed node does not run, so nothing is missing for it.
     expect(fieldRows({ w: 3 }, 'muted')).toEqual(['w'])
     expect(fieldRows({ w: 3 }, 'bypassed')).toEqual(['w'])
+  })
+
+  it('explains a declaration-hidden required field at the node, but still reveals a visible-hidden field', () => {
+    for (const [hidden, duplicate] of [[true, true], [true, false], [false, true], [false, false]]) {
+      const parsed = parseDinksterSchema('HiddenImage', {
+        schemaVersion: 2, nodeType: 'HiddenImage', displayName: 'Describe image', outputNode: true,
+        body: [{ kind: 'choice', id: 'source', required: true, ...(hidden ? { hidden: true } : { visible: { formula: '0 > 1' } }),
+          options: [{ key: 'image', rows: [{ kind: 'section', id: 'details', rows: [
+            { kind: 'input', id: 'image', label: 'Image', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
+              widget: { type: 'ASSET', accept: ['image/png'] } },
+            { kind: 'input', id: 'mask', label: duplicate ? 'Image' : 'Mask', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
+              widget: { type: 'ASSET', accept: ['image/png'] } },
+          ] }] }],
+        }],
+      } as never)
+      expect(parsed.schema, JSON.stringify(parsed.diagnostics)).toBeDefined()
+      const schema = parsed.schema!
+      const document = loadDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'hidden-required', root: 'g',
+        graphs: { g: { id: 'g', name: 'Root', nextOrdinal: 1, nodes: {
+          n: { id: 'n', type: 'HiddenImage', values: {}, dynamic: { source: { selected: 'image' } } },
+        }, links: {}, nets: {}, reroutes: {} } }, view: { graphs: {} },
+      }).document!
+      const resolve = () => schema
+      const result = compile({ document, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) continue
+      const problems = result.artifact.diagnostics.filter((d) => d.code === 'compile.input.missing')
+      expect(problems).toHaveLength(2)
+      const diagnostic = problems[0]!
+      expect(diagnostic.blocksExecution).toBe(true)
+      expect(diagnostic.anchor?.port?.port).toBe(hidden ? undefined : 'source.image')
+      expect(diagnosticFocusPlan(document, diagnostic.anchor)?.nodeId).toBe('n')
+      const scene = buildScene({ document, graphId: 'g', resolve, tokens: defaultTokens,
+        measure: (text) => text.length * 7, widgetMeasure: () => ({ viewId: 'core.asset', rows: 1 }),
+      })
+      expect(scene.nodes[0]!.layout.rows.some((row) => row.kind === 'widget' && row.valueKey === 'source.image')).toBe(!hidden)
+      const projection = deriveProblemProjection({ diagnostics: problems, document, graphId: 'g', instancePath: [] })
+      const lines = problemBoxLines(projection.nodes['n']!, problemBoxRows(scene.nodes[0]!), (row) => row)
+      expect(lines).toHaveLength(2)
+      expect(lines.map((line) => line.actions)).toEqual(hidden ? [[], []] : [['edit-field'], ['edit-field']])
+      if (hidden) {
+        const names = duplicate ? ['Image (source.image)', 'Image (source.mask)'] : ['Image', 'Mask']
+        expect(lines.map((line) => line.rowName)).toEqual(names)
+        expect(lines.map((line) => line.row)).toEqual([undefined, undefined])
+        expect(lines.map((line) => line.message)).toEqual(names.map((name) =>
+          `Describe image requires ${name} but hides it, so it cannot be set. The node's author has to fix this.`))
+      }
+    }
   })
 
   it('refuses a cleared required image and reveals it on a plain node and a whole-choice subgraph node', () => {

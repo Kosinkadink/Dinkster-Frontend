@@ -62,6 +62,7 @@ import { switchPrimitiveGallery } from './switch-primitive.js'
 import { typeConflictGallery } from './type-conflict.js'
 import { wireLooksGallery } from './wire-looks.js'
 import { widgetTapGallery } from './widget-taps.js'
+import { rowSummariesGallery } from './row-summaries.js'
 
 export const canvasGalleryPages = [
   ['anatomy', 'Node anatomy'],
@@ -89,6 +90,8 @@ export const canvasGalleryPages = [
   ['problem-box', 'The node\'s problem box'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
+  ['row-summaries', 'Closed row summaries'],
+  ['row-file-previews', 'Thumbnails in closed file rows'],
   ['in-node-editors', 'Editors in the node'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
@@ -217,7 +220,6 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
   widget('markdown', 'MARKDOWN', '# Heading\nBody text'),
   widget('compare', 'IMAGECOMPARE', null),
   widget('camera_angle', 'CAMERA_ANGLE_VIEW', ''),
-  widget('resolution', 'RESOLUTION_PREVIEW', null),
   widget('save_target', 'SAVE_TARGET', null),
   widget('bounding_box', 'BOUNDING_BOX', {
     x: 8,
@@ -751,7 +753,6 @@ export function createCanvasGalleryFixture(
         'list',
         'curve',
         'camera_angle',
-        'resolution',
       ].includes(item.id),
     )
     const checkpoint: InputSpec = {
@@ -1003,6 +1004,13 @@ export function createCanvasGalleryFixture(
     fixture.scene.nodes = [...gallery.scene.nodes]
     fixture.scene.links = [...gallery.scene.links]
     fixture.companions = gallery.companions
+    examples.push(...gallery.examples)
+  } else if (page === 'row-summaries') {
+    const gallery = rowSummariesGallery(tokens, measure, widgetMeasure)
+    fixture.scene.nodes = [...gallery.scene.nodes]
+    fixture.scene.links = [...gallery.scene.links]
+    fixture.companions = gallery.companions
+    fixture.rowMarks = gallery.rowMarks
     examples.push(...gallery.examples)
   } else if (page === 'title-suffix') {
     const suffixed: NodeSchema = { ...sample, titleSuffix: { formula: 'str(steps) + " steps, " + sampler_name' } }
@@ -2172,16 +2180,17 @@ export const rowFocusSchema: NodeSchema = schema('Sample settings', [
   },
 ])
 
-/** The node of the row-editing page's keyboard examples. */
+/** The node of a keyboard example: the row-editing page's, or `definition`. */
 export function createRowFocusScene(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
   position: { x: number; y: number },
   width = 280,
+  definition: NodeSchema = rowFocusSchema,
 ): Scene {
   return singleNodeScene(
-    rowFocusSchema,
+    definition,
     {},
     { position, size: { width, height: 0 } },
     tokens,

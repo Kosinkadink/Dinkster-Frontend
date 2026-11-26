@@ -111,7 +111,7 @@ export function SetupForm(props: {
             <dd><span>{setupJobActive(setup.job()) ? setup.job()!.root : plan().root}</span><Show when={canChange()}><ProductTextButton label={message('setup.chooseFolder')} disabled={busy()} onClick={() => { void chooseFolder() }} /></Show></dd>
             <Show when={plan().buildLabel || setupJobActive(setup.job())}><dt>{message('setup.build')}</dt>
             <dd><div><Show when={buildLabel()}>{(label) => <span>{label()}</span>}</Show><For each={cardNames()}>{(name) => <p class="dinkster-description">{name}</p>}</For></div>
-              <Show when={canChange() && (plan().choices?.length ?? 0) > 1}><ProductMenu fill="quiet" label={message('setup.changeBuild')} items={(plan().choices ?? []).map((choice) => ({
+              <Show when={canChange() && (plan().choices?.length ?? 0) > 1}><ProductMenu fill="quiet" align="end" label={message('setup.changeBuild')} items={(plan().choices ?? []).map((choice) => ({
                 label: choice.label,
                 description: choice.reason,
                 checked: choice.variant === plan().variant,

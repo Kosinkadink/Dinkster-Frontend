@@ -153,13 +153,20 @@ export function StatusBar(props: {
   const runLabel = () => `${props.tab()?.title}: ${busy() ? activityLabel() : message('shell.status.noActivity')}${props.tab()?.execution === undefined ? '' : ` - ${message('shell.status.frozen')}`}${runWords() === '' ? '' : ` - ${runWords()}`}`
   const connection = () => {
     backendTick()
-    return noEngineOpen(props.backend().supervisor.get()) ? 'no-engine' : backendConnectionStatus(props.backend())
+    const supervisor = props.backend().supervisor.get()
+    if (noEngineOpen(supervisor) || supervisor?.state === 'stopped') return 'no-engine'
+    if (supervisor?.state === 'starting' || supervisor?.state === 'failed') return supervisor.state
+    return backendConnectionStatus(props.backend())
   }
-  const connectionWords = () => props.setupStatus?.() !== undefined
-    ? message(props.setupStatus() === 'setting-up' ? 'shell.status.settingUp' : 'shell.status.notSetUp')
-    : connection() === 'no-engine'
-    ? message(props.backend().supervisor.get()?.installations === 0 ? 'shell.status.notSetUp' : 'shell.status.noEngine')
-    : connection()
+  const connectionWords = () => {
+    if (props.setupStatus?.() !== undefined) return message(props.setupStatus() === 'setting-up' ? 'shell.status.settingUp' : 'shell.status.notSetUp')
+    switch (connection()) {
+      case 'no-engine': return message('shell.engine.notRunning')
+      case 'starting': return message('shell.engine.starting')
+      case 'failed': return message('shell.engine.failed')
+      default: return connection()
+    }
+  }
   const connectionLabel = () => `${props.backend().label}: ${connectionWords()}`
   const backgroundLabel = () => allTasks().map((task) => `${task.backend}: ${task.text}`).join('; ')
   let footer!: HTMLElement
@@ -209,7 +216,7 @@ export function StatusBar(props: {
           <Icon icon={Download} /><span class="status-background-description">{allTasks().length === 1 ? allTasks()[0]!.text : message('shell.status.tasks', { count: allTasks().length })}</span>
           <span class="status-background-count" aria-hidden="true">{allTasks().length}</span>
         </ProductButton></Show>
-        <Show when={props.setupStatus?.() === undefined && connection() !== 'no-engine' && props.backend().schemaState.get().status !== 'ready'}>
+        <Show when={props.setupStatus?.() === undefined && !['no-engine', 'starting', 'failed'].includes(connection()) && props.backend().connection.status.get() === 'connected' && props.backend().schemaState.get().status !== 'ready'}>
           <span class="status-catalog">{props.backend().schemaState.get().status === 'error' ? message('backendsPanel.schema.unavailable') : message('shell.status.loadingSchemas')}</span>
         </Show>
         <span class="status-extensions" data-testid="status-trailing">{props.extensions}</span>
