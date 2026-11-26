@@ -3024,6 +3024,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               nodeType: node.node.type,
               node: lookupNodeKey(tab, node.id),
               items: node.elaborated.items,
+              ...(node.elaborated.lookupDependencies !== undefined ? { lookupDependencies: node.elaborated.lookupDependencies } : {}),
               ...(openField?.nodeId === node.id ? { openField: openField.valueKey } : {}),
             }]))
     }

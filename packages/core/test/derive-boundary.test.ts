@@ -1062,6 +1062,28 @@ describe('Boundary sample acceptance compilation', () => {
     }
   })
 
+  it('boundary/formulas preserves node-specific schemas when inner nodes share a type', () => {
+    const schema = (value: number): NodeSchema => ({
+      type: 'Treatment', source: 'v3', displayName: 'Treatment', category: 'test', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'radius', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'FLOAT', options: {}, default: value } },
+        { kind: 'input', id: 'calculated', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'FLOAT', options: {}, default: 0 }, automatic: { formula: 'radius' } },
+        { kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'FLOAT', options: {}, default: 0.4 }, labelFormula: { formula: '"Mix " + fixed(calculated, 1)' } },
+      ],
+    })
+    const source = boundarySample(1).graphs.detail!
+    const graph: GraphDef = { ...source, nodes: {
+      a: { ...source.nodes.sample!, id: asNodeId('a'), type: 'Treatment', values: {}, dynamic: {} },
+      b: { ...source.nodes.sample!, id: asNodeId('b'), type: 'Treatment', values: {}, dynamic: {} },
+    }, boundary: boundaryOf([
+      { id: 'amount', promoted: true, binds: { kind: 'port', node: asNodeId('a'), port: asPortId('strength') } },
+      { id: 'other', promoted: true, binds: { kind: 'port', node: asNodeId('b'), port: asPortId('strength') } },
+    ], []) }
+    const derived = deriveBoundarySchema(graph, () => schema(0.1), undefined, (node) => schema(node.id === 'a' ? 0.1 : 0.9))
+    const fields = elabInputsOf(elaborateInterface(derived.schema!, { values: {} }))
+    expect(fields.map((field) => field.spec.displayName)).toEqual(['Mix 0.1', 'Mix 0.9'])
+  })
+
   it('boundary/show-hide uses boundary names for a whole choice through renamed nested boundaries', () => {
     const source = boundarySample(2)
     const detail = source.graphs.detail!

@@ -915,6 +915,7 @@ export function deriveBoundarySchema(
 
   /** A lookup argument wired inside the definition is not known, so its name reads nothing. */
   const unwired = (scope: OuterScope): OuterScope => ({
+    ...scope,
     frames: scope.frames.map((frame) => ({
       rows: frame.rows,
       names: Object.fromEntries(Object.entries(frame.names).filter(([, meaning]) => !('linked' in meaning && meaning.linked === true))),
@@ -928,7 +929,7 @@ export function deriveBoundarySchema(
       const schemas = new Map<string, NodeSchema>()
       for (const inner of Object.values(graph.nodes)) {
         const schema = resolveNode(inner)
-        if (schema !== undefined) schemas.set(inner.type, schema)
+        if (schema !== undefined) schemas.set(inner.id, schema)
       }
       source = { graph, node, schemas }
       sources.set(node, source)
@@ -959,6 +960,7 @@ export function deriveBoundarySchema(
         return outer
       }
       return {
+        ...carried,
         frames: carried.frames.map((frame) => {
           const names: Record<string, OuterName> = {}
           for (const [name, meaning] of Object.entries(frame.names)) {
@@ -980,7 +982,7 @@ export function deriveBoundarySchema(
       }
       return { rows: frame.rows, names }
     })
-    return { frames }
+    return { frames, nodeType: schema.type }
   }
 
   const outerScopesOf = (row: Pick<InputSpec, 'outer' | 'visibleWhen'>, binds: RouteBoundaryBinding, node: NodeData, path: string, shownAs: string) => ({

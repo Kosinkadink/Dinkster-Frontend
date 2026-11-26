@@ -3,7 +3,7 @@
  * backend's one lookup client, and which calls the nodes on screen ask for.
  * The client shares equal calls and keeps answers; this only decides demand.
  */
-import { lookupSitesOf, type AutomaticCall, type AutomaticValueRecord, type ElaborateOptions, type ElaboratedItem, type LookupAnswerState, type LookupCallSpec, type LookupFailure } from '@dinkster/core'
+import { lookupSitesOf, type AutomaticCall, type AutomaticValueRecord, type ElaborateOptions, type ElaboratedItem, type LookupAnswerState, type LookupCallSpec, type LookupFailure, type LookupSite } from '@dinkster/core'
 import type { LookupClient } from '@dinkster/client'
 import { comboOptions } from './app-view-rows.js'
 import type { ComboOption } from './combo-search.js'
@@ -32,6 +32,7 @@ export interface LookupDemandNode {
   readonly nodeType: string
   readonly node: string
   readonly items: readonly ElaboratedItem[]
+  readonly lookupDependencies?: readonly LookupSite[]
   /** The value key of the node's field open for editing. */
   readonly openField?: string
 }
@@ -50,10 +51,10 @@ export class LookupDemand {
   /** Ask for what `nodes` show and have no current answer for, and drop every other demand. */
   show(nodes: readonly LookupDemandNode[]): void {
     const wanted = new Set<string>()
-    for (const { nodeType, node, items, openField } of nodes) {
-      lookupSitesOf(items, openField).forEach((site, index) => {
+    for (const { nodeType, node, items, openField, lookupDependencies } of nodes) {
+      [...lookupSitesOf(items, openField), ...(lookupDependencies ?? [])].forEach((site, index) => {
         const key = `${node}\u0000${index}`
-        const call = { nodeType, node, function: site.call.lookup, args: site.call.args }
+        const call = { nodeType: site.call.nodeType ?? nodeType, node, function: site.call.lookup, args: site.call.args }
         const callKey = JSON.stringify([site.call.lookup, site.call.args])
         wanted.add(key)
         const previous = this.held.get(key)
@@ -81,7 +82,7 @@ export class LookupDemand {
   /** Try again or Refresh: ask for `call` again even when an answer is kept. */
   refresh(nodeType: string, node: string, call: LookupCallSpec, accepts?: (answer: unknown) => boolean): void {
     void this.lookups.request(
-      { nodeType, node, function: call.lookup, args: call.args },
+      { nodeType: call.nodeType ?? nodeType, node, function: call.lookup, args: call.args },
       { refresh: true, ...(accepts === undefined ? {} : { accept: accepts }) },
     ).catch(() => undefined)
   }

@@ -234,6 +234,8 @@ export interface ElaboratedInput {
   readonly automatic?: AutomaticState
   /** A field that declares `automatic` and holds a fixed value: what it would work out to if emptied. */
   readonly automaticIfEmptied?: AutomaticState
+  /** Hidden dependencies requested only while this fixed field is open. */
+  readonly automaticIfEmptiedLookups?: readonly LookupSite[]
   /** Keys of the boxes the node draws around this row, outermost first. */
   readonly boxes?: readonly string[]
   /** The rows its widget's `writes` and `reads` name, when it names any. */
@@ -443,6 +445,8 @@ export type LookupAnswerState =
 export interface LookupCallSpec {
   readonly lookup: string
   readonly args: readonly Json[]
+  /** Native node declaration, retained when a boundary shows the call. */
+  readonly nodeType?: string
 }
 
 /**
@@ -520,6 +524,7 @@ export function lookupSitesOf(items: readonly ElaboratedItem[], openField?: stri
   const open = openField === undefined ? undefined
     : items.find((item): item is ElaboratedInput => item.kind === 'input' && valueKeyOf(item) === openField)
   if (open?.automaticIfEmptied?.call !== undefined) sites.push({ call: open.automaticIfEmptied.call, accepts: () => true })
+  sites.push(...(open?.automaticIfEmptiedLookups ?? []))
   return sites
 }
 
@@ -556,11 +561,21 @@ export const lineKeyOf = (item: ElaboratedItem): string | undefined =>
 
 export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSection | ElaboratedBox | ElaboratedGrowth | ElaboratedNote | ElaboratedButton | ElaboratedEditor
 
+/** A value read by another occurrence, with the lookup calls needed to know it. */
+export interface ElaboratedFormulaValue {
+  readonly value: unknown
+  readonly linked?: true
+  readonly pending?: true
+  readonly lookups?: readonly LookupSite[]
+}
+
 export interface ElaboratedInterface {
   /** Ordered as the body declares; members appear in their stored order at their group's place. */
   readonly items: readonly ElaboratedItem[]
-  /** Active fixed formula references, including choices and state with no rendered input. Pending values are omitted. */
-  readonly formulaValues: ReadonlyMap<string, OuterName>
+  /** Active formula references, including pending lookup provenance and non-rendered state. */
+  readonly formulaValues: ReadonlyMap<string, ElaboratedFormulaValue>
+  /** Calls needed by formulas whose source fields are not shown on this node. */
+  readonly lookupDependencies?: readonly LookupSite[]
   readonly chunkSafe?: Pick<NonNullable<NodeSchema['chunkSafe']>, 'inputs' | 'outputs'>
   /** Non-port values the run carries. */
   readonly submissionValues: readonly { readonly path: string; readonly apiPath: string; readonly value: Json }[]
@@ -741,6 +756,7 @@ export function materializeFramesOf(
 interface FormulaFrame {
   readonly prefix: string
   readonly rows: readonly OptionRow[]
+  readonly nodeType?: string
   readonly index?: number
   readonly key?: string
   /** Names of this scope under the options of its choice that are not chosen. */
@@ -1069,6 +1085,17 @@ function elaboratePass(
   /** Fields that declare `automatic` and hold a fixed value, worked out for what emptying them would give. */
   const fixedSites = new Map<string, { readonly row: InputSpec; readonly scope: Scope }>()
   const outcomes = new Map<string, AutomaticState>()
+  const formulaLookups = new Map<string, ReadonlySet<LookupSite>>()
+  const lookupDependencies = new Set<LookupSite>()
+  let readingLookups: Set<LookupSite> | undefined
+  const useLookups = (sites: Iterable<LookupSite>): void => {
+    const target = readingLookups ?? lookupDependencies
+    for (const site of sites) target.add(site)
+  }
+  const lookupOrigin = (scope: Scope): { readonly nodeType?: string } => {
+    const nodeType = scope.formulaFrames.find((frame) => frame.nodeType !== undefined)?.nodeType
+    return nodeType === undefined ? {} : { nodeType }
+  }
   const working = new Set<string>()
   /** Set once the walk has found every site: formulas then work sites out as they read them. */
   let resolving = false
@@ -1095,11 +1122,17 @@ function elaboratePass(
 
   const automaticOutcome = (path: string): AutomaticState | undefined => {
     const known = outcomes.get(path)
-    if (known !== undefined) return known
+    if (known !== undefined) {
+      for (const site of formulaLookups.get(path) ?? []) readingLookups?.add(site)
+      return known
+    }
     if (working.has(path)) return undefined
     working.add(path)
     const outer = readWaiting
     const outerEmpty = readEmpty
+    const outerLookups = readingLookups
+    const dependencies = new Set<LookupSite>()
+    readingLookups = dependencies
     try {
       const outcome = workOutAutomatic(sites.get(path)!)
       outcomes.set(path, outcome)
@@ -1108,6 +1141,9 @@ function elaboratePass(
       working.delete(path)
       readWaiting = outer
       readEmpty = outerEmpty
+      formulaLookups.set(path, dependencies)
+      readingLookups = outerLookups
+      for (const site of dependencies) readingLookups?.add(site)
     }
   }
 
@@ -1154,7 +1190,8 @@ function elaboratePass(
           ? value.map((item) => (typeof item === 'bigint' ? Number(item) : item))
           : typeof value === 'bigint' ? Number(value) : value as Json)
       }
-      call = { lookup: automatic.lookup, args }
+      call = { lookup: automatic.lookup, args, ...lookupOrigin(scope) }
+      readingLookups?.add({ call, accepts: () => true })
       const held = options.lookupAnswers?.(call.lookup, call.args)
       // The last answer stands while a newer one loads, after a refresh
       // failed or while the budget is spent. With none, the field waits on
@@ -1287,12 +1324,12 @@ function elaboratePass(
   }
 
   const sourceNodes = new WeakMap<OuterSource, { readonly node: NodeData; readonly connectivity: Connectivity }>()
-  const sourceValues = new WeakMap<OuterSource, ReadonlyMap<string, OuterName>>()
+  const sourceValues = new WeakMap<OuterSource, ElaboratedInterface['formulaValues']>()
   const sourceNode = (source: OuterSource): { readonly node: NodeData; readonly connectivity: Connectivity } => {
     const cached = sourceNodes.get(source)
     if (cached !== undefined) return cached
     const parent = source.parent === undefined ? { node, connectivity } : sourceNode(source.parent)
-    const resolve = (inner: NodeData): NodeSchema | undefined => source.schemas.get(inner.type)
+    const resolve = (inner: NodeData): NodeSchema | undefined => source.schemas.get(inner.id)
     const projection = projectConstructs(source.graph, parent.node, resolve)
     const inner = buildGraphConnectivity(source.graph)(source.node.id)
     const connected = (port: string, side: 'inputs' | 'outputs'): boolean => {
@@ -1320,19 +1357,23 @@ function elaboratePass(
     sourceNodes.set(source, projected)
     return projected
   }
-  const fixedValue = (meaning: Exclude<OuterName, { row: string }>): Extract<OuterName, { value: unknown }> | undefined => {
+  const fixedValue = (meaning: Exclude<OuterName, { row: string }>): ElaboratedFormulaValue | undefined => {
     if ('value' in meaning) return meaning
     let values = sourceValues.get(meaning.source)
     if (values === undefined) {
       const projected = sourceNode(meaning.source)
-      values = elaborateInterface(meaning.source.schemas.get(meaning.source.node.type)!, projected.node, projected.connectivity, {
+      values = elaborateInterface(meaning.source.schemas.get(meaning.source.node.id)!, projected.node, projected.connectivity, {
         promoteGhosts: false,
         ...(options.lookupAnswers !== undefined ? { lookupAnswers: options.lookupAnswers } : {}),
       }).formulaValues
       sourceValues.set(meaning.source, values)
     }
     const value = values.get(meaning.path)
-    return value !== undefined && 'value' in value ? value : undefined
+    useLookups((value?.lookups ?? []).map((site) => ({ ...site, call: {
+      ...site.call, nodeType: site.call.nodeType ?? meaning.source.node.type,
+    } })))
+    if (value?.pending === true) readWaiting = true
+    return value
   }
 
   const partsAt = (widget: WidgetSpec, scope: Scope): WidgetParts | undefined => {
@@ -1380,7 +1421,7 @@ function elaboratePass(
       const reference = fixed.get(name)
       if (reference !== undefined) {
         const constant = fixedValue(reference)
-        if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.set(name, constant === undefined || constant.linked === true ? UNKNOWN : formulaValueOf(constant.value, kind))
+        if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.set(name, constant === undefined || constant.linked === true || constant.pending === true ? UNKNOWN : formulaValueOf(constant.value, kind))
         if (names.inputs.has(name)) wired.set(name, constant?.linked === true)
       } else if (unknown.has(name)) {
         // A group's size with no entry in `sizes` reads unknown.
@@ -1435,7 +1476,7 @@ function elaboratePass(
     const reference = fixed.get(name)
     if (reference !== undefined) {
       const constant = fixedValue(reference)
-      return { value: constant === undefined || constant.linked === true ? UNKNOWN : (constant.value ?? null) as Json }
+      return { value: constant === undefined || constant.linked === true || constant.pending === true ? UNKNOWN : (constant.value ?? null) as Json }
     }
     const path = where.get(name)
     if (path === undefined || unknown.has(name) || linked(path)) return { value: UNKNOWN, ...(path === undefined ? {} : { path }) }
@@ -1512,7 +1553,7 @@ function elaboratePass(
       if (outcome.kind === 'failed' || outcome.value === null) return { state: { state: 'unavailable', reason: 'invalid-arguments' } }
       args.push(jsonOf(outcome.value))
     }
-    const call: LookupCallSpec = { lookup: lookup.lookup, args }
+    const call: LookupCallSpec = { lookup: lookup.lookup, args, ...lookupOrigin(scope) }
     const held = options.lookupAnswers(call.lookup, call.args)
     if (held === undefined) return { state: { state: 'loading', call } }
     switch (held.state) {
@@ -1777,7 +1818,7 @@ function elaboratePass(
 
   /** The formula scope of a construct a subgraph node shows whole: its inner node's. */
   const outerFrames = (outer: OuterScope): readonly FormulaFrame[] =>
-    outer.frames.map((frame) => ({ prefix: '', rows: frame.rows, outer: frame.names }))
+    outer.frames.map((frame) => ({ prefix: '', rows: frame.rows, outer: frame.names, ...(outer.nodeType !== undefined ? { nodeType: outer.nodeType } : {}) }))
 
   /** Inside a construct a subgraph node shows whole, whose defaults are the definition's values. */
   const shownWhole = (scope: Scope): boolean => scope.formulaFrames.some((frame) => frame.outer !== undefined)
@@ -2645,13 +2686,20 @@ function elaboratePass(
   for (const [index, item] of items.entries()) {
     const fixed = item.kind === 'input' ? fixedSites.get(item.address.port) : undefined
     if (fixed !== undefined && item.kind === 'input') {
-      items[index] = { ...item, automaticIfEmptied: labelled(workOutAutomatic(fixed)) }
+      readingLookups = new Set()
+      const automaticIfEmptied = labelled(workOutAutomatic(fixed))
+      const dependencies = [...readingLookups].filter((site) => site.call !== automaticIfEmptied.call)
+      items[index] = { ...item, automaticIfEmptied,
+        ...(dependencies.length ? { automaticIfEmptiedLookups: dependencies } : {}),
+      }
+      readingLookups = undefined
       continue
     }
     const found = item.kind === 'input' ? outcomes.get(item.address.port) : undefined
     if (found === undefined || item.kind !== 'input') continue
     const outcome = labelled(found)
     items[index] = { ...item, automatic: outcome }
+    useLookups([...(formulaLookups.get(item.address.port) ?? [])].filter((site) => site.call !== outcome.call))
     if (outcome.state === 'default') {
       const shown = typeof outcome.value === 'string' ? outcome.value : JSON.stringify(outcome.value)
       diagnostics.push(diag('warning', 'schema', 'automatic.default',
@@ -2661,18 +2709,23 @@ function elaboratePass(
         }))
     }
   }
-  const formulaValues = new Map<string, OuterName>()
+  const formulaValues = new Map<string, ElaboratedFormulaValue>()
   for (const [path, fallback] of formulaDefaults) {
     const wired = linked(path)
     const stored = Object.hasOwn(node.values, path)
     const automatic = stored ? undefined : automaticInUse(path)
-    if (!wired && automatic === UNKNOWN) continue
     const value = chosen.has(path) ? chosen.get(path) : stored ? node.values[path] : automatic ?? fallback
-    formulaValues.set(path, { value, ...(wired ? { linked: true as const } : {}) })
+    const lookups = formulaLookups.get(path)
+    formulaValues.set(path, { value,
+      ...(wired ? { linked: true as const } : {}),
+      ...(!wired && automatic === UNKNOWN ? { pending: true as const } : {}),
+      ...(lookups?.size ? { lookups: [...lookups] } : {}),
+    })
   }
   const elaborated: ElaboratedInterface = {
     items,
     formulaValues,
+    ...(lookupDependencies.size ? { lookupDependencies: [...lookupDependencies] } : {}),
     submissionValues: [],
     ...(chunkSafe && covered ? { chunkSafe: {
       inputs: chunkSafe.inputs.filter((id) => items.some((item) => item.kind === 'input' && item.apiName === id)),

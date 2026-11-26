@@ -752,6 +752,8 @@ export type GroupGrowsSpec =
  * node, and any other name reads the projected inner occurrence.
  */
 export interface OuterScope {
+  /** Native declaration that owns lookups in this scope. */
+  readonly nodeType?: string
   /** The inner node's scopes around the row, outermost first, each with what its names mean. */
   readonly frames: readonly { readonly rows: readonly OptionRow[]; readonly names: Readonly<Record<string, OuterName>> }[]
 }

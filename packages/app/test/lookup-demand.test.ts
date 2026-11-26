@@ -4,10 +4,81 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createLookupClient } from '@dinkster/client'
-import { EMPTY_CONNECTIVITY, elaborateInterface, type NodeSchema } from '@dinkster/core'
+import { EMPTY_CONNECTIVITY, documentResolver, elaborateInterface, elabInputsOf, type NodeSchema } from '@dinkster/core'
 import { LookupDemand, lookupAnswersOf, recordRunAnswers } from '../src/lookup-demand.js'
+import { boundarySample } from '../../core/test/fixtures/boundary-sample.js'
 
 describe('recorded run answers', () => {
+  it('requests hidden lookup dependencies with native declarations and waits for their answers at both boundary depths', async () => {
+    const field = (id: string, automatic?: { lookup: string; args: { formula: string }[] }): NodeSchema['body'][number] => ({
+      kind: 'input', id, type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+      widget: { widgetType: 'FLOAT', options: {}, default: 0.1 }, ...(automatic === undefined ? {} : { automatic }),
+    })
+    const schema: NodeSchema = {
+      type: 'Boundary sample', displayName: 'Treatment', category: 'test', source: 'v3', isOutputNode: false,
+      body: [field('radius'), field('seed', { lookup: 'pack.seed', args: [{ formula: 'radius' }] }),
+        field('unrelated', { lookup: 'pack.unrelated', args: [{ formula: '999' }] }),
+        field('strength', { lookup: 'pack.double', args: [{ formula: 'seed' }] })],
+    }
+    for (const level of [1, 2] as const) {
+      const original = boundarySample(level)
+      const detail = original.graphs.detail!
+      const portrait = original.graphs.portrait
+      const doc = { ...original, graphs: { ...original.graphs,
+        detail: { ...detail, nodes: { sample: { ...detail.nodes.sample!, values: {}, dynamic: {} } }, boundary: { body: detail.boundary!.body.filter((row) => row.kind === 'input' && ['radius', 'strength'].includes(row.id)) } },
+        ...(portrait === undefined ? {} : { portrait: { ...portrait,
+          nodes: { detail: { ...portrait.nodes.detail!, values: {} } },
+          boundary: { body: portrait.boundary!.body.filter((row) => row.kind === 'input' && ['radius', 'strength'].includes(row.id)) },
+        } }),
+      } }
+      const calls: { nodeType: string; function: string; args: number[] }[] = []
+      const pending: Array<() => void> = []
+      const client = createLookupClient({ baseUrl: '', fetchFn: async (_url, init) => {
+        const call = JSON.parse(String(init?.body)) as typeof calls[number]
+        calls.push(call)
+        return new Promise<Response>((resolve) => pending.push(() => resolve(new Response(JSON.stringify({ answer: call.function === 'pack.seed' ? call.args[0] : call.args[0]! * 2 }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        }))))
+      } })
+      const demand = new LookupDemand(client)
+      const derived = documentResolver(doc, (type) => type === schema.type ? schema : undefined)(level === 1 ? '#detail' : '#portrait')!
+      const draw = (radius: number, fixed = false, open = false) => {
+        const elaborated = elaborateInterface(derived, { values: { radius, ...(fixed ? { strength: 0.9 } : {}) } }, EMPTY_CONNECTIVITY, { lookupAnswers: lookupAnswersOf(client) })
+        demand.show([{ nodeType: derived.type, node: 'outer', items: elaborated.items,
+          ...(elaborated.lookupDependencies === undefined ? {} : { lookupDependencies: elaborated.lookupDependencies }),
+          ...(open ? { openField: 'strength' } : {}),
+        }])
+        const item = elabInputsOf(elaborated).find((item) => item.spec.id === 'strength')!
+        return open ? item.automaticIfEmptied : item.automatic
+      }
+      const settle = async () => { for (let i = 0; i < 20; i += 1) await Promise.resolve() }
+      for (const radius of [0.8, 0.2]) {
+        expect(draw(radius)).toMatchObject({ state: 'not-known', reason: 'argument-unknown' })
+        await settle()
+        expect(calls.at(-1)).toMatchObject({ nodeType: 'Boundary sample', function: 'pack.seed', args: [radius] })
+        expect(pending).toHaveLength(1)
+        pending.shift()!()
+        await settle()
+        expect(draw(radius)).toMatchObject({ state: 'loading' })
+        await settle()
+        expect(calls.at(-1)).toMatchObject({ nodeType: 'Boundary sample', function: 'pack.double', args: [radius] })
+        expect(pending).toHaveLength(1)
+        pending.shift()!()
+        await settle()
+        expect(draw(radius)).toMatchObject({ state: 'worked-out', value: radius * 2 })
+      }
+      expect(calls.map((call) => call.function)).toEqual(['pack.seed', 'pack.double', 'pack.seed', 'pack.double'])
+      expect(draw(0.6, true)).toBeUndefined()
+      await settle()
+      expect(calls).toHaveLength(4)
+      expect(draw(0.6, true, true)).toMatchObject({ state: 'not-known' })
+      await settle()
+      expect(calls.at(-1)).toMatchObject({ nodeType: 'Boundary sample', function: 'pack.seed', args: [0.6] })
+      demand.dispose()
+      client.dispose()
+    }
+  })
+
   it('asks again only for the call whose field the run worked out to another value', async () => {
     const asked: unknown[] = []
     const answers: Record<string, unknown> = { sd: 99, sdxl: 30 }
