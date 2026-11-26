@@ -239,17 +239,12 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const modeIcon = inRow && numeric && row.controllerMode !== undefined ? row.controllerMode : undefined
     const rowsRaisedForEditors = tokens.widgetRowLook === 'raised-editors'
     const openerIcon = openerIconOf(row, tokens)
-    // Folded, the raised look draws a curve as a square of its plot at the row's start, before the name.
+    // Folded editors keep their header in place; pictures precede the value at the right.
     const sketchSize = Math.max(0, chrome.height - paint.curve.inset * 2)
     const sketch = rowsRaisedForEditors && row.viewId === 'core.curve' && !row.unfolded
-      ? { x: chrome.x + paint.curve.inset, y: chrome.y + paint.curve.inset, size: sketchSize }
+      ? { y: chrome.y + paint.curve.inset, size: sketchSize }
       : undefined
-    const sketchShift = sketch === undefined ? 0 : sketch.x + sketch.size + paint.curve.gap - x - paint.opener.iconInset
-    // Beside the square the name and how the points are joined read as one block, centred on the row;
-    // a wired curve not known yet has no joining word, so its name is centred alone.
-    const sketchJoined = sketch !== undefined && !(args.connected && (resolved === null || typeof resolved !== 'object' || Array.isArray(resolved)))
-    const nameY = sketch === undefined ? y + rowHeight / 2
-      : chrome.y + chrome.height / 2 - (sketchJoined ? paint.curve.lineStep / 2 : 0)
+    const nameY = y + rowHeight / 2
     if (openerIcon !== undefined) {
       ctx.fillStyle = tokens.colors.widgetRaised
       ctx.strokeStyle = tokens.colors.nodeIdleOutline
@@ -262,7 +257,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         row.unfolded ? [chrome.radius, chrome.radius, 0, 0] : chrome.radius)
       ctx.fill()
       if (!row.unfolded) ctx.stroke()
-      paintToolboxIcon(ctx, openerIcon, x + sketchShift + paint.opener.iconInset,
+      paintToolboxIcon(ctx, openerIcon, x + paint.opener.iconInset,
         nameY - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.value)
       // An editor shown in the node points down while it is unfolded under this row.
       paintToolboxIcon(ctx, row.unfolded ? 'chevron-down' : 'chevron-right', x + width - paint.opener.trailingInset - paint.opener.iconSize,
@@ -270,7 +265,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     }
     const geometry = tokens.rowGeometry
     // The name sits as far from the opener icon as a row's mode icon from its label.
-    const leftControl = openerIcon === undefined ? (numeric ? geometry.stepperZone : 0) : sketchShift + paint.opener.iconReserve
+    const leftControl = openerIcon === undefined ? (numeric ? geometry.stepperZone : 0) : paint.opener.iconReserve
     const combo = (row.viewId === 'core.select' && row.spec.widgetType === 'COMBO')
       || (rowsRaisedForEditors && row.viewId === 'core.mount')
     const rightControl = openerIcon !== undefined ? paint.opener.trailingReserve : numeric || combo ? geometry.stepperZone : geometry.textEndInset
@@ -291,6 +286,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ? args.editorSummary.text
       : assetSummary !== undefined
       ? assetSummary.text
+      : sketch !== undefined
+        ? compactSummary(view, resolved, row.spec)?.text
       : row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN'
         ? compactBooleanValue(resolved, row.spec.options)
       : resolved === null || typeof resolved === 'object'
@@ -301,6 +298,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       : valuePreview === undefined
         ? usableWidth * paint.structuredValueRatio
         : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding + wordReserve
+        + (sketch === undefined ? 0 : sketch.size + paint.curve.gap)
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
         + (args.editorSummary?.thumbnail !== undefined && !row.unfolded ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
@@ -350,8 +348,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const multilinePadding = tokens.multilineText.padding
     const multilineTextInset = tokens.multilineText.textInset
 
-    // The width of a folded curve's count, which the line under its name stops before.
-    let sketchValueWidth = 0
+    let sketchStyle: Readonly<Record<string, unknown>> | undefined
+    let sketchLeft = x + valueRight
     let multilineExtraRows = 0
     let multilineVisualRows = 0
     view.drawCompact(
@@ -414,7 +412,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             return
           }
           if (style['role'] === 'curveSketch') {
-            if (sketch !== undefined) paintCurveSketch(ctx, sketch, style, tokens)
+            sketchStyle = style
             return
           }
           if (style['role'] === 'curveSample') {
@@ -444,13 +442,13 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         },
         text: (tx, ty, viewRun, viewStyle) => {
           if (viewStyle['role'] === 'curveJoin') {
-            // How a folded curve's points are joined, under its opener icon and name.
+            // The interpolation sits under the name and stops before the picture.
             if (sketch === undefined) return
-            const joinLeft = sketchShift + paint.opener.iconInset
+            const joinLeft = x + lead + leftControl + paint.labelInset
             ctx.fillStyle = tokens.colors.valueMark
             ctx.textAlign = 'left'
-            ctx.fillText(ellipsize(ctx, viewRun, Math.max(0, valueRight - joinLeft - sketchValueWidth - paint.labelValueGap)),
-              x + joinLeft, nameY + paint.curve.lineStep)
+            ctx.fillText(ellipsize(ctx, viewRun, Math.max(0, sketchLeft - joinLeft - paint.labelValueGap)),
+              joinLeft, nameY + paint.curve.lineStep)
             return
           }
           const summary = viewStyle['role'] === 'widgetValue' ? args.editorSummary : undefined
@@ -474,6 +472,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             // Unfolded, the editor shows the picture itself, so the row drops its small copy.
             const thumbnail = alignRight && !row.unfolded ? summary?.thumbnail : undefined
             const markReserve = (modeIcon !== undefined && role === 'widgetValue' && alignRight ? modeIconReserve : 0)
+              + (sketch !== undefined && role === 'widgetValue' ? sketch.size + paint.curve.gap : 0)
               + (swatch !== undefined ? paint.valueSwatch.size + paint.valueSwatch.gap : 0)
               + (thumbnail !== undefined ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
             const iconReserve = markReserve + (marked ? wordReserve : 0)
@@ -506,7 +505,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + before
               const textY = centered ? chrome.y + chrome.height / 2 : y + (ty + 0.5) * rowHeight
               if (!(alignRight && paintValueParts(ctx, style['parts'], textX, textY, fitWidth, tokens))) ctx.fillText(text, textX, textY)
-              if (centered) sketchValueWidth = measureWidth(ctx, text) + TEXT_PAD * 2
+              if (centered && sketchStyle !== undefined) {
+                sketchLeft = textX - measureWidth(ctx, text) - paint.curve.gap - sketch.size
+                paintCurveSketch(ctx, { ...sketch, x: sketchLeft }, sketchStyle, tokens)
+              }
               if (modeIcon !== undefined && role === 'widgetValue' && alignRight) {
                 // Marks about a value come before it, so values line up at the right.
                 paintSeedModeIcon(ctx, modeIcon, textX - measureWidth(ctx, text) - paint.modeIconGap - modeIconSize,

@@ -2045,8 +2045,8 @@ export function layoutNode(
       // expanded editor, so rows never force extreme widths.
       content = measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + extra
       if (row.kind === 'widget' && row.viewId === 'core.curve' && !row.unfolded && tokens.widgetRowLook === 'raised-editors') {
-        // A folded curve's square comes before its opener icon and name, and
-        // how the points are joined sits under both.
+        // Reserve the picture beside the count as well as the header's icon
+        // and name; the interpolation shares the name's column below it.
         const curve = canvasPaintTokens.widget.curve
         const label = measure(row.label, 'label')
         content += widgetChromeRect(0, 0, 0, row.height, tokens.rowGeometry.fieldInsetY).height - curve.inset + curve.gap +

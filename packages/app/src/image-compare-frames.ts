@@ -1,11 +1,48 @@
 import { canvasPaintTokens } from '@dinkster/canvas'
 import type { PreviewData } from '@dinkster/client'
-import { occurrencesForView, type WidgetParts } from '@dinkster/core'
+import { isAssetRefValue, occurrencesForView, parseTypedLiteralWire, type AssetRef, type WidgetParts } from '@dinkster/core'
 import { viewInstancePath, type AppState, type Tab } from './app-state.js'
 import { liveExactnessFor } from './companion-display.js'
+import { editorInputSource, type EditorInputAddress } from './in-node-editor-source.js'
 
 export const IMAGE_COMPARE_SIDES = ['image_a', 'image_b'] as const
 export type ImageCompareSide = typeof IMAGE_COMPARE_SIDES[number]
+
+/** A known wired image can be shown before the comparison node itself runs. */
+export async function readImageCompareInput(app: AppState, tab: Tab, at: EditorInputAddress, signal: AbortSignal): Promise<readonly PreviewData[]> {
+  const source = editorInputSource(app, tab, at, signal)
+  if (source === undefined) return []
+  let payload: Blob
+  if (source.kind === 'literal') {
+    const value = parseTypedLiteralWire(source.value)?.value ?? source.value
+    if (Array.isArray(value)) {
+      const image = numericImageData(value)
+      return image === undefined || signal.aborted ? [] : [{ channel: at.inputId, payload: { image }, timestamp: 0 }]
+    }
+    if (!isAssetRefValue(value)) return []
+    const asset = value as unknown as AssetRef
+    const backend = app.backendForTab(tab)
+    if (!asset.mediaType.startsWith('image/') || backend.protocol !== 'dinkster') return []
+    const revision = tab.store.revision
+    const bytes = await backend.connection.fetchAssetBytes(asset.digest, signal)
+    if (signal.aborted || tab.store.revision !== revision || app.backendForTab(tab).connection !== backend.connection
+      || bytes === undefined || bytes.byteLength > 64 * 1024 * 1024) return []
+    payload = new Blob([bytes], { type: asset.mediaType })
+  } else {
+    const { values, query, current } = source
+    const peek = await values.peek(query, { signal })
+    if (!current() || !peek.available || peek.descriptor.typeId !== 'IMAGE') return []
+    const info = peek.renditions.find((entry) => entry.mime === 'image/png')
+    if (!info) return []
+    const result = await values.read(query, peek.descriptor, () => values.rendition(query, info.kind, { signal, descriptor: peek.descriptor,
+      ...(info.parameters?.includes('batch') ? { batch: 0 } : {}),
+      ...(info.version === undefined ? {} : { rendererVersion: info.version }) }))
+    if (!current() || !result.available || result.mime !== info.mime || result.fingerprint !== peek.descriptor.fingerprint
+      || result.bytes.byteLength > 64 * 1024 * 1024) return []
+    payload = new Blob([result.bytes], { type: result.mime })
+  }
+  return [{ channel: at.inputId, payload, timestamp: 0 }]
+}
 
 /**
  * The images a comparison node's last run streamed for each side, in frame
@@ -44,12 +81,39 @@ export function imageCompareFrames(app: AppState, tab: Tab, at: {
   return { image_a: framesOf('image_a'), image_b: framesOf('image_b') }
 }
 
-/** A streamed preview as a picture, when it is one of a readable size; the caller closes it. */
+/** The portable IMAGE rendition uses the first batch and rounds clamped channels to bytes. */
+function numericImageData(value: unknown): ImageData | undefined {
+  let rows = value
+  if (Array.isArray(rows) && Array.isArray(rows[0]) && Array.isArray(rows[0][0]) && Array.isArray(rows[0][0][0])) rows = rows[0]
+  if (!Array.isArray(rows) || rows.length < 1 || rows.length > 4096 || !Array.isArray(rows[0])) return undefined
+  const height = rows.length
+  const width = rows[0].length
+  const first = rows[0][0]
+  const channels = Array.isArray(first) ? first.length : 1
+  if (width < 1 || width > 4096 || channels < 1 || channels > 4) return undefined
+  const rgba = new Uint8ClampedArray(width * height * 4)
+  for (let y = 0; y < height; y++) {
+    const row: unknown = rows[y]
+    if (!Array.isArray(row) || row.length !== width) return undefined
+    for (let x = 0; x < width; x++) {
+      const pixel = Array.isArray(row[x]) ? row[x] as unknown[] : [row[x]]
+      if (pixel.length !== channels || pixel.some((part) => typeof part !== 'number' || !Number.isFinite(part))) return undefined
+      const byte = (channel: number) => Math.floor(Math.max(0, Math.min(1, pixel[channel] as number)) * 255 + 0.5)
+      const offset = (y * width + x) * 4
+      for (let channel = 0; channel < 3; channel++) rgba[offset + channel] = byte(channels < 3 ? 0 : channel)
+      rgba[offset + 3] = channels === 2 || channels === 4 ? byte(channels - 1) : 255
+    }
+  }
+  return new ImageData(rgba, width, height)
+}
+
+/** A streamed or literal image of a readable size; the caller closes it. */
 export async function frameBitmap(frame: PreviewData): Promise<ImageBitmap | undefined> {
-  if (!(frame.payload instanceof Blob || frame.payload instanceof ArrayBuffer)) return undefined
-  const blob = frame.payload instanceof Blob ? frame.payload : new Blob([frame.payload])
-  if (blob.size > 64 * 1024 * 1024) return undefined
-  const image = await createImageBitmap(blob).catch(() => undefined)
+  const payload = frame.payload
+  const source = payload instanceof Blob ? payload : payload instanceof ArrayBuffer ? new Blob([payload])
+    : payload['image'] instanceof ImageData ? payload['image'] : undefined
+  if (source === undefined || source instanceof Blob && source.size > 64 * 1024 * 1024) return undefined
+  const image = await createImageBitmap(source).catch(() => undefined)
   if (image === undefined) return undefined
   if (image.width < 1 || image.height < 1 || image.width > 4096 || image.height > 4096) { image.close(); return undefined }
   return image

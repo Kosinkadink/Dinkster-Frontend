@@ -70,7 +70,7 @@ import { controllerChipContains } from './controller-chip.js'
 import { subgraphMarkRect } from './registry-painter.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
 import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, previewEdgeShown, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
-import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { canvasPaintTokens, IN_NODE_EDITORS, type DesignTokens } from './tokens.js'
 import { BOUNDARY_ADD_SLOT, clampTextBoxLines, memberSpans, multilineWidgetHeight, projectPictureHeight, projectTextBoxLines, type LayoutRow, type MemberGrip, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
@@ -3462,9 +3462,10 @@ export class InteractionController {
           const connected = scene.links.some(
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,
           )
-          // The connected value wins; editing the dormant value invites confusion.
+          // Folding changes the view, not the value the wire supplies.
           if (connected) {
-            this.host.onWiredWidgetActivate?.(g.hit)
+            if (IN_NODE_EDITORS[g.hit.row.viewId] !== undefined) this.host.onWidgetActivate?.(g.hit, clientX, clientY)
+            else this.host.onWiredWidgetActivate?.(g.hit)
             return
           }
           const row = g.hit.row

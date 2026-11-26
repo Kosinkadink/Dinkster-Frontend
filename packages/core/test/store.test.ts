@@ -10,6 +10,7 @@ import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId } from
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { initialDynamicStateOf } from '../src/schema/body.js'
+import type { NodeSchema } from '../src/schema/model.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 
@@ -1212,6 +1213,47 @@ describe('view.setTextBoxLines', () => {
 describe('view.setEditorUnfolded and view.setPictureHeight', () => {
   const unfold = (nodeId: string, valueKey: string, unfolded: boolean | null) =>
     ({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', nodeId, valueKey, unfolded } })
+
+  it.each(['link.connect', 'link.rewire', 'net.connectInput'])('folds on %s arrival, keeps later choices and restores the open state on undo', (command) => {
+    const schema: NodeSchema = {
+      type: 'Editor', displayName: 'Editor', category: '', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'curve', type: { kind: 'concrete', name: 'CURVE' }, optional: true,
+          widget: { widgetType: 'CURVE', options: { unfolded: true } } },
+        { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: true },
+        { kind: 'editor', id: 'compare', widget: { widgetType: 'IMAGE_COMPARE', options: { unfolded: true }, reads: { image_a: 'image' } } },
+      ],
+    }
+    const initial = doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1'), n2: node('n2', 'Editor') },
+      links: command === 'link.rewire' ? { l1: { id: asLinkId('l1'), from: port('n1', 'out'), to: port('n2', 'other') } } : {},
+      nets: { net1: { id: asNetId('net1'), name: 'source', source: port('n1', 'out'), sinks: [] } },
+    }) })
+    const store = new DocumentStore(initial, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => (type) => type === 'Editor' ? schema : undefined }))
+    const send = (portId: string) => store.dispatch({ command, params: { graphId: 'g0', from: port('n1', 'out'), to: port('n2', portId), linkId: 'l1', netId: 'net1' } })
+    expect(send('curve').ok).toBe(true)
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toBeUndefined()
+    expect(store.redo()).toBe(true)
+    expect(store.dispatch(unfold('n2', 'curve', true)).ok).toBe(true)
+    expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'value', value: 9 } }).ok).toBe(true)
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: true })
+    const links = Object.keys(store.doc.graphs.g0!.links)
+    expect(store.dispatch(command === 'net.connectInput'
+      ? { command: 'net.disconnectInput', params: { graphId: 'g0', to: port('n2', 'curve') } }
+      : { command: 'link.disconnect', params: { graphId: 'g0', linkId: links[0]! } }).ok).toBe(true)
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: true })
+    if (command !== 'link.rewire') {
+      expect(send('image').ok).toBe(true)
+      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: false })
+      expect(store.dispatch(unfold('n2', 'compare', false)).ok).toBe(true)
+      expect(store.dispatch(command === 'net.connectInput'
+        ? { command: 'net.disconnectInput', params: { graphId: 'g0', to: port('n2', 'image') } }
+        : { command: 'link.disconnect', params: { graphId: 'g0', linkId: Object.keys(store.doc.graphs.g0!.links)[0]! } }).ok).toBe(true)
+      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: false })
+    }
+  })
 
   it('saves each curve histogram override independently and undoes it without changing computation', () => {
     const store = makeStore()

@@ -986,7 +986,7 @@
 /* A button in an editor keeps to the row it sits on, as the node's own buttons do. */
 .dinkster-canvas-editor-buttons .dinkster-button { box-sizing: border-box; min-height: 0; height: var(--dinkster-input-canvas-height); padding-block: 0; }
 /* The canvas overlays sit outside the page root, so an editor dims its own disabled buttons. */
-.dinkster-canvas-editor-buttons .dinkster-button:disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+:is(.dinkster-canvas-editor-buttons, .dinkster-canvas-recorder) .dinkster-button:disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 /* A row of an editor's buttons: each raised as the node's own buttons are drawn (a face with a lit top edge and a
    line of shade under it), the row split evenly between them. Pressed, the face sinks: no lit edge, no shade. */
 :is(.dinkster-canvas-editor, .dinkster-canvas-editor-section-rows) > .dinkster-canvas-editor-buttons > .dinkster-button { flex: 1 1 0; justify-content: center; border: var(--dinkster-border-width) solid var(--dinkster-border-box); border-top-color: var(--dinkster-button-lit-edge); border-radius: var(--dinkster-radius-small); background: var(--dinkster-button-face); box-shadow: 0 var(--dinkster-border-width) 0 var(--dinkster-button-shade); }
@@ -1049,6 +1049,12 @@
 .dinkster-canvas-curve-line[data-held='true'] { stroke: var(--dinkster-text-muted); }
 .dinkster-canvas-curve-point { fill: var(--dinkster-surface-raised); stroke: var(--dinkster-accent-border); stroke-width: 2; }
 .dinkster-canvas-curve-point[data-selected='true'] { fill: var(--dinkster-accent-border); }
+.dinkster-canvas-curve[data-disabled='true'] { cursor: default; }
+.dinkster-canvas-curve[data-disabled='true'] .dinkster-canvas-curve-border { stroke: var(--dinkster-border-subtle); }
+.dinkster-canvas-curve[data-disabled='true'] .dinkster-canvas-curve-line { stroke: var(--dinkster-text-muted); }
+.dinkster-canvas-curve[data-disabled='true'] .dinkster-canvas-curve-grid { opacity: var(--dinkster-interaction-disabled-opacity); }
+.dinkster-canvas-curve[data-disabled='true'] .dinkster-canvas-curve-point { fill: var(--dinkster-surface-raised); stroke: var(--dinkster-text-muted); }
+.dinkster-canvas-editor:has(.dinkster-canvas-curve[data-disabled='true']) > .dinkster-canvas-editor-buttons > .dinkster-button:disabled { color: var(--dinkster-text-secondary); }
 /* The node's problem box hangs below the node, as wide as its longest line up to a limit set by the screen, where lines wrap, at one type size, and is drawn as a part of the node: the node's small radius, its resting 1 px edge, the panel fill and the canvas row type. A problem's color is only on its icon and message. A line is one row high, with its action at the right end drawn as a list status line's action; under a narrow node the action wraps to its own line, still at the right end, so the message keeps at least half the line. */
 .problem-box { position: absolute; z-index: 11; box-sizing: border-box; width: max-content; max-height: var(--dinkster-problem-box-max-height); overflow-y: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
 .problem-box-line { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--dinkster-space-4); box-sizing: border-box; min-height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); padding: calc(var(--dinkster-space-4) / 2) calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2 + var(--dinkster-border-width)); }
