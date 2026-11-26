@@ -143,8 +143,11 @@ export function NodePalette(props: {
   const [kind, setKind] = createSignal('all')
   const [category, setCategory] = createSignal<string>()
   const [current, setCurrent] = createSignal<string>()
-  const [takes, setTakes] = createSignal<ReadonlySet<string>>(new Set(props.anchor.initialInputTypes))
-  const [gives, setGives] = createSignal<ReadonlySet<string>>(new Set(props.anchor.initialOutputTypes))
+  const initialRequirements = () => [
+    ...(props.anchor.initialInputTypes ?? []).map((type) => ({ direction: 'takes' as const, type })),
+    ...(props.anchor.initialOutputTypes ?? []).map((type) => ({ direction: 'gives' as const, type })),
+  ]
+  const [requirements, setRequirements] = createSignal<readonly { direction: 'takes' | 'gives'; type: string }[]>(initialRequirements())
   const entries = createMemo(() => props.entries())
   const duplicates = createMemo(() => duplicatePaletteNames(entries()))
   createEffect(on(() => props.anchor, (anchor, previous) => {
@@ -153,8 +156,7 @@ export function NodePalette(props: {
     setQuery('')
     setCategory(undefined)
     setCurrent(undefined)
-    setTakes(new Set(props.anchor.initialInputTypes))
-    setGives(new Set(props.anchor.initialOutputTypes))
+    setRequirements(initialRequirements())
   }))
   const matches = createMemo(() => {
     const filters = parseSearchFilters(query())
@@ -170,11 +172,11 @@ export function NodePalette(props: {
       if (category() !== undefined && !(category() === '' ? entry.category.trim() === '' :
         entry.category === category() || entry.category.startsWith(`${category()}/`))) return false
       const selected = {
-        ...(takes().size > 0 ? { inputs: [...takes()] } : {}),
-        ...(gives().size > 0 ? { outputs: [...gives()] } : {}),
+        inputs: requirements().filter((item) => item.direction === 'takes').map((item) => item.type),
+        outputs: requirements().filter((item) => item.direction === 'gives').map((item) => item.type),
       }
       const typed = filters.inputs !== undefined || filters.outputs !== undefined
-      const picked = takes().size > 0 || gives().size > 0
+      const picked = requirements().length > 0
       if (!typed && !picked) return true
       if (entry.schema !== undefined) return (!typed || schemaMatchesPortFilters(entry.schema, filters)) &&
         (!picked || schemaMatchesPortFilters(entry.schema, selected))
@@ -203,7 +205,7 @@ export function NodePalette(props: {
       ...(entry.install === undefined ? {} : { detailIcon: Download }),
     }
   }
-  const browsing = () => query().trim() === '' && category() === undefined && props.anchor.linkDrop === undefined && props.anchor.splice === undefined && takes().size === 0 && gives().size === 0
+  const browsing = () => query().trim() === '' && category() === undefined && props.anchor.linkDrop === undefined && props.anchor.splice === undefined && requirements().length === 0
   const groups = createMemo((): readonly ProductSearchGroup[] => {
     if (!browsing()) return [{ key: 'matches', label: category() === undefined ? message('palette.kind.nodes') :
       category() === '' ? message('palette.category.uncategorized') : searchPlace(category()!), count: matches().length, rows: matches().map(row) }]
@@ -248,23 +250,28 @@ export function NodePalette(props: {
   }
   const typeShape = (type: string) => cardinalityOf(typeExprFromTypeId(type)) === 'list' ? 'diamond' as const : 'circle' as const
   const typeMenu = (direction: 'takes' | 'gives') => {
-    const selectedTypes = () => direction === 'takes' ? takes() : gives()
-    const change = (value: ReadonlySet<string>) => { (direction === 'takes' ? setTakes : setGives)(value); setCurrent(undefined) }
+    const wireType = () => {
+      const drop = props.anchor.linkDrop
+      return drop !== undefined && (drop.seeking === 'in' ? 'takes' : 'gives') === direction
+        ? typeExprCanonicalLabel(drop.anchorType) : undefined
+    }
+    const selected = (type: string) => wireType() === type || requirements().some((item) => item.direction === direction && item.type === type)
+    const change = (type: string) => {
+      if (wireType() === type) props.onRemoveLinkDrop()
+      else setRequirements((items) => selected(type)
+        ? items.filter((item) => item.direction !== direction || item.type !== type)
+        : [...items, { direction, type }])
+      setCurrent(undefined)
+    }
     const label = () => message(direction === 'takes' ? 'palette.filter.takes' : 'palette.filter.gives')
-    const valueLabel = () => selectedTypes().size === 0 ? message('palette.typeFilter.any') : [...selectedTypes()].map((type) => productSearchTypeName(typeIdDisplayLabel(type))).join(', ')
     return <ProductMenu fill="quiet" align={direction === 'gives' ? 'end' : 'start'}
-      label={`${label()}: ${valueLabel()}`} title={`${label()}: ${valueLabel()}`}
-      triggerName={`${label()}: ${valueLabel()}`}
-      labelContent={<ProductSearchTypeLabel label={valueLabel()} direction={direction} color={selectedTypes().size === 1 ? typeColor(defaultTokens, [...selectedTypes()][0]!) : undefined} shape={selectedTypes().size === 1 ? typeShape([...selectedTypes()][0]!) : 'circle'} />}
-      items={[
-        { label: `${label()} ${message('palette.typeFilter.any')}`, labelContent: <ProductSearchTypeLabel label={message('palette.typeFilter.any')} direction={direction} />, checked: selectedTypes().size === 0, onSelect: () => change(new Set()) },
-        ...typeOptions(direction === 'takes' ? 'in' : 'out').map((type) => ({
+      label={label()} title={label()}
+      items={typeOptions(direction === 'takes' ? 'in' : 'out').map((type) => ({
           label: `${label()} ${productSearchTypeName(typeIdDisplayLabel(type))}`,
           labelContent: <ProductSearchTypeLabel label={productSearchTypeName(typeIdDisplayLabel(type))} direction={direction} color={typeColor(defaultTokens, type)} shape={typeShape(type)} />,
-          checked: selectedTypes().has(type),
-          onSelect: () => { const next = new Set(selectedTypes()); if (next.has(type)) next.delete(type); else next.add(type); change(next) },
-        })),
-      ]} />
+          checked: selected(type),
+          onSelect: () => change(type),
+        }))} />
   }
   const filters = <>{typeMenu('takes')}{typeMenu('gives')}</>
   let panel!: HTMLDivElement
@@ -304,14 +311,23 @@ export function NodePalette(props: {
       <ProductSearch label={message('palette.action.addNode')} placeholder={message('palette.search.addNodePlaceholder')}
         query={query()} onQuery={(value) => { setQuery(value); setCurrent(undefined) }}
         kinds={kinds()} kind={kind()} onKind={(value) => { setKind(value); setCurrent(undefined) }}
-        {...(props.anchor.linkDrop === undefined ? {} : { chips: [{
+        chips={[
+          ...(props.anchor.linkDrop === undefined ? [] : [{
           label: typeLabelOf(props.anchor.linkDrop.anchorType),
           name: `${message(props.anchor.linkDrop.seeking === 'in' ? 'palette.filter.takes' : 'palette.filter.gives')} ${typeLabelOf(props.anchor.linkDrop.anchorType)}`,
           direction: props.anchor.linkDrop.seeking === 'in' ? 'takes' as const : 'gives' as const,
           color: presentedType(defaultTokens, props.anchor.linkDrop.anchorType).color,
           shape: cardinalityOf(props.anchor.linkDrop.anchorType) === 'list' ? 'diamond' as const : 'circle' as const,
           removeLabel: message('palette.filter.removeConnection'), onRemove: props.onRemoveLinkDrop,
-        }] })}
+          }]),
+          ...requirements().map((item) => {
+            const label = productSearchTypeName(typeIdDisplayLabel(item.type))
+            const name = `${message(item.direction === 'takes' ? 'palette.filter.takes' : 'palette.filter.gives')} ${label}`
+            return { label, name, direction: item.direction, color: typeColor(defaultTokens, item.type), shape: typeShape(item.type),
+              removeLabel: message('palette.filter.removeType', { type: name }),
+              onRemove: () => { setRequirements((items) => items.filter((candidate) => candidate !== item)); setCurrent(undefined) } }
+          }),
+        ]}
         filters={filters}
         groups={groups()} {...(selectedKey() === undefined ? {} : { current: selectedKey()! })}
         onCurrent={setCurrent} onActivate={activate} onClose={props.onClose}

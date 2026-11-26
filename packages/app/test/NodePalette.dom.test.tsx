@@ -85,26 +85,43 @@ describe('NodePalette shared search', () => {
     } finally { view.dispose() }
   })
 
-  it('keeps multi-select OR per direction and AND between directions and typed filters', async () => {
-    const view = mount(() => [entry('image', 'Image node'), entry('text', 'Text node', 'Text', 'STRING', 'STRING'), entry('mixed', 'Mixed node', 'Text', 'STRING', 'LATENT')])
+  it('keeps ordered requirement chips, all-of matching and independent query/removal behavior', async () => {
+    const both = entry('both', 'Both node')
+    const multiInput = { ...both, schema: { ...both.schema!, body: [...both.schema!.body,
+      { kind: 'input' as const, id: 'text', type: { kind: 'concrete' as const, name: 'STRING' }, optional: false },
+    ] } }
+    const view = mount(() => [entry('image', 'Image node'), entry('text', 'Text node', 'Text', 'STRING', 'STRING'), entry('mixed', 'Mixed node', 'Text', 'STRING', 'LATENT'), multiInput])
     try {
       view.search('node')
-      button(view.root, 'Takes: Any type').click()
+      button(view.root, 'Takes').click()
       await flush()
       button(view.root, 'Takes IMAGE').click()
-      button(view.root, 'Takes: IMAGE').click()
-      await flush()
-      button(view.root, 'Takes STRING').click()
-      expect(rows(view.root)).toHaveLength(3)
-      button(view.root, 'Gives: Any type').click()
+      expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:image', 'entry:both'])
+      button(view.root, 'Gives').click()
       await flush()
       button(view.root, 'Gives LATENT').click()
-      expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:image', 'entry:mixed'])
+      button(view.root, 'Takes').click()
+      await flush()
+      button(view.root, 'Takes STRING').click()
+      const chips = () => [...view.root.querySelectorAll('.dinkster-search-chip')].map((chip) => chip.getAttribute('aria-label'))
+      expect(chips()).toEqual(['Takes IMAGE', 'Gives LATENT', 'Takes STRING'])
+      expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:both'])
+      key(view.input, 'Backspace')
+      expect(chips()).toHaveLength(3)
+      view.search('')
+      key(view.input, 'Backspace')
+      expect(chips()).toEqual(['Takes IMAGE', 'Gives LATENT'])
+      expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:image', 'entry:both'])
       view.search('in:STRING node')
-      expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:mixed'])
-      const trigger = button(view.root, 'Gives: LATENT')
-      expect(trigger.title).toBe('Gives: LATENT')
-      expect(trigger.textContent).not.toContain('Gives')
+      expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:both'])
+      button(view.root, 'Remove Takes IMAGE').click()
+      expect(chips()).toEqual(['Gives LATENT'])
+      expect(document.activeElement).toBe(view.input)
+      expect(view.input.value).toBe('in:STRING node')
+      expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:mixed', 'entry:both'])
+      const trigger = button(view.root, 'Gives')
+      expect(trigger.title).toBe('Gives')
+      expect(trigger.textContent).toContain('Gives')
     } finally { view.dispose() }
   })
 
@@ -159,7 +176,7 @@ describe('NodePalette shared search', () => {
       setLocale('de-DE')
       expect(view.input.getAttribute('aria-label')).toBe('[Add]')
       expect(view.input.placeholder).toBe('[Search]')
-      expect(button(view.root, '[Takes]: Any type')).toBeTruthy()
+      expect(button(view.root, '[Takes]')).toBeTruthy()
     } finally { view.dispose() }
   })
 
