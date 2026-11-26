@@ -75,10 +75,9 @@
 .backends-panel .dinkster-facts { grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--dinkster-space-16); }
 .backends-panel .dinkster-fact { grid-column: 1 / -1; grid-template-columns: subgrid; }
 .backends-panel .dinkster-fact dd { min-width: 0; }
-.backend-address { display: flex; flex-wrap: wrap; max-width: 100%; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-mono); overflow-wrap: normal; user-select: text; }
-.backend-address > span { flex: none; max-width: 100%; overflow-wrap: anywhere; }
-.backend-address > .backend-address-host { display: flex; flex-wrap: wrap; max-width: 100%; white-space: normal; }
-.backend-address-host > span { flex: none; max-width: 100%; overflow-wrap: anywhere; }
+.backend-address { display: block; max-width: 100%; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-mono); overflow-wrap: normal; user-select: text; }
+.backend-address > span,
+.backend-address-host > span { display: inline-block; max-width: 100%; vertical-align: top; overflow-wrap: anywhere; }
 .runtime-setting-metadata dt { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .runtime-setting-metadata dd { min-width: 0; margin: var(--dinkster-space-4) 0 0; color: var(--dinkster-text-primary); overflow-wrap: anywhere; }
 
