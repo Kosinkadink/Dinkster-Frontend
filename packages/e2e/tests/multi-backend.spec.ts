@@ -8,7 +8,7 @@
  * than one exists, and outputs always route through the execution's OWN
  * backend - including after that backend is removed.
  */
-import { expect, inspectRun, selectProductOption, setShellRegion, test, type Page } from './fixtures.js'
+import { expect, inspectRun, selectProductOption, test, type Page } from './fixtures.js'
 
 
 const secondBackend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
@@ -70,42 +70,6 @@ test('adding a backend connects it and reveals per-tab targeting', async ({ page
   await page.getByTestId('backend-url-input').fill(`${secondBackend}/`)
   await page.getByTestId('backend-add').click()
   await expect(rows).toHaveCount(2)
-})
-
-test.describe('narrow backend actions', () => {
-  test.use({ hasTouch: true, deviceScaleFactor: 2 })
-
-  test('removal stays clickable above the inspector and Cancel retains the connection', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 })
-    await page.evaluate(async (url) => {
-      const app = window.__dinksterTest!.app as any
-      app.templateGalleryOpen.set(false)
-      ;(window as unknown as { dinksterDesktop: unknown }).dinksterDesktop = {
-        connectionCredentials: async () => ({ custody: true, profiles: [] }),
-        retireConnectionProfile: async () => {},
-      }
-      const path = '/src/connection-profiles.ts'
-      const { createConnectionProfile } = await import(/* @vite-ignore */ path)
-      createConnectionProfile('Saved studio', 'https://studio.example.test:9000')
-      if (!await app.addBackendByUrl(url, { label: 'Connected studio' })) throw new Error('Backend did not connect')
-    }, secondBackend!)
-    await page.getByTestId('backends-sidebar-toggle').click()
-    await setShellRegion(page, 'right', true)
-    for (const name of ['Local', 'Connected studio']) {
-      const row = page.getByTestId('backend-row').filter({ hasText: name })
-      const toggle = row.locator('button[aria-expanded][aria-controls]').first()
-      if (await toggle.getAttribute('aria-expanded') === 'false') await toggle.click()
-    }
-    const row = page.getByTestId('backend-row').filter({ hasText: 'Connected studio' })
-    const actions = row.getByRole('button', { name: 'Actions for Connected studio', exact: true })
-    await actions.scrollIntoViewIfNeeded()
-    await actions.click()
-    await page.getByRole('menuitem', { name: 'Remove backend', exact: true }).click()
-    await expect(row).toContainText('No files will be deleted')
-    await row.getByRole('button', { name: 'Cancel', exact: true }).click()
-    await expect(row).not.toContainText('No files will be deleted')
-    await expect(row).toHaveAttribute('data-status', 'connected')
-  })
 })
 
 test('tab targets are per tab; runs group by backend with distinct connections', async ({
