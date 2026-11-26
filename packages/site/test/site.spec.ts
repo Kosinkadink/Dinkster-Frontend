@@ -351,6 +351,7 @@ for (const motion of ['no-preference', 'reduce'] as const) {
       }
       const next = structuredClone(current.model)
       next.screen.blocks.push(
+        { t: 'p', text: 'Enter your account details.' },
         { t: 'field', id: 'username', label: 'Username or email' },
         { t: 'field', id: 'password', kind: 'password', label: 'Password' },
         { t: 'button', text: 'Sign in', press: 'commits' },
@@ -402,6 +403,11 @@ for (const motion of ['no-preference', 'reduce'] as const) {
       ).toBe(true)
     }
     await expect(page.getByLabel('Password', { exact: true })).toBeVisible()
+    const paragraph = page.getByText('Enter your account details.', {
+      exact: true,
+    })
+    await expect(paragraph).toHaveCSS('margin-top', '0px')
+    await expect(paragraph).toHaveCSS('margin-bottom', '0px')
     expect(
       await page.evaluate(
         () => document.documentElement.scrollHeight > innerHeight,

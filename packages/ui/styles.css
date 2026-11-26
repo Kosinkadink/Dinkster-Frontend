@@ -77,6 +77,7 @@
 .dinkster-title, .dinkster-heading { margin: 0; color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-bold); }
 .dinkster-title { font-size: var(--dinkster-type-title-size); line-height: var(--dinkster-type-title-line); }
 .dinkster-heading { font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); }
+.dinkster-paragraph { margin: 0; }
 .dinkster-description { margin: 0; color: var(--dinkster-text-secondary); }
 .dinkster-metadata { font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); color: var(--dinkster-text-secondary); }
 .dinkster-mono { font-family: var(--dinkster-font-mono); }

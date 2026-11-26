@@ -325,7 +325,7 @@ export function accountView(options: AccountViewOptions) {
             class={
               item.muted || item.t === 'steps'
                 ? 'dinkster-description'
-                : 'dinkster-stack'
+                : 'dinkster-paragraph'
             }
           >
             {item.text} {item.link && action(item.link, true)}
