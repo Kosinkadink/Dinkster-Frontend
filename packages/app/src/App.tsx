@@ -18,6 +18,8 @@ import BookOpen from 'lucide-solid/icons/book-open'
 import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
 import Users from 'lucide-solid/icons/users'
+import Workflow from 'lucide-solid/icons/workflow'
+import LayoutTemplate from 'lucide-solid/icons/layout-template'
 import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
@@ -40,9 +42,10 @@ import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductRunActivity, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, ProductTextButton, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
+import type { ShellNavigation } from './Shell.js'
 import { AccountControl, createAccountSession } from './AccountControl.js'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
@@ -114,8 +117,10 @@ import {
   type PanelDragVisibleZoneGeometry,
 } from './panel-drag.js'
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
+import { isPageTab, PageTabPanel } from './page-tabs.js'
+import type { AppTab } from './app-page-tabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
-import { CancelExecutionButton } from './CancelExecutionButton.js'
+import { RunActivityControl, RunRow, RunSection, placeInLine, runAge, runIsPending, useNow } from './RunControls.js'
 import { ExecutedImageFacts, ExecutedImageViewer, SavedOutputFiles, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { executedImageInventory, executedImageLabel, executionThumbnail, type ExecutedImage } from './executed-image-inventory.js'
 import { RunThumbnail } from './RunThumbnail.js'
@@ -367,7 +372,10 @@ export function dispatchAppCommandKey(
 export function App(props: {
   app: AppState
   desktopWindow?: { readonly context: DesktopWindowContext; readonly layout: DesktopWindowLayout }
+  /** Under the always-on process: the projects page and project switches stay in this page. */
+  shell?: Pick<ShellNavigation, 'openProject' | 'showProjects'>
 }) {
+  useFieldFocus()
   const app = props.app
   onCleanup(() => app.dispose())
   const browserParams = new URLSearchParams(window.location.search)
@@ -467,6 +475,7 @@ export function App(props: {
     onCleanup(() => { detach(); unsubscribe() })
   })
   const tabs = useSignal(app.tabs)
+  const shellTabs = useSignal(app.pages.changed)
   const activeTabId = useSignal(app.activeTabId)
   const dirtyTabs = useSignal(app.dirtyTabs)
   const tabResultClears = useSignal(app.clearedTabResults)
@@ -509,12 +518,12 @@ export function App(props: {
     entry.kind === 'workflow' ? [entry.workflowId] : []))
   const detachedPanelIds = (): ReadonlySet<string> => new Set(managedLayout().windows.flatMap((entry) =>
     entry.kind === 'panel' ? [entry.panelId] : []))
-  const windowTabs = (): readonly Tab[] => {
+  const windowTabs = (): readonly AppTab[] => {
     const context = managedContext()
     if (context.kind === 'workflow') return tabs().filter((tab) => tab.id === context.workflowId)
-    if (context.kind === 'panel') return tabs()
+    if (context.kind === 'panel') return shellTabs()
     const detached = detachedWorkflowIds()
-    return tabs().filter((tab) => !detached.has(tab.id))
+    return shellTabs().filter((tab) => !detached.has(tab.id))
   }
   createEffect(() => {
     const visible = windowTabs()
@@ -692,9 +701,13 @@ export function App(props: {
   // replacement (import or collaboration adoption) installs a new session,
   // invalidating the user's discard decision, while editor-kind switches
   // replace the Tab object but keep the session and must not dismiss it.
-  const [pendingClose, setPendingClose] = createSolidSignal<Tab>()
-  const pendingCloseStillCurrent = (pending: Tab): boolean =>
-    tabs().some((tab) => tab.id === pending.id && tab.store === pending.store)
+  const [pendingClose, setPendingClose] = createSolidSignal<AppTab>()
+  const pendingCloseStillCurrent = (pending: AppTab): boolean =>
+    isPageTab(pending) ? shellTabs().includes(pending) :
+      tabs().some((tab) => tab.id === pending.id && tab.store === pending.store)
+  const isDirty = (tab: AppTab): boolean => isPageTab(tab)
+    ? app.pages.descriptor(tab.pageId)?.dirty?.() === true
+    : dirtyTabs().has(tab.id)
   createEffect(() => {
     const pending = pendingClose()
     if (pending && !pendingCloseStillCurrent(pending)) setPendingClose(undefined)
@@ -710,7 +723,7 @@ export function App(props: {
     }
     return undefined
   }
-  const requestTabClose = (tab: Tab, restoreFocus: boolean): void => {
+  const requestTabClose = (tab: AppTab, restoreFocus: boolean): void => {
     const strip = stripContaining(document.activeElement)
     // Closing the global active tab: activate the successor the repaired
     // split layout keeps (next tab in the closing group, else the active
@@ -718,7 +731,8 @@ export function App(props: {
     // split-blind remaining[0] fallback never moves focus to another group.
     const successor = tab.id === activeTabId() ? closeSuccessor(tab.id) : undefined
     if (successor !== undefined) app.activeTabId.set(successor)
-    app.requestCloseTab(tab.id, () => true)
+    if (isPageTab(tab)) app.pages.close(tab.id)
+    else app.requestCloseTab(tab.id, () => true)
     if (restoreFocus || strip !== undefined) {
       queueMicrotask(() => {
         const target = strip?.isConnected
@@ -728,8 +742,8 @@ export function App(props: {
       })
     }
   }
-  const closeTab = (tab: Tab): void => {
-    if (!app.isTabDirty(tab.id)) {
+  const closeTab = (tab: AppTab): void => {
+    if (!isDirty(tab)) {
       requestTabClose(tab, false)
       return
     }
@@ -743,10 +757,10 @@ export function App(props: {
     requestTabClose(pending, true)
   }
 
-  const [pendingCloseOthers, setPendingCloseOthers] = createSolidSignal<readonly Tab[]>()
-  const closeOthers = (tab: Tab, groupTabs: readonly Tab[]): void => {
+  const [pendingCloseOthers, setPendingCloseOthers] = createSolidSignal<readonly AppTab[]>()
+  const closeOthers = (tab: AppTab, groupTabs: readonly AppTab[]): void => {
     const others = groupTabs.filter((candidate) => candidate.id !== tab.id)
-    if (others.some((candidate) => app.isTabDirty(candidate.id))) {
+    if (others.some(isDirty)) {
       setPendingCloseOthers(others)
       return
     }
@@ -763,7 +777,7 @@ export function App(props: {
     if (pending && !pending.every(pendingCloseStillCurrent)) setPendingCloseOthers(undefined)
   })
 
-  const activeTab = () => windowTabs().find((t) => t.id === activeTabId())
+  const activeTab = () => windowTabs().find((t): t is Tab => !isPageTab(t) && t.id === activeTabId())
   const [boundaryStateTick, setBoundaryStateTick] = createSolidSignal(0)
   createEffect(() => {
     const tab = activeTab()
@@ -987,7 +1001,7 @@ export function App(props: {
     const delta = event.key === increase ? 0.02 : -0.02
     updateSplitLayout((layout) => setSplitRatioAt(layout, divider.path, divider.ratio + delta))
   }
-  const beginTabDrag = (tab: Tab, down: PointerEvent, groupId: string): void => {
+  const beginTabDrag = (tab: AppTab, down: PointerEvent, groupId: string): void => {
     if (down.button !== 0) return
     const strip = stripElements.get(groupId)
     if (strip === undefined) return
@@ -1107,10 +1121,10 @@ export function App(props: {
           updateSplitLayout((layout) => moveTabToGroup(layout, tab.id, stripDrop.groupId, stripDrop.index))
         } else if (action === 'commit' && pane !== undefined) {
           updateSplitLayout((layout) => splitDropNextLayout(layout, pane, tab.id))
-        } else if (started && outsideRegion && !overSource && managedContext().kind === 'primary') {
+        } else if (started && outsideRegion && !overSource && managedContext().kind === 'primary' && !isPageTab(tab)) {
           popOutWorkflow(tab, event.screenX, event.screenY)
         } else if (action === 'commit' && overSource && preview !== undefined) {
-          app.tabs.set(applySubsetOrder(tabs(), preview.order))
+          app.pages.setTabs(applySubsetOrder(shellTabs(), preview.order))
           updateSplitLayout((layout) => setGroupTabOrder(layout, groupId, preview.order))
         }
       })
@@ -1260,39 +1274,43 @@ export function App(props: {
     {(label) => <span class="services-badge" data-testid="services-badge">{label()}</span>}
   </Show>
 
-  const ExecutionRow = (p: { exec: ExecutionState }) => {
+  const cancelling = useSignal(app.cancellingExecutions)
+  const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
     const live = () => liveTabOf(p.exec)
-    const thumbnail = () => p.exec.status === 'queued' || p.exec.status === 'running' ? undefined : executionThumbnail(p.exec)
-    return <article class="runs-row" role="listitem" data-testid="execution-row"
-      data-status={p.exec.status} data-selected={selectedRun()?.key === p.exec.key}>
-      <div class="runs-row-heading">
-        <Show when={thumbnail()}>{(asset) => <RunThumbnail
-          url={app.assetUrlForExecution(p.exec.ref, asset().digest)} mediaType={asset().mediaType} />}</Show>
-        <ProductButton size="compact" variant="ghost" aria-pressed={selectedRun()?.key === p.exec.key}
-          onClick={() => setSelectedRunKey(p.exec.key)}>{app.tabTitleFor(p.exec.ref)}</ProductButton>
-        <span class="execution-status">{p.exec.status === 'queued' && app.store.isUnconfirmed(p.exec.ref) ? 'Unconfirmed' : executionStatusLabel(p.exec.status)}</span>
-        <Show when={p.exec.submittedBy?.kind === 'agent'}><span class="collab-agent">{message('runs.agent')}</span></Show>
-        <ExecutionOpenButton entry={p.exec} title={app.tabTitleFor(p.exec.ref)} onOpen={() => { void app.openExecutionView(p.exec.ref) }} />
-        <CancelExecutionButton app={app} execution={p.exec} />
-      </div>
-      <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
-          entry={p.exec}
-          title={app.tabTitleFor(p.exec.ref)}
-          testId="run-details"
-          relation={overlayRoleOf(p.exec)}
-          hideOpen
-          onPin={live() ? () => {
-            const tab = live()
-            if (!tab) return
-            if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
-            else app.pinExecutionOverlay(tab.id, p.exec.ref)
-          } : undefined}
-        />} />
-    </article>
+    // A finished run shows its outputs while it is the chosen run; a running or
+    // queued one only once its name is pressed, so the list stays one line each.
+    const selected = () => selectedRunKey() === p.exec.key ||
+      (selectedRunKey() === undefined && !runIsPending(p.exec) && selectedRun()?.key === p.exec.key)
+    const thumbnail = () => runIsPending(p.exec) ? undefined : executionThumbnail(p.exec)
+    return <RunRow entry={p.exec} name={app.tabTitleFor(p.exec.ref)} workflow={app.tabTitleFor(p.exec.ref)}
+      statusInNote all={p.all} testId="execution-row" nodeTitle={runtimeNodeTitle}
+      cancelling={cancelling().has(executionKey(p.exec.ref))}
+      onCancel={() => { void app.cancelExecution(p.exec.ref) }}
+      onOpen={() => { void app.openExecutionView(p.exec.ref) }}
+      thumbnail={<Show when={thumbnail()}>{(asset) => <RunThumbnail
+        url={app.assetUrlForExecution(p.exec.ref, asset().digest)} mediaType={asset().mediaType} />}</Show>}
+      selected={selected()}
+      onSelect={() => setSelectedRunKey(selected() && selectedRunKey() === p.exec.key ? undefined : p.exec.key)}>
+      <Show when={selected()}>
+        <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
+            entry={p.exec}
+            title={app.tabTitleFor(p.exec.ref)}
+            testId="run-details"
+            relation={overlayRoleOf(p.exec)}
+            hideOpen
+            onPin={live() ? () => {
+              const tab = live()
+              if (!tab) return
+              if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
+              else app.pinExecutionOverlay(tab.id, p.exec.ref)
+            } : undefined}
+          />} />
+      </Show>
+    </RunRow>
   }
 
-  const RunList = (p: { runs: readonly ExecutionState[] }) => <For each={p.runs.map((run) => run.key)}>
-    {(key) => <Show when={executions().get(key)}>{(execution) => <ExecutionRow exec={execution()} />}</Show>}
+  const RunList = (p: { runs: readonly ExecutionState[]; all: readonly ExecutionState[] }) => <For each={p.runs.map((run) => run.key)}>
+    {(key) => <Show when={executions().get(key)}>{(execution) => <ExecutionRow exec={execution()} all={p.all} />}</Show>}
   </For>
 
   // ---- Shell panels ------------------------------------------------------
@@ -1340,12 +1358,23 @@ export function App(props: {
     />
     </BackendMetadataState>
   )
-  const [storageFocus, setStorageFocus] = createSolidSignal<{ readonly id: string }>()
+  const [storageFocus, setStorageFocus] = createSolidSignal<{ readonly id: string; readonly hiddenModels?: boolean }>()
   const openStorage = (backend = activeBackend()): void => {
     setStorageFocus({ id: backend.id })
     app.modalPanel.set('')
     setPanelOpen(app.panels, app.dock, 'storage', 'left', true)
   }
+  const storageRequest = useSignal(app.storageOpenRequest)
+  createEffect(() => {
+    const request = storageRequest()
+    if (request === undefined) return
+    const backend = backends().find((backend) => backend.id === request.id)
+    if (backend !== undefined) {
+      openStorage(backend)
+      setStorageFocus(request)
+    }
+    app.storageOpenRequest.set(undefined)
+  })
   const openBackendSettings = (backend: Backend): void => {
     app.settingsOpenRequest.set({ category: `backend:${backend.id}`, id: '' })
     app.modalPanel.set('settings')
@@ -1512,62 +1541,88 @@ export function App(props: {
     const Facts = () => <>
       <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
     </>
-    return <div class="runs-stored-row">
-      <div class="runs-row-heading">
-        <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
-        <strong>{p.entry.title}</strong>
-        <Show when={storedExecution(p.entry)?.artifact && storedExecution(p.entry)}>{(execution) =>
+    const known = () => storedExecution(p.entry)
+    const record = () => historyRunOfEntry(p.entry)
+    const now = useNow()
+    const note = () => {
+      const execution = known()
+      // Durable records count seconds; the store counts milliseconds.
+      const finished = record()?.finishedAt
+      const ended = execution?.endedAt ?? (finished === undefined ? undefined : finished * 1000)
+      if (ended === undefined) return p.entry.subtitle
+      // Runs of one workflow are told apart by their age; the job id stays in the opened run.
+      const grouped = p.entry.children?.length ?? 0
+      const parts = [
+        ...(execution === undefined ? [] : [executionStatusLabel(execution.status)]),
+        runAge(ended, now()),
+        ...(grouped > 1 ? [message('runs.row.grouped', { count: grouped })] : []),
+      ]
+      return parts.join(', ')
+    }
+    return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
+      <div class="run-row-line">
+        <span class="run-row-thumbnail" aria-hidden="true">
+          <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
+        </span>
+        <span class="run-row-text">
+          <span class="run-row-name">{known() ? app.tabTitleFor(known()!.ref) : p.entry.title}</span>
+          <span class="run-row-note">{note()}</span>
+        </span>
+        <Show when={known()?.artifact && known()}>{(execution) =>
           <ExecutionOpenButton entry={execution()} title={p.entry.title} onOpen={() => { void app.openExecutionView(execution().ref) }} />
         }</Show>
       </div>
-      <p>{p.entry.subtitle}</p>
-      <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
-      <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
-      <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
-      <Show when={storedExecution(p.entry)} fallback={<Show when={loaded()} fallback={<details class="runs-details" onClick={(event) => event.stopPropagation()}>
-        <summary>{message('runs.details')}</summary><Facts />
-      </details>}>{(source) => <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} />}</Show>}>
-        {(execution) => <>
-          <CancelExecutionButton app={app} execution={execution()} />
-          <Outputs app={app} execution={execution()} details={<Facts />} />
-        </>}
+      <Show when={p.selected()}>
+        <p>{p.entry.subtitle}</p>
+        <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
+        <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
+        <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
+        <Show when={known()} fallback={<Show when={loaded()} fallback={<details class="runs-details" onClick={(event) => event.stopPropagation()}>
+          <summary>{message('runs.details')}</summary><Facts />
+        </details>}>{(source) => <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} />}</Show>}>
+          {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} />}
+        </Show>
+        {p.actions}
       </Show>
-      <Show when={p.selected()}>{p.actions}</Show>
     </div>
-  }
-  const pendingRuns = () => {
-    executions()
-    return app.executionList().filter((execution) => execution.status === 'queued' || execution.status === 'running')
   }
   const allWorkflowActivity = () => {
     executions()
     return executionActivity(app.executionList())
   }
-  const runsActivity = () => {
+  /** The runs the panel's scope covers: this workflow's, or every workflow's. */
+  const scopedRuns = (): readonly ExecutionState[] => {
     executions()
-    const tab = activeTab()
-    return executionActivity(runScope() === 'all' ? app.executionList() : tab ? app.executionsForTab(tab) : [])
+    return runScope() === 'all' ? app.executionList() : workflowExecutions()
+  }
+  const runningRuns = () => scopedRuns().filter((execution) => execution.status === 'running')
+  const queuedRuns = () => {
+    const all = app.executionList()
+    return scopedRuns().filter((execution) => execution.status === 'queued')
+      .sort((a, b) => (placeInLine(a, all) ?? 0) - (placeInLine(b, all) ?? 0))
   }
   const RunsPanel = () => (
     <div class="rail-panel-body runs-panel" data-testid="runs-panel">
-      <ProductSelect testId="runs-scope" ariaLabel={message('runs.scope')}
-        selectedId={runScope()} options={[
-          { id: 'workflow', label: message('runs.scope.workflow'), value: 'workflow' },
-          { id: 'all', label: message('runs.scope.all'), value: 'all' },
-        ]} onSelect={(option) => setRunScope(option.value)} />
-      <Show when={runsActivity().running > 0 || runsActivity().waiting > 0}>
-        <ProductRunActivity running={runsActivity().running} waiting={runsActivity().waiting}
-          label={message('runs.activity', runsActivity())} />
+      <div class="runs-scope" data-testid="runs-scope" data-selected-id={runScope()}>
+        <ProductSegmented label={message('runs.scope')} value={runScope()}
+          options={(['workflow', 'all'] as const).map((scope) => ({ value: scope, label: message(`runs.scope.${scope}`) }))}
+          onChange={(scope) => setRunScope(scope)} />
+      </div>
+      <Show when={runningRuns().length > 0}>
+        <RunSection title={message('runs.section.running', { count: runningRuns().length })} testId="runs-running">
+          <RunList runs={runningRuns()} all={app.executionList()} />
+        </RunSection>
+      </Show>
+      <Show when={queuedRuns().length > 0}>
+        <RunSection title={message('runs.section.queued', { count: queuedRuns().length })} testId="runs-queued">
+          <RunList runs={queuedRuns()} all={app.executionList()} />
+        </RunSection>
       </Show>
       <Show when={runScope() === 'workflow'} fallback={<>
         <Show when={clearArmed() && clearArmOwner === activeBackend().id}>
           <ProductNotice tone="info" testId="runs-clear-confirmation">{message('runs.clear.confirmation')}</ProductNotice>
         </Show>
-        <Show when={activeBackend().protocol === 'dinkster'}>
-          <div role="list" aria-label={message('runs.pending')}>
-            <RunList runs={pendingRuns()} />
-          </div>
-        </Show>
+        <h3 class="run-section-title">{message('runs.section.finished')}</h3>
         <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
@@ -1578,24 +1633,28 @@ export function App(props: {
           onSourceAction={librarySourceAction} />
       </>}>
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>
-        <For each={executionGroups().map((group) => group.id)}>
-          {(id) => <Show when={executionGroups().find((group) => group.id === id)}>{(group) => (
-            <div class="backend-group" role="list" aria-label={group().backend?.label ?? `${id} removed backend executions`}>
-              <Show when={multiBackend() || group().backend === undefined}>
-                <h3
-                  class="backend-group-title"
-                  classList={{ disconnected: group().backend === undefined }}
-                  data-testid="backend-group"
-                  data-connection={id}
-                  role={group().backend === undefined ? 'status' : undefined}
-                >
-                  {group().backend?.label ?? `${id} - backend removed or disconnected`}
-                </h3>
-              </Show>
-              <RunList runs={group().execs} />
-            </div>
-          )}</Show>}
-        </For>
+        <Show when={workflowExecutions().some((execution) => !runIsPending(execution))}>
+          <RunSection title={message('runs.section.finished')} testId="runs-finished">
+            <For each={executionGroups().map((group) => group.id)}>
+              {(id) => <Show when={executionGroups().find((group) => group.id === id)}>{(group) => (
+                <div class="backend-group" role="list" aria-label={group().backend?.label ?? `${id} removed backend executions`}>
+                  <Show when={multiBackend() || group().backend === undefined}>
+                    <h3
+                      class="backend-group-title"
+                      classList={{ disconnected: group().backend === undefined }}
+                      data-testid="backend-group"
+                      data-connection={id}
+                      role={group().backend === undefined ? 'status' : undefined}
+                    >
+                      {group().backend?.label ?? `${id} - backend removed or disconnected`}
+                    </h3>
+                  </Show>
+                  <RunList runs={group().execs.filter((execution) => !runIsPending(execution))} all={app.executionList()} />
+                </div>
+              )}</Show>}
+            </For>
+          </RunSection>
+        </Show>
         <RunIterations />
       </Show>
       </Show>
@@ -1859,6 +1918,11 @@ export function App(props: {
       const root = tab.store.doc.graphs[tab.store.doc.root]
       return root !== undefined && Object.keys(root.nodes).length === 0
     }
+    const templatesEnabled = (): boolean => {
+      backendsTick()
+      const tab = activeEditorTab()
+      return tab !== undefined && app.backendForTab(tab).templatesEnabled.get()
+    }
     const close = (): void => {
       app.templateGalleryOpen.set(false)
     }
@@ -1877,12 +1941,13 @@ export function App(props: {
             />
         </Show>
       </div>
-      <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
-        <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
-          {message('templateGallery.open')}
-        </ProductButton>
+      <Show when={templatesEnabled() && activeEditorTab()?.execution === undefined && !sessionFailed() && empty() && !galleryRequested()}>
+        <div class="template-empty-canvas" data-testid="template-empty-canvas">
+          <span>{message('templatesEntry.addNode')}</span>
+          <span>{message('templatesEntry.or')}{' '}<ProductTextButton label={message('templateGallery.open')} onClick={() => app.templateGalleryOpen.set(true)} /></span>
+        </div>
       </Show>
-      <Show when={activeBackend().templatesEnabled.get()}>
+      <Show when={templatesEnabled()}>
         <TemplateGallery app={app} visible={galleryRequested} onClose={close} />
       </Show>
     </div>
@@ -2038,8 +2103,9 @@ export function App(props: {
       const style = getComputedStyle(bodyElement)
       const gap = Number.parseFloat(style.columnGap) || 0
       const sidebarWidth = sidebar.getBoundingClientRect().width
+      const sidebarShare = sidebarWidth > 0 ? sidebarWidth + gap + Number.parseFloat(getComputedStyle(sidebar).marginRight) : 0
       const available = bodyElement.clientWidth - Number.parseFloat(style.paddingLeft)
-        - Number.parseFloat(style.paddingRight) - sidebarWidth - (sidebarWidth > 0 ? gap : 0) - 320
+        - Number.parseFloat(style.paddingRight) - sidebarShare - 320
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
         : { single: Math.max(0, available - gap), both: Math.max(0, available - 2 * gap) })
@@ -2503,6 +2569,7 @@ export function App(props: {
   const switchProject = (projectId: string): void => {
     if (projectId === activeProjectId()) return
     app.flushPersistTabs()
+    if (props.shell) return props.shell.openProject(projectId)
     const desktop = desktopBridge()
     if (desktop) {
       // The shell rolls the binding back on failure; the window stays on the
@@ -2543,7 +2610,7 @@ export function App(props: {
     const paneFocused = (): boolean => displayLayout().focusedGroupId === p.groupId
     const soleGroup = (): boolean => layoutGroups(displayLayout().root).length === 1
     const paneRect = (): SplitRect | undefined => regionRects().groups.find((entry) => entry.id === p.groupId)?.rect
-    const groupTabs = (): readonly Tab[] => {
+    const groupTabs = (): readonly AppTab[] => {
       const byId = new Map(windowTabs().map((tab) => [tab.id, tab] as const))
       const drag = tabDrag()
       const ids = drag !== undefined && drag.sourceGroupId === p.groupId && drag.order !== undefined
@@ -2554,7 +2621,15 @@ export function App(props: {
         return tab !== undefined ? [tab] : []
       })
     }
-    const paneActiveTab = (): Tab | undefined => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const paneTab = () => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const paneActiveTab = (): Tab | undefined => {
+      const tab = paneTab()
+      return tab && !isPageTab(tab) ? tab : undefined
+    }
+    const panePage = () => {
+      const tab = paneTab()
+      return tab && isPageTab(tab) ? tab : undefined
+    }
     const paneTarget = (): Backend | undefined => {
       backendsTick()
       tabTargets()
@@ -2651,18 +2726,19 @@ export function App(props: {
         <div class="tab-strip">
           <WorkflowTabs
             tabs={groupTabs()}
+            {...(shellTabs().some(isPageTab) ? { label: message('shell.pageTabs.open') } : {})}
             activeId={group().activeTabId}
             draggedId={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.tabId : undefined}
             insertionIndex={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.insertionIndex : undefined}
             runState={(tab) => {
               executions()
               tabResultClears()
-              return app.tabRunState(tab)
+              return isPageTab(tab) ? 'idle' : app.tabRunState(tab)
             }}
-            isDirty={(tab) => dirtyTabs().has(tab.id)}
-            isFrozen={(tab) => tab.execution !== undefined}
+            isDirty={isDirty}
+            isFrozen={(tab) => !isPageTab(tab) && tab.execution !== undefined}
             tooltip={(tab) => {
-              if (tab.execution === undefined) return undefined
+              if (isPageTab(tab) || tab.execution === undefined) return undefined
               executions()
               const status = app.store.get(tab.execution)?.status
               return message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
@@ -2684,6 +2760,7 @@ export function App(props: {
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
             onRename={(tab, title) => app.renameTab(tab.id, title)}
             onDuplicate={(tab) => {
+              if (isPageTab(tab)) return
               void app.duplicateTab(tab.id).then((copy) => {
                 if (!copy) return
                 updateSplitLayout((layout) => {
@@ -2695,7 +2772,13 @@ export function App(props: {
             onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
-            canShare={(tab) => tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
+            newItems={[
+              { label: message('templatesEntry.blank'), icon: Workflow, visible: true, onSelect: () => { app.createWorkflow() } },
+              { label: message('templatesEntry.fromTemplate'), icon: LayoutTemplate,
+                get visible() { backendsTick(); return activeBackend().templatesEnabled.get() },
+                onSelect: () => app.templateGalleryOpen.set(true) },
+            ]}
+            canShare={(tab) => !isPageTab(tab) && tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
             onShare={(tab) => {
               app.activeTabId.set(tab.id)
               app.showTransientStatus(message('shell.share.sharing', { title: tab.title }))
@@ -2705,7 +2788,7 @@ export function App(props: {
                   : message('shell.share.failed', { error }))
               })
             }}
-            onPopOut={managedContext().kind === 'primary' ? popOutWorkflow : undefined}
+            onPopOut={managedContext().kind === 'primary' ? (tab) => { if (!isPageTab(tab)) popOutWorkflow(tab) } : undefined}
             showNew={paneFocused() && managedContext().kind === 'primary'}
             panelId={splitPanelDomId(p.groupId)}
             onSplitRight={managedContext().kind === 'primary'
@@ -2714,20 +2797,20 @@ export function App(props: {
             onSplitDown={managedContext().kind === 'primary'
               ? (tab) => updateSplitLayout((layout) => splitGroup(layout, p.groupId, 'column', tab.id))
               : undefined}
-            canSplit={managedContext().kind === 'primary' ? canSplitTab : undefined}
+            canSplit={managedContext().kind === 'primary' ? (tab) => !isPageTab(tab) && canSplitTab(tab) : undefined}
             onUnsplit={soleGroup() ? undefined : () => updateSplitLayout((layout) => dissolveGroup(layout, p.groupId))}
             targets={backends()}
             targetId={(tab) => {
               tabTargets()
-              return app.backendForTab(tab).id
+              return isPageTab(tab) ? '' : app.backendForTab(tab).id
             }}
             onSetTarget={(tab, id) => {
               const backend = backends().find((candidate) => candidate.id === id)
               if (backend) app.setTabTarget(tab.id, backend.id)
             }}
-            previews={(tab) => tab.store.doc.previews}
+            previews={(tab) => isPageTab(tab) ? undefined : tab.store.doc.previews}
             onSetPreviews={(tab, mode) => {
-              if (tab.execution !== undefined) return
+              if (isPageTab(tab) || tab.execution !== undefined) return
               app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: mode } })
             }}
           />
@@ -2752,10 +2835,11 @@ export function App(props: {
           id={splitPanelDomId(p.groupId)}
           class="canvas-stage"
           role="tabpanel"
-          aria-label={paneActiveTab() ? undefined : message('shell.workflow.editor')}
-          aria-labelledby={paneActiveTab() ? workflowTabDomId(paneActiveTab()!.id) : undefined}
+          aria-label={paneTab() ? undefined : message('shell.workflow.editor')}
+          aria-labelledby={paneTab() ? workflowTabDomId(paneTab()!.id) : undefined}
           tabindex="0"
         >
+          <Show when={panePage()} fallback={<>
           <Show when={managedContext().kind === 'primary' && !paneActiveTab() && detachedWorkflowIds().size > 0}>
             <div class="detached-workspace-state" data-testid="detached-workspace-state">
               <h2>{message('shell.workflow.detached.title')}</h2>
@@ -2838,7 +2922,11 @@ export function App(props: {
                 <Show when={paneActiveTab()}>
                   {(tab) => (
                     <WorkflowQueueControl
-                      app={app}
+                      onCancel={(ref) => { void app.cancelExecution(ref) }}
+                      cancelling={cancelling()}
+                      nodeTitle={runtimeNodeTitle}
+                      thumbnail={(entry) => <Show when={runIsPending(entry) ? undefined : executionThumbnail(entry)}>{(asset) => <RunThumbnail
+                        url={app.assetUrlForExecution(entry.ref, asset().digest)} mediaType={asset().mediaType} />}</Show>}
                       owner={{ id: tab().id, title: tab().title, lineage: tab().store.doc.lineage }}
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), app.registryForTab(tab()) !== undefined)}
@@ -2862,6 +2950,9 @@ export function App(props: {
             }
           >
             {(editor) => editor.component(host)}
+          </Show>
+          </>}>
+            {(page) => <PageTabPanel host={app.pages} tab={page()} />}
           </Show>
         </div>
       </section>
@@ -2957,7 +3048,7 @@ export function App(props: {
         >
           <div class="close-tab-confirm">
             <p>{message('shell.close.othersConfirm')}</p>
-            <ul><For each={pending.filter((tab) => dirtyTabs().has(tab.id))}>{(tab) => <li>{tab.title}</li>}</For></ul>
+            <ul><For each={pending.filter(isDirty)}>{(tab) => <li>{tab.title}</li>}</For></ul>
             <ProductActionFooter>
               <ProductButton type="button" autofocus onClick={() => setPendingCloseOthers(undefined)}>{message('shell.action.cancel')}</ProductButton>
               <SharedProductButton intent="remove" fill="solid" onClick={confirmCloseOthers}>{message('shell.close.discard')}</SharedProductButton>
@@ -2982,21 +3073,27 @@ export function App(props: {
                 onOpen={readProjectList}
                 onSwitch={switchProject}
                 onOpenWindow={openProjectWindow}
-                onAllProjects={() => openProjects(false)}
-                onNewProject={() => openProjects(true)}
+                onAllProjects={() => props.shell ? props.shell.showProjects() : openProjects(false)}
+                onNewProject={() => props.shell ? props.shell.showProjects({ newProject: true }) : openProjects(true)}
               />
             )}</Show>
           </Show>
         </>}
         search={<UniversalSearchTrigger shortcut={searchShortcut()} open={searchOpen()} onOpen={() => app.searchOpen.set(true)} />}
         actions={(narrow) => <>
-          <Show when={allWorkflowActivity().running > 0}>
-            <ProductRunActivity {...allWorkflowActivity()} label={message('runs.activity', allWorkflowActivity())} />
-          </Show>
+          <RunActivityControl
+            executions={(executions(), app.executionList())}
+            title={(entry) => app.tabTitleFor(entry.ref)}
+            cancelling={cancelling()}
+            onCancel={(entry) => { void app.cancelExecution(entry.ref) }}
+            onOpenList={() => {
+              setRunScope('all')
+              setPanelOpen(app.panels, app.dock, 'runs', 'right', true)
+            }}
+          />
           <Show when={managedContext().kind === 'workflow'}>
             <ProductWindowAction label={message('shell.window.moveToMain')} icon={PanelTop} data-testid="redock-workflow" onClick={redockCurrentWindow} />
           </Show>
-          <CancelExecutionButton toolbar app={app} execution={(executions(), activeTab(), app.currentCancellableExecution())} />
           <ProductIconButton label={message('shell.panel.workspace.title')} icon={Users} data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} onClick={() => app.modalPanel.set('collab')} />
           <span class="app-layout-menu" ref={layoutMenu}><ProductMenu
             label={message('command.layout.customize')}

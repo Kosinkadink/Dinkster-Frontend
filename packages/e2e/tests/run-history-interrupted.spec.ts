@@ -13,7 +13,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, mockProjectPacks, openRailPanel, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, openRailPanel, nativeTest as test, waitForWorkspaceReady, type Page, chooseRunScope } from './fixtures.js'
 
 const DIGEST = `blake3:${'a'.repeat(64)}`
 
@@ -162,11 +162,11 @@ async function bootAndOpenRuns(page: Page): Promise<void> {
   )).toBe(true)
   await waitForWorkspaceReady(page)
   await openRailPanel(page, 'Runs')
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
+  await chooseRunScope(page, 'all')
 }
 
 const entryFor = (page: Page, jobId: string) =>
-  page.getByTestId('runs-panel').getByTestId('collection-entry').filter({ hasText: jobId })
+  page.getByTestId('runs-panel').getByTestId('collection-entry').filter({ has: page.locator(`[data-job="${jobId}"]`) })
 
 test('unseen stored image/video rows show thumbnails without loading jobs, absent and unavailable media show none', async ({ page }) => {
   const asset = (char: string, mediaType: string) => ({ digest: `blake3:${char.repeat(64)}`, name: '', size: 1, mediaType, virtualPath: '' })
@@ -194,7 +194,7 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
   })
   await bootAndOpenRuns(page)
   const panel = page.getByTestId('runs-panel')
-  const row = (label: string) => panel.getByTestId('collection-entry').filter({ hasText: label })
+  const row = (jobId: string) => panel.getByTestId('collection-entry').filter({ has: page.locator(`[data-job="${jobId}"]`) })
   await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
   await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
   expect(await row('Image output').locator('img').evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
@@ -234,12 +234,12 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
       app.store.apply({ kind: 'completed', execution: ref, timestamp: index + 10 })
     }
   }, { doc: producingDoc, image, video })
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await chooseRunScope(page, 'workflow')
   const live = page.getByTestId('execution-row')
   await expect(live).toHaveCount(3)
-  await expect(live.locator('.runs-row-heading img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
-  await expect(live.locator('.runs-row-heading video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
-  await expect(live.locator('.runs-row-heading .execution-open')).toHaveCount(3)
+  await expect(live.locator('.run-row-line img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  await expect(live.locator('.run-row-line video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  await expect(live.locator('.run-row-line .execution-open')).toHaveCount(3)
   if (proof) await page.screenshot({ path: join(proof, 'workflow-thumbnails-1440.png'), animations: 'disabled' })
   await live.filter({ has: page.locator('video.run-thumbnail') }).locator('.execution-open').click()
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
@@ -262,7 +262,7 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
     const tab = app.createWorkflow()
     app.setTabTarget(tab.id, owner.id)
   })
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
+  await chooseRunScope(page, 'all')
   await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('src', /\/thumbnail-owner\/api\/assets\//)
   await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
   await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('src', /\/thumbnail-owner\/api\/assets\//)

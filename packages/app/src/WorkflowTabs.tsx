@@ -1,6 +1,6 @@
 import { createSignal, For, Show, type JSX } from 'solid-js'
 import type { MenuActionItem, MenuSubmenuItem, PreviewMode, ResolvedMenuGroup } from '@dinkster/core'
-import { ProductRunIcon } from '@dinkster/ui'
+import { ProductMenu, ProductRunIcon, type ProductMenuItem } from '@dinkster/ui'
 import Workflow from 'lucide-solid/icons/workflow'
 import Snowflake from 'lucide-solid/icons/snowflake'
 import PanelsTopLeft from 'lucide-solid/icons/panels-top-left'
@@ -18,6 +18,7 @@ export interface WorkflowTabItem {
   readonly id: string
   readonly title: string
   readonly editorKind?: string
+  readonly icon?: Parameters<typeof ProductRunIcon>[0]['icon']
 }
 
 export type TabRunState = 'idle' | 'queued' | 'running' | 'finished' | 'failed'
@@ -36,6 +37,8 @@ const kindIcon = (kind: string | undefined) => {
 export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly tabs: readonly T[]
   readonly activeId: string
+  /** Accessible name for a mixed strip of workflows and pages. */
+  readonly label?: string
   readonly draggedId?: string | undefined
   readonly insertionIndex?: number | undefined
   readonly runState?: ((tab: T) => TabRunState) | undefined
@@ -56,6 +59,7 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly onSetTarget?: ((tab: T, id: string) => void) | undefined
   readonly onPointerDown: (event: PointerEvent, tab: T) => void
   readonly onNew: () => void
+  readonly newItems?: readonly (ProductMenuItem & { readonly visible: boolean })[] | undefined
   readonly canShare: (tab: T) => boolean
   readonly onShare: (tab: T) => void
   readonly onPopOut?: ((tab: T) => void) | undefined
@@ -81,6 +85,7 @@ export const workflowTabDomId = (id: string): string => `workflow-tab-${encodeUR
 
 export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps<T>) {
   const message = useAppMessage()
+  const newItems = () => props.newItems?.filter((item) => item.visible) ?? []
   const [menu, setMenu] = createSignal<{ readonly tab: T; readonly x: number; readonly y: number }>()
   const [renaming, setRenaming] = createSignal<string>()
   const documentTab = (tab: T): boolean => tab.editorKind === undefined || tab.editorKind === 'graph' || tab.editorKind === 'app'
@@ -103,7 +108,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
           action: { kind: 'host', action: 'workflow.duplicate' }, disabled: props.onDuplicate === undefined },
       ],
     } satisfies ResolvedMenuGroup] : []),
-    {
+    ...(tab.editorKind !== 'page' ? [{
           group: 'workflow-placement',
           items: [
             ...(props.onSplitRight !== undefined
@@ -136,8 +141,8 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             { id: 'workflow.share', label: message('shell.workflowTabs.share'),
               action: { kind: 'host', action: 'workflow.share' }, disabled: !props.canShare(tab) },
           ],
-    },
-    {
+    } satisfies ResolvedMenuGroup] : []),
+    ...(tab.editorKind !== 'page' ? [{
       group: 'workflow-settings',
       items: [
         ...(props.previews !== undefined && props.onSetPreviews !== undefined ? [{
@@ -160,7 +165,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
           } satisfies MenuActionItem)),
         } satisfies MenuSubmenuItem] : []),
       ],
-    },
+    } satisfies ResolvedMenuGroup] : []),
     {
       group: 'workflow-close',
       items: [
@@ -241,10 +246,10 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
       ref={(root) => props.setRoot(root)}
       classList={{ 'workflow-tabs': true, 'tab-dragging': props.draggedId !== undefined }}
       data-testid="tab-bar"
-      aria-label={message('shell.workflowTabs.documents')}
+      aria-label={props.label ?? message('shell.workflowTabs.documents')}
     >
       {/* Keep close/new buttons outside the tablist without changing visual scroll order. */}
-      <div class="visually-hidden" role="tablist" aria-label={message('shell.workflowTabs.openWorkflows')}
+      <div class="visually-hidden" role="tablist" aria-label={props.label ?? message('shell.workflowTabs.openWorkflows')}
         aria-owns={props.tabs.map((tab) => workflowTabDomId(tab.id)).join(' ')} />
       <div class="workflow-tablist">
         <For each={props.tabs}>{(tab) => (
@@ -279,7 +284,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             {props.renderLeading?.(tab)}
             <Show when={renaming() !== tab.id} fallback={<span class="tab-select">
               <ProductRunIcon
-                icon={props.isFrozen(tab) ? Snowflake : kindIcon(tab.editorKind)}
+                icon={props.isFrozen(tab) ? Snowflake : tab.icon ?? kindIcon(tab.editorKind)}
                 running={props.runState?.(tab) === 'running'}
                 queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
@@ -318,7 +323,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               onKeyDown={(event) => onTabKeyDown(event, tab)}
             >
               <ProductRunIcon
-                icon={props.isFrozen(tab) ? Snowflake : kindIcon(tab.editorKind)}
+                icon={props.isFrozen(tab) ? Snowflake : tab.icon ?? kindIcon(tab.editorKind)}
                 running={props.runState?.(tab) === 'running'}
                 queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
@@ -346,15 +351,21 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             </span>
           </div>
         )}</For>
-        <Show when={props.showNew !== false}><button
-          class="tab-new"
-          data-testid="new-tab"
-          data-tooltip-label={message('shell.workflow.new')}
-          aria-label={message('shell.workflow.new')}
-          onClick={props.onNew}
-        >
-          <Icon icon={Plus} />
-        </button></Show>
+        <Show when={props.showNew !== false}>
+          <Show when={newItems().length > 0} fallback={<button
+            class="tab-new"
+            data-testid="new-tab"
+            data-tooltip-label={message('shell.workflow.new')}
+            aria-label={message('shell.workflow.new')}
+            onClick={props.onNew}
+          >
+            <Icon icon={Plus} />
+          </button>}>
+            <span class="tab-new-menu" data-testid="new-tab">
+              <ProductMenu label={message('templatesEntry.newTab')} items={newItems()} icon={Plus} iconOnly fill="quiet" />
+            </span>
+          </Show>
+        </Show>
       </div>
       <Show when={menu()} keyed>{(current) => (
         <ContextMenu
