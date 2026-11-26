@@ -355,7 +355,7 @@ it('keeps the chosen installation, starting contents and one project identity ac
   const folder = document.querySelector<HTMLInputElement>('dialog input')!
   folder.value = '/custom/My film files'
   folder.dispatchEvent(new Event('input', { bubbles: true }))
-  button('Use folder')!.click()
+  button('Use this folder')!.click()
   document.querySelector<HTMLInputElement>('input[type="radio"][value="project"]')!.click()
   await settle()
   const installation = document.querySelector<HTMLSelectElement>('#new-project-runs-on')!
