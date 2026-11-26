@@ -105,7 +105,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
   const budgetName = (device: string) => device === 'ram' ? message('resources.systemMemory') : device === 'disk' ? message('resources.disk') : device
   const configuredBudgetValue = (device: string) => {
     const value = configuredBudgets()[device]
-    return value === undefined ? '' : String(value)
+    return typeof value === 'number' ? formatByteSize(value) : value === undefined ? '' : String(value)
   }
   const otherBudgetValue = (device: string) => otherBudgetDraft()[device] ?? configuredBudgetValue(device)
   const changeOtherBudget = (device: string, value: string) => setOtherBudgetDraft((current) => {
@@ -119,7 +119,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
       const value = { ...configuredBudgets() }
       for (const [device, text] of Object.entries(otherBudgetDraft())) {
         const trimmed = text.trim()
-        const size = /^(\d+(?:\.\d+)?)\s+(B|KB|MB|GB|TB)$/i.exec(trimmed)
+        const size = /^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB)$/i.exec(trimmed)
         if (trimmed === '') delete value[device]
         else if (size) {
           const unit = size[2]!.toUpperCase()
