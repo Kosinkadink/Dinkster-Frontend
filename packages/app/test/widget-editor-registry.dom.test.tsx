@@ -132,7 +132,7 @@ it('selects the save name on opening and queues the atomically stored target onl
     name.focus()
     name.value = 'after'; name.dispatchEvent(new Event('input', { bubbles: true }))
     expect(saved).toEqual({ mount: 'output', prefix: 'before' })
-    expect(preview).toHaveBeenLastCalledWith('archive/after')
+    expect(preview).toHaveBeenLastCalledWith({ mount: 'archive', prefix: 'after' })
     name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     expect(preview).toHaveBeenLastCalledWith(undefined)
     mount.focus()

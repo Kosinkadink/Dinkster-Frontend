@@ -106,6 +106,7 @@ import {
   occurrencesForView,
   autoConnectTarget,
   canonicalJson,
+  jsonSameValue,
   canonicalTypeIdOf,
   nodeSearchFields,
   searchVisibilityOf,
@@ -1526,7 +1527,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [editorSpaces, setEditorSpaces] = createSolidSignal<readonly EditorSpaceItem[]>([])
   const [editorSummaries, setEditorSummaries] = createSolidSignal<EditorSummaryMap>({})
   const [editorDrafts, setEditorDrafts] = createSolidSignal<ReadonlyMap<string, {
-    readonly nodeId: string; readonly valueKey: string; readonly text: string
+    readonly nodeId: string; readonly valueKey: string; readonly value: Json
   }>>(new Map())
   const [editorMeasurements, setEditorMeasurements] = createSolidSignal<{
     readonly scope: string
@@ -2714,7 +2715,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       for (const [key, draft] of editorDrafts()) {
         const item = editorSpaceByKey().get(key)
         if (item === undefined || item.wired || item.field.readOnly || item.field.disabled) continue
-        summaries[draft.nodeId] = { ...summaries[draft.nodeId], [draft.valueKey]: { text: draft.text } }
+        summaries[draft.nodeId] = { ...summaries[draft.nodeId], [draft.valueKey]: { value: draft.value } }
       }
       renderer.setEditorSummaries(summaries)
     })
@@ -7494,13 +7495,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   {...(effectiveWidgetDefault(item()!.field.spec) === undefined ? {} : { declared: effectiveWidgetDefault(item()!.field.spec)! })}
                   help={at().help}
                   measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}
-                  preview={(text) => {
+                  preview={(value) => {
                     const current = item()
                     setEditorDrafts((previous) => {
-                      if (text === undefined ? !previous.has(key) : previous.get(key)?.text === text) return previous
+                      if (value === undefined ? !previous.has(key) : jsonSameValue(previous.get(key)?.value, value)) return previous
                       const next = new Map(previous)
-                      if (text === undefined) next.delete(key)
-                      else if (current !== undefined) next.set(key, { nodeId: current.nodeId, valueKey: current.row.valueKey, text })
+                      if (value === undefined) next.delete(key)
+                      else if (current !== undefined) next.set(key, { nodeId: current.nodeId, valueKey: current.row.valueKey, value })
                       return next
                     })
                   }}

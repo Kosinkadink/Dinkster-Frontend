@@ -97,6 +97,7 @@ export function CanvasEditorNote(props: {
   } | undefined
 }) {
   const [open, setOpen] = createSignal(false)
+  const [keyboard, setKeyboard] = createSignal(false)
   const id = createUniqueId()
   let link!: HTMLButtonElement
   return (
@@ -105,9 +106,9 @@ export function CanvasEditorNote(props: {
         <TriangleAlert class="dinkster-canvas-editor-note-icon" aria-hidden="true" />
         <span class="dinkster-canvas-editor-note-summary">{props.children}</span>
         <CanvasSideLink ref={(element) => { link = element }} expanded={open()} controls={open() ? id : undefined}
-          onClick={() => setOpen(!open())}>{details().label}</CanvasSideLink>
+          onClick={(event) => { setKeyboard(event.detail === 0); setOpen(!open()) }}>{details().label}</CanvasSideLink>
         <Show when={open()}>
-          <CanvasEditorProblemNote anchor={link} id={id} tone={props.tone} title={details().title}
+          <CanvasEditorProblemNote anchor={link} id={id} keyboard={keyboard()} tone={props.tone} title={details().title}
             body={details().body} action={details().action} onClose={() => setOpen(false)} />
         </Show>
       </>}</Show>
@@ -119,6 +120,7 @@ export function CanvasEditorNote(props: {
 function CanvasEditorProblemNote(props: {
   anchor: HTMLButtonElement
   id: string
+  keyboard: boolean
   tone: ComponentProps<typeof CanvasEditorNote>['tone']
   title: string
   body: string | undefined
@@ -167,33 +169,36 @@ function CanvasEditorProblemNote(props: {
     const entering = (event: FocusEvent): void => {
       if (event.relatedTarget instanceof Node && popup.contains(event.relatedTarget)) event.stopPropagation()
     }
+    const keydown = (event: KeyboardEvent): void => {
+      popup.dataset.keyboard = 'true'
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true) }
+    }
     const owner = props.anchor.parentElement!
     owner.addEventListener('focusout', entering as EventListener)
+    popup.addEventListener('keydown', keydown)
     document.addEventListener('pointerdown', outside, true)
     document.addEventListener('focusin', outside)
     let frame = 0
     const follow = (): void => { place(); frame = requestAnimationFrame(follow) }
     place()
     frame = requestAnimationFrame(follow)
-    popup.focus()
+    ;(popup.querySelector<HTMLButtonElement>('button') ?? popup).focus()
     onCleanup(() => {
       cancelAnimationFrame(frame)
       owner.removeEventListener('focusout', entering as EventListener)
+      popup.removeEventListener('keydown', keydown)
       document.removeEventListener('pointerdown', outside, true)
       document.removeEventListener('focusin', outside)
     })
   })
-  return <Portal><div ref={popup} id={props.id} class="dinkster-canvas-editor-problem-note" data-tone={props.tone}
-    role="dialog" aria-labelledby={`${props.id}-title`} tabindex={-1}
-    onKeyDown={(event) => {
-      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true) }
-    }}>
+  return <Portal><div ref={popup} id={props.id} class="dinkster-canvas-editor-problem-note" data-tone={props.tone} data-keyboard={props.keyboard}
+    role="dialog" aria-labelledby={`${props.id}-title`} tabindex={-1}>
     <span ref={point} class="dinkster-canvas-editor-problem-point" aria-hidden="true" />
     <div class="dinkster-canvas-editor-problem-note-content">
     <strong id={`${props.id}-title`}>{props.title}</strong>
     <Show when={props.body}>{(body) => <p>{body()}</p>}</Show>
     <Show when={props.action}>{(action) => <CanvasEditorButtons buttons={[{
-      label: action().label, onClick: () => { close(true); action().onClick() },
+      get label() { return action().label }, onClick: () => { close(true); action().onClick() },
     }]} />}</Show>
     </div>
   </div></Portal>

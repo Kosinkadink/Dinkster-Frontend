@@ -899,7 +899,7 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
 /** The side part's link, such as the default that puts the default back. */
 export function CanvasSideLink(props: {
   children: JSX.Element
-  onClick: () => void
+  onClick: (event: MouseEvent) => void
   ref?: (element: HTMLButtonElement) => void
   expanded?: boolean
   controls?: string | undefined
@@ -912,7 +912,7 @@ export function CanvasSideLink(props: {
       aria-expanded={props.expanded}
       aria-controls={props.controls}
       onPointerDown={(event) => event.preventDefault()}
-      onClick={() => props.onClick()}
+      onClick={(event) => props.onClick(event)}
     >
       <span>{props.children}</span>
     </button>

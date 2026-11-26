@@ -237,7 +237,7 @@ export function SaveTargetSpace(props: {
   readonly declared?: Json
   readonly help?: string
   readonly measured?: (height: number) => void
-  readonly preview?: (text: string | undefined) => void
+  readonly preview?: (value: Json | undefined) => void
   readonly fetchMounts: (() => Promise<MountSettings>) | undefined
   readonly commit: (value: Json) => Promise<boolean>
   readonly queue: () => void
@@ -284,8 +284,9 @@ export function SaveTargetSpace(props: {
     const value = props.value
     const unchanged = mount() === (isSaveTarget(value) ? value.mount : null) &&
       prefix() === (isSaveTarget(value) || isProjectDefaultTarget(value) ? value.prefix : '')
-    const text = props.wired || blocked() || unchanged ? undefined : draft().rowText
-    untrack(() => props.preview?.(text))
+    const valuePreview = props.wired || blocked() || unchanged ? undefined
+      : { prefix: prefix(), ...(mount() === null ? {} : { mount: mount()! }) }
+    untrack(() => props.preview?.(valuePreview))
   })
   onCleanup(() => props.preview?.(undefined))
   const mountProblem = () => failed() ? message('mountWidget.error')
@@ -296,23 +297,21 @@ export function SaveTargetSpace(props: {
             : draft().mountGone ? message('saveTargetWidget.notHereSaving', { id: mount() ?? '', mount: projectMount() }) : undefined
   const mountTone = () => failed() || noDefault() && (mount() === null || draft().mountGone)
     ? 'error' as const : draft().mountGone || settings() !== undefined && ready().length === 0 ? 'warning' as const : undefined
-  const mountNote = () => {
-    if (mountProblem() === undefined) return undefined
-    const gone = draft().mountGone
-    const stops = noDefault() && (mount() === null || gone)
-    const words = { id: mount() ?? '', mount: projectMount() }
-    const recover = gone && !noDefault() && !props.wired && !blocked()
-    return <CanvasEditorNote tone={mountTone() === 'warning' ? 'warning' : 'problem'} details={{
+  const mountGone = () => draft().mountGone
+  const mountStops = () => noDefault() && (mount() === null || mountGone())
+  const mountWords = () => ({ id: mount() ?? '', mount: projectMount() })
+  const mountNote = <Show when={mountProblem() !== undefined}>
+    <CanvasEditorNote tone={mountTone() === 'warning' ? 'warning' : 'problem'} details={{
       label: message('runs.details'),
-      title: failed() ? message('mountWidget.error') : stops
-        ? message(gone ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.noDefaultTitle', words)
-        : gone ? message('saveTargetWidget.missingTitle', words) : message('saveTargetWidget.noMounts'),
-      body: message(stops || !gone ? 'saveTargetWidget.noDefaultBody' : 'saveTargetWidget.missingBody', words),
-      ...(recover ? { action: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } } }
+      title: failed() ? message('mountWidget.error') : mountStops()
+        ? message(mountGone() ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.noDefaultTitle', mountWords())
+        : mountGone() ? message('saveTargetWidget.missingTitle', mountWords()) : message('saveTargetWidget.noMounts'),
+      body: message(mountStops() || !mountGone() ? 'saveTargetWidget.noDefaultBody' : 'saveTargetWidget.missingBody', mountWords()),
+      ...(mountGone() && !noDefault() && !props.wired && !blocked() ? { action: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } } }
         : props.openStorage === undefined ? {} : { action: { label: message('problems.action.modelStorage'), onClick: props.openStorage } }),
-    }}>{message(failed() ? 'saveTargetWidget.failedShort' : stops ? 'saveTargetWidget.noDefaultShort'
-      : gone ? 'saveTargetWidget.missingShort' : 'saveTargetWidget.noMountsShort', words)}</CanvasEditorNote>
-  }
+    }}>{message(failed() ? 'saveTargetWidget.failedShort' : mountStops() ? 'saveTargetWidget.noDefaultShort'
+      : mountGone() ? 'saveTargetWidget.missingShort' : 'saveTargetWidget.noMountsShort', mountWords())}</CanvasEditorNote>
+  </Show>
   const defaultTarget = () => isSaveTarget(props.declared) || isProjectDefaultTarget(props.declared) ? props.declared : undefined
   const differs = () => {
     const value = defaultTarget()
@@ -392,7 +391,7 @@ export function SaveTargetSpace(props: {
       options={options()} mount={mount() ?? ''} prefix={prefix()} listOpen={listOpen()} {...(highlight() === undefined ? {} : { highlight: highlight()! })}
       onPrefix={(value) => { if (!blocked() && !props.wired) setPrefix(value) }} onToggleList={() => listOpen() ? setListOpen(false) : openList()} onHighlight={setHighlight}
       onPick={pick}
-      mountProblem={mountNote()}
+      mountProblem={mountNote}
       {...(mountTone() === undefined ? {} : { tone: mountTone()! })}
       {...(!props.wired && !blocked() && differs() ? {
         reset: { label: message('saveTargetWidget.reset'), onClick: () => {

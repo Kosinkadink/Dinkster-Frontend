@@ -814,10 +814,11 @@ function paintValueParts(
   const last = parts.length - 1
   let tail = parts[last]!.text
   if (total > fitWidth) {
-    // Only a plain last part is cut, and only while some of it stays.
+    // The location keeps its missing and resolved mount names before its path.
     if (parts[last]!.look !== undefined) return false
-    tail = fitText(ctx, tail, fitWidth - (total - widths[last]!))
-    if (tail.length <= 3) return false
+    const remaining = fitWidth - (total - widths[last]!)
+    if (remaining < 0) return false
+    tail = remaining === 0 ? '' : fitText(ctx, tail, remaining)
     widths[last] = measureWidth(ctx, tail)
   }
   let x = right
