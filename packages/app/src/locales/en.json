@@ -784,6 +784,7 @@
   "backendsPanel.title": "Backend connections",
   "collab.agentActivity.ask": "Asks: {prompt}",
   "collab.agentActivity.status": "{tool}: {status}",
+  "collab.end.keepDocument": "Everyone will be disconnected. Their current document stays open locally.",
   "command.backend.open": "Open backends",
   "command.edit.delete": "Delete selection",
   "command.edit.deleteBackspace": "Delete selection (Backspace)",

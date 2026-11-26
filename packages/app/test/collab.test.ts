@@ -353,7 +353,16 @@ describe('Board workspace collaboration', () => {
     }] } }).ok).toBe(true)
     const shared = await a.boards.share(document.lineage)
     const sessionId = shared.shared!.descriptor.sessionId
-    const joined = await b.boards.join(sessionId)
+    expect(await b.listCollabSessions()).toEqual([])
+    expect(await b.joinCollabSession(sessionId, 'board')).toBe('Boards are disabled')
+    expect(b.boards.entries.get()).toEqual([])
+    b.settings.set('features.board.enabled', true)
+    expect((await b.listCollabSessions()).map((session) => session.sessionId)).toEqual([sessionId])
+    expect(await b.joinCollabSession(sessionId, 'board')).toBeUndefined()
+    const joined = b.boards.entries.get()[0]!
+    expect(b.activeTabId.get()).toBe(`page:board:${document.lineage}`)
+    expect(b.collabBackend()?.baseUrl).toBe('http://collab')
+    expect(b.activeTab()).toBeUndefined()
     expect(await b.boards.join(sessionId)).toBe(joined)
     expect((await b.boards.discover()).map((session) => session.sessionId)).toEqual([sessionId])
     const otherProject = new BoardWorkspace({
@@ -399,7 +408,7 @@ describe('Board workspace collaboration', () => {
     expect(server.sessions.size).toBe(0)
   })
 
-  it.each(['close', 'close-opened', 'dispose', 'dispose-binding'] as const)('cancels an in-flight Board join on %s', async (action) => {
+  it.each(['close', 'close-opened', 'dispose', 'dispose-binding', 'open-another-document'] as const)('cancels an in-flight Board join on %s', async (action) => {
     const server = new FakeCollabServer()
     const app = makeApp(server)
     const document = emptyBoard()
@@ -417,19 +426,22 @@ describe('Board workspace collaboration', () => {
       return connection
     }
     if (action === 'dispose-binding') server.transport.bindActor = async () => { started(); await gate; return 'actor' }
-    const joining = app.boards.join(remote.sessionId)
-    const rejected = expect(joining).rejects.toThrow('Board changed')
+    app.settings.set('features.board.enabled', true)
+    const joining = action === 'open-another-document'
+      ? app.joinCollabSession(remote.sessionId, 'board') : app.boards.join(remote.sessionId)
+    const rejected = action === 'open-another-document' ? undefined : expect(joining).rejects.toThrow('Board changed')
     await waiting
     let disconnected = false
     try {
       if (action === 'close-opened') app.boards.open(document, 'Opened while joining', 'http://collab')
-      if (action.startsWith('dispose')) app.dispose()
+      if (action === 'open-another-document') app.beginDocumentOpen()
+      else if (action.startsWith('dispose')) app.dispose()
       else app.boards.close(document.lineage)
       expect(app.boards.entries.get()).toEqual([])
       disconnected = connection === undefined || connection.closed
     } finally { release() }
-    await rejected
-    expect(disconnected).toBe(true)
+    if (action === 'open-another-document') expect(await joining).toContain('Board changed')
+    else { await rejected; expect(disconnected).toBe(true) }
     if (action === 'dispose-binding') expect(connection).toBeUndefined()
     expect(app.boards.entries.get()).toEqual([])
     expect(remote.connections.size).toBe(0)

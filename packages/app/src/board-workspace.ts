@@ -280,7 +280,7 @@ export class BoardWorkspace {
     } finally { this.pending.delete(id) }
   }
 
-  async join(sessionId: string): Promise<BoardEntry> {
+  async join(sessionId: string, stillWanted: () => boolean = () => true): Promise<BoardEntry> {
     if (this.disposed) throw new Error('Board workspace is closed')
     const baseUrl = this.options.backend()
     if (baseUrl === undefined) throw new Error('No Dinkster backend connected')
@@ -297,7 +297,7 @@ export class BoardWorkspace {
       if (this.entries.get().some((entry) => entry.id === descriptor.documentId))
         throw new Error('This Board is already open; close it before joining another session')
       return await this.adopt(descriptor, baseUrl, descriptor.documentId, () =>
-        (this.cancellations.get(descriptor.documentId) ?? 0) <= epoch &&
+        stillWanted() && (this.cancellations.get(descriptor.documentId) ?? 0) <= epoch &&
         this.options.backend() === baseUrl && !this.entries.get().some((entry) => entry.id === descriptor.documentId))
     } finally { this.pending.delete(key) }
   }

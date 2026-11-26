@@ -2,6 +2,7 @@
 
 import {
   createSignal as createCoreSignal,
+  emptyBoard,
   type CollabConnection,
   type CollabConnectionEvent,
   type CollabSessionDescriptor,
@@ -86,10 +87,13 @@ function mount(options: {
   const requestClose = vi.fn()
   const settings = new SettingsRegistry(undefined)
   settings.register({ id: 'canvas.grid.visible', name: 'Show canvas grid', type: 'boolean', defaultValue: true })
+  settings.register({ id: 'features.board.enabled', name: 'Enable Boards', type: 'boolean', defaultValue: false })
   const app = {
     tabs,
     activeTabId,
     collabTabs,
+    boards: { entries: createCoreSignal([]) },
+    backends: createCoreSignal([]),
     collabActorId: 'local-actor-with-a-deliberately-long-identity',
     collabBackend: () => options.backend === false ? undefined : {},
     listCollabSessions: list,
@@ -118,7 +122,8 @@ function mountProductionRace() {
   let snapshotCount = 0
   let currentDescriptor: CollabSessionDescriptor | undefined
   let rejectEnd!: (reason: Error) => void
-  const pendingEnd = new Promise<void>((_resolve, reject) => { rejectEnd = reject })
+  let resolveEnd!: () => void
+  const pendingEnd = new Promise<void>((resolve, reject) => { resolveEnd = resolve; rejectEnd = reject })
   const connections: Array<{
     closed: boolean
     listeners: Set<(event: CollabConnectionEvent) => void>
@@ -157,6 +162,8 @@ function mountProductionRace() {
       snapshot = structuredClone(args.snapshot)
       currentDescriptor = {
         ...descriptor('production-watcher-session', args.documentId),
+        scope: args.scope,
+        ...(args.documentKind === undefined ? {} : { documentKind: args.documentKind }),
         revision: 0,
         snapshotRevision: 0,
       }
@@ -180,6 +187,7 @@ function mountProductionRace() {
     unmount,
     requestClose,
     rejectEnd,
+    resolveEnd,
     connectionCount: () => connections.length,
     snapshotCount: () => snapshotCount,
     connectionClosed: (index: number) => connections[index]?.closed,
@@ -200,6 +208,45 @@ afterEach(() => {
 })
 
 describe('CollabPanel', () => {
+  it('discovers, joins, leaves and ends a session-backed Board without workflow presence', async () => {
+    const mounted = mountProductionRace()
+    const { app, root } = mounted
+    app.settings.set('features.board.enabled', true)
+    const local = app.boards.open(emptyBoard(), 'References', 'http://collab.test')
+    local.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'note', kind: 'note', text: 'Keep this note', rect: { x: 25, y: 40, width: 180, height: 90 },
+    }] } })
+    const shared = await app.boards.share(local.id)
+    app.pages.open(`board:${local.id}`)
+    await nextTask()
+    expect(root.querySelector('#collab-current-heading')?.textContent).toBe('This Board')
+    expect(root.querySelector('[data-testid="collab-status"]')?.textContent).toContain('Live')
+    expect(root.querySelector('[data-testid="collab-participants"]')).toBeNull()
+    root.querySelector<HTMLButtonElement>('[data-testid="collab-leave"]')!.click()
+    await nextTask()
+    expect(app.boards.entries.get()[0]!.shared).toBeUndefined()
+    expect(app.boards.entries.get()[0]!.session.doc.items.note).toMatchObject({ text: 'Keep this note' })
+    expect(shared.shared!.session.status.get()).toBe('closed')
+    app.pages.close(`page:board:${local.id}`)
+    app.boards.close(local.id)
+    root.querySelector<HTMLButtonElement>('[data-testid="collab-refresh"]')!.click()
+    await nextTask()
+    expect(root.querySelector('[data-testid="collab-session"]')?.textContent).toContain('Board - ')
+    root.querySelector<HTMLButtonElement>('[data-testid="collab-join"]')!.click()
+    await nextTask()
+    expect(app.activeTabId.get()).toBe(`page:board:${local.id}`)
+    expect(app.boards.entries.get()[0]!.session.doc.items.note).toMatchObject({ text: 'Keep this note' })
+    expect(root.querySelector('[data-testid="collab-participants"]')).toBeNull()
+    root.querySelector<HTMLButtonElement>('[data-testid="collab-end"]')!.click()
+    expect(root.querySelector('[data-testid="collab-end-confirm"]')).not.toBeNull()
+    root.querySelector<HTMLButtonElement>('[data-testid="collab-end-confirm-button"]')!.click()
+    mounted.resolveEnd()
+    await nextTask()
+    expect(app.boards.entries.get()[0]!.shared).toBeUndefined()
+    expect(app.boards.entries.get()[0]!.session.doc.items.note).toMatchObject({ text: 'Keep this note' })
+    mounted.unmount()
+  })
+
   it('distinguishes initial loading, no backend, empty, and list failure', async () => {
     const loadingList = deferred<readonly CollabSessionDescriptor[]>()
     const loading = mount({ list: () => loadingList.promise })

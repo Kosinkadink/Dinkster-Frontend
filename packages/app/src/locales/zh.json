@@ -793,6 +793,7 @@
   "backendsPanel.title": "后端连接",
   "collab.agentActivity.ask": "请求：{prompt}",
   "collab.agentActivity.status": "{tool}：{status}",
+  "collab.end.keepDocument": "所有人都将断开连接。当前文档会保留在本地并保持打开。",
   "command.backend.open": "打开后端",
   "command.edit.delete": "删除选中项",
   "command.edit.deleteBackspace": "删除选中内容（Backspace）",

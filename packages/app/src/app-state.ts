@@ -6246,12 +6246,14 @@ export class AppState {
   // -- Collaboration (shared sessions; docs/collaboration.md) ---------------
 
   /**
-   * The backend whose collab surface shared sessions use: the active tab's
-   * backend when it speaks dinkster, else the first dinkster backend. The surface
+   * Shared Boards use their owning backend, never a fallback server. Other
+   * tabs prefer their dinkster backend, else the first dinkster backend. The surface
    * is native-only (v1 servers have no session routes), so undefined means
    * "collaboration unavailable", which the panel says in words.
    */
   collabBackend(): Backend | undefined {
+    const board = this.boards.entries.get().find((entry) => `page:board:${entry.id}` === this.activeTabId.get())
+    if (board) return this.backends.get().find((backend) => backend.baseUrl === board.baseUrl && backend.protocol === 'dinkster')
     const active = this.activeTab()
     const preferred = active !== undefined ? this.backendForTab(active) : undefined
     if (preferred?.protocol === 'dinkster') return preferred
@@ -6262,12 +6264,15 @@ export class AppState {
     return this.collabTabs.get().get(tabId)
   }
 
-  /** The collab backend's joinable sessions in the app discovery scope. */
+  /** Joinable workflows and, when enabled, this project's Boards. */
   async listCollabSessions(): Promise<readonly CollabSessionDescriptor[]> {
     const backend = this.collabBackend()
     if (backend === undefined) return []
-    return (await this.collabTransport.list(backend.baseUrl, COLLAB_SCOPE))
-      .filter((descriptor) => (descriptor.documentKind ?? 'workflow') === 'workflow')
+    const [workflows, boards] = await Promise.all([
+      this.collabTransport.list(backend.baseUrl, COLLAB_SCOPE),
+      this.settings.get<boolean>('features.board.enabled') ? this.boards.discover() : [],
+    ])
+    return [...workflows.filter((descriptor) => (descriptor.documentKind ?? 'workflow') === 'workflow'), ...boards]
   }
 
   /**
@@ -6319,7 +6324,18 @@ export class AppState {
    * Join a discovered session. A tab already joined to it is focused instead
    * of joined twice (one membership per session per app).
    */
-  async joinCollabSession(sessionId: string): Promise<string | undefined> {
+  async joinCollabSession(sessionId: string, documentKind: 'workflow' | 'board' = 'workflow'): Promise<string | undefined> {
+    if (documentKind === 'board') {
+      if (!this.settings.get<boolean>('features.board.enabled')) return 'Boards are disabled'
+      const currentOpen = this.beginDocumentOpen()
+      const stillWanted = () => currentOpen() && this.settings.get<boolean>('features.board.enabled')
+      try {
+        const entry = await this.boards.join(sessionId, stillWanted)
+        if (!stillWanted()) return 'Board join was superseded'
+        this.pages.open(`board:${entry.id}`)
+        return undefined
+      } catch (error) { return error instanceof Error ? error.message : String(error) }
+    }
     const existing = [...this.collabTabs.get().entries()].find(([, s]) => s.descriptor.sessionId === sessionId)
     if (existing !== undefined) {
       this.activeTabId.set(existing[0])
