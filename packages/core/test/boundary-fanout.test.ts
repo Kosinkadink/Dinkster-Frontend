@@ -457,7 +457,7 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
     const selections = [['mode.imagePicker', { selected: 'image' }], ['mode.floatPicker', { selected: 'float' }]] as const
     const resolve = (type: string) => local[type]
     const doc = docOf({ g0: { nodes: {} }, sub: {
-      nodes: { primary: { type: 'Primary', ...(competing ? { dynamic: { mode: { selected: 'a' }, ...Object.fromEntries(scenario.endsWith('reordered') ? [...selections].reverse() : selections) } } : {}) }, consumer: { type: 'Consumer' }, target: { type: 'Target', values: { 'mode.source': 0.5 }, dynamic: { mode: { selected: 'a' }, 'mode.source': { selected: 'float' } } } },
+      nodes: { primary: { type: 'Primary', ...(competing ? { dynamic: { mode: { selected: 'a' }, ...Object.fromEntries(scenario.endsWith('reordered') ? [...selections].reverse() : selections) } } : {}) }, consumer: { type: 'Consumer' }, target: { type: 'Target', values: { 'mode.source': 0.5, ...(scenario === 'nested-variant-selector' ? { mode: 0.5 } : {}) }, dynamic: { mode: { selected: 'a' }, 'mode.source': { selected: 'float' } } } },
       links: competing ? [] : [[['primary', 'out'], ['consumer', 'value']]],
       boundary: { inputs: [{ id: 'in', binds: bind('primary', competing && scenario.includes('shared') ? 'mode.value' : 'value') }] },
     } })
@@ -481,6 +481,38 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
         expect(store.doc).toEqual(before)
         expect(store.canUndo).toBe(false)
       }
+    }
+  })
+
+  it.each([true, false])('drops a replaced option type binding for an inactive target, restricted=%s', (restricted) => {
+    const variable: TypeExpr = { kind: 'variable', templateId: 'T', ...(restricted ? { allowedTypes: [IMAGE] } : {}) }
+    const local: Record<string, NodeSchema> = {
+      Primary: schemaOf('Primary', [input('value', { type: FLOAT })]),
+      Target: { ...schemaOf('Target', []), body: [{ kind: 'choice', id: 'mode', required: true, shared: [], options: [
+        { key: 'a', rows: [{ kind: 'typeChoice', id: 'source', required: false, typeVariable: 'T', rows: [], variants: [
+          { key: 'pick', type: restricted ? FLOAT : IMAGE, rows: [] },
+        ] }] },
+        { key: 'b', rows: [input('amount', { type: variable })] },
+      ] }] },
+    }
+    const resolve = (type: string) => local[type]
+    const doc = docOf({ g0: { nodes: {} }, sub: {
+      nodes: { primary: { type: 'Primary' }, target: { type: 'Target', values: { 'mode.source': 0.5 },
+        dynamic: { mode: { selected: 'a' }, 'mode.source': { selected: 'pick' } } } },
+      boundary: { inputs: [{ id: 'in', binds: bind('primary', 'value') }] },
+    } })
+    const store = new DocumentStore(doc, coreCommandRegistry([], resolve), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const before = store.doc
+    const outcome = store.dispatch({ command: 'boundary.addBinding', params: params('target', 'mode.amount') })
+    expect(outcome.ok, JSON.stringify(outcome)).toBe(!restricted)
+    if (restricted) {
+      expect(outcome.diagnostics.map((item) => item.code)).toContain('boundary.fanoutTypeMismatch')
+      expect(store.doc).toBe(before)
+      expect(store.canUndo).toBe(false)
+    } else {
+      expect(itemOf(store).alsoBinds).toEqual([bind('target', 'mode.amount')])
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(before)
     }
   })
 

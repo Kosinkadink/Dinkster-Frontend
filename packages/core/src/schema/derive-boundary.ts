@@ -707,7 +707,7 @@ export function deriveBoundarySchema(
   const routeCache = new WeakMap<object, Partial<Record<'input' | 'output', { node: NodeData; route: BoundaryRoute }>>>()
   const slotTypeBindings = new WeakMap<NodeData, { readonly bindings: ReadonlyMap<string, TypeExpr>; readonly choices: Readonly<Record<string, string>> }>()
 
-  /** Active selections bind the node; a structural route adds only its own scope. */
+  /** Elaborate the requested route's selections without retaining replaced scopes. */
   const typeBindingsFor = (node: NodeData, route?: BoundaryRoute): ReadonlyMap<string, TypeExpr> => {
     const schema = resolveNode(node)
     let active = slotTypeBindings.get(node)
@@ -724,7 +724,6 @@ export function deriveBoundarySchema(
       slotTypeBindings.set(node, active)
     }
     if (route === undefined || route.hops.length === 0) return active.bindings
-    const bindings = new Map(active.bindings)
     const choices = Object.fromEntries(route.hops.flatMap((hop) => {
       if (hop.kind === 'slotVariant') return [[hop.constructPath, hop.key]]
       if (hop.kind === 'slot') {
@@ -736,28 +735,17 @@ export function deriveBoundarySchema(
       const option = selected !== undefined && hop.options.includes(selected) ? selected : hop.options[0]
       return option === undefined ? [] : [[hop.constructPath, option]]
     }))
-    for (const [port, state] of schema === undefined ? [] : Object.entries(node.dynamic ?? {})) {
-      if (state.selected === undefined) continue
-      const resolved = resolveBoundaryRoute(schema!, { kind: 'construct', node: node.id, port: asPortId(port) }, 'input', node.values, node.dynamic, choices)
-      if (!resolved.ok || resolved.route.terminal.kind !== 'construct') continue
-      const sameScope = resolved.route.hops.every((hop) => route.hops.some((target) => {
-        switch (hop.kind) {
-          case 'member': return target.kind === 'member' && hop.familyPath === target.familyPath && hop.member === target.member
-          case 'combo': {
-            if (target.kind !== 'combo' || hop.constructPath !== target.constructPath) return false
-            const option = choices[target.constructPath]
-            return option !== undefined && hop.options.includes(option)
-          }
-          case 'slot': return (target.kind === 'slot' || target.kind === 'slotVariant') && hop.constructPath === target.constructPath
-          case 'slotVariant': return (target.kind === 'slot' || target.kind === 'slotVariant') &&
-            hop.constructPath === target.constructPath && hop.key === choices[target.constructPath]
-        }
-      }))
-      if (!sameScope) continue
-      const row = resolved.route.terminal.row
-      if (row.kind !== 'typeChoice' || row.typeVariable === undefined || row.variants === undefined) continue
-      const variant = row.variants.find((candidate) => candidate.key === state.selected)
-      if (variant !== undefined) bindings.set(row.typeVariable, variant.type)
+    const bindings = new Map<string, TypeExpr>()
+    const hypothetical = schema === undefined ? undefined : elaborateInterface(schema, {
+      ...node,
+      dynamic: { ...node.dynamic, ...Object.fromEntries(Object.entries(choices).map(([port, selected]) =>
+        [port, { ...node.dynamic?.[port], selected }])) },
+    }, (connectivityOf ??= buildGraphConnectivity(graph))(node.id))
+    for (const item of hypothetical === undefined ? [] : elabInputsOf(hypothetical)) {
+      const origin = item.origin
+      if (origin.kind !== 'slot' || origin.typeTemplateId === undefined) continue
+      const variant = origin.variants?.find((candidate) => candidate.key === origin.selected)
+      if (variant !== undefined) bindings.set(origin.typeTemplateId, variant.type)
     }
     return bindings
   }
