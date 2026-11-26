@@ -11,7 +11,7 @@ import { activeLocale, type MessageParams } from '@dinkster/core'
 import type { DinksterConnection, PackSettings } from '@dinkster/client'
 import type { AppCommand, CommandRegistry, KeybindingRegistry, SettingDefinition, SettingsRegistry } from './settings.js'
 import { captureKeydown } from './settings.js'
-import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel, type SettingsSearchItem } from './settings-search.js'
+import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel, settingsCommandGroups, type SettingsSearchItem } from './settings-search.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
 import { productFieldIds } from './ProductForm.js'
@@ -205,6 +205,10 @@ export function SettingsDialog(props: {
   const locale = useSignal(activeLocale)
   const [query, setQuery] = createSignal('')
   const definitions = () => { changed(); return searchableSettingsDefinitions(props.settings.list()) }
+  const shortcutCommands = createMemo(() => (changed(), props.commands.list()), undefined, {
+    equals: (previous, next) => previous.length === next.length && previous.every((command, index) => command === next[index]),
+  })
+  const shortcutGroups = createMemo(() => settingsCommandGroups(shortcutCommands()))
   const layoutIds = new Set(['shell.layout.left.width', 'shell.layout.right.width', 'shell.layout.bottom.height', 'shell.dock.layout', 'editor.splitLayout'])
   const groups = () => ['general', 'canvas', 'runs', 'shortcuts', 'storage', 'packs', 'engine', 'experimental', 'advanced'].map((id) => ({ id, label: message(`settingsPage.group.${id}`) }))
   const location = (definition: SettingDefinition): { group: string; section: string } => {
@@ -218,7 +222,15 @@ export function SettingsDialog(props: {
     if (id === 'search.registryUrl' || id === 'templates.registryUrl') return { group: 'advanced', section: 'registries' }
     return { group: 'packs', section: props.settings.categoryOf(definition) }
   }
-  const sectionLabel = (group: string, section: string) => group === 'packs' ? settingsCategoryLabel(section, message) : message(`settingsPage.section.${section}`)
+  const sectionLabel = (group: string, section: string) => {
+    if (group === 'packs') return settingsCategoryLabel(section, message)
+    if (group === 'shortcuts') {
+      const key = `settingsPage.commands.${section}`
+      const label = message(key)
+      return label === key ? settingsCategoryLabel(section, message) : label
+    }
+    return message(`settingsPage.section.${section}`)
+  }
   const [group, setGroup] = createSignal('general')
   const [current, setCurrent] = createSignal('')
   const [capture, setCapture] = createSignal<{ readonly command: string; readonly pending: string }>()
@@ -263,7 +275,7 @@ export function SettingsDialog(props: {
     () => {
       locale()
       return buildSettingsSearchIndex(definitions(), (d) => props.settings.categoryOf(d), props.commands.list()).map((item) => {
-        const place = item.source === 'setting' ? location(item.definition) : { group: 'shortcuts', section: 'commands' }
+        const place = item.source === 'setting' ? location(item.definition) : { group: 'shortcuts', section: item.id.split('.')[0]! }
         return { ...item, keywords: [...item.keywords, message(`settingsPage.group.${place.group}`), sectionLabel(place.group, place.section)] }
       })
     },
@@ -271,7 +283,7 @@ export function SettingsDialog(props: {
     { equals: sameIndex },
   )
   const matches = createMemo(() => querySettingsIndex(index(), query()).flatMap((entry) => entry.matches).flatMap((match) => {
-    const place = match.source === 'setting' ? location(match.definition) : { group: 'shortcuts', section: 'commands' }
+    const place = match.source === 'setting' ? location(match.definition) : { group: 'shortcuts', section: match.id.split('.')[0]! }
     let detail = `${message(`settingsPage.group.${place.group}`)} - ${sectionLabel(place.group, place.section)}`
     const titleMatches = productSearchMarks(match.name, query()).length > 0
     const description = match.source === 'setting' ? match.definition.description ?? '' : ''
@@ -372,7 +384,7 @@ export function SettingsDialog(props: {
         search={{ label: message('settingsDialog.search.label'), placeholder: message('settingsDialog.search.placeholder'), get query() { return query() }, onQuery: (next) => { setQuery(next); setCurrent(''); setCapture(undefined) }, get groups() { return searchGroups() }, get current() { return current() }, onCurrent: setCurrent, onActivate: activate, onClose: clearSearch, inputRef: (input) => { searchInput = input }, empty: { title: message('settingsDialog.search.emptyTitle'), detail: message('settingsDialog.search.emptyBody') } }}>
         <For each={sections()}>{(section) => <ProductSettingsSection title={sectionLabel(group(), section)}><For each={visible().filter((d) => location(d).section === section)}>{(d) => settingRow(d)}</For></ProductSettingsSection>}</For>
         <Show when={group() === 'general' && props.settings.list().some((d) => layoutIds.has(d.id))}><ProductSettingsSection title={message('settingsPage.section.layout')}><ProductButton id="settings-reset-layout" onClick={() => { for (const d of props.settings.list()) if (layoutIds.has(d.id)) props.settings.reset(d.id) }}>{message('settingsPage.resetLayout')}</ProductButton></ProductSettingsSection></Show>
-        <Show when={group() === 'shortcuts'}><ProductSettingsSection title={message('settingsPage.section.commands')}><For each={(changed(), props.commands.list())}>{(command) => keybindingRow(command)}</For></ProductSettingsSection></Show>
+        <Show when={group() === 'shortcuts'}><For each={shortcutGroups()}>{(area) => <ProductSettingsSection title={sectionLabel('shortcuts', area.id)}><For each={area.commands}>{(command) => keybindingRow(command)}</For></ProductSettingsSection>}</For></Show>
         <Show when={group() === 'storage'}>
           <Show when={props.onOpenStorage}><ProductButton onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton></Show>
           <Show when={props.storageConnection} keyed>{(connection) => <LibraryStorageSettings connection={connection} />}</Show>

@@ -71,7 +71,7 @@ test('declared pack settings are editable through the native connection', async 
   await expect(
     dialog.getByRole('heading', { name: 'Render Pack' }),
   ).toBeVisible()
-  const enabled = dialog.getByRole('checkbox', { name: 'Enable enhancement' })
+  const enabled = dialog.getByRole('switch', { name: 'Enable enhancement' })
   const quality = dialog.getByRole('spinbutton', { name: 'Quality level' })
   await expect(enabled).toHaveAttribute('aria-checked', 'true')
   await expect(quality).toHaveValue('2')

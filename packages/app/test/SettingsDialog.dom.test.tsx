@@ -60,6 +60,27 @@ afterEach(() => {
 })
 
 describe('SettingsDialog search', () => {
+  it('groups shortcuts by area and searches their translated group names', () => {
+    const settings = isolatedSettings()
+    const commands = new CommandRegistry()
+    const keybindings = new KeybindingRegistry(settings)
+    for (const [id, label] of [['view.fit', 'Fit selection'], ['edit.undo', 'Undo'], ['workflow.save', 'Save workflow']]) {
+      commands.register({ id: id!, label: label!, run: () => {} })
+      keybindings.register({ command: id!, combo: 'Ctrl+S' })
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={commands} keybindings={keybindings} />, root)
+    root.querySelector<HTMLAnchorElement>('a[href="#shortcuts"]')!.click()
+    expect([...root.querySelectorAll('h2')].map((heading) => heading.textContent)).toEqual(['Workflow', 'Edit', 'View'])
+    expect(root.querySelector('[data-command-id="edit.undo"] [role="status"]')?.textContent).toBe('Also used by Fit selection, Save workflow.')
+    setLocale('zh')
+    searchFor(root, '\u89c6\u56fe')
+    expect([...root.querySelectorAll('[data-command-id]')].map((row) => row.getAttribute('data-command-id'))).toEqual(['view.fit'])
+    expect(root.querySelector('.dinkster-search-row')?.textContent).toContain('\u5feb\u6377\u952e - \u89c6\u56fe')
+    unmount()
+  })
+
   it.each([
     ['en', 'Wheel'],
     ['zh', '\u6eda\u8f6e'],

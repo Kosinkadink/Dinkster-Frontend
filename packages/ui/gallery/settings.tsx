@@ -1,5 +1,7 @@
 import { For, Show, createMemo, createSignal } from 'solid-js'
 import { captureKeydown, KeybindingRegistry, SettingsRegistry } from '../../app/src/settings.js'
+import { settingsCommandGroups } from '../../app/src/settings-search.js'
+import { useAppMessage } from '../../app/src/locale.js'
 import { useSignal } from '../../app/src/solid-adapter.js'
 import { ProductNumberInput } from '../../app/src/ProductNumberInput.js'
 import {
@@ -62,10 +64,13 @@ const commands = [
   { id: 'workflow.save', label: 'Save workflow', keys: 'Ctrl+S' },
   { id: 'workflow.open', label: 'Open workflow library', keys: 'Ctrl+O' },
   { id: 'workflow.cancel', label: 'Cancel current run', keys: '' },
+  { id: 'edit.undo', label: 'Undo', keys: 'Ctrl+Z' },
+  { id: 'view.zoomIn', label: 'Zoom in', keys: 'Alt+=' },
 ]
 
 /** In-memory examples exercise the shared page; no application preferences are written. */
 export function SettingsGallery() {
+  const message = useAppMessage()
   const [group, setGroup] = createSignal('canvas')
   const [query, setQuery] = createSignal('')
   const [current, setCurrent] = createSignal('')
@@ -110,7 +115,7 @@ export function SettingsGallery() {
       <Show when={searching && error(setting)}>{(message) => <p id={`${setting.id}-error`} class="dinkster-field-error" role="alert">{message()}</p>}</Show>
     </>
   }
-  const shortcutError = (id: string) => combo(id) && keybindings.conflicts().get(combo(id)) ? `Also used by ${commands.filter((other) => other.id !== id && combo(other.id) === combo(id)).map((other) => other.label).join(', ')}.` : undefined
+  const shortcutError = (id: string) => combo(id) && keybindings.conflicts().get(combo(id)) ? message('settingsDialog.keybinding.conflict', { commands: commands.filter((other) => other.id !== id && combo(other.id) === combo(id)).map((other) => other.label).join(', ') }) : undefined
   const shortcutControl = (command: typeof commands[number]) => <ProductShortcutCapture id={command.id}
     aria-label={`Record shortcut for ${command.label}`} aria-describedby={shortcutError(command.id) ? `${command.id}-warning` : undefined}
     keys={combo(command.id)} recording={capture() === command.id} pendingKeys={pendingKeys()}
@@ -138,7 +143,7 @@ export function SettingsGallery() {
         ...(!nameMatches && descriptionMatches ? { note: setting.description! } : {}),
         control: control(setting, true), menu: settingMenu(setting),
       }
-    }) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, detail: 'Shortcuts - Workflow', control: <>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-warning`} class="dinkster-setting-warning" role="status">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
+    }) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, detail: `Shortcuts - ${message(`settingsPage.commands.${command.id.split('.')[0]}`)}`, control: <>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-warning`} class="dinkster-setting-warning" role="status">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
   })
   const chooseGroup = (id: string) => { setGroup(id); setQuery(''); setCapture(undefined) }
   const activate = (id: string) => {
@@ -180,13 +185,13 @@ export function SettingsGallery() {
       <ProductSettingsPage title="Settings" groupsLabel="Settings groups" groups={groups} group={group()} onGroup={chooseGroup}
         search={{ label: 'Search settings', placeholder: 'Search settings', get query() { return query() }, onQuery: (next) => { setCapture(undefined); setQuery(next); setCurrent('') }, get groups() { return searchGroups() }, get current() { return current() }, onCurrent: setCurrent, onActivate: activate, onClose: () => setQuery(''), empty: { title: 'No matching settings', detail: 'Try a setting name or its ID.' } }}>
         <Show when={group() === 'shortcuts'} fallback={<For each={sections()}>{(section) => <ProductSettingsSection title={section}><For each={settings.filter((setting) => setting.group === group() && setting.section === section)}>{row}</For></ProductSettingsSection>}</For>}>
-          <ProductSettingsSection title="Workflow"><For each={commands}>{(command) => <ProductSettingRow
+          <For each={settingsCommandGroups(commands)}>{(area) => <ProductSettingsSection title={message(`settingsPage.commands.${area.id}`)}><For each={area.commands}>{(command) => <ProductSettingRow
             id={command.id} label={command.label} modified={combo(command.id) !== keybindings.defaultCombo(command.id)}
             warning={shortcutError(command.id)}
             resetLabel="Reset" menuLabel={`Actions for ${command.label}`} resetDefaultLabel="Reset to default" copyIdLabel="Copy command ID"
             onReset={() => keybindings.reset(command.id)} onCopyId={() => { void copyId(command.id) }}>
             {shortcutControl(command)}
-          </ProductSettingRow>}</For></ProductSettingsSection>
+          </ProductSettingRow>}</For></ProductSettingsSection>}</For>
         </Show>
       </ProductSettingsPage>
     </div>

@@ -40,7 +40,7 @@ test('settings opens once in a tab and search spans groups without selecting one
 
 test('captured chord dispatches, conflicts are surfaced, and reset restores the default', async ({ page }) => {
   await page.getByTestId('settings-button').click()
-  const dialog = page.getByRole('region', { name: 'Settings', exact: true })
+  const dialog = page.getByRole('region', { name: 'Settings', exact: true }).and(page.locator('.dinkster-settings'))
   await dialog.getByRole('link', { name: 'Shortcuts', exact: true }).click()
   const openRow = dialog.locator('[data-command-id="workflow.open"]')
   const capture = openRow.locator('[id="keybinding-workflow.open"]')
