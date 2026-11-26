@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal } from 'solid-js'
+import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { Download } from 'lucide-solid'
 import type { CanvasGalleryPage } from '../../canvas/gallery/fixtures.js'
 import {
@@ -248,6 +248,19 @@ export function TemplatesGallery(props: {
   >(new Map())
   const [activity, setActivity] = createSignal('No action yet')
 
+  onMount(() => {
+    if (!props.onCancel) return
+    const cancel = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      if (search() !== '') setSearch('')
+      else props.onCancel?.()
+    }
+    document.addEventListener('keydown', cancel)
+    onCleanup(() => document.removeEventListener('keydown', cancel))
+  })
+
   const all = (): MockTemplate[] =>
     (state() === 'empty' ? [] : mockTemplates).map((template) => {
       if (state() === 'no-folders') {
@@ -324,10 +337,13 @@ export function TemplatesGallery(props: {
   }
 
   return (
-    <section class={props.onChoose ? 'dinkster-template-picker' : 'dinkster-page dinkster-stack'} data-testid="templates-gallery">
+    <section
+      class={props.onChoose ? 'dinkster-template-picker' : 'dinkster-page dinkster-stack'}
+      data-testid="templates-gallery"
+    >
       <div class="dinkster-templates-frame dinkster-root" data-theme="dark">
         <ProductTemplatesPage
-          title="Templates"
+          title={props.onChoose ? 'Choose a template' : 'Templates'}
           groups={state() === 'loading' ? [] : groups()}
           group={group()}
           onGroup={setGroup}

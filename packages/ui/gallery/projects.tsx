@@ -771,8 +771,10 @@ export function ProjectsGallery() {
         <Show when={templates() && startWith() === 'template'}>
           <span>Template</span>
           <span class="dinkster-project-form-path" role="group" aria-label="Template">
-            <span>{template()?.name ?? 'No template selected'}</span>
-            <ProductTextButton label="Change" onClick={() => setPickingTemplate(true)} />
+            <Show when={template()} fallback={<span class="dinkster-description">No template selected</span>}>
+              {(chosen) => <span>{chosen().name}</span>}
+            </Show>
+            <ProductTextButton label={template() ? 'Change' : 'Choose'} onClick={() => setPickingTemplate(true)} />
           </span>
         </Show>
         <div class="dinkster-actions">
