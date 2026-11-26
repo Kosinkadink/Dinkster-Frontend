@@ -622,7 +622,7 @@ test('menu end alignment preserves the trigger edge and viewport containment', a
   }
 })
 
-test('an unavailable segmented choice keeps its place and name, is described by its reason and cannot be chosen', async ({ page }) => {
+test('an unavailable segmented choice keeps its place and name, carries its reason as description and tooltip, and cannot be chosen', async ({ page }) => {
   for (const theme of ['dark', 'light']) {
     await page.goto(`/?theme=${theme}#segmented-states`)
     await page.evaluate((theme) => {
@@ -636,6 +636,9 @@ test('an unavailable segmented choice keeps its place and name, is described by 
     await expect(week).toHaveAccessibleName('Week')
     await expect(week).toHaveAccessibleDescription('Not enough history yet.')
     await expect(day).not.toHaveAttribute('aria-describedby')
+    // The shared tooltip shows the same reason on hover.
+    await expect(range.locator('.dinkster-segment').nth(1)).toHaveAttribute('data-tooltip-label', 'Not enough history yet.')
+    await expect(range.locator('.dinkster-segment').nth(0)).not.toHaveAttribute('data-tooltip-label')
 
     // The option keeps its place and its padded width between the two others.
     const labels = range.locator('.dinkster-segment')
@@ -658,7 +661,7 @@ test('an unavailable segmented choice keeps its place and name, is described by 
     await page.keyboard.press('ArrowLeft')
     await expect(day).toBeChecked()
 
-    // Dimmed at rest and on hover, with no hover or selected fill, even when it is the checked value.
+    // Dimmed at rest and on hover, with no fill; when it is the checked value it keeps the selected fill, dimmed.
     const secondary = await token(page, '--dinkster-text-secondary')
     const opacity = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dinkster-interaction-disabled-opacity').trim())
     await labels.nth(1).hover()
@@ -668,8 +671,12 @@ test('an unavailable segmented choice keeps its place and name, is described by 
     await expect(labels.nth(1).locator('span')).toHaveCSS('opacity', '1')
     const chosen = page.getByRole('radiogroup', { name: 'Chosen but unavailable', exact: true })
     await expect(chosen.getByRole('radio', { name: 'This workflow', exact: true })).toBeChecked()
-    await expect(chosen.locator('.dinkster-segment').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-    await expect(range.locator('.dinkster-segment').first()).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    const selectedFill = await background(range.locator('.dinkster-segment').first())
+    expect(selectedFill).not.toBe('rgba(0, 0, 0, 0)')
+    const chosenLabel = chosen.locator('.dinkster-segment').first()
+    await expect(chosenLabel).toHaveCSS('background-color', selectedFill)
+    await expect(chosenLabel).toHaveCSS('color', await token(page, '--dinkster-text-primary'))
+    expect(Number(await chosenLabel.evaluate((element) => getComputedStyle(element).opacity))).toBe(Number(opacity))
 
     await page.mouse.move(0, 0)
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())

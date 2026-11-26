@@ -297,7 +297,7 @@ export function ProductSegmented(props: {
   value: string
   /**
    * `disabled` is the reason an option cannot be chosen. The option keeps its
-   * place, and the reason is its accessible description.
+   * place, and the reason is its accessible description and its tooltip.
    */
   options: readonly { value: string; label: string; disabled?: string | undefined }[]
   onChange: (value: string) => void
@@ -310,7 +310,7 @@ export function ProductSegmented(props: {
           const reasonId = createUniqueId()
           return (
             <>
-              <label class="dinkster-segment">
+              <label class="dinkster-segment" data-tooltip-label={option.disabled}>
                 <input
                   type="radio"
                   class="dinkster-visually-hidden"
