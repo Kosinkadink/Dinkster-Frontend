@@ -1,4 +1,11 @@
-import { Show, createMemo, type JSX } from 'solid-js'
+import {
+  Show,
+  children,
+  createMemo,
+  onCleanup,
+  onMount,
+  type JSX,
+} from 'solid-js'
 import { ProductButton } from './controls.js'
 import { ProductLoading } from './layout.js'
 import { ProductNotice } from './messages.js'
@@ -48,14 +55,58 @@ export function ProductPageLoad<T>(props: {
   read: () => Promise<T>
   loadingLabel: string
   arrival?: 'fade' | 'rise'
+  /** Known headings and facts stay mounted outside the arriving answer. */
+  known?: JSX.Element
   children: JSX.Element | ((value: T) => JSX.Element)
 }) {
   const strings = useProductStrings()
+  const knownContent = children(() => props.known)
+  let host!: HTMLDivElement
+  let known: HTMLDivElement | undefined
+  let loading: HTMLDivElement | undefined
+  let observer: ResizeObserver | undefined
+  const placeLoading = () => {
+    if (!host || !known || !loading) return
+    const bottom = known.offsetTop + known.offsetHeight
+    const top =
+      bottom + loading.offsetHeight / 2 > host.clientHeight / 2 ? bottom : 0
+    loading.parentElement!.style.top = `${top}px`
+  }
+  onMount(() => {
+    if (!known) return
+    observer = new ResizeObserver(placeLoading)
+    observer.observe(host)
+    if (known) observer.observe(known)
+    if (loading) observer.observe(loading)
+  })
+  onCleanup(() => observer?.disconnect())
   return (
-    <div class="dinkster-page-load" aria-busy={props.page.pending()}>
+    <div
+      ref={host}
+      class="dinkster-page-load"
+      data-known={knownContent() ? '' : undefined}
+      aria-busy={props.page.pending()}
+    >
+      <Show when={knownContent()}>
+        <div ref={known} class="dinkster-page-load-known">
+          {knownContent()}
+        </div>
+      </Show>
       <Show when={props.page.loading()}>
         <div class="dinkster-page-load-loading">
-          <ProductLoading label={props.loadingLabel} />
+          <div
+            ref={(element) => {
+              if (loading) observer?.unobserve(loading)
+              loading = element
+              observer?.observe(element)
+              onCleanup(() => {
+                observer?.unobserve(element)
+                loading = undefined
+              })
+            }}
+          >
+            <ProductLoading label={props.loadingLabel} />
+          </div>
         </div>
       </Show>
       <div class="dinkster-page-load-content">
