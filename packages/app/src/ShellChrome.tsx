@@ -18,6 +18,7 @@ import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
 import { useAppMessage } from './locale.js'
 import type { TooltipContent, VisibleTooltip } from './tooltips.js'
+import { ProductShortcut } from '@dinkster/ui'
 
 export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   const message = useAppMessage()
@@ -128,6 +129,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
       <div ref={content} role="tooltip">
         <Show when={displayed().title}><div class="app-tooltip-title">{displayed().title}</div></Show>
         <For each={displayed().lines}>{(line) => <div>{line}</div>}</For>
+        <Show when={displayed().shortcut}>{(keys) => <ProductShortcut keys={keys()} />}</Show>
         <Show when={props.tip.detailed}><For each={displayed().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
       </div>
     </aside>
@@ -169,7 +171,7 @@ export function ActivityBarButton(props: {
   readonly label: string
   readonly accessibleName: string
   readonly tooltip: string
-  readonly tooltipDetail?: string | undefined
+  readonly tooltipShortcut?: string | undefined
   readonly pressed: boolean | undefined
   readonly panelId?: string | undefined
   readonly testId?: string | undefined
@@ -187,7 +189,7 @@ export function ActivityBarButton(props: {
       data-testid={props.testId}
       data-panel-toggle={props.panelId}
       data-tooltip-label={tooltip()}
-      data-tooltip-detail={props.tooltipDetail}
+      data-tooltip-shortcut={props.tooltipShortcut}
       data-tooltip-immediate="true"
       aria-label={props.accessibleName === props.label ? props.label : `${props.label}: ${props.accessibleName}`}
       aria-pressed={props.pressed}
@@ -228,7 +230,7 @@ export function IconBar(props: {
         label={message('shell.panel.settings.title')}
         accessibleName={message('shell.panel.settings.title')}
         tooltip={props.settingsUnavailable ?? message('shell.panel.settings.title')}
-        tooltipDetail={props.settingsUnavailable === undefined ? 'Ctrl+,' : undefined}
+        tooltipShortcut={props.settingsUnavailable === undefined ? 'Ctrl+,' : undefined}
         unavailable={props.settingsUnavailable !== undefined}
         pressed={undefined}
         testId="settings-button"

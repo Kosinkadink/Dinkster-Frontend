@@ -253,11 +253,11 @@ export function DinksterAppMenu(props: {
   const groups = (): readonly ResolvedMenuGroup[] => [...accountGroup(), ...APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }): ResolvedMenuGroup[] => {
     const items = ids.flatMap((id): MenuItem[] => {
       const command = props.commands.get(id)
-      const hint = props.keybindings.combo(id)
+      const shortcut = props.keybindings.combo(id)
       return command ? [{
         id,
         label: command.label,
-        ...(hint ? { hint } : {}),
+        ...(shortcut ? { shortcut } : {}),
         action: { kind: 'host', action: id },
         ...(command.enabled?.() === false ? { disabled: true } : {}),
       }] : []
@@ -464,7 +464,7 @@ export function App(props: {
   let shellEl!: HTMLElement
   tooltips.register({ id: 'core.dom', resolve: (target, opts) => {
     const dom = target as Partial<DomTooltipTarget>
-    return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
+    return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(dom.shortcut ? { shortcut: dom.shortcut } : {}), ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
   } })
   tooltips.register({ id: 'core.canvas', resolve: (target, opts) => {
     const tab = app.activeTab()

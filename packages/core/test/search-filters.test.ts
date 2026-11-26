@@ -11,7 +11,6 @@ import {
   hintsMatchPortFilters,
   parseSearchFilters,
   schemaMatchesLinkDrop,
-  schemaMatchesAnyPortFilters,
   schemaMatchesPortFilters,
   typeMatchesToken,
   type InputSpec,
@@ -109,7 +108,6 @@ describe('schemaMatchesPortFilters', () => {
       input('provider', concrete('COMBO'), { hidden: true }),
     ])
     expect(schemaMatchesPortFilters(hiddenOnly, { inputs: ['combo'] })).toBe(false)
-    expect(schemaMatchesAnyPortFilters(hiddenOnly, { inputs: ['combo'] })).toBe(false)
     expect(schemaMatchesLinkDrop(hiddenOnly, concrete('COMBO'), 'in')).toBe(false)
     expect(autoConnectTarget(hiddenOnly, concrete('COMBO'), 'in')).toBeUndefined()
   })
@@ -171,20 +169,6 @@ describe('schemaMatchesPortFilters', () => {
   })
 })
 
-describe('schemaMatchesAnyPortFilters', () => {
-  const convert = schema([
-    input('image', concrete('IMAGE')),
-    { kind: 'output', id: 'mask', type: concrete('MASK') },
-  ])
-
-  it('ORs selections within a direction and ANDs the input/output groups', () => {
-    expect(schemaMatchesAnyPortFilters(convert, { inputs: ['audio', 'image'] })).toBe(true)
-    expect(schemaMatchesAnyPortFilters(convert, { inputs: ['IMAGE'] })).toBe(true)
-    expect(schemaMatchesAnyPortFilters(convert, { outputs: ['latent', 'mask'] })).toBe(true)
-    expect(schemaMatchesAnyPortFilters(convert, { inputs: ['audio', 'image'], outputs: ['latent'] })).toBe(false)
-  })
-})
-
 describe('hintsMatchPortFilters (blueprint boundary hints)', () => {
   const hints = { inputs: ['core.text'], outputs: ['IMAGE'] }
 
@@ -194,6 +178,8 @@ describe('hintsMatchPortFilters (blueprint boundary hints)', () => {
     expect(hintsMatchPortFilters(hints, { outputs: ['image'] })).toBe(true)
     expect(hintsMatchPortFilters(hints, { inputs: ['image'] })).toBe(false)
     expect(hintsMatchPortFilters(hints, { outputs: ['text'] })).toBe(false)
+    expect(hintsMatchPortFilters(hints, { inputs: ['text', 'image'] })).toBe(false)
+    expect(hintsMatchPortFilters(hints, { outputs: ['image', 'mask'] })).toBe(false)
   })
 
   it('undeclared hints exclude the entry when a port filter is active', () => {
@@ -238,6 +224,36 @@ describe('schemaMatchesLinkDrop (noodle-drop compatibility)', () => {
     expect(schemaMatchesLinkDrop(decode, listAnchor, 'in')).toBe(false)
     const batch = schema([input('images', { kind: 'list', element: concrete('IMAGE') })])
     expect(schemaMatchesLinkDrop(batch, listAnchor, 'in')).toBe(true)
+    const either = schema([input('images', concrete('IMAGE'), { acceptsList: true })])
+    expect(autoConnectTarget(either, listAnchor, 'in')).toEqual({ port: 'images' })
+    expect(schemaMatchesPortFilters(either, { inputs: ['list<image>'] })).toBe(true)
+    expect(schemaMatchesLinkDrop(either, concrete('IMAGE'), 'in')).toBe(true)
+    expect(schemaMatchesLinkDrop(either, { kind: 'list', element: concrete('MASK') }, 'in')).toBe(false)
+    expect(schemaMatchesPortFilters(either, { inputs: ['list<mask>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(decode, { inputs: ['list<image>'] })).toBe(false)
+  })
+
+  it('input file requirements include the same one-step decoding as a dropped file wire', () => {
+    const image = schema([input('image', concrete('IMAGE'))])
+    const file: TypeExpr = { kind: 'asset', element: concrete('IMAGE') }
+    expect(schemaMatchesLinkDrop(image, file, 'in')).toBe(true)
+    expect(hintsMatchLinkDrop({ inputs: ['IMAGE'] }, file, 'in')).toBe(true)
+    expect(schemaMatchesPortFilters(image, { inputs: ['asset<image>'] })).toBe(true)
+    expect(hintsMatchPortFilters({ inputs: ['IMAGE'] }, { inputs: ['asset<image>'] })).toBe(true)
+    expect(schemaMatchesPortFilters(image, { inputs: ['list<asset<image>>'] })).toBe(true)
+    expect(schemaMatchesPortFilters(image, { inputs: ['asset<latent>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(image, { inputs: ['asset<asset<image>>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(image, { inputs: ['list<image>'] })).toBe(false)
+    const batch = schema([input('images', { kind: 'list', element: concrete('IMAGE') })])
+    expect(schemaMatchesPortFilters(batch, { inputs: ['asset<image>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(batch, { inputs: ['list<asset<image>>'] })).toBe(true)
+    const batchFile = schema([input('images', { kind: 'asset', element: { kind: 'list', element: concrete('IMAGE') } })])
+    expect(schemaMatchesPortFilters(batchFile, { inputs: ['asset<image>'] })).toBe(false)
+    expect(hintsMatchLinkDrop({ inputs: ['list<IMAGE>'] }, concrete('IMAGE'), 'in')).toBe(false)
+    const output = schema([{ kind: 'output', id: 'image', type: concrete('IMAGE') }])
+    expect(schemaMatchesPortFilters(output, { outputs: ['asset<image>'] })).toBe(false)
+    expect(hintsMatchPortFilters({ outputs: ['asset<IMAGE>'] }, { outputs: ['image'] })).toBe(true)
+    expect(hintsMatchLinkDrop({ outputs: ['asset<IMAGE>'] }, concrete('IMAGE'), 'out')).toBe(true)
   })
 
   it('matches concrete batch families and a constrained shared family exactly', () => {
