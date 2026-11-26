@@ -5136,7 +5136,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
      */
     function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
-      if (!tab) return
+      if (!tab || hit.row.readOnly) return
       // An editor shown in the node folds out under its row and back, as a
       // section opens and closes, also while a run holds the workflow. A
       // field on the Inputs panel folds out on the panel, which keeps its
@@ -5353,7 +5353,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (row.viewId === 'core.text' || row.viewId === 'core.line') &&
         widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi === undefined
       const stops = node.layout.rows.filter((row): row is WidgetLayoutRow =>
-        row.kind === 'widget' && !companionInputs.get(node.id)?.has(row.address.port) && !Object.hasOwn(found?.wired ?? {}, row.valueKey))
+        row.kind === 'widget' && !row.readOnly && !companionInputs.get(node.id)?.has(row.address.port) && !Object.hasOwn(found?.wired ?? {}, row.valueKey))
       const index = stops.findIndex((row) => row.valueKey === from.valueKey)
       if (index < 0) return
       const row = stops[(index + direction + stops.length) % stops.length]!

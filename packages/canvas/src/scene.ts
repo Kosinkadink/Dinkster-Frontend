@@ -1871,11 +1871,13 @@ export function buildScene(input: BuildSceneInput): Scene {
         // Offered members do not yet have a projected value owner. Resolve
         // their stable keys through the same crossing map as stored members.
         for (const step of ancestors.reverse()) {
-          const exposure = boundaryItems(step.child.boundary, 'inputs').find((candidate) =>
-            candidate.binds.kind === 'construct' && candidate.binds.node === owner.nodeId &&
-            (owner.valueKey === candidate.binds.port || owner.valueKey.startsWith(`${candidate.binds.port}.`)))
-          if (exposure?.binds.kind !== 'construct') break
-          const mapped = outerConstructAddress(step.child, exposure.binds, exposure.id, owner.valueKey,
+          const exposure = boundaryItems(step.child.boundary, 'inputs').flatMap((candidate) =>
+            [candidate.binds, ...(candidate.alsoBinds ?? [])].flatMap((binding) =>
+              binding.kind === 'construct' && binding.node === owner.nodeId &&
+              (owner.valueKey === binding.port || owner.valueKey.startsWith(`${binding.port}.`))
+                ? [{ item: candidate, binding }] : []))[0]
+          if (exposure === undefined) break
+          const mapped = outerConstructAddress(step.child, exposure.binding, exposure.item.id, owner.valueKey,
             (node) => resolveNode(step.child.id, node))
           if (mapped === undefined) break
           owner = { graphId: step.graph.id, nodeId: step.node.id, valueKey: mapped }

@@ -4178,6 +4178,95 @@ describe('a wire dragged from the Inputs panel to a field', () => {
 })
 
 describe('Inputs panel fields', () => {
+  it('materializes the offered record member through an aliased ancestor without changing its definition prefix', () => {
+    const sample: NodeSchema = { type: 'Sample', displayName: 'Sample', category: 'test', source: 'v3', isOutputNode: false, body: [
+      { kind: 'group', id: 'layers', keys: { kind: 'numbered', prefix: 'layer', start: 0, pad: 0 }, grows: 'filled',
+        minMembers: 0, maxMembers: 8, member: [
+          { kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+            widget: { widgetType: 'FLOAT', options: { min: 0, max: 1 }, default: 0.3 } },
+        ] },
+    ] }
+    const graph = (id: string, nodes: unknown, body?: unknown) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
+      ...(body === undefined ? {} : { boundary: { body } }),
+    })
+    const detailNode = (id: string) => ({ id, type: '#detail', values: { 'group.layer0.strength': 0.6 },
+      dynamic: { group: { members: ['layer0'] } } })
+    const document = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-alias', root: 'root', graphs: {
+      root: graph('root', { first: { id: 'first', type: '#portrait', values: {} }, second: { id: 'second', type: '#portrait', values: {} } }),
+      portrait: graph('portrait', { left: detailNode('left'), right: detailNode('right') }, [
+        { kind: 'input', id: 'group', binds: { kind: 'construct', node: 'left', port: 'group' },
+          alsoBinds: [{ kind: 'construct', node: 'right', port: 'group' }] },
+      ]),
+      detail: graph('detail', { sample: { id: 'sample', type: 'Sample', values: {} } }, [
+        { kind: 'input', id: 'group', binds: { kind: 'construct', node: 'sample', port: 'layers' } },
+      ]),
+    }, view: { graphs: {} } }).document as WorkflowDocument
+    const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial',
+      schemaResolverFor: (doc) => documentResolver(doc, (type) => type === sample.type ? sample : undefined),
+    }))
+    const resolve = documentResolver(store.doc, (type) => type === sample.type ? sample : undefined)
+    const scene = buildScene({ document: store.doc, graphId: 'detail', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+      occurrence: { owner: { instancePath: [asNodeId('first')], node: asNodeId('right') }, plannerAvailable: false },
+      occurrenceView: occurrenceDynamicView(store.doc, resolve, ['first', 'right']),
+    })
+    const panel = scene.boundaryNodes[0]!
+    const row = panel.layout.rows.find((row) => row.kind === 'widget' && row.ghost)
+    if (row?.kind !== 'widget') throw new Error('missing offered member')
+    const x = panel.x + row.inset + (row.width ?? panel.layout.width - row.inset * 2) - defaultTokens.rowGeometry.stepperZone / 2
+    const y = panel.y + row.y + row.height / 2
+    const clicking = interactionHarness(scene, { onWidgetActivate: (hit) => {
+      const owner = hit.row.familyOwner!
+      expect(store.dispatch({ command: 'batch', params: { invocations: [
+        { command: 'dynamic.materialize', params: { graphId: owner.graphId, nodeId: owner.nodeId, frames: hit.row.materialize } },
+        { command: 'node.setValue', params: { graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: 0.4 } },
+      ] } } as CommandInvocation).ok).toBe(true)
+    } })
+    clicking.fire('pointerdown', x, y)
+    clicking.fire('pointerup', x, y)
+    expect(store.doc.graphs.root!.nodes.first!.dynamic?.group?.members).toEqual(['layer0'])
+    expect(store.doc.graphs.root!.nodes.first!.values).toEqual({ 'group.layer0.strength': 0.4 })
+    expect(store.doc.graphs.root!.nodes.second!.dynamic).toBeUndefined()
+    expect(store.doc.graphs.portrait!.nodes.right!.values).toEqual({ 'group.layer0.strength': 0.6 })
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.root!.nodes.first!.dynamic?.group?.members ?? []).toEqual([])
+    expect(store.doc.graphs.root!.nodes.first!.values).toEqual({})
+  })
+
+  it('keeps every field of an exposed four-field member reachable inside its panel bounds', () => {
+    const sample: NodeSchema = { type: 'Sample', displayName: 'Sample', category: 'test', source: 'v3', isOutputNode: false, body: [
+      { kind: 'group', id: 'layers', keys: { kind: 'numbered', prefix: 'layer', start: 0, pad: 0 }, grows: 'button',
+        minMembers: 0, member: [{ kind: 'row', rows: ['first', 'second', 'third', 'fourth'].map((id) => ({
+          kind: 'input', id, type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+          widget: { widgetType: 'FLOAT', options: { min: 0, max: 1 }, default: 0.3 },
+        })) }] },
+    ] }
+    const document = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-shared', root: 'root', graphs: {
+      root: { id: 'root', name: 'Root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 },
+      detail: { id: 'detail', name: 'Detail', nodes: { sample: { id: 'sample', type: 'Sample', values: {},
+        dynamic: { layers: { members: ['layer0'] } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+        boundary: { body: [{ kind: 'input', id: 'group', binds: { kind: 'construct', node: 'sample', port: 'layers' } }] } },
+    }, view: { graphs: {} } }).document as WorkflowDocument
+    const store = new DocumentStore(document, coreCommandRegistry())
+    const resolve = documentResolver(store.doc, (type) => type === sample.type ? sample : undefined)
+    const scene = buildScene({ document: store.doc, graphId: 'detail', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+    })
+    const panel = scene.boundaryNodes[0]!
+    for (const id of ['first', 'second', 'third', 'fourth']) {
+      const row = panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === `group.layer0.${id}`)
+      if (row?.kind !== 'widget') throw new Error(`missing ${id}`)
+      const x = panel.x + row.inset + row.width! - defaultTokens.rowGeometry.stepperZone / 2
+      const y = panel.y + row.y + row.height / 2
+      const clicking = interactionHarness(scene)
+      clicking.fire('pointerdown', x, y)
+      clicking.fire('pointerup', x, y)
+      expect(clicking.dispatched).toHaveLength(1)
+      expect(store.dispatch(clicking.dispatched[0] as CommandInvocation).ok).toBe(true)
+      expect(store.doc.graphs.detail!.nodes.sample!.values[`layers.layer0.${id}`]).toBeCloseTo(0.4)
+    }
+  })
+
   it('edits whole-construct fields at the entered owner and folds their panel independently at both depths', () => {
     const field = (id: string) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'FLOAT' }, optional: false,
       widget: { widgetType: 'FLOAT', options: { min: 0, max: 1 }, default: 0.3 } })

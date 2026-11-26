@@ -2399,7 +2399,6 @@ export function layoutBoundaryNode(
   const titleWidth = measure(title, 'title') +
     (subtitle === undefined ? 0 : canvasPaintTokens.boundary.subtitleGap + measure(subtitle, 'label'))
   let width = Math.max(tokens.nodeMinWidth, titleWidth + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding)
-  for (const slot of slots) if (slot.tree !== undefined) width = Math.max(width, slot.tree.width)
   for (const row of rows) {
     if (row.kind === 'widget') {
       const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
@@ -2416,13 +2415,17 @@ export function layoutBoundaryNode(
     width = Math.max(width, measure(slot.label, 'label') + tokens.pinRadius * 2 + canvasPaintTokens.node.portLabelPadding + tokens.padX * 2)
   }
   width = Math.min(width, tokens.nodeMaxAutoWidth)
+  // Shared-line cells already have their ordinary node widths. Keep that
+  // floor so the panel's hit bounds contain every copied field.
+  const minWidth = Math.max(tokens.nodeMinWidth, ...slots.map((slot) => slot.tree?.width ?? 0))
+  width = Math.max(width, minWidth)
 
   const stackInsets = insetRowStack(rows, pins, tokens)
   const height = y + stackInsets.top + stackInsets.bottom
   return {
     width,
     height,
-    minWidth: tokens.nodeMinWidth,
+    minWidth,
     minHeight: height,
     headerHeight: tokens.headerHeight,
     title,

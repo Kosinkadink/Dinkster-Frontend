@@ -35,7 +35,8 @@ const widgetRows = (page: Page, nodeId: string) =>
 async function widgetPoint(page: Page, nodeId: string, valueKey: string): Promise<{ x: number; y: number }> {
   return page.evaluate(({ nodeId, valueKey }) => {
     const r = window.__dinksterTest!.renderer!
-    const node = r.getScene().nodes.find((n) => n.id === nodeId)!
+    const node = nodeId === 'inputs' ? r.getScene().boundaryNodes.find((n) => n.side === 'inputs')!
+      : r.getScene().nodes.find((n) => n.id === nodeId)!
     const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === valueKey)!
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = r.getViewport()
@@ -86,6 +87,7 @@ test.beforeEach(async ({ page }) => {
       {
         type: 'Mode', displayName: 'Mode', category: 'test', source: 'v3', isOutputNode: true,
         body: [
+          { kind: 'input', id: 'title', type: STRING, optional: false, widget: { widgetType: 'STRING', options: {}, default: 'Title' } },
           {
             kind: 'choice', id: 'mode', displayName: 'Mode', required: true, shared: [],
             options: [
@@ -93,6 +95,7 @@ test.beforeEach(async ({ page }) => {
               { key: 'text', rows: [{ kind: 'input', id: 'words', type: STRING, optional: false, widget: { widgetType: 'STRING', options: {}, default: '' } }] },
             ],
           },
+          { kind: 'input', id: 'tail', type: STRING, optional: false, widget: { widgetType: 'STRING', options: {}, default: 'Tail' } },
           { kind: 'output', id: 'out', type: IMAGE },
         ],
       },
@@ -189,13 +192,26 @@ test('the subgraph node shows the whole group and choice; entering shows definit
   ])
   // The outer pick reaches the inner choice.
   await expect.poll(() => widgetRows(page, 'm')).toEqual([
+    { key: 'title', label: expect.any(String), value: 'Title' },
     { key: 'mode', label: expect.any(String), value: 'text' },
     { key: 'mode.words', label: expect.any(String), value: 'portrait' },
+    { key: 'tail', label: expect.any(String), value: 'Tail' },
   ])
   await shot(page, 'entered')
 
-  // Picking inside writes the subgraph node's pick, never the definition's.
-  const leader = await widgetPoint(page, 'm', 'mode')
+  const title = await widgetPoint(page, 'm', 'title')
+  await page.mouse.click(title.x, title.y)
+  const text = page.locator('.widget-in-row-field input')
+  await expect(text).toHaveValue('Title')
+  await text.press('Tab')
+  await expect(text).toHaveValue('Tail')
+  await text.press('Escape')
+
+  // The effective inner choice is read-only. Its Inputs face owns edits.
+  const innerLeader = await widgetPoint(page, 'm', 'mode')
+  await page.mouse.click(innerLeader.x, innerLeader.y)
+  await expect(page.getByRole('option', { name: 'image', exact: true })).toHaveCount(0)
+  const leader = await widgetPoint(page, 'inputs', 'look')
   await page.mouse.click(leader.x, leader.y)
   const option = page.getByRole('option', { name: 'image', exact: true })
   await expect(option).toBeVisible()
@@ -203,13 +219,15 @@ test('the subgraph node shows the whole group and choice; entering shows definit
   await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['i0']!.dynamic?.['look']?.selected).toBe('image')
   expect((await activeDoc(page)).graphs['sub']!.nodes['m']!.dynamic?.['mode']?.selected).toBe('image')
   await expect.poll(() => widgetRows(page, 'm')).toEqual([
+    { key: 'title', label: expect.any(String), value: 'Title' },
     { key: 'mode', label: expect.any(String), value: 'image' },
     { key: 'mode.strength', label: expect.any(String), value: 0.3 },
+    { key: 'tail', label: expect.any(String), value: 'Tail' },
   ])
   // A field the subgraph node does not store yet is still its own: the edit
   // lands outside, and the definition keeps nothing.
   await page.getByTestId('graph-canvas').focus()
-  const strength = await widgetPoint(page, 'm', 'mode.strength')
+  const strength = await widgetPoint(page, 'inputs', 'look.strength')
   await page.mouse.click(strength.x, strength.y)
   const editor = page.getByTestId('widget-editor').locator('input')
   await expect(editor).toBeVisible()
