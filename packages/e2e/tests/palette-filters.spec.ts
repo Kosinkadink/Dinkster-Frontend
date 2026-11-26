@@ -1,9 +1,4 @@
-/**
- * Structured palette filters: kind:/in:/out: tokens and the kind chip row.
- * Kind filters split nodes from subgraphs; port filters consult declared
- * type structure (subgraphs via their boundary-derived schema); residual
- * text still ranks through the shared scorer.
- */
+/** Canonical kind and port filters share one result set and display-only preview. */
 import { expect, nativeTest, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
@@ -15,7 +10,7 @@ const openPalette = async (page: Page): Promise<void> => {
   await page.mouse.dblclick(700, 600)
   await expect(page.getByTestId('node-palette')).toBeVisible()
 }
-
+const rows = (page: Page) => page.getByTestId('node-palette').getByRole('option')
 const gotoSubgraphTab = async (page: Page): Promise<void> => {
   await page.getByTestId('tab-bar').locator('.tab', { hasText: 'Subgraph' }).click()
 }
@@ -24,236 +19,186 @@ test('kind:node hides subgraph entries; kind:subgraph shows only them', async ({
   await gotoSubgraphTab(page)
   await openPalette(page)
   const search = page.getByTestId('palette-search')
-
   await search.fill('kind:subgraph')
-  await expect(page.getByTestId('palette-item')).toHaveCount(1)
-  await expect(page.locator('[data-node-type="#g1"]')).toBeVisible()
-
+  await expect(rows(page)).toHaveCount(1)
+  await expect(page.locator('[data-key="entry:#g1"]')).toBeVisible()
   await search.fill('kind:node image')
-  await expect(page.getByTestId('palette-item').first()).toBeVisible()
-  await expect(page.locator('[data-node-type="#g1"]')).not.toBeVisible()
+  await expect(rows(page).first()).toBeVisible()
+  await expect(page.locator('[data-key="entry:#g1"]')).not.toBeVisible()
 })
 
 test('in: filters by declared input type with residual text ranking', async ({ page }) => {
   await openPalette(page)
   const search = page.getByTestId('palette-search')
-
   await search.fill('in:latent decode')
-  await expect(page.locator('[data-node-type="dinkster.latent.vae_decode"]')).toBeVisible()
-  // LoadImage has no latent input; "decode" text alone must not revive it.
-  await expect(page.locator('[data-node-type="dinkster.image.load_image"]')).not.toBeVisible()
-
+  await expect(page.locator('[data-key="entry:dinkster.latent.vae_decode"]')).toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.image.load_image"]')).not.toBeVisible()
   await search.fill('in:latent')
-  await expect(page.locator('[data-node-type="dinkster.sampling.k_sampler"]')).toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.sampling.k_sampler"]')).toBeVisible()
 })
 
-nativeTest('long node names do not overlap their pack badge', async ({ page }) => {
+nativeTest('long node names do not overlap their row context or preview pack', async ({ page }) => {
   nativeTest.skip(process.env['DINKSTER_E2E_USE_NATIVE'] !== '1', 'requires the native multi-pack catalog')
   await openPalette(page)
   await page.getByTestId('palette-search').fill('CLIP Text Encode (SDXL Refiner)')
-  const row = page.locator('[data-node-type="dinkster.sd.clip_text_encode_sdxl_refiner"]')
-  const pack = row.locator('.search-result-row-badge')
+  const row = page.locator('[data-key="entry:dinkster.sd.clip_text_encode_sdxl_refiner"]')
   await expect(row).toBeVisible()
-  await expect(pack).toHaveText('dinkster-sd')
-
-  // Catalog refresh can replace a result between separate browser geometry reads.
+  await expect(page.getByTestId('search-preview')).toContainText('dinkster-sd')
   await expect.poll(() => row.evaluate((element) => {
-    const name = element.querySelector('.search-result-row-title')?.getBoundingClientRect()
-    const badge = element.querySelector('.search-result-row-badge')?.getBoundingClientRect()
-    return {
-      nameVisible: name !== undefined && name.width > 0 && name.height > 0,
-      packVisible: badge !== undefined && badge.width > 0 && badge.height > 0,
-      separated: name !== undefined && badge !== undefined && name.right <= badge.left,
-    }
-  })).toEqual({ nameVisible: true, packVisible: true, separated: true })
+    const name = element.querySelector('.dinkster-search-row-title')?.getBoundingClientRect()
+    const context = element.querySelector('.dinkster-search-row-detail')?.getBoundingClientRect()
+    return name !== undefined && context !== undefined && name.width > 0 && context.width > 0 && name.right <= context.left
+  })).toBe(true)
 })
 
 test('out: filters match subgraphs through their boundary-derived schema', async ({ page }) => {
   await gotoSubgraphTab(page)
   await openPalette(page)
   const search = page.getByTestId('palette-search')
-
-  // "Image source" wraps EmptyImage; its boundary output is an IMAGE.
   await search.fill('out:image kind:subgraph')
-  await expect(page.locator('[data-node-type="#g1"]')).toBeVisible()
-
-  // It produces no latent, so the same subgraph fails out:latent.
+  await expect(page.locator('[data-key="entry:#g1"]')).toBeVisible()
   await search.fill('out:latent kind:subgraph')
-  await expect(page.getByTestId('palette-item')).toHaveCount(0)
+  await expect(rows(page)).toHaveCount(0)
 })
 
-test('kind chips filter and toggle; the utility kind always offers a choice', async ({ page }) => {
-  // The synthetic Reroute utility entry means every document offers at
-  // least node + utility kinds, so the chip row is always present.
+test('kind tabs narrow results, return to All, and retain search focus', async ({ page }) => {
   await openPalette(page)
-  await expect(page.getByTestId('palette-kinds')).toBeVisible()
-  const utilityChip = page.locator('[data-testid="palette-kind"][data-kind="utility"]')
-  await utilityChip.click()
-  await expect(page.locator('[data-node-type="__dinkster.reroute"]')).toBeVisible()
-  await expect(page.locator('[data-node-type="dinkster.sampling.k_sampler"]')).toHaveCount(0)
-  // Toggling the last active chip clears the filter again.
-  await utilityChip.click()
-  expect(await page.getByTestId('palette-item').count()).toBeGreaterThan(1)
-  await page.getByTestId('palette-search').press('Escape')
-
+  const palette = page.getByTestId('node-palette')
+  const search = page.getByTestId('palette-search')
+  await search.fill('')
+  await palette.getByRole('tab', { name: 'Utilities', exact: true }).click()
+  await expect(rows(page)).toHaveCount(1)
+  await rows(page).first().press('Escape')
+  await expect(palette).not.toBeVisible()
+  await openPalette(page)
+  await search.fill('kind:utility')
+  await expect(page.locator('[data-key="entry:__dinkster.reroute"]')).toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.sampling.k_sampler"]')).toHaveCount(0)
+  await search.fill('image')
+  await palette.getByRole('tab', { name: 'Nodes', exact: true }).click()
+  await expect(rows(page).first()).toBeVisible()
+  await expect(search).toBeFocused()
+  await search.press('Escape')
   await gotoSubgraphTab(page)
   await openPalette(page)
-  await expect(page.getByTestId('palette-kinds')).toBeVisible()
-
-  const subgraphChip = page.locator('[data-testid="palette-kind"][data-kind="subgraph"]')
-  await subgraphChip.click()
-  await expect(page.getByTestId('palette-item')).toHaveCount(1)
-  await expect(page.locator('[data-node-type="#g1"]')).toBeVisible()
-  // The chip must not steal focus from the search input (palette stays open).
-  await expect(page.getByTestId('node-palette')).toBeVisible()
-
-  // Toggling the last active chip clears the filter.
-  await subgraphChip.click()
-  await expect(page.getByTestId('palette-item').first()).toBeVisible()
-  const count = await page.getByTestId('palette-item').count()
-  expect(count).toBeGreaterThan(1)
+  await palette.getByRole('tab', { name: 'Subgraphs', exact: true }).click()
+  await search.fill('Image source')
+  await expect(rows(page)).toHaveCount(1)
+  await expect(page.locator('[data-key="entry:#g1"]')).toBeVisible()
+  await palette.getByRole('tab', { name: 'All', exact: true }).click()
+  await search.fill('image')
+  expect(await rows(page).count()).toBeGreaterThan(1)
 })
 
-test('highlighted entry shows a schema preview: ports with types, keyboard-driven', async ({ page }) => {
+test('highlighted entries paint their schema preview and keyboard selection changes its drawing', async ({ page }) => {
   await openPalette(page)
   const search = page.getByTestId('palette-search')
   await search.fill('dinkster.latent.vae_decode')
-
-  // Hovering an entry highlights it; its interface renders beside the list.
-  const preview = page.getByTestId('palette-preview')
-  await expect(preview).toBeVisible()
-  await page.locator('[data-node-type="dinkster.latent.vae_decode"]').hover()
-  const canvas = preview.getByTestId('palette-node-preview')
+  const preview = page.getByTestId('search-preview')
+  const canvas = preview.getByTestId('search-node-preview')
+  await page.locator('[data-key="entry:dinkster.latent.vae_decode"]').hover()
   await expect(canvas).toHaveAttribute('data-preview-ready', 'dinkster.latent.vae_decode')
-  const painted = await canvas.evaluate((element: HTMLCanvasElement) => ({
-    width: element.width,
-    height: element.height,
-    nonBlank: element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data.some((value) => value !== 0),
-  }))
+  await expect(preview.getByRole('heading')).toHaveText('VAE Decode')
+  const painted = await canvas.evaluate((element: HTMLCanvasElement) => {
+    const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data
+    const contains = (r: number, g: number, b: number) => {
+      for (let index = 0; index < pixels.length; index += 4)
+        if (pixels[index] === r && pixels[index + 1] === g && pixels[index + 2] === b && pixels[index + 3] === 255) return true
+      return false
+    }
+    return { width: element.width, height: element.height, latent: contains(255, 156, 249), image: contains(100, 181, 246) }
+  })
   expect(painted.width).toBeGreaterThan(0)
   expect(painted.height).toBeGreaterThan(0)
-  expect(painted.nonBlank).toBe(true)
-  await expect(preview.locator('.preview-title')).toHaveText('VAE Decode')
-  await expect(preview.getByTestId('preview-input')).toHaveCount(2) // samples + vae
-  await expect(preview.getByTestId('preview-input').first()).toContainText('LATENT')
-  await expect(preview.getByTestId('preview-output')).toHaveCount(1)
-  await expect(preview.getByTestId('preview-output')).toContainText('IMAGE')
-  const portType = preview.locator('.preview-port-type[data-tooltip-label]').first()
-  const tooltipText = await portType.getAttribute('data-tooltip-label')
-  expect(tooltipText).toBeTruthy()
-  await expect(portType).not.toHaveAttribute('title')
+  expect(painted.latent).toBe(true)
+  expect(painted.image).toBe(true)
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
-  await portType.hover()
-  await expect(page.getByTestId('app-tooltip')).toHaveText(tooltipText!, { timeout: 1_500 })
-  await portType.focus()
-  await expect(page.getByTestId('app-tooltip')).toHaveText(tooltipText!)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-
-  // Arrow keys move the highlight and the preview follows.
   await search.fill('image')
-  const entries = page.getByTestId('palette-item')
-  const firstType = await entries.nth(0).getAttribute('data-node-type')
-  const secondType = await entries.nth(1).getAttribute('data-node-type')
-  const secondTitle = await entries.nth(1).locator('.search-result-row-title').textContent()
-  expect(firstType).toBeTruthy()
-  expect(secondType).toBeTruthy()
+  const firstType = (await rows(page).nth(0).getAttribute('data-key'))!.slice('entry:'.length)
+  const secondType = (await rows(page).nth(1).getAttribute('data-key'))!.slice('entry:'.length)
+  const secondTitle = await rows(page).nth(1).locator('.dinkster-search-row-title').textContent()
   expect(secondType).not.toBe(firstType)
-  await expect(canvas).toHaveAttribute('data-preview-ready', firstType!)
+  await expect(canvas).toHaveAttribute('data-preview-ready', firstType)
+  const firstDrawing = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())
   await search.press('ArrowDown')
-  await expect(preview.locator('.preview-title')).toHaveText(secondTitle!)
-  await expect(canvas).toHaveAttribute('data-preview-ready', secondType!)
+  await expect(preview.getByRole('heading')).toHaveText(secondTitle!)
+  await expect(canvas).toHaveAttribute('data-preview-ready', secondType)
+  expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).not.toBe(firstDrawing)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
 })
 
 test('subgraph entries preview their boundary-derived interface', async ({ page }) => {
   await gotoSubgraphTab(page)
   await openPalette(page)
   await page.getByTestId('palette-search').fill('kind:subgraph')
-  const preview = page.getByTestId('palette-preview')
+  const preview = page.getByTestId('search-preview')
   await expect(preview).toBeVisible()
-  await expect(preview.locator('.preview-meta')).toContainText('subgraph')
-  await expect(preview.getByTestId('palette-node-preview')).toHaveAttribute('data-preview-ready', '#g1')
-  // "Image source" wraps EmptyImage: boundary output is an IMAGE.
-  await expect(preview.getByTestId('preview-output')).toContainText('IMAGE')
+  await expect(preview.getByRole('heading')).toHaveText('Image source')
+  await expect(preview.getByTestId('search-node-preview')).toHaveAttribute('data-preview-ready', '#g1')
 })
 
-test('closing the palette resets chip filters', async ({ page }) => {
+test('closing the palette resets kind filters', async ({ page }) => {
   await gotoSubgraphTab(page)
   await openPalette(page)
-  await page.locator('[data-testid="palette-kind"][data-kind="subgraph"]').click()
-  await expect(page.getByTestId('palette-item')).toHaveCount(1)
+  await page.getByTestId('node-palette').getByRole('tab', { name: 'Subgraphs', exact: true }).click()
+  await page.getByTestId('palette-search').fill('Image source')
+  await expect(rows(page)).toHaveCount(1)
   await page.getByTestId('palette-search').press('Escape')
-
   await openPalette(page)
-  await expect(page.locator('[data-testid="palette-kind"][data-kind="subgraph"]')).not.toHaveClass(/active/)
-  const count = await page.getByTestId('palette-item').count()
-  expect(count).toBeGreaterThan(1)
+  await expect(page.getByTestId('node-palette').getByRole('tab', { name: 'All', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await page.getByTestId('palette-search').fill('image')
+  expect(await rows(page).count()).toBeGreaterThan(1)
 })
 
-test('product type disclosures are independent, keyboard complete, and mutation free', async ({ page }) => {
+test('type menus are independent, keyboard complete, and mutation free', async ({ page }) => {
   await openPalette(page)
+  const palette = page.getByTestId('node-palette')
+  const search = page.getByTestId('palette-search')
+  await search.fill('in:latent')
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
-  const input = page.getByTestId('palette-input-filter')
-  const output = page.getByTestId('palette-output-filter')
-  const inputTrigger = input.locator('.palette-type-trigger')
-  const outputTrigger = output.locator('.palette-type-trigger')
-  await expect(inputTrigger).toHaveText('Input: Any type')
-  await expect(outputTrigger).toHaveText('Output: Any type')
-
+  const inputTrigger = palette.getByRole('button', { name: /^Takes:/ })
+  const outputTrigger = palette.getByRole('button', { name: /^Gives:/ })
+  await expect(inputTrigger).toHaveAccessibleName('Takes: Any type')
+  await expect(outputTrigger).toHaveAccessibleName('Gives: Any type')
   await inputTrigger.focus()
   await inputTrigger.press('Enter')
   await expect(inputTrigger).toHaveAttribute('aria-expanded', 'true')
   await expect(outputTrigger).toHaveAttribute('aria-expanded', 'false')
-  const inputPanel = page.locator(`#${await inputTrigger.getAttribute('aria-controls')}`)
-  const inputSearch = inputPanel.getByLabel('Search input types')
-  await expect(inputSearch).toBeFocused()
-  await inputSearch.fill('definitely-no-type')
-  await expect(inputPanel).toContainText('No matching types')
-  await inputSearch.fill('latent')
-  const latent = inputPanel.getByRole('checkbox', { name: 'LATENT', exact: true })
-  await expect(latent).toHaveAttribute('aria-checked', 'false')
-  const options = inputPanel.getByRole('checkbox')
-  const latentIndex = await options.evaluateAll((items) => items.findIndex((item) => item.textContent === 'LATENT'))
+  const menu = palette.getByRole('menu')
+  await expect(menu.getByRole('menuitemcheckbox').first()).toBeFocused()
+  const latent = menu.getByRole('menuitemcheckbox', { name: 'Takes LATENT', exact: true })
+  await expect(latent).not.toBeChecked()
+  const options = menu.getByRole('menuitemcheckbox')
+  const latentIndex = await options.evaluateAll((items) => items.findIndex((item) => item.getAttribute('aria-label') === 'Takes LATENT'))
   expect(latentIndex).toBeGreaterThanOrEqual(0)
-  await inputSearch.press('ArrowDown')
-  await expect(options.first()).toBeFocused()
   for (let index = 0; index < latentIndex; index++) await page.keyboard.press('ArrowDown')
   await expect(latent).toBeFocused()
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-
-  const resultCount = await page.getByTestId('palette-item').count()
   await latent.press('Space')
-  await expect(latent).toHaveAttribute('aria-checked', 'true')
-  await expect(inputTrigger).toHaveText('Input: 1 selected')
-  expect(await page.getByTestId('palette-item').count()).toBeLessThan(resultCount)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-  await expect(outputTrigger).toHaveAttribute('aria-expanded', 'false')
-  await expect(outputTrigger).toHaveText('Output: Any type')
-
-  await latent.press('Escape')
-  await expect(inputTrigger).toHaveAttribute('aria-expanded', 'false')
+  await expect(inputTrigger).toHaveAccessibleName('Takes: LATENT')
+  await expect(outputTrigger).toHaveAccessibleName('Gives: Any type')
   await expect(inputTrigger).toBeFocused()
   await inputTrigger.press('Space')
-  await expect(inputTrigger).toHaveAttribute('aria-expanded', 'true')
-  await page.getByTestId('palette-search').click()
-  await expect(inputTrigger).toHaveAttribute('aria-expanded', 'false')
-  await expect(page.getByTestId('palette-search')).toBeFocused()
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-
+  await expect(latent).toBeChecked()
+  await page.keyboard.press('Escape')
+  await expect(inputTrigger).toBeFocused()
+  await inputTrigger.click()
+  await search.click()
+  await expect(menu).toHaveCount(0)
+  await expect(search).toBeFocused()
   await outputTrigger.focus()
   await outputTrigger.press('Enter')
   await expect(outputTrigger).toHaveAttribute('aria-expanded', 'true')
   await expect(inputTrigger).toHaveAttribute('aria-expanded', 'false')
-  await page.getByLabel('Search output types').press('Escape')
-  await expect(outputTrigger).toHaveAttribute('aria-expanded', 'false')
+  await page.keyboard.press('Escape')
   await expect(outputTrigger).toBeFocused()
-  await expect(page.getByTestId('node-palette')).toBeVisible()
+  await expect(palette).toBeVisible()
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   await outputTrigger.press('Escape')
-  await expect(page.getByTestId('node-palette')).not.toBeVisible()
-
+  await expect(palette).not.toBeVisible()
   await openPalette(page)
-  await expect(page.getByTestId('palette-input-filter')).toHaveAttribute('data-expanded', 'false')
-  await page.getByTestId('palette-search').press('Escape')
-  await expect(page.getByTestId('node-palette')).not.toBeVisible()
+  await expect(palette.getByRole('button', { name: 'Takes: Any type', exact: true })).toHaveAttribute('aria-expanded', 'false')
+  await search.press('Escape')
+  await expect(palette).not.toBeVisible()
 })
 
 test('backdrop pointerdown dismisses without reaching or panning the canvas', async ({ page }) => {
@@ -261,15 +206,12 @@ test('backdrop pointerdown dismisses without reaching or panning the canvas', as
   const viewportBefore = await page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
   const selectionBefore = await canvas.getAttribute('data-selection')
   await openPalette(page)
-
-  const backdrop = page.getByTestId('palette-backdrop')
-  const box = (await backdrop.boundingBox())!
+  const box = (await page.getByTestId('palette-backdrop').boundingBox())!
   await page.mouse.move(box.x + 8, box.y + box.height / 2)
   await page.mouse.down()
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
   await page.mouse.move(box.x + 80, box.y + box.height / 2)
   await page.mouse.up()
-
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())).toEqual(viewportBefore)
   await expect(canvas).toHaveAttribute('data-selection', selectionBefore!)
 })

@@ -265,6 +265,7 @@ export function NodePalette(props: {
         })),
       ]} />
   }
+  const filters = <>{typeMenu('takes')}{typeMenu('gives')}</>
   let panel!: HTMLDivElement
   let observer: ResizeObserver | undefined
   const place = () => {
@@ -309,7 +310,7 @@ export function NodePalette(props: {
           color: presentedType(defaultTokens, props.anchor.linkDrop.anchorType).color,
           removeLabel: message('palette.filter.removeConnection'), onRemove: props.onRemoveLinkDrop,
         } })}
-        filters={<>{typeMenu('takes')}{typeMenu('gives')}</>}
+        filters={filters}
         groups={groups()} {...(selectedKey() === undefined ? {} : { current: selectedKey()! })}
         onCurrent={setCurrent} onActivate={activate} onClose={props.onClose}
         markQuery={parseSearchFilters(query()).text}

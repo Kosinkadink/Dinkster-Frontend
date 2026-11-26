@@ -434,3 +434,51 @@ test('a dropped wire keeps compatible results and atomic insertion while its chi
   await expect.poll(nodes).toEqual([sourceId])
   expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links))).toEqual([])
 })
+
+test('Insert node opens both port constraints and splices a compatible choice in one undo step', async ({ page }) => {
+  await page.evaluate(async () => {
+    const diagnostics = await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'palette-splice', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        source: { id: 'source', type: 'PaletteImageProducer', values: {} },
+        sink: { id: 'sink', type: 'PaletteImageConsumer', values: {} },
+      }, links: { original: { id: 'original', from: { node: 'source', port: 'image' }, to: { node: 'sink', port: 'image' } } },
+      nets: {}, reroutes: {}, nextOrdinal: 0 } },
+      view: { graphs: { g0: { nodes: {
+        source: { position: { x: 40, y: 100 } }, sink: { position: { x: 700, y: 100 } },
+      } } } },
+    }, 'Palette splice')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().links.some((link) => link.id === 'original'))).toBe(true)
+  const midpoint = await page.evaluate(() => {
+    const link = window.__dinksterTest!.renderer!.getScene().links.find((link) => link.id === 'original')!
+    const rect = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return { x: rect.left + (link.x1 + link.x2) / 2, y: rect.top + (link.y1 + link.y2) / 2 }
+  })
+  await page.mouse.dblclick(midpoint.x, midpoint.y)
+  await page.getByTestId('link-double-click-menu').getByRole('button', { name: 'Insert node...' }).click()
+  const palette = page.getByTestId('node-palette')
+  await expect(palette.getByRole('button', { name: 'Takes: IMAGE', exact: true })).toBeVisible()
+  await expect(palette.getByRole('button', { name: 'Gives: IMAGE', exact: true })).toBeVisible()
+  await page.getByTestId('palette-search').fill('Palette image')
+  await expect(palette.locator('[data-key="entry:PaletteImageProducer"]')).toHaveCount(0)
+  await expect(palette.locator('[data-key="entry:PaletteImageConsumer"]')).toHaveCount(0)
+  await page.getByTestId('palette-search').fill('Palette transform 01')
+  await expect(palette.getByRole('option').first()).toHaveAttribute('data-key', 'entry:PaletteTransform00')
+  await capture(page, 'app-splice-compatible')
+  await page.getByTestId('palette-search').press('Enter')
+  await expect(palette).toHaveCount(0)
+  const graph = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!)
+  await expect.poll(async () => Object.keys((await graph()).nodes)).toHaveLength(3)
+  const added = Object.keys((await graph()).nodes).find((id) => id !== 'source' && id !== 'sink')!
+  expect(Object.values((await graph()).links)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ from: { node: 'source', port: 'image' }, to: { node: added, port: 'image' } }),
+    expect.objectContaining({ from: { node: added, port: 'image' }, to: { node: 'sink', port: 'image' } }),
+  ]))
+  expect(Object.keys((await graph()).links)).toHaveLength(2)
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect(Object.keys((await graph()).nodes)).toEqual(['source', 'sink'])
+  expect(Object.keys((await graph()).links)).toEqual(['original'])
+})
