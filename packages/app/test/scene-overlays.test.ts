@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { buildScene, defaultTokens, DEPRECATED_BADGE, executionErrorBadge, LAST_RUN_BADGE, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
-import { asConnectionId, asGraphDefId, asLinkId, asNodeId, asPortId, compile, documentNodeResolver, documentPrimitiveResolver, inputsOf, occurrenceKey, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { asConnectionId, asGraphDefId, asLinkId, asNodeId, asPortId, compile, coreCommandRegistry, documentNodeResolver, documentPrimitiveResolver, documentResolver, DocumentStore, inputsOf, loadDocument, occurrenceKey, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, representedPreviewAssetForNode, withRecordedAutomaticValues, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
 import type { PreviewLoader, PreviewSource } from '../src/node-previews.js'
+import { boundarySample, resolveBoundarySample } from '../../core/test/fixtures/boundary-sample.js'
 
 // The derivation reads scene.nodes (id/isSubgraph/node.type), execution
 // nodes/outputs/previews/artifact, and schema type/pack/deprecation;
@@ -144,6 +145,60 @@ describe('selected asset preview qualification', () => {
 })
 
 describe('represented output previews', () => {
+  it('uses renamed asset and choice references for each occurrence through both boundary depths', () => {
+    const asset = (digit: string) => ({ digest: `blake3:${digit.repeat(64)}`, name: `${digit}.png`,
+      size: 10, mediaType: 'image/png', virtualPath: `${digit}.png` })
+    for (const depth of [1, 2] as const) {
+      const source = boundarySample(depth)
+      const image = depth === 1 ? 'photo' : 'picture'
+      const mode = depth === 1 ? 'tint' : 'treatment'
+      for (const [id, digit, selected] of [['first', 'a', 'image'], ['second', 'b', 'text']] as const) {
+        const node = source.graphs.root!.nodes[id]!
+        Object.assign(node, { values: { ...node.values, [image]: asset(digit) }, dynamic: { ...node.dynamic, [mode]: { selected } } })
+      }
+      const detail = source.graphs.detail!
+      Object.assign(detail, { boundary: { body: detail.boundary!.body.map((row) => row.kind !== 'input' ? row
+        : row.id === 'image' ? { ...row, id: 'photo', promoted: true } : row.id === 'mode' ? { ...row, id: 'tint' } : row) } })
+      if (depth === 2) {
+        const portrait = source.graphs.portrait!
+        Object.assign(portrait, { boundary: { body: portrait.boundary!.body.map((row) => row.kind !== 'input' ? row
+          : row.id === 'image' ? { ...row, id: 'picture', promoted: true, binds: { kind: 'port', node: 'detail', port: 'photo' } }
+            : row.id === 'mode' ? { ...row, id: 'treatment', binds: { kind: 'construct', node: 'detail', port: 'tint' } } : row) } })
+      }
+      const sample = resolveBoundarySample('Boundary sample')!
+      const resolveAssets = (type: string): NodeSchema | undefined => type !== sample.type ? resolveBoundarySample(type) : {
+        ...sample, body: sample.body.map((row) => row.kind === 'input' && row.id === 'image' ? {
+          ...row, type: { kind: 'concrete', name: 'core.ASSET' }, widget: { widgetType: 'ASSET', options: {}, default: null },
+        } : row.kind === 'output' && row.id === 'result' ? { ...row, type: { kind: 'concrete', name: 'IMAGE' },
+          represents: { input: 'image', rendition: 'decoded-image', applies: { mode: ['image'] } },
+        } : row),
+      }
+      const store = new DocumentStore(source, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (document) => documentResolver(document, resolveAssets) }))
+      const previews = (document = store.doc) => {
+        const resolve = documentResolver(document, resolveAssets)
+        const built = buildScene({ document, graphId: 'root', resolve, tokens: defaultTokens,
+          measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.asset', rows: 1 }) })
+        return ['first', 'second'].map((id) => representedPreviewAssetForNode(built.nodes.find((node) => node.id === id)!,
+          resolve(document.graphs.root!.nodes[id]!.type)!, previewRegistry.previewRendererFor))
+      }
+      expect(previews().map((preview) => preview?.digest)).toEqual([asset('a').digest, undefined])
+      expect(previews()[0]?.outputId).toBe('result')
+      const changed = store.dispatch({ command: 'dynamic.selectOption', params: { graphId: 'root', nodeId: 'first', construct: mode, option: 'text' } })
+      expect(changed.ok, JSON.stringify(changed.diagnostics)).toBe(true)
+      expect(previews()).toEqual([undefined, undefined])
+      expect(store.undo()).toBe(true)
+      expect(previews().map((preview) => preview?.digest)).toEqual([asset('a').digest, undefined])
+      expect(store.redo()).toBe(true)
+      expect(previews(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!)).toEqual([undefined, undefined])
+      const sibling = store.dispatch({ command: 'dynamic.selectOption', params: { graphId: 'root', nodeId: 'second', construct: mode, option: 'image' } })
+      expect(sibling.ok, JSON.stringify(sibling.diagnostics)).toBe(true)
+      expect(previews().map((preview) => preview?.digest)).toEqual([undefined, asset('b').digest])
+      expect(previews(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!).map((preview) => preview?.digest))
+        .toEqual([undefined, asset('b').digest])
+    }
+  })
+
   const digest = `blake3:${'a'.repeat(64)}`
   const stored = { digest, name: 'image.png', size: 10, mediaType: 'image/png', virtualPath: 'image.png' }
   const representedSchema = (over: Record<string, unknown> = {}): NodeSchema => ({
