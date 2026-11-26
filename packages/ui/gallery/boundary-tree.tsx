@@ -5,6 +5,7 @@ import {
   BoundaryTree,
   ProductButton,
   ProductCheckbox,
+  ProductField,
   ProductIcon,
   ProductLink,
   ProductTextInput,
@@ -221,7 +222,7 @@ function Example(props: {
   )
 }
 
-const fieldSettings = () => (
+const fieldSettings = (invalid = false) => (
   <>
     <div class="boundary-tree-settings-head">
       <span class="boundary-tree-panel-title">strength</span>
@@ -236,6 +237,9 @@ const fieldSettings = () => (
     <Setting label="Default">
       <ProductTextInput density="panel" value="0.45" aria-label="Default" />
     </Setting>
+    <ProductField label="Formula" error={invalid ? 'This condition cannot be used: unknown name missing.' : ''}>
+      {(attributes) => <ProductTextInput {...attributes} density="panel" value={invalid ? 'missing > 0' : 'linked(mask) and strength > 0.2'} />}
+    </ProductField>
   </>
 )
 
@@ -330,6 +334,12 @@ export function BoundaryTreeGallery() {
           selected="strength"
           settings={fieldSettings()}
         />
+      </Example>
+      <Example
+        caption="An invalid Show formula"
+        note="The error stays under its field. The saved condition is unchanged; Escape or selecting another row cancels the draft."
+      >
+        <Panel title="Detail pass" uses="used in 2 places" entries={detailPass()} selected="strength" settings={fieldSettings(true)} />
       </Example>
       <Example
         caption="An output with Force its own row"
