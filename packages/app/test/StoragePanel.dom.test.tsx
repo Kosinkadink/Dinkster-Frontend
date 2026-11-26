@@ -46,12 +46,14 @@ it('groups model grants under one folder and switches project membership without
     locations: [{ ...location, enabled: true, active: true, mounts: all.slice(0, 3).map((row) => row.id) }],
     revision: 'revision', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
   }
+  let refuseRemoval = true
   const connection = {
     fetchMountSettings: async () => settings,
     fetchMountLocations: async () => ({ mounts: all }),
     fetchModelSettings: async () => models,
     onMountsChanged: () => () => {},
     updateProjectFolders: async (ids: readonly string[], output: string) => {
+      if (!ids.includes('plates') && refuseRemoval) throw new Error('Folder changes are temporarily unavailable.')
       settings = { mounts: ids.map((id) => all.find((row) => row.id === id)!), outputMount: output, mountChangesAllowed: true }
     },
   } as unknown as DinksterConnection
@@ -75,6 +77,13 @@ it('groups model grants under one folder and switches project membership without
   root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] [aria-haspopup="menu"]')!.click()
   ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Stop using')!.click()
   expect(root.textContent).toContain('No files will be deleted')
+  expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
+  expect(root.querySelector('[data-model-location="models"]')?.textContent).toContain('Checkpoints3')
+  ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using this folder')!.click()
+  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"]')?.textContent).toContain('Folder changes are temporarily unavailable.'))
+  expect(root.textContent).toContain('3 folders used by this project')
+  expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
+  refuseRemoval = false
   ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using this folder')!.click()
   await vi.waitFor(() => expect(root.textContent).toContain('2 folders used by this project'))
   expect(root.querySelector('[data-mount-id="plates"]')?.textContent).not.toContain('Open in Assets')

@@ -208,7 +208,11 @@ it('replaces unload only for reported live use and restores it when use ends', a
 
 it('preserves focused model rows across snapshots and confirms per-card unloads', async () => {
   let push: ((next: MemoryStatus) => void) | undefined
-  const unloadMemory = vi.fn(async () => ({ requestedBytes: 3e9, freedBytes: 3e9 }))
+  let refuseUnload = true
+  const unloadMemory = vi.fn(async () => {
+    if (refuseUnload) throw new Error('Model is still in use.')
+    return { requestedBytes: 3e9, freedBytes: 3e9 }
+  })
   const connection = {
     status: coreSignal<ConnectionStatus>('connected'),
     fetchMemoryStatus: async () => payload,
@@ -232,6 +236,12 @@ it('preserves focused model rows across snapshots and confirms per-card unloads'
   const confirm = [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Unload' && button !== unload)!
   confirm.click(); await flush()
   expect(unloadMemory).toHaveBeenCalledWith('vram:cuda:0', 'models', 'm1')
+  expect(root.querySelector('.dinkster-confirmation')!.textContent).toContain('Model is still in use.')
+  expect(root.querySelector('.dinkster-confirmation')!.textContent).toContain('Flux model')
+  expect(root.textContent).not.toContain('Resources updated.')
+  refuseUnload = false
+  confirm.click(); await flush()
+  expect(root.querySelector('.dinkster-confirmation')).toBeNull()
   expect(root.textContent).toContain('Resources updated.')
   const slider = root.querySelector('[role="slider"]')!
   slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
