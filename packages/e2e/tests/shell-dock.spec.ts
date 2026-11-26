@@ -823,4 +823,14 @@ test('right-zone tab strip keeps complete titles in the strip or its menu withou
   await page.keyboard.press('Home')
   await expect(overflowButton).toBeVisible()
   await expect(menu).not.toBeVisible()
+  // The recreated overflow must retain live action refs, not just look closed.
+  const hiddenAgain = await tabs.evaluateAll((elements) => elements
+    .find((element) => element.getClientRects().length === 0)
+    ?.querySelector('.tab-title-text')?.textContent)
+  expect(hiddenAgain).toBeTruthy()
+  await overflowButton.click()
+  await menu.getByRole('menuitemradio').filter({ has: page.getByText(hiddenAgain!, { exact: true }) }).click()
+  await expect(activeTab.locator('.tab-title-text')).toHaveText(hiddenAgain!)
+  await expect(menu).not.toBeVisible()
+  await expectWholeTabs(tablist, tabs)
 })
