@@ -5195,11 +5195,19 @@ interface SummaryPart {
   readonly thumbnail?: CanvasImageSource | null
 }
 
+/** Extra width pictures add to a summary whose names are joined with comma-space. */
+export function summaryThumbnailReserve(ctx: CanvasRenderingContext2D, thumbnails: SummaryFit['thumbnails']): number {
+  const { size, fileNameGap, entryGap } = canvasPaintTokens.widget.valueThumbnail
+  return thumbnails?.reduce((width, picture, index) => width + (picture === undefined ? 0
+    : size + fileNameGap + (index > 0 ? entryGap - measureWidth(ctx, ' ') : 0)), 0) ?? 0
+}
+
 /** Fit names and their pictures together; a count stands alone without a picture. */
 export function fitSummaryParts(ctx: CanvasRenderingContext2D, summary: SummaryFit, maxWidth: number): readonly SummaryPart[] {
   if (summary.thumbnails === undefined) return [{ text: fitSummary(ctx, summary, maxWidth) }]
   const items = summary.items ?? [summary.text]
-  const reserve = canvasPaintTokens.widget.valueThumbnail.size + canvasPaintTokens.widget.valueThumbnail.gap
+  const { size, fileNameGap, entryGap } = canvasPaintTokens.widget.valueThumbnail
+  const reserve = size + fileNameGap
   const more = (shown: number) => shown < items.length ? ` +${items.length - shown}` : ''
   const parts = (shown: number, first?: string): SummaryPart[] => [
     ...items.slice(0, shown).map((name, index) => ({
@@ -5212,7 +5220,8 @@ export function fitSummaryParts(ctx: CanvasRenderingContext2D, summary: SummaryF
   let width = 0
   let shown = 0
   for (let index = 0; index < items.length; index++) {
-    width += measureWidth(ctx, items[index]!) + (index > 0 ? measureWidth(ctx, ', ') : 0)
+    const pictured = summary.thumbnails[index] !== undefined
+    width += measureWidth(ctx, items[index]!) + (index > 0 ? pictured ? measureWidth(ctx, ',') + entryGap : measureWidth(ctx, ', ') : 0)
       + (summary.thumbnails[index] !== undefined ? reserve : 0)
     if (width + measureWidth(ctx, more(index + 1)) <= maxWidth) shown = index + 1
     if (width > maxWidth) break
@@ -5227,7 +5236,8 @@ export function fitSummaryParts(ctx: CanvasRenderingContext2D, summary: SummaryF
 
 export function summaryPartsWidth(ctx: CanvasRenderingContext2D, parts: readonly SummaryPart[]): number {
   return parts.reduce((width, part) => width + measureWidth(ctx, (part.separator ?? '') + part.text)
-    + (part.thumbnail !== undefined ? canvasPaintTokens.widget.valueThumbnail.size + canvasPaintTokens.widget.valueThumbnail.gap : 0), 0)
+    + (part.thumbnail !== undefined ? canvasPaintTokens.widget.valueThumbnail.size + canvasPaintTokens.widget.valueThumbnail.fileNameGap
+      + (part.separator !== undefined ? canvasPaintTokens.widget.valueThumbnail.entryGap - measureWidth(ctx, ' ') : 0) : 0), 0)
 }
 
 /** Right-aligned value text, with a picture directly before each name that survived fitting. */
@@ -5249,7 +5259,8 @@ export function paintSummaryParts(ctx: CanvasRenderingContext2D, parts: readonly
       left += measureWidth(ctx, separator)
     }
     if (part.thumbnail !== undefined) {
-      const { size, radius, gap } = canvasPaintTokens.widget.valueThumbnail
+      const { size, radius, fileNameGap, entryGap } = canvasPaintTokens.widget.valueThumbnail
+      if (part.separator !== undefined) left += entryGap - measureWidth(ctx, ' ')
       const top = Math.round(y - size / 2)
       ctx.save()
       ctx.beginPath()
@@ -5262,7 +5273,7 @@ export function paintSummaryParts(ctx: CanvasRenderingContext2D, parts: readonly
         ctx.drawImage(part.thumbnail, Math.round(left), top, size, size)
       }
       ctx.restore()
-      left += size + gap
+      left += size + fileNameGap
     }
     if (part.text !== '') ctx.fillText(part.text, left, y)
     left += measureWidth(ctx, part.text)
@@ -5302,8 +5313,7 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const field = bounds ?? widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
   // The subgraph mark before the name widens the name's share, as the painter lays it out.
   const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
-  const picturesWidth = (summary?.thumbnails?.filter((picture) => picture !== undefined).length ?? 0)
-    * (canvasPaintTokens.widget.valueThumbnail.size + canvasPaintTokens.widget.valueThumbnail.gap)
+  const picturesWidth = summaryThumbnailReserve(ctx, summary?.thumbnails)
   const labelZone = shareRowWidth(field.right - field.left, mark + measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + picturesWidth + canvasPaintTokens.widget.labelWidthPadding)
   const availableWidth = Math.max(0, field.right - field.left - labelZone - swatchReserve)
   const unproven = companion.state === 'stale' || (companion.state === undefined && companion.stale === true)

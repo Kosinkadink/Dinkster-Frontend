@@ -24,20 +24,21 @@ const painter = createRegistryPainter(registry)
 const LABEL = 'v'
 
 function fakeCtx() {
-  const texts: { text: string; font: string; color: string }[] = []
+  const texts: { text: string; font: string; color: string; x: number }[] = []
   const fills: string[] = []
   const images: unknown[] = []
+  const imageRects: { x: number; width: number }[] = []
   const paths: string[] = []
   const ctx = {
     fillStyle: '', strokeStyle: '', lineWidth: 1, font: '12px system-ui', globalAlpha: 1, textAlign: 'left',
     beginPath() {}, save() {}, restore() {}, translate() {}, scale() {}, arc() {}, moveTo() {}, lineTo() {},
     stroke(path?: { d: string }) { if (path) paths.push(path.d) }, rect() {}, clip() {}, roundRect() {}, fill() {}, setLineDash() {}, closePath() {},
-    drawImage(image: unknown) { images.push(image) },
+    drawImage(image: unknown, x: number, _y: number, width: number) { images.push(image); imageRects.push({ x, width }) },
     fillRect() { fills.push(String(this.fillStyle)) },
     measureText: (text: string) => ({ width: text.length * 6 }),
-    fillText(text: string) { texts.push({ text, font: this.font, color: String(this.fillStyle) }) },
+    fillText(text: string, x: number) { texts.push({ text, font: this.font, color: String(this.fillStyle), x }) },
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, fills, images, paths }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, fills, images, imageRects, paths }
 }
 
 const deepFreeze = <T>(value: T): T => {
@@ -83,6 +84,37 @@ const stringList = specOf('LIST', {}, { element: { widgetType: 'STRING', options
 const videoEdit = specOf('VIDEO_EDIT', { features: ['trim', 'crop'] })
 
 describe('closed file rows', () => {
+  it('keeps empty file text muted and italic with a thumbnail-only host summary', () => {
+    const spec = specOf('ASSET', { accept: ['image/png'] })
+    const painted = fakeCtx()
+    painter({ ctx: painted.ctx, row: rowOf(spec), value: null, x: 0, y: 0, width: 460,
+      rowHeight: 24, connected: false, tokens: defaultTokens, editorSummary: {},
+    })
+    expect(painted.texts.find((call) => call.text === 'Choose image')).toMatchObject({ color: defaultTokens.colors.label })
+    expect(painted.texts.find((call) => call.text === 'Choose image')?.font).toContain('italic')
+    expect(painted.images).toEqual([])
+  })
+
+  it.each([false, true])('separates pictures from the previous entry and groups them with their name (wired %s)', (wired) => {
+    const value = [image('a.png'), { ...(image('sound.wav') as Record<string, Json>), mediaType: 'audio/wav' }, image('clip.webm')]
+    const spec = specOf('ASSET')
+    const painted = fakeCtx()
+    const bitmap = {} as CanvasImageSource
+    painter({ ctx: painted.ctx, row: rowOf(spec), value, x: 0, y: 0, width: 600,
+      rowHeight: 24, connected: wired, tokens: defaultTokens,
+      editorSummary: { thumbnails: [bitmap, undefined, bitmap] },
+      ...(wired ? { companion: { value, state: 'expected' as const } } : {}),
+    })
+    for (const [index, name] of ['a.png', 'clip.webm'].entries()) {
+      const picture = painted.imageRects[index]!
+      expect(painted.texts.find((call) => call.text === name)!.x - picture.x - picture.width).toBe(4)
+    }
+    const sound = painted.texts.find((call) => call.text === 'sound.wav')!
+    // Nine characters and the comma at 6 px each, then an 8 px entry gap.
+    expect(painted.imageRects[1]!.x - (sound.x + 10 * 6)).toBe(8)
+    expect(painted.images).toHaveLength(2)
+  })
+
   it('keeps previews attached to each field and each carried name, including unknown and sound values', () => {
     const first = image('a.png')
     const second = image('b.png', 'b')
@@ -111,7 +143,8 @@ describe('closed file rows', () => {
     expect(images(null)).toBeUndefined()
     expect(images([])).toBeUndefined()
     expect(images(image(''))).toBeUndefined()
-    expect(assetRowThumbnails([audio, first, first, first], loader, registry, 44)).toEqual([undefined, bitmap, bitmap, null])
+    expect(assetRowThumbnails([audio, first, first, first], loader, registry, 40)).toEqual([undefined, bitmap, bitmap, null])
+    expect(assetRowThumbnails([audio, first, first, first], loader, registry, 41)).toEqual([undefined, bitmap, bitmap, bitmap])
   })
 
   it.each([

@@ -231,7 +231,7 @@ export function selectedPreviewAssetForRows(
 export function assetRowThumbnails(value: Json, loader: PreviewLoader, registry: WidgetRegistry, width = Infinity): EditorSummary['thumbnails'] {
   // Even an empty name needs this much room with its picture. Files beyond
   // this bound cannot be visible and must not churn the shared decode cache.
-  let remaining = Math.ceil(width / (canvasPaintTokens.widget.valueThumbnail.size + canvasPaintTokens.widget.valueThumbnail.gap))
+  let remaining = Math.ceil(width / (canvasPaintTokens.widget.valueThumbnail.size + canvasPaintTokens.widget.valueThumbnail.fileNameGap))
   const pictures = (Array.isArray(value) ? value : [value]).map((asset) => {
     const selected = selectedPreviewAssetForRows({ asset }, [{ widgetType: 'ASSET', valueKey: 'asset' }], registry.previewRendererFor.bind(registry))
     if (selected === undefined || selected.name.trim() === '' || (selected.mediaKind !== 'image' && selected.mediaKind !== 'video')) return undefined

@@ -11,7 +11,7 @@
 import { formatWidgetValue, t as translate, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, drawsPassedValueAsEditor, fitSummary, fitSummaryParts, summaryPartsWidth, paintSummaryParts, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type SummaryFit, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
+import { defaultWidgetPainter, drawsPassedValueAsEditor, fitSummary, fitSummaryParts, summaryPartsWidth, summaryThumbnailReserve, paintSummaryParts, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type SummaryFit, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
 import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
@@ -230,7 +230,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       const field = assetIcon === undefined ? widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
         : { left: paint.opener.iconReserve, right: width - paint.opener.trailingReserve }
       const lead = subgraphMarkReserve(row)
-      const picturesWidth = (summary?.thumbnails?.filter((picture) => picture !== undefined).length ?? 0) * (paint.valueThumbnail.size + paint.valueThumbnail.gap)
+      const picturesWidth = summaryThumbnailReserve(ctx, summary?.thumbnails)
       const companionZone = shareRowWidth(field.right - field.left, lead + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + picturesWidth + paint.labelWidthPadding)
       ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - lead - paint.labelClipPadding)), x + field.left + lead + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
       paintSubgraphMark(args, true, numeric)
@@ -326,7 +326,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding + wordReserve
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
         + (args.editorSummary?.thumbnail !== undefined && !row.unfolded ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
-        + (!row.unfolded ? (args.editorSummary?.thumbnails?.filter((thumbnail) => thumbnail !== undefined).length ?? 0) * (paint.valueThumbnail.size + paint.valueThumbnail.gap) : 0)
+        + (!row.unfolded ? summaryThumbnailReserve(ctx, args.editorSummary?.thumbnails) : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
     const controller = row.controllerMode !== undefined && modeIcon === undefined
       ? controllerChipRect(width, rowHeight, geometry)
@@ -341,7 +341,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const modeIconReserve = modeIcon === undefined ? 0 : paint.modeIconLead + modeIconSize + paint.modeIconGap
     // Empty editor rows and valueless openers keep their label whole while
     // it fits; what they ask for takes what is left and is cut first.
-    const labelFirst = (args.editorSummary?.placeholder ?? (RAISED_ROW_ICONS[row.viewId] === undefined
+    const labelFirst = (args.editorSummary?.placeholder ?? (row.viewId !== 'core.asset' && RAISED_ROW_ICONS[row.viewId] === undefined
       ? undefined
       : (assetSummary ?? compactSummary(view, resolved, row.spec))?.labelFirst)) === true
     const labelWidth = multiline
@@ -479,7 +479,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           }
           const summary = viewStyle['role'] === 'widgetValue' ? args.editorSummary : undefined
           const run = summary?.text ?? viewRun
-          const style = summary === undefined ? viewStyle : { ...viewStyle, placeholder: summary.placeholder === true }
+          const style = summary === undefined ? viewStyle : { ...viewStyle,
+            placeholder: summary.placeholder ?? (summary.text === undefined && viewStyle['placeholder'] === true),
+          }
           ctx.fillStyle = tokens.colors.value
           const alignRight = style['align'] === 'right'
           ctx.textAlign = alignRight ? 'right' : 'left'
