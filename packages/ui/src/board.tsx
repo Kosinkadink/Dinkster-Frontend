@@ -256,7 +256,7 @@ function BoardMedia(props: {
             <Show when={!unreadable()}>
               <ProductAudioWaveform
                 path={waveform()}
-                label={`Waveform of ${props.item.asset.name}`}
+                ariaLabel={`Waveform of ${props.item.asset.name}`}
                 duration={duration() ?? 0}
                 value={elapsed()}
                 onSeek={seek}

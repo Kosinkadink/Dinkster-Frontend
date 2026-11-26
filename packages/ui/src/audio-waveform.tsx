@@ -3,7 +3,7 @@ import { Show, createEffect, createSignal, createUniqueId, on } from 'solid-js'
 export function ProductAudioWaveform(props: {
   readonly value: number
   readonly duration: number
-  readonly label: string
+  readonly ariaLabel: string
   readonly path?: string
   readonly image?: string | undefined
   readonly disabled?: boolean
@@ -48,7 +48,7 @@ export function ProductAudioWaveform(props: {
       preserveAspectRatio="none"
       role={props.interactive === false ? 'img' : 'slider'}
       tabindex={available() ? 0 : undefined}
-      aria-label={props.label}
+      aria-label={props.ariaLabel}
       aria-valuemin={props.interactive === false ? undefined : 0}
       aria-valuemax={props.interactive === false ? undefined : props.duration}
       aria-valuenow={props.interactive === false ? undefined : position()}

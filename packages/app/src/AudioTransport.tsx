@@ -145,7 +145,7 @@ export function AudioTransport(props: {
     onFocusIn={() => { focused = true; active() }}
     onFocusOut={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { focused = false; active() } }}>
     <div class="audio-waveform">
-      <ProductAudioWaveform image={waveform()} value={time()} duration={duration()} label="Audio position"
+      <ProductAudioWaveform image={waveform()} value={time()} duration={duration()} ariaLabel="Audio position"
         interactive={props.interactive !== false}
         disabled={duration() <= 0 || (props.media.audio !== undefined && props.media.audio.canScrub !== true)}
         onImageError={() => setDiagnostic('Audio waveform could not be decoded by this browser')}
