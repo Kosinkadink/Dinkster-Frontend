@@ -3983,14 +3983,14 @@ export class CanvasRenderer {
         }
         const cx = x + linePaint.railWidth / 2
         const chevron = linePaint.chevron
-        ctx.strokeStyle = lit ? t.colors.boxChanged : t.colors.label
+        ctx.strokeStyle = lit ? t.colors.title : t.colors.label
         ctx.lineWidth = chevron.stroke
         ctx.beginPath()
         ctx.moveTo(cx - chevron.width / 2, top + chevron.top)
         ctx.lineTo(cx, top + chevron.top + chevron.height)
         ctx.lineTo(cx + chevron.width / 2, top + chevron.top)
         ctx.stroke()
-        ctx.strokeStyle = lit ? t.colors.boxChanged : t.colors.nodeOutline
+        ctx.strokeStyle = lit ? t.colors.title : t.colors.nodeOutline
         ctx.lineWidth = boxPaint.stroke
         ctx.beginPath()
         ctx.moveTo(cx, top + linePaint.railLineTop)
