@@ -303,26 +303,41 @@ export function ProductTextButton(
 export function ProductSegmented(props: {
   label: string
   value: string
-  options: readonly { value: string; label: string }[]
+  /**
+   * `disabled` is the reason an option cannot be chosen. The option keeps its
+   * place, and the reason is its accessible description and its tooltip.
+   */
+  options: readonly { value: string; label: string; disabled?: string | undefined }[]
   onChange: (value: string) => void
 }) {
   const name = createUniqueId()
   return (
     <div class="dinkster-segmented" role="radiogroup" aria-label={props.label}>
       <For each={props.options}>
-        {(option) => (
-          <label class="dinkster-segment">
-            <input
-              type="radio"
-              class="dinkster-visually-hidden"
-              name={name}
-              value={option.value}
-              checked={props.value === option.value}
-              onChange={() => props.onChange(option.value)}
-            />
-            <span>{option.label}</span>
-          </label>
-        )}
+        {(option) => {
+          const reasonId = createUniqueId()
+          return (
+            <>
+              <label class="dinkster-segment" data-tooltip-label={option.disabled}>
+                <input
+                  type="radio"
+                  class="dinkster-visually-hidden"
+                  name={name}
+                  value={option.value}
+                  checked={props.value === option.value}
+                  disabled={option.disabled !== undefined}
+                  aria-describedby={option.disabled === undefined ? undefined : reasonId}
+                  onChange={() => props.onChange(option.value)}
+                />
+                <span>{option.label}</span>
+              </label>
+              {/* Outside the label, so the reason never joins the option's name. */}
+              <Show when={option.disabled}>
+                {(reason) => <span id={reasonId} class="dinkster-visually-hidden">{reason()}</span>}
+              </Show>
+            </>
+          )
+        }}
       </For>
     </div>
   )

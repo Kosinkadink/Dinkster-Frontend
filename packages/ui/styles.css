@@ -748,6 +748,8 @@
 .dinkster-segment:hover { color: var(--dinkster-text-primary); }
 .dinkster-segment:has(:checked) { background: var(--dinkster-surface-selected); color: var(--dinkster-text-primary); }
 .dinkster-segment:has(:focus-visible) { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); }
+.dinkster-segment:has(:disabled) { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+.dinkster-segment:has(:disabled:not(:checked)) { color: var(--dinkster-text-secondary); }
 .dinkster-project-form { display: grid; grid-template-columns: 136px minmax(0, 1fr); align-items: center; gap: var(--dinkster-space-16) var(--dinkster-space-24); max-width: 720px; }
 .dinkster-project-form > .dinkster-actions { grid-column: 2; justify-content: flex-end; }
 .dinkster-project-form-path { display: flex; align-items: baseline; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; padding-inline: var(--dinkster-space-12); }
