@@ -622,6 +622,33 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await expect(page).toHaveScreenshot('frame-stays-when-scrolled.png')
 })
 
+test('model rows distinguish keyboard focus from selection in both themes', async ({ page }) => {
+  for (const [theme, keyboard, selected] of [
+    ['dark', 'rgb(164, 181, 183)', 'rgb(50, 230, 197)'],
+    ['light', 'rgb(88, 99, 109)', 'rgb(7, 113, 105)'],
+  ] as const) {
+    await page.goto(`/?theme=${theme}#models`)
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme
+      document.querySelector<HTMLElement>('.dinkster-root')!.dataset.theme = theme
+    }, theme)
+    const row = page.getByRole('button', { name: /^Detail Tweaker XL/ }).first()
+    await row.focus()
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Tab')
+    await expect(row).toBeFocused()
+    await expect(row).toHaveCSS('outline-color', keyboard)
+    await expect(row).toHaveCSS('outline-width', '1px')
+    await expect(row).toHaveAttribute('aria-pressed', 'false')
+    await page.keyboard.press('Enter')
+    await expect(row).toHaveAttribute('aria-pressed', 'true')
+    expect(await row.evaluate((element) =>
+      getComputedStyle(element, '::before').backgroundColor,
+    )).toBe(selected)
+    await expect(row).toHaveCSS('outline-color', keyboard)
+  }
+})
+
 test('page field borders show focus without a second ring', async ({
   page,
 }) => {
