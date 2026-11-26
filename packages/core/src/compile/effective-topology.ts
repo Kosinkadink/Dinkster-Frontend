@@ -20,6 +20,7 @@ import {
   portAddressKey,
   portRefKey,
   samePortRef,
+  asPortId,
   type GraphDefId,
   type LinkEndpoint,
   type LinkId,
@@ -33,6 +34,7 @@ import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, elaborateInterface, elabInputsOf, elabOutputsOf, type Connectivity } from '../schema/elaborate.js'
 import { documentNodeResolver } from './compile.js'
 import { occurrenceDynamicView } from './occurrence-view.js'
+import { boundaryOutputCandidates, innerConstructAddress, matchBoundaryItem } from './crossing.js'
 import { boundaryItems } from '../format/document.js'
 
 export type EffectiveLinkIdentity =
@@ -282,16 +284,18 @@ export function resolveOccurrenceLinkEndpoint(
 
 function projectedEndpoints(
   document: WorkflowDocument,
+  resolver: SchemaResolver,
   owner: OccurrenceRef,
   at: ResolvedOwner,
   endpoint: PortRef,
   side: 'from' | 'to',
   diagnostics: Diagnostic[],
 ): { readonly endpoint: ResolvedOccurrenceEndpoint; readonly route: readonly BoundaryRouteLeg[] }[] {
-  const items = side === 'from' ? boundaryItems(at.bodyGraph.boundary, 'outputs') : boundaryItems(at.bodyGraph.boundary, 'inputs')
-  const candidates = items?.filter((item) => endpoint.port === item.id) ?? []
-  if (candidates.length !== 1) return []
-  const item = candidates[0]!
+  const items = side === 'from' ? boundaryOutputCandidates(at.bodyGraph.boundary) : boundaryItems(at.bodyGraph.boundary, 'inputs')
+  const match = matchBoundaryItem(items, endpoint)
+  if (!match.ok) return []
+  const item = match.item
+  const resolveNode = documentNodeResolver(document, resolver)
   const bindings = [item.binds, ...(item.alsoBinds ?? [])]
   const out: { endpoint: ResolvedOccurrenceEndpoint; route: readonly BoundaryRouteLeg[] }[] = []
   for (const binding of bindings) {
@@ -300,6 +304,13 @@ function projectedEndpoints(
       kind: 'boundary', occurrence: owner,
       address: { port: endpoint.port },
       route,
+    }
+    if (binding.kind === 'construct') {
+      const port = innerConstructAddress(at.bodyGraph, binding, item.id, endpoint.port,
+        (node) => resolveNode(at.bodyGraph.id, node, at.bodyPath))
+      if (port !== undefined) out.push({ endpoint: resolved(at.bodyGraph.id, at.bodyPath,
+        { node: binding.node, port: asPortId(port) }, { kind: 'occurrence', owner, endpoint: occurrenceEndpoint }), route })
+      continue
     }
     const target = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, occurrenceEndpoint, side, diagnostics)
     if (target) out.push({ endpoint: target, route })
@@ -365,7 +376,7 @@ function buildEffectiveOccurrenceTopology(
     inheritedRoute: readonly BoundaryRouteLeg[],
   ): void => {
     if (isPortEndpoint(from.endpoint) && from.endpoint.node === owner.node) {
-      const targets = projectedEndpoints(document, owner, at, from.endpoint, 'from', diagnostics)
+      const targets = projectedEndpoints(document, resolver, owner, at, from.endpoint, 'from', diagnostics)
       for (const target of targets) {
         const route = [...inheritedRoute, ...target.route]
         if (delivery && suppressions.has(suppressedDeliveryKey({ kind: 'projectedLeg', delivery, route }))) continue
@@ -375,7 +386,7 @@ function buildEffectiveOccurrenceTopology(
       }
     }
     if (isPortEndpoint(to.endpoint) && to.endpoint.node === owner.node) {
-      const targets = projectedEndpoints(document, owner, at, to.endpoint, 'to', diagnostics)
+      const targets = projectedEndpoints(document, resolver, owner, at, to.endpoint, 'to', diagnostics)
       for (const target of targets) {
         const route = [...inheritedRoute, ...target.route]
         if (delivery && suppressions.has(suppressedDeliveryKey({ kind: 'projectedLeg', delivery, route }))) continue

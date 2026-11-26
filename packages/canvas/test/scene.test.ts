@@ -8,6 +8,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
+  asConnectionId,
   asGraphDefId,
   asLineageId,
   asLinkId,
@@ -19,6 +20,8 @@ import {
   createLocalSession,
   connectSharedSession,
   coreCommandRegistry,
+  compile,
+  DocumentStore,
   occurrenceDynamicView,
   loadDocument,
   type Json,
@@ -888,6 +891,84 @@ describe('buildScene', () => {
     expect(first.find((pin) => pin.portId === 'in')?.type).toEqual(variable)
     expect(first.find((pin) => pin.portId === 'out')?.type).toEqual(variable)
     expectType(occurrencePins('second', disconnected), 'LATENT')
+  })
+
+  it('keeps independent member and inner-node types through renamed boundaries and history', () => {
+    const variable = { kind: 'variable', templateId: 'T' } as const
+    const schema = (type: string, body: NodeSchema['body']): NodeSchema => ({
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: true, body,
+    })
+    const registry = [schema('Members', [{ kind: 'group', id: 'items', independentTypes: true,
+      member: [{ kind: 'input', id: 'in', type: variable, optional: false }, { kind: 'output', id: 'out', type: variable }],
+      keys: { kind: 'named', names: ['a', 'b'] }, grows: 'button', minMembers: 0, maxMembers: 2 }]),
+    schema('Match', [{ kind: 'input', id: 'in', type: variable, optional: false }, { kind: 'output', id: 'out', type: variable }]),
+    ...['IMAGE', 'LATENT', 'INT'].map((name) => ({ ...schema(name, [{ kind: 'output', id: 'out', type: { kind: 'concrete', name } }]), isOutputNode: false }))]
+    const resolve = (type: string) => registry.find((item) => item.type === type)
+    const node = (id: string, type: string, extra = {}) => ({ id, type, values: {}, ...extra })
+    const graph = (id: string, nodes: Record<string, unknown>, body?: unknown[]) => ({
+      id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100, ...(body ? { boundary: { body } } : {}),
+    })
+    const bind = (kind: string, id: string, node: string, port: string, binding = 'port') => ({ kind, id, binds: { kind: binding, node, port } })
+    for (const depth of [1, 2]) {
+      const groupId = depth === 1 ? 'rows' : 'entries'
+      const inputId = depth === 1 ? 'value' : 'amount'
+      const root = graph('root', { image: node('image', 'IMAGE'), latent: node('latent', 'LATENT'), integer: node('integer', 'INT'),
+        first: node('first', depth === 1 ? '#detail' : '#portrait', { dynamic: { [groupId]: { members: ['a', 'b'] } } }),
+        second: node('second', depth === 1 ? '#detail' : '#portrait', { dynamic: { [groupId]: { members: ['a', 'b'] } } }) })
+      const deliveries = [['image', 'first', `${groupId}.a.in`], ['latent', 'first', `${groupId}.b.in`], ['integer', 'first', inputId],
+        ['latent', 'second', `${groupId}.a.in`], ['image', 'second', `${groupId}.b.in`], ['image', 'second', inputId]]
+      root.links = Object.fromEntries(deliveries.map(([source, target, port], index) => [`wire${index}`, {
+        id: `wire${index}`, from: { node: source, port: 'out' }, to: { node: target, port },
+      }]))
+      const document = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'types', root: 'root', view: { graphs: {} }, graphs: {
+        root, detail: graph('detail', { members: node('members', 'Members'), match: node('match', 'Match') }, [
+          bind('input', 'rows', 'members', 'items', 'construct'), bind('input', 'value', 'match', 'in'), bind('output', 'result', 'match', 'out')]),
+        ...(depth === 2 ? { portrait: graph('portrait', { detail: node('detail', '#detail') }, [
+          bind('input', 'entries', 'detail', 'rows', 'construct'), bind('input', 'amount', 'detail', 'value'), bind('output', 'result', 'detail', 'result')]) } : {}),
+      } } as unknown as WorkflowDocument
+      const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined, () => ({
+        kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, resolve),
+      }))
+      const types = (doc: WorkflowDocument, occurrence: string) => {
+        const path = (depth === 1 ? [occurrence] : [occurrence, 'detail']).map(asNodeId)
+        const scene = buildScene({ document: doc, graphId: asGraphDefId('detail'), resolve: documentResolver(doc, resolve),
+          tokens: defaultTokens, measure, widgetMeasure, occurrenceView: occurrenceDynamicView(doc, resolve, path),
+          occurrence: { owner: { instancePath: path.slice(0, -1), node: path.at(-1)! }, plannerAvailable: true } })
+        expect(scene.diagnostics).toEqual([])
+        const members = scene.nodes.find((item) => item.id === 'members')!
+        const match = scene.nodes.find((item) => item.id === 'match')!
+        return [...['items.a.in', 'items.a.out', 'items.b.in', 'items.b.out'].map((port) => members.layout.pins.find((pin) => pin.portId === port)?.type),
+          ...['in', 'out'].map((port) => match.layout.pins.find((pin) => pin.portId === port)?.type)]
+      }
+      const concrete = (...names: string[]) => names.map((name) => ({ kind: 'concrete', name }))
+      const check = (doc: WorkflowDocument, firstB = 'LATENT') => {
+        expect(types(doc, 'first')).toEqual(concrete('IMAGE', 'IMAGE', firstB, firstB, 'INT', 'INT'))
+        expect(types(doc, 'second')).toEqual(concrete('LATENT', 'LATENT', 'IMAGE', 'IMAGE', 'IMAGE', 'IMAGE'))
+        const compiled = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('types'), schemaHash: 'types' })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('type projection failed')
+        for (const [owner, a, b, value] of [['first', 'image', firstB === 'IMAGE' ? 'image' : 'latent', 'integer'], ['second', 'latent', 'image', 'image']]) {
+          const prefix = depth === 1 ? `${owner}.` : `${owner}.detail.`
+          expect(compiled.artifact.prompt[`${prefix}members`]!.inputs).toEqual({ 'items.a.in': [a, 0], 'items.b.in': [b, 0] })
+          expect(compiled.artifact.prompt[`${prefix}match`]!.inputs).toEqual({ in: [value, 0] })
+        }
+      }
+      check(store.doc)
+      expect(store.dispatch({ command: 'link.connect', params: { graphId: 'root', from: { node: 'image', port: 'out' },
+        to: { node: 'first', port: `${groupId}.b.in` } } }).ok).toBe(true)
+      check(store.doc, 'IMAGE')
+      expect(store.undo()).toBe(true)
+      check(store.doc)
+      expect(store.redo()).toBe(true)
+      check(store.doc, 'IMAGE')
+      check(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, 'IMAGE')
+      expect(store.dispatch({ command: 'link.disconnect', params: { graphId: 'root', linkId: 'wire0' } }).ok).toBe(true)
+      expect(types(store.doc, 'first').slice(0, 2)).toEqual([expect.objectContaining({ kind: 'variable' }), expect.objectContaining({ kind: 'variable' })])
+      expect(types(store.doc, 'first').slice(2)).toEqual(concrete('IMAGE', 'IMAGE', 'INT', 'INT'))
+      expect(types(store.doc, 'second')).toEqual(concrete('LATENT', 'LATENT', 'IMAGE', 'IMAGE', 'IMAGE', 'IMAGE'))
+      expect(store.undo()).toBe(true)
+      check(store.doc, 'IMAGE')
+    }
   })
 })
 
