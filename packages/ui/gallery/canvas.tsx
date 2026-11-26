@@ -81,6 +81,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       [
         'anatomy',
         'boxes',
+        'lines',
         'idle-outline',
         'titles',
         'titles-content',
@@ -175,6 +176,8 @@ export function selectCanvasPage(href: string) {
 const pageNotes: Record<CanvasGalleryPage, string> = {
   anatomy:
     'The parts of a node: title bar with its minimize arrow, pins, value rows, a section open and closed, a subgraph node with its mark, and a node whose type is missing.',
+  lines:
+    'A shared line starts folded, with wired pins gathered at its ends. Unfolded, each field has its own row and pins beside a grouping rail. The last card shows the proposed pin list and Unfold action; these examples show the look, not working fold controls.',
   boxes:
     'Sections, groups and choices drawn as boxes. A closed box shows how many rows it holds and marks a changed value with a dot. Its row carries the pins of the fields inside it, pressed together, at most three on a side with wired pins first; an unwired input is hollow, and a fourth wire ends on the last pin drawn. A wire held over a closed box names the field it would reach. Opening or closing a box moves neither its name nor any row above it. A member of a group that can be reordered has a grip: dragging it shows where the member would land and dims it in place, and its menu has Move up and Move down. A stored member of a group the user grows has a remove cross; at the fewest members it stays dimmed, and offered members have none.',
   'idle-outline':
@@ -485,6 +488,11 @@ function ExampleCard(props: {
     if (toolbox) {
       include(toolbox.x, toolbox.y)
       include(toolbox.x + toolbox.width, toolbox.y + toolbox.height)
+    }
+    const lineList = renderer.getLineListLayout()
+    if (lineList) {
+      include(lineList.x, lineList.y)
+      include(lineList.x + lineList.width, lineList.y + lineList.height)
     }
     for (const label of labels) {
       include(label.x, label.y - tokens.fontSize)

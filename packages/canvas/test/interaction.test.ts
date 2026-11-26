@@ -123,6 +123,49 @@ function interactionHarness(
   }
 }
 
+describe('field-line rail', () => {
+  it('folds from the top and bottom of the rail, not from a field or a dragged press', () => {
+    const schema: NodeSchema = { type: 'Fields', displayName: 'Fields', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: ['first', 'last'].map((id) => ({ kind: 'input', id,
+        type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } })) }],
+    }
+    const loaded = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'rail', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Fields', nextOrdinal: 2, nodes: { n1: { id: 'n1', type: 'Fields', values: { first: 7, last: 19 } } },
+        links: {}, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 20, y: 30 }, lines: { first: { folded: false } } } } } } },
+    })
+    expect(loaded.diagnostics).toEqual([])
+    const store = new DocumentStore(loaded.document!, coreCommandRegistry())
+    const scene = () => buildScene({ document: store.doc, graphId: 'g0', resolve: () => schema, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }) })
+    const open = scene()
+    const node = open.nodes[0]!
+    const line = node.layout.lines![0]!
+    const first = node.layout.rows[line.first]!
+    const last = node.layout.rows[line.last]!
+    const x = node.x + line.railInset! + 6
+    const harness = interactionHarness(open, { dispatch: (invocation) => store.dispatch(invocation) })
+    for (const y of [node.y + first.y + 1, node.y + last.y + last.height - 1]) {
+      harness.fire('pointermove', x, y)
+      expect(harness.renderer.getOverlay().hoveredLine).toEqual({ nodeId: 'n1', key: 'first' })
+      harness.fire('pointerdown', x, y)
+      harness.fire('pointerup', x, y)
+      expect(scene().nodes[0]!.layout.lines![0]!.folded).toBe(true)
+      expect(store.undo()).toBe(true)
+      expect(scene()).toEqual(open)
+    }
+    harness.fire('pointerdown', x, node.y + first.y + 5)
+    harness.fire('pointermove', x, node.y + first.y + 18)
+    harness.fire('pointerup', x, node.y + first.y + 18)
+    expect(scene()).toEqual(open)
+    harness.fire('pointerdown', node.x + node.layout.width / 2, node.y + last.y + 12)
+    harness.fire('pointerup', node.x + node.layout.width / 2, node.y + last.y + 12)
+    expect(scene().nodes[0]!.layout.lines![0]!.folded).toBe(false)
+    expect(store.doc.graphs.g0).toEqual(loaded.document!.graphs.g0)
+    harness.controller.dispose()
+  })
+})
+
 describe('lens widget-row affordance', () => {
   it('claims its registered row region and activates without opening the widget editor', () => {
     const scene = interactionScene()

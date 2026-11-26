@@ -717,6 +717,7 @@ type Gesture =
   /** A press on a title-bar control: the minimize arrow, or the title mark when `badge` is set. */
   | { readonly kind: 'title-press'; readonly node: SceneNode; readonly badge?: BadgeHit; readonly startWX: number; readonly startWY: number }
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
+  | { readonly kind: 'line'; readonly hit: Extract<Hit, { kind: 'line' }>; moved: boolean }
   | { readonly kind: 'preview-caption'; readonly node: SceneNode; moved: boolean }
   | { readonly kind: 'growth'; readonly hit: Extract<Hit, { kind: 'growth' }>; moved: boolean }
   /** A member dragged by its grip; `index` is where a release puts it in the stored order. */
@@ -879,6 +880,7 @@ export class InteractionController {
   private hoveredBadge: { readonly nodeId: string; readonly badgeId: string } | undefined
   private hoveredBoxNode: string | undefined
   private hoveredBoxId: string | undefined
+  private hoveredLine: { readonly nodeId: string; readonly key: string } | undefined
   private hoveredGrip: { readonly nodeId: string; readonly construct: string; readonly member: string } | undefined
   private hoveredButton: { readonly nodeId: string; readonly key: string } | undefined
   private hoveredToolboxButton: string | undefined
@@ -1169,7 +1171,7 @@ export class InteractionController {
       // hover on every replacement, even when an identity happens to recur.
       const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined ||
         this.hoveredMinimize !== undefined || this.hoveredBadge !== undefined ||
-        this.hoveredBoxNode !== undefined || this.hoveredGrip !== undefined || this.hoveredButton !== undefined
+        this.hoveredBoxNode !== undefined || this.hoveredLine !== undefined || this.hoveredGrip !== undefined || this.hoveredButton !== undefined
       if (staleNode) {
         this.hoveredNode = undefined
         this.host.onNodeHover?.(undefined)
@@ -1812,6 +1814,9 @@ export class InteractionController {
       }
       case 'section':
         this.gesture = { kind: 'section', hit, moved: false }
+        return
+      case 'line':
+        this.gesture = { kind: 'line', hit, moved: false }
         return
       case 'preview-caption':
         this.gesture = { kind: 'preview-caption', node: hit.node, moved: false }
@@ -2841,7 +2846,7 @@ export class InteractionController {
   private nodeOfBodyHit(hit: Hit): SceneNode | undefined {
     if (hit.kind === 'widget' && hit.bnode !== undefined) return undefined
     return hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'widget' ||
-      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'button' || hit.kind === 'resize' || hit.kind === 'text-box-edge' ||
+      hit.kind === 'section' || hit.kind === 'line' || hit.kind === 'growth' || hit.kind === 'button' || hit.kind === 'resize' || hit.kind === 'text-box-edge' ||
       hit.kind === 'preview-caption'
       ? hit.node
       : undefined
@@ -3100,6 +3105,7 @@ export class InteractionController {
         ? 'nwse-resize'
         : 'nesw-resize'
       : hit?.kind === 'text-box-edge' ? 'ns-resize'
+      : hit?.kind === 'line' ? 'pointer'
       : hit?.kind === 'grip' && hit.grip.alone !== true ? 'grab' : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
@@ -3298,6 +3304,7 @@ export class InteractionController {
       case 'widget-affordance':
       case 'preview-affordance':
       case 'section':
+      case 'line':
       case 'preview-caption':
         if (passed) g.moved = true
         return
@@ -3591,6 +3598,13 @@ export class InteractionController {
             },
           })
         }
+        return
+      case 'line':
+        this.pushOverlay()
+        if (!g.moved) this.host.dispatch({
+          command: 'view.setLineFolded',
+          params: { graphId: scene.graphId, nodeId: g.hit.node.id, lineKey: g.hit.line.key, folded: true },
+        })
         return
       case 'grip':
         this.pushOverlay()
@@ -4416,6 +4430,8 @@ export class InteractionController {
         return j('widget', hit.node.id, hit.row.inputId)
       case 'section':
         return j('section', hit.node.id, hit.row.sectionId)
+      case 'line':
+        return j('line', hit.node.id, hit.line.key)
       case 'growth':
         return j('growth', hit.node.id, hit.row.construct)
       case 'lookupRetry':
@@ -4484,6 +4500,13 @@ export class InteractionController {
       const bnode = hit.kind === 'boundary-body' ? hit.bnode : undefined
       const node = hit.kind === 'body' ? hit.node : bnode === undefined ? undefined : boundaryFieldNode(bnode)
       if (node === undefined) return hit
+      if (hit.kind === 'body') {
+        const index = node.layout.rows.findIndex((row) => row.kind === 'note' &&
+          y >= node.y + row.y && y <= node.y + row.y + row.height &&
+          x >= node.x + row.inset && x <= node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2))
+        const line = node.layout.lines?.find((line) => index >= line.first && index <= line.last)
+        if (line !== undefined) return { kind: 'line', node, line }
+      }
       const space = node.layout.rows.find((row) => row.kind === 'editorSpace' &&
         y >= node.y + row.y && y <= node.y + row.y + row.height &&
         x >= node.x + row.inset && x <= node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2))
@@ -4503,6 +4526,7 @@ export class InteractionController {
       case 'text-box-edge':
       case 'preview-caption':
       case 'section':
+      case 'line':
       case 'growth':
       case 'button':
       case 'pin':
@@ -4746,6 +4770,7 @@ export class InteractionController {
       ...(this.hoveredBoxNode !== undefined ? {
         hoveredBox: { nodeId: this.hoveredBoxNode, boxId: this.hoveredBoxId! },
       } : {}),
+      ...(this.hoveredLine !== undefined ? { hoveredLine: this.hoveredLine } : {}),
       ...(this.hoveredGrip !== undefined ? { hoveredGrip: this.hoveredGrip } : {}),
       ...(this.hoveredButton !== undefined ? { hoveredButton: this.hoveredButton } : {}),
       ...extra,
@@ -5058,6 +5083,7 @@ export class InteractionController {
     const widget = hit?.kind === 'widget' ? hit : undefined
     const boxNode = hit?.kind === 'section' ? hit.node.id : undefined
     const boxId = hit?.kind === 'section' ? hit.row.sectionId : undefined
+    const line = hit?.kind === 'line' ? { nodeId: hit.node.id, key: hit.line.key } : undefined
     const grip = hit?.kind === 'grip' && hit.grip.alone !== true
       ? { nodeId: hit.node.id, construct: hit.grip.construct, member: hit.grip.member }
       : undefined
@@ -5082,6 +5108,8 @@ export class InteractionController {
       titleControl.badge?.badgeId === this.hoveredBadge?.badgeId &&
       boxNode === this.hoveredBoxNode &&
       boxId === this.hoveredBoxId &&
+      line?.nodeId === this.hoveredLine?.nodeId &&
+      line?.key === this.hoveredLine?.key &&
       grip?.nodeId === this.hoveredGrip?.nodeId &&
       grip?.construct === this.hoveredGrip?.construct &&
       grip?.member === this.hoveredGrip?.member &&
@@ -5098,6 +5126,7 @@ export class InteractionController {
     this.hoveredBadge = titleControl.badge
     this.hoveredBoxNode = boxNode
     this.hoveredBoxId = boxId
+    this.hoveredLine = line
     this.hoveredGrip = grip
     this.hoveredButton = button
     this.pushOverlay()
@@ -5114,6 +5143,7 @@ export class InteractionController {
     this.hoveredBadge = undefined
     this.hoveredBoxNode = undefined
     this.hoveredBoxId = undefined
+    this.hoveredLine = undefined
     this.hoveredGrip = undefined
     this.hoveredButton = undefined
   }
