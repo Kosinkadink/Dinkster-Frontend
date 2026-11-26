@@ -28,25 +28,25 @@ function formatBytes(bytes: number | null | undefined): string {
 
 interface BackgroundTask { readonly key: string; readonly backend: string; readonly text: string }
 
-function BackendTasks(props: { readonly backend: Backend; readonly update: (tasks: readonly BackgroundTask[]) => void }) {
+function BackendTasks(props: { readonly app: AppState; readonly backend: Backend; readonly update: (tasks: readonly BackgroundTask[]) => void }) {
   const message = useAppMessage()
   const composition = useSignal(props.backend.composition)
   const supervisor = useSignal(props.backend.supervisor)
   const connection = useSignal(props.backend.connection.status)
-  const [downloads, setDownloads] = createSignal<readonly BackgroundTask[]>([])
+  const downloadTasks = useSignal(props.app.modelDownloadTasks)
+  const downloads = () => connection() !== 'connected' ? [] : (downloadTasks().get(props.backend) ?? []).map((task) => ({
+    key: task.key, backend: props.backend.label,
+    text: task.queued ? message('shell.status.downloadWaiting', { name: task.name })
+      : message('shell.status.download', { name: task.name, received: formatBytes(task.received), total: formatBytes(task.size) }),
+  }))
   const [scans, setScans] = createSignal<readonly BackgroundTask[]>([])
   createEffect(() => {
-    if (connection() !== 'connected') { setDownloads([]); setScans([]); return }
+    if (connection() !== 'connected') { setScans([]); return }
     let live = true
     let timer: ReturnType<typeof setTimeout> | undefined
     const poll = async () => {
       await Promise.all([
-        props.backend.connection.fetchModelDownloads().then(({ jobs }) => {
-          if (live) setDownloads(jobs.filter((job) => !['completed', 'cancelled', 'failed'].includes(job.status)).map((job) => ({
-            key: job.jobId, backend: props.backend.label,
-            text: message('shell.status.download', { name: job.name, received: formatBytes(job.received), total: formatBytes(job.size) }),
-          })))
-        }).catch(() => { if (live) setDownloads([]) }),
+        props.app.modelDownloadsFor(props.backend).refresh(),
         props.backend.connection.fetchMountSettings().then(({ mounts }) => {
           if (live) setScans(mounts.filter((mount) => mount.state === 'pending' || mount.state === 'scanning').map((mount) => ({
             key: mount.id, backend: props.backend.label,
@@ -181,7 +181,7 @@ export function StatusBar(props: {
     onCleanup(() => { resize.disconnect(); mutation.disconnect() })
   })
   return <>
-    <For each={backends()}>{(backend) => <BackendTasks backend={backend} update={(entries) => setTasks((current) => {
+    <For each={backends()}>{(backend) => <BackendTasks app={props.app} backend={backend} update={(entries) => setTasks((current) => {
       const next = new Map(current); if (entries.length === 0) next.delete(backend.id); else next.set(backend.id, entries); return next
     })} />}</For>
     <footer ref={footer} class="statusbar statusbar-state" data-testid="status-bar" aria-label={message('shell.applicationStatus')}

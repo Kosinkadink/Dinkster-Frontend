@@ -1693,6 +1693,7 @@
   "shell.status.completedIn": "completed in {seconds} s",
   "shell.status.tasks": "{count} tasks",
   "shell.status.download": "Downloading {name}: {received} / {total}",
+  "shell.status.downloadWaiting": "Waiting to download {name}",
   "shell.status.scanning": "Scanning {name}",
   "shell.status.scanProgress": "Scanning {name}: {done} / {total} files",
   "shell.status.memoryStale": "Stale",

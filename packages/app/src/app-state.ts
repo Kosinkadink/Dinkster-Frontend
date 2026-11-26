@@ -156,6 +156,7 @@ import {
   reconcileDinksterExecutions,
   restartSupervisorEngine,
   type ConnectionStatus,
+  type ModelDownloadJob,
   type ModelDownloadRequirement,
   type ExecutionState,
   type ExecutionStatus,
@@ -201,7 +202,7 @@ import type { CanvasLens } from './data-lens.js'
 import { registerLocaleSetting } from './locale.js'
 import { runClock } from './execution-activity.js'
 import { registerThemeSetting } from './theme.js'
-import { ModelDownloadsController } from './model-downloads.js'
+import { ModelDownloadsController, type ModelDownloadTask } from './model-downloads.js'
 import {
   assetGuessCandidateToRef,
   installAssetConsent,
@@ -2872,16 +2873,50 @@ export class AppState {
   readonly cancellingExecutions = createSignal<ReadonlySet<string>>(new Set())
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
   private readonly modelDownloadControllers = new Map<Backend, Map<string, ModelDownloadsController>>()
+  private readonly observedModelDownloads = new Map<Backend, readonly ModelDownloadJob[]>()
+  readonly modelDownloadTasks = createSignal<ReadonlyMap<Backend, readonly ModelDownloadTask[]>>(new Map())
 
   modelDownloadsFor(backend: Backend, project = activeProjectId()): ModelDownloadsController {
     let projects = this.modelDownloadControllers.get(backend)
     if (!projects) { projects = new Map(); this.modelDownloadControllers.set(backend, projects) }
     let controller = projects.get(project)
     if (!controller) {
-      controller = new ModelDownloadsController(backend.connection, project)
+      controller = new ModelDownloadsController(backend.connection, project, (jobs) => {
+        this.observedModelDownloads.set(backend, jobs)
+        this.publishModelDownloadTasks(backend)
+      })
       projects.set(project, controller)
+      controller.rows.subscribe(() => this.publishModelDownloadTasks(backend))
     }
     return controller
+  }
+
+  private publishModelDownloadTasks(backend: Backend): void {
+    const tasks = new Map<string, ModelDownloadTask>()
+    const addJob = (job: ModelDownloadJob): void => {
+      if (['completed', 'cancelled', 'failed'].includes(job.status)) { tasks.delete(job.jobId); return }
+      tasks.set(job.jobId, { key: job.jobId, name: job.name, size: job.size, received: job.received, queued: false })
+    }
+    const observed = new Map((this.observedModelDownloads.get(backend) ?? []).map((job) => [job.jobId, job]))
+    for (const job of observed.values()) addJob(job)
+    for (const [project, controller] of this.modelDownloadControllers.get(backend) ?? []) {
+      for (const row of controller.rows.get()) {
+        if (row.job) {
+          const latest = observed.get(row.job.jobId)
+          if (!latest || (!['completed', 'cancelled', 'failed'].includes(latest.status) &&
+            (['completed', 'cancelled', 'failed'].includes(row.job.status) || row.job.received >= latest.received))) addJob(row.job)
+        }
+        if (row.queued && row.plan?.status === 'consent-required') {
+          const key = `queue:${JSON.stringify([project, row.requirement.name, row.requirement.kind, row.requirement.asset?.digest])}`
+          tasks.set(key, { key, name: row.requirement.name, size: row.plan.size, received: 0, queued: true })
+        }
+      }
+    }
+    this.modelDownloadTasks.update((current) => {
+      const next = new Map(current)
+      if (tasks.size) next.set(backend, [...tasks.values()]); else next.delete(backend)
+      return next
+    })
   }
 
   private releaseModelDownloads(backend: Backend): void {
@@ -2890,6 +2925,8 @@ export class AppState {
       controller.dispose()
     }
     this.modelDownloadControllers.delete(backend)
+    this.observedModelDownloads.delete(backend)
+    this.publishModelDownloadTasks(backend)
   }
   readonly storageOpenRequest = createSignal<{ readonly id: string; readonly hiddenModels: boolean } | undefined>(undefined)
   private modelReview: AbortController | undefined
@@ -3594,6 +3631,8 @@ export class AppState {
     this.disposed = true
     for (const projects of this.modelDownloadControllers.values()) for (const controller of projects.values()) controller.dispose()
     this.modelDownloadControllers.clear()
+    this.observedModelDownloads.clear()
+    this.modelDownloadTasks.set(new Map())
     this.pages.dispose()
     for (const request of this.pendingComparisonCompiles.values()) {
       if (request.frame !== undefined) cancelAnimationFrame(request.frame)

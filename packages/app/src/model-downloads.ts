@@ -12,6 +12,14 @@ export interface ModelDownloadState {
   readonly error?: string
 }
 
+export interface ModelDownloadTask {
+  readonly key: string
+  readonly name: string
+  readonly size: number
+  readonly received: number
+  readonly queued: boolean
+}
+
 type Connection = Pick<DinksterConnection, 'planModelDownload' | 'startModelDownload' | 'fetchModelDownloads' | 'fetchModelDownload' | 'cancelModelDownload'>
 const keyOf = (requirement: ModelDownloadRequirement): string => JSON.stringify([requirement.name, requirement.kind, requirement.asset?.digest])
 const active = (job: ModelDownloadJob): boolean => !['completed', 'cancelled', 'failed'].includes(job.status)
@@ -51,7 +59,14 @@ export class ModelDownloadsController {
   private poll: ReturnType<typeof setTimeout> | undefined
   private disposed = false
 
-  constructor(private readonly connection: Connection, private readonly project: string) {}
+  constructor(private readonly connection: Connection, private readonly project: string,
+    private readonly onJobs?: (jobs: readonly ModelDownloadJob[]) => void) {}
+
+  private async discover(): Promise<readonly ModelDownloadJob[]> {
+    const { jobs } = await this.connection.fetchModelDownloads(this.observation.signal)
+    if (!this.disposed) this.onJobs?.(jobs)
+    return jobs
+  }
 
   ensure(requirements: readonly ModelDownloadRequirement[], missing = false): void {
     if (this.disposed) return
@@ -162,7 +177,7 @@ export class ModelDownloadsController {
           this.schedulePoll()
           return
         }
-        const { jobs } = await this.connection.fetchModelDownloads(this.observation.signal)
+        const jobs = await this.discover()
         const job = [...jobs].reverse().find((job) => this.matches(job, requirement) && active(job))
         const base = { requirement: row.requirement, pending: false,
           ...(row.source === undefined ? {} : { source: row.source }),
@@ -204,7 +219,7 @@ export class ModelDownloadsController {
     if (this.pumping || this.disposed) return
     this.pumping = true
     try {
-      const jobs = observedJobs ?? (await this.connection.fetchModelDownloads(this.observation.signal)).jobs
+      const jobs = observedJobs ?? await this.discover()
       const running = jobs.filter(active)
       for (const queued of this.state.get()) {
         if (!queued.queued || queued.plan?.status !== 'consent-required') continue
@@ -212,7 +227,7 @@ export class ModelDownloadsController {
         const plan = queued.plan
         if (running.some((job) => (job.project === plan.project && job.mount === plan.mount) ||
           job.destination.replace(/[\\/][^\\/]*$/, '') === plan.destination.replace(/[\\/][^\\/]*$/, ''))) continue
-        const pending = { ...queued, queued: false, pending: true }
+        const pending = { ...queued, pending: true }
         const start = { invalidated: false }
         this.starting.set(pending, start)
         if (!this.update(queued, pending)) { this.starting.delete(pending); continue }
@@ -274,7 +289,7 @@ export class ModelDownloadsController {
     if (this.disposed) return
     const observed = this.state.get()
     try {
-      const { jobs } = await this.connection.fetchModelDownloads(this.observation.signal)
+      const jobs = await this.discover()
       for (const row of observed) {
         if (!row.job || row.pending || !active(row.job)) continue
         const job = jobs.find((entry) => entry.jobId === row.job!.jobId && this.matches(entry, row.requirement))

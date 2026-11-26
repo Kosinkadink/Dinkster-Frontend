@@ -1687,6 +1687,7 @@
   "shell.status.completedIn": "用时 {seconds} 秒完成",
   "shell.status.tasks": "{count} 个任务",
   "shell.status.download": "正在下载 {name}：{received} / {total}",
+  "shell.status.downloadWaiting": "等待下载 {name}",
   "shell.status.scanning": "正在扫描 {name}",
   "shell.status.scanProgress": "正在扫描 {name}：{done} / {total} 个文件",
   "shell.status.memoryStale": "数据已过期",
