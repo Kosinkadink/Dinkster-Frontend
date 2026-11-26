@@ -7,7 +7,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { compile, scopeClosure, type CompileInput } from '../src/compile/compile.js'
-import type { WorkflowDocument } from '../src/format/document.js'
+import { boundaryOf } from '../src/format/document.js'
+import type { BoundaryItem, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import type { BodyRow, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
@@ -136,7 +137,7 @@ const docOf = (root: BGraph, subgraphs?: Record<string, BGraph>): WorkflowDocume
     nets: Object.fromEntries((g.nets ?? []).map((n, i) => [`net${i}`, { id: `net${i}`, ...n }])),
     reroutes: Object.fromEntries((g.reroutes ?? []).map((r) => [r, { id: r }])),
     nextOrdinal: 100,
-    ...(g.boundary ? { boundary: { inputs: g.boundary.inputs ?? [], outputs: g.boundary.outputs ?? [] } } : {}),
+    ...(g.boundary ? { boundary: boundaryOf((g.boundary.inputs ?? []) as BoundaryItem[], (g.boundary.outputs ?? []) as BoundaryItem[]) } : {}),
   })
   const graphs: Record<string, unknown> = { g0: defOf('g0', root) }
   for (const [id, sub] of Object.entries(subgraphs ?? {})) graphs[id] = defOf(id, sub)

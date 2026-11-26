@@ -756,7 +756,7 @@ documentTest('create empty subgraph drills in and one undo removes the definitio
   await menuItem(page, 'core.canvas.createSubgraph').click()
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().at(-1))).toBe('g0')
-  expect(await page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0 as any)?.boundary)).toEqual({ inputs: [], outputs: [] })
+  expect(await page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0 as any)?.boundary)).toEqual({ body: [] })
   await page.keyboard.press('Control+z')
   await expect(page.getByTestId('graph-breadcrumb')).not.toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0)).toBeUndefined()

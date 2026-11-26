@@ -11,7 +11,7 @@
 .dinkster-root :is(button, input, select, textarea) { font: inherit; }
 .dinkster-root :is(button, input, select, textarea, a, summary, [tabindex]):focus-visible {
   outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
-  outline-offset: var(--dinkster-focus-ring-width);
+  outline-offset: calc(var(--dinkster-space-4) / 2);
 }
 .dinkster-root [hidden] { display: none !important; }
 /* One quiet scrollbar for every surface: no track, a rounded thumb 1 px clear of each side that brightens under the pointer and while dragged. */
@@ -55,11 +55,17 @@
 .dinkster-page-load { position: relative; height: 100%; min-height: 0; overflow: auto; }
 .dinkster-page-load-loading { display: grid; place-items: center; height: 100%; }
 .dinkster-page-load-loading > .dinkster-actions { justify-content: center; }
+.dinkster-page-load[data-known] { display: flex; flex-direction: column; gap: var(--dinkster-space-16); }
+.dinkster-page-load-known { display: grid; gap: inherit; flex: none; }
+.dinkster-page-load[data-known] > .dinkster-page-load-loading { position: absolute; inset: 0; height: auto; pointer-events: none; }
 .dinkster-page-load-content { display: grid; align-content: start; gap: var(--dinkster-space-16); }
-.dinkster-page-load-answer { animation: dinkster-page-arrival 200ms var(--dinkster-motion-easing); }
+.dinkster-page-load-answer { overflow: inherit; text-overflow: inherit; animation: dinkster-page-arrival 200ms var(--dinkster-motion-easing); }
+.dinkster-page-load-answer[data-arrival='rise'] { animation-name: dinkster-page-rise; animation-duration: 240ms; animation-timing-function: cubic-bezier(.2, .7, .2, 1); }
 @keyframes dinkster-page-arrival { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .dinkster-page-load-answer { animation: none; } }
+@keyframes dinkster-page-rise { from { opacity: 0; transform: translateY(calc(var(--dinkster-space-12) / 2)); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .dinkster-page-load-answer[data-arrival] { animation: none; } }
 .dinkster-page-load-example { height: calc(var(--dinkster-space-32) * 10); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-frame); }
+.dinkster-project-detail-load-example { height: calc(var(--dinkster-space-32) * 18); }
 .storage-folders { display: grid; gap: var(--dinkster-space-8); min-width: 0; }
 .storage-group-heading, .storage-folder-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--dinkster-space-8); min-width: 0; }
 .storage-group-heading { margin-top: var(--dinkster-space-12); }
@@ -150,6 +156,8 @@
 .dinkster-button[data-fill='quiet'] { border-color: transparent; }
 .dinkster-menu-trigger[data-fill='quiet'][aria-expanded='true']:not(:active) { background: var(--dinkster-interaction-hover); }
 .dinkster-button[data-icon-only] { width: var(--dinkster-control-compact-height); padding: 0; }
+.dinkster-button[data-density='panel'] { gap: var(--dinkster-space-4); height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-8); }
+.dinkster-button[data-density='panel'] > .dinkster-icon { width: 14px; height: 14px; }
 .dinkster-button:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-interaction-hover); }
 .dinkster-button:not(:disabled, [aria-disabled='true']):active { background: var(--dinkster-interaction-pressed); }
 /* An add or remove outline fills with its own colour, quietly: 12% under the pointer and 20% while pressed. Solid and quiet fills keep their own. */
@@ -171,10 +179,13 @@
 .dinkster-root :is(button, input, select, textarea):disabled, .dinkster-root [aria-disabled='true'] { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .dinkster-field { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
 .dinkster-input { width: 100%; min-width: 0; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-8) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); color: var(--dinkster-text-primary); }
+.dinkster-input[data-density='panel'] { height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-8); }
 .dinkster-input:where(:not(:disabled):hover) { border-color: var(--dinkster-border-hover); }
 .dinkster-input:focus { border-color: var(--dinkster-border-subtle); }
 :where(:root[data-field-focus='pointer']) .dinkster-input:focus { border-color: var(--dinkster-border-focus); }
 :root[data-field-focus='pointer'] .dinkster-input:focus-visible { outline: 0; }
+.dinkster-input:not([data-density='canvas']):not(:where(.settings-editor *, .dinkster-search-input)):focus { border-color: var(--dinkster-text-secondary); outline: 0; }
+.dinkster-input:not([data-density='canvas']):not(:where(.settings-editor *, .dinkster-search-input))[aria-invalid='true']:focus { border-color: var(--dinkster-danger-border); }
 .dinkster-root .dinkster-input[data-density='canvas'] { height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-4); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
 .dinkster-input::placeholder { color: var(--dinkster-text-muted); opacity: 1; }
 .dinkster-input[aria-invalid='true'] { border-color: var(--dinkster-danger-border); }
@@ -206,7 +217,7 @@
 .dinkster-menu-item { display: flex; align-items: center; gap: var(--dinkster-space-8); width: 100%; min-height: var(--dinkster-menu-row-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 0; border-radius: var(--dinkster-radius-small); background: transparent; color: var(--dinkster-text-primary); text-align: left; text-decoration: none; cursor: pointer; user-select: none; }
 .dinkster-menu-item[data-role='remove'] { color: var(--dinkster-danger-foreground); }
 .dinkster-menu-item[data-role='add'] { color: var(--dinkster-accent-foreground); }
-.dinkster-menu-item:not(:disabled):hover, .dinkster-menu-item:focus-visible { background: var(--dinkster-interaction-hover); }
+.dinkster-menu-item:not(:disabled):hover, .dinkster-menu-item:focus-visible, .dinkster-menu-item:not(:disabled)[data-active] { background: var(--dinkster-interaction-hover); }
 .dinkster-menu-item-copy { display: grid; min-width: 0; }
 .dinkster-menu-item-description { white-space: normal; overflow-wrap: anywhere; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .dinkster-product-progress { height: 4px; overflow: hidden; border-radius: 2px; background: var(--dinkster-surface-raised); }
@@ -229,7 +240,7 @@
 .dinkster-dialog[data-size='wide'] { width: min(var(--dinkster-dialog-wide-max-width), calc(100vw - var(--dinkster-space-32))); }
 .dinkster-dialog::backdrop { background: var(--dinkster-surface-canvas); opacity: var(--dinkster-interaction-disabled-opacity); }
 .dinkster-empty { display: grid; justify-items: center; gap: var(--dinkster-space-16); width: 100%; max-width: var(--dinkster-empty-state-max-width); margin-inline: auto; padding: var(--dinkster-space-32); text-align: center; }
-.dinkster-spinner { display: inline-block; flex: none; width: var(--dinkster-icon-size); height: var(--dinkster-icon-size); border: var(--dinkster-focus-ring-width) solid var(--dinkster-border-subtle); border-top-color: var(--dinkster-accent-border); border-radius: var(--dinkster-radius-capsule); animation: dinkster-spin calc(var(--dinkster-motion-standard) * 4) linear infinite; }
+.dinkster-spinner { display: inline-block; flex: none; width: var(--dinkster-icon-size); height: var(--dinkster-icon-size); border: var(--dinkster-indicator-width) solid var(--dinkster-border-subtle); border-top-color: var(--dinkster-accent-border); border-radius: var(--dinkster-radius-capsule); animation: dinkster-spin calc(var(--dinkster-motion-standard) * 4) linear infinite; }
 .dinkster-button .dinkster-spinner { border-color: currentColor; border-right-color: transparent; }
 .dinkster-spinner-status { display: inline-flex; }
 .dinkster-mobile-nav { display: none; }
@@ -431,14 +442,14 @@
   position: relative;
   z-index: 2;
   opacity: var(--dinkster-interaction-disabled-opacity);
-  box-shadow: inset var(--dinkster-focus-ring-width) 0 var(--dinkster-border-focus);
+  box-shadow: inset var(--dinkster-indicator-width) 0 var(--dinkster-border-focus);
   cursor: grabbing;
 }
 
 .tab.dragging::before {
   position: absolute;
   inset: var(--dinkster-space-4) auto var(--dinkster-space-4) 0;
-  width: var(--dinkster-focus-ring-width);
+  width: var(--dinkster-indicator-width);
   border-radius: var(--dinkster-radius-small);
   background: var(--dinkster-border-focus);
   content: '';
@@ -544,6 +555,8 @@
 .dinkster-textarea { resize: vertical; }
 .dinkster-menu-anchor { position: relative; }
 .dinkster-menu-trigger { user-select: none; }
+.dinkster-menu-filter { position: sticky; top: 0; z-index: 1; padding: var(--dinkster-space-4); margin-bottom: var(--dinkster-space-4); border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-subtle); background: inherit; }
+.dinkster-menu-filter > .dinkster-input { width: 100%; min-width: 0; }
 /* Block-level so the trigger takes its anchor's width and the name, not the trigger, gives way. */
 .dinkster-menu-trigger[data-project] { display: flex; justify-content: flex-start; gap: var(--dinkster-space-4); width: 100%; min-width: 0; padding-inline: var(--dinkster-space-8); }
 .dinkster-menu-trigger[data-project] > .dinkster-icon { flex: none; }
@@ -698,10 +711,12 @@
 .dinkster-project-row-detail { display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; overflow: hidden; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: nowrap; }
 .dinkster-project-row[data-state='failed'] .dinkster-project-row-detail { color: var(--dinkster-warning-foreground); }
 .dinkster-project-row-detail > .dinkster-icon { width: var(--dinkster-type-metadata-size); height: var(--dinkster-type-metadata-size); }
-.dinkster-progress { position: absolute; inset-inline: var(--dinkster-space-12); bottom: var(--dinkster-space-4); height: var(--dinkster-focus-ring-width); overflow: hidden; border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-border-subtle); }
+.dinkster-progress { position: absolute; inset-inline: var(--dinkster-space-12); bottom: var(--dinkster-space-4); height: var(--dinkster-indicator-width); overflow: hidden; border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-border-subtle); }
 .dinkster-progress::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: var(--dinkster-accent-border); animation: dinkster-progress calc(var(--dinkster-motion-standard) * 8) var(--dinkster-motion-easing) infinite; }
 @keyframes dinkster-progress { from { translate: -100% 0; } to { translate: 250% 0; } }
 .dinkster-projects-detail { gap: var(--dinkster-space-24); padding: var(--dinkster-space-24) var(--dinkster-space-32) var(--dinkster-space-32); }
+.dinkster-projects-detail:has(> .dinkster-page-load[data-known]) { padding: 0; gap: 0; overflow: hidden; }
+.dinkster-projects-detail > .dinkster-page-load[data-known] { flex: 1; padding: var(--dinkster-space-24) var(--dinkster-space-32) var(--dinkster-space-32); gap: var(--dinkster-space-24); }
 .dinkster-project-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dinkster-space-16); }
 .dinkster-project-header-copy { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
 .dinkster-project-header-copy > .dinkster-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -740,6 +755,8 @@
 .dinkster-segment:hover { color: var(--dinkster-text-primary); }
 .dinkster-segment:has(:checked) { background: var(--dinkster-surface-selected); color: var(--dinkster-text-primary); }
 .dinkster-segment:has(:focus-visible) { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); }
+.dinkster-segment:has(:disabled) { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+.dinkster-segment:has(:disabled:not(:checked)) { color: var(--dinkster-text-secondary); }
 .dinkster-project-form { display: grid; grid-template-columns: 136px minmax(0, 1fr); align-items: center; gap: var(--dinkster-space-16) var(--dinkster-space-24); max-width: 720px; }
 .dinkster-project-form > .dinkster-actions { grid-column: 2; justify-content: flex-end; }
 .dinkster-project-form-path { display: flex; align-items: baseline; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; padding-inline: var(--dinkster-space-12); }
@@ -768,6 +785,7 @@
   .dinkster-mobile-nav { display: inline-flex; }
   .dinkster-page { padding: var(--dinkster-space-16); }
   .dinkster-row { align-items: start; flex-wrap: wrap; }
+  .dinkster-project-load-example .dinkster-project-facts { grid-template-columns: minmax(0, 1fr); }
 }
 .dinkster-canvas-field { position: absolute; z-index: 1; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
 .dinkster-canvas-field-row { position: relative; display: flex; align-items: center; height: var(--dinkster-input-canvas-height); background: var(--dinkster-surface-inset); overflow: hidden; }
@@ -819,7 +837,8 @@
 .dinkster-canvas-field-side[data-place='above-field'] { left: 0; width: 100%; min-width: 0; max-width: none; border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-divider); border-radius: var(--dinkster-radius-small) var(--dinkster-radius-small) 0 0; }
 .dinkster-canvas-field-side[data-place='below-node'], .dinkster-canvas-field-side[data-place='above-node'] { left: 0; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); }
 .dinkster-canvas-field-outline { position: absolute; top: 0; left: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
-.dinkster-canvas-field-outline path { fill: none; stroke: var(--dinkster-border-focus); stroke-width: var(--dinkster-focus-ring-width); }
+.dinkster-canvas-field-outline path { fill: none; stroke: var(--dinkster-accent-rest-border); stroke-width: var(--dinkster-indicator-width); }
+.dinkster-canvas-field[data-focus='true'] .dinkster-canvas-field-outline path { stroke: var(--dinkster-border-focus); }
 .dinkster-canvas-field[data-neutral='true'] .dinkster-canvas-field-outline path { stroke: var(--dinkster-border-subtle); stroke-width: var(--dinkster-border-width); }
 .dinkster-canvas-side-result, .dinkster-canvas-side-problem, .dinkster-canvas-side-help { margin: 0; }
 .dinkster-canvas-side-problem { color: var(--dinkster-warning-foreground); }
@@ -927,6 +946,97 @@
 .dinkster-canvas-comparison > h3 { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-body-size); font-weight: var(--dinkster-weight-bold); }
 .dinkster-canvas-example-stage { position: relative; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
 .dinkster-canvas-example-stage canvas { display: block; }
+/* The Boundary panel's rows as one tree. Every row has the raised face a node's raised row has, one step from the panel, and is dragged by its body. */
+/* Rows keep a 27 px pitch: a 24 px face and 3 px of panel between two faces, the same under the last child of every open box. */
+.boundary-tree { display: grid; gap: 3px; min-width: 0; color: var(--dinkster-text-primary); user-select: none; }
+.boundary-tree-row { position: relative; display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 24px; padding: 0 var(--dinkster-space-8) 0 var(--dinkster-space-4); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); cursor: grab; }
+.boundary-tree-row:hover { background-image: linear-gradient(var(--dinkster-interaction-hover), var(--dinkster-interaction-hover)); }
+.boundary-tree-row[aria-selected='true'] { background: var(--dinkster-surface-selected); }
+/* A filled face is one thing that moves; an outline holds things that move. A section's header and a group's or choice's header line have no face of their own. */
+.boundary-tree-box > .boundary-tree-header, .boundary-tree-box > .boundary-tree-header[aria-selected='true'] { background: transparent; }
+.boundary-tree-box[data-construct] > .boundary-tree-header:hover { background-image: none; }
+.boundary-tree-row[aria-selected='true']::before, .boundary-tree-cell[aria-selected='true']::before { content: ''; position: absolute; left: 0; top: calc(50% - 7px); width: 3px; height: 14px; border-top-right-radius: var(--dinkster-radius-small); border-bottom-right-radius: var(--dinkster-radius-small); background: var(--dinkster-accent-foreground); }
+.boundary-tree-spacer { flex: 1; min-width: 0; }
+.boundary-tree-row[data-inert] .boundary-tree-label, .boundary-tree-cell[data-inert] .boundary-tree-label { color: var(--dinkster-text-muted); }
+.boundary-tree-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.boundary-tree-name { font-weight: var(--dinkster-weight-bold); }
+.boundary-tree-target { visibility: hidden; flex: none; max-width: 45%; margin-left: auto; padding-left: var(--dinkster-space-8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); }
+/* The node a row comes from or goes to shows only while the row is pointed at or focused, so an input has nothing at its far right and an output nothing at its far left. */
+.boundary-tree-row:hover .boundary-tree-target, .boundary-tree-row:focus-visible .boundary-tree-target { visibility: visible; }
+.boundary-tree-row:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-accent-border); outline-offset: -1px; }
+.boundary-tree-target[data-align='start'] { margin-left: 0; margin-right: auto; padding-left: 0; padding-right: var(--dinkster-space-8); }
+.boundary-tree-note { flex: none; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); white-space: nowrap; }
+.boundary-tree-name + .boundary-tree-note { margin-left: var(--dinkster-space-4); }
+.boundary-tree-dot { flex: none; width: 8px; height: 8px; }
+.boundary-tree-grip { display: inline-flex; flex: none; color: var(--dinkster-text-disabled); cursor: grab; }
+.boundary-tree-grip .dinkster-icon { width: 14px; height: 14px; }
+.boundary-tree-row:hover .boundary-tree-grip, .boundary-tree-line:hover .boundary-tree-grip, .boundary-tree-row[aria-selected='true'] .boundary-tree-grip { color: var(--dinkster-text-muted); }
+.boundary-tree-mark { display: inline-flex; flex: none; color: var(--dinkster-text-muted); }
+.boundary-tree-mark .dinkster-icon { width: 14px; height: 14px; }
+.boundary-tree-mark[data-mark='problem'] { color: var(--dinkster-warning-foreground); }
+.boundary-tree-chevron, .boundary-tree-tab { display: inline-flex; flex: none; color: var(--dinkster-text-secondary); cursor: pointer; }
+.boundary-tree-chevron .dinkster-icon, .boundary-tree-tab .dinkster-icon { width: 14px; height: 14px; }
+/* Fields that share one line on the node share one row here, each its own cell. */
+/* A line's cells keep at least 10 characters of their names; when they do not fit the panel they wrap onto another row inside the same line, under one grip. */
+.boundary-tree-line { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--dinkster-border-width); min-width: 0; min-height: 24px; padding: 1px var(--dinkster-space-4) 1px calc(var(--dinkster-space-4) + 14px + var(--dinkster-space-4)); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); cursor: grab; }
+.boundary-tree-line-grip { position: absolute; top: 5px; left: var(--dinkster-space-4); display: inline-flex; }
+.boundary-tree-cell, .boundary-tree-pocket { position: relative; display: flex; flex: 1 0 calc(10ch + 8px + 2 * var(--dinkster-space-8) + var(--dinkster-space-4)); align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 22px; padding: 0 var(--dinkster-space-8); border-radius: var(--dinkster-radius-control); cursor: grab; }
+.boundary-tree-cell:hover { background-image: linear-gradient(var(--dinkster-interaction-hover), var(--dinkster-interaction-hover)); }
+.boundary-tree-pocket { border: var(--dinkster-border-width) dashed var(--dinkster-accent-border); background: var(--dinkster-accent-background); color: var(--dinkster-accent-foreground); }
+/* A section or a whole construct is a box; its rows sit 6 px inside it. */
+.boundary-tree-box { position: relative; display: grid; gap: 3px; min-width: 0; padding: 0 0 3px; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
+.boundary-tree-box:not([data-open]):not([data-construct]) { padding-bottom: 0; }
+.boundary-tree-box[aria-selected='true'] { border-color: var(--dinkster-border-strong); }
+.boundary-tree-box[data-construct] { border: 0; background: var(--dinkster-surface-raised); cursor: grab; }
+.boundary-tree-box[data-construct]:hover { background-image: linear-gradient(var(--dinkster-interaction-hover), var(--dinkster-interaction-hover)); }
+.boundary-tree-box[data-construct][aria-selected='true'] { background: var(--dinkster-surface-selected); }
+.boundary-tree-box.boundary-tree-lifted { height: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-strong); }
+.boundary-tree-box:not([data-named]):not([data-construct]) { padding-top: var(--dinkster-space-12); }
+.boundary-tree-tab { position: absolute; top: calc(-1 * var(--dinkster-border-width)); left: var(--dinkster-space-8); justify-content: center; width: 24px; height: 10px; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-top: 0; border-radius: 0 0 var(--dinkster-radius-small) var(--dinkster-radius-small); background: var(--dinkster-surface-panel); }
+.boundary-tree-tab .dinkster-icon { width: 10px; height: 10px; }
+/* Every child of a box, of any kind, starts one 16 px step in from the box and ends a small inset from its right side. */
+.boundary-tree-children { display: grid; gap: 3px; min-width: 0; padding: 0 3px 0 var(--dinkster-space-16); }
+.boundary-tree-header { margin: 0 var(--dinkster-border-width); }
+.boundary-tree-box[data-construct] > .boundary-tree-header { margin: 0; }
+/* A construct's fixed lines cannot move one by one: they are lines of text in the construct's face, their dots in the dot column of plain rows. */
+.boundary-tree-template { display: grid; min-width: 0; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-body-size); line-height: 20px; }
+.boundary-tree-template-row { display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 22px; padding: 0 var(--dinkster-space-8) 0 calc(var(--dinkster-space-4) + 14px + var(--dinkster-space-4)); }
+.boundary-tree-template-row[data-side='output'] { justify-content: flex-end; padding-right: var(--dinkster-space-8); }
+.boundary-tree-template-row[data-side='output'] .boundary-tree-dot { order: 1; }
+/* Dragging: the row lifts out and the rows open an empty slot where it would land; no insertion line. */
+.boundary-tree-slot { min-width: 0; height: 24px; border: var(--dinkster-border-width) dashed var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); }
+.boundary-tree-slot[data-kind='construct'] { height: auto; }
+.boundary-tree-lifted { height: 24px; border: var(--dinkster-border-width) solid var(--dinkster-border-strong); background: var(--dinkster-surface-raised); box-shadow: var(--dinkster-elevation-low); transform: translate(8px, -4px); cursor: grabbing; }
+/* The Boundary panel frame the tree sits in: head, rows, and the fixed settings area. */
+.boundary-tree-panel { display: flex; flex-direction: column; gap: var(--dinkster-space-4); width: 320px; min-height: 560px; padding: var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); }
+.boundary-tree-panel-head, .boundary-tree-settings-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; }
+.boundary-tree-panel-title { min-width: 0; font-weight: var(--dinkster-weight-bold); overflow-wrap: anywhere; }
+.boundary-tree-panel-heading { margin-top: var(--dinkster-space-8); padding: var(--dinkster-space-4) 0; color: var(--dinkster-text-secondary); }
+.boundary-tree-quiet { min-width: 0; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.boundary-tree-settings { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--dinkster-space-8); margin-top: auto; padding-top: var(--dinkster-space-8); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+/* Every setting shares one name column as wide as the longest name, so names stay on one line and values start at one edge. */
+.boundary-tree-settings > * { grid-column: 1 / -1; }
+.boundary-tree-settings > .dinkster-choice { justify-self: start; }
+.boundary-tree-settings > .dinkster-choice > .dinkster-check { margin-left: 0; }
+/* A name is level with the first line of its value: the row aligns to the top and the name fills one line as high as the canvas-density controls beside it. */
+.boundary-tree-setting { display: grid; grid-template-columns: subgrid; align-items: start; min-width: 0; }
+.boundary-tree-setting-label { color: var(--dinkster-text-muted); line-height: var(--dinkster-input-canvas-height); white-space: nowrap; }
+.boundary-tree-setting-value { display: flex; flex-wrap: wrap; align-items: center; min-height: var(--dinkster-input-canvas-height); gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; color: var(--dinkster-text-secondary); }
+.boundary-tree-setting-value > .dinkster-input { flex: 1 1 140px; min-width: 0; }
+/* A link to what a row reads or feeds, drawn as a node's open-field panel draws its links: secondary text over a dotted line. */
+.boundary-tree-setting-value > .dinkster-link { color: var(--dinkster-text-secondary); text-decoration: none; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); }
+.boundary-tree-setting-value > .dinkster-link:hover { color: var(--dinkster-text-primary); }
+.boundary-tree-problem { display: flex; align-items: flex-start; gap: var(--dinkster-space-8); padding: var(--dinkster-space-4) var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-warning-fill); color: var(--dinkster-warning-foreground); }
+/* The icon is centred on the first line of the text, however many lines it wraps to. */
+.boundary-tree-problem > .dinkster-icon { margin-block: calc((var(--dinkster-type-body-line) - var(--dinkster-icon-size)) / 2); }
+.boundary-tree-empty { display: grid; justify-items: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-8) 0; color: var(--dinkster-text-secondary); }
+/* The panel's buttons sit at the right edge, as the site's actions do; a note about a button sits at the left of its line. */
+.boundary-tree-actions { justify-content: flex-end; justify-self: stretch; }
+.boundary-tree-actions > .boundary-tree-quiet { margin-right: auto; }
+.boundary-tree-examples { display: flex; flex-wrap: wrap; align-items: start; gap: var(--dinkster-space-24); }
+.boundary-tree-example { display: grid; gap: var(--dinkster-space-8); width: 320px; margin: 0; }
+.boundary-tree-example figcaption { display: grid; gap: var(--dinkster-space-4); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.boundary-tree-example figcaption strong { color: var(--dinkster-text-primary); font-size: var(--dinkster-type-body-size); }
 /* A save target opened in its row: a box under the row with the mount dropdown, whose list lies over the box, and the filename prefix. */
 .dinkster-canvas-field-panel:has(.dinkster-canvas-target-box) { overflow: visible; }
 .dinkster-canvas-target-box { display: flex; flex-direction: column; gap: var(--dinkster-space-4); padding: var(--dinkster-space-4) calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2) calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); }
@@ -940,10 +1050,11 @@
 .dinkster-canvas-target-value-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .dinkster-canvas-target-choice:not([data-state='ready']) .dinkster-canvas-target-value-text { color: var(--dinkster-text-muted); font-style: italic; }
 .dinkster-canvas-target-choice[data-tone='warning'] .dinkster-canvas-target-value { color: var(--dinkster-warning-foreground); }
-.dinkster-canvas-target-choice[data-tone='warning'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-warning-foreground); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
+.dinkster-canvas-target-choice[data-tone='warning'] { outline: var(--dinkster-indicator-width) solid var(--dinkster-warning-foreground); outline-offset: calc(0px - var(--dinkster-indicator-width)); }
 .dinkster-canvas-target-choice[data-tone='error'] .dinkster-canvas-target-value { color: var(--dinkster-danger-foreground); }
-.dinkster-canvas-target-choice[data-tone='error'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-danger-foreground); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
-.dinkster-canvas-target-choice:focus-visible, .dinkster-canvas-target-choice[data-focused='true'], .dinkster-canvas-target-choice[aria-expanded='true'], .dinkster-canvas-target-input:focus, .dinkster-canvas-target-input[data-focused='true'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
+.dinkster-canvas-target-choice[data-tone='error'] { outline: var(--dinkster-indicator-width) solid var(--dinkster-danger-foreground); outline-offset: calc(0px - var(--dinkster-indicator-width)); }
+.dinkster-canvas-target-choice[aria-expanded='true'], .dinkster-canvas-target-input:focus, .dinkster-canvas-target-input[data-focused='true'] { outline: var(--dinkster-indicator-width) solid var(--dinkster-border-focus); outline-offset: calc(0px - var(--dinkster-indicator-width)); }
+.dinkster-canvas-target-choice:focus-visible, .dinkster-canvas-target-choice[data-focused='true'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
 .dinkster-canvas-target-glyph { flex: none; width: var(--dinkster-space-12); height: var(--dinkster-space-12); color: var(--dinkster-text-secondary); stroke-width: 2; }
 .dinkster-canvas-target-spinner { width: var(--dinkster-space-12); height: var(--dinkster-space-12); }
 .dinkster-canvas-target-list { position: absolute; top: calc(100% + var(--dinkster-border-width) * 2); left: 0; min-width: 100%; width: max-content; box-sizing: border-box; z-index: 2; padding: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-raised); box-shadow: var(--dinkster-elevation-high); }
@@ -954,7 +1065,7 @@
 .dinkster-canvas-target-check { flex: none; width: var(--dinkster-space-12); height: var(--dinkster-space-12); color: var(--dinkster-border-focus); stroke-width: 2.5; }
 .dinkster-canvas-target-caption { padding: calc(var(--dinkster-space-4) / 2) calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2) 0; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .dinkster-canvas-target-input { padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); outline: 0; }
-.dinkster-canvas-target-input[aria-invalid='true'], .dinkster-canvas-target-input[aria-invalid='true']:focus { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-danger-foreground); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
+.dinkster-canvas-target-input[aria-invalid='true'], .dinkster-canvas-target-input[aria-invalid='true']:focus { outline: var(--dinkster-indicator-width) solid var(--dinkster-danger-foreground); outline-offset: calc(0px - var(--dinkster-indicator-width)); }
 .dinkster-canvas-target-input::selection { background: var(--dinkster-border-focus); color: var(--dinkster-text-inverse); }
 .dinkster-canvas-target-note { margin: 0; padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); color: var(--dinkster-danger-foreground); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .dinkster-canvas-target-error { margin: 0; color: var(--dinkster-danger-foreground); }
@@ -981,7 +1092,7 @@
 /* A button in an editor keeps to the row it sits on, as the node's own buttons do. */
 .dinkster-canvas-editor-buttons .dinkster-button { box-sizing: border-box; min-height: 0; height: var(--dinkster-input-canvas-height); padding-block: 0; }
 /* The canvas overlays sit outside the page root, so an editor dims its own disabled buttons. */
-.dinkster-canvas-editor-buttons .dinkster-button:disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+:is(.dinkster-canvas-editor-buttons, .dinkster-canvas-recorder) .dinkster-button:disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 /* A row of an editor's buttons: each raised as the node's own buttons are drawn (a face with a lit top edge and a
    line of shade under it), the row split evenly between them. Pressed, the face sinks: no lit edge, no shade. */
 :is(.dinkster-canvas-editor, .dinkster-canvas-editor-section-rows) > .dinkster-canvas-editor-buttons > .dinkster-button { flex: 1 1 0; justify-content: center; border: var(--dinkster-border-width) solid var(--dinkster-border-box); border-top-color: var(--dinkster-button-lit-edge); border-radius: var(--dinkster-radius-small); background: var(--dinkster-button-face); box-shadow: 0 var(--dinkster-border-width) 0 var(--dinkster-button-shade); }
@@ -1044,6 +1155,12 @@
 .dinkster-canvas-curve-line[data-held='true'] { stroke: var(--dinkster-text-muted); }
 .dinkster-canvas-curve-point { fill: var(--dinkster-surface-raised); stroke: var(--dinkster-accent-border); stroke-width: 2; }
 .dinkster-canvas-curve-point[data-selected='true'] { fill: var(--dinkster-accent-border); }
+.dinkster-canvas-curve[data-disabled='true'] { cursor: default; }
+.dinkster-canvas-curve[data-disabled='true'] .dinkster-canvas-curve-border { stroke: var(--dinkster-border-subtle); }
+.dinkster-canvas-curve[data-disabled='true'] .dinkster-canvas-curve-line { stroke: var(--dinkster-text-muted); }
+.dinkster-canvas-curve[data-disabled='true'] .dinkster-canvas-curve-grid { opacity: var(--dinkster-interaction-disabled-opacity); }
+.dinkster-canvas-curve[data-disabled='true'] .dinkster-canvas-curve-point { fill: var(--dinkster-surface-raised); stroke: var(--dinkster-text-muted); }
+.dinkster-canvas-editor:has(.dinkster-canvas-curve[data-disabled='true']) > .dinkster-canvas-editor-buttons > .dinkster-button:disabled { color: var(--dinkster-text-secondary); }
 /* The node's problem box hangs below the node, as wide as its longest line up to a limit set by the screen, where lines wrap, at one type size, and is drawn as a part of the node: the node's small radius, its resting 1 px edge, the panel fill and the canvas row type. A problem's color is only on its icon and message. A line is one row high, with its action at the right end drawn as a list status line's action; under a narrow node the action wraps to its own line, still at the right end, so the message keeps at least half the line. */
 .problem-box { position: absolute; z-index: 11; box-sizing: border-box; width: max-content; max-height: var(--dinkster-problem-box-max-height); overflow-y: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
 .problem-box-line { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--dinkster-space-4); box-sizing: border-box; min-height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); padding: calc(var(--dinkster-space-4) / 2) calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2 + var(--dinkster-border-width)); }
@@ -1363,10 +1480,227 @@
 .dinkster-template-download-label { display: flex; align-items: baseline; justify-content: space-between; gap: var(--dinkster-space-12); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dinkster-template-download-track { position: relative; display: block; height: 2px; overflow: hidden; border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-border-subtle); }
 .dinkster-template-download-track > .dinkster-template-progress { top: 0; }
+.product-checkbox,
+.product-radio {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--dinkster-space-24);
+  min-height: var(--dinkster-space-24);
+  padding: var(--dinkster-space-4);
+  border: 0;
+  background: transparent;
+  color: var(--dinkster-accent-foreground);
+  font: inherit;
+  cursor: pointer;
+}
+.product-checkbox:focus-visible,
+.product-radio:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; border-radius: var(--dinkster-radius-control); }
+.product-checkbox:disabled,
+.product-radio:disabled { color: var(--dinkster-text-disabled); cursor: default; }
+.product-checkbox-mark,
+.product-radio-mark {
+  width: var(--dinkster-space-16);
+  height: var(--dinkster-space-16);
+  border: 1px solid var(--dinkster-border-subtle);
+  background: var(--dinkster-surface-inset);
+}
+.product-checkbox-mark { border-radius: var(--dinkster-radius-small); }
+:is(.product-checkbox, .product-radio):hover:not(:disabled) :is(.product-checkbox-mark, .product-radio-mark) { border-color: var(--dinkster-border-hover); }
+.product-checkbox[aria-checked='true'] .product-checkbox-mark::after {
+  content: '';
+  display: block;
+  width: 8px;
+  height: 4px;
+  margin: 3px 2px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+}
+.product-checkbox[aria-checked='mixed'] .product-checkbox-mark::after {
+  content: '';
+  display: block;
+  width: 8px;
+  height: 2px;
+  margin: 6px 3px;
+  background: currentColor;
+}
+.product-radio { justify-content: flex-start; gap: var(--dinkster-space-8); text-align: left; color: inherit; }
+.product-radio-mark { border-radius: 50%; }
+.product-radio[aria-checked='true'] .product-radio-mark::after {
+  content: '';
+  display: block;
+  width: 8px;
+  height: 8px;
+  margin: 3px;
+  border-radius: 50%;
+  background: var(--dinkster-accent-foreground);
+}
+
+.product-panel-header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: var(--dinkster-space-12); padding: var(--dinkster-space-8) var(--dinkster-space-12); border-bottom: 1px solid var(--dinkster-border-subtle); }
+.product-panel-header-title { display: flex; min-width: 0; align-items: baseline; gap: var(--dinkster-space-8); }
+.product-panel-header h2 { margin: 0; font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); }
+.product-panel-header-count { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); }
+.product-panel-header-actions { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-4); }
+
+.problems-selection-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dinkster-space-4);
+  white-space: nowrap;
+}
+
+.problems-group {
+  margin: 6px 0;
+}
+
+.problems-group-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 0;
+  border-left: 3px solid var(--dinkster-border-strong);
+  color: inherit;
+  background: var(--dinkster-surface-panel);
+  text-align: left;
+  cursor: pointer;
+}
+
+.problems-group[data-severity='error'] > .problems-group-header {
+  border-left-color: var(--dinkster-danger-border);
+}
+
+.problems-group[data-severity='warning'] > .problems-group-header {
+  border-left-color: var(--dinkster-warning-border);
+}
+
+.problems-group-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.problems-group-count,
+.problems-group-severity {
+  color: var(--dinkster-text-secondary);
+  font-size: var(--dinkster-type-metadata-size);
+}
+
+.problems-group-count::before {
+  content: '(';
+}
+
+.problems-group-count::after {
+  content: ')';
+}
+
+.problems-group-items {
+  margin-left: 8px;
+  min-width: 0;
+  user-select: text;
+}
+
+.problems-group-header,
+.problem-show-on-canvas {
+  user-select: none;
+}
+
+.problem {
+  margin: 4px 0;
+  padding: 4px 6px;
+  min-width: 0;
+  border-radius: 4px;
+  background: var(--dinkster-surface-raised);
+  overflow-wrap: anywhere;
+}
+
+.problem[data-severity='error'] {
+  border-left: 3px solid var(--dinkster-danger-border);
+}
+
+.problem[data-severity='warning'] {
+  border-left: 3px solid var(--dinkster-warning-border);
+}
+
+.problem summary {
+  display: flex;
+  align-items: center;
+  gap: var(--dinkster-space-8);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.problem summary::after {
+  content: '>';
+  margin-left: auto;
+}
+
+.problem[open] summary::after {
+  content: 'v';
+}
+
+.problem-severity {
+  flex: none;
+  width: var(--dinkster-space-16);
+  text-align: center;
+  color: var(--dinkster-info-foreground);
+  font-weight: var(--dinkster-weight-bold);
+}
+
+.problem[data-severity='error'] .problem-severity { color: var(--dinkster-danger-foreground); }
+.problem[data-severity='warning'] .problem-severity { color: var(--dinkster-warning-foreground); }
+
+.problem-message {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.problem-detail {
+  margin-top: var(--dinkster-space-8);
+  color: var(--dinkster-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.problem-detail pre {
+  white-space: pre-wrap;
+}
+
+.problem-show-on-canvas {
+  margin-top: 6px;
+}
 .dinkster-template-states { display: grid; grid-template-columns: repeat(auto-fill, 236px); gap: 14px; }
 .dinkster-template-states > div { display: grid; gap: 6px; }
 .dinkster-template-states .dinkster-template-tiles { padding: 0; overflow: visible; }
 .dinkster-template-states .dinkster-template-tile { background: var(--dinkster-surface-panel); }
+
+.engine-run-control { position: relative; display: inline-flex; align-items: stretch; }
+.engine-run-control > .dinkster-button, .engine-run-starting { min-height: calc(var(--dinkster-space-32) + var(--dinkster-space-4)); }
+.engine-run-control > .dinkster-button { background: var(--dinkster-surface-raised); }
+.engine-run-control[data-state='stopped'] > .dinkster-button { color: var(--dinkster-success-foreground); border-color: var(--dinkster-success-rest-border); background: var(--dinkster-success-background); }
+.engine-run-control[data-state='stopped'] > .dinkster-button:hover:not(:disabled) { border-color: var(--dinkster-success-border); background: var(--dinkster-success-wash); }
+.engine-run-control[data-state='stopped'] > .dinkster-button:active:not(:disabled) { border-color: var(--dinkster-success-border); background: var(--dinkster-success-wash-pressed); }
+.engine-run-control > .dinkster-button[data-role='remove'] { background: var(--dinkster-danger-background); }
+.engine-run-control > .dinkster-button[data-role='remove']:hover:not(:disabled) { background: var(--dinkster-danger-wash); }
+.engine-run-control > .dinkster-button[data-role='remove']:active:not(:disabled) { background: var(--dinkster-danger-wash-pressed); }
+.engine-run-starting { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); box-sizing: border-box; padding: var(--dinkster-space-4) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-secondary); background: transparent; white-space: nowrap; }
+.engine-run-control[data-state='stopped'] > .dinkster-button, .engine-run-starting { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.engine-run-control[data-state='failed'] > .dinkster-button:first-of-type { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.engine-run-control[data-state='failed'] > .dinkster-button + .dinkster-button { margin-inline-start: calc(-1 * var(--dinkster-border-width)); border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.engine-run-percent { color: var(--dinkster-text-muted); font-variant-numeric: tabular-nums; }
+.engine-run-reason { position: absolute; top: calc(100% + var(--dinkster-space-8)); right: 0; z-index: 1; display: grid; gap: var(--dinkster-space-12); box-sizing: border-box; width: var(--dinkster-project-menu-max-width); max-width: calc(100vw - var(--dinkster-space-32)); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }
+.engine-run-reason > strong { overflow-wrap: anywhere; white-space: pre-wrap; }
+.engine-run-reason-actions { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); }
+.engine-run-log { max-height: calc(100dvh - 6 * var(--dinkster-space-32)); overflow: auto; }
+.engine-state-gallery { display: grid; gap: var(--dinkster-space-16); }
+.engine-state-gallery-example { display: grid; gap: var(--dinkster-space-8); margin: 0; }
+.engine-state-gallery-example > figcaption { color: var(--dinkster-text-secondary); }
+.engine-state-gallery-stage { display: flex; justify-content: flex-end; min-height: calc(var(--dinkster-space-32) * 6); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
+
 /* The one search surface: Ctrl+K search, node search and the Settings page share it. */
 .dinkster-search { position: relative; display: flex; min-width: 0; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
 .dinkster-search-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; max-height: inherit; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }

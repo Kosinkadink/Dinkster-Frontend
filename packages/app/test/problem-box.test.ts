@@ -30,6 +30,21 @@ const line = (kind: 'error' | 'warning', code: string, row?: string): NodeProble
 })
 
 describe('problemBoxLines', () => {
+  it('names a solver row once while retaining its identity and field action', () => {
+    const problem: NodeProblemLine = {
+      kind: 'warning', row: 'width',
+      diagnostic: diag('warning', 'schema', 'solve.linkMismatch', 'Generate image: Width needs a whole number, but Load image sends an image.', {
+        data: { nodeMessage: 'Width needs a whole number, but Load image sends an image.' },
+      }),
+    }
+    const [shown] = problemBoxLines([problem], problemBoxRows(node), (row) => row, () => 'Panel-only text')
+    expect(shown).toMatchObject({
+      row: 'width', message: 'Width needs a whole number, but Load image sends an image.',
+      kind: 'warning', actions: ['edit-field'], problem,
+    })
+    expect(shown?.rowName).toBeUndefined()
+  })
+
   it('lists the whole node first, then rows top to bottom, strongest first on a row', () => {
     const lines = problemBoxLines([
       line('warning', 'steps.max', 'steps'),

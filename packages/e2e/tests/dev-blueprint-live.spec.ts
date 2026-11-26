@@ -25,7 +25,7 @@ test('served dev blueprint copies its graph independently and undoes as one inse
   const copy = inserted.graphs[id]!
   expect(Object.keys(inserted.graphs.root!.nodes)).toHaveLength(9)
   expect(Object.keys(copy.nodes)).toHaveLength(8)
-  expect(copy.boundary).toEqual({ inputs: [], outputs: [] })
+  expect(copy.boundary).toEqual({ body: [] })
   expect(copy.nodes).toEqual(before.graphs.root!.nodes)
   expect(copy.links.image).toEqual({
     id: 'image', from: { node: 'source', port: 'image' }, to: { node: 'mirror', port: 'image' },

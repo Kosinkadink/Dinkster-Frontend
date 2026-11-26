@@ -23,13 +23,13 @@ export function ProductFacts(props: {
 }
 
 export function ProductCodeBlock(props: {
-  label: string
+  label?: string
   value: string
   action?: JSX.Element
 }) {
   return (
     <section class="dinkster-stack" aria-label={props.label}>
-      <span class="dinkster-description">{props.label}</span>
+      <Show when={props.label}>{(label) => <span class="dinkster-description">{label()}</span>}</Show>
       <pre class="dinkster-code">
         <code>{props.value}</code>
       </pre>

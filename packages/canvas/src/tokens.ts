@@ -3,7 +3,7 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { canvasSemanticTokens, DIM_FILL_SHARE, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
@@ -71,7 +71,7 @@ export const canvasPaintTokens = {
       maxLabelWidth: 120,
       stroke: 1,
       /** Shares of the tab's color: its fill over the canvas, its line over the canvas, its words over the title color. */
-      fillMix: 0.16,
+      fillMix: DIM_FILL_SHARE,
       hoverFillMix: 0.3,
       lineMix: 0.65,
       textMix: 0.7,
@@ -144,13 +144,14 @@ export const canvasPaintTokens = {
     /** Rows an open text result shows at least. */
     textOutputMinRows: 2,
     /**
-     * The bar on the bottom edge of a node whose preview is open: the text
-     * box's bar (`widget.textBoxEdge`), its top `barRise` above the node's
-     * edge so it sits on the edge, and a band around the edge that drags it.
-     * Arrow keys on a pressed bar step a picture's height by `keyStep`; a text
-     * result steps one row.
+     * The bar of a node whose preview is open: the text box's bar
+     * (`widget.textBoxEdge`), its top `barRise` above the node's bottom edge
+     * so it sits inside the node under the preview, as a text box's bar sits
+     * inside its box, and a band around the edge that drags it. Arrow keys on
+     * a pressed bar step a picture's height by `keyStep`; a text result steps
+     * one row.
      */
-    previewEdge: { barRise: 1, hitAbove: 5, hitBelow: 5, keyStep: 10 },
+    previewEdge: { barRise: 5, hitAbove: 5, hitBelow: 5, keyStep: 10 },
     missing: { portLabelPadding: 4, pairedPortGap: 16, tapLabelPadding: 20 },
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
@@ -294,7 +295,7 @@ export const canvasPaintTokens = {
     /** A pointed pin's radius grows by this many pixels, so an 11px disc becomes 13px on the same whole-pixel center. */
     hoverGrowth: 1,
     statusRingGap: 3.5,
-    statusRingStroke: canvasSemanticTokens.interaction.focusRingWidth,
+    statusRingStroke: canvasSemanticTokens.interaction.indicatorWidth,
     outlineStroke: 1,
     optionalMinRadius: 1.5,
     optionalRadiusRatio: 0.32,
@@ -333,7 +334,7 @@ export const canvasPaintTokens = {
     separatorWidth: 1,
     separatorHeightRatio: 0.6,
     nodeSelectionOutset: 3,
-    selectionStroke: canvasSemanticTokens.interaction.focusRingWidth,
+    selectionStroke: canvasSemanticTokens.interaction.indicatorWidth,
     selectionMinScreenStroke: 2,
     cullScreenPadding: 1,
     boundarySelectionOutset: 2,
@@ -363,6 +364,9 @@ export const canvasPaintTokens = {
     labelPinGap: canvasSemanticTokens.space[4],
     /** Space between the panel title and the quieter text naming whose values its fields carry. */
     subtitleGap: canvasSemanticTokens.space[4],
+    /** The row of the boundary item selected in the Boundary panel. */
+    focusInset: 2,
+    focusStroke: 1.5,
   },
   net: {
     gap: 10,
@@ -533,15 +537,15 @@ export const canvasPaintTokens = {
     /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
     subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     /**
-     * A folded curve in the raised look: a square of its plot at the row's
-     * start, `inset` inside the row and as tall as the row allows, `gap`
-     * before the name; the plot sits `plotInset` inside its frame.
+     * A folded curve in the raised look: a square before its count, `inset`
+     * inside the row and as tall as the row allows, `gap` before the count;
+     * the plot sits `plotInset` inside its frame.
      */
     curve: { inset: 5, gap: 8, plotInset: 3, lineWidth: 1.5, pointRadius: 1.75, dash: [2, 2], lineStep: 16, edge: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
     valueSwatch: { size: 10, radius: 2, gap: 6, checkerCell: 3, edge: 1 },
     /** A folded editor's small picture before its value, such as the stored frame. */
-    valueThumbnail: { size: 16, radius: 2, gap: 6 },
+    valueThumbnail: { size: 16, radius: 2, gap: 6, fileNameGap: 4, entryGap: 8 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,
@@ -842,6 +846,8 @@ export interface DesignTokens {
     readonly skippedOutline: string
     readonly nodeBody: string
     readonly nodeHeader: string
+    readonly nodeSelectedHeader: string
+    readonly nodeSelectedEdge: string
     /** Face of a raised opener row, lighter than the node body. */
     readonly widgetRaised: string
     /** Rule under a title bar drawn in the body's own color. */
@@ -1081,6 +1087,8 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     // keeps its original surfaces.
     nodeBody: theme === 'dark' ? tokens.surface.panel : tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
+    nodeSelectedHeader: tokens.surface.selected,
+    nodeSelectedEdge: tokens.text.secondary,
     widgetRaised: theme === 'dark' ? tokens.surface.raised : tokens.surface.panel,
     nodeHeaderRule: tokens.border.divider,
     nodeOutline: tokens.border.strong,

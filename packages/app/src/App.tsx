@@ -126,6 +126,7 @@ import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { isPageTab, PageTabPanel } from './page-tabs.js'
 import type { AppTab } from './app-page-tabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
+import { EngineRunControl } from './EngineRunControl.js'
 import { ChosenRun, RunActivityControl, RunRow, tookText, type ChosenRunFact, RunSection, placeInLine, runAge, runIsPending, useNow } from './RunControls.js'
 import { ExecutedImageFacts, ExecutedImageViewer, SavedOutputFiles, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { executedImageInventory, executedImageLabel, executionThumbnail, type ExecutedImage } from './executed-image-inventory.js'
@@ -377,6 +378,7 @@ export function dispatchAppCommandKey(
 
 export function App(props: {
   app: AppState
+  initialProjectName?: string | undefined
   desktopWindow?: { readonly context: DesktopWindowContext; readonly layout: DesktopWindowLayout }
   /** Under the always-on process: the projects page and project switches stay in this page. */
   shell?: Pick<ShellNavigation, 'openProject' | 'showProjects'>
@@ -1255,17 +1257,9 @@ export function App(props: {
     backendsTick()
     return b.registry.get()?.schemas.size
   }
-  /** Last /supervisor/status answer (native backends behind a supervisor). */
-  const supervisorOf = (b: Backend) => {
+  const engineGate = (tab: Tab) => {
     backendsTick()
-    return b.supervisor.get()
-  }
-  /**
-   * Supervisor state that gates the active backend (anything but ready):
-   * rendered as "Dinkster is starting", never a connection failure (Ask 1).
-   */
-  const engineGate = () => {
-    const sup = supervisorOf(activeBackend())
+    const sup = app.backendForTab(tab).supervisor.get()
     return sup && sup.state !== 'ready' ? sup : undefined
   }
 
@@ -1296,6 +1290,7 @@ export function App(props: {
   const cancelling = useSignal(app.cancellingExecutions)
   const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
     const live = () => liveTabOf(p.exec)
+    const pending = createMemo(() => runIsPending(p.exec))
     // A finished run shows its outputs while it is the chosen run; a running or
     // queued one only once its name is pressed, so the list stays one line each.
     const selected = () => selectedRunKey() === p.exec.key ||
@@ -1346,7 +1341,7 @@ export function App(props: {
               else app.pinExecutionOverlay(tab.id, p.exec.ref)
             } : undefined}
           />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
-          {...(runIsPending(p.exec) ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
+          {...(pending() ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
             detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
             menuMount={menuMount()} onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
       </Show>
@@ -1786,7 +1781,6 @@ export function App(props: {
       id: 'learn', get title() { return message('learn.panel.title') }, icon: BookOpen,
       get description() { return message('learn.panel.description') }, get ariaLabel() { return message('learn.panel.ariaLabel') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 25,
-      when: () => learnBackend() !== undefined,
       toggleTestId: 'learn-toggle', component: () => {
         return <LearnPanel
           backend={learnBackend()}
@@ -2562,14 +2556,10 @@ export function App(props: {
     })
     observer.observe(trigger, { attributes: true, attributeFilter: ['aria-expanded'] })
   }), { defer: true }))
-  const [projectName, setProjectName] = createSolidSignal<string>()
-  const primaryConnected = createMemo(() => {
-    const backend = backends()[0]
-    return backend !== undefined && statusOf(backend) === 'connected' ? backend : undefined
-  })
+  const [projectName, setProjectName] = createSolidSignal(props.initialProjectName)
   // The name is read again when a modal closes, since the Projects dialog renames projects.
   createEffect(() => {
-    const backend = primaryConnected()
+    const backend = backends()[0]
     if (backend === undefined || modalPanel() !== '') return
     const controller = new AbortController()
     backend.connection.getProject(activeProjectId(), controller.signal)
@@ -2585,7 +2575,7 @@ export function App(props: {
   const readProjectList = (): void => {
     projectListRead?.abort()
     setProjectListFailed(false)
-    const backend = primaryConnected()
+    const backend = backends()[0]
     if (backend === undefined) {
       setProjectListFailed(true)
       return
@@ -3043,6 +3033,11 @@ export function App(props: {
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), app.registryForTab(tab()) !== undefined)}
                       blockedReason={(backendsTick(), app.engineOffReason(tab(), message))}
+                      runControl={<Show when={tab().execution === undefined ? engineGate(tab()) : undefined}>
+                        {(status) => <EngineRunControl status={status()} baseUrl={app.backendForTab(tab()).baseUrl}
+                          onRestart={() => app.restartEngine(app.backendForTab(tab()))} />}
+                      </Show>}
+                      hideRunList={engineGate(tab())?.state === 'failed'}
                       onQueue={tab().execution === undefined ? () => { void app.queue(tab()) } : undefined}
                       onOpenExecution={(ref) => { void app.openExecutionView(ref) }}
                     />
@@ -3270,32 +3265,6 @@ export function App(props: {
             </ModalSurface>
           )
         }}
-      </Show>
-
-      <Show when={engineGate()}>
-        {(sup) => (
-          <div class="engine-banner" data-testid="engine-banner" data-state={sup().state} role="status" aria-live="polite">
-            <Show when={sup().state === 'starting'}>
-              <span class="engine-spinner" />
-            </Show>
-            <span class="engine-banner-text">
-              {sup().state === 'starting'
-                ? message('shell.engine.starting')
-                : sup().state === 'failed'
-                  ? message('shell.engine.failed')
-                  : message('shell.engine.stopped')}
-              {sup().detail ? ` - ${sup().detail}` : ''}
-            </span>
-            <Show when={sup().state === 'failed' || sup().state === 'stopped'}>
-              <ProductButton size="compact"
-                data-testid="engine-restart"
-                onClick={() => void app.restartEngine(activeBackend())}
-              >
-                {message('shell.engine.restart')}
-              </ProductButton>
-            </Show>
-          </div>
-        )}
       </Show>
 
       <Show when={problems().find((problem) => problem.code === 'workspace.recovery.storageFailed')} keyed>

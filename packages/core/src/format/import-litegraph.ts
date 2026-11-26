@@ -458,7 +458,6 @@ const decodePositionalFamilyWidgets = (
         return
       }
       if (item.kind !== 'input') continue
-      if (item.type.kind === 'concrete' && item.type.name === 'RESOLUTION_PREVIEW') continue
       if (item.widget === undefined || item.forceInput === true) continue
       const key = group.value !== undefined ? `${family.path}.${member}` : `${family.path}.${member}.${item.id}`
       if (state.index >= raw.length) {
@@ -491,7 +490,6 @@ const positionalRowsOf = (schema: NodeSchema): PlacedRow[] => {
 }
 
 const takesPositions = (row: PlacedRow): boolean =>
-  !(row.kind === 'input' && row.type.kind === 'concrete' && row.type.name === 'RESOLUTION_PREVIEW') &&
   (row.kind === 'choice' || (row.kind === 'input' && row.widget !== undefined && row.forceInput !== true) ||
     // A group of outputs or pins has no widgets to take positions.
     (row.kind === 'group' && placedRows(memberRowsOf(row)).some((item) => isBox(item) || takesPositions(item))))

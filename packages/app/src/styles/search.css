@@ -34,7 +34,7 @@
   background: var(--dinkster-surface-inset);
   border-bottom: 1px solid var(--dinkster-border-subtle);
 }
-.search-input-shell:focus-within { color: var(--dinkster-border-focus); box-shadow: inset 0 calc(var(--dinkster-focus-ring-width) * -1) var(--dinkster-border-focus); }
+.search-input-shell:focus-within { color: var(--dinkster-border-focus); box-shadow: inset 0 calc(var(--dinkster-indicator-width) * -1) var(--dinkster-border-focus); }
 .search-input-shell .search-input {
   appearance: none;
   width: 100%;

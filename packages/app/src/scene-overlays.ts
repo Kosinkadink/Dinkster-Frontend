@@ -39,6 +39,7 @@ import {
 import {
   asNodeId,
   asPortId,
+  boundaryItems,
   buildGraphConnectivity,
   diag,
   deriveGlslMirrorBindings,
@@ -176,7 +177,7 @@ function eachRecordedAutomaticRow(
   for (const instance of instancePath) viewedGraph = defOf(viewedGraph, instance)
   const boundaryItemOf = (defId: string | undefined, hops: readonly string[], inputId: string): string | undefined => {
     const [hop, ...rest] = hops
-    const inputs = defId === undefined ? undefined : graphs[defId]?.boundary?.inputs
+    const inputs = defId === undefined ? undefined : boundaryItems(graphs[defId]?.boundary, 'inputs')
     if (inputs === undefined || hop === undefined) return undefined
     const port = rest.length === 0 ? inputId : boundaryItemOf(defOf(defId, hop), rest, inputId)
     return inputs.find((item) => item.binds.kind === 'port' && item.binds.node === hop && item.binds.port === port)?.id

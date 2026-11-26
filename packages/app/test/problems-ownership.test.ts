@@ -306,8 +306,8 @@ describe('workflow model presence', () => {
     const inner = { id: 'inner', name: 'Model group', nodes: {
       loader: { id: 'loader', type: 'ModelLoader', values: { model: 'unused-definition.safetensors', strength: 1 } },
     }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
-      boundary: { inputs: [{ id: 'model', promoted, binds: { kind: 'port', node: 'loader', port: 'model' } },
-        { id: 'strength', promoted: true, binds: { kind: 'port', node: 'loader', port: 'strength' } }], outputs: [] } }
+      boundary: { body: [{ kind: 'input', id: 'model', promoted, binds: { kind: 'port', node: 'loader', port: 'model' } },
+        { kind: 'input', id: 'strength', promoted: true, binds: { kind: 'port', node: 'loader', port: 'strength' } }] } }
     await app.openDocument({ ...CHAIN_DOC, lineage: 'instance-models', graphs: {
       g0: { ...CHAIN_DOC.graphs.g0, nodes: {
         source: { id: 'source', type: 'ModelLoader', values: { model: 'source.safetensors' } },
