@@ -12,6 +12,8 @@ import {
 const scenes = [
   ['ready', 'Ready to download'],
   ['needs', 'A model needs something'],
+  ['access', 'Sign in and file access'],
+  ['waiting', 'Waiting'],
   ['downloading', 'Downloading'],
   ['failed', 'One failed'],
   ['run', 'All ready with Run'],
@@ -38,15 +40,14 @@ const files = [
   },
 ] as const
 
-function SourceChoices(props: { readonly onCheck: (source: string) => void }) {
+function SourceChoices(props: {
+  readonly sources: readonly string[]
+  readonly onCheck: (source: string) => void
+}) {
   const [source, setSource] = createSignal('')
-  const sources = [
-    'https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors',
-    'https://civitai.com/models/101055',
-  ]
   return (
     <div class="dinkster-model-download-source">
-      <For each={sources}>
+      <For each={props.sources}>
         {(url) => (
           <ProductRadio
             name="gallery-model-source"
@@ -57,7 +58,7 @@ function SourceChoices(props: { readonly onCheck: (source: string) => void }) {
         )}
       </For>
       <div class="dinkster-model-download-source-check">
-        <ProductField label="Or paste the file's address">
+        <ProductField label="Or paste a Hugging Face or Civitai file address">
           {(attributes) => (
             <ProductTextInput
               id={attributes.id}
@@ -85,9 +86,10 @@ function DownloadExample(props: {
   const [selected, setSelected] = createSignal(
     new Set(files.map((file) => file.id as string)),
   )
-  const [sourceOpen, setSourceOpen] = createSignal(false)
+  const [sourceOpen, setSourceOpen] = createSignal<string>()
   const [action, setAction] = createSignal('')
   const [stopped, setStopped] = createSignal(false)
+  const [waitingStopped, setWaitingStopped] = createSignal(false)
   const select = (id: string, checked: boolean) =>
     setSelected((current) => {
       const next = new Set(current)
@@ -95,7 +97,9 @@ function DownloadExample(props: {
       else next.delete(id)
       return next
     })
-  const available = (index: number): ProductModelDownloadRow => ({
+  const available = (
+    index: number,
+  ): Extract<ProductModelDownloadRow, { state: 'available' }> => ({
     ...files[index]!,
     state: 'available',
     selected: selected().has(files[index]!.id),
@@ -128,6 +132,46 @@ function DownloadExample(props: {
     action: { label, onClick: () => setAction(`${label} for ${id}`) },
   })
   const rows = (): readonly ProductModelDownloadRow[] => {
+    if (props.scene === 'access')
+      return [
+        needs(
+          'huggingface-sign-in',
+          'Not signed in to Hugging Face',
+          'Sign in',
+        ),
+        needs(
+          'huggingface-access',
+          'No access to this file on Hugging Face',
+          'Open Hugging Face',
+        ),
+        needs(
+          'civitai-access',
+          'No access to this file on Civitai',
+          'Open Civitai',
+        ),
+      ]
+    if (props.scene === 'waiting')
+      return [
+        {
+          ...files[0],
+          state: 'downloading',
+          progress: 0.17,
+          progressLabel: 'Downloading - 1.2 GB of 6.9 GB',
+          stop: {
+            label: 'Stop',
+            onClick: () => setAction('Stop requested for base'),
+          },
+        },
+        waitingStopped()
+          ? { ...available(1), selected: false }
+          : {
+              ...files[1],
+              state: 'waiting',
+              progressLabel: 'Waiting',
+              stop: { label: 'Stop', onClick: () => setWaitingStopped(true) },
+            },
+        ready(2),
+      ]
     if (props.scene === 'ready')
       return files.map((_, index) => available(index))
     if (props.scene === 'needs')
@@ -136,17 +180,49 @@ function DownloadExample(props: {
           ...needs('unknown-source', 'No known source', 'Choose a source'),
           action: {
             label: 'Choose a source',
-            onClick: () => setSourceOpen(!sourceOpen()),
+            onClick: () =>
+              setSourceOpen(
+                sourceOpen() === 'unknown-source'
+                  ? undefined
+                  : 'unknown-source',
+              ),
           },
           details: (
-            <Show when={sourceOpen()}>
+            <Show when={sourceOpen() === 'unknown-source'}>
               <SourceChoices
+                sources={[]}
                 onCheck={(source) => setAction(`Checked ${source}`)}
               />
             </Show>
           ),
         },
-        needs('several-sources', 'More than one source', 'Choose a source'),
+        {
+          ...needs(
+            'several-sources',
+            'More than one source',
+            'Choose a source',
+          ),
+          action: {
+            label: 'Choose a source',
+            onClick: () =>
+              setSourceOpen(
+                sourceOpen() === 'several-sources'
+                  ? undefined
+                  : 'several-sources',
+              ),
+          },
+          details: (
+            <Show when={sourceOpen() === 'several-sources'}>
+              <SourceChoices
+                sources={[
+                  'https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors',
+                  'https://civitai.com/models/101055',
+                ]}
+                onCheck={(source) => setAction(`Checked ${source}`)}
+              />
+            </Show>
+          ),
+        },
         needs('no-destination', 'No folder to save it in', 'Choose a folder'),
         needs(
           'disabled-folder',
@@ -161,7 +237,7 @@ function DownloadExample(props: {
         needs('hidden-model', 'Hidden on this computer', 'Show it'),
         needs(
           'host-permission',
-          'Its license must be accepted first',
+          'No access to this file on Hugging Face',
           'Open Hugging Face',
         ),
       ]
@@ -223,11 +299,11 @@ function DownloadExample(props: {
         summary={
           allReady()
             ? 'Image starter has every model it needs.'
-            : `Image starter needs ${rows().filter((row) => row.state !== 'ready').length} models that are not ${props.scene === 'needs' ? 'ready on' : 'on'} this computer.`
+            : `Image starter needs ${rows().filter((row) => row.state !== 'ready').length} models that are not ${props.scene === 'needs' || props.scene === 'access' ? 'ready on' : 'on'} this computer.`
         }
         footer={
           action() ||
-          (props.scene === 'downloading'
+          (props.scene === 'downloading' || props.scene === 'waiting'
             ? 'You can close this. Downloads keep going and show under tasks in the status bar.'
             : allReady()
               ? '3 models ready.'

@@ -36,7 +36,7 @@ export type ProductModelDownloadRow = {
       readonly details?: JSX.Element
     }
   | {
-      readonly state: 'downloading' | 'checking'
+      readonly state: 'waiting' | 'downloading' | 'checking'
       readonly progressLabel: string
       readonly progress?: number
       readonly stop?: RowAction
@@ -50,7 +50,9 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
   const needs = () => (props.row.state === 'needs' ? props.row : undefined)
   const failed = () => (props.row.state === 'failed' ? props.row : undefined)
   const progress = () =>
-    props.row.state === 'downloading' || props.row.state === 'checking'
+    props.row.state === 'waiting' ||
+    props.row.state === 'downloading' ||
+    props.row.state === 'checking'
       ? props.row
       : undefined
   const ready = () => (props.row.state === 'ready' ? props.row : undefined)
@@ -126,10 +128,12 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
       <Show when={progress()}>
         {(entry) => (
           <div class="dinkster-model-download-progress">
-            <ProductProgress
-              label={entry().progressLabel}
-              value={entry().progress}
-            />
+            <Show when={entry().state !== 'waiting'}>
+              <ProductProgress
+                label={entry().progressLabel}
+                value={entry().progress}
+              />
+            </Show>
             <div class="dinkster-model-download-progress-caption">
               <span>{entry().progressLabel}</span>
               <Show when={entry().stop}>
@@ -167,7 +171,6 @@ export function ProductModelDownloads(props: {
   readonly listLabel: string
   readonly rows: readonly ProductModelDownloadRow[]
   readonly footer: string
-  readonly spaceShort?: boolean
   readonly closeLabel: string
   readonly onClose: () => void
   readonly primary?: RowAction
@@ -179,11 +182,7 @@ export function ProductModelDownloads(props: {
         <Index each={props.rows}>{(row) => <ModelRow row={row()} />}</Index>
       </ul>
       <footer class="dinkster-model-download-footer">
-        <p
-          class="dinkster-description"
-          data-warning={props.spaceShort ? '' : undefined}
-          role="status"
-        >
+        <p class="dinkster-description" role="status">
           {props.footer}
         </p>
         <div class="dinkster-actions">
@@ -194,7 +193,7 @@ export function ProductModelDownloads(props: {
             {(primary) => (
               <ProductButton
                 fill="solid"
-                disabled={props.spaceShort || primary().disabled === true}
+                disabled={primary().disabled === true}
                 onClick={() => primary().onClick()}
               >
                 {primary().label}

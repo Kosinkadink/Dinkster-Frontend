@@ -1678,7 +1678,6 @@
 .dinkster-model-download-failure { color: var(--dinkster-danger-foreground); }
 .dinkster-model-download-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--dinkster-space-16); padding-top: var(--dinkster-space-16); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 .dinkster-model-download-footer > p { flex: 1 1 220px; }
-.dinkster-model-download-footer > p[data-warning] { color: var(--dinkster-warning-foreground); }
 .dinkster-model-download-footer > .dinkster-actions { justify-content: end; margin-left: auto; }
 .dinkster-model-download-source { display: grid; gap: var(--dinkster-space-12); min-width: 0; }
 .dinkster-model-download-source .dinkster-choice { overflow-wrap: anywhere; min-width: 0; }
