@@ -81,7 +81,11 @@ describe('button press authority and typed answers', () => {
       expect(added.x).toBeGreaterThan(source.x + source.layout.width)
       expect(added.x + added.layout.width).toBeLessThan(targetX)
       expect(added.y).toBe(100)
-    } else expect(added.y).not.toBe(100)
+    } else {
+      const source = scene.nodes.find((node) => node.id === 'source')!
+      expect(added.x).toBe(source.x + source.layout.width + defaultTokens.rowHeight * 2)
+      expect(added.y).not.toBe(100)
+    }
     const after = store.doc
     expect(store.undo()).toBe(true)
     expect(Object.keys(store.doc.graphs['g0']!.nodes)).toEqual(['target', 'source'])

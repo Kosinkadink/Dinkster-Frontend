@@ -188,7 +188,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         if ((driver === undefined || x >= driver.x1 + gap) && clear(destination.y)) return { x, y: destination.y }
         // Existing positions belong to every use of the definition. Only the
         // new node moves to a clear lane when the horizontal gap is too small.
-        if (driver !== undefined) x = (driver.x1 + destination.x - layout.width) / 2
+        if (driver !== undefined) x = driver.x1 + gap
         const candidates = obstacles.flatMap((item) => [item.y - layout.height - gap, item.y + item.height + gap])
           .sort((a, b) => Math.abs(a - destination.y) - Math.abs(b - destination.y) || b - a)
         return { x, y: candidates.find(clear)! }
