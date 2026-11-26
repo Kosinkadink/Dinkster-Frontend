@@ -1641,6 +1641,7 @@
   "canvas.absence.source.optionalDefault": "default for optional input",
   "canvas.absence.source.requiredDefault": "default for required input",
   "canvas.absence.summary": "If absent: {policy} ({source}) - {behavior}.",
+  "canvas.navigator.help": "`\u2191` `\u2193` browse `Enter` select `Esc` exit",
   "canvas.corner.label": "Minimap and zoom",
   "canvas.corner.hideMinimap": "Hide minimap",
   "canvas.corner.showMinimap": "Show minimap",
