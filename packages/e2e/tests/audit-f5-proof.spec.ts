@@ -51,17 +51,18 @@ test('checkboxes and radios preserve keyboard, disabled, focus, and mutation bou
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
 
   await page.getByTestId('settings-button').click()
-  await page.locator('.settings-categories').getByRole('button', { name: 'Canvas grid' }).click()
-  const setting = page.locator('[data-setting-id]', { hasText: 'Show dot grid' }).getByRole('checkbox')
+  await page.getByRole('region', { name: 'Settings', exact: true }).getByRole('link', { name: 'Canvas', exact: true }).click()
+  const setting = page.locator('[data-setting-id]', { hasText: 'Show dot grid' }).getByRole('switch')
+  await expect(setting).toBeChecked()
   await page.keyboard.press('Tab')
   await setting.focus()
   await expect(setting).toBeFocused()
   await expect(setting).toHaveCSS('outline-style', 'solid')
   await setting.press('Enter')
-  await expect(setting).toHaveAttribute('aria-checked', 'true')
-  await setting.press('Space')
   await expect(setting).toHaveAttribute('aria-checked', 'false')
-  await page.keyboard.press('Escape')
+  await setting.press('Space')
+  await expect(setting).toHaveAttribute('aria-checked', 'true')
+  await page.getByRole('button', { name: 'Close Settings', exact: true }).click()
 
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app

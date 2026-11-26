@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CANVAS_WHEEL_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -112,15 +112,15 @@ test('smooth wheel zoom accumulates input, yields to manual navigation and persi
   await page.clock.resume()
 
   await page.getByTestId('settings-button').click()
-  const dialog = page.getByRole('dialog', { name: 'Settings' })
-  await dialog.locator('.settings-categories').getByRole('button', { name: 'Canvas', exact: true }).click()
-  const toggle = dialog.locator('[data-setting-id="canvas.smoothWheelZoom"]').getByRole('checkbox')
+  const dialog = page.getByRole('region', { name: 'Settings', exact: true })
+  await dialog.getByRole('link', { name: 'Canvas', exact: true }).click()
+  const toggle = dialog.locator('[data-setting-id="canvas.smoothWheelZoom"]').getByRole('switch')
   await expect(toggle).toBeChecked()
   await page.screenshot({ path: info.outputPath('smooth-wheel-on.png') })
   await toggle.uncheck()
   await expect(toggle).not.toBeChecked()
   await page.screenshot({ path: info.outputPath('smooth-wheel-off.png') })
-  await dialog.getByRole('button', { name: 'Close settings' }).click()
+  await page.getByRole('button', { name: 'Close Settings', exact: true }).click()
   await setViewport(page, start)
   await wheel(page, { ...point, deltaX: 0, deltaY: -120 })
   expect((await viewport(page)).scale).toBeCloseTo(start.scale * Math.exp(120 * 0.0012), 10)
@@ -154,15 +154,15 @@ test('canvas wheel policy preserves default zoom and adds persisted two-axis pan
   expect((zoomPoint.screenY - zoomed.y) / zoomed.scale).toBeCloseTo((zoomPoint.screenY - zoomStart.y) / zoomStart.scale, 10)
 
   await page.getByTestId('settings-button').click()
-  const dialog = page.getByRole('dialog', { name: 'Settings' })
-  await dialog.locator('.settings-categories').getByRole('button', { name: 'Canvas', exact: true }).click()
+  const dialog = page.getByRole('region', { name: 'Settings', exact: true })
+  await dialog.getByRole('link', { name: 'Canvas', exact: true }).click()
   const row = dialog.locator('[data-setting-id="canvas.scrollBehavior"]')
   const control = row.getByRole('combobox')
-  await expect(control).toHaveAttribute('data-selected-id', 'zoom')
+  await expect(control).toHaveValue('zoom')
   if (proofDir !== undefined) await page.screenshot({ path: `${proofDir}/01-default-zoom-setting.png`, animations: 'disabled' })
-  await selectProductOption(page, control, 'pan')
+  await control.selectOption('pan')
   if (proofDir !== undefined) await page.screenshot({ path: `${proofDir}/02-selected-pan-setting.png`, animations: 'disabled' })
-  await dialog.getByRole('button', { name: 'Close settings' }).click()
+  await page.getByRole('button', { name: 'Close Settings', exact: true }).click()
 
   const panStart = { x: 20, y: -10, scale: 1.25 }
   await setViewport(page, panStart)
@@ -175,10 +175,10 @@ test('canvas wheel policy preserves default zoom and adds persisted two-axis pan
   await page.reload()
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
   await page.getByTestId('settings-button').click()
-  const reloadedDialog = page.getByRole('dialog', { name: 'Settings' })
-  await reloadedDialog.locator('.settings-categories').getByRole('button', { name: 'Canvas', exact: true }).click()
-  await expect(reloadedDialog.locator('[data-setting-id="canvas.scrollBehavior"]').getByRole('combobox')).toHaveAttribute('data-selected-id', 'pan')
-  await reloadedDialog.getByRole('button', { name: 'Close settings' }).click()
+  const reloadedDialog = page.getByRole('region', { name: 'Settings', exact: true })
+  await reloadedDialog.getByRole('link', { name: 'Canvas', exact: true }).click()
+  await expect(reloadedDialog.locator('[data-setting-id="canvas.scrollBehavior"]').getByRole('combobox')).toHaveValue('pan')
+  await page.getByRole('button', { name: 'Close Settings', exact: true }).click()
   const reloadedRevision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const reloadedDocument = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
   await setViewport(page, panStart)

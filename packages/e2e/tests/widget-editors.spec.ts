@@ -1372,9 +1372,10 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
   await expect(proxy).toHaveCount(1)
   await page.getByTestId('widget-editor').locator('input').press('Escape')
   await page.keyboard.press('Control+,')
-  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Settings', exact: true })).toBeVisible()
   await expect(page.getByTestId('canvas-widget-a11y')).toHaveCount(0)
-  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Close Settings', exact: true }).click()
+  await page.getByRole('tab', { name: /Pass Through/ }).click()
   await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
     tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'number', value: 0 } })

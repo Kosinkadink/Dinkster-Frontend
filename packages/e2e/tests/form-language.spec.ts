@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeTest as test, setShellRegion, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const PROOF = '/tmp/dinkster-31-form-language'
 
@@ -66,18 +66,21 @@ test('settings validation stays associated and contained at wide and narrow size
     step: 1,
   }))
   await page.getByTestId('settings-button').click()
-  await page.getByRole('searchbox', { name: 'Search settings' }).fill('Maximum visible suggestions')
+  await page.getByRole('combobox', { name: 'Search settings', exact: true }).fill('Maximum visible suggestions')
   const row = page.locator('[data-setting-id="proof.maximumSuggestions"]')
   const input = row.getByRole('spinbutton')
   await input.fill('999')
   await input.press('Enter')
   await expect(row.getByRole('alert')).toHaveText('Enter 20 or less.')
-  await expect(input).toHaveAttribute('aria-describedby', /proof\.maximumSuggestions-message/)
+  const errorId = await row.getByRole('alert').getAttribute('id')
+  expect(errorId).toBeTruthy()
+  expect((await input.getAttribute('aria-describedby'))?.split(' ')).toContain(errorId)
   await page.screenshot({ path: `${PROOF}/after-settings-1600x950.png`, fullPage: true })
 
   await page.setViewportSize({ width: 360, height: 640 })
+  for (const region of ['left', 'right', 'bottom'] as const) await setShellRegion(page, region, false)
   await expect(row).toBeVisible()
-  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeInViewport()
+  await expect(page.getByRole('region', { name: 'Settings', exact: true })).toBeInViewport()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360)
   await page.screenshot({ path: `${PROOF}/after-settings-360x640.png`, fullPage: true })
   await input.press('Escape')

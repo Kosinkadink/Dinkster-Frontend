@@ -40,19 +40,20 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
+  await page.getByRole('button', { name: 'New workflow', exact: true }).click()
   await page.getByTestId('views-switcher').click()
   await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await page.getByTestId('rail-toggle').click()
   await page.getByTestId('settings-button').click()
 
-  const dialog = page.locator('[data-testid="modal-surface"][data-modal="settings"]')
-  const search = dialog.locator('.settings-search')
+  const dialog = page.locator('.dinkster-settings')
+  const search = dialog.getByRole('combobox', { name: 'Search settings', exact: true })
   await search.fill('canvas.grid.visible')
   await search.focus()
-  await dialog.evaluate((element) => { element.dataset['localeIdentity'] = 'settings-dialog' })
+  await dialog.evaluate((element) => { element.dataset['localeIdentity'] = 'settings-page' })
   await search.evaluate((element) => { element.dataset['localeIdentity'] = 'settings-search' })
   const stateBeforeLocale = await page.evaluate(() => {
-    const tab = window.__dinksterTest!.app.activeTab()!
+    const tab = window.__dinksterTest!.app.tabs.get()[0]!
     return {
       document: JSON.stringify(tab.store.doc),
       revision: tab.store.revision,
@@ -85,18 +86,18 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
   expect(unresolved).toEqual([])
   await expect(page.locator('html')).toHaveAttribute('lang', 'en-XA')
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr')
-  await expect(dialog).toHaveAttribute('data-locale-identity', 'settings-dialog')
+  await expect(dialog).toHaveAttribute('data-locale-identity', 'settings-page')
   const retainedSearch = dialog.locator('[data-locale-identity="settings-search"]')
   await expect(retainedSearch).toBeFocused()
   await expect(retainedSearch).toHaveValue('canvas.grid.visible')
   await expect(retainedSearch).toHaveAttribute('placeholder', pseudo['settingsDialog.search.placeholder']!)
-  await expect(dialog.locator('.dock-title')).toHaveText(pseudo['shell.panel.settings.title']!)
-  await expect(dialog.locator('[data-setting-id="canvas.grid.visible"]')).toContainText(pseudo['settings.canvas.grid.visible']!)
-  await expect(dialog.locator('[data-setting-id="canvas.grid.visible"] code')).toHaveText('canvas.grid.visible')
+  await expect(dialog.getByRole('heading', { level: 1 })).toHaveText(pseudo['settingsDialog.search.regionAria']!)
+  await expect(dialog.locator('.dinkster-search-row-title')).toContainText(pseudo['settings.canvas.grid.visible']!)
+  await expect(dialog.locator('.dinkster-search-row-detail')).toContainText('canvas.grid.visible')
   await expect(page.getByTestId('status-connection')).toHaveAttribute('aria-label', backendStatusBeforeLocale!)
   expect({ schemas: schemaRequests, diagnostics: diagnosticRequests }).toEqual(requestsBeforeLocale)
   expect(await page.evaluate(() => {
-    const tab = window.__dinksterTest!.app.activeTab()!
+    const tab = window.__dinksterTest!.app.tabs.get()[0]!
     return {
       document: JSON.stringify(tab.store.doc),
       revision: tab.store.revision,
@@ -104,10 +105,11 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
       title: tab.title,
     }
   })).toEqual(stateBeforeLocale)
-  expect(await auditLayout(page, '[data-testid="modal-surface"][data-modal="settings"]')).toEqual([])
+  expect(await auditLayout(page, '.dinkster-settings-main')).toEqual([])
   await page.screenshot({ path: evidencePath('issue-457', 'full-pseudo-locale-wide.png'), fullPage: true })
 
-  await page.getByTestId('modal-close').click()
+  await page.getByRole('button', { name: pseudo['shell.workflowTabs.close']!.replace('{title}', english['shell.panel.settings.title']!), exact: true }).click()
+  await page.getByRole('tab', { name: /^Untitled/ }).last().click()
   await expect(page.getByTestId('app-view-arrange-toggle')).toContainText(pseudo['appView.arrange']!)
   await expect(page.getByTestId('app-view-empty')).toContainText(pseudo['appView.empty']!)
   await expect(page.getByTestId('library-toggle')).toHaveAccessibleName(`${pseudo['shell.panel.library.title']!}: ${pseudo['shell.panel.library.ariaLabel']!}`)

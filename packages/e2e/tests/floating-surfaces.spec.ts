@@ -19,6 +19,7 @@ async function capture(page: Page, testInfo: TestInfo, name: string): Promise<vo
 }
 
 async function moveProofNodeToEdge(page: Page): Promise<void> {
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer?.getScene().nodes.some((node) => node.id === 'floating-proof'))).toBe(true)
   await page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'floating-proof')!
@@ -161,21 +162,19 @@ test('menus and selects share contained semantic chrome, and a choice row stays 
     await expect(page.getByTestId('graph-canvas')).toBeFocused()
 
     await page.getByTestId('settings-button').click()
-    const settings = page.getByRole('dialog', { name: 'Settings' })
-    await settings.locator('.settings-categories').getByRole('button', { name: 'Proof' }).click()
-    const select = settings.locator('[data-setting-id="proof.floating-surface"] [role="combobox"]')
-    await select.click()
-    await select.press('End')
-    const listbox = page.getByRole('listbox', { name: 'Floating surface choice' })
-    await expectContained(page, listbox, false)
-    await expect(listbox).toHaveClass(/floating-surface/)
-    const activeId = await select.getAttribute('aria-activedescendant')
-    await expect(page.locator(`#${activeId}`)).toBeInViewport()
-    await capture(page, testInfo, `${viewport.name}-product-select`)
-    await select.press('Escape')
+    const settings = page.getByRole('region', { name: 'Settings', exact: true })
+    await settings.getByRole('link', { name: 'Packs', exact: true }).click()
+    const select = settings.getByRole('combobox', { name: 'Floating surface choice', exact: true })
+    await select.focus()
+    await select.selectOption('14')
+    await expect(select).toHaveValue('14')
+    expect(await page.evaluate(() => window.__dinksterTest!.app.settings.get('proof.floating-surface'))).toBe('14')
+    await expectContained(page, select, false)
     await expect(select).toBeFocused()
+    await capture(page, testInfo, `${viewport.name}-native-select`)
     await expect(settings).toBeVisible()
-    await settings.getByRole('button', { name: 'Close settings' }).click()
+    await page.getByRole('button', { name: 'Close Settings', exact: true }).click()
+    await page.getByRole('tab', { name: /^Floating surfaces/ }).click()
 
     await moveProofNodeToEdge(page)
     const header = await nodePoint(page, 'header')
