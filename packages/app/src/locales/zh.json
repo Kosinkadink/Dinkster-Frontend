@@ -23,6 +23,7 @@
   "storagePanel.openAssets": "在资产中打开",
   "storagePanel.saveHere": "将新文件保存到这里",
   "storagePanel.files": "{count} 个文件",
+  "storagePanel.modelCount": "{count} 个模型",
   "storagePanel.reading": "正在读取，{done} / {total}",
   "storagePanel.bytesRead": "已读取 {done} / {total}",
   "storagePanel.saves": "新文件保存在这里",

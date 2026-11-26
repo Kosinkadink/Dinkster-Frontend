@@ -23,6 +23,7 @@
   "storagePanel.openAssets": "Open in Assets",
   "storagePanel.saveHere": "Save new files here",
   "storagePanel.files": "{count} files",
+  "storagePanel.modelCount": "{count, plural, one {# model} other {# models}}",
   "storagePanel.reading": "Reading, {done} of {total}",
   "storagePanel.bytesRead": "{done} of {total} read",
   "storagePanel.saves": "New saves go here",

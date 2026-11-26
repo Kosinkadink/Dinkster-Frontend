@@ -149,6 +149,8 @@ it('shows live file and byte reading progress for mounts and grouped model folde
   changed()
   await vi.waitFor(() => expect(root.querySelectorAll('[role="progressbar"]')).toHaveLength(0))
   expect(root.textContent).not.toContain('Reading,')
+  expect(root.querySelector('[data-model-location="models"]')?.textContent).toContain('24 models')
+  expect(root.querySelector('[data-mount-id="input"]')?.textContent).toContain('12 files')
 })
 
 it('repeats a backend jump after a manual folder-server choice without retargeting execution', async () => {
@@ -200,33 +202,46 @@ it('groups model grants under one folder and switches project membership without
   } as unknown as DinksterConnection
   const root = document.createElement('div'); document.body.append(root)
   const opened: string[] = []
-  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} focus={{ modelLocationId: 'models' }} onOpenModels={(id) => opened.push(id)} />, root))
+  let assetsOpened = 0
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => assetsOpened++} focus={{ modelLocationId: 'models' }} onOpenModels={(id) => opened.push(id)} />, root))
   await vi.waitFor(() => expect(root.querySelectorAll('[data-model-location]')).toHaveLength(1))
   expect([...root.querySelectorAll('h3')].map((heading) => heading.textContent)).toEqual(['Model folders', 'Mounts'])
   expect([...root.querySelectorAll('button')].some((button) => button.textContent === 'Default save folder')).toBe(false)
   expect(root.querySelectorAll('[data-mount-id]')).toHaveLength(2)
   const model = root.querySelector('[data-model-location="models"]')!
-  expect(model.querySelector('details')!.open).toBe(true)
+  const disclosure = model.querySelector<HTMLButtonElement>('button[aria-expanded]')!
+  expect(disclosure.getAttribute('aria-expanded')).toBe('true')
+  disclosure.click()
+  expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+  expect(model.textContent).not.toContain('Show these models')
+  disclosure.click()
   ;[...model.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Show these models')!.click()
   expect(opened).toEqual(['models'])
   expect(model.textContent).toContain('Checkpoints3')
   expect(model.textContent).toContain('LoRAs7')
   expect(model.textContent).not.toContain('VAEs0')
   expect(root.textContent).not.toContain('GB')
+  const renders = root.querySelector('[data-mount-id="renders"]')!
+  const navigate = renders.querySelector<HTMLButtonElement>('button:not([aria-haspopup])')!
+  expect(navigate.textContent).toContain('11 files')
+  expect(navigate.hasAttribute('aria-expanded')).toBe(false)
+  navigate.click()
+  expect(assetsOpened).toBe(1)
+  expect([...renders.querySelectorAll('button')].some((button) => button.textContent === 'Open in Assets')).toBe(false)
   const unused = [...root.querySelectorAll('details')].find((element) => element.querySelector('summary')?.textContent?.includes('not used by this project'))!
   expect(unused.open).toBe(false)
   unused.open = true
   root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] [aria-haspopup="menu"]')!.click()
   const use = [...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Use in this project')!
   use.click()
-  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"]')?.textContent).toContain('Open in Assets'))
+  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"] button:not([aria-haspopup])')).not.toBeNull())
   expect(root.textContent).toContain('3 folders used by this project')
   root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] [aria-haspopup="menu"]')!.click()
   ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Stop using')!.click()
   expect(root.textContent).toContain('No files will be deleted')
   ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using this folder')!.click()
   await vi.waitFor(() => expect(root.textContent).toContain('2 folders used by this project'))
-  expect(root.querySelector('[data-mount-id="plates"]')?.textContent).not.toContain('Open in Assets')
+  expect(root.querySelector('[data-mount-id="plates"] button:not([aria-haspopup])')).toBeNull()
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
 })
 

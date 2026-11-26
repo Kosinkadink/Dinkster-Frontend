@@ -173,6 +173,7 @@ function Gallery() {
   const [quietType, setQuietType] = createSignal('Any type')
   const [serverOpen, setServerOpen] = createSignal(false)
   const [progressOpen, setProgressOpen] = createSignal(false)
+  const [storageOpen, setStorageOpen] = createSignal(false)
   const [versionSelected, setVersionSelected] = createSignal(false)
   let versionButton: HTMLButtonElement | undefined
   let navigationTimer: number | undefined
@@ -875,22 +876,22 @@ function Gallery() {
                     pressed={versionSelected()} onActivate={() => setVersionSelected(!versionSelected())} />
                 </ProductList>
               </Section>
-              <Section title="Storage folders" components="ProductDisclosure, ProductMenu">
+              <Section title="Storage folders" components="ProductList, ProductListRow, ProductMenu, ProductFacts">
                 <div class="storage-folders">
-                  <div class="storage-group-heading"><h3>Models</h3><ProductButton intent="add" onClick={() => complete('Add models folder chosen')}>Add</ProductButton></div>
-                  <article class="storage-folder">
-                    <div class="storage-folder-heading">
-                      <div class="storage-folder-copy"><strong>Studio models folder with a long descriptive name</strong><code>/home/name/Dinkster/Models</code></div>
-                      <ProductMenu label="Folder actions" icon={Ellipsis} iconOnly items={[{ label: 'Edit', onSelect: () => complete('Edit folder chosen') }]} />
-                    </div>
-                    <ProductDisclosure title="Model kinds"><ProductFacts label="Model kinds" items={[{ label: 'Checkpoints', value: '12 files' }, { label: 'LoRAs', value: '48 files' }]} /></ProductDisclosure>
-                    <span class="storage-folder-mark">Downloads land here</span>
-                  </article>
-                  <article class="storage-folder">
-                    <div class="storage-folder-heading"><div class="storage-folder-copy"><strong>Renders</strong><code>/home/name/Portraits/renders</code></div></div>
-                    <div class="storage-folder-summary"><span>Images</span><span>24 files</span><ProductButton onClick={() => complete('Assets chosen')}>Open in Assets</ProductButton></div>
-                    <span class="storage-folder-mark">New saves go here</span>
-                  </article>
+                  <div class="storage-group-heading"><h3>Model folders</h3><ProductTextButton intent="add" onClick={() => complete('Add models folder chosen')} label="Add" /></div>
+                  <ProductList label="Storage model folders" variant="grouped">
+                    <ProductListRow title={<strong>Studio models folder with a long descriptive name</strong>} trailing="60 models" expanded={storageOpen()} onToggle={setStorageOpen}
+                      description={<span class="storage-folder-description"><code class="storage-folder-path"><span>/home/name/Dinkster/</span><span>Models</span></code><span class="storage-folder-mark">Downloads land here</span></span>}
+                      action={<ProductMenu label="Folder actions" fill="quiet" icon={Ellipsis} iconOnly items={[{ label: 'Edit', onSelect: () => complete('Edit folder chosen') }]} />}>
+                      <ProductFacts label="Model kinds" items={[{ label: 'Checkpoints', value: 12 }, { label: 'LoRAs', value: 48 }]} />
+                      <ProductTextButton label="Show these models" onClick={() => complete('Models chosen')} />
+                    </ProductListRow>
+                  </ProductList>
+                  <div class="storage-group-heading"><h3>Mounts</h3><ProductTextButton intent="add" onClick={() => complete('Add mount chosen')} label="Add" /></div>
+                  <ProductList label="Storage mounts" variant="grouped">
+                    <ProductListRow title={<strong>Renders</strong>} trailing="24 files" onActivate={() => complete('Assets chosen')}
+                      description={<span class="storage-folder-description"><code class="storage-folder-path"><span>/home/name/Portraits/</span><span>renders</span></code><span class="storage-folder-mark">New saves go here</span></span>} />
+                  </ProductList>
                 </div>
               </Section>
               <Section

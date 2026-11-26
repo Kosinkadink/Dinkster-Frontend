@@ -37,7 +37,7 @@ test('Storage shows engine file and byte reading progress on model folders and m
     const backend = app.backends.get().find((row) => row.protocol === 'dinkster')!
     if (backend.protocol !== 'dinkster') throw new Error('Native backend missing')
     const mounts = [
-      { id: 'models-checkpoint', path: '/home/kosin/ComfyUI/models/checkpoints', mode: 'read' as const, state: 'scanning', source: 'shared-models', kind: 'model/checkpoint', scanProgress: { filesDone: 136, filesTotal: 212, bytesDone: 61 * 1024 ** 3, bytesTotal: 96 * 1024 ** 3, elapsedSeconds: 4 } },
+      { id: 'models-checkpoint', path: '/home/kosin/ComfyUI/models/checkpoints', mode: 'read' as const, state: 'scanning', source: 'shared-models', kind: 'model/checkpoint', entryCount: 212, scanProgress: { filesDone: 136, filesTotal: 212, bytesDone: 61 * 1024 ** 3, bytesTotal: 96 * 1024 ** 3, elapsedSeconds: 4 } },
       { id: 'input', path: '/home/kosin/Dinkster/Portraits/input', mode: 'readwrite' as const, state: 'scanning', scanProgress: { filesDone: 7, filesTotal: 10, bytesDone: 8 * 1024 ** 2, bytesTotal: 32 * 1024 ** 2, elapsedSeconds: 2 } },
     ]
     const location = { id: 'ComfyUI', path: '/home/kosin/ComfyUI/models', mode: 'read' as const, visibility: 'default-on' as const }
@@ -57,6 +57,20 @@ test('Storage shows engine file and byte reading progress on model folders and m
   await expect(panel.getByRole('progressbar', { name: 'Reading, 7 of 10' })).toHaveAttribute('aria-valuenow', '0.25')
   await expect(panel).toContainText('8.0 MiB of 32 MiB read')
   await panel.screenshot({ path: testInfo.outputPath('storage-reading-dark.png') })
+  const model = panel.locator('[data-model-location="ComfyUI"]')
+  const toggle = model.locator('button[aria-expanded]').first()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await toggle.click()
+  await expect(model.getByRole('definition')).toHaveText('212')
+  await expect(model.getByRole('progressbar')).toBeVisible()
+  await panel.screenshot({ path: testInfo.outputPath('storage-model-open-dark.png') })
+  await model.getByRole('button', { name: 'Actions for ComfyUI', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: 'Edit model folder', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('storage-model-menu-dark.png') })
+  await page.keyboard.press('Escape')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await toggle.click()
+  await expect(model.getByRole('progressbar')).toBeVisible()
   await panel.locator('.storage-group-heading').last().getByRole('button', { name: 'Add', exact: true }).click()
   await expect(panel.getByRole('heading', { name: 'Add a mount', exact: true })).toBeVisible()
   const folder = panel.getByRole('textbox', { name: 'Folder', exact: true })
