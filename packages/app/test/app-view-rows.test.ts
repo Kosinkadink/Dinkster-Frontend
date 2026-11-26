@@ -381,6 +381,46 @@ describe('buildPreviewRows', () => {
     ? { id: 'test.image', mediaKind: 'image', canRender: () => true }
     : undefined) as WidgetRegistry['previewRendererFor']
 
+  it('keeps each subgraph occurrence selected asset through renamed boundaries, edits and reload', () => {
+    const asset = (digit: string) => ({ digest: `blake3:${digit.repeat(64)}`, name: `${digit}.png`,
+      size: 10, mediaType: 'image/png', virtualPath: `${digit}.png` })
+    for (const depth of [1, 2] as const) {
+      const source = boundarySample(depth)
+      const key = depth === 1 ? 'photo' : 'picture'
+      for (const [id, digit] of [['first', '1'], ['second', '2']] as const) {
+        Object.assign(source.graphs.root!.nodes[id]!.values, { [key]: asset(digit) })
+      }
+      const detail = source.graphs.detail!
+      Object.assign(detail, { boundary: { body: detail.boundary!.body.map((row) => row.kind === 'input' && row.id === 'image'
+        ? { ...row, id: 'photo', promoted: true } : row) } })
+      if (depth === 2) {
+        const portrait = source.graphs.portrait!
+        Object.assign(portrait, { boundary: { body: portrait.boundary!.body.map((row) => row.kind === 'input' && row.id === 'image'
+          ? { ...row, id: 'picture', promoted: true, binds: { kind: 'port', node: 'detail', port: 'photo' } } : row) } })
+      }
+      Object.assign(source, { ext: { 'dinkster.exposedPreviews': ['first', 'second'].map((nodeId) => ({ graphId: 'root', nodeId })) } })
+      const sample = resolveBoundarySample('Boundary sample')!
+      const resolveAssets = (type: string): NodeSchema | undefined => type !== sample.type ? resolveBoundarySample(type) : {
+        ...sample, body: sample.body.map((row) => row.kind === 'input' && row.id === 'image' ? {
+          ...row, type: { kind: 'concrete', name: 'core.ASSET' },
+          widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null },
+        } : row),
+      }
+      const store = new DocumentStore(source, coreCommandRegistry())
+      const selected = (document = store.doc) => buildPreviewRows(document, resolveAssets, rendererFor)
+        .map((row) => row.kind === 'candidate' ? row.selectedAsset?.digest : undefined)
+      expect(selected(), `boundary/asset-field/app-view depth ${depth}`).toEqual([asset('1').digest, asset('2').digest])
+      const result = store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: key, value: asset('3') } })
+      expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+      expect(selected()).toEqual([asset('3').digest, asset('2').digest])
+      expect(store.undo()).toBe(true)
+      expect(selected()).toEqual([asset('1').digest, asset('2').digest])
+      expect(store.redo()).toBe(true)
+      const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(selected(reopened)).toEqual([asset('3').digest, asset('2').digest])
+    }
+  })
+
   it('preserves declared order, labels, and selected-asset preview metadata', () => {
     const asset = {
       digest: `blake3:${'1'.repeat(64)}`,

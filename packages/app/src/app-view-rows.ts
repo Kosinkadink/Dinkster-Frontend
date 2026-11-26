@@ -152,13 +152,14 @@ export function buildPreviewRows(
   resolve: ((type: string) => NodeSchema | undefined) | undefined,
   previewRendererFor: WidgetRegistry['previewRendererFor'],
 ): readonly PreviewRow[] {
+  const resolveSchema = resolve === undefined ? undefined : documentResolver(doc, resolve)
   const connectivity = new Map<string, (node: NodeId) => Connectivity>()
   return exposedPreviews(doc).map((entry): PreviewRow => {
     const graph = doc.graphs[entry.graphId]
     if (graph === undefined) return { kind: 'stale', entry, reason: 'graph no longer exists' }
     const node = graph.nodes[entry.nodeId]
     if (node === undefined) return { kind: 'stale', entry, reason: 'node no longer exists' }
-    const schema = resolve?.(node.type)
+    const schema = resolveSchema?.(node.type)
     let selectedAsset: SelectedPreviewAsset | undefined
     if (schema !== undefined) {
       let forGraph = connectivity.get(entry.graphId)
