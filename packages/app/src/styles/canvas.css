@@ -271,6 +271,9 @@
   background: var(--dinkster-interaction-hover);
 }
 
+/* The fixes bar stays centred, moving above the corner controls only when they would overlap. */
+.canvas-fixes-notice { position: absolute; left: 50%; bottom: 10px; z-index: 6; transform: translateX(-50%); width: max-content; max-width: calc(100% - 20px); pointer-events: auto; }
+
 .canvas-popover-backdrop {
   position: absolute;
   inset: 0;

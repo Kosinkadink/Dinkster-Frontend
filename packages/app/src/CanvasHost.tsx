@@ -178,6 +178,7 @@ import { isNativeTextScopeTarget, shortcutSuppressed } from './settings.js'
 import { bookmarkJumpMode, bookmarkJumpPlan, bookmarkMarkerWorldPoint, bookmarkSaveMode, bookmarkViewFromViewport, bookmarkViewportForView, createCameraAnimator, viewportCenteredOnNode, type BookmarkJumpPlan } from './bookmark-camera.js'
 import { Icon } from './Icon.js'
 import { autoSpecialization } from './dynamic-slot.js'
+import { FixesNotice } from './FixesNotice.js'
 import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap.js'
 import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
@@ -1929,7 +1930,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let moveEditorRow = (_from: { readonly nodeId: string } & ({ readonly valueKey: string } | { readonly buttonId: string }), _direction: 1 | -1): void => {}
   let onRowFocusKey = (_event: KeyboardEvent): void => {}
   let editsRowsInPlace = (): boolean => false
-  let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _tooltipOnly = false): void => {}
+  let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _options: { readonly markOnly?: boolean; readonly tooltipOnly?: boolean } = {}): void => {}
   let rowRepresentationOf = (_tab: Tab, _node: SceneNode, _row: WidgetLayoutRow): RowRepresentation | undefined => undefined
   let showRowNote = (_from: { readonly nodeId: string; readonly valueKey: string }, _note: JSX.Element): void => {}
   interface ControllerMenuState {
@@ -4895,7 +4896,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
           setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
             ? undefined
-            : { ...rowFocusAt(tab, node, row), ...(focus.tooltipOnly ? { tooltipOnly: true } : {}), ...(focus.note === undefined ? {} : { note: focus.note }),
+            : { ...rowFocusAt(tab, node, row), ...(focus.markOnly ? { markOnly: true } : {}), ...(focus.tooltipOnly ? { tooltipOnly: true } : {}), ...(focus.note === undefined ? {} : { note: focus.note }),
               ...(focus.cancellation === undefined || !rowIsDriven(node.id, row) ? {} : { cancellation: focus.cancellation }) })
         }
       }
@@ -4941,6 +4942,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const link = scene.links.find((candidate) => candidate.id === focusPlan.linkId)
         if (node) {
           controller.setSelection([node.id])
+          setRowFocus(undefined)
+          if (focusRequest?.focusRow !== undefined) {
+            focusEditorRow({ nodeId: node.id, valueKey: focusRequest.focusRow }, { markOnly: true })
+          }
           const input = focusRequest?.openAssetInput
           const row = input === undefined ? undefined : node.layout.rows.find((candidate) =>
             candidate.kind === 'widget' && candidate.valueKey === input)
@@ -5977,7 +5982,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       canvasEl.focus()
     }
 
-    focusEditorRow = (from, tooltipOnly = false) => {
+    focusEditorRow = (from, options = {}) => {
       const tab = activeTab()
       const node = rowNodeOf(from.nodeId)?.node
       const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === from.valueKey)
@@ -5985,8 +5990,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setRowFocus(undefined)
         return
       }
-      setRowFocus({ ...rowFocusAt(tab, node, row), ...(tooltipOnly ? { tooltipOnly: true } : {}) })
-      if (!tooltipOnly) canvasEl.focus()
+      setRowFocus({ ...rowFocusAt(tab, node, row), ...options })
+      if (!options.tooltipOnly) canvasEl.focus()
     }
 
     // While a row has the focus, Tab moves on, Space and Enter act on the
@@ -5994,6 +5999,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // back to the canvas. Every other key does what it does on the canvas.
     onRowFocusKey = (event: KeyboardEvent): void => {
       const focus = rowFocus()
+      if (focus?.markOnly) { setRowFocus(undefined); return }
       if (focus === undefined || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
       const from = focus.button === undefined
         ? { nodeId: focus.nodeId, valueKey: focus.valueKey }
@@ -7736,7 +7742,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               onFocus={() => {
                 const target = item().target as { readonly kind: 'widget'; readonly hit: { readonly node: SceneNode; readonly row: WidgetLayoutRow } } | undefined
                 if (target === undefined) return
-                focusEditorRow({ nodeId: target.hit.node.id, valueKey: target.hit.row.valueKey }, true)
+                focusEditorRow({ nodeId: target.hit.node.id, valueKey: target.hit.row.valueKey }, { tooltipOnly: true })
                 props.tooltips?.show(target, {
                   x: 0, y: 0, boundary: canvasEl,
                   paintedRect: () => {
@@ -7883,6 +7889,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         onZoomBy={(factor) => zoomCanvas?.(factor)}
         onZoomTo={(scale) => zoomCanvasTo?.(scale)}
       />
+
+      <Show when={activeTab()?.id} keyed>{(_id) => <FixesNotice app={props.app} tab={activeTab()!} />}</Show>
 
       <Show when={frozenInfo()}>
         {(f) => (
