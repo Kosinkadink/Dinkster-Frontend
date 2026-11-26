@@ -11,7 +11,7 @@ test('the native bridge opens Home without owning engine startup and retains its
   }
   await page.addInitScript(() => {
     const context = { id: 'native-workflow', kind: 'workflow' as const, workflowId: 'detached-workflow' }
-    const desktopWindow = window as Window & { dinksterDesktop: unknown }
+    const desktopWindow = window as Window & { dinksterDesktop?: unknown }
     desktopWindow.dinksterDesktop = {
       locale: async () => 'zh-CN',
       info: async () => ({}),
