@@ -156,26 +156,29 @@ const okPrompt = (doc: WorkflowDocument) => {
 
 describe('unavailable boundary routes', () => {
   const choice = schemaOf('Choice', [{ kind: 'choice', id: 'mode', required: true, default: 'on', shared: [], options: [
-    { key: 'on', rows: [input('in', { optional: true }), output('out')] },
+    { key: 'on', rows: [input('in', { optional: true }), output('out'), group('images', 'image', input('image', { optional: true }))] },
     { key: 'off', rows: [] },
   ] }])
   const choiceResolve = (type: string) => type === 'Choice' ? choice : resolve(type)
 
-  it('refuses a used broken fan-out even when an inactive target follows it', () => {
-    const missing = { kind: 'port', node: 'gone', port: 'in' }
-    const inactive = { kind: 'port', node: 'choice', port: 'mode.in' }
-    for (const alsoBinds of [[missing, inactive], [inactive, missing]]) {
-      const doc = docOf({
-        g0: { nodes: { source: { type: 'Src' }, sub: { type: '#sub' } }, links: [[['source', 'out'], ['sub', 'in']]] },
-        sub: { nodes: { valid: { type: 'OptSink' }, choice: { type: 'Choice', dynamic: { mode: { selected: 'off' } } } },
-          boundary: { inputs: [{ id: 'in', binds: { kind: 'port', node: 'valid', port: 'in' }, alsoBinds }] } },
-      })
-      const derived = documentResolver(doc, choiceResolve)('#sub')!
-      const rows = elabInputsOf(elaborateInterface(derived, { values: {} }))
-      expect(rows[0]!.spec.unavailable?.code).toBe('boundary.danglingNode')
-      const result = compile({ ...inputOf(doc), resolve: choiceResolve, graphFeatures: ['absentInput'] })
-      expect(result.ok).toBe(false)
-      expect(!result.ok && result.diagnostics.some((d) => d.severity === 'error' && d.code === 'boundary.danglingNode')).toBe(true)
+  it('refuses a used broken fan-out regardless of the inactive target position', () => {
+    for (const kind of ['port', 'construct']) {
+      const valid = { kind, node: 'valid', port: kind === 'port' ? 'in' : 'images' }
+      const missing = { kind, node: 'gone', port: kind === 'port' ? 'in' : 'images' }
+      const inactive = { kind, node: 'choice', port: kind === 'port' ? 'mode.in' : 'mode.images' }
+      for (const [binds, ...alsoBinds] of [[valid, missing, inactive], [valid, inactive, missing], [inactive, valid, missing]]) {
+        const doc = docOf({
+          g0: { nodes: { source: { type: 'Src' }, sub: { type: '#sub' } }, links: [[['source', 'out'], ['sub', 'in']]] },
+          sub: { nodes: { valid: { type: kind === 'port' ? 'OptSink' : 'Batch' }, choice: { type: 'Choice', dynamic: { mode: { selected: 'off' } } } },
+            boundary: { inputs: [{ id: 'in', binds, alsoBinds }] } },
+        })
+        const derived = documentResolver(doc, choiceResolve)('#sub')!
+        const rows = elabInputsOf(elaborateInterface(derived, { values: {} }))
+        expect(rows[0]!.spec.unavailable?.code).toBe('boundary.danglingNode')
+        const result = compile({ ...inputOf(doc), resolve: choiceResolve, graphFeatures: ['absentInput'] })
+        expect(result.ok).toBe(false)
+        expect(!result.ok && result.diagnostics.some((d) => d.severity === 'error' && d.code === 'boundary.danglingNode')).toBe(true)
+      }
     }
   })
 

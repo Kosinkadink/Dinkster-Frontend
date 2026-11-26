@@ -829,6 +829,14 @@ export function deriveBoundarySchema(
   const constructOwners: { readonly node: string; readonly path: string; readonly item: string }[] = []
   const shownRows = new Map<string, string>()
   const everyItem = [...boundaryItems(def.boundary, 'inputs'), ...boundaryItems(def.boundary, 'outputs')]
+  // Visit every target before deriving from the primary. An inactive target
+  // must not hide a broken route later in the same fan-out.
+  for (const side of ['inputs', 'outputs'] as const) for (const item of boundaryItems(def.boundary, side)) {
+    currentItem = item
+    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+      if (binding.kind === 'port' || binding.kind === 'construct') routeForBinding(binding, `boundary ${side === 'inputs' ? 'input' : 'output'} '${item.id}'`, side === 'inputs' ? 'input' : 'output')
+    }
+  }
   for (const item of everyItem) {
     currentItem = item
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
