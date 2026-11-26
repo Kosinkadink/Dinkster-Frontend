@@ -577,26 +577,23 @@ class SharedDocumentSession implements DocumentSession {
     const store = this.store
     const prepared = store.prepareDispatch(stamped)
     if (!prepared.ok) return prepared
-    // Keep arrival folds and measured heights in the intention: replay has no live schema authority.
-    const folds = (definition?.replaysHistory ? [] : prepared.forward).flatMap<Json>((op) => {
-      const [root, graphs, graphId, nodes, nodeId, editors, valueKey] = op.path
+    // Keep measured heights in the intention: replay has no live layout authority.
+    const sizes = (definition?.replaysHistory ? [] : prepared.forward).flatMap<Json>((op) => {
+      const [root, graphs, graphId, nodes, nodeId, field] = op.path
       if (op.op !== 'remove' && op.path.length === 6 && root === 'view' && graphs === 'graphs' &&
-        nodes === 'nodes' && editors === 'size') {
+        nodes === 'nodes' && field === 'size') {
         const before = store.doc.view.graphs[graphId!]?.nodes[nodeId!]
         const after = prepared.document.view.graphs[graphId!]?.nodes[nodeId!]
         if (!jsonSameValue(before?.editors, after?.editors) || !jsonSameValue(before?.sections, after?.sections))
           return [{ command: 'view.setNodeSize', params: { graphId: graphId!, nodeId: nodeId!, size: op.value } }]
       }
-      if (op.op === 'remove' || op.path.length !== 7 || root !== 'view' || graphs !== 'graphs' ||
-        nodes !== 'nodes' || editors !== 'editors' || typeof op.value !== 'object' || op.value === null ||
-        Array.isArray(op.value) || (op.value as JsonObject)['unfolded'] !== false) return []
-      return [{ command: 'view.setEditorUnfolded', params: { graphId: graphId!, nodeId: nodeId!, valueKey: valueKey!, unfolded: false } }]
+      return []
     })
-    const replayInvocation: CommandInvocation = folds.length === 0 ? stamped : {
+    const replayInvocation: CommandInvocation = sizes.length === 0 ? stamped : {
       ...stamped, command: 'batch', params: { invocations: [
         ...(stamped.command === 'batch' ? (stamped.params as JsonObject)['invocations'] as readonly Json[]
           : [{ command: stamped.command, params: stamped.params }]),
-        ...folds,
+        ...sizes,
       ] },
     }
     const confirmedRevision = this.confirmedRevision
