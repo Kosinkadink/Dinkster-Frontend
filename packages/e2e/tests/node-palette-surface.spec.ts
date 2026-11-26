@@ -435,6 +435,70 @@ test('a dropped wire keeps compatible results and atomic insertion while its chi
   expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links))).toEqual([])
 })
 
+test('a dropped list wire offers either-value inputs, excludes scalar-only inputs and connects in one undo step', async ({ page }) => {
+  const sourceId = await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([
+      { type: 'PaletteListProducer', displayName: 'Palette list producer', category: 'Lists', source: 'v3', isOutputNode: false,
+        body: [{ kind: 'output', id: 'images', type: { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } } }] },
+      { type: 'PaletteEitherConsumer', displayName: 'Palette either consumer', category: 'Lists', source: 'v3', isOutputNode: false,
+        body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, acceptsList: true, optional: false }] },
+      { type: 'PaletteWrongListConsumer', displayName: 'Palette wrong list consumer', category: 'Lists', source: 'v3', isOutputNode: false,
+        body: [{ kind: 'input', id: 'mask', type: { kind: 'concrete', name: 'MASK' }, acceptsList: true, optional: false }] },
+    ])
+    const result = await app.dispatchTo(app.activeTab()!, { command: 'node.add', params: {
+      graphId: 'g0', type: 'PaletteListProducer', position: { x: 80, y: 80 }, values: {},
+    } })
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return Object.keys(app.activeTab()!.store.doc.graphs.g0!.nodes)[0]!
+  })
+  await expect.poll(() => page.evaluate((id) => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === id), sourceId)).toBe(true)
+  const start = await page.evaluate((id) => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === id)!
+    const pin = node.layout.pins.find((pin) => pin.direction === 'out')!
+    const rect = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return { x: rect.left + node.x + node.layout.width, y: rect.top + node.y + pin.y }
+  }, sourceId)
+  const canvas = (await page.getByTestId('graph-canvas').boundingBox())!
+  await page.mouse.move(start.x, start.y)
+  await page.mouse.down()
+  await page.mouse.move(start.x + 30, start.y + 30)
+  await page.mouse.move(canvas.x + canvas.width - 30, canvas.y + canvas.height - 30)
+  await page.mouse.up()
+  const palette = page.getByTestId('node-palette')
+  await expect(palette).toHaveAttribute('data-link-drop', 'in')
+  await page.getByTestId('palette-search').fill('Palette')
+  const either = palette.locator('[data-key="entry:PaletteEitherConsumer"]')
+  await expect(either).toBeVisible()
+  await expect(palette.locator('[data-key="entry:PaletteImageConsumer"]')).toHaveCount(0)
+  await expect(palette.locator('[data-key="entry:PaletteWrongListConsumer"]')).toHaveCount(0)
+  await expect(palette.getByRole('group', { name: 'Takes IMAGE list', exact: true })).toHaveText('IMAGE list')
+  await expect(palette.locator('.dinkster-search-chip .dinkster-search-chip-dot')).toHaveAttribute('data-shape', 'diamond')
+  await capture(page, 'app-list-wire')
+  await either.click()
+  await expect(palette).toHaveCount(0)
+  const graph = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!)
+  await expect.poll(async () => Object.keys((await graph()).nodes)).toHaveLength(2)
+  const added = Object.keys((await graph()).nodes).find((id) => id !== sourceId)!
+  expect(Object.values((await graph()).links)).toEqual([
+    expect.objectContaining({ from: { node: sourceId, port: 'images' }, to: { node: added, port: 'image' } }),
+  ])
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect(Object.keys((await graph()).nodes)).toEqual([sourceId])
+  expect(Object.keys((await graph()).links)).toEqual([])
+  await openPalette(page)
+  await page.getByTestId('palette-search').fill('Palette')
+  await palette.getByRole('button', { name: /^Takes:/ }).click()
+  const listType = palette.getByRole('menuitemcheckbox', { name: 'Takes IMAGE list', exact: true })
+  await expect(listType).toBeVisible()
+  await expect(palette.getByRole('menuitemcheckbox', { name: 'Takes IMAGE', exact: true }).locator('.dinkster-search-chip-dot')).toHaveAttribute('data-shape', 'scalar-list')
+  await listType.click()
+  await expect(either).toBeVisible()
+  await expect(palette.locator('[data-key="entry:PaletteImageConsumer"]')).toHaveCount(0)
+  await expect(palette.locator('[data-key="entry:PaletteWrongListConsumer"]')).toHaveCount(0)
+})
+
 test('Insert node opens both port constraints and splices a compatible choice in one undo step', async ({ page }) => {
   await page.evaluate(async () => {
     const diagnostics = await window.__dinksterTest!.app.openDocument({

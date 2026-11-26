@@ -15,11 +15,12 @@
  * elaborations still make the node findable.
  */
 
-import { atomNamesOf, typesCompatible } from './schema/type-relations.js'
+import { admittedInputType, atomNamesOf, typesCompatible } from './schema/type-relations.js'
 import { elaborateInterface, materializeFramesOf, type MaterializeFrame } from './schema/elaborate.js'
 import { defaultValuesOf, initialDynamicStateOf } from './schema/body.js'
 import {
   allRowsOf,
+  cardinalityOf,
   parseAssetTypeId,
   parseStreamTypeId,
   parseListTypeId,
@@ -144,7 +145,10 @@ export function typeMatchesToken(t: TypeExpr, token: string): boolean {
 /** Every input or output type of the body at any depth, type-choice pins and their variants included. */
 function* bodyTypes(schema: NodeSchema, side: 'input' | 'output'): Generator<TypeExpr> {
   for (const row of allRowsOf(schema.body)) {
-    if (row.kind === side && !(row.kind === 'input' && row.hidden === true)) yield (row as InputSpec | OutputSpec).type
+    if (row.kind === side && !(row.kind === 'input' && row.hidden === true)) {
+      yield (row as InputSpec | OutputSpec).type
+      if (row.kind === 'input' && row.acceptsList) yield admittedInputType(row.type, true, 'list')
+    }
     if (side === 'input' && row.kind === 'typeChoice') {
       if (row.type !== undefined) yield row.type
       for (const variant of row.variants ?? []) yield variant.type
@@ -152,7 +156,7 @@ function* bodyTypes(schema: NodeSchema, side: 'input' | 'output'): Generator<Typ
   }
 }
 
-/** Every declared input type, including rows that exist only in some members or options. */
+/** Every admitted input type, including whole lists and rows in some members or options. */
 export function* schemaInputTypes(schema: NodeSchema): Generator<TypeExpr> {
   yield* bodyTypes(schema, 'input')
 }
@@ -289,8 +293,8 @@ export function autoConnectTarget(
     if (item.origin.kind === 'selector') continue
     if (item.kind === 'output' && item.wireable === false) continue
     const ok =
-      seeking === 'in'
-        ? typesCompatible(anchorType, item.spec.type)
+      item.kind === 'input'
+        ? typesCompatible(anchorType, admittedInputType(item.spec.type, item.spec.acceptsList === true, cardinalityOf(anchorType)))
         : typesCompatible(item.spec.type, anchorType)
     if (!ok) continue
     const frames = materializeFramesOf(items, item)

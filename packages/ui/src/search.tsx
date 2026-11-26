@@ -8,6 +8,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { DraftingCompass, ChevronRight, Search, X, type LucideIcon } from 'lucide-solid'
+import { parseAssetTypeId, parseListTypeId, parseStreamTypeId } from '@dinkster/core'
 import { ProductIcon, ProductSwitch } from './controls.js'
 
 /** A kind of result, shown as a named tab; Tab steps through them. */
@@ -69,19 +70,58 @@ export interface ProductSearchChip {
   readonly direction: 'takes' | 'gives'
   /** The wire's paint, supplied by the caller from its type palette. */
   readonly color?: string
+  readonly shape?: 'circle' | 'diamond' | 'scalar-list'
   readonly removeLabel: string
   readonly onRemove: () => void
 }
 
-/** Inputs put the wire dot before the type word; outputs put it after. */
+/** Plain words for a search type; canonical ids remain the filter values. */
+export function productSearchTypeName(type: string): string {
+  const list = parseListTypeId(type)
+  if (list !== undefined) return `${productSearchTypeName(list)} list`
+  const asset = parseAssetTypeId(type)
+  if (asset !== undefined) return `${productSearchTypeName(asset)} file`
+  const stream = parseStreamTypeId(type)
+  if (stream !== undefined) return `${productSearchTypeName(stream)} stream`
+  return type
+}
+
+/** A type's list and file forms stay directly beneath it, including nested forms. */
+export function productSearchTypeOptions(types: Iterable<string>): string[] {
+  const children = new Map<string, Set<string>>()
+  const add = (type: string) => {
+    const parent = parseListTypeId(type) ?? parseAssetTypeId(type) ?? parseStreamTypeId(type)
+    if (parent !== undefined) add(parent)
+    const group = children.get(parent ?? '') ?? new Set<string>()
+    group.add(type)
+    children.set(parent ?? '', group)
+  }
+  for (const type of types) add(type)
+  const rank = (type: string) => parseListTypeId(type) !== undefined ? 0 : parseAssetTypeId(type) !== undefined ? 1 : 2
+  const ordered: string[] = []
+  const append = (parent: string) => {
+    for (const type of [...(children.get(parent) ?? [])].sort((a, b) => rank(a) - rank(b) || productSearchTypeName(a).localeCompare(productSearchTypeName(b)))) {
+      ordered.push(type)
+      append(type)
+    }
+  }
+  append('')
+  return ordered
+}
+
+/** Inputs put the wire pin before the type word; outputs put it after. */
 export function ProductSearchTypeLabel(props: {
   label: string
   direction: 'takes' | 'gives'
   color?: string | undefined
+  shape?: 'circle' | 'diamond' | 'scalar-list' | undefined
 }) {
   const dot = () => (
-    <svg class="dinkster-search-chip-dot" viewBox="0 0 8 8" aria-hidden="true">
-      <circle cx="4" cy="4" r="4" fill={props.color ?? 'currentColor'} />
+    <svg class="dinkster-search-chip-dot" data-shape={props.shape ?? 'circle'} viewBox="0 0 8 8" aria-hidden="true">
+      <Show when={props.shape !== undefined && props.shape !== 'circle'} fallback={<circle cx="4" cy="4" r="4" fill={props.color ?? 'currentColor'} />}>
+        <path d="M4 0 8 4 4 8 0 4Z" fill={props.color ?? 'currentColor'} />
+        <Show when={props.shape === 'scalar-list'}><circle cx="4" cy="4" r="2" fill={props.color ?? 'currentColor'} /></Show>
+      </Show>
     </svg>
   )
   return <span class="dinkster-search-type-label" data-direction={props.direction}>
@@ -401,7 +441,7 @@ export function ProductSearch(props: {
           <Show when={props.chip}>
             {(chip) => (
               <span class="dinkster-search-chip" role="group" aria-label={chip().name} title={chip().name}>
-                <ProductSearchTypeLabel label={chip().label} direction={chip().direction} color={chip().color} />
+                <ProductSearchTypeLabel label={chip().label} direction={chip().direction} color={chip().color} shape={chip().shape} />
                 <button
                   type="button"
                   class="dinkster-search-chip-remove"

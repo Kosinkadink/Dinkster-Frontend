@@ -1,9 +1,9 @@
 import { For, Show, createSignal } from 'solid-js'
 import { ArrowLeft, Download, Folder, PanelTop, Wrench } from 'lucide-solid'
-import { autoConnectTarget, schemaMatchesAnyPortFilters, type NodeSchema, type WidgetRegistry } from '@dinkster/core'
-import { defaultTokens, typeColor } from '@dinkster/canvas'
+import { autoConnectTarget, schemaMatchesAnyPortFilters, typeExprFromTypeId, type NodeSchema, type WidgetRegistry } from '@dinkster/core'
+import { defaultTokens, pinShapeOf, typeColor } from '@dinkster/canvas'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
-import { BlueprintIcon, ProductButton, ProductIcon, ProductMenu, ProductSearch, ProductSearchNodePreview, ProductSearchTypeLabel, ProductSection, type ProductSearchGroup } from '../src/index.js'
+import { BlueprintIcon, ProductButton, ProductIcon, ProductMenu, ProductSearch, ProductSearchNodePreview, ProductSearchTypeLabel, ProductSection, productSearchTypeName, productSearchTypeOptions, type ProductSearchGroup } from '../src/index.js'
 import { NodeDrawing, node } from './search.js'
 
 type Kind = 'node' | 'blueprint' | 'utility'
@@ -14,10 +14,12 @@ interface Entry {
   readonly notInstalled?: boolean
 }
 const entry = (schema: NodeSchema, kind: Kind = 'node', category = 'Image', notInstalled = false): Entry => ({ schema, kind, category, notInstalled })
+const stats = node('Image Stats', [['image', 'IMAGE']], [['stats', 'STRING']], 'Measures the size, range and mean colour of one picture or a list of pictures.')
 const ENTRIES = [
-  entry(node('Image Batch to List', [['batch', 'IMAGE']], [['images', 'IMAGE']], 'Splits a batch of pictures into a list, one picture each.')),
-  entry(node('Image List to Batch', [['images', 'IMAGE']], [['batch', 'IMAGE']], 'Joins a list of pictures into one batch.')),
-  entry(node('Image Stats', [['image', 'IMAGE']], [['stats', 'STRING']], 'Measures the size, range and mean colour of a picture.')),
+  entry(node('Image Batch to List', [['batch', 'IMAGE']], [['images', 'list<IMAGE>']], 'Splits a batch of pictures into a list, one picture each.')),
+  entry(node('Image List to Batch', [['images', 'list<IMAGE>']], [['batch', 'IMAGE']], 'Joins a list of pictures into one batch.')),
+  entry({ ...stats, body: stats.body.map((row) => row.kind === 'input' ? { ...row, acceptsList: true } : row) }),
+  entry(node('Image File', [['image', 'asset<IMAGE>']], [['image', 'asset<IMAGE>']], 'Passes an image file without decoding it.')),
   entry(node('Blend Images', [['first', 'IMAGE'], ['second', 'IMAGE']], [['image', 'IMAGE']], 'Mixes two pictures together.')),
   entry(node('Gradient Image', [], [['image', 'IMAGE']], 'Makes a picture that fades from one colour to another.', [['width', 512], ['height', 512]])),
   entry(node('Invert Image', [['image', 'IMAGE']], [['image', 'IMAGE']], 'Flips every colour of the picture.')),
@@ -34,7 +36,7 @@ const KINDS = [
 const RECENT = ['GradientImage', 'ImageStats']
 const image = { kind: 'concrete' as const, name: 'IMAGE' }
 
-function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; registry: WidgetRegistry }) {
+function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; list?: boolean; registry: WidgetRegistry }) {
   const [query, setQuery] = createSignal(props.query ?? '')
   const [kind, setKind] = createSignal('all')
   const [wire, setWire] = createSignal(props.wire ?? false)
@@ -43,7 +45,9 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
   const [category, setCategory] = createSignal<string>()
   const [current, setCurrent] = createSignal<string>()
   const [chosen, setChosen] = createSignal('Nothing chosen yet')
-  const target = (item: Entry) => autoConnectTarget(item.schema, image, 'in')
+  const anchor = () => props.list ? { kind: 'list' as const, element: image } : image
+  const wireName = () => props.list ? 'image list' : 'image'
+  const target = (item: Entry) => autoConnectTarget(item.schema, anchor(), 'in')
   const corpus = () => ENTRIES.filter((item) =>
     (!wire() || (!item.notInstalled && target(item) !== undefined)) &&
     (kind() === 'all' || item.kind === kind()) &&
@@ -75,7 +79,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
         })) },
       ]
     }
-    return [{ key: 'entries', label: wire() ? 'Nodes that can take an image' : category() ?? 'Nodes', count: found().length, rows: found().map(row) }]
+    return [{ key: 'entries', label: wire() ? `Nodes that can take an ${wireName()}` : category() ?? 'Nodes', count: found().length, rows: found().map(row) }]
   }
   const key = () => {
     const keys = groups().flatMap((group) => group.rows.map((item) => item.key))
@@ -96,13 +100,13 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
     <ProductMenu
       fill="quiet"
       align={direction === 'Gives' ? 'end' : 'start'}
-      label={`${direction}: ${value === '' ? 'Any type' : value.toLowerCase()}`}
-      title={`${direction}: ${value === '' ? 'Any type' : value.toLowerCase()}`}
-      labelContent={<ProductSearchTypeLabel label={value === '' ? 'Any type' : value.toLowerCase()} direction={direction === 'Takes' ? 'takes' : 'gives'} color={value === '' ? undefined : typeColor(defaultTokens, value)} />}
+      label={`${direction}: ${value === '' ? 'Any type' : productSearchTypeName(value.toLowerCase())}`}
+      title={`${direction}: ${value === '' ? 'Any type' : productSearchTypeName(value.toLowerCase())}`}
+      labelContent={<ProductSearchTypeLabel label={value === '' ? 'Any type' : productSearchTypeName(value.toLowerCase())} direction={direction === 'Takes' ? 'takes' : 'gives'} color={value === '' ? undefined : typeColor(defaultTokens, value)} shape={pinShapeOf(typeExprFromTypeId(value), direction === 'Takes' ? 'in' : 'out', direction === 'Takes' && value === 'IMAGE')} />}
       triggerName={`${direction} type`}
-      items={['', 'IMAGE', 'STRING', 'INT'].map((type) => ({
-        label: `${direction} ${type === '' ? 'Any type' : type.toLowerCase()}`,
-        labelContent: <ProductSearchTypeLabel label={type === '' ? 'Any type' : type.toLowerCase()} direction={direction === 'Takes' ? 'takes' : 'gives'} color={type === '' ? undefined : typeColor(defaultTokens, type)} />,
+      items={['', ...productSearchTypeOptions(['IMAGE', 'list<IMAGE>', 'asset<IMAGE>', 'STRING', 'INT'])].map((type) => ({
+        label: `${direction} ${type === '' ? 'Any type' : productSearchTypeName(type.toLowerCase())}`,
+        labelContent: <ProductSearchTypeLabel label={type === '' ? 'Any type' : productSearchTypeName(type.toLowerCase())} direction={direction === 'Takes' ? 'takes' : 'gives'} color={type === '' ? undefined : typeColor(defaultTokens, type)} shape={pinShapeOf(typeExprFromTypeId(type), direction === 'Takes' ? 'in' : 'out', direction === 'Takes' && type === 'IMAGE')} />,
         checked: type === value,
         onSelect: () => change(type),
       }))}
@@ -122,7 +126,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
         kinds={KINDS}
         kind={kind()}
         onKind={setKind}
-        {...(wire() ? { chip: { label: 'image', name: 'Takes image', direction: 'takes' as const, color: typeColor(defaultTokens, 'IMAGE'), removeLabel: 'Remove image constraint', onRemove: () => setWire(false) } } : {})}
+        {...(wire() ? { chip: { label: wireName(), name: `Takes ${wireName()}`, direction: 'takes' as const, color: typeColor(defaultTokens, 'IMAGE'), shape: pinShapeOf(anchor()), removeLabel: 'Remove image constraint', onRemove: () => setWire(false) } } : {})}
         filters={<>
           <Show when={!wire()}>{typeMenu('Takes', takes(), setTakes)}</Show>
           {typeMenu('Gives', gives(), setGives)}
@@ -162,6 +166,7 @@ export function NodeSearchGallery() {
   return <><For each={[
     { title: 'After typing', text: 'The shared search surface with the node drawn beside the list. Packs are named in the preview, not on every row.', id: 'node-search-typed', query: 'image' },
     { title: 'From a dropped wire', text: 'Only installed entries that can take the wire are offered. The row names the input; Enter places and connects.', id: 'node-search-wire', wire: true },
+    { title: 'From a dropped list wire', text: 'A list wire finds list inputs and inputs that take either one value or a whole list. A scalar-only input is not offered.', id: 'node-search-list-wire', wire: true, list: true },
     { title: 'Before you type', text: 'What was placed last and the categories to walk through. Opening a category keeps the same search surface.', id: 'node-search-before' },
   ]}>{(example) => <ProductSection title={example.title}>
     <p class="dinkster-description">{example.text}</p>

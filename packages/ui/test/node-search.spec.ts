@@ -4,11 +4,11 @@ test('a dropped image wire offers compatible installed nodes and blueprints and 
   await page.goto('/#node-search')
   const search = page.getByTestId('node-search-wire')
   await expect(search.getByRole('listbox').getByRole('option')).toHaveText([
-    'Image Batch to Listinto batch', 'Image List to Batchinto images', 'Image Statsinto image',
+    'Image Batch to Listinto batch', 'Image Statsinto image',
     'Blend Imagesinto first', 'Invert Imageinto image', 'Save Image (PGM)into image',
     'Upscale image 2xinto image', 'Rerouteinto value',
   ])
-  await expect(search.getByRole('option').locator('.dinkster-search-row-icon > svg')).toHaveCount(8)
+  await expect(search.getByRole('option').locator('.dinkster-search-row-icon > svg')).toHaveCount(7)
   const dot = search.locator('.dinkster-search-chip .dinkster-search-chip-dot')
   await expect(dot).toBeVisible()
   await expect(dot.locator('circle')).toHaveAttribute('fill', '#64B5F6')
@@ -54,7 +54,7 @@ test('recent entries, categories, type menus and installation actions stay on th
     await expect(trigger).toHaveText('Any type')
     await trigger.click()
     const labels = trigger.locator('.dinkster-search-type-label').or(typed.getByRole('menu').locator('.dinkster-search-type-label'))
-    await expect(labels).toHaveCount(5)
+    await expect(labels).toHaveCount(7)
     const positions = await labels.evaluateAll((elements) => elements.map((element) => {
       const dot = element.querySelector('svg')!.getBoundingClientRect()
       const word = element.querySelector('span')!.getBoundingClientRect()
@@ -119,13 +119,37 @@ test('type menus retain start alignment and keep end-aligned output dots inside 
         const searchBounds = (await search.boundingBox())!
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(searchBounds.x + searchBounds.width)
         const dots = await menu.locator('.dinkster-search-chip-dot').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().right))
-        expect(dots).toHaveLength(4)
+        expect(dots).toHaveLength(6)
         expect(Math.max(...dots) - Math.min(...dots)).toBeLessThan(0.5)
       }
       await page.keyboard.press('Escape')
       await expect(trigger).toBeFocused()
     }
   }
+})
+
+test('list filters keep plain names, directional pin shapes and whole-list input admission', async ({ page }) => {
+  await page.goto('/#node-search')
+  const search = page.getByTestId('node-search-typed')
+  for (const direction of ['Takes', 'Gives']) {
+    await search.scrollIntoViewIfNeeded()
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await search.getByRole('button', { name: `${direction} type`, exact: true }).click()
+    const menu = search.getByRole('menu')
+    await expect(menu.getByRole('menuitemcheckbox')).toHaveText(['Any type', 'image', 'image list', 'image file', 'int', 'string'])
+    await expect(menu.getByRole('menuitemcheckbox', { name: `${direction} image list`, exact: true }).locator('.dinkster-search-chip-dot')).toHaveAttribute('data-shape', 'diamond')
+    await expect(menu.getByRole('menuitemcheckbox', { name: `${direction} image`, exact: true }).locator('.dinkster-search-chip-dot')).toHaveAttribute('data-shape', direction === 'Takes' ? 'scalar-list' : 'circle')
+    await menu.getByRole('menuitemcheckbox', { name: `${direction} image list`, exact: true }).click()
+    await expect(search.getByRole('listbox').getByRole('option')).toHaveText(direction === 'Takes'
+      ? ['Image List to Batchdev / image', 'Image Statsdev / image']
+      : ['Image Batch to Listdev / image'])
+    await search.getByRole('button', { name: `${direction} type`, exact: true }).click()
+    await search.getByRole('menuitemcheckbox', { name: `${direction} Any type`, exact: true }).click()
+  }
+  const wire = page.getByTestId('node-search-list-wire')
+  await expect(wire.getByRole('group', { name: 'Takes image list', exact: true })).toHaveText('image list')
+  await expect(wire.locator('.dinkster-search-chip .dinkster-search-chip-dot')).toHaveAttribute('data-shape', 'diamond')
+  await expect(wire.getByRole('option')).toHaveText(['Image List to Batchinto images', 'Image Statsinto image'])
 })
 
 test('custom menu content keeps string names, separate descriptions and selection behavior', async ({ page }) => {

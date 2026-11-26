@@ -238,6 +238,14 @@ describe('schemaMatchesLinkDrop (noodle-drop compatibility)', () => {
     expect(schemaMatchesLinkDrop(decode, listAnchor, 'in')).toBe(false)
     const batch = schema([input('images', { kind: 'list', element: concrete('IMAGE') })])
     expect(schemaMatchesLinkDrop(batch, listAnchor, 'in')).toBe(true)
+    const either = schema([input('images', concrete('IMAGE'), { acceptsList: true })])
+    expect(autoConnectTarget(either, listAnchor, 'in')).toEqual({ port: 'images' })
+    expect(schemaMatchesPortFilters(either, { inputs: ['list<image>'] })).toBe(true)
+    expect(schemaMatchesAnyPortFilters(either, { inputs: ['list<image>'] })).toBe(true)
+    expect(schemaMatchesLinkDrop(either, concrete('IMAGE'), 'in')).toBe(true)
+    expect(schemaMatchesLinkDrop(either, { kind: 'list', element: concrete('MASK') }, 'in')).toBe(false)
+    expect(schemaMatchesPortFilters(either, { inputs: ['list<mask>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(decode, { inputs: ['list<image>'] })).toBe(false)
   })
 
   it('matches concrete batch families and a constrained shared family exactly', () => {

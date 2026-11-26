@@ -55,7 +55,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import type { GraphDef, LinkData, NodeData } from '../format/document.js'
 import { asPortId, isPortEndpoint, type LinkId, type NodeId, type PortRef } from '../ids.js'
 import { buildRerouteIndex, traceEndpointAll } from '../reroute.js'
-import { assetCoercible, atomNamesOf, coercionTargetsOf, typesCompatible } from './type-relations.js'
+import { admittedInputType, assetCoercible, atomNamesOf, coercionTargetsOf, typesCompatible } from './type-relations.js'
 import type { SchemaResolver } from './derive-boundary.js'
 import {
   buildGraphConnectivity,
@@ -473,17 +473,13 @@ export function solveGraphTypes(
   /** Links whose consumer sees several possible producers (selector candidates). */
   const branchingLinks = new Set<LinkId>()
 
-  const admittedInputType = (
+  const admittedTypeAt = (
     from: TypeExpr | undefined,
     to: PortRef,
     type: TypeExpr | undefined,
   ): TypeExpr | undefined =>
-    type !== undefined &&
-    type.kind !== 'list' &&
-    from !== undefined &&
-    cardinalityOf(from) === 'list' &&
-    wholeListInputs.get(to.node)?.has(to.port)
-      ? { kind: 'list', element: type }
+    type !== undefined && from !== undefined
+      ? admittedInputType(type, wholeListInputs.get(to.node)?.has(to.port) === true, cardinalityOf(from))
       : type
 
   const constrain = (
@@ -493,7 +489,7 @@ export function solveGraphTypes(
     fromSide: 'input' | 'output' = 'output',
   ): void => {
     const fromType = typeAt(from, fromSide)
-    const toType = admittedInputType(fromType, to, typeAt(to, 'input'))
+    const toType = admittedTypeAt(fromType, to, typeAt(to, 'input'))
     if (fromType !== undefined && toType !== undefined && hasTuple(fromType))
       dependentEdges.push({ fromType, toType, from, to, source })
     if (fromType === undefined || toType === undefined) {
@@ -763,7 +759,7 @@ export function solveGraphTypes(
   }
   const projectedVariablesBySource = new Map<symbol, Map<string, VarKey>>()
   for (const [index, projected] of (options.projectedInputs ?? []).entries()) {
-    const toType = admittedInputType(
+    const toType = admittedTypeAt(
       projected.type,
       projected.to,
       typeAt(projected.to, 'input'),

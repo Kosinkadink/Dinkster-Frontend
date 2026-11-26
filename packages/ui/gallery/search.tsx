@@ -12,6 +12,7 @@ import {
 import {
   asNodeId,
   defaultValuesOf,
+  typeExprFromTypeId,
   type Json,
   type NodeSchema,
   type TypeExpr,
@@ -96,7 +97,7 @@ const ENTER: Record<Kind, string> = {
   tabs: 'open',
 }
 
-const type = (name: string): TypeExpr => ({ kind: 'concrete', name })
+const type = (name: string): TypeExpr => typeExprFromTypeId(name)
 export const node = (
   title: string,
   inputs: readonly [string, string][],
