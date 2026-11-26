@@ -32,7 +32,9 @@ export function NodeProblemBox(props: {
   // A required input never given a value or a wire reads as the row's own sentence.
   const lineText = (line: ProblemBoxLine): string =>
     line.problem.diagnostic.code === 'compile.input.missing' && line.rowName !== undefined
-      ? message('problemBox.required', { label: line.rowName.charAt(0).toUpperCase() + line.rowName.slice(1) })
+      ? line.problem.diagnostic.hiddenRequiredField !== undefined
+        ? message('problemBox.requiredHidden')
+        : message('problemBox.required', { label: line.rowName.charAt(0).toUpperCase() + line.rowName.slice(1) })
       : line.message
   const viewLines = (): readonly ProblemBoxViewLine[] => props.lines.map((line) => ({
     key: line.key,

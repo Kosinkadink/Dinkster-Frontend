@@ -5119,10 +5119,21 @@ export function paintValueSwatch(ctx: CanvasRenderingContext2D, color: string, l
 }
 
 /**
- * As many of `items` as fit in `maxWidth`, separated by a comma and a space,
- * then "+N" for the rest. The first item always shows, cut if it must be.
+ * Whether a cut text still says more than `count` would: the part of it
+ * left before the ellipsis is at least as wide as the count.
  */
-export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[], maxWidth: number): string {
+function cutSaysMore(ctx: CanvasRenderingContext2D, cut: string, whole: string, count: string): boolean {
+  if (cut === whole) return true
+  const kept = cut.endsWith('...') ? cut.slice(0, -'...'.length) : cut
+  return measureWidth(ctx, kept) >= measureWidth(ctx, count)
+}
+
+/**
+ * As many of `items` as fit in `maxWidth`, separated by a comma and a space,
+ * then "+N" for the rest. When none fits whole the first is cut, unless
+ * what is left of it is narrower than `count`, which then stands alone.
+ */
+export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[], maxWidth: number, count?: string): string {
   const more = (shown: number) => shown < items.length ? ` +${items.length - shown}` : ''
   // Items past the row's width cannot fit, so the search starts below them.
   let candidate = 0
@@ -5133,17 +5144,50 @@ export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[]
     const text = items.slice(0, shown).join(', ') + more(shown)
     if (measureWidth(ctx, text) <= maxWidth) return text
   }
-  return fitText(ctx, items[0] ?? '', Math.max(0, maxWidth - measureWidth(ctx, more(1)))) + more(1)
+  const first = items[0] ?? ''
+  const cut = fitText(ctx, first, Math.max(0, maxWidth - measureWidth(ctx, more(1))))
+  return count === undefined || cutSaysMore(ctx, cut, first, count) ? cut + more(1) : fitText(ctx, count, maxWidth)
+}
+
+/**
+ * A row's value summary as its view draws it, with what the view allows the
+ * painter to do when the whole text does not fit.
+ */
+export interface SummaryFit {
+  readonly text: string
+  /** Shown as many as fit, then "+N" for the rest. */
+  readonly items?: readonly string[]
+  /** Kept whole at the end of `text` while the rest of it is cut. */
+  readonly suffix?: string
+  /** Shown alone when too little of the text or of the first item would remain. */
+  readonly count?: string
+  /** Shorter forms of `text`, tried in order; the last is cut if none fits. */
+  readonly shorter?: readonly string[]
+}
+
+/** The text of `summary` that fits in `maxWidth`. */
+export function fitSummary(ctx: CanvasRenderingContext2D, summary: SummaryFit, maxWidth: number): string {
+  const { text, suffix, count } = summary
+  if (summary.items !== undefined) return fitItems(ctx, summary.items, maxWidth, count)
+  if (fitText(ctx, text, maxWidth) === text) return text
+  for (const form of summary.shorter ?? []) {
+    if (fitText(ctx, form, maxWidth) === form) return form
+  }
+  if (suffix !== undefined && suffix !== '' && text.endsWith(suffix)) {
+    const lead = text.slice(0, -suffix.length)
+    const cut = fitText(ctx, lead, Math.max(0, maxWidth - measureWidth(ctx, suffix)))
+    if (count === undefined || cutSaysMore(ctx, cut, lead, count)) return cut + suffix
+  }
+  if (count !== undefined && suffix !== undefined) return fitText(ctx, count, maxWidth)
+  return fitText(ctx, summary.shorter?.at(-1) ?? text, maxWidth)
 }
 
 /**
  * The text a row's own view shows for a value, with the color square before
  * it or the list items it fits.
  */
-export interface CompanionSummary {
-  readonly text: string
+export interface CompanionSummary extends SummaryFit {
   readonly swatch?: string
-  readonly items?: readonly string[]
 }
 
 /**
@@ -5180,8 +5224,7 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   ctx.globalAlpha = companionAlpha ?? prevAlpha
   const textY = y + rowHeight / 2
   const textRight = x + field.right
-  const displayText = summary?.items !== undefined
-    ? prefix + fitItems(ctx, summary.items, Math.max(0, availableWidth - measureWidth(ctx, prefix)))
+  const displayText = summary !== undefined ? prefix + fitSummary(ctx, summary, Math.max(0, availableWidth - measureWidth(ctx, prefix)))
     : fitText(ctx, text, availableWidth)
   ctx.fillStyle = color
   ctx.textAlign = 'right'

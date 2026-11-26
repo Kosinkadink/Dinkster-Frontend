@@ -55,6 +55,56 @@ const value = (page: Page, key: string) => page.evaluate((key) => window.__dinks
 const openLabel = (page: Page) => page.locator('.widget-in-row-field input').getAttribute('aria-label')
 const field = (page: Page) => page.locator('.widget-in-row-field input')
 
+test('valueless editor openers omit a default fact without changing their stored data', async ({ page }, testInfo) => {
+  await page.route('**/api/**', route => route.fulfill({ status: 503, json: { error: 'Offline fixture' } }))
+  await page.route('/api/nodes*', route => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'opener-defaults', schemaWire: 2, graphFeatures: ['decimalInt'] }, nodes: {},
+  } }))
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    ;(app as unknown as { templateGalleryOpen: { set(value: boolean): void } }).templateGalleryOpen.set(false)
+    const widget = (id: string, widgetType: string, value: unknown, tooltip?: string) => ({
+      kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
+      widget: { widgetType, options: {}, default: value }, ...(tooltip === undefined ? {} : { tooltip }),
+    })
+    app.registerSchemas([{
+      type: 'Opener defaults', displayName: 'Opener defaults', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        widget('steps', 'INT', 20),
+        widget('viewport', 'LOAD_3D', { camera: { fov: 35 } }, 'Inspect the 3D viewport.'),
+        widget('angle', 'CAMERA_ANGLE_VIEW', 'front', 'Choose the viewing direction.'),
+      ],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'opener-defaults', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'Opener defaults', values: { steps: 20, viewport: { camera: { fov: 35 } }, angle: 'front' } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 } } } } } },
+    } as never, 'Opener defaults')
+    window.__dinksterTest!.renderer!.setViewport({ x: 160, y: 100, scale: 1 })
+  })
+  const before = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
+  const steps = await rowPoint(page, 'n1', 'steps')
+  for (const theme of ['dark', 'light'] as const) {
+    await page.evaluate(theme => window.__dinksterTest!.app.settings.set('dinkster.theme', theme), theme)
+    await page.mouse.click(steps.x, steps.y)
+    await expect(field(page)).toBeVisible()
+    await expect(page.locator('.dinkster-canvas-side-facts')).toContainText('20')
+    for (const [name, help] of [['viewport', 'Inspect the 3D viewport.'], ['angle', 'Choose the viewing direction.']] as const) {
+      await page.keyboard.press('Tab')
+      await expect(page.getByTestId('row-focus')).toBeVisible()
+      await expect(page.locator('.dinkster-canvas-side-help')).toHaveText(help)
+      await expect(page.locator('.dinkster-canvas-side-facts')).toHaveCount(0)
+      await page.screenshot({ path: testInfo.outputPath(`opener-default-${name}-${theme}.png`) })
+    }
+  }
+  expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
+})
+
 test('a click on each other row stores the open field and opens that row', async ({ page }) => {
   await openSampler(page)
   const rows: readonly [string, string, unknown][] = [
