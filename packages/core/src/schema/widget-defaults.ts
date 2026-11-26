@@ -53,7 +53,7 @@ function curveValue(v: unknown): boolean {
   const interpolation = curve['interpolation']
   const keys = Object.keys(curve).sort()
   if (keys.join(',') !== (interpolation === undefined ? 'points' : 'interpolation,points')) return false
-  if (interpolation !== undefined && interpolation !== 'linear' && interpolation !== 'monotone_cubic') return false
+  if (interpolation !== undefined && interpolation !== 'linear' && interpolation !== 'monotone_cubic' && interpolation !== 'step') return false
   const points = curve['points']
   if (!Array.isArray(points) || points.length < 1 || points.length > 4096) return false
   let previous = -Infinity

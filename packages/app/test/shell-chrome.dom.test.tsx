@@ -267,7 +267,7 @@ describe('canvas corner controls', () => {
     expect(menu()).toBe('zoom')
     expect(row().querySelector('.dinkster-canvas-closed-row-value')?.textContent).toBe('26%')
     const zoomInRow = root.querySelector('[data-testid="canvas-zoom-in"]')!
-    expect([...zoomInRow.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Alt', '='])
+    expect([...zoomInRow.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Alt+='])
     click(zoomInRow)
     expect(zoomBy).toHaveBeenLastCalledWith(1.2)
     expect(menu()).toBe('zoom')
@@ -327,8 +327,8 @@ describe('Dinkster app menu', () => {
     keybindings.set('view.fitSelection', null)
     click(root.querySelector('[data-testid="dinkster-menu-button"]')!)
 
-    expect([...root.querySelectorAll('[data-item-id="workflow.open"] kbd')].map((key) => key.textContent)).toEqual(['Ctrl', 'O'])
-    expect([...root.querySelectorAll('[data-item-id="edit.undo"] kbd')].map((key) => key.textContent)).toEqual(['Cmd', 'U'])
+    expect([...root.querySelectorAll('[data-item-id="workflow.open"] kbd')].map((key) => key.textContent)).toEqual(['Ctrl+O'])
+    expect([...root.querySelectorAll('[data-item-id="edit.undo"] kbd')].map((key) => key.textContent)).toEqual(['Cmd+U'])
     expect(root.querySelector('[data-item-id="view.fitSelection"] kbd')).toBeNull()
     dispose()
   })

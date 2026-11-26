@@ -16,16 +16,14 @@ export function productShortcutKeys(
     })
 }
 
-export function ProductShortcut(props: { keys: string | readonly string[] }) {
+export function ProductShortcut(props: {
+  keys: string | readonly string[]
+  size?: 'compact' | 'settings'
+}) {
   return (
-    <span
-      class="dinkster-shortcut"
-      aria-label={productShortcutKeys(props.keys).join('+')}
-    >
-      <For each={productShortcutKeys(props.keys)}>
-        {(key) => <kbd class="dinkster-key">{key}</kbd>}
-      </For>
-    </span>
+    <kbd class="dinkster-shortcut" data-size={props.size ?? 'compact'}>
+      {productShortcutKeys(props.keys).join('+')}
+    </kbd>
   )
 }
 
