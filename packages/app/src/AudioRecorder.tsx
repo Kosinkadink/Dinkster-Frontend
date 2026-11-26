@@ -78,7 +78,7 @@ export function AudioRecorder(props: {
       recorder.ondataavailable = (event) => {
         if (generation !== request) return
         bytes += event.data.size
-        if (bytes > 32 * 1024 * 1024) { cancel(); setMessage('Recording exceeds the 32 MiB limit. No clip saved.'); return }
+        if (bytes > 32 * 1024 * 1024) { cancel(); setMessage('Recording exceeds the 32 MB limit. No clip saved.'); return }
         if (event.data.size) chunks.push(event.data)
         setRecordedBytes(bytes)
       }
@@ -94,7 +94,7 @@ export function AudioRecorder(props: {
         showReadyMessage = true; setState('ready')
       }
       recorder.start(250)
-      setState('recording'); setMessage(`Recording microphone. Stops after ${limit()} seconds or 32 MiB.`)
+      setState('recording'); setMessage(`Recording microphone. Stops after ${limit()} seconds or 32 MB.`)
       timer = setTimeout(() => { stop() }, limit() * 1000)
     } catch (error) {
       if (!live || generation !== request) return

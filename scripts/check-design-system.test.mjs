@@ -28,6 +28,9 @@ test('design check accepts shared classes and geometry but rejects screen-local 
       const shortcut = <ProductShortcut keys={'Ctrl+K'} />
       const conditionalShortcut = <ProductShortcut keys={mac ? 'Cmd+K' : 'Ctrl+K'} />
       const comparison = <span>{binding.combo === 'Ctrl+K' ? 'Search' : 'Changed'}</span>
+      const size = formatByteSize(bytes)
+      const sizeLabel = bytes === undefined ? 'unknown' : formatByteSize(bytes)
+      const unitLabel = 'Budget (MB)'
       menu.style.left = anchor.left + 'px'
     `,
     )
@@ -39,6 +42,26 @@ test('design check accepts shared classes and geometry but rejects screen-local 
       ['const view = <select />', 'Raw select'],
       ['const view = <textarea />', 'Raw textarea'],
       ['const view = <dialog />', 'Raw dialog'],
+      [
+        'const units = ["B", "KB", "MB", "GB"]',
+        'Byte sizes must use formatByteSize',
+      ],
+      [
+        'const size = (bytes) => `${(bytes / 1024).toFixed(1)} KB`',
+        'Byte sizes must use formatByteSize',
+      ],
+      [
+        'const size = (bytes) => `${bytes} B`',
+        'Byte sizes must use formatByteSize',
+      ],
+      [
+        'const size = (bytes) => bytes / 1024 + " KB"',
+        'Byte sizes must use formatByteSize',
+      ],
+      [
+        'function formatBytes(bytes) { return String(bytes) }',
+        'Byte sizes must use formatByteSize',
+      ],
       [
         'const view = <span>{"Ctrl+K"}</span>',
         'Shortcut text must use ProductShortcut',

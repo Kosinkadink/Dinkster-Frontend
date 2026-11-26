@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import type { DinksterConnection, MountDescriptor } from '@dinkster/client'
-import type { CollectionSource, MessageParams } from '@dinkster/core'
+import { formatByteSize, type CollectionSource, type MessageParams } from '@dinkster/core'
 import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js'
 import { assetCollectionSource } from './asset-browser/collection-adapter.js'
 import { allAssetsCollectionSource, mountPresentationKey, type AssetSourceFailure } from './asset-browser/cross-mount-collection-source.js'
@@ -29,25 +29,14 @@ interface MountPresentation {
 const errorText = (reason: unknown): string => reason instanceof Error ? reason.message : String(reason)
 const MOUNT_SCAN_POLL_MS = 1000
 
-const formatScanBytes = (bytes: number): string => {
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'] as const
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${unit === 0 ? value : value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`
-}
-
 const mountDetail = (mount: MountDescriptor, message: AssetMessage): string => {
   const progress = mount.scanProgress
   if (progress === undefined) return message('assets.source.mountDetail', { id: mount.id })
   return message('assets.source.scanProgress', {
     filesDone: progress.filesDone,
     filesTotal: progress.filesTotal,
-    bytesDone: formatScanBytes(progress.bytesDone),
-    bytesTotal: formatScanBytes(progress.bytesTotal),
+    bytesDone: formatByteSize(progress.bytesDone),
+    bytesTotal: formatByteSize(progress.bytesTotal),
     elapsed: Math.floor(progress.elapsedSeconds),
   })
 }

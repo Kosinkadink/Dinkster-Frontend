@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { noEngineOpen, type MemoryStatus } from '@dinkster/client'
+import { formatByteSize } from '@dinkster/core'
 import { ProductRunActivity, ProductRunIcon } from '@dinkster/ui'
 import Workflow from 'lucide-solid/icons/workflow'
 import Snowflake from 'lucide-solid/icons/snowflake'
@@ -15,16 +16,6 @@ import { ProductButton } from './ProductControls.js'
 import { useAppMessage } from './locale.js'
 import type { PanelIndicator } from './panels.js'
 import { useSignal } from './solid-adapter.js'
-
-function formatBytes(bytes: number | null | undefined): string {
-  if (bytes === null || bytes === undefined) return 'Not reported'
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
-  const sign = bytes < 0 ? '-' : ''
-  let value = Math.abs(bytes)
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++ }
-  return `${sign}${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`
-}
 
 interface BackgroundTask { readonly key: string; readonly backend: string; readonly text: string }
 
@@ -44,7 +35,7 @@ function BackendTasks(props: { readonly backend: Backend; readonly update: (task
         props.backend.connection.fetchModelDownloads().then(({ jobs }) => {
           if (live) setDownloads(jobs.filter((job) => !['completed', 'cancelled', 'failed'].includes(job.status)).map((job) => ({
             key: job.jobId, backend: props.backend.label,
-            text: message('shell.status.download', { name: job.name, received: formatBytes(job.received), total: formatBytes(job.size) }),
+            text: message('shell.status.download', { name: job.name, received: formatByteSize(job.received), total: job.size == null ? 'Not reported' : formatByteSize(job.size) }),
           })))
         }).catch(() => { if (live) setDownloads([]) }),
         props.backend.connection.fetchMountSettings().then(({ mounts }) => {
@@ -91,11 +82,11 @@ function MemoryItem(props: { readonly backend: Backend; readonly connected: () =
     return [{ device, name: measurement.gpuName ?? device, used, total: measurement.totalBytes, share: used / measurement.totalBytes }]
   }).sort((a, b) => b.share - a.share))
   const stale = () => sample() !== undefined && connection() === 'connected' && now() - received() > 6000
-  const label = () => `${message('shell.panel.memory.title')}: ${cards().map((card) => `${card.name}: ${formatBytes(card.used)} / ${formatBytes(card.total)}`).join('; ')}${stale() ? ` (${message('shell.status.memoryStale')})` : ''}`
+  const label = () => `${message('shell.panel.memory.title')}: ${cards().map((card) => `${card.name}: ${formatByteSize(card.used)} / ${formatByteSize(card.total)}`).join('; ')}${stale() ? ` (${message('shell.status.memoryStale')})` : ''}`
   return <Show when={props.connected() && connection() === 'connected' && cards()[0]}>{(card) =>
     <ProductButton variant="ghost" size="compact" class="status-item status-memory" data-testid="status-memory"
       data-stale={stale() ? '' : undefined} aria-label={label()} data-tooltip-label={label()} onClick={props.open}>
-      <span aria-hidden="true">{formatBytes(card().used)} / {formatBytes(card().total)}</span>
+      <span aria-hidden="true">{formatByteSize(card().used)} / {formatByteSize(card().total)}</span>
       <svg class="status-memory-track" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true"><rect width={Math.max(0, Math.min(1, card().share)) * 100} height="4" /></svg>
     </ProductButton>
   }</Show>

@@ -95,7 +95,7 @@ describe('EngineRunControl', () => {
     await vi.waitFor(() => expect(document.body.textContent).toContain(expected))
     expect(document.body.textContent).not.toContain('Not the engine log')
     expect(document.body.textContent?.match(/Engine log/g)).toHaveLength(1)
-    if (body.truncated) expect(document.body.textContent).toContain('64 KiB')
+    if (body.truncated) expect(document.body.textContent).toContain('64 KB')
   })
 
   it('shows a refused log request as unavailable instead of substituting status text', async () => {

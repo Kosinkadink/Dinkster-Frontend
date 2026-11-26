@@ -1,3 +1,4 @@
+import { formatByteSize } from '@dinkster/core'
 import {
   For,
   Match,
@@ -325,7 +326,7 @@ function Gallery() {
                       ]}
                       now={120_000}
                       limit={22}
-                      format={(value) => `${value.toFixed(1)} GB`}
+                      format={(value) => formatByteSize(value * 1024 ** 3)}
                       historyLabel="Last 2 minutes"
                       limitLabel="Limit"
                       compact={compact}
@@ -343,7 +344,7 @@ function Gallery() {
                   segments={[{ label: 'Used', value: 5, tone: 'other' }]}
                   samples={[]}
                   now={120_000}
-                  format={(value) => `${value.toFixed(1)} GB`}
+                  format={(value) => formatByteSize(value * 1024 ** 3)}
                   historyLabel="Last 2 minutes"
                   limitLabel="Limit"
                 />

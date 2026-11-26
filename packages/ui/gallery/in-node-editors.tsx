@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup, untrack, type JSX } from 'solid-js'
-import type { WidgetRegistry } from '@dinkster/core'
+import { formatByteSize, type WidgetRegistry } from '@dinkster/core'
 import {
   boundaryFieldNode,
   CanvasRenderer,
@@ -70,9 +70,6 @@ function noBackendHeight(width: number): number {
   return height
 }
 
-/** A rounded size, never raw bytes. */
-const roundedSize = (bytes: number): string =>
-  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 const clock = (seconds: number): string => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
 
 /** A fixed still standing for a picture: a captured frame, a turned model, or the run's images. */
@@ -183,7 +180,7 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
             roundLabel={recording() ? 'Stop' : 'Record'}
             roundDisabled={status() === 'waiting' || status() === 'saving'}
             status={words[status()] ?? status()}
-            {...(recording() ? { detail: `${clock(seconds())}, ${roundedSize(num(state(), 'bytes') ?? 0)}` }
+            {...(recording() ? { detail: `${clock(seconds())}, ${formatByteSize(num(state(), 'bytes') ?? 0)}` }
               : status() === 'ready' || status() === 'uploadFailed' ? { detail: '0:07' } : {})}
             waveform={wave()}
             actions={actions()}

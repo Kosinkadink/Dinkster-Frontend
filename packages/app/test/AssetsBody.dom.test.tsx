@@ -361,7 +361,7 @@ describe('Assets dock body', () => {
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
     expect(root.querySelector('[data-source="mount:models"]')?.getAttribute('data-state')).toBe('scanning')
     expect(root.querySelector('[data-source="mount:models"]')?.textContent).toContain(
-      'Indexed 4/10 files, 1.0 KiB/4.0 KiB, 2s elapsed',
+      'Indexed 4/10 files, 1 KB/4 KB, 2s elapsed',
     )
 
     await vi.advanceTimersByTimeAsync(1000)

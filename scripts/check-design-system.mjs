@@ -127,7 +127,7 @@ export async function checkDesignSystem(args = []) {
 
   async function checkFile(path, shortcutsOnly) {
     const text = await readFile(path, 'utf8')
-    if (shortcutsOnly && !/\.tsx$/u.test(path)) return
+    if (shortcutsOnly && !/\.[cm]?[jt]sx?$/u.test(path)) return
     if (path.endsWith('.css')) {
       if (path !== stylesheet)
         report(path, 1, 'Styles belong in packages/ui/styles.css')
@@ -177,6 +177,41 @@ export async function checkDesignSystem(args = []) {
       }
     }
     const visitShortcut = (node) => {
+      if (path !== resolve(repository, 'packages/core/src/byte-size.ts')) {
+        const unit = /^(?:[KMGT]i?B|B)$/u
+        const unitTable =
+          ts.isArrayLiteralExpression(node) &&
+          node.elements.filter(
+            (element) =>
+              ts.isStringLiteralLike(element) && unit.test(element.text),
+          ).length > 1
+        const calculatedSize =
+          ts.isTemplateExpression(node) &&
+          node.templateSpans.some((span) =>
+            /^\s*(?:[KMGT]i?B|B)\b/u.test(span.literal.text),
+          )
+        const concatenatedSize =
+          ts.isBinaryExpression(node) &&
+          node.operatorToken.kind === ts.SyntaxKind.PlusToken &&
+          ts.isStringLiteralLike(node.right) &&
+          unit.test(node.right.text.trim())
+        const localFormatter =
+          (ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node)) &&
+          node.name &&
+          /^(?:formatByteSize|formatBytes|formatScanBytes|formatSize)$/u.test(
+            node.name.getText(source),
+          ) &&
+          (ts.isFunctionDeclaration(node) ||
+            (node.initializer &&
+              (ts.isArrowFunction(node.initializer) ||
+                ts.isFunctionExpression(node.initializer))))
+        if (unitTable || calculatedSize || concatenatedSize || localFormatter)
+          report(
+            path,
+            line(node),
+            'Byte sizes must use formatByteSize from @dinkster/core',
+          )
+      }
       if (path !== shortcutSource) {
         if (
           (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&

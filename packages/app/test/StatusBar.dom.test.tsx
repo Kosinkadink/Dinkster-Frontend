@@ -137,7 +137,7 @@ it('shows the fullest measured graphics card and omits CPU, unknown and disconne
     openPanel={(id) => opened.push(id)} openRuns={() => {}} openAppLog={() => {}} />, root)
   await vi.waitFor(() => expect(root.querySelector('[data-testid="status-memory"]')).not.toBeNull())
   const memoryButton = root.querySelector<HTMLButtonElement>('[data-testid="status-memory"]')!
-  expect(memoryButton.textContent).toContain('1.8 KiB / 2.0 KiB')
+  expect(memoryButton.textContent).toContain('1.8 KB / 2 KB')
   expect(memoryButton.getAttribute('aria-label')).toContain('cuda:0')
   expect(memoryButton.getAttribute('aria-label')).toContain('cuda:1')
   expect(memoryButton.getAttribute('aria-label')).not.toContain('cuda:2')

@@ -1,4 +1,4 @@
-import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
+import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, formatByteSize, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
 import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind, curveInterpolator, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
@@ -520,8 +520,6 @@ export class AudioRecordController {
 }
 
 const clock = (seconds: number): string => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
-const roundedSize = (bytes: number): string =>
-  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 
 const isClip = (value: Json | undefined): value is AudioClip =>
   value !== null && audioRecordKind.valueSchema.validate(value)
@@ -567,7 +565,7 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
   }
   const detail = () => {
     if (props.wired) return undefined
-    if (recording()) return `${clock(recorder.seconds())}, ${roundedSize(recorder.bytes())}`
+    if (recording()) return `${clock(recorder.seconds())}, ${formatByteSize(recorder.bytes())}`
     const seconds = recorder.clipSeconds()
     return (shown() === 'ready' || shown() === 'uploadFailed') && seconds !== undefined ? clock(seconds) : undefined
   }

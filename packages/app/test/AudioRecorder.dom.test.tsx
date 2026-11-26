@@ -93,7 +93,7 @@ describe('explicit audio recording', () => {
     Object.defineProperty(data, 'size', { value: 32 * 1024 * 1024 + 1 })
     recorder.ondataavailable!.call(recorder, { data } as BlobEvent)
     await vi.advanceTimersByTimeAsync(0)
-    expect(root.textContent).toContain('Recording exceeds the 32 MiB limit')
+    expect(root.textContent).toContain('Recording exceeds the 32 MB limit')
     expect(stopTrack).toHaveBeenCalledOnce()
     expect(save).not.toHaveBeenCalled()
     expect(root.textContent).not.toContain('Save recording')

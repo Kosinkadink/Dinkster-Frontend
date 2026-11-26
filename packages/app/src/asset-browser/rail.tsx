@@ -9,7 +9,7 @@
  */
 
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
-import type { CollectionEntry } from '@dinkster/core'
+import { formatByteSize, type CollectionEntry } from '@dinkster/core'
 import type { DinksterConnection } from '@dinkster/client'
 import { AssetFileLocation } from '../AssetFileLocation.js'
 import { CollectionImage } from '../CollectionImage.js'
@@ -19,7 +19,7 @@ import { ProductButton } from '../ProductControls.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { useAppMessage } from '../locale.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
-import { committableAssetRef, formatSize, isBrowserPreviewable } from './helpers.js'
+import { committableAssetRef, isBrowserPreviewable } from './helpers.js'
 import { inspectAssetMetadata, METADATA_INSPECTION_UNSUPPORTED } from './metadata.js'
 import { assetEntryKindOf, assetItemOf, assetKindOf } from './collection-adapter.js'
 import { DigestValue } from './presentation.js'
@@ -79,7 +79,7 @@ function AssetFacts(props: {
         <dt>{message('assets.fact.kind')}</dt><dd>{assetKindOf(props.item) ?? message('assets.value.unknown')}</dd>
         <dt>{message('assets.fact.mediaType')}</dt><dd>{props.item.mediaType ?? message('assets.value.unknown')}</dd>
         <Show when={props.dimensions}>{(dimensions) => <><dt>{message('assets.fact.resolution')}</dt><dd>{dimensions().width} x {dimensions().height}</dd></>}</Show>
-        <dt>{message('assets.fact.size')}</dt><dd>{formatSize(props.item.size)}</dd>
+        <dt>{message('assets.fact.size')}</dt><dd>{props.item.size === undefined ? 'unknown' : formatByteSize(props.item.size)}</dd>
         <dt>{message('assets.fact.source')}</dt><dd>{props.item.source.id === 'all-assets' ? message('assets.source.all') : props.item.source.label}</dd>
         <Show when={props.item.source.id.startsWith('mount:')}><dt>{message('assets.fact.mount')}</dt><dd>{props.item.source.id.slice('mount:'.length)}</dd></Show>
         <dt>{message('assets.fact.virtualPath')}</dt><dd>{props.item.virtualPath ?? ''}</dd>
@@ -119,7 +119,7 @@ function AssetEntrySelectionContent(props: {
           <span class="asset-section-eyebrow">{message('assets.selection.title')}</span>
           <h3>{props.item.name}</h3>
         </div>
-        <Show when={props.item.size !== undefined}><span>{formatSize(props.item.size)}</span></Show>
+        <Show when={props.item.size !== undefined}><span>{formatByteSize(props.item.size!)}</span></Show>
       </header>
       <Show when={props.preview}>
         {(entry) => <CollectionImage entry={entry()} class="asset-preview"
