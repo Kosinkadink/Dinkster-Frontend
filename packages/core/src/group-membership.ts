@@ -88,6 +88,7 @@ export function groupMembershipAfter(
     }
   }
   const moved = Object.fromEntries(kinds.map((kind) => [kind, new Set<string>()])) as Record<keyof GroupMembership, Set<string>>
+  let drawsGroup = false
   const collect = (command: CommandInvocation): void => {
     if (typeof command.params !== 'object' || command.params === null || Array.isArray(command.params)) return
     const p = command.params as JsonObject
@@ -95,6 +96,7 @@ export function groupMembershipAfter(
       for (const entry of p.invocations) collect(entry as unknown as CommandInvocation)
     }
     if (p.graphId !== graphId) return
+    if (command.command === 'view.createGroup') drawsGroup = true
     const add = (kind: keyof GroupMembership, value: unknown): void => {
       if (typeof value === 'object' && value !== null && !Array.isArray(value))
         for (const id of Object.keys(value)) moved[kind].add(id)
@@ -112,7 +114,7 @@ export function groupMembershipAfter(
     const created = !authored && !oldIds.has(`${item.kind}:${item.id}`)
     const carried = [...moved.groups].some((group) => belongsToGroup(previous, item.kind, item.id, group))
     if (!created && !moved[item.kind].has(item.id)) {
-      if (!authored) {
+      if (!authored && drawsGroup) {
         const wrapper = containingGroup(item, createdGroups, membership)
         const parent = membership[item.kind][item.id]
         // A wrapper around a group keeps that group's children beneath it.

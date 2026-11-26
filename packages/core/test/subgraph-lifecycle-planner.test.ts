@@ -776,7 +776,11 @@ describe('subgraph.extract L3 command', () => {
     const dropped = createLocalSession(stale, coreCommandRegistry()).dispatch(invocation)
     expect(dropped.ok).toBe(false)
     if (!dropped.ok) expect(dropped.diagnostics.map((diagnostic) => diagnostic.code)).toContain('subgraph.lifecycle.stalePlan')
-
+    const regrouped = structuredClone(initial) as MutableDocument
+    regrouped.view.graphs.root.groupMembership = { nodes: { inside: 'group' }, reroutes: {}, groups: {}, boundary: {} }
+    const regroupedOutcome = createLocalSession(regrouped, coreCommandRegistry()).dispatch(invocation)
+    expect(regroupedOutcome.ok).toBe(false)
+    if (!regroupedOutcome.ok) expect(regroupedOutcome.diagnostics.map((diagnostic) => diagnostic.code)).toContain('subgraph.lifecycle.stalePlan')
   })
 
   it('gates specialized-slot roots and prospective multi-driver violations with named diagnostics', () => {
@@ -1059,6 +1063,7 @@ describe('subgraph.extract L4 structural and view completion', () => {
       },
       reroutes: { route: { position: { x: 270, y: 180 }, ext: { view: true } } },
       groups: { grp4: { id: 'grp4', title: 'Body', bounds: { x: 50, y: 50, width: 600, height: 300 }, color: '#abcdef' } },
+      groupMembership: { nodes: { a: 'grp4', nested: 'grp4' }, reroutes: { route: 'grp4' }, groups: {}, boundary: {} },
       collapsedNets: ['split'],
     }
     const selection = {
@@ -1093,6 +1098,7 @@ describe('subgraph.extract L4 structural and view completion', () => {
       reroutes: { r3: { ext: { view: true } } },
       groups: { grp0: { id: 'grp0', title: 'Body', color: '#abcdef' } },
       groupSeq: 1,
+      groupMembership: { nodes: { n0: 'grp0', n2: 'grp0' }, reroutes: { r3: 'grp0' }, groups: {}, boundary: {} },
       collapsedNets: [expect.any(String)],
     })
     expect(session.doc.view.graphs.root!.collapsedNets).toEqual(['split'])
@@ -1761,6 +1767,9 @@ describe('subgraph.flatten L5-L6 core command', () => {
     expect(session.doc.view.graphs.root!.groupSeq).toBe(6)
     expect(session.doc.view.graphs.root!.collapsedNets).toEqual(['incomingNet', 'net104'])
     expect(session.doc.view.graphs.root!.guideNets).toEqual(['incomingNet', 'net104'])
+    expect(session.doc.view.graphs.root!.groupMembership).toEqual({
+      nodes: { n100: 'grp5' }, reroutes: { r102: 'grp5' }, groups: {}, boundary: {},
+    })
     expect(checkDocument(session.doc)).toEqual([])
   })
 

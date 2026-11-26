@@ -3194,6 +3194,21 @@ describe('group movement', () => {
     expect(store.doc.view.graphs.g0!.groupMembership!.nodes).toEqual({ a: 'grp0' })
     expect(store.undo()).toBe(true)
     expect(store.doc.view.graphs.g0!.groupMembership!.groups).toEqual({ grp0: outerId })
+    expect(store.dispatch({ command: 'view.createGroup', params: { graphId: 'g0', title: 'Inner',
+      bounds: { x: 740, y: 60, width: 240, height: 160 } } }).ok).toBe(true)
+    const innerId = Object.keys(store.doc.view.graphs.g0!.groups!).find((id) => id !== 'grp0' && id !== outerId)!
+    expect(store.doc.view.graphs.g0!.groupMembership!.nodes).toEqual({ a: innerId })
+    expect(store.doc.view.graphs.g0!.groupMembership!.groups).toEqual({ grp0: outerId, [innerId]: outerId })
+    harness.replaceScene(scene())
+    harness.controller.setSelection(['a'], [], [], [outerId, 'grp0'])
+    harness.fire('pointerdown', 1250, 13)
+    harness.fire('pointermove', 1270, 33)
+    harness.fire('pointerup', 1270, 33)
+    expect(store.doc.view.graphs.g0!.nodes.a!.position).toEqual({ x: 780, y: 100 })
+    expect(store.doc.view.graphs.g0!.nodes.b!.position!.x).toBe(1190)
+    expect(store.doc.view.graphs.g0!.groups!.grp0!.bounds.x).toBe(40)
+    expect(store.doc.view.graphs.g0!.groups![innerId]!.bounds.x).toBe(760)
+    expect(store.doc.view.graphs.g0!.groupMembership!.nodes).toEqual({ a: innerId })
     harness.controller.dispose()
   })
 

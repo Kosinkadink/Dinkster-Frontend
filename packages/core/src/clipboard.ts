@@ -474,6 +474,7 @@ export function serializeSelection(
   graphId: string,
   selection: { readonly nodes: Iterable<string>; readonly reroutes: Iterable<string>; readonly groups?: Iterable<string> },
   scopeToken = '',
+  membership = doc.view.graphs[graphId]?.groupMembership,
 ): DinksterClipboardEnvelope | undefined {
   const graph = doc.graphs[graphId]
   const view = doc.view.graphs[graphId]
@@ -538,7 +539,7 @@ export function serializeSelection(
       .map((link) => link as unknown as Json),
     reroutes: [...reroutes].map((id) => ({ data: graph.reroutes[id]! as unknown as Json, view: view.reroutes?.[id]! as unknown as Json })),
     groups: [...groups].flatMap((id) => view.groups?.[id] ? [view.groups[id] as unknown as Json] : []),
-    ...(view.groupMembership !== undefined ? { groupMembership: remapGroupMembership(view.groupMembership, {
+    ...(membership !== undefined ? { groupMembership: remapGroupMembership(membership, {
       nodes: new Map([...nodes].map((id) => [id, id])),
       reroutes: new Map([...reroutes].map((id) => [id, id])),
       groups: new Map([...groups].map((id) => [id, id])),

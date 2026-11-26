@@ -774,6 +774,7 @@ interface FingerprintProjection {
   readonly boundary: readonly unknown[]
   readonly collapsedNets: readonly string[]
   readonly guideNets: readonly string[]
+  readonly groupMembership?: GroupMembership
 }
 
 const selectedSets = (selection: LifecycleSelection) => ({
@@ -842,6 +843,7 @@ export function lifecycleSelectionProjection(
     boundary,
     collapsedNets: sortedUnique(graphView?.collapsedNets),
     guideNets: sortedUnique(graphView?.guideNets),
+    ...(graphView?.groupMembership !== undefined ? { groupMembership: graphView.groupMembership } : {}),
   }
 }
 
