@@ -34,7 +34,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { generatedBoundaryLabel, regionBoundaryLabels } from './boundary-labels.js'
 import { isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type ConstructBoundaryBinding, type DynamicPortState, type GraphDef, type NodeData, type RegionContract, type RouteBoundaryBinding } from '../format/document.js'
-import { isPortEndpoint, portAddressKey, type DynamicMemberId } from '../ids.js'
+import { asPortId, isPortEndpoint, portAddressKey, type DynamicMemberId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
@@ -698,15 +698,19 @@ export function deriveBoundarySchema(
   const routeCache = new WeakMap<object, Partial<Record<'input' | 'output', { node: NodeData; route: BoundaryRoute }>>>()
   const slotTypeBindings = new WeakMap<NodeData, ReadonlyMap<string, TypeExpr>>()
 
-  /** A type variable a chosen variant of a top-scope type choice binds. */
+  /** Stored type selections also bind variables beneath inactive options. */
   const typeBindingsFor = (node: NodeData): ReadonlyMap<string, TypeExpr> => {
     const cached = slotTypeBindings.get(node)
     if (cached !== undefined) return cached
     const bindings = new Map<string, TypeExpr>()
     const schema = resolveNode(node)
-    for (const row of schema === undefined ? [] : scopeRowsOf(schema.body)) {
+    for (const [port, state] of schema === undefined ? [] : Object.entries(node.dynamic ?? {})) {
+      if (state.selected === undefined) continue
+      const resolved = resolveBoundaryRoute(schema!, { kind: 'construct', node: node.id, port: asPortId(port) }, 'input', node.values, node.dynamic)
+      if (!resolved.ok || resolved.route.terminal.kind !== 'construct') continue
+      const row = resolved.route.terminal.row
       if (row.kind !== 'typeChoice' || row.typeVariable === undefined || row.variants === undefined) continue
-      const variant = row.variants.find((candidate) => candidate.key === node.dynamic?.[row.id]?.selected)
+      const variant = row.variants.find((candidate) => candidate.key === state.selected)
       if (variant !== undefined) bindings.set(row.typeVariable, variant.type)
     }
     slotTypeBindings.set(node, bindings)
