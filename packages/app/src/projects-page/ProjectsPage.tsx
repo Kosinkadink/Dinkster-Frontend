@@ -575,7 +575,13 @@ export function ProjectsView(props: {
       },
     ])
     return (
-      <div class="projects-page-detail" data-testid="projects-detail">
+      <>
+      <ProductPageLoad
+        page={projectDetail}
+        read={() => readDetail(project())}
+        loadingLabel={message('projects.detail.loading')}
+        arrival="fade"
+        known={<>
         <ProductProjectHeader
           title={project().name}
           subtitle={message(time().kind === 'ran' ? 'projects.time.lastRun' : 'projects.time.created', {
@@ -670,8 +676,10 @@ export function ProjectsView(props: {
         <ProductProjectSection
           title={message('projects.workflows.title')}
           aside={<span class="dinkster-metadata">{workflows()?.length ?? ''}</span>}
-        >
-          <ProductPageLoad page={projectDetail} read={() => readDetail(project())} loadingLabel={message('projects.detail.loading')} arrival="fade">
+        />
+        </>}
+      >
+        <div class="projects-page-detail">
             <Show
               when={(workflows()?.length ?? 0) > 0}
               fallback={
@@ -706,9 +714,6 @@ export function ProjectsView(props: {
                 </For>
               </ProductTileGrid>
             </Show>
-          </ProductPageLoad>
-        </ProductProjectSection>
-        <ProductPageAnswer page={projectDetail}>
         <ProductProjectSection
           title={message('projects.outputs.title')}
           aside={
@@ -766,7 +771,8 @@ export function ProjectsView(props: {
             </Show>
           </Show>
         </ProductProjectSection>
-        </ProductPageAnswer>
+        </div>
+      </ProductPageLoad>
         <Show when={dialog() === 'rename'}>
           <ProductDialog title={message('projects.rename.title')} onDismiss={closeDialog} pending={busy()}>
             <form
@@ -814,7 +820,7 @@ export function ProjectsView(props: {
             />
           </ProductDialog>
         </Show>
-      </div>
+      </>
     )
   }
 

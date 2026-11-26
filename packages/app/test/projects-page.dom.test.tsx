@@ -185,7 +185,7 @@ it('keeps the first painted elements unchanged as detail arrives, and keeps old 
     expect(element.isConnected).toBe(true)
     expect(element.textContent).toBe(text)
   }
-  const detail = document.querySelector('[data-testid="projects-detail"]')!
+  const detail = document.querySelector('.dinkster-projects-detail')!
   const original = detail.textContent
   const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) => entry.textContent?.startsWith('Valley'))!
   row.focus()
