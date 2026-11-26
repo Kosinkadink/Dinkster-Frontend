@@ -6,6 +6,7 @@ import {
   BoundaryPromotionPreview,
   ProductButton,
   ProductCheckbox,
+  ProductDialog,
   ProductField,
   ProductIcon,
   ProductLink,
@@ -325,17 +326,22 @@ export function BoundaryTreeGallery() {
   const [promotionOpen, setPromotionOpen] = createSignal(false)
   return (
     <div class="boundary-tree-examples">
-      <Example caption="Show on an enclosing subgraph" note="Review every intermediate definition and its document usage count before adding any row.">
-        <div class="dinkster-stack">
-          <ProductButton intent="add" onClick={() => setPromotionOpen(true)}>Review ancestor promotion</ProductButton>
+      <figure class="boundary-tree-example">
+        <figcaption><strong>Show on Portrait fix</strong><span>Review each subgraph on the way up before adding the row.</span></figcaption>
+          <ProductButton intent="add" onClick={() => setPromotionOpen(true)}>Review showing strength</ProductButton>
           <Show when={promotionOpen()}>
-            <BoundaryPromotionPreview definitions={[
+            <ProductDialog title={'Show "strength" on Portrait fix'} onDismiss={() => setPromotionOpen(false)}>
+            <BoundaryPromotionPreview
+              description="The row is added to each subgraph on the way up. A subgraph used in several places gets it in every place."
+              consequence="Only this path is wired. Undo takes all of it back in one step."
+              actionLabel="Show on Portrait fix" usageLabel={(count) => `used in ${count} ${count === 1 ? 'place' : 'places'}`}
+              addedLabel="Gets the row" existingLabel="Already has it" definitions={[
               { name: 'Detail pass', uses: 2, changed: false },
               { name: 'Portrait fix', uses: 3, changed: true },
             ]} onConfirm={() => setPromotionOpen(false)} onCancel={() => setPromotionOpen(false)} />
+            </ProductDialog>
           </Show>
-        </div>
-      </Example>
+      </figure>
       <Example
         caption="One ordered tree, a field on a shared line selected"
         note="Rows, sections, lines of fields and whole constructs in the order the subgraph node draws them. An output keeps its own line, with its label at the right end; every grip is at the left."

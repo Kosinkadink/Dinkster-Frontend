@@ -947,6 +947,9 @@
 .boundary-tree-box[data-construct] > .boundary-tree-header:hover { background-image: none; }
 .boundary-tree-row[aria-selected='true']::before, .boundary-tree-cell[aria-selected='true']::before { content: ''; position: absolute; left: 0; top: calc(50% - 7px); width: 3px; height: 14px; border-top-right-radius: var(--dinkster-radius-small); border-bottom-right-radius: var(--dinkster-radius-small); background: var(--dinkster-accent-foreground); }
 .boundary-tree-spacer { flex: 1; min-width: 0; }
+.boundary-promotion-list { background: var(--dinkster-surface-raised); }
+.boundary-promotion-list .dinkster-row { padding: var(--dinkster-space-12); gap: var(--dinkster-space-8); }
+.boundary-promotion-list .dinkster-row-copy { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--dinkster-space-8); }
 .boundary-tree-row[data-inert] .boundary-tree-label, .boundary-tree-cell[data-inert] .boundary-tree-label { color: var(--dinkster-text-muted); }
 .boundary-tree-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .boundary-tree-name { font-weight: var(--dinkster-weight-bold); }
