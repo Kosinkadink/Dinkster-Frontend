@@ -314,7 +314,7 @@ describe('canvas tooltip provider', () => {
   })
 
   it.each([
-    ['expected', 'Current expected value: 1.30'],
+    ['expected', 'Arriving: 1.30'],
     ['cached', 'Retained last-resolved value: 1.30'],
     ['stale', 'Stale/unproven value: 1.30'],
     ['unknown', 'The wire has no known value yet'],
@@ -331,7 +331,7 @@ describe('canvas tooltip provider', () => {
     }
     expect(resolveCanvasTooltip(target, { detailed: false })?.lines).toEqual([
       line,
-      'Dormant stored value under connection: 8.00, used again when the wire is removed',
+      'Stored: 8.00. Used again when the wire is removed.',
     ])
   })
 

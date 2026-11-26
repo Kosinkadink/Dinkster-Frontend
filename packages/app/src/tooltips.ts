@@ -21,7 +21,14 @@ export interface TooltipProvider {
  * target has none, and gives `above`, the y the tooltip's bottom edge takes
  * when it does not fit below `y`.
  */
-export interface TooltipAnchor { readonly x: number; readonly y: number; readonly above?: number; readonly element?: HTMLElement }
+export interface TooltipAnchor {
+  readonly x: number
+  readonly y: number
+  readonly above?: number
+  readonly element?: HTMLElement
+  readonly paintedRect?: () => DOMRectReadOnly
+  readonly boundary?: HTMLElement
+}
 export interface VisibleTooltip extends TooltipContent, TooltipAnchor { readonly detailed: boolean }
 
 /** One tooltip policy boundary shared by DOM chrome and the painted canvas. */
@@ -371,7 +378,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const absence = state === 'nothing' ? 'Nothing: the node feeding this wire was skipped'
       : state === 'unknown' ? 'The wire has no known value yet' : undefined
     const prefix = absence !== undefined ? '' : state === 'expected'
-      ? 'Current expected value: '
+      ? 'Arriving: '
       : state === 'cached'
         ? 'Retained last-resolved value: '
         : state === 'stale'
@@ -379,15 +386,15 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
           : state === 'estimate'
             ? 'Mirrored estimate (computed locally, not executed): '
             : t.connected
-              ? 'Dormant stored value under connection: '
+              ? 'Stored: '
               : 'Value: '
-    const storedPrefix = 'Dormant stored value under connection: '
+    const storedPrefix = 'Stored: '
     const incomingValue = t.companion?.value ?? value
     const incomingReadout = absence === undefined
       ? context.widgetReadout?.(row, incomingValue) ?? [formatWidgetValue(incomingValue, row.spec)] : [absence]
     const storedReadout = t.companion && t.connected
       ? (context.widgetReadout?.(row, value) ?? [formatWidgetValue(value, row.spec)])
-        .map((text, index) => index === 0 ? `${text}, used again when the wire is removed` : text) : []
+        .map((text, index) => index === 0 ? `${text}. Used again when the wire is removed.` : text) : []
     const storedMinimum = storedReadout.length === 0 ? 0 : measure(`${storedPrefix}${storedReadout[0]}`) +
       (storedReadout.length > 1 ? measure(translate('widgetSummary.more', { count: storedReadout.length - 1 })) : 0)
     const incomingMinimum = incomingReadout.length === 0 ? 0 : measure(`${prefix}${incomingReadout[0]}`)

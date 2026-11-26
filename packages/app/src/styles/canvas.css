@@ -204,18 +204,6 @@
   overflow: hidden;
   clip-path: inset(50%);
 }
-.canvas-widget-a11y:focus-within {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  clip-path: none;
-  width: auto;
-  height: auto;
-  left: 8px;
-  bottom: 8px;
-  z-index: 7;
-}
-
 .canvas-semantic-nav {
   position: absolute;
   width: 1px;

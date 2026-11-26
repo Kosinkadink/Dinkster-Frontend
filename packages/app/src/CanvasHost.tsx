@@ -1903,7 +1903,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let moveEditorRow = (_from: { readonly nodeId: string } & ({ readonly valueKey: string } | { readonly buttonId: string }), _direction: 1 | -1): void => {}
   let onRowFocusKey = (_event: KeyboardEvent): void => {}
   let editsRowsInPlace = (): boolean => false
-  let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }): void => {}
+  let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _tooltipOnly = false): void => {}
   let rowRepresentationOf = (_tab: Tab, _node: SceneNode, _row: WidgetLayoutRow): RowRepresentation | undefined => undefined
   let showRowNote = (_from: { readonly nodeId: string; readonly valueKey: string }, _note: JSX.Element): void => {}
   interface ControllerMenuState {
@@ -4814,7 +4814,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
           setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
             ? undefined
-            : { ...rowFocusAt(tab, node, row), ...(focus.note === undefined ? {} : { note: focus.note }),
+            : { ...rowFocusAt(tab, node, row), ...(focus.tooltipOnly ? { tooltipOnly: true } : {}), ...(focus.note === undefined ? {} : { note: focus.note }),
               ...(focus.cancellation === undefined || !rowIsDriven(node.id, row) ? {} : { cancellation: focus.cancellation }) })
         }
       }
@@ -5892,7 +5892,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       canvasEl.focus()
     }
 
-    focusEditorRow = (from) => {
+    focusEditorRow = (from, tooltipOnly = false) => {
       const tab = activeTab()
       const node = rowNodeOf(from.nodeId)?.node
       const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === from.valueKey)
@@ -5900,8 +5900,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setRowFocus(undefined)
         return
       }
-      setRowFocus(rowFocusAt(tab, node, row))
-      canvasEl.focus()
+      setRowFocus({ ...rowFocusAt(tab, node, row), ...(tooltipOnly ? { tooltipOnly: true } : {}) })
+      if (!tooltipOnly) canvasEl.focus()
     }
 
     // While a row has the focus, Tab moves on, Space and Enter act on the
@@ -7645,13 +7645,24 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               aria-pressed={item().pressed}
               disabled={item().disabled}
               onClick={() => item().activate?.()}
-              onFocus={(event) => {
-                const target = item().target
+              onFocus={() => {
+                const target = item().target as { readonly kind: 'widget'; readonly hit: { readonly node: SceneNode; readonly row: WidgetLayoutRow } } | undefined
                 if (target === undefined) return
-                const rect = event.currentTarget.getBoundingClientRect()
-                props.tooltips?.show(target, { x: rect.left, y: rect.bottom + 8, above: rect.top - 8 }, undefined, true, tooltipOwner)
+                focusEditorRow({ nodeId: target.hit.node.id, valueKey: target.hit.row.valueKey }, true)
+                props.tooltips?.show(target, {
+                  x: 0, y: 0, boundary: canvasEl,
+                  paintedRect: () => {
+                    const viewport = editorViewport()
+                    const canvas = canvasEl.getBoundingClientRect()
+                    const hit = (item().target as typeof target)!.hit
+                    const { node, row } = hit
+                    return new DOMRect(canvas.left + (node.x + row.inset) * viewport.scale + viewport.x,
+                      canvas.top + (node.y + row.y) * viewport.scale + viewport.y,
+                      (row.width ?? node.layout.width - row.inset * 2) * viewport.scale, row.height * viewport.scale)
+                  },
+                }, undefined, true, tooltipOwner)
               }}
-              onBlur={() => props.tooltips?.hide()}
+              onBlur={() => { if (rowFocus()?.tooltipOnly) setRowFocus(undefined); props.tooltips?.hide() }}
             >{item().label}</ProductButton>
             )
           }}</For>

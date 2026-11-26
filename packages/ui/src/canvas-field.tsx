@@ -253,6 +253,8 @@ export type CanvasPanelPlace = 'below' | 'above'
 interface CanvasRowFrameProps {
   /** Width of the row at normal size. */
   rowWidth: number
+  /** Height of a painted row whose focus frame has no content of its own. */
+  rowHeight?: number
   place: CanvasSidePlace
   /**
    * The side part's top at normal size, from the row's top, or from the
@@ -311,6 +313,7 @@ function CanvasRowFrame(
   let reported: CanvasSideSize | undefined
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
+    row.style.height = props.rowHeight === undefined ? '' : `${props.rowHeight}px`
     setRowHeight(row.offsetHeight)
     if (panel) {
       panel.style.maxHeight =
@@ -357,6 +360,7 @@ function CanvasRowFrame(
   createEffect(() => {
     void [
       props.rowWidth,
+      props.rowHeight,
       props.place,
       props.sideTop,
       props.sideMaxHeight,

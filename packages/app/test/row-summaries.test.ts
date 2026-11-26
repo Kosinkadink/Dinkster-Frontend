@@ -384,20 +384,20 @@ describe('pointing at a row reads out its whole value without changing it', () =
     expect(readout(stringList, items(4), undefined, 6)).toEqual(['Value: 4 items', '1. item 1', '2. item 2', '3. item 3', '4. item 4'])
     expect(readout(stringList, items(5), undefined, 6)).toEqual(['Value: 5 items', '1. item 1', '2. item 2', '3. item 3', 'and 2 more'])
     expect(readout(stringList, ['a', 'b', 'c'], { value: ['only'], state: 'expected' }, 6)).toEqual([
-      'Current expected value: 1 item', '1. only',
-      'Dormant stored value under connection: 3 items, used again when the wire is removed', '1. a', 'and 2 more',
+      'Arriving: 1 item', '1. only',
+      'Stored: 3 items. Used again when the wire is removed.', '1. a', 'and 2 more',
     ])
     for (const count of [4, 30]) {
       expect(readout(stringList, ['saved a', 'saved b', 'saved c'], { value: items(count), state: 'expected' }, 6)).toEqual([
-        `Current expected value: ${count} items`, '1. item 1', `and ${count - 1} more`,
-        'Dormant stored value under connection: 3 items, used again when the wire is removed', 'and 3 more',
+        `Arriving: ${count} items`, '1. item 1', `and ${count - 1} more`,
+        'Stored: 3 items. Used again when the wire is removed.', 'and 3 more',
       ])
     }
     expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 3)).toEqual([
-      'Current expected value: 4 items', 'Dormant stored value under connection: 1 item, used again when the wire is removed',
+      'Arriving: 4 items', 'Stored: 1 item. Used again when the wire is removed.',
     ])
     expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 2)).toEqual([
-      'Current expected value: 4 items',
+      'Arriving: 4 items',
     ])
     expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 1)).toEqual([])
   })
@@ -409,18 +409,18 @@ describe('pointing at a row reads out its whole value without changing it', () =
       companion: { state: 'expected', value: ['long first item', 'long second item', 'short third item', 'last item'] },
     }
     const tip = resolveCanvasTooltip(target, { detailed: false }, context)!
-    const measure = (text: string) => text.includes('long ') ? 4 : text.startsWith('Dormant stored') ? 2 : 1
+    const measure = (text: string) => text.includes('long ') ? 4 : text.startsWith('Stored:') ? 2 : 1
     expect(tip.fit!(10, measure).lines).toEqual([
-      'Current expected value: 4 items', '1. long first item', 'and 3 more',
-      'Dormant stored value under connection: 3 items, used again when the wire is removed', 'and 3 more',
+      'Arriving: 4 items', '1. long first item', 'and 3 more',
+      'Stored: 3 items. Used again when the wire is removed.', 'and 3 more',
     ])
     expect(tip.fit!(14, measure).lines).toEqual([
-      'Current expected value: 4 items', '1. long first item', '2. long second item', 'and 2 more',
-      'Dormant stored value under connection: 3 items, used again when the wire is removed', 'and 3 more',
+      'Arriving: 4 items', '1. long first item', '2. long second item', 'and 2 more',
+      'Stored: 3 items. Used again when the wire is removed.', 'and 3 more',
     ])
     expect(tip.fit!(6, measure).lines).toEqual([
-      'Current expected value: 4 items', 'and 4 more',
-      'Dormant stored value under connection: 3 items, used again when the wire is removed', 'and 3 more',
+      'Arriving: 4 items', 'and 4 more',
+      'Stored: 3 items. Used again when the wire is removed.', 'and 3 more',
     ])
   })
 
@@ -440,8 +440,12 @@ describe('pointing at a row reads out its whole value without changing it', () =
 
   it('reads the incoming value first and the stored one under it', () => {
     expect(readout(stringList, ['a', 'b', 'c'], { value: ['only'], state: 'expected' })).toEqual([
-      'Current expected value: 1 item', '1. only',
-      'Dormant stored value under connection: 3 items, used again when the wire is removed', '1. a', '2. b', '3. c',
+      'Arriving: 1 item', '1. only',
+      'Stored: 3 items. Used again when the wire is removed.', '1. a', '2. b', '3. c',
+    ])
+    const curve = (count: number): Json => ({ interpolation: 'linear', points: Array.from({ length: count }, (_, i) => ({ position: i / (count - 1), value: i % 2 })) })
+    expect(readout(specOf('CURVE'), curve(5), { value: curve(8), state: 'expected' })).toEqual([
+      'Arriving: 8 points, Linear', 'Stored: 5 points, Linear. Used again when the wire is removed.',
     ])
   })
 
@@ -449,11 +453,11 @@ describe('pointing at a row reads out its whole value without changing it', () =
     const stored = Array.from({ length: 25 }, (_, index) => `saved ${index + 1}`)
     const companion = { value: ['only'], state: 'expected' as const }
     const full = readout(stringList, stored, companion)!
-    expect(full[2]).toBe('Dormant stored value under connection: 25 items, used again when the wire is removed')
+    expect(full[2]).toBe('Stored: 25 items. Used again when the wire is removed.')
     expect(full.at(-1)).toBe('and 5 more')
     expect(readout(stringList, stored, companion, 6)).toEqual([
-      'Current expected value: 1 item', '1. only',
-      'Dormant stored value under connection: 25 items, used again when the wire is removed', '1. saved 1', 'and 24 more',
+      'Arriving: 1 item', '1. only',
+      'Stored: 25 items. Used again when the wire is removed.', '1. saved 1', 'and 24 more',
     ])
   })
 })

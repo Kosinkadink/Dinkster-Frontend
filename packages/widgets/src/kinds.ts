@@ -945,6 +945,12 @@ export const curveView: WidgetView<Json> = {
   kind: 'CURVE',
   isCompatible: () => true,
   measure: () => ({ rows: 2 }),
+  readout(value, spec) {
+    if (!isCurveValue(value)) return []
+    const kinds = curveEditorInterpolations(spec.options)
+    const interpolation = kinds.length === 1 ? kinds[0] : value.interpolation ?? 'linear'
+    return [`${value.points.length} ${value.points.length === 1 ? 'point' : 'points'}, ${t(interpolation === 'step' ? 'inNodeCurve.step' : interpolation === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic')}`]
+  },
   drawCompact(ctx, value, spec, state) {
     ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
     // A wire decides a connected curve: what it brought is drawn, and nothing before a run.

@@ -26,6 +26,7 @@ interface RowFocusDetails extends RowBox {
   readonly representation?: RowRepresentation
   readonly arriving?: JSX.Element
   readonly cancellation?: string
+  readonly tooltipOnly?: boolean
   /**
    * Lines that explain a row which cannot be edited, such as a color a wire
    * brings. The row then shows them in a neutral side part with no outline
@@ -102,6 +103,7 @@ export function RowFocusOverlay(props: {
       <div ref={frame} class="widget-row-focus">
         <CanvasRowFocus
           rowWidth={placement().rowWidth}
+          {...(props.focus.tooltipOnly ? { rowHeight: placement().screen.height / Math.max(1, placement().scale) } : {})}
           look={props.focus.look}
           neutral={props.focus.note !== undefined}
           zoomed={placement().scale > 1}
@@ -109,7 +111,7 @@ export function RowFocusOverlay(props: {
           sideTop={placement().sideTop}
           {...(placement().sideMaxHeight === undefined ? {} : { sideMaxHeight: placement().sideMaxHeight! })}
           onSideSize={setSideSize}
-          {...(props.focus.defaultText === undefined && props.focus.help === undefined && props.focus.representation === undefined && props.focus.note === undefined && props.focus.arriving === undefined && props.focus.cancellation === undefined ? {} : { side })}
+          {...(props.focus.tooltipOnly || props.focus.defaultText === undefined && props.focus.help === undefined && props.focus.representation === undefined && props.focus.note === undefined && props.focus.arriving === undefined && props.focus.cancellation === undefined ? {} : { side })}
         />
       </div>
     </div>
