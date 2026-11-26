@@ -102,6 +102,13 @@ export const parseTypedLiteralWire = (v: Json): { readonly type: string; readonl
  */
 export const DINKSTER_GRAPH_FEATURE_TYPED_LITERAL = 'typedLiteral'
 
+/**
+ * The /api/nodes graph feature advertising the `{"$absent": {"reason"}}`
+ * input marker: a wire that gives nothing, which the receiving input's
+ * on_absent policy then decides. Absent flag = leave the input out instead.
+ */
+export const DINKSTER_GRAPH_FEATURE_ABSENT_INPUT = 'absentInput'
+
 /** The /api/nodes graph feature advertising lossless unsafe INT literals. */
 export const DINKSTER_GRAPH_FEATURE_DECIMAL_INT = 'decimalInt'
 

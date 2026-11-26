@@ -8,7 +8,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { isReplacementRule, type ReplacementRule } from '../replace/model.js'
-import { allRowsOf, inputsOf, outputsOf, scopeRowsOf } from './model.js'
+import { allRowsOf, inputsOf, KNOWN_VALUE_LIMITS, outputsOf, scopeRowsOf } from './model.js'
 import { checkBody, formulaTablesOf, isLayoutId, isMemberKey, isOptionKey, isRowId, isVariantKey, MAX_GROUP_MEMBERS } from './body.js'
 import { isCanonicalUnsafeInteger } from './numeric-step.js'
 import { isComboValue } from './combo-options.js'
@@ -34,6 +34,7 @@ import type {
   NodeSelectorSpec,
   NodeSchema,
   OutputKnownValue,
+  KnownValueLimit,
   OutputRepresents,
   OptionRow,
   OutputSpec,
@@ -232,23 +233,36 @@ export interface DinksterWireSchema {
 function decodeWireSelector(
   wire: unknown,
   inputs: ReadonlyMap<string, InputSpec>,
-  rows: readonly OptionRow[],
+  body: readonly OptionRow[],
   outputs: readonly OutputSpec[],
 ): NodeSelectorSpec | undefined {
   if (wire === undefined) return undefined
   const selector = wireObject(wire, 'selector')
-  const selectorKeys = Object.keys(selector).sort()
-  if (selectorKeys.length !== 2 || selectorKeys[0] !== 'group' || selectorKeys[1] !== 'input') {
-    throw new Error('selector must contain exactly input and group')
+  const extra = Object.keys(selector).filter((key) => key !== 'input' && key !== 'group' && key !== 'names')
+  if (!('input' in selector) || !('group' in selector) || extra.length > 0) {
+    throw new Error('selector must contain input and group, and may contain names')
   }
   const input = selector['input']
   const group = selector['group']
+  const names = selector['names']
   if (typeof input !== 'string' || typeof group !== 'string') throw new Error('selector input and group must be strings')
+  if (names !== undefined && (typeof names !== 'string' || names === '' || names === input || names === group)) {
+    throw new Error('selector.names must be a non-empty string distinct from its input and group')
+  }
   const pick = inputs.get(input)
   if (pick === undefined) throw new Error(`selector.input names unknown input '${input}'`)
-  if (pick.type.kind !== 'union' || [...pick.type.names].sort().join() !== 'BOOLEAN,INT') {
-    throw new Error('selector.input must have type INT | BOOLEAN')
+  const pickTypes = names === undefined ? 'BOOLEAN,INT' : 'BOOLEAN,COMBO,INT,STRING'
+  if (pick.type.kind !== 'union' || [...pick.type.names].sort().join() !== pickTypes) {
+    throw new Error(`selector.input must have type ${pickTypes.split(',').join(' | ')}`)
   }
+  if (names !== undefined) {
+    const target = body.find((row): row is InputSpec => row.kind === 'input' && row.id === names)
+    const stringList = target?.type.kind === 'list' && target.type.element.kind === 'concrete' && target.type.element.name === 'STRING'
+    if (target === undefined || target.hidden !== true || !target.optional || target.widget !== undefined || !stringList) {
+      throw new Error(`selector.names '${names}' must name a top-level hidden, optional list<STRING> input with no widget`)
+    }
+  }
+  const rows = scopeRowsOf(body)
   const branches = rows.find((row): row is GroupSpec => row.kind === 'group' && row.id === group)
   if (branches?.value?.kind !== 'input' || branches.value.lazy !== true) {
     throw new Error(`selector.group must name a top-level group of lazy inputs, not '${group}'`)
@@ -257,7 +271,7 @@ function decodeWireSelector(
   if (JSON.stringify(branches.value.type) !== JSON.stringify(outputs[0]!.type)) {
     throw new Error('selector branches must share the sole output type')
   }
-  return { input, group }
+  return { input, group, ...(names !== undefined ? { names } : {}) }
 }
 
 export interface DinksterNodesPayload {
@@ -352,6 +366,28 @@ const ASSET_KIND = /^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)+$/
 const NUMBER_DISPLAY_MODES: ReadonlySet<string> = new Set(['number', 'slider', 'knob', 'gradientslider', 'color'])
 
 const WIDGET_REPRESENTATION_ID = /^[A-Za-z0-9_-]+$/
+
+interface NumberSpecialValue {
+  readonly value: number | string
+  readonly label: string
+}
+
+function numberSpecialValues(raw: unknown, integer: boolean): NumberSpecialValue[] {
+  if (!Array.isArray(raw)) return []
+  const values: NumberSpecialValue[] = []
+  for (const item of raw) {
+    if (!Array.isArray(item) || item.length !== 2 || typeof item[1] !== 'string' || item[1] === '') continue
+    const value: unknown = item[0]
+    if (integer ? (typeof value === 'number' && Number.isSafeInteger(value)) || isCanonicalUnsafeInteger(value)
+      : typeof value === 'number' && Number.isFinite(value)) values.push({ value: value as number | string, label: item[1] })
+  }
+  const key = (value: number | string): bigint | number => typeof value === 'string' ? BigInt(value) : value
+  return values.sort((a, b) => {
+    const left = key(a.value)
+    const right = key(b.value)
+    return left < right ? -1 : left > right ? 1 : 0
+  })
+}
 
 function checkWidgetFields(descriptor: Record<string, unknown>, allowed: readonly string[], where: string, diags?: Diagnostic[]): void {
   const unknown = Object.keys(descriptor)
@@ -464,9 +500,15 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'COMBO': {
-      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'editableOptions'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'editableOptions', 'optionsInput'], where, diags)
       if (descriptor['editableOptions'] !== undefined && typeof descriptor['editableOptions'] !== 'boolean') {
         throw new Error(`${where}.editableOptions must be a boolean`)
+      }
+      if (descriptor['optionsInput'] !== undefined && (typeof descriptor['optionsInput'] !== 'string' || descriptor['optionsInput'] === '')) {
+        throw new Error(`${where}.optionsInput must be a non-empty string`)
+      }
+      if (descriptor['optionsInput'] !== undefined && descriptor['editableOptions'] !== true) {
+        throw new Error(`${where}.optionsInput requires editableOptions`)
       }
       if (descriptor['editableOptions'] === true && descriptor['remote'] !== undefined) {
         throw new Error(`${where}.editableOptions cannot have another option source`)
@@ -533,8 +575,8 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'NUMBER':
-      checkWidgetFields(descriptor, ['type', 'min', 'max', 'step', 'display', 'round'], where, diags)
-      for (const key of ['min', 'max', 'step']) {
+      checkWidgetFields(descriptor, ['type', 'min', 'max', 'step', 'display', 'round', 'offset', 'special', 'reason'], where, diags)
+      for (const key of ['min', 'max', 'step', 'offset']) {
         const value = descriptor[key]
         const finiteNumber = typeof value === 'number' && Number.isFinite(value)
         const decimalInteger = isCanonicalUnsafeInteger(value)
@@ -566,7 +608,19 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       ) {
         throw new Error(`${where}.round must be false or a finite positive number`)
       }
-      if (['min', 'max', 'step', 'display', 'round'].every((key) => descriptor[key] === undefined)) {
+      if (descriptor['special'] !== undefined) {
+        const special = descriptor['special']
+        const pair = (item: unknown): boolean => Array.isArray(item) && item.length === 2 &&
+          ((typeof item[0] === 'number' && Number.isFinite(item[0])) || isCanonicalUnsafeInteger(item[0])) &&
+          typeof item[1] === 'string' && item[1] !== ''
+        if (!Array.isArray(special) || !special.every(pair)) {
+          throw new Error(`${where}.special must be a list of [number, label] pairs`)
+        }
+      }
+      if (descriptor['reason'] !== undefined && (typeof descriptor['reason'] !== 'string' || descriptor['reason'] === '')) {
+        throw new Error(`${where}.reason must be non-empty text`)
+      }
+      if (['min', 'max', 'step', 'display', 'round', 'offset', 'special', 'reason'].every((key) => descriptor[key] === undefined)) {
         throw new Error(`${where} requires a constraint`)
       }
       return
@@ -588,11 +642,23 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where} requires a presentation field`)
       return
     case 'COLOR':
+      checkWidgetFields(descriptor, ['type', 'alpha'], where, diags)
+      if (descriptor['alpha'] !== undefined && typeof descriptor['alpha'] !== 'boolean') {
+        throw new Error(`${where}.alpha must be a boolean`)
+      }
+      return
     case 'MOUNT':
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'CURVE':
-      checkWidgetFields(descriptor, ['type'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'inputStrip', 'outputStrip'], where, diags)
+      for (const key of ['inputStrip', 'outputStrip']) {
+        const colors = descriptor[key]
+        if (colors !== undefined && !(Array.isArray(colors) && colors.length === 2 &&
+          colors.every((color) => typeof color === 'string' && /^#[0-9a-f]{6}$/.test(color)))) {
+          throw new Error(`${where}.${key} must be two lower-case #rrggbb colors`)
+        }
+      }
       return
     case 'COMPOSITOR':
       checkWidgetFields(descriptor, ['type', 'writes', 'reads'], where, diags)
@@ -764,6 +830,7 @@ function widgetFor(
       labelOn?: unknown
       labelOff?: unknown
       editableOptions?: unknown
+      optionsInput?: unknown
       min?: unknown
       max?: unknown
       step?: unknown
@@ -774,6 +841,10 @@ function widgetFor(
       dynamicPrompts?: unknown
       completions?: unknown
       chip?: unknown
+      offset?: unknown
+      special?: unknown
+      reason?: unknown
+      alpha?: unknown
     }
     if (descriptor.type === 'REPRESENTATIONS') {
       if (!representationsAllowed) throw new Error(`${nodeType}.${id}: nested widget representations are forbidden`)
@@ -930,6 +1001,7 @@ function widgetFor(
           widgetType: 'COMBO',
           options: options !== undefined ? { options } : {},
           ...(descriptor.editableOptions === true ? { editableOptions: true as const } : {}),
+          ...(typeof descriptor.optionsInput === 'string' ? { optionsInput: descriptor.optionsInput } : {}),
           ...(remote !== undefined ? { remote } : {}),
           ...(dflt !== undefined ? { default: dflt } : {}),
         }
@@ -1006,7 +1078,7 @@ function widgetFor(
       } else {
         const isInt = numericKind === 'INT'
         const options: Record<string, unknown> = {}
-        for (const key of ['min', 'max', 'step'] as const) {
+        for (const key of ['min', 'max', 'step', 'offset'] as const) {
           const v = descriptor[key]
           if (v === undefined) continue
           const numeric = typeof v === 'number' && Number.isFinite(v)
@@ -1060,6 +1132,10 @@ function widgetFor(
         if (descriptor.round !== undefined) {
           options['round'] = descriptor.round
         }
+        // Values allowed outside the limits and off the step, each with its label.
+        const special = numberSpecialValues(descriptor.special, isInt)
+        if (special.length > 0) options['special'] = special
+        if (typeof descriptor.reason === 'string' && descriptor.reason !== '') options['reason'] = descriptor.reason
         return {
           widgetType: numericKind,
           options,
@@ -1105,14 +1181,19 @@ function widgetFor(
     if (descriptor.type === 'COLOR' || descriptor.type === 'MOUNT') {
       return {
         widgetType: descriptor.type,
-        options: {},
+        // A color field that uses opacity says so; the editor offers opacity only there.
+        options: descriptor.type === 'COLOR' && descriptor.alpha === true ? { alpha: true } : {},
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
     if (descriptor.type === 'CURVE') {
+      // The color strips a curve declares along its input and output, low end first.
+      const fields = wire as Record<string, unknown>
+      const strips = Object.fromEntries(['inputStrip', 'outputStrip']
+        .flatMap((key) => fields[key] === undefined ? [] : [[key, [...(fields[key] as string[])]]]))
       return {
         widgetType: 'CURVE',
-        options: {},
+        options: strips,
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -2043,12 +2124,43 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       const knownValue = output.knownValue
       if (knownValue === undefined) continue
       const input = decodedInputs.get(knownValue.input)
-      const primitive = output.type.kind === 'concrete' && PRIMITIVE_WIDGETS[output.type.name] !== undefined
-      if (input === undefined || !primitive || input.type.kind !== 'concrete' || input.type.name !== output.type.name) {
-        throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type`)
+      const inputType = input?.type.kind === 'concrete' ? input.type.name : undefined
+      const outputType = output.type.kind === 'concrete' ? output.type.name : undefined
+      const samePrimitive = outputType !== undefined && PRIMITIVE_WIDGETS[outputType] !== undefined && inputType === outputType
+      // A chosen option is its text, so a choice may also be known as a STRING.
+      const fromChoice = inputType === 'COMBO' && (outputType === 'COMBO' || outputType === 'STRING')
+      // A variable's known value applies once the variable is bound to a primitive or COMBO.
+      const sameVariable = input?.type.kind === 'variable' && output.type.kind === 'variable' &&
+        JSON.stringify(input.type) === JSON.stringify(output.type)
+      if (!samePrimitive && !fromChoice && !sameVariable) {
+        throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type or type variable, or a COMBO input for a COMBO or STRING output`)
+      }
+      const named = new Set<string>()
+      for (const [limit, target] of Object.entries(knownValue.limits ?? {})) {
+        const holder = decodedInputs.get(target)
+        if (limit !== 'default' && inputType !== 'INT' && inputType !== 'FLOAT') {
+          throw new Error(`output '${output.id}' knownValue limit '${limit}' needs an INT or FLOAT value`)
+        }
+        if (holder === undefined || target === knownValue.input || !holder.optional || named.has(target) ||
+          JSON.stringify(holder.type) !== JSON.stringify(input?.type)) {
+          throw new Error(`output '${output.id}' knownValue limit '${limit}' must name another optional input of the value's type, once`)
+        }
+        named.add(target)
       }
     }
-    const selector = decodeWireSelector(wire.selector, decodedInputs, scopeRowsOf(baseSchema.body), decodedOutputs)
+    for (const row of allRowsOf(baseSchema.body)) {
+      if (row.kind !== 'input' || row.widget === undefined) continue
+      const widgets = [row.widget, ...(row.widget.representations?.representations.map((item) => item.widget) ?? [])]
+      for (const widget of widgets) {
+        if (widget.optionsInput === undefined) continue
+        const target = decodedInputs.get(widget.optionsInput)
+        const stringList = target?.type.kind === 'list' && target.type.element.kind === 'concrete' && target.type.element.name === 'STRING'
+        if (target === undefined || target.hidden !== true || !target.optional || target.widget !== undefined || !stringList) {
+          throw new Error(`input '${row.id}' optionsInput '${widget.optionsInput}' must name a top-level hidden, optional list<STRING> input with no widget`)
+        }
+      }
+    }
+    const selector = decodeWireSelector(wire.selector, decodedInputs, baseSchema.body, decodedOutputs)
     if (wire.widgetGroups !== undefined) throw new Error('widgetGroups is not part of a body node; a Choice or a visible formula shows and hides rows')
     const mirror = decodeMirror(wire.mirror)
     const topChoices = new Map(scopeRowsOf(baseSchema.body).filter((row): row is ChoiceSpec => row.kind === 'choice').map((row) => [row.id, row]))
@@ -2176,13 +2288,22 @@ function decodeOutputKnownValue(raw: unknown): OutputKnownValue | undefined {
   if (raw === undefined) return undefined
   const knownValue = wireObject(raw, 'output.knownValue')
   for (const key of Object.keys(knownValue)) {
-    if (key !== 'input') throw new Error(`output.knownValue has unknown field '${key}'`)
+    if (key !== 'input' && key !== 'limits') throw new Error(`output.knownValue has unknown field '${key}'`)
   }
   const input = knownValue['input']
   if (typeof input !== 'string' || input === '') {
     throw new Error('output.knownValue.input must be a non-empty string')
   }
-  return { input }
+  if (knownValue['limits'] === undefined) return { input }
+  const rawLimits = wireObject(knownValue['limits'], 'output.knownValue.limits')
+  if (Object.keys(rawLimits).length === 0) throw new Error('output.knownValue.limits must name at least one limit')
+  const limits: Partial<Record<KnownValueLimit, string>> = {}
+  for (const [key, target] of Object.entries(rawLimits)) {
+    if (!(KNOWN_VALUE_LIMITS as readonly string[]).includes(key)) throw new Error(`output.knownValue.limits has unknown limit '${key}'`)
+    if (typeof target !== 'string' || target === '') throw new Error(`output.knownValue.limits.${key} must be a non-empty string`)
+    limits[key as KnownValueLimit] = target
+  }
+  return { input, limits }
 }
 
 function decodeMirror(raw: unknown): MirrorSpec | undefined {

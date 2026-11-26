@@ -20,9 +20,9 @@ import {
   LOG_INFO_BADGE,
   logWarningBadge,
   mediaDiagnosticBadge,
-  PROBLEM_BLOCKING_WARNING_BADGE,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
+  problemBadge,
   regionIterationBadge,
   subgraphBadge,
   UNAVAILABLE_BADGE,
@@ -31,7 +31,7 @@ import {
   type NodeOutputText,
   type NodePreview,
   type OutputTextMap,
-  type PortProblemMap,
+  type RowProblemMap,
   type Scene,
 } from '@dinkster/canvas'
 import {
@@ -286,7 +286,7 @@ export interface SceneOverlayModel {
   readonly blockedByNode: ReadonlyMap<string, string>
   /** Runtime expansion child counts projected onto their visible parent nodes. */
   readonly expandedByNode: ReadonlyMap<string, number>
-  readonly portProblems: PortProblemMap
+  readonly rowProblems: RowProblemMap
   readonly previews: Readonly<Record<string, NodePreview>>
   /** Scene node -> source authority for host-owned media element failures. */
   readonly previewSources: Readonly<Record<string, PreviewSource>>
@@ -532,7 +532,7 @@ export function deriveSceneOverlays(args: {
   readonly nodeProblems?: NodeProblemMap
   /** Nodes whose runtime error badge the user dismissed for THIS run. */
   readonly dismissedErrorNodes?: ReadonlySet<string>
-  readonly portProblems?: PortProblemMap
+  readonly rowProblems?: RowProblemMap
   readonly resolveSchema: ((type: string) => NodeSchema | undefined) | undefined
   /**
    * Locally evaluate schema-declared expression mirrors and display the
@@ -787,20 +787,20 @@ export function deriveSceneOverlays(args: {
       if (list.some((badge) => badge.id === id)) continue
       list.push(mediaDiagnosticBadge(id, `${diagnostic.code === 'alpha_dropped' ? 'Alpha dropped' : 'Mask polarity'}: ${port}`))
     }
-    for (const problem of args.nodeProblems?.[n.id] ?? []) {
-      // Execution errors already own the runtime error badge + its
-      // runtime-details popover. Keep mixed error groups, but do not
-      // duplicate a pure runtime group as a second document-error chip.
-      if (runErrorsByNode.has(n.id) && problem.kind === 'error' &&
-        problem.diagnostics.length > 0 && problem.diagnostics.every((d) => d.origin === 'runtime')) continue
-      list.push(problem.kind === 'error'
-        ? problem.diagnostics.some((diagnostic) => diagnostic.code === 'dinksterGraph.residentProcessBoundary' || diagnostic.code === 'dinksterGraph.nodeUnavailable')
-          ? UNAVAILABLE_BADGE
-          : PROBLEM_ERROR_BADGE
-        : problem.kind === 'blocking-warning'
-          ? PROBLEM_BLOCKING_WARNING_BADGE
-          : PROBLEM_WARNING_BADGE)
+    // Execution errors already own the runtime error badge and its
+    // runtime-details popover, so a runtime cause is not counted again here.
+    const problemLines = (args.nodeProblems?.[n.id] ?? []).filter((line) =>
+      !(runErrorsByNode.has(n.id) && line.diagnostic.origin === 'runtime'))
+    const errorLines = problemLines.filter((line) => line.kind === 'error')
+    const warningLines = problemLines.filter((line) => line.kind === 'warning')
+    // A node that cannot run here says so on its tab, with no count.
+    if (errorLines.some((line) =>
+      line.diagnostic.code === 'dinksterGraph.residentProcessBoundary' || line.diagnostic.code === 'dinksterGraph.nodeUnavailable')) {
+      list.push(UNAVAILABLE_BADGE)
+    } else if (errorLines.length > 0) {
+      list.push(problemBadge(PROBLEM_ERROR_BADGE, errorLines.length))
     }
+    if (warningLines.length > 0) list.push(problemBadge(PROBLEM_WARNING_BADGE, warningLines.length))
     if (n.isSubgraph) {
       const defId = subgraphDefIdOf(n.node.type)
       const occurrences = defId === undefined || args.doc === undefined ? 1 : Object.values(args.doc.graphs).reduce((count, graph) =>
@@ -969,7 +969,7 @@ export function deriveSceneOverlays(args: {
     runErrorsByNode,
     blockedByNode,
     expandedByNode,
-    portProblems: args.portProblems ?? {},
+    rowProblems: args.rowProblems ?? {},
     previews,
     previewSources,
     executedImages,

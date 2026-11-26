@@ -24,14 +24,14 @@ import { isNodeBoundaryBinding, PREVIEW_MODES, regionContractShapeProblems, type
 import { NET_VIEWS_EXT_KEY, removeNetViewPositions, updateNetViewPositions, type NetViewGeometry, type NetViewPosition } from '../format/net-views.js'
 import { inputsOf, isImageAssetInput, type NodeSchema } from '../schema/model.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
-import { buildGraphConnectivity, elabInputsOf, elaborateInterface, valueKeyOf } from '../schema/elaborate.js'
+import { buildGraphConnectivity, elabInputsOf, elaborateInterface, inGoneMember, valueKeyOf } from '../schema/elaborate.js'
 import type { Json, JsonObject } from '../format/document.js'
 import { groupAllocationFloor } from '../group-alloc.js'
 import { asNodeId, asPortId, asSelectorId, isPortEndpoint, isRerouteRef, isSelectorRef, isValueSourceRef, isWidgetTapRef, sameEndpoint, samePortRef, type LinkEndpoint, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { allocateOne, graphAllocator } from './alloc.js'
 import { buildRerouteIndex, rerouteDriverOf, wouldCreateRerouteCycle, wouldCreateSelectorCycle, wouldCreateTapCycle } from '../reroute.js'
-import { createTransactionBuilder, executeCommand, type CommandDefinition, type TransactionBuilder } from './contract.js'
+import { createTransactionBuilder, executeCommand, type CommandDefinition, type CommandExecutionContext, type TransactionBuilder } from './contract.js'
 import { BOUNDARY_COMMANDS } from './boundary-commands.js'
 import { SUBGRAPH_COMMANDS } from './subgraph-commands.js'
 import { DYNAMIC_COMMANDS } from './dynamic-commands.js'
@@ -772,10 +772,79 @@ const selectionMove: CommandDefinition = {
 // node.setValue {graphId, nodeId, inputId, value}
 // ---------------------------------------------------------------------------
 
-function nodeSetValueOf(): CommandDefinition {
+/** Whether a body holds a group whose member count is a formula, at any depth. */
+const growsByCount = (value: unknown): boolean => {
+  if (Array.isArray(value)) return value.some(growsByCount)
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as { kind?: unknown; grows?: unknown }
+  if (row.kind === 'group' && typeof row.grows === 'object' && row.grows !== null && 'count' in row.grows) return true
+  return Object.values(value).some(growsByCount)
+}
+
+/** A wire, named net or subgraph output forward that reads an address of a node. */
+export interface WireFromNode {
+  readonly kind: 'link' | 'net' | 'forward'
+  /** The link, net or boundary output item. */
+  readonly id: string
+  /** The node's output or field it reads. */
+  readonly address: string
+}
+
+/** Every wire, named net and subgraph output forward in `def` that reads an address of `nodeId`. */
+export function wiresFromNode(def: GraphDef, nodeId: string): readonly WireFromNode[] {
+  const wires: WireFromNode[] = []
+  for (const link of Object.values(def.links)) {
+    if (!('node' in link.from) || link.from.node !== nodeId) continue
+    const address = 'tap' in link.from ? link.from.tap : 'port' in link.from ? link.from.port : undefined
+    if (address !== undefined) wires.push({ kind: 'link', id: link.id, address })
+  }
+  for (const net of Object.values(def.nets)) {
+    if (net.source.node === nodeId) wires.push({ kind: 'net', id: net.id, address: net.source.port })
+  }
+  for (const item of def.boundary?.outputs ?? []) {
+    const binds = item.binds
+    if ((binds.kind === 'port' || binds.kind === 'widgetTap') && binds.node === nodeId)
+      wires.push({ kind: 'forward', id: item.id, address: binds.kind === 'port' ? binds.port : binds.tap })
+  }
+  return wires
+}
+
+/**
+ * A count that shrank takes its later members off the node, and the wires,
+ * named nets and subgraph output forwards on their outputs and fields'
+ * outputs go in the same step.
+ */
+function removeWiresOfGoneMembers(
+  doc: WorkflowDocument,
+  graphId: string,
+  nodeId: string,
+  tx: TransactionBuilder,
+  context: CommandExecutionContext,
+  resolve: SchemaResolver | undefined,
+): void {
+  const def = tx.current.graphs[graphId]
+  const node = def?.nodes[nodeId]
+  if (def === undefined || node === undefined) return
+  const wires = wiresFromNode(def, nodeId)
+  if (wires.length === 0) return
+  const schema = commandSchemaOf(doc, node.type, context, resolve)
+  if (schema === undefined || !growsByCount(schema.body)) return
+  const elaborated = elaborateInterface(schema, node, buildGraphConnectivity(def)(asNodeId(nodeId)))
+  const gone = wires.filter((wire) => inGoneMember(elaborated, wire.address))
+  for (const wire of gone) {
+    if (wire.kind === 'link') removeDefinitionLink(graphId, wire.id, tx)
+    else if (wire.kind === 'net') removeNet(graphId, wire.id, tx)
+  }
+  // As removing a forward by hand does: the output item goes.
+  const forwards = new Set(gone.flatMap((wire) => wire.kind === 'forward' ? [wire.id] : []))
+  if (forwards.size > 0) tx.set(['graphs', graphId, 'boundary', 'outputs'],
+    def.boundary!.outputs.filter((item) => !forwards.has(item.id)) as unknown as Json)
+}
+
+function nodeSetValueOf(resolve?: SchemaResolver): CommandDefinition {
   return {
     id: 'node.setValue',
-    run(doc, params, tx) {
+    run(doc, params, tx, context) {
       if (!isObj(params) || typeof params.nodeId !== 'string' || typeof params.inputId !== 'string')
         return [err('params.invalid', 'node.setValue: params must be {graphId, nodeId, inputId, value}')]
       const def = graphOf(doc, params.graphId)
@@ -788,6 +857,7 @@ function nodeSetValueOf(): CommandDefinition {
         ['graphs', params.graphId as string, 'nodes', params.nodeId, 'values', params.inputId],
         params.value,
       )
+      removeWiresOfGoneMembers(doc, params.graphId as string, params.nodeId, tx, context, resolve)
       return []
     },
   }
@@ -965,10 +1035,10 @@ function nodeSetControllerOf(resolve?: (type: string) => NodeSchema | undefined)
  * the new value (canonical JSON) are skipped, so a fully-matching dispatch is
  * a no-op success with no undo entry.
  */
-function nodeSetValuesOf(): CommandDefinition {
+function nodeSetValuesOf(resolve?: SchemaResolver): CommandDefinition {
   return {
     id: 'node.setValues',
-    run(doc, params, tx) {
+    run(doc, params, tx, context) {
       if (!isObj(params) || typeof params.nodeId !== 'string' || !isObj(params.values))
         return [err('params.invalid', 'node.setValues: params must be {graphId, nodeId, values}')]
       const def = graphOf(doc, params.graphId)
@@ -985,6 +1055,7 @@ function nodeSetValuesOf(): CommandDefinition {
         if (current !== undefined && canonicalJson(current) === canonicalJson(value)) continue
         tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'values', key], value)
       }
+      removeWiresOfGoneMembers(doc, params.graphId as string, params.nodeId, tx, context, resolve)
       return []
     },
   }
@@ -1479,6 +1550,13 @@ const netRename: CommandDefinition = {
 // net.remove {graphId, netId}  (the whole net: source binding + every sink)
 // ---------------------------------------------------------------------------
 
+function removeNet(graphId: string, netId: string, tx: TransactionBuilder): void {
+  removeNetDeliverySuppressions(graphId, netId, undefined, tx)
+  tx.remove(['graphs', graphId, 'nets', netId])
+  removeAuthoredNetViews(tx, (position) => position.graphId === graphId && position.netId === netId)
+  pruneNetDisplayState(graphId, netId, tx)
+}
+
 const netRemove: CommandDefinition = {
   id: 'net.remove',
   run(doc, params, tx) {
@@ -1488,13 +1566,7 @@ const netRemove: CommandDefinition = {
     if (!def) return [err('graph.missing', `net.remove: unknown graph '${String(params.graphId)}'`)]
     if (!def.nets[params.netId])
       return [err('net.missing', `net.remove: unknown net '${params.netId}'`)]
-    const graphId = params.graphId as string
-    removeNetDeliverySuppressions(graphId, params.netId, undefined, tx)
-    tx.remove(['graphs', graphId, 'nets', params.netId])
-    removeAuthoredNetViews(tx, (position) =>
-      position.graphId === graphId && position.netId === params.netId,
-    )
-    pruneNetDisplayState(graphId, params.netId, tx)
+    removeNet(params.graphId as string, params.netId, tx)
     return []
   },
 }
@@ -3280,8 +3352,8 @@ export function coreCommandRegistry(
       candidate.id !== 'image.applyAsset' &&
       candidate.id !== 'image.compositorApply'),
     nodeSetControllerOf(resolve),
-    nodeSetValueOf(),
-    nodeSetValuesOf(),
+    nodeSetValueOf(resolve),
+    nodeSetValuesOf(resolve),
     imageApplyAssetOf(resolve),
     ...registeredExtensionCommands(resolve),
     ...extra,

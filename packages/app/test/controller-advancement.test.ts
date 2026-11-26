@@ -64,12 +64,12 @@ describe('controllerAdvancement', () => {
     if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
     expect(controllerAdvancement(document, result.artifact)).toEqual(controllerInitial === 'fixed' ? undefined : {
       command: 'batch', params: { invocations: [
-        { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 9 } },
+        { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 10 } },
       ] },
     })
     document.graphs.g0.valueSources.v0.controller = 'increment'
     expect(controllerAdvancement(document, result.artifact)).toEqual({ command: 'batch', params: { invocations: [
-      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 13 } },
+      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 12 } },
     ] } })
   })
 
@@ -89,11 +89,11 @@ describe('controllerAdvancement', () => {
     const artifact = compileDoc(document)
     expect(artifact.prompt.seed!.inputs.up).toBe(11)
     expect(controllerAdvancement(document, artifact)).toEqual({ command: 'batch', params: { invocations: [
-      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 14 } },
+      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 13 } },
     ] } })
     document.graphs.g0.valueSources.v0.spec = { widgetType: 'INT', options: { step: 5 }, controller: 'after_generate' }
     expect(controllerAdvancement(document, compileDoc(document))).toEqual({ command: 'batch', params: { invocations: [
-      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 16 } },
+      { command: 'valueSource.setValue', params: { graphId: 'g0', valueSourceId: 'v0', value: 15 } },
     ] } })
     document.graphs.g0.valueSources.v0.controller = 'fixed'
     expect(controllerAdvancement(document, compileDoc(document))).toBeUndefined()
@@ -139,7 +139,7 @@ describe('controllerAdvancement', () => {
           if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
           expect(result.artifact.prompt.left!.inputs.up).toBe(10)
           const invocations: CommandInvocation[] = arrangement === 'promoted' ? [
-            { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: declared ? 15 : 12 } },
+            { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: declared ? 13 : 11 } },
             ...(!partial ? [{ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: declared ? 15 : 17 } }] : []),
           ] : [{ command: 'valueSource.setValue', params: { graphId: 'body', valueSourceId: 'v0', value: declared ? 15 : 17 } }]
           const advancement = controllerAdvancement(document, result.artifact)
@@ -173,20 +173,20 @@ describe('controllerAdvancement', () => {
     const artifact = compileDoc(document)
     expect([artifact.prompt.seed!.inputs.up, artifact.prompt.second!.inputs.up]).toEqual([11, 17])
     expect(controllerAdvancement(document, artifact)).toEqual({ command: 'batch', params: { invocations: [
-      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: 14 } },
-      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 14 } },
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: 13 } },
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 16 } },
     ] } })
     expect(document.graphs.body.valueSources.v0.value).toBe(13)
     delete document.graphs.g0.nodes.i0.values.value
     expect(controllerAdvancement(document, compileDoc(document))).toEqual({ command: 'batch', params: { invocations: [
       { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i0', inputId: 'value', value: 16 } },
-      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 14 } },
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 16 } },
     ] } })
     document.graphs.g0.nodes.driver = structuredClone(document.graphs.g0.nodes.seed)
     document.graphs.g0.nodes.driver.id = 'driver'
     document.graphs.g0.links.l2 = { id: 'l2', from: { node: 'driver', port: 'out' }, to: { node: 'i0', port: 'value' } }
     expect(controllerAdvancement(document, compileDoc(document))).toEqual({ command: 'batch', params: { invocations: [
-      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 14 } },
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'i1', inputId: 'value', value: 16 } },
     ] } })
   })
 
@@ -194,8 +194,8 @@ describe('controllerAdvancement', () => {
     const document = fixture() as any
     const invocation = controllerAdvancement(document, compileDoc(document), () => 0.5)
     expect(invocation).toEqual({ command: 'batch', params: { invocations: [
-      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 14 } },
-      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'down', value: 9 } },
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 13 } },
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'down', value: 10 } },
       { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'random', value: 15 } },
     ] } })
   })
@@ -281,7 +281,7 @@ describe('controllerAdvancement', () => {
     })()
     const invocation = controllerAdvancement(document, artifact, () => 0.5)
     expect(invocation).toEqual({ command: 'batch', params: { invocations: [
-      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'down', value: 9 } },
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'down', value: 10 } },
       { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'random', value: 15 } },
     ] } })
   })
@@ -319,7 +319,7 @@ describe('controllerAdvancement', () => {
     if (!storedResult.ok) throw new Error(JSON.stringify(storedResult.diagnostics))
     expect(controllerAdvancement(stored, storedResult.artifact, () => 0.5)).toEqual({
       command: 'batch', params: { invocations: [
-        { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'seed', value: 14 } },
+        { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'seed', value: 13 } },
       ] },
     })
   })
@@ -779,7 +779,7 @@ describe('completion integration', () => {
     if (change === 'mode-restored') expect(live.store.dispatch({ command: 'valueSource.setController', params: { graphId: 'g0', valueSourceId: 'v0', mode: 'increment' } }).ok).toBe(true)
     if (change === 'disconnected') expect((await local.dispatchTo(live, { command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l0' } })).ok).toBe(true)
     local.store.apply({ kind: 'completed', execution, timestamp: 2 })
-    const expected = change === 'unchanged' ? 14 : change === 'edited' ? 17 : 11
+    const expected = change === 'unchanged' ? 13 : change === 'edited' ? 17 : 11
     await expect.poll(() => live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(expected)
     expect(live.store.doc.graphs.g0!.nodes.seed!.values.up).toBe(11)
     local.store.apply({ kind: 'completed', execution, timestamp: 3 })
@@ -788,7 +788,7 @@ describe('completion integration', () => {
       expect(live.store.undo()).toBe(true)
       expect(live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(11)
       expect(live.store.redo()).toBe(true)
-      expect(live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(14)
+      expect(live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(13)
     }
   })
 
@@ -813,7 +813,7 @@ describe('completion integration', () => {
 
   it('applies all completion changes in one undo step and never advances one run twice', async () => {
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 9 })
+    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 13, down: 10 })
     const once = { ...tab.store.doc.graphs.g0!.nodes.seed!.values }
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 3 })
     expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(once)
@@ -841,7 +841,7 @@ describe('completion integration', () => {
     tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 100 } })
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
     // 'up' fails the compare-and-set (queue-time value was 11); 'down' advances.
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 100, down: 9 })
+    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 100, down: 10 })
   })
 
   it('does not advance an input that becomes driven after queueing', async () => {
@@ -854,28 +854,28 @@ describe('completion integration', () => {
       params: { graphId: 'g0', from: { node: 'n3', port: 'out' }, to: { node: 'seed', port: 'up' } },
     }).ok).toBe(true)
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
+    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 10 })
   })
 
   it('preserves rapid manual ABA stepping that returns to the queued value', async () => {
     expect(tab.store.dispatch({
       command: 'node.setValue',
-      params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 14 },
+      params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 13 },
     }).ok).toBe(true)
     expect(tab.store.dispatch({
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 11 },
     }).ok).toBe(true)
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    // Value equality alone would advance up to 14 and lose the manual +/-.
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
+    // Value equality alone would advance up to 13 and lose the manual +/-.
+    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 10 })
   })
 
   it('does not advance an input parked to fixed after queueing (mode compare-and-set)', async () => {
     tab.store.dispatch({ command: 'node.setController', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', mode: 'fixed' } })
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
     // 'up' was queued under 'increment' but is now parked; 'down' advances.
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
+    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 10 })
   })
 
   it('skips a step whose mode changed between two non-fixed modes after queueing', async () => {
@@ -883,7 +883,7 @@ describe('completion integration', () => {
     // 'increment' intent would move the value the wrong way.
     tab.store.dispatch({ command: 'node.setController', params: { graphId: 'g0', nodeId: 'seed', inputId: 'down', mode: 'increment' } })
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 11 })
+    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 13, down: 11 })
   })
 
   it('does not advance when the live schema no longer marks the widget as a controller', () => {
@@ -918,7 +918,7 @@ describe('completion integration', () => {
     app.store.apply({ kind: 'completed', execution: fast, timestamp: 2 })
     expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(baseline) // no plan yet
     app.registerRun(tab, fast, artifact, 3) // plan installed before register republishes
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 9 })
+    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 13, down: 10 })
     const once = { ...tab.store.doc.graphs.g0!.nodes.seed!.values }
     app.store.apply({ kind: 'completed', execution: fast, timestamp: 4 })
     expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(once)
@@ -929,7 +929,7 @@ describe('completion integration', () => {
     expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(baseline)
     app.store.apply({ kind: 'started', execution: ref, timestamp: 3 }) // live event revives it
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 4 })
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 9 })
+    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 13, down: 10 })
     const once = { ...tab.store.doc.graphs.g0!.nodes.seed!.values }
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 5 })
     expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(once)

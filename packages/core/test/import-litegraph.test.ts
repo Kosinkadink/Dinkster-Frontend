@@ -273,10 +273,13 @@ it('applies a same-type import value transform exactly once', () => {
   expect(checkDocument(document)).toEqual([])
 })
 
-it('imports authored combo choices and typed index separately from linked extra dependencies', () => {
+it('imports authored combo choices, drops the stored index, and keeps linked extra dependencies', () => {
   const combo = parseDinksterSchema('CustomCombo', {
     outputNode: true, additionalInputs: { kind: 'wildcard' },
-    body: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', editableOptions: true } }],
+    body: [
+      { kind: 'input', id: 'choice', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', editableOptions: true, optionsInput: 'options' } },
+      { kind: 'input', id: 'options', type: { kind: 'list', element: { kind: 'concrete', types: ['STRING'] } }, required: false, hidden: true },
+    ],
   }).schema!
   const source = parseDinksterSchema('Source', { body: [
     { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['STRING'] } },
@@ -291,9 +294,10 @@ it('imports authored combo choices and typed index separately from linked extra 
       { id: 2, type: 'CustomCombo', inputs: [{ name: 'sparse.172', type: 'STRING', link: 1 }], widgets_values: widgets },
     ], links: [[1, 1, 0, 2, 0, 'STRING']] }, resolver)
     expect(errorsOf(imported.diagnostics)).toEqual([])
+    expect(codesOf(imported.diagnostics)).toContain('import.combo.index')
     const node = imported.document!.graphs.g0!.nodes.n2!
-    expect(node.additionalInputs).toEqual(['sparse.172', 'index'])
-    expect(node.values).toEqual({ choice: 'outside', index: { $typed: { type: 'INT', value: 7 } } })
+    expect(node.additionalInputs).toEqual(['sparse.172'])
+    expect(node.values).toEqual({ choice: 'outside' })
     expect(node.dynamic!.choice!.options).toEqual(Array.isArray(widgets) ? ['duplicate', 'duplicate', '', false, 0] : ['duplicate', 'duplicate', ''])
     if (!Array.isArray(widgets)) expect(node.ext!['importer.unknownWidgetValues']).toEqual({ other: { kept: true } })
     const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
@@ -301,19 +305,20 @@ it('imports authored combo choices and typed index separately from linked extra 
     expect(importLitegraph(reopened.document!.ext!['importer.comfyWorkflow'] as JsonObject, resolver).document).toEqual(imported.document)
     const compiled = compile({ document: reopened.document!, revision: 0, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('combo'), schemaHash: 'combo', graphFeatures: ['typedLiteral'] })
     expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
-    if (compiled.ok) expect(compiled.artifact.prompt.n2!.inputs).toEqual({ choice: 'outside', index: { $typed: { type: 'INT', value: 7 } }, 'sparse.172': ['n1', 0] })
+    if (compiled.ok) expect(compiled.artifact.prompt.n2!.inputs).toEqual({ choice: 'outside', options: Array.isArray(widgets) ? ['duplicate', 'duplicate', '', 'false', '0'] : ['duplicate', 'duplicate', ''], 'sparse.172': ['n1', 0] })
   }
   const omitted = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside'] }], links: [] }, resolver)
   expect(omitted.document!.graphs.g0!.nodes.n2!.values).toEqual({ choice: 'outside' })
   expect(omitted.document!.graphs.g0!.nodes.n2!.additionalInputs).toBeUndefined()
   expect(omitted.document!.graphs.g0!.nodes.n2!.dynamic!.choice!.options).toEqual([])
+  expect(codesOf(omitted.diagnostics)).not.toContain('import.combo.index')
   const many = Array.from({ length: 152 }, (_, i) => `entry${i * 3}`)
   const large = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside', -1, ...many] }], links: [] }, resolver)
   expect(large.document!.graphs.g0!.nodes.n2!.dynamic!.choice!.options).toEqual(many)
-  expect(large.document!.graphs.g0!.nodes.n2!.values.index).toEqual({ $typed: { type: 'INT', value: -1 } })
-  const invalid = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside', '7'] }], links: [] }, resolver)
-  expect(invalid.document).toBeUndefined()
-  expect(codesOf(invalid.diagnostics)).toContain('import.combo.index')
+  expect(large.document!.graphs.g0!.nodes.n2!.values).toEqual({ choice: 'outside' })
+  const text = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside', '7'] }], links: [] }, resolver)
+  expect(text.document!.graphs.g0!.nodes.n2!.values).toEqual({ choice: 'outside' })
+  expect(codesOf(text.diagnostics)).toContain('import.combo.index')
 })
 
 // -- litegraph JSON builders --------------------------------------------------

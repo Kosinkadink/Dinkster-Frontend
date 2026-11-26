@@ -30,7 +30,6 @@ export interface VideoEditEditorProps {
   readonly previewUrl?: string
   readonly source?: VideoEditSource
   readonly sourceReason?: string
-  readonly editDisabledReason?: string
   readonly onCommit: (value: Json, strictDuration: boolean) => void
   readonly onCancel: () => void
 }
@@ -57,8 +56,8 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
     setNumericErrors((errors) => ({ ...errors, [field]: valid ? undefined : `${field} must be a finite ${integer ? 'integer' : 'number'}.` }))
     if (valid) update(value)
   }
-  const editError = () => props.editDisabledReason ?? (!isVideoEditObject(props.value)
-    ? 'The imported VIDEO_EDIT is not an object. It is preserved; repair it in the raw value editor.' : undefined)
+  const editError = () => !isVideoEditObject(props.value)
+    ? 'The imported VIDEO_EDIT is not an object. It is preserved; repair it in the raw value editor.' : undefined
   createEffect(() => {
     const source = props.source
     setPeek(undefined)

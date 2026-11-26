@@ -10,7 +10,7 @@ import { ProductSelect } from '../ProductSelect.js'
 import { ProductSlider } from '../ProductSlider.js'
 import { useAppMessage } from '../locale.js'
 import { useSignal } from '../solid-adapter.js'
-import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
+import { partRow, WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import './image-compare-widget-editor.css'
 
 const sides = ['image_a', 'image_b'] as const
@@ -47,11 +47,13 @@ const ImageCompareImplementation: Component<WidgetEditorImplementationProps> = (
     if (!runtimeId || liveExactnessFor(compiled.artifact, execution.artifact)?.(runtimeId) !== true) return undefined
     return { execution, runtimeId }
   })
+  // Each side shows the previews the node streams under the row its widget reads for that side.
   const frames = (side: typeof sides[number]): readonly PreviewData[] => {
     const current = source()
-    if (!current) return []
-    const ring = current.execution.previewRings?.[current.runtimeId]?.[side]
-    const still = current.execution.previews[current.runtimeId]?.[side]
+    const row = partRow(ed.target, side)
+    if (!current || row === undefined) return []
+    const ring = current.execution.previewRings?.[current.runtimeId]?.[row]
+    const still = current.execution.previews[current.runtimeId]?.[row]
     return ring ? Object.entries(ring.frames).sort(([a], [b]) => Number(a) - Number(b)).map(([, frame]) => frame)
       : still ? [still] : []
   }

@@ -1130,3 +1130,121 @@ describe('type choice specialization staleness', () => {
     }))).toEqual([])
   })
 })
+
+describe('a type variable fed two different types', () => {
+  const INT = { kind: 'concrete', name: 'INT' } as const
+  const local: Record<string, NodeSchema> = {
+    Pair: schemaOf('Pair', [input('first', T('T')), input('second', T('T')), output('out', T('T'))]),
+    ImagePair: schemaOf('ImagePair', [input('first', T('T', ['IMAGE'])), input('second', T('T', ['IMAGE'])), output('out', T('T', ['IMAGE']))]),
+    IntSrc: schemaOf('IntSrc', [output('out', INT)]),
+    IntValue: schemaOf('IntValue', [input('value', INT), { ...output('out', INT), knownValue: { input: 'value' } }]),
+    PickSwitch: {
+      ...schemaOf('PickSwitch', [
+        input('pick', INT),
+        group('branch', 'branch', { value: input('branch', T('T')) }, { minMembers: 1 }),
+        output('out', T('T')),
+      ]),
+      selector: { input: 'pick', group: 'branch' },
+    },
+  }
+  const solve = (def: GraphDef) => solveGraphTypes(def, (type) => local[type] ?? resolve(type))
+  const conflicts = (def: GraphDef) =>
+    solve(def).diagnostics
+      .filter((d) => d.code === 'solve.varConflict')
+      .map((d) => ({ severity: d.severity, message: d.message, node: d.data?.['node'] }))
+
+  it('is an error on the node, naming each input and the type it brings', () => {
+    const solved = solve(defOf({
+      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pair: { type: 'Pair' } },
+      links: {
+        l0: { from: ['img', 'out'], to: ['pair', 'first'] },
+        l1: { from: ['lat', 'out'], to: ['pair', 'second'] },
+      },
+    }))
+    expect(solved.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'solve.varConflict',
+        message: 'These inputs must be the same type: first is IMAGE, second is LATENT.',
+        anchor: { port: { node: 'pair', port: 'second' }, link: 'l1' },
+        data: { node: 'pair', edges: ["link 'l0'", "link 'l1'"] },
+      }),
+    ])
+    expect(solved.linkVerdicts.get('l0' as never)).toBe('mismatch')
+    expect(solved.linkVerdicts.get('l1' as never)).toBe('mismatch')
+  })
+
+  it('follows a generic producer to the node that receives both types', () => {
+    expect(conflicts(defOf({
+      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, sw: { type: 'Switch' }, pair: { type: 'Pair' } },
+      links: {
+        l0: { from: ['img', 'out'], to: ['sw', 'in'] },
+        l1: { from: ['sw', 'out'], to: ['pair', 'first'] },
+        l2: { from: ['lat', 'out'], to: ['pair', 'second'] },
+      },
+    }))).toEqual([{ severity: 'error', message: 'These inputs must be the same type: first is IMAGE, second is LATENT.', node: 'pair' }])
+  })
+
+  it('stays a warning when the engine would run the node', () => {
+    // A downstream input that wants another type.
+    expect(conflicts(defOf({
+      nodes: { img: { type: 'ImageSrc' }, sw: { type: 'Switch' }, lat: { type: 'LatentSink' } },
+      links: { l0: { from: ['img', 'out'], to: ['sw', 'in'] }, l1: { from: ['sw', 'out'], to: ['lat', 'in'] } },
+    })).map((c) => c.severity)).toEqual(['warning'])
+    // A type outside the variable's allowlist.
+    expect(conflicts(defOf({
+      nodes: { img: { type: 'ImageSrc' }, sw: { type: 'ComfyImageSwitch' } },
+      links: { l0: { from: ['img', 'out'], to: ['sw', 'in'] } },
+    })).map((c) => c.severity)).toEqual(['warning'])
+    // One input outside the allowlist beside one inside it.
+    expect(conflicts(defOf({
+      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pair: { type: 'ImagePair' } },
+      links: { l0: { from: ['img', 'out'], to: ['pair', 'first'] }, l1: { from: ['lat', 'out'], to: ['pair', 'second'] } },
+    })).map((c) => c.severity)).toEqual(['warning'])
+    // One untyped generic producer feeding two nodes that each get another type.
+    expect(conflicts(defOf({
+      nodes: {
+        img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, sw: { type: 'Switch' },
+        a: { type: 'Pair' }, b: { type: 'Pair' },
+      },
+      links: {
+        l0: { from: ['sw', 'out'], to: ['a', 'first'] },
+        l1: { from: ['img', 'out'], to: ['a', 'second'] },
+        l2: { from: ['sw', 'out'], to: ['b', 'first'] },
+        l3: { from: ['lat', 'out'], to: ['b', 'second'] },
+      },
+    })).map((c) => c.severity)).toEqual(['warning'])
+    // A union that one member of can match.
+    expect(conflicts(defOf({
+      nodes: { either: { type: 'EitherSrc' }, img: { type: 'ImageSrc' }, pair: { type: 'Pair' } },
+      links: { l0: { from: ['either', 'out'], to: ['pair', 'first'] }, l1: { from: ['img', 'out'], to: ['pair', 'second'] } },
+    }))).toEqual([])
+  })
+
+  it('counts a Switch only when its pick is a run-time value', () => {
+    const switchWith = (pick: 'runtime' | 'known' | 'stored') => defOf({
+      nodes: {
+        img: { type: 'ImageSrc' },
+        lat: { type: 'LatentSrc' },
+        pick: { type: pick === 'known' ? 'IntValue' : 'IntSrc', values: { value: 1 } },
+        sw: { type: 'PickSwitch', values: pick === 'stored' ? { pick: 1 } : {}, dynamic: { branch: { members: ['branch0', 'branch1'] } } },
+      },
+      links: {
+        l0: { from: ['img', 'out'], to: ['sw', 'branch.branch0'] },
+        l1: { from: ['lat', 'out'], to: ['sw', 'branch.branch1'] },
+        ...(pick === 'stored' ? {} : { l2: { from: ['pick', 'out'], to: ['sw', 'pick'] } }),
+      },
+    })
+    expect(conflicts(switchWith('runtime'))).toEqual([
+      { severity: 'error', message: 'These inputs must be the same type: branch 1 is IMAGE, branch 2 is LATENT.', node: 'sw' },
+    ])
+    // Only the picked branch runs, so it is a warning on the Switch, in the error's words.
+    for (const pick of ['known', 'stored'] as const) {
+      expect(conflicts(switchWith(pick))).toEqual([
+        { severity: 'warning', message: 'These inputs must be the same type: branch 1 is IMAGE, branch 2 is LATENT.', node: 'sw' },
+      ])
+      expect(solve(switchWith(pick)).diagnostics.find((d) => d.code === 'solve.varConflict')?.anchor?.port)
+        .toEqual({ node: 'sw', port: 'branch.branch1' })
+    }
+  })
+})

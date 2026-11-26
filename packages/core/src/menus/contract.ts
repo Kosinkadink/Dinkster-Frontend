@@ -92,6 +92,12 @@ export type MenuTarget =
     }
   | { readonly kind: 'group'; readonly groupId: string }
   | {
+      /** A group's add row, by the group's flattened id. */
+      readonly kind: 'growth'
+      readonly nodeId: string
+      readonly construct: string
+    }
+  | {
       readonly kind: 'section'
       readonly nodeId: string
       readonly sectionId: string

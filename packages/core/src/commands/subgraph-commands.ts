@@ -57,7 +57,8 @@ import { planFlattenOccurrenceTopology, type FlattenOccurrenceTopologyPlan } fro
 import { innerConstructAddress, matchBoundaryItem } from '../compile/crossing.js'
 import type { NodeSchema } from '../schema/model.js'
 import { canonicalJson } from '../compile/hash.js'
-import { resolveStaticWidgetTap } from '../schema/derive-boundary.js'
+import { resolveWidgetTap } from '../schema/derive-boundary.js'
+import { buildGraphConnectivity } from '../schema/elaborate.js'
 import { graphAllocator } from './alloc.js'
 import type { CommandDefinition, CommandExecutionContext, TransactionBuilder } from './contract.js'
 import { groupAllocationFloor } from '../group-alloc.js'
@@ -640,13 +641,14 @@ const subgraphExtract: CommandDefinition = {
       }
       try {
         const resolve = context.schemaResolverFor(doc)
+        const connectivity = buildGraphConnectivity(parent)
         for (const source of crossingWidgetTaps) {
           const node = parent.nodes[source.node]
           const schema = node === undefined ? undefined : resolve(node.type)
-          if (schema === undefined || !resolveStaticWidgetTap(schema, source.tap).ok) {
+          if (schema === undefined || node === undefined || !resolveWidgetTap(schema, node, source.tap, connectivity(source.node)).ok) {
             return [lifecycleError(
               'subgraph.extract.widgetTapSchemaStale',
-              `subgraph.extract: widget tap '${source.node}/${source.tap}' is not one exact static widget-backed input`,
+              `subgraph.extract: widget tap '${source.node}/${source.tap}' is not one exact widget-backed input`,
               graphId,
               instancePath,
               source.node,

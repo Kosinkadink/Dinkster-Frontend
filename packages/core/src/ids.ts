@@ -99,8 +99,10 @@ export interface SelectorRef {
 }
 
 /**
- * Producer reference to the effective value of a node input. Widget taps are
- * deliberately limited to static, memberless inputs.
+ * Producer reference to the effective value of a node input: a field's
+ * output. `tap` is the field's flattened id, so a field in a group's member
+ * carries the member key (`items.item1.amount`) and follows its member when
+ * members are reordered.
  */
 export interface WidgetTapRef {
   readonly node: NodeId

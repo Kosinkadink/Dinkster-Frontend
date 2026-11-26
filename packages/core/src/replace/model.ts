@@ -87,6 +87,14 @@ export type InputFamilyMapping =
     }
   /** Populate an ordered target family from ordinary static source inputs. */
   | { readonly kind: 'members'; readonly members: readonly InputFamilyMember[] }
+  /**
+   * One target member per item of the list stored in a static source input,
+   * in list order. `member` names the template input that takes each item in
+   * a group of records and is omitted in a group of values. Nothing stored is
+   * an empty list; the group's minimum is filled with default members, and
+   * items past its member limit are dropped with a warning.
+   */
+  | { readonly kind: 'spread'; readonly input: string; readonly member?: string }
 
 export interface OutputFamilyMember {
   /** Exact target member suffix. Array order is canonical member order. */
@@ -273,6 +281,11 @@ const isInputFamilyMapping = (v: unknown): v is InputFamilyMapping => {
         return false
     }
     return true
+  }
+  if (v.kind === 'spread') {
+    return (v.member === undefined ? hasExactKeys(v, ['kind', 'input']) : hasExactKeys(v, ['kind', 'input', 'member'])) &&
+      typeof v.input === 'string' && STRUCTURAL_ID.test(v.input) &&
+      (v.member === undefined || (typeof v.member === 'string' && STRUCTURAL_ID.test(v.member)))
   }
   return false
 }

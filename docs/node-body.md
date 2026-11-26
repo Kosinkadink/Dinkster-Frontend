@@ -33,20 +33,60 @@ non-empty legacy `interface` list.
 - **Button**: a capsule with its label and no pin, on its own line or as a
   cell of a Row. It does nothing when clicked: the editor never runs a
   button's steps.
-- **Editor**: decoded with the schema; the canvas does not draw it. An editor
-  row is a custom or compositor widget with no value of its own; it must name
-  at least one row it writes or reads.
+- **Editor**: a custom or compositor widget with no value of its own; it
+  must name at least one row it writes or reads. The canvas draws it as a
+  widget line with no label and no pin, and opening it opens its widget's
+  editor, titled by the node.
 
 A custom or compositor widget, on an editor row or on an input, may carry
-`writes` and `reads`: its own part names mapped to row ids of its scope. The
-editor keeps them on the widget spec, apart from the widget's own options, and
-does not hand those rows to the widget yet.
+`writes` and `reads`: its own part names mapped to row names of its scope.
+Elaboration resolves each name as a formula does, to the flattened id of that
+row; a name under an unchosen option, or one that names no row, is absent.
+The widget's editor reads and writes the resolved rows instead of fixed row
+names. An editor row whose widget writes exactly one row shows and edits that
+row's value. The editor never changes a written row that has a link.
 - **Group**, **Choice**, **Type choice** and **Described**: the rows below.
 
-Every row's `visible` (a boolean or a formula) and an input's or output's
-label written as a formula are decoded and kept as declared. The editor does
-not evaluate them yet: every row shows, and a formula-labelled input or
-output is labelled by its id.
+## Formulas the editor works out
+
+Elaboration works out these formulas from the node's stored values and wires
+each time it runs, so they follow every edit. Each has an answer for when its
+formula is unknown (it names a row under an option that is not chosen) or
+fails:
+
+| Property | Unknown or failed |
+| --- | --- |
+| `visible` on a row or a box | The row shows |
+| A label on an input, output, section, choice or type choice; a choice's tooltip | The id |
+| A note's `text` | Its `unknown` text, dimmed |
+| A button's `enabled`, `disabledReason` and `tooltip` | Enabled, with no reason |
+| A rule's `check` in the node's `validate` | The rule passes |
+| The node's `titleSuffix` | No suffix |
+
+A row whose `visible` is false is not drawn and is still stored and sent to
+the run. A box whose `visible` is false hides every row in it. A row with a
+wire on its pin or its field's output shows anyway, and so does a box that
+holds one at any depth. A row with a problem shows the same way, and hides
+again once the problem is gone: an error or a warning that elaboration or
+the type solver finds on it, a failed rule that reads only that field, or a
+stored value its widget refuses, such as a number out of range. A note whose text is a lookup shows its `unknown` text. A group's
+`memberLabel`, a group's `count` and a choice's `leader` are worked out as
+the rows above describe.
+
+A rule whose `check` is false is one problem, with the rule's message: an
+error when the rule has no `fix`, which stops the run, and a warning when it
+has one. It names the fields its check reads. With exactly one, it is that
+field's problem and outlines its row; otherwise it is a problem of the
+whole node. It is listed in Problems and marks the node as the user edits,
+and it leaves when the check passes again. The editor does not offer or run
+the fix.
+
+The `titleSuffix` is drawn one space after the title, in the row names' dim
+regular type, also after a renamed title and on a minimized node, and not
+while the title is being renamed. It is at most 64 characters, a line break
+reads as a space, and an extension's title suffix follows it. It never widens
+the node: when the title bar is too narrow it is cut first, and dropped when
+fewer than three of its characters would show.
 
 ## Elaboration and flattened ids
 
@@ -246,9 +286,12 @@ values and pin positions are the same with or without it.
   of its count. If nothing inside fits, the drop is an ordinary drop on the
   node.
 - A member of a group of records that draws more than one row gets its own
-  box, headed by its label and a remove cross; members cannot be dragged.
-  In a group that grows by hand, a member that is one row has no box: the
-  row ends in the remove cross and its field stops short of it. The cross
+  box, headed by its grip when the group can be reordered, its label and a
+  remove cross. In a group that grows by hand, a member that is one row has
+  no box: the row ends in the remove cross and its field stops short of it.
+  In a group that can be reordered, a stored member that is one row starts
+  with its grip, and its field or name, and the spare member's, start after
+  the grip's room. Dragging a grip moves the member (`dynamic.moveMember`). The cross
   does not remove the member by itself; unused members go with **Remove
   unused dynamic inputs**. A group that grows by hand ends in an outlined
   Add row. A group that grows by
@@ -257,7 +300,9 @@ values and pin positions are the same with or without it.
 - A choice's dropdown reaches its box's outline and has its own outline; the
   chosen option's rows sit in a box joined to its underside. An option with
   no rows draws no box, and neither does a choice led by a formula.
-- Outputs pair only with rows inside the same boxes. A top-level section with
+- Outputs pair only with rows inside the same boxes. A node's own outputs
+  left without a row get rows of their own after every row, but before the
+  boxes that end the node and hold only outputs. A top-level section with
   id `advanced` stays below every other row.
 
 ## Run submission

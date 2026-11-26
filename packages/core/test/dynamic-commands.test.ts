@@ -494,6 +494,16 @@ describe('dynamic.compact', () => {
     expect(store.revision).toBe(revision)
   })
 
+  it("retains a member whose only wire leaves a field's output", () => {
+    const store = makeStore(doc({ g0: graph({
+      id: 'g0',
+      nodes: { n1: node('n1', { dynamic: state }), sink: node('sink') },
+      links: { l1: { id: asLinkId('l1'), from: { node: asNodeId('n1'), tap: asPortId('images.m2') }, to: port('sink', 'in') } },
+    }) }))
+    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
+    expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m2'], seq: 3 } })
+  })
+
   it('retains a member whose only state is a chosen key or an authored menu at a flattened id', () => {
     const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic: {
       items: { members: ['m0', 'm1', 'm2'], seq: 3 },
@@ -972,5 +982,44 @@ describe('materializeFramesOf', () => {
       'outer.row0.inner.sub0',
       'outer.row0.inner.sub0',
     ])
+  })
+})
+
+describe('a count that shrinks', () => {
+  it('removes the wires, nets and forwards on the outputs of the members past it, in the same undo step', () => {
+    const field = (id: string): InputSpec => ({
+      ...socketInput(id, 'INT'), widget: { widgetType: 'INT', options: {}, default: 1 },
+    })
+    const schema = schemaOf([field('count'), {
+      kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+      grows: { count: 'count' }, minMembers: 0, maxMembers: 4,
+      member: [field('amount'), { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
+    } as GroupSpec])
+    const link = (id: string, from: object, to: string) => [id, { id: asLinkId(id), from, to: port('n2', to) }]
+    const initial = doc({ g0: graph({
+      id: 'g0',
+      nodes: { n1: node('n1', { values: { count: 3 } }), n2: node('n2', { type: 'Sink' }) },
+      links: Object.fromEntries([
+        link('kept', { node: asNodeId('n1'), tap: asPortId('items.item0.amount') }, 'a'),
+        link('tap', { node: asNodeId('n1'), tap: asPortId('items.item2.amount') }, 'b'),
+        link('out', port('n1', 'items.item2.image'), 'c'),
+      ]),
+      nets: { net: { id: asNetId('net'), name: 'second', source: port('n1', 'items.item1.image'), sinks: [port('n2', 'd')] } },
+      boundary: { inputs: [], outputs: [
+        { id: 'first', binds: { kind: 'widgetTap', node: asNodeId('n1'), tap: asPortId('items.item0.amount') } },
+        { id: 'third', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('items.item2.image') } },
+      ] },
+    }) })
+    const store = new DocumentStore(initial, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => (type) => type === 'Batch' ? schema : undefined }))
+    expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'count', value: 1 } }).ok).toBe(true)
+    expect(Object.keys(store.doc.graphs['g0']!.links)).toEqual(['kept'])
+    expect(store.doc.graphs['g0']!.nets).toEqual({})
+    expect(store.doc.graphs['g0']!.boundary!.outputs.map((item) => item.id)).toEqual(['first'])
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(initial)
+    // A count that grows removes nothing.
+    expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { count: 4 } } }).ok).toBe(true)
+    expect(Object.keys(store.doc.graphs['g0']!.links).sort()).toEqual(['kept', 'out', 'tap'])
   })
 })

@@ -220,3 +220,52 @@ describe('chain golden: deprecation + visibility + rules on one schema', () => {
     expect(store.doc).toEqual(d)
   })
 })
+
+// ---------------------------------------------------------------------------
+// replace_spread_v1.json: the cases Dinkster's graph migration also checks
+// ---------------------------------------------------------------------------
+
+describe('spread golden: one stored list becomes a group of members', () => {
+  const spread = loadGolden('replace_spread_v1')
+  const registry = registryOf(spread)
+  const resolve = resolveIn(spread)
+  const { cases } = JSON.parse(
+    readFileSync(join(here, '../fixtures/replacements/replace_spread_v1.json'), 'utf8'),
+  ) as {
+    cases: {
+      name: string
+      type: string
+      values: Record<string, Json>
+      expect:
+        | { error: { code: string; message: string } }
+        | {
+            type: string
+            members: Record<string, string[]>
+            values: Record<string, Json>
+            warnings: { code: string; message: string }[]
+          }
+    }[]
+  }
+
+  it.each(cases)('$name', ({ type, values, expect: expected }) => {
+    const d = doc({ g0: graph({ id: 'g0', nodes: { n: node('n', type, values) } }) })
+    const [item] = scanReplacements(d, registry, resolve)
+    if ('error' in expected) {
+      expect(item!.status).toBe('blocked')
+      expect(item!.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', ...expected.error }))
+      return
+    }
+    expect(item!.status).toBe('terminal')
+    expect(item!.diagnostics.map(({ code, message }) => ({ code, message }))).toEqual(expected.warnings)
+    const store = new DocumentStore(d, coreCommandRegistry())
+    expect(store.dispatch(replacementInvocation([item!], d, resolve)!).ok).toBe(true)
+    const after = store.doc.graphs.g0!.nodes.n!
+    expect(after.type).toBe(expected.type)
+    expect(after.values).toEqual(expected.values)
+    expect(Object.fromEntries(Object.entries(after.dynamic ?? {}).map(([id, state]) => [id, state.members])))
+      .toEqual(expected.members)
+    // Undo restores the node; a group's numbering cursor never rewinds, so `dynamic` may keep its seq.
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.n!).toMatchObject({ type, values })
+  })
+})

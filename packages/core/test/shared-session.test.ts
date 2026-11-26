@@ -182,6 +182,8 @@ class FakeConnection implements CollabConnection {
   snapshotRequiredOnce = false
   /** Force every post to answer 406 protocol-unsupported. */
   protocolBroken = false
+  /** Answer 422 with this message for an op it returns one for; nothing is stored. */
+  refuse: ((op: CollabClientOp) => string | undefined) | undefined
   /** Answer 410 resync-required for fetchOps with after < this value. */
   retentionFloor: number | undefined
 
@@ -240,6 +242,8 @@ class FakeConnection implements CollabConnection {
       return { kind: 'snapshot-required' }
     }
     if (op.baseRevision !== this.revision) return { kind: 'stale-base', revision: this.revision }
+    const refusal = this.refuse?.(op)
+    if (refusal !== undefined) return { kind: 'refused', code: 'value-outside-limits', message: refusal }
     const server: CollabServerOp = {
       opId: op.opId,
       actorId: op.actorId,
@@ -1196,6 +1200,40 @@ describe('shared DocumentSession', () => {
     await session.settle()
     expect(session.doc.graphs.g0!.nodes.n1!.values.prompt).toBe('Xhello!')
     expect(session.revision).toBe(2)
+  })
+
+  it('drops an intention the server refuses, keeps the ones queued after it, and stays live', async () => {
+    const { conn, session, conflicts } = await makeShared('actorA')
+    const refusal = 'Sampler: steps = 12000 refused. Allowed: 1 to 10000. Nothing stored.'
+    conn.refuse = (op) => (JSON.stringify(op.patch).includes('"n1"') ? refusal : undefined)
+    const gate = deferred()
+    conn.postHook = () => {
+      conn.postHook = undefined
+      return gate.promise
+    }
+    session.dispatch(setTitle('n1', 'refused'))
+    await until(() => conn.postedOps.length === 1, 'first POST in flight')
+    session.dispatch(setTitle('n2', 'kept'))
+    gate.resolve()
+    await session.settle()
+    expect(session.status.get()).toBe('live')
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0]!.during).toBe('refused')
+    expect(conflicts[0]!.invocation.command).toBe('node.setTitle')
+    expect(conflicts[0]!.diagnostics[0]!.message).toBe(refusal)
+    const nodes = session.doc.graphs.g0!.nodes as Record<string, { title?: string }>
+    expect(nodes.n1!.title).toBeUndefined()
+    expect(nodes.n2!.title).toBe('kept')
+    // The refused op is posted once and never retried; only the kept one is stored.
+    expect(conn.postedOps.filter((op) => JSON.stringify(op.patch).includes('"n1"'))).toHaveLength(1)
+    expect(conn.log.map((op) => op.patch)).toEqual([
+      [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n2', 'title'], value: 'kept' }],
+    ])
+    // Its history record went with it: one undo takes back the kept edit, and nothing is left.
+    expect(session.undo()).toBe(true)
+    await session.settle()
+    expect((session.doc.graphs.g0!.nodes.n2 as { title?: string }).title).toBeUndefined()
+    expect(session.undo()).toBe(false)
   })
 
   it('retries a transport failure idempotently with the SAME opId', async () => {

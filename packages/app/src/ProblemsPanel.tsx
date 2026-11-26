@@ -42,6 +42,7 @@ export function activateProblem(app: AppState, diagnostic: Diagnostic, openAsset
   app.diagnosticFocus.set({
     tab: target.tab,
     anchor: diagnostic.anchor,
+    diagnostic,
     ...(openAssetInput === undefined ? {} : { openAssetInput }),
     ...(openAssetInput !== undefined && typeof diagnostic.data?.['digest'] === 'string'
       ? { missingAssetDigest: diagnostic.data['digest'] } : {}),

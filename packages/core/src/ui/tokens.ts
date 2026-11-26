@@ -81,6 +81,8 @@ export interface SemanticDesignTokens {
     readonly selected: string
     /** A quiet line between two parts of one shape, such as a title bar and its body. */
     readonly divider: string
+    /** Quieter than divider: a line between the items of one list in a small box over the canvas. */
+    readonly faint: string
     /** The edge around a group of controls picked from as one. */
     readonly group: string
   }
@@ -166,6 +168,7 @@ export const semanticTokensForTheme = (
       selected: colors.text.primary,
       // Looks are decided in the dark theme; the light theme keeps its border.
       divider: colors.border.divider,
+      faint: colors.border.faint,
       group: colors.border.group,
     },
     meaning: {
@@ -316,6 +319,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-border-focus': semanticDesignTokens.border.focus,
     '--dinkster-border-selected': semanticDesignTokens.border.selected,
     '--dinkster-border-divider': semanticDesignTokens.border.divider,
+    '--dinkster-border-faint': semanticDesignTokens.border.faint,
     '--dinkster-border-group': semanticDesignTokens.border.group,
     '--dinkster-accent-foreground':
       semanticDesignTokens.meaning.accent.foreground,

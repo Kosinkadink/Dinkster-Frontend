@@ -37,6 +37,7 @@
       "pending": "#4F6265",
       "skipped": "#74888B",
       "divider": "#222E2F",
+      "faint": "#1B2526",
       "group": "#435557"
     },
     "text": {
@@ -71,6 +72,7 @@
       "pending": "#5C5C5C",
       "skipped": "#7D8792",
       "divider": "#D3D9DE",
+      "faint": "#E9ECEE",
       "group": "#D3D9DE"
     },
     "text": {

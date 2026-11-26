@@ -5,7 +5,7 @@
  * directly (same discipline as menu-target.ts / app-view-rows.ts).
  */
 
-import { evaluateExpression, formatWidgetValue, integerWidgetValue, isCanonicalUnsafeInteger, isPrimitiveListWidgetValue, numericStepConstraints, spliceDiff, stepNumericValue, transformSplice, type IntegerWidgetValue, type Json, type TextSplice, type WidgetKind, type WidgetSpec } from '@dinkster/core'
+import { evaluateExpression, formatWidgetValue, integerWidgetValue, isCanonicalUnsafeInteger, isPrimitiveListWidgetValue, numericStepConstraints, specialValueLabel, spliceDiff, stepNumericValue, transformSplice, type IntegerWidgetValue, type Json, type TextSplice, type WidgetKind, type WidgetSpec } from '@dinkster/core'
 
 export type NumericCommitResult = { readonly ok: true; readonly value: IntegerWidgetValue } | { readonly ok: false; readonly error: string }
 type FloatNumericCommitResult = { readonly ok: true; readonly value: number } | { readonly ok: false; readonly error: string }
@@ -107,6 +107,10 @@ export function resolveTypedNumber(raw: string, spec: WidgetSpec, stored: Intege
     ...(result !== undefined ? { result } : {}),
     ...(problem !== undefined ? { problem } : {}),
   })
+  // A declared special value is allowed outside the limits and off the step, so it is stored as typed.
+  if (!fraction && specialValueLabel(typed, spec) !== undefined) {
+    return store(constraints.integer ? integerWidgetValue(typed as bigint) : typed as number)
+  }
   if (!constraints.integer) {
     const value = typed as number
     if (value > constraints.max) return store(constraints.max, `Above ${show(constraints.max)}. Enter uses ${show(constraints.max)}.`)
@@ -122,14 +126,16 @@ export function resolveTypedNumber(raw: string, spec: WidgetSpec, stored: Intege
     const min = integerWidgetValue(constraints.min)
     return store(min, `Below ${show(min)}. Enter uses ${show(min)}.`)
   }
-  // Whole numbers snap to the step counted from the lower limit, as the
-  // design's sketch does; a value that rounds past the upper limit steps back.
+  // Whole numbers snap to the step counted from the field's offset (its lower
+  // limit when none is declared), as the stepper does; a value that rounds
+  // past a limit steps back inside it.
   const step = constraints.step
-  const base = constraints.min ?? 0n
-  const offset = value - base
-  const remainder = ((offset % step) + step) % step
-  let snapped = base + offset - remainder + (remainder * 2n >= step ? step : 0n)
+  const base = constraints.offset
+  const distance = value - base
+  const remainder = ((distance % step) + step) % step
+  let snapped = base + distance - remainder + (remainder * 2n >= step ? step : 0n)
   if (constraints.max !== undefined && snapped > constraints.max) snapped -= step
+  if (constraints.min !== undefined && snapped < constraints.min) snapped += step
   if (snapped !== value || fraction) {
     const uses = integerWidgetValue(snapped)
     return store(uses, `${step === 1n ? 'Whole numbers only.' : `Not a multiple of ${step}.`} Enter uses ${show(uses)}.`)

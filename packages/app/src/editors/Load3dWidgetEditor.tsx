@@ -7,7 +7,7 @@ import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm
 import { ProductSelect } from '../ProductSelect.js'
 import { useAppMessage } from '../locale.js'
 import { mountModel3dViewer, type Model3dCameraState, type Model3dTransform, type Model3dViewerHandle } from '../model3d-viewer.js'
-import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
+import { partRow, WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import { validFile3dAsset as validAsset, file3dFormatFromBytes as formatFromBytes } from '../file3d-preview.js'
 
 const object = (value: unknown): Record<string, Json> => {
@@ -29,19 +29,25 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     const schema = source === undefined ? undefined : resolveSchema?.(source.type)
     return schema === undefined ? undefined : (defaultValuesOf(schema) as Record<string, Json>)[inputId]
   }, resolveSchema).get(nodeId ?? '')
+  // The node rows this viewport reads and writes, by the part names its widget declares.
+  const rowOf = (part: string): string | undefined => partRow(ed.target, part)
   const resolved = new Map<string, Json>()
-  const inputValue = (inputId: string): Json | undefined => {
-    const source = sources?.get(inputId)
+  const inputValue = (part: string): Json | undefined => {
+    const row = rowOf(part)
+    if (row === undefined) return undefined
+    const source = sources?.get(row)
     if (source === undefined && node !== undefined && index !== undefined) {
-      const key = portRefKey({ node: node.id, port: asPortId(inputId) })
+      const key = portRefKey({ node: node.id, port: asPortId(row) })
       if (index.inputDriverOf.has(key) || index.netSourceOf.has(key)) return undefined
     }
-    const value = source === undefined ? node?.values[inputId] : source.kind === 'literal' ? source.value : resolved.get(inputId)
+    const value = source === undefined ? node?.values[row] : source.kind === 'literal' ? source.value : resolved.get(part)
     const typed = value === undefined ? undefined : parseTypedLiteralWire(value)
     return typed === undefined ? value : typed.value
   }
   const initial = object(ed.initial === undefined ? ed.spec?.default : ed.initial)
-  const metadataOnly = ed.target.kind === 'input' && (ed.target.familyOwner?.valueKey ?? ed.target.valueKey) === 'viewport_state'
+  // Writing the viewport's separate state row saves camera and model metadata
+  // only; a viewport on its own input also captures its image, mask and normal.
+  const metadataOnly = ed.target.kind === 'input' && ed.target.parts !== undefined && Object.hasOwn(ed.target.parts.writes, 'state')
   const revision = ed.tab.store.revision
   const [camera, setCamera] = createSignal(undefined as Model3dCameraState | undefined)
   const [transform, setTransform] = createSignal(undefined as Model3dTransform | undefined)
@@ -90,7 +96,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       if (backend.protocol !== 'dinkster') throw new Error(message('load3dWidget.native'))
       const inputs = ['model_3d', 'model_file', 'camera_info', 'model_3d_info', 'width', 'height']
       const producers = inputs.flatMap((inputId) => {
-        const source = sources?.get(inputId)
+        const row = rowOf(inputId)
+        const source = row === undefined ? undefined : sources?.get(row)
         return source?.kind === 'producer' ? [{ inputId, source }] : []
       })
       const unavailable = () => new Error(message('load3dWidget.unavailable'))
@@ -178,7 +185,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         }
       }
       for (const inputId of inputs) {
-        const key = node === undefined ? undefined : portRefKey({ node: node.id, port: asPortId(inputId) })
+        const row = rowOf(inputId)
+        const key = node === undefined || row === undefined ? undefined : portRefKey({ node: node.id, port: asPortId(row) })
         if (key !== undefined && (index?.inputDriverOf.has(key) || index?.netSourceOf.has(key)) && inputValue(inputId) === undefined) throw unavailable()
       }
       const manifest = inputValue('model_3d')
@@ -196,7 +204,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         })
       )) throw new Error(message('load3dWidget.unavailable'))
       const model = object(manifest === undefined ? inputValue('model_file') : file3d.source)
-      const modelExecution = sources?.get(manifest === undefined ? 'model_file' : 'model_3d')?.kind === 'producer'
+      const modelRow = rowOf(manifest === undefined ? 'model_file' : 'model_3d')
+      const modelExecution = modelRow !== undefined && sources?.get(modelRow)?.kind === 'producer'
         ? producerExecution : undefined
       const assetUrl = async (ref: Record<string, Json>) => {
         if (ref.verification === 'unverified' && (typeof ref.localBinding !== 'string' || !ref.localBinding || 'digest' in ref)) {
@@ -242,7 +251,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         if (!live || !sourcesCurrent()) throw unavailable()
         const schema = node === undefined ? undefined : resolveSchema?.(node.type)
         const pointCloud = schema !== undefined && inputsOf(schema).some((input) =>
-          input.id === 'model_3d' && (input.type.kind === 'concrete' ? input.type.name === 'FILE_3D_POINT_CLOUD_ANY'
+          input.id === rowOf('model_3d') && (input.type.kind === 'concrete' ? input.type.name === 'FILE_3D_POINT_CLOUD_ANY'
             : input.type.kind === 'union' && input.type.names.includes('FILE_3D_POINT_CLOUD_ANY')))
         const mounted = await mountModel3dViewer(viewport, primary.url, mime, { resources,
           ...(format ? { format } : {}), pointCloud })

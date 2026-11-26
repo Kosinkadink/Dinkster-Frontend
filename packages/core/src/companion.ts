@@ -23,6 +23,8 @@ import type { GraphDef, Json } from './format/document.js'
 import { asPortId, isPortEndpoint, type LinkEndpoint } from './ids.js'
 import { buildRerouteIndex, traceEndpoint, type RerouteIndex } from './reroute.js'
 import { outputsOf, type NodeSchema } from './schema/model.js'
+import { constructsOf } from './schema/body.js'
+import { elabInputsOf, elaborateInterface, valueKeyOf } from './schema/elaborate.js'
 
 export type CompanionSource =
   /** Document-static literal (value source chain) - always exact. */
@@ -36,6 +38,24 @@ export type CompanionSourceMap = ReadonlyMap<string, ReadonlyMap<string, Compani
 /** Schema-aware fallback for an unstored widget tap's effective value. */
 export type CompanionTapValueResolver = (nodeId: string, inputId: string) => Json | undefined
 
+/**
+ * A tap on a field its node declares inside a group, choice or type-led pin
+ * but does not hold now (an option not chosen, a pin of another type): its
+ * wire gives nothing, so the field's stored value is not what arrives.
+ */
+function tapGivesNothing(
+  def: GraphDef,
+  nodeId: string,
+  tap: string,
+  resolveSchema: ((nodeType: string) => NodeSchema | undefined) | undefined,
+): boolean {
+  const node = def.nodes[nodeId]
+  const schema = node === undefined ? undefined : resolveSchema?.(node.type)
+  if (node === undefined || schema === undefined) return false
+  if (![...constructsOf(schema, node.dynamic).keys()].some((construct) => tap.startsWith(`${construct}.`))) return false
+  return !elabInputsOf(elaborateInterface(schema, node)).some((input) => valueKeyOf(input) === tap)
+}
+
 /** Resolve one endpoint through static literals and schema-declared identity outputs. */
 export function companionSourceOf(
   def: GraphDef,
@@ -48,6 +68,7 @@ export function companionSourceOf(
   const resolve = (endpoint: LinkEndpoint, visited: Set<string>): CompanionSource | undefined => {
     const trace = traceEndpoint(def, endpoint, idx)
     if (trace.kind === 'tapValue') {
+      if (tapGivesNothing(def, trace.node, trace.input, resolveSchema)) return undefined
       const stored = def.nodes[trace.node]?.values?.[trace.input]
       const value = stored !== undefined ? stored : resolveTapValue?.(trace.node, trace.input)
       return value === undefined ? undefined : { kind: 'literal', value }

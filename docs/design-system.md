@@ -826,8 +826,8 @@ state, each painted from its own document at the top level or inside a subgraph
 entered through one subgraph node. The Switch cards show a pick known before the
 run with the branch not picked dimmed, a pick arriving on a wire, a picked
 branch with nothing plugged in, a stored branch that was removed, a position
-outside the branch list, a wired text picking a branch by name, a Choice
-primitive on Pick, a text that names no branch, renaming and random picks, and
+outside the branch list, a wired text picking a branch by name, a Custom Combo
+on Pick, a Choice primitive on Pick, a text that names no branch, renaming and random picks, and
 one subgraph row driving two Switches with and without matching branches. The
 Primitive cards show a range worked out from the fields it feeds, fields that
 share no value, typed and pinned limits, the typed Int, Float, Text, Boolean and
@@ -838,6 +838,18 @@ comparison. A card may carry its own scene, run states, companions, row marks
 and dimmed nodes. Captions name what the canvas does not draw yet: "Not run" and
 "Nothing plugged in" text, and "Not known yet" in place of a wired field's
 struck-through stored value.
+
+Or else, Has value and Only if, under Flow nodes, draws those three nodes as
+ordinary nodes, one card per state of their design. The cards show Or else
+giving its first input that has a value and stopping there, falling through a
+skipped stage, an added third input, two orders of its rows, every input
+nothing, a failure that is not a fallback and a refused wire of another type;
+Has value on 0, No, empty text, an empty list, nothing and no wire; Only if on
+and off, behind a switched-off stage with an Or else after it, with nothing
+plugged into Value, with a Condition that is itself nothing, and with
+Condition shown on two subgraph nodes beside a finished run. A value on a wire
+is named in the caption, since the canvas does not paint it; a skipped node
+shows today's Skipped state and a node that was not run shows no state.
 
 The Idle outline page compares the previous outline (Before) with the quieter
 current outline (After) on idle, hovered and selected nodes. The app and

@@ -78,6 +78,7 @@ import {
   elabInputsOf,
   elabOutputsOf,
   elaborateInterface,
+  ruleProblemRefs,
   selectorMembersOf,
   valueKeyOf,
   EMPTY_CONNECTIVITY,
@@ -87,12 +88,14 @@ import {
   type PortAddress,
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
+import { constructsOf } from '../schema/body.js'
 import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
 import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
   decimalIntegerWire,
+  DINKSTER_GRAPH_FEATURE_ABSENT_INPUT,
   DINKSTER_GRAPH_FEATURE_DECIMAL_INT,
   DINKSTER_GRAPH_FEATURE_REGIONS,
   DINKSTER_GRAPH_FEATURE_TYPED_LITERAL,
@@ -285,6 +288,8 @@ export interface CompileInput {
   readonly placement?: Readonly<Record<string, string>>
 }
 
+const KNOWN_VALUE_TYPES: ReadonlySet<string> = new Set(['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COMBO'])
+
 interface FlatNode {
   readonly runtimeId: string
   readonly occ: Occurrence
@@ -302,7 +307,14 @@ interface FlatNode {
   readonly linkedInputs: Set<string>
   /** Staging record, keyed by ELABORATED input id (remapped to apiName at assembly). */
   readonly inputs: Record<string, Json | readonly [string, number]>
+  /** An editable choice's authored options, keyed by the input its optionsInput names. */
+  readonly authoredOptions?: ReadonlyMap<string, readonly string[]>
 }
+
+/** A Switch's branch names as its rows show them, in member order. */
+const branchNamesOf = (fn: FlatNode): readonly string[] =>
+  (fn.selectorMembers ?? []).map((member) =>
+    fn.elab.inputsByValueKey.get(member)?.spec.displayName ?? member.slice(fn.selector!.group.length + 1))
 
 /**
  * A node's elaborated interface, indexed for compilation. Computed once per
@@ -462,6 +474,7 @@ function compileImpl(
    */
   const emitTypedLiterals = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_TYPED_LITERAL) ?? false
   const emitDecimalInts = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_DECIMAL_INT) ?? false
+  const emitAbsentInputs = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_ABSENT_INPUT) ?? false
   const emitRegions = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_REGIONS) ?? false
   const diags: Diagnostic[] = []
   const elaborationDiagnosticOwners = new Map<Diagnostic, {
@@ -530,6 +543,18 @@ function compileImpl(
   }
 
   const graphOf = (defId: string): GraphDef | undefined => doc.graphs[defId]
+
+  /**
+   * A tap on a field the node declares but does not hold now: a member that
+   * was removed, or a row under an option or type-led pin that is not
+   * chosen. Its wire stays and gives nothing.
+   */
+  const tapsAbsentRow = (defId: string, nodeId: NodeId, tap: string): boolean => {
+    const node = graphOf(defId)?.nodes[nodeId]
+    const schema = node && resolveNode(defId, node)
+    if (!node || !schema) return false
+    return [...constructsOf(schema, node.dynamic).keys()].some((construct) => tap.startsWith(`${construct}.`))
+  }
 
   const anchorOf = (path: readonly NodeId[], node: NodeId): { occurrence: Occurrence } => ({
     occurrence: { instancePath: path, node },
@@ -832,9 +857,13 @@ function compileImpl(
     // Errors (budget exhaustion) fail the compile - a truncated interface
     // must never produce a prompt.
     for (const d of e.diagnostics) {
+      // A failed node rule keeps its data and names its node (and its one
+      // field), so the editor's copy and this one read as one cause.
+      const rule = d.code === 'node.rule.failed'
       const diagnostic = diag(d.severity, 'compile', d.code, `[${where}] ${d.message}`, {
         ...(d.anchor !== undefined ? { anchor: d.anchor } : {}),
-        ...(d.refs !== undefined ? { refs: d.refs } : {}),
+        ...(rule ? { refs: ruleProblemRefs(d, owner.graphId, owner.nodeId), ...(d.data !== undefined ? { data: d.data } : {}) }
+          : d.refs !== undefined ? { refs: d.refs } : {}),
       })
       diags.push(diagnostic)
       elaborationDiagnosticOwners.set(diagnostic, owner)
@@ -1161,7 +1190,13 @@ function compileImpl(
     const inRegion = [...regions.values()].some((region) => path.length >= region.childPath.length &&
       region.childPath.every((segment, index) => path[index] === segment))
     const known = !inRegion && output.spec.knownValue && elab.inputsByValueKey.get(output.spec.knownValue.input)
-    if (known) return { knownValue: { path, defId, node: node.id, input: known } }
+    // A known value applies only to a value of a primitive or choice type. An
+    // input typed by a variable has none until the variable is bound, so the
+    // node runs.
+    const knownType = known ? canonicalTypeIdOf(known.spec.type) : undefined
+    if (known && knownType !== undefined && KNOWN_VALUE_TYPES.has(knownType)) {
+      return { knownValue: { path, defId, node: node.id, input: known } }
+    }
     return { runtimeId: occurrenceKey({ instancePath: path, node: node.id }), outputIndex }
   }
 
@@ -1284,6 +1319,8 @@ function compileImpl(
     : undefined
   const wouldRunInputEdges = wouldRun ? new Map<string, Map<string, Set<string>>>() : undefined
   const randomSelectorInputs = new Map<string, Set<string>>()
+  /** Switches whose known text names no branch: their pick is refused, so would-run stays neutral. */
+  const refusedPicks = new Set<string>()
   const fixedSelectionCache = new Map<string, SelectorResolution>()
   /** Selection narrowed to DECIDED (fixed-policy) selectors: random ones expand. */
   const fixedSelectionFor = (defId: string): SelectorResolution => {
@@ -1382,7 +1419,8 @@ function compileImpl(
      */
     | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec }
     | { readonly kind: 'muted'; readonly reason: string }
-    | { readonly kind: 'dropped'; readonly reason: string }
+    /** `absent`: the wire gives nothing (its field is no longer part of its node), sent as $absent when the server takes it. */
+    | { readonly kind: 'dropped'; readonly reason: string; readonly absent?: true }
 
   type RouteAt =
     | { readonly kind: 'bypass'; readonly bypass: BypassAt }
@@ -1508,6 +1546,9 @@ function compileImpl(
             const driver = index.inputDriverOf.get(portRefKey(ref))
             const netSource = index.netSourceOf.get(portRefKey(ref))
             if (driver || netSource) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: at.path, defId: at.defId, endpoint: driver?.from ?? netSource! } }] }
+            const absent = tappedInputs(at.path, at.defId, endpoint.node, endpoint.tap, []) === undefined &&
+              tapsAbsentRow(at.defId, endpoint.node, endpoint.tap)
+            if (absent) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `field '${endpoint.node}.${endpoint.tap}' is no longer part of its node`, absent: true } }] }
             const tapped = tapValue(at.path, at.defId, endpoint.node, endpoint.tap, sink)
             if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `widget tap '${endpoint.node}.${endpoint.tap}' reaches a muted occurrence` } }] }
             if (tapped === undefined) {
@@ -1772,6 +1813,13 @@ function compileImpl(
       const occ: Occurrence = { instancePath: path, node: node.id }
       const runtimeId = occurrenceKey(occ)
       const elab = elabAt(ctx, node, schema)
+      const authoredOptions = new Map<string, readonly string[]>()
+      for (const input of elab.inputs) {
+        const widget = input.spec.widget
+        const target = widget?.optionsInput ??
+          widget?.representations?.representations.find((item) => item.widget.optionsInput !== undefined)?.widget.optionsInput
+        if (target !== undefined) authoredOptions.set(target, (node.dynamic?.[valueKeyOf(input)]?.options ?? []).map(String))
+      }
       const selectorInputKey = schema.selector === undefined
         ? undefined
         : elab.inputsByValueKey.get(schema.selector.input)?.spec.id
@@ -1789,6 +1837,7 @@ function compileImpl(
         ...(selectorMembers !== undefined ? { selectorMembers } : {}),
         linkedInputs: new Set(),
         inputs: {},
+        ...(authoredOptions.size > 0 ? { authoredOptions } : {}),
       })
     }
   }
@@ -2109,11 +2158,19 @@ function compileImpl(
       const link = connection
       if (isWidgetTapRef(link.from)) {
         const tapped = tappedInputs(path, defId, link.from.node, link.from.tap, [])
-        if (!tapped) {
+        const givesNothing = !tapped && tapsAbsentRow(defId, link.from.node, link.from.tap)
+        // A wire that gives nothing is sent as $absent by the route below when
+        // the server takes it. Otherwise the input is left out of the prompt,
+        // as for a muted producer, and the warning says what that does.
+        if (givesNothing && !emitAbsentInputs) {
+          const into = isPortEndpoint(link.to) ? ` into '${link.to.node}.${link.to.port}'` : ''
+          diags.push(diag('warning', 'compile', 'compile.link.dropped',
+            `The wire from '${link.from.node}.${link.from.tap}'${into} gives nothing: that field is no longer part of its node. Until a run can send nothing, the input is left out: a field sends its own value, and a required input without one refuses the run.`,
+            { anchor: anchorOf(path, link.from.node) }))
+        } else if (!tapped && !givesNothing) {
           diags.push(diag('error', 'compile', 'compile.tap.missingInput', `${link.from.node}.${link.from.tap}: tapped input is missing in graph ${defId}`))
           continue
-        }
-        if (tapped !== 'muted' && tapped.some((i) => canonicalTypeIdOf(i.input.spec.type) === undefined)) {
+        } else if (tapped && tapped !== 'muted' && tapped.some((i) => canonicalTypeIdOf(i.input.spec.type) === undefined)) {
           diags.push(diag('error', 'compile', 'compile.tap.nonConcrete', `${link.from.node}.${link.from.tap}: tapped input has no concrete type`))
           continue
         }
@@ -2231,6 +2288,12 @@ function compileImpl(
           }
           if (trace.kind === 'dropped') {
             diags.push(...routeDiagnostics)
+            const receiver = trace.absent === true && emitAbsentInputs ? flat.get(dst.runtimeId) : undefined
+            if (receiver) {
+              receiver.inputs[dst.inputId] = { $absent: { reason: trace.reason } }
+              receiver.linkedInputs.delete(dst.inputId)
+              recordSuccessfulDelivery(dst)
+            }
             continue
           }
           if (trace.kind === 'value') {
@@ -2263,6 +2326,20 @@ function compileImpl(
           // known (tap fallbacks always carry one; value sources declare no
           // runtime type - no guessing, per the joint contract), else
           // refuse loudly instead of failing at the server.
+          // Known text on a Switch that picks by name resolves here, name
+          // then key, and is sent as the member key: the server reads a
+          // stored text pick as a key. Text naming no branch is refused.
+          if (consumer.selector?.names !== undefined && dst.inputId === consumer.selectorInputKey && typeof baked.value === 'string') {
+            const names = branchNamesOf(consumer)
+            const picked = selectedMember(consumer.selector, consumer.selectorMembers ?? [], baked.value, names)
+            if (picked === undefined) {
+              const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+              diags.push(diag('error', 'compile', 'compile.switch.noBranchNamed', `Switch received "${baked.value}". ${names.length === 1 ? 'The branch is' : 'The branches are'} ${listed}.`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port } as PortRef } }))
+              refusedPicks.add(consumer.runtimeId)
+              continue
+            }
+            baked = { ...baked, value: picked.slice(consumer.selector.group.length + 1) }
+          }
           const dstTypeId = canonicalTypeIdOf(dst.input.spec.type)
           if (isCanonicalUnsafeInteger(baked.value)) {
             if (baked.typeId === 'INT' && dstTypeId === 'INT') {
@@ -2366,7 +2443,7 @@ function compileImpl(
   if (wouldRun) {
     for (const fn of flat.values()) {
       if (!fn.selector || !fn.selectorInputKey || !fn.selectorMembers) continue
-      if (fn.linkedInputs.has(fn.selectorInputKey) || randomPicks.has(fn.runtimeId)) continue
+      if (fn.linkedInputs.has(fn.selectorInputKey) || randomPicks.has(fn.runtimeId) || refusedPicks.has(fn.runtimeId)) continue
       const staged = fn.inputs[fn.selectorInputKey]
       const pick = staged === undefined ? undefined : parseTypedLiteralWire(staged)?.value ?? staged
       const picked = selectedMember(fn.selector, fn.selectorMembers, pick)
@@ -2758,6 +2835,24 @@ function compileImpl(
         node: fn.occ.node,
         port: input.address.port as PortRef['port'],
       }
+      // A Switch's names are sent only when its pick is a wire that may carry
+      // text, so a branch name otherwise stays a label and a rename changes
+      // nothing that is submitted.
+      if (fn.selector?.names !== undefined && valueKeyOf(input) === fn.selector.names) {
+        const pick = fn.inputs[fn.selectorInputKey!]
+        const source = fn.linkedInputs.has(fn.selectorInputKey!) && Array.isArray(pick) && typeof pick[1] === 'number'
+          ? flat.get(pick[0] as string)?.elab.outputs.filter((output) => output.wireable !== false)[pick[1]]
+          : undefined
+        const sourceType = source === undefined ? undefined : canonicalTypeIdOf(source.spec.type)
+        if (source !== undefined && sourceType !== 'INT' && sourceType !== 'BOOLEAN') inputs[submissionName] = [...branchNamesOf(fn)]
+        continue
+      }
+      // The compiler fills an editable choice's options input on every submission.
+      const authored = fn.authoredOptions?.get(valueKeyOf(input))
+      if (authored !== undefined) {
+        inputs[submissionName] = [...authored]
+        continue
+      }
       const v = fn.inputs[input.spec.id]
       if (v !== undefined && fn.node.additionalInputs?.includes(input.address.port) &&
         canonicalTypeIdOf(input.spec.type) === undefined && !fn.linkedInputs.has(input.spec.id) &&
@@ -3049,7 +3144,23 @@ function compileImpl(
     return { nodes }
   }
   const dinksterGraph = emitRegions && included.size > 0 ? buildNativeGraph() : undefined
-  if (dinksterGraph !== undefined) diags.push(...validateDinksterGraph(dinksterGraph, validationContext, options?.placement))
+  if (dinksterGraph !== undefined) {
+    diags.push(...validateDinksterGraph(dinksterGraph, validationContext, options?.placement))
+    // The engine refuses a node whose inputs bring types its one type
+    // variable cannot match; refuse it here before anything is submitted. A
+    // Switch whose pick compiled to a stored value is lowered away by the
+    // server, so only a linked pick counts.
+    for (const fn of flat.values()) {
+      if (!included.has(fn.runtimeId) || regions.has(fn.runtimeId)) continue
+      if (fn.selector !== undefined && !Array.isArray(fn.inputs[fn.selectorInputKey!])) continue
+      for (const conflict of solvedTypes.get(fn.graphId)?.diagnostics ?? []) {
+        if (conflict.code !== 'solve.varConflict' || conflict.severity !== 'error' || conflict.data?.['node'] !== fn.node.id) continue
+        diags.push(diag('error', 'compile', 'compile.typeVariableConflict', conflict.message, {
+          anchor: { occurrence: fn.occ, ...(conflict.anchor?.port !== undefined ? { port: conflict.anchor.port } : {}) },
+        }))
+      }
+    }
+  }
   if (diags.some((diagnostic) => diagnostic.severity === 'error')) {
     return { result: { ok: false, diagnostics: diags } }
   }

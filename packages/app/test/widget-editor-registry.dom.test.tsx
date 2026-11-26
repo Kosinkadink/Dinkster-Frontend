@@ -128,7 +128,9 @@ it('edits camera siblings atomically with schema defaults, validation and undo w
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'view' }, label: 'View',
+    tab, graphId: 'g0', label: 'View',
+    target: { kind: 'input', nodeId: 'n1', valueKey: 'view', parts: { reads: {},
+      writes: { horizontal_angle: 'horizontal_angle', vertical_angle: 'vertical_angle', zoom: 'zoom' } } },
     spec: inputsOf(schema)[3]!.widget, multiline: false, initial: '',
     rect: { x: 0, y: 0, width: 180, height: 24 },
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -152,6 +154,118 @@ it('edits camera siblings atomically with schema defaults, validation and undo w
   expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
   dispose()
 })
+
+it('shows a wired camera angle only when its wire carries a readable value and writes only unwired named rows', async () => {
+  const schema = parseDinksterSchema('CameraRowsFixture', { body: [
+    { kind: 'input', id: 'yaw', type: { kind: 'concrete', types: ['INT'] }, default: 10 },
+    { kind: 'input', id: 'pitch', type: { kind: 'concrete', types: ['INT'] }, default: 20 },
+    { kind: 'input', id: 'zoom', type: { kind: 'concrete', types: ['FLOAT'] }, default: 5 },
+    { kind: 'input', id: 'view', type: { kind: 'concrete', types: ['STRING'] }, default: '', widget: { type: 'CAMERA_ANGLE_VIEW' } },
+  ] }).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema).document!
+  const graph = imported.graphs.g0!
+  // pitch is wired from a literal value of 45; zoom, when wired, comes from a node that has not run.
+  const open = (zoomWired: boolean, writes: Readonly<Record<string, string>>) => {
+    const store = new DocumentStore({ ...imported, graphs: { g0: { ...graph,
+      nodes: { ...graph.nodes, source: { id: asNodeId('source'), type: 'Source', values: {} } },
+      valueSources: { v0: { id: 'v0', value: 45, type: { kind: 'concrete', types: ['INT'] } } },
+      links: {
+        pitch: { id: asLinkId('pitch'), from: { valueSource: 'v0' }, to: { node: asNodeId('n1'), port: asPortId('pitch') } },
+        ...(zoomWired ? { zoom: { id: asLinkId('zoom'), from: { node: asNodeId('source'), port: asPortId('FLOAT') },
+          to: { node: asNodeId('n1'), port: asPortId('zoom') } } } : {}),
+      },
+    } } } as never, coreCommandRegistry())
+    const tab = { store } as unknown as Tab
+    const registry = createWidgetRegistry()
+    const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
+      registryForTab: () => ({ resolve: () => schema }),
+      dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+    } as unknown as AppState
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <WidgetEditor app={app} ed={{
+      tab, graphId: 'g0', label: 'View', target: { kind: 'input', nodeId: 'n1', valueKey: 'view', parts: { reads: {}, writes } },
+      spec: inputsOf(schema)[3]!.widget, multiline: false, initial: '',
+      rect: { x: 0, y: 0, width: 180, height: 24 },
+    }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    return { root, store, dispose }
+  }
+  const field = (root: HTMLElement, name: string) => root.querySelector<HTMLInputElement>(`#camera-angle-${name}`)!
+  const button = (root: HTMLElement, text: string) => Array.from(root.querySelectorAll('button')).find((item) => item.textContent === text)
+  const allRows = { horizontal_angle: 'yaw', vertical_angle: 'pitch', zoom: 'zoom' }
+
+  // A readable wired value is shown, not editable, and drawn into the picture.
+  const readable = open(false, allRows)
+  expect(field(readable.root, 'vertical_angle').value).toBe('45')
+  expect(field(readable.root, 'vertical_angle').disabled).toBe(true)
+  expect(field(readable.root, 'horizontal_angle').disabled).toBe(false)
+  expect(readable.root.querySelector('output')!.textContent).toBe('Camera position: X 0.74, Y 4.24, Z 4.18')
+  const before = readable.store.doc.graphs.g0!.nodes.n1!.values
+  const revision = readable.store.revision
+  button(readable.root, 'Cancel')!.click()
+  readable.dispose()
+  expect(readable.store.revision).toBe(revision)
+
+  // An unreadable wired value shows no number, never the stored one, and the picture is not drawn.
+  const unreadable = open(true, allRows)
+  expect(field(unreadable.root, 'zoom').value).toBe('')
+  expect(field(unreadable.root, 'zoom').placeholder).toBe('Linked')
+  expect(field(unreadable.root, 'zoom').disabled).toBe(true)
+  expect(unreadable.root.querySelector('output')).toBeNull()
+  expect(unreadable.root.textContent).toContain('No value for Zoom (0-10) here, so the preview is not drawn.')
+  field(unreadable.root, 'horizontal_angle').value = '90'
+  field(unreadable.root, 'horizontal_angle').dispatchEvent(new Event('input', { bubbles: true }))
+  button(unreadable.root, 'Apply camera angle')!.click()
+  await vi.waitFor(() => expect(unreadable.store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, yaw: 90 }))
+  unreadable.dispose()
+
+  // With nothing editable, Apply is not offered.
+  const none = open(true, { zoom: 'zoom' })
+  expect(fields(none.root).every((input) => input.disabled)).toBe(true)
+  expect(button(none.root, 'Apply camera angle')).toBeUndefined()
+  none.dispose()
+})
+
+it.each([
+  { node: 'dinkster.video.video_trim', id: 'trim', feature: 'trim', stored: { trim: { start_time: 2, duration: 3 } },
+    shown: { 'video-trim-start-seconds': '2', 'video-trim-duration-seconds': '3' } },
+  { node: 'dinkster.video.video_crop', id: 'crop', feature: 'crop', stored: { crop: { x: 16, y: 8, width: 320, height: 240 } },
+    shown: { 'video-crop-x': '16', 'video-crop-y': '8', 'video-crop-width': '320', 'video-crop-height': '240' } },
+])('opens $node at its stored value and closing unchanged writes nothing', async ({ node, id, feature, stored, shown }) => {
+  // The rows these nodes declare: the edit is the input the widget sits on, and Trim writes a strict duration row.
+  const schema = parseDinksterSchema(node, { body: [
+    { kind: 'input', id: 'video', type: { kind: 'concrete', types: ['VIDEO'] } },
+    { kind: 'input', id, type: { kind: 'concrete', types: ['VIDEO_EDIT'] }, default: {},
+      widget: { type: 'VIDEO_EDIT', features: [feature], ...(feature === 'trim' ? { writes: { strict_duration: 'strict_duration' } } : {}) } },
+    ...(feature === 'trim' ? [{ kind: 'input', id: 'strict_duration', type: { kind: 'concrete', types: ['BOOLEAN'] }, default: false }] : []),
+  ] } as never).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema).document!
+  const store = new DocumentStore(imported, coreCommandRegistry())
+  store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: id, value: stored } })
+  const before = store.doc.graphs.g0!.nodes.n1!.values
+  const revision = store.revision
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }), executionForTab: () => undefined,
+    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+  } as unknown as AppState
+  const input = inputsOf(schema).find((row) => row.id === id)!
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{
+    tab, graphId: 'g0', label: id, spec: input.widget, declaredType: input.type, multiline: false,
+    target: { kind: 'input', nodeId: 'n1', valueKey: id, parts: { reads: {}, writes: input.widget!.writes ?? {} } },
+    rect: { x: 0, y: 0, width: 180, height: 24 }, initial: stored,
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  for (const [testId, value] of Object.entries(shown))
+    expect(root.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`)?.value, testId).toBe(value)
+  root.querySelector<HTMLButtonElement>('[data-testid="video-edit-apply"]')!.click()
+  await Promise.resolve()
+  expect(store.revision).toBe(revision)
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+  dispose()
+})
+
+const fields = (root: HTMLElement) => ['horizontal_angle', 'vertical_angle', 'zoom'].map((name) => root.querySelector<HTMLInputElement>(`#camera-angle-${name}`)!)
 
 it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews and releases late results', async (kind) => {
   const inputId = kind === 'BOUNDING_BOX' ? 'crop_region' : 'compare_view'
@@ -200,7 +314,8 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
     vi.stubGlobal('createImageBitmap', decode)
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <WidgetEditor app={app} ed={{
-      tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: inputId }, label: 'Preview',
+      tab, graphId: 'g0', label: 'Preview', target: { kind: 'input', nodeId: 'n1', valueKey: inputId,
+        parts: { writes: {}, reads: kind === 'BOUNDING_BOX' ? { image: 'image' } : { image_a: 'image_a' } } },
       spec: inputsOf(schema)[1]!.widget, multiline: false, initial,
       rect: { x: 0, y: 0, width: 180, height: 24 },
     }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)

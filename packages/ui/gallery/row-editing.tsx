@@ -36,8 +36,10 @@ import {
 import {
   createRowEditingScene,
   createRowFocusScene,
+  createRowSpecialScene,
   rowEditingSchema,
   rowFocusSchema,
+  rowSpecialSchema,
 } from '../../canvas/gallery/fixtures.js'
 import {
   CanvasRowField,
@@ -63,6 +65,8 @@ export interface RowExample {
   /** The row the keyboard is on while nothing is open, on the keyboard node. */
   readonly focus?: string
   readonly drag?: { readonly valueKey: string; readonly value: Json }
+  /** Shows the node whose number has a special value instead of the shared sample node. */
+  readonly special?: boolean
   /**
    * The canvas ends where the example does, so the side part keeps within
    * it. Otherwise the example grows to show the whole side part.
@@ -222,6 +226,28 @@ const groups: readonly {
     ],
   },
   {
+    title: 'A special value',
+    examples: [
+      {
+        id: 'special-closed',
+        caption:
+          'frame_load_cap allows 1 to 10000 and declares 0 as "no limit". Stored at 0, the row shows the label in place of the number.',
+        scale: 1,
+        width: MARGIN * 2 + NODE_WIDTH,
+        node: { x: MARGIN, y: MARGIN },
+        special: true,
+      },
+      {
+        ...besideRight(
+          'special-open',
+          'Clicked frame_load_cap: the field holds the number itself, 0, to type over or step. A step up goes to 1, the lowest value inside the limits, and a step down from 1 comes back to 0.',
+          'frame_load_cap',
+        ),
+        special: true,
+      },
+    ],
+  },
+  {
     title: 'Near the canvas edge',
     examples: [
       {
@@ -346,9 +372,11 @@ export function RowEditingExample(props: {
             : undefined
         }
         const built = (
-          example.focus === undefined
-            ? createRowEditingScene
-            : createRowFocusScene
+          example.special === true
+            ? createRowSpecialScene
+            : example.focus === undefined
+              ? createRowEditingScene
+              : createRowFocusScene
         )(
           tokens,
           measure,
@@ -399,7 +427,11 @@ export function RowEditingExample(props: {
     )
     if (!row) return undefined
     const schema =
-      props.example.focus === undefined ? rowEditingSchema : rowFocusSchema
+      props.example.special === true
+        ? rowSpecialSchema
+        : props.example.focus === undefined
+          ? rowEditingSchema
+          : rowFocusSchema
     const item = schema.body.find(
       (item) => item.kind === 'input' && item.id === row.inputId,
     )
