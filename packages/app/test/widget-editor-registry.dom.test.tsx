@@ -10,6 +10,30 @@ import { CurveSpace, SaveTargetSpace } from '../src/InNodeEditorSpaces.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it.each([false, true])('commits arithmetic in a local in-row editor on Tab (reverse: %s)', async (reverse) => {
+  const registry = createWidgetRegistry()
+  const app = { widgetRegistryForTab: () => registry } as unknown as AppState
+  let value: unknown = 1
+  let closed = false
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{
+    tab: {} as Tab, graphId: 'g0', label: 'Amount',
+    target: { kind: 'local', commit: (next) => { value = next }, cancel: () => {} },
+    spec: { widgetType: 'INT', options: { min: 0, max: 100, step: 1 }, default: 1 },
+    multiline: false, initial: 1,
+    rect: { x: 0, y: 0, width: 180, height: 24 },
+    inRow: { look: 'flat-title', nodeTop: 0, nodeBottom: 100, storedAtOpen: 1 },
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => { closed = true }} />, root)
+  try {
+    const input = root.querySelector<HTMLInputElement>('input')!
+    input.value = '13+6'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: reverse, bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(closed).toBe(true))
+    expect(value).toBe(19)
+  } finally { dispose() }
+})
+
 it('edits only unwired mapped Save parts and discards a draft when that part becomes blocked', async () => {
   const [mode, setMode] = createSolidSignal<'name-wired' | 'mount-unknown' | 'readOnly' | 'disabled'>('name-wired')
   const changes: Json[] = []

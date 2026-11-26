@@ -2084,12 +2084,24 @@ describe('node chrome paint on the live renderer', () => {
     const row = fs.layout.rows.find((candidate) => candidate.kind === 'widget')!
     const calls = paint(scene)
     const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label &&
-      c.args[2] === fs.y + row.y + row.height / 2)
+      (c.args[2] as number) >= fs.y + row.y && (c.args[2] as number) <= fs.y + row.y + row.height)
     expect(connectedText?.globalAlpha).toBeCloseTo(0.45)
-    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === '3.5')).toBe(true)
-    expect(calls.some((c) =>
-      c.method === 'stroke' && c.strokeStyle === defaultTokens.colors.value && c.lineWidth === 1.5,
-    )).toBe(true)
+    const valueText = calls.find((c) => c.method === 'fillText' && c.args[0] === '3.5')!
+    const strike = calls.slice(calls.indexOf(valueText) + 1).find((c) => c.method === 'stroke')!
+    const strikeIndex = calls.indexOf(strike)
+    expect(strike).toMatchObject({
+      strokeStyle: defaultTokens.colors.value,
+      lineWidth: 1.5,
+      globalAlpha: 0.45,
+    })
+    expect(calls[strikeIndex - 2]).toMatchObject({
+      method: 'moveTo',
+      args: [(valueText.args[1] as number) - 18, fs.y + row.y + defaultTokens.rowHeight / 2],
+    })
+    expect(calls[strikeIndex - 1]).toMatchObject({
+      method: 'lineTo',
+      args: [valueText.args[1], fs.y + row.y + defaultTokens.rowHeight / 2],
+    })
 
     const companionCalls = paintWith(scene, (renderer) => {
       renderer.setCompanions({ fs: { f: { value: 2.5 } } })
