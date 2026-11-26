@@ -58,7 +58,9 @@ import {
   type MaterializeFrame,
 } from '../schema/elaborate.js'
 import type { ButtonSpec, DescribedSpec, GroupSpec, InputSpec, NodeSchema, OptionRow } from '../schema/model.js'
+import { canonicalTypeIdOf, typeExprFromTypeId } from '../schema/model.js'
 import { integerWidgetValue, numericStepConstraints } from '../schema/numeric-step.js'
+import { solveGraphTypes } from '../schema/solve.js'
 import { typesCompatible } from '../schema/type-relations.js'
 import { effectiveWidgetDefault, readWhenUnset } from '../schema/widget-defaults.js'
 import { decodeSteps, isOutsideStep, type Argument, type Step, type StepValue } from './steps.js'
@@ -367,6 +369,7 @@ interface View {
   readonly connectivity: Connectivity
   readonly valueOwners: ReadonlyMap<string, ValueOwner>
   readonly incomingValue: (path: string, onRead?: (place: StepPlace, path: string) => void) => Json | undefined
+  readonly incomingType: (path: string, onRead?: (place: StepPlace, path: string) => void) => string | undefined
 }
 
 function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, reading = new Set<string>()): View | undefined {
@@ -409,8 +412,8 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
     isOutputConnected: (port) => outputs.has(port),
     inputPorts: () => [...inputs], outputPorts: () => [...outputs],
   }
-  const incomingValue: View['incomingValue'] = (port, onRead) => {
-    const key = JSON.stringify([target.graphId, path, target.nodeId, port])
+  const incoming = (port: string, mode: 'value' | 'type', onRead?: (place: StepPlace, path: string) => void): Json | undefined => {
+    const key = JSON.stringify([mode, target.graphId, path, target.nodeId, port])
     if (reading.has(key)) return undefined
     reading.add(key)
     try {
@@ -418,20 +421,39 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
         link.to.graphId === graph.id && JSON.stringify(link.to.instancePath) === JSON.stringify(path) &&
         isPortEndpoint(link.to.endpoint) && link.to.endpoint.node === node.id &&
         portAddressKey(link.to.endpoint.port) === portAddressKey(port))
-      if (link !== undefined) return endpointValue(link.from.graphId, link.from.instancePath, link.from.endpoint, onRead)
+      if (link !== undefined) return endpointRead(link.from.graphId, link.from.instancePath, link.from.endpoint, mode, onRead)
       if (topology !== undefined) return undefined
       const driver = definitionDriverOf(graph, node.id, port)
-      return driver && endpointValue(graph.id, path, driver.from, onRead)
+      return driver && endpointRead(graph.id, path, driver.from, mode, onRead)
     } finally {
       reading.delete(key)
     }
   }
-  const endpointValue = (graphId: string, instancePath: readonly string[], endpoint: LinkEndpoint, onRead?: (place: StepPlace, path: string) => void): Json | undefined => {
+  const incomingValue: View['incomingValue'] = (port, onRead) => incoming(port, 'value', onRead)
+  const incomingType: View['incomingType'] = (port, onRead) => {
+    const type = incoming(port, 'type', onRead)
+    return typeof type === 'string' ? type : undefined
+  }
+  const resolvedType = (source: View, side: 'input' | 'output', port: string, onRead?: (place: StepPlace, path: string) => void): string | undefined => {
+    const field = side === 'input' ? inputAt(source, port) : elabOutputsOf(source.elaborated).find((output) => portAddressKey(output.address.port) === portAddressKey(port))
+    if (field === undefined) return undefined
+    const declared = canonicalTypeIdOf(field.spec.type)
+    if (declared !== undefined) return declared
+    const projectedInputs = elabInputsOf(source.elaborated).flatMap((input) => {
+      const type = source.incomingType(valueKeyOf(input), onRead)
+      return type === undefined ? [] : [{ type: typeExprFromTypeId(type), to: { node: source.node.id, port: asPortId(input.address.port) } }]
+    })
+    const graph = { ...source.graph, nodes: { [source.node.id]: source.node }, links: {}, nets: {}, reroutes: {} }
+    const solved = solveGraphTypes(graph, () => source.schema, { connectivityOf: () => source.connectivity, projectedInputs })
+    const type = solved.portTypeOf(source.node.id, side, port)
+    return type === undefined ? undefined : canonicalTypeIdOf(type)
+  }
+  const endpointRead = (graphId: string, instancePath: readonly string[], endpoint: LinkEndpoint, mode: 'value' | 'type', onRead?: (place: StepPlace, path: string) => void): Json | undefined => {
     const sourceGraph = doc.graphs[graphId]
     if (sourceGraph === undefined) return undefined
     if (!isPortEndpoint(endpoint) && !isExactWidgetTapRef(endpoint)) {
       if (instancePath.length > 0) {
-        const key = JSON.stringify([graphId, instancePath, endpoint])
+        const key = JSON.stringify([mode, graphId, instancePath, endpoint])
         if (reading.has(key)) return undefined
         reading.add(key)
         try {
@@ -440,14 +462,14 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
           })
           const driver = [...topology.links, ...topology.projectedParentLinks].find((link) =>
             link.to.graphId === graphId && JSON.stringify(link.to.instancePath) === JSON.stringify(instancePath) && sameEndpoint(link.to.endpoint, endpoint))
-          return driver && endpointValue(driver.from.graphId, driver.from.instancePath, driver.from.endpoint, onRead)
+          return driver && endpointRead(driver.from.graphId, driver.from.instancePath, driver.from.endpoint, mode, onRead)
         } finally {
           reading.delete(key)
         }
       }
       const trace = traceEndpoint(sourceGraph, endpoint, buildRerouteIndex(sourceGraph))
-      if (trace.kind === 'output') return endpointValue(graphId, instancePath, trace.ref, onRead)
-      if (trace.kind === 'tapValue') return endpointValue(graphId, instancePath, { node: trace.node, tap: trace.input }, onRead)
+      if (trace.kind === 'output') return endpointRead(graphId, instancePath, trace.ref, mode, onRead)
+      if (trace.kind === 'tapValue') return endpointRead(graphId, instancePath, { node: trace.node, tap: trace.input }, mode, onRead)
       return undefined
     }
     const sourceNode = sourceGraph.nodes[endpoint.node]
@@ -465,14 +487,18 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
         const binding = match.item.binds
         const port = binding.kind === 'construct'
           ? innerConstructAddress(def, binding, match.item.id, endpoint.port, (node) => host.schemaOf(doc, child, node)) : undefined
-        return endpointValue(child, [...instancePath, sourceNode.id], binding.kind === 'widgetTap'
+        return endpointRead(child, [...instancePath, sourceNode.id], binding.kind === 'widgetTap'
           ? { node: binding.node, tap: binding.tap }
-          : { node: binding.node, port: asPortId(port ?? binding.port) }, onRead)
+          : { node: binding.node, port: asPortId(port ?? binding.port) }, mode, onRead)
       }
       const outputs = elabOutputsOf(source.elaborated).filter((output) => output.wireable !== false)
       const index = outputs.findIndex((output) => portAddressKey(output.address.port) === portAddressKey(endpoint.port))
       const output = outputs[index]
       if (output === undefined) return undefined
+      if (mode === 'type' && sourceNode.mode !== 'bypassed') {
+        onRead?.({ graphId, nodeId: sourceNode.id, instancePath }, output.address.port)
+        return resolvedType(source, 'output', output.address.port, onRead)
+      }
       if (sourceNode.mode === 'bypassed') {
         input = matchBypassInput({ index, type: output.spec.type }, buildBypassCandidates(elabInputsOf(source.elaborated), (field) =>
           source.connectivity.isInputConnected(valueKeyOf(field)) ? valueKeyOf(field) : undefined))?.driver
@@ -483,14 +509,15 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
     if (field === undefined) return undefined
     const valueKey = valueKeyOf(field)
     onRead?.({ graphId, nodeId: sourceNode.id, instancePath }, valueKey)
+    if (mode === 'type') return source.connectivity.isInputConnected(valueKey) ? source.incomingType(valueKey, onRead) : resolvedType(source, 'input', field.address.port, onRead)
     if (source.connectivity.isInputConnected(valueKey)) return source.incomingValue(valueKey, onRead)
     if (field.derivedValue !== undefined) return field.derivedValue
     if (Object.hasOwn(source.node.values, valueKey)) return source.node.values[valueKey]
     return field.automatic?.value ?? (readWhenUnset(field.spec) as Json | undefined)
   }
   const contexts = new Map<string, FormulaContext>()
-  const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue })
-  return { doc, graph, node, schema, elaborated, contexts, connectivity, incomingValue, valueOwners: occurrence?.valueOwners.get(node.id) ?? new Map() }
+  const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue, incomingType })
+  return { doc, graph, node, schema, elaborated, contexts, connectivity, incomingValue, incomingType, valueOwners: occurrence?.valueOwners.get(node.id) ?? new Map() }
 }
 
 /** The declaration and scope prefix of the pressed button. */
@@ -866,6 +893,7 @@ class Press {
     this.actions.push({ kind: 'read', ...(target === this.target ? {} : { target }), path, field: inputAt(view, path) !== undefined, group, members, choices })
     if (incoming && view.connectivity.isInputConnected(path)) {
       view.incomingValue(path, (place, path) => this.retainRead(path, false, place, false))
+      view.incomingType(path, (place, path) => this.retainRead(path, false, place, false))
     }
   }
 

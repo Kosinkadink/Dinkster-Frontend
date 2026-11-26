@@ -17,7 +17,7 @@ import { compile, documentResolver } from '../src/compile/compile.js'
 import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
 import { diag } from '../src/diagnostics.js'
 import type { GraphDef, Json, NodeData, WorkflowDocument } from '../src/format/document.js'
-import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
+import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, isPortEndpoint } from '../src/ids.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
@@ -826,6 +826,62 @@ describe('each step', () => {
 })
 
 describe('what a press may write', () => {
+  it('reads connected types without execution values and refreshes facts after Disconnect', async () => {
+    const int = (id: string) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 7 })
+    const rows = [
+      int('source'),
+      { kind: 'input', id: 'result', type: { kind: 'concrete', types: ['STRING'] }, default: 'old' },
+      { kind: 'input', id: 'after', type: { kind: 'concrete', types: ['STRING'] }, default: 'before' },
+      { kind: 'button', id: 'fact', label: 'Read type', steps: [
+        { step: 'set', field: 'result', value: { formula: 'linked_type(source) if linked(source) else "unwired"' } },
+        { step: 'disconnect', input: 'source' },
+        { step: 'set', field: 'after', value: { formula: '"disconnected" if linked_type(source) == None else "still linked"' } },
+      ] },
+    ]
+    addSchema('test.type_fact', rows)
+    addSchema('test.type_fact_member', [{ kind: 'group', id: 'items', grows: 'button', minMembers: 0, maxMembers: 4,
+      keys: { numbered: { prefix: 'm', start: 0, pad: 0 } }, member: rows }])
+    addSchema('test.type_fact_source', [int('value'), { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }])
+    addSchema('test.type_fact_generic', [
+      { kind: 'input', id: 'value', type: { kind: 'variable', templateId: 'T' } },
+      { kind: 'output', id: 'out', type: { kind: 'variable', templateId: 'T' } },
+    ])
+    for (const prefix of ['', 'items.m0.']) for (const driver of ['none', 'output', 'tap', 'net', 'reroute', 'generic', 'bypass']) {
+      const connected = driver !== 'none'
+      const from = driver === 'tap' ? { node: asNodeId('src'), tap: asPortId('value') }
+        : driver === 'reroute' ? { reroute: 'junction' as never } : { node: asNodeId('src'), port: asPortId('out') }
+      const to = { node: asNodeId('n1'), port: asPortId(prefix + 'source') }
+      const initial = documentOf({
+        n1: { type: prefix === '' ? 'test.type_fact' : 'test.type_fact_member', values: { [prefix + 'result']: 'old', [prefix + 'after']: 'before' },
+          ...(prefix === '' ? {} : { dynamic: { items: { members: ['m0'], seq: 1 } } }) },
+        src: { type: driver === 'generic' ? 'test.type_fact_generic' : 'test.type_fact_source', ...(driver === 'bypass' ? { mode: 'bypassed' as const } : {}) },
+        upstream: { type: 'test.type_fact_source' },
+      }, {
+        ...(connected && driver !== 'net' ? { feed: { id: asLinkId('feed'), from, to } } : {}),
+        ...(driver === 'reroute' ? { bridge: { id: asLinkId('bridge'), from: { node: asNodeId('src'), port: asPortId('out') }, to: from } } : {}),
+        ...(driver === 'generic' || driver === 'bypass' ? link('bridge', ['upstream', 'out'], ['src', 'value']) : {}),
+      })
+      const doc: WorkflowDocument = { ...initial, graphs: { g0: { ...initial.graphs['g0']!,
+        ...(driver === 'net' ? { nets: { feed: { id: 'feed' as never, name: 'Typed source', source: { node: asNodeId('src'), port: asPortId('out') }, sinks: [to] } } } : {}),
+        ...(driver === 'reroute' ? { reroutes: { junction: { id: 'junction' as never } } } : {}),
+      } } }
+      const session = sessionOf(doc)
+      const host = hostOf()
+      const target = at(prefix + 'fact')
+      expect(buttonAvailability(doc, target, host), driver + prefix).toEqual({ enabled: true })
+      const outcome = await runPress(session, target, host)
+      expect(outcome.kind, driver + prefix + ': ' + outcome.message).toBe('done')
+      expect(valuesOf(session)).toEqual({ [prefix + 'result']: connected ? 'INT' : 'unwired', [prefix + 'after']: 'disconnected' })
+      expect(Object.values(session.doc.graphs['g0']!.links).some((link) => isPortEndpoint(link.to) && link.to.node === 'n1')).toBe(false)
+      const after = session.doc
+      expect(session.undo()).toBe(true)
+      expect(session.doc).toEqual(doc)
+      expect(session.canUndo).toBe(false)
+      expect(session.redo()).toBe(true)
+      expect(session.doc).toEqual(after)
+    }
+  })
+
   it('fails on an off-step whole number or an option the field does not have, and stores a decimal off its step', async () => {
     const session = sessionOf(documentOf({ n1: { type: 'dev.buttons.field_steps', values: { width: 512, mode: 'fast', scale: 0.5 } } }))
     expect((await runPress(session, at('off_step'), hostOf())).message).toBe('Nothing was changed. width moves in steps of 64; the button gave 100.')

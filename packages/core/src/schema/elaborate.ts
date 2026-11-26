@@ -714,6 +714,8 @@ export interface ElaborateOptions {
   readonly formulaContexts?: Map<string, FormulaContext>
   /** Document-static value delivered to a linked input; undefined remains unknown. */
   readonly incomingValue?: (path: string) => Json | undefined
+  /** Connected producer's resolved type, independent of its execution value. */
+  readonly incomingType?: (path: string) => string | undefined
 }
 
 /** What a formula sees in one scope of a node, and where each name it reads is stored. */
@@ -888,12 +890,12 @@ export function automaticValueOf(row: InputSpec, value: FormulaValue | Json): Js
 }
 
 /** Formula values worked out only when the formula reads them. */
-class LazyValues extends Map<string, FormulaValue | Unknown> {
-  private readonly thunks = new Map<string, () => FormulaValue | Unknown>()
-  setLazy(name: string, thunk: () => FormulaValue | Unknown): void {
+class LazyValues<T = FormulaValue | Unknown> extends Map<string, T> {
+  private readonly thunks = new Map<string, () => T>()
+  setLazy(name: string, thunk: () => T): void {
     this.thunks.set(name, thunk)
   }
-  override get(name: string): FormulaValue | Unknown | undefined {
+  override get(name: string): T | undefined {
     if (!super.has(name) && this.thunks.has(name)) super.set(name, this.thunks.get(name)!())
     return super.get(name)
   }
@@ -1339,6 +1341,7 @@ function elaboratePass(
     const member = [...scope.formulaFrames].reverse().find((frame) => frame.index !== undefined)
     const values = new LazyValues()
     const wired = new Map<string, boolean>()
+    const linkedTypes = new LazyValues<string | null>()
     const sizes = new Map<string, number>()
     for (const [name, kind] of names.names) {
       const path = where.get(name)!
@@ -1368,6 +1371,7 @@ function elaboratePass(
       } else {
         if (kind !== 'opaque') values.setLazy(name, () => valueFor(path, kind, defaults.get(path)))
         if (names.inputs.has(name)) wired.set(name, linked(path))
+        if (names.inputs.has(name) && linked(path)) linkedTypes.setLazy(name, () => options.incomingType?.(path) ?? null)
       }
     }
     return {
@@ -1382,6 +1386,7 @@ function elaboratePass(
       values: {
         values,
         linked: wired,
+        linkedTypes,
         groupSizes: sizes,
         memberIndex: member?.index ?? null,
         memberKey: member?.key ?? null,
