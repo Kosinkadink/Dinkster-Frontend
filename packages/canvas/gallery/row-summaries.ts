@@ -179,13 +179,6 @@ const kindCases: readonly KindCase[] = [
     narrow: 170,
   },
   {
-    title: 'Resolution preview',
-    widgetType: 'RESOLUTION_PREVIEW',
-    empty: null,
-    populated: null,
-    narrow: 170,
-  },
-  {
     title: 'Save target',
     widgetType: 'SAVE_TARGET',
     empty: null,
