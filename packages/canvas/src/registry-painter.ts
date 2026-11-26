@@ -11,7 +11,7 @@
 import { formatWidgetValue, t as translate, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { companionWords, defaultWidgetPainter, drawsPassedValueAsEditor, fitSummary, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type SummaryFit, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
+import { companionWords, defaultWidgetPainter, drawsPassedValueAsEditor, fitSummary, fitSummaryParts, summaryPartsWidth, summaryThumbnailReserve, paintSummaryParts, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type SummaryFit, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
 import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
@@ -97,7 +97,6 @@ export function widgetValueText(registry: WidgetRegistry, viewId: string, value:
 
 /** Kind icon of each row that opens an editor, raised in the `raised-editors` look. */
 const RAISED_ROW_ICONS: Readonly<Record<string, NonNullable<ToolboxButton['icon']>>> = {
-  'core.asset': 'image',
   'core.audioRecord': 'mic',
   'core.webcam': 'camera',
   'core.load3d': 'box',
@@ -115,10 +114,18 @@ type WidgetRow = WidgetPaintArgs['row']
 
 /** The icon a raised opener row shows before its name, if any. */
 function openerIconOf(row: WidgetRow, tokens: DesignTokens): NonNullable<ToolboxButton['icon']> | undefined {
+  if (row.viewId === 'core.asset') {
+    const accept = Array.isArray(row.spec.options['accept']) ? row.spec.options['accept'].filter((item): item is string => typeof item === 'string') : []
+    const family = row.spec.kind?.startsWith('model/') === true ? 'model'
+      : row.spec.kind?.startsWith('media/') === true ? row.spec.kind.slice('media/'.length)
+      : accept.length > 0 && accept.every((item) => item.startsWith(`${accept[0]!.split('/', 1)[0]}/`)) ? accept[0]!.split('/', 1)[0]
+      : undefined
+    return family === 'image' || family === 'mask' ? 'image' : family === 'video' ? 'film'
+      : family === 'audio' ? 'audio-lines' : family === 'model' || family === 'model3d' ? 'box' : 'file'
+  }
   return tokens.widgetRowLook === 'raised-editors'
     ? PARKED_EDITOR_VIEWS.has(row.viewId) ? undefined : RAISED_ROW_ICONS[row.viewId]
-    : row.viewId === 'core.asset' ? 'image'
-      : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
+    : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
       : undefined
 }
 
@@ -192,26 +199,42 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       // shared read-only style for every widget kind, drawn over the shared
       // row chrome - never the view's interactive presentation.
       const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)
+      const assetIcon = row.viewId === 'core.asset' ? openerIconOf(row, tokens) : undefined
       if (row.viewId !== 'core.compositor') {
-        ctx.fillStyle = tokens.colors.widgetBackground
+        ctx.fillStyle = assetIcon === undefined ? tokens.colors.widgetBackground : tokens.colors.widgetRaised
         ctx.beginPath()
         ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
         ctx.fill()
+        if (assetIcon !== undefined) {
+          ctx.strokeStyle = tokens.colors.nodeIdleOutline
+          ctx.lineWidth = paint.opener.stroke
+          ctx.stroke()
+          paintToolboxIcon(ctx, assetIcon, x + paint.opener.iconInset, y + rowHeight / 2 - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.value)
+          paintToolboxIcon(ctx, 'chevron-right', x + width - paint.opener.trailingInset - paint.opener.iconSize,
+            y + rowHeight / 2 - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.label)
+        }
       }
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
       const words = companionWords(args.companion)
-      const summary = words === undefined && tokens.widgetRowLook === 'raised-editors'
+      const compact = words === undefined && tokens.widgetRowLook === 'raised-editors'
         ? compactSummary(view, args.companion.value, row.spec)
         : undefined
+      const summary = compact === undefined ? undefined : {
+        ...compact,
+        ...(args.editorSummary?.text === undefined ? {} : { text: args.editorSummary.text }),
+        ...(!row.unfolded && args.editorSummary?.thumbnails !== undefined ? { thumbnails: args.editorSummary.thumbnails } : {}),
+      }
       const formatted = words ?? summary?.text ?? formatWidgetValue(args.companion.value, row.spec)
       const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-      const field = widgetFieldBounds(width, rowHeight, numeric, words === undefined && row.controllerMode !== undefined, tokens.rowGeometry)
+      const field = assetIcon === undefined ? widgetFieldBounds(width, rowHeight, numeric, words === undefined && row.controllerMode !== undefined, tokens.rowGeometry)
+        : { left: paint.opener.iconReserve, right: width - paint.opener.trailingReserve }
       const lead = subgraphMarkReserve(row)
-      const companionZone = shareRowWidth(field.right - field.left, lead + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
+      const picturesWidth = summaryThumbnailReserve(ctx, summary?.thumbnails)
+      const companionZone = shareRowWidth(field.right - field.left, lead + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + picturesWidth + paint.labelWidthPadding)
       ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - lead - paint.labelClipPadding)), x + field.left + lead + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
       paintSubgraphMark(args, true, numeric)
-      paintCompanionValue(args, summary)
+      paintCompanionValue(args, summary, field)
       return
     }
     // A field with nothing stored that declares automatic shows the value it
@@ -301,6 +324,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         + (sketch === undefined ? 0 : sketch.size + paint.curve.gap)
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
         + (args.editorSummary?.thumbnail !== undefined && !row.unfolded ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
+        + (!row.unfolded ? summaryThumbnailReserve(ctx, args.editorSummary?.thumbnails) : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
     const controller = row.controllerMode !== undefined && modeIcon === undefined
       ? controllerChipRect(width, rowHeight, geometry)
@@ -315,7 +339,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const modeIconReserve = modeIcon === undefined ? 0 : paint.modeIconLead + modeIconSize + paint.modeIconGap
     // Empty editor rows and valueless openers keep their label whole while
     // it fits; what they ask for takes what is left and is cut first.
-    const labelFirst = (args.editorSummary?.placeholder ?? (RAISED_ROW_ICONS[row.viewId] === undefined
+    const labelFirst = (args.editorSummary?.placeholder ?? (row.viewId !== 'core.asset' && RAISED_ROW_ICONS[row.viewId] === undefined
       ? undefined
       : (assetSummary ?? compactSummary(view, resolved, row.spec))?.labelFirst)) === true
     const labelWidth = multiline
@@ -453,7 +477,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           }
           const summary = viewStyle['role'] === 'widgetValue' ? args.editorSummary : undefined
           const run = summary?.text ?? viewRun
-          const style = summary === undefined ? viewStyle : { ...viewStyle, placeholder: summary.placeholder === true }
+          const style = summary === undefined ? viewStyle : { ...viewStyle,
+            placeholder: summary.placeholder ?? (summary.text === undefined && viewStyle['placeholder'] === true),
+          }
           ctx.fillStyle = tokens.colors.value
           const alignRight = style['align'] === 'right'
           ctx.textAlign = alignRight ? 'right' : 'left'
@@ -479,6 +505,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const fitWidth = Math.max(0, availableWidth - iconReserve)
             const line = run.split('\n')[0] ?? ''
             const fitted = fitSummary(ctx, summaryFitOf(run, style), fitWidth)
+            const parts = alignRight && !row.unfolded && summary?.thumbnails !== undefined
+              ? fitSummaryParts(ctx, { ...summaryFitOf(run, style), thumbnails: summary.thumbnails }, fitWidth)
+              : undefined
             // An empty text or opener cut to fewer than three letters
             // before its ellipsis is not drawn at all.
             const text = items === undefined && (style['placeholder'] === true || labelFirst) && fitted !== line
@@ -504,7 +533,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               const before = marked ? wordReserve : 0
               const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + before
               const textY = centered ? chrome.y + chrome.height / 2 : y + (ty + 0.5) * rowHeight
-              if (!(alignRight && paintValueParts(ctx, style['parts'], textX, textY, fitWidth, tokens))) ctx.fillText(text, textX, textY)
+              if (parts !== undefined) paintSummaryParts(ctx, parts, textX, textY, tokens)
+              else if (!(alignRight && paintValueParts(ctx, style['parts'], textX, textY, fitWidth, tokens))) ctx.fillText(text, textX, textY)
               if (centered && sketchStyle !== undefined) {
                 sketchLeft = textX - measureWidth(ctx, text) - paint.curve.gap - sketch.size
                 paintCurveSketch(ctx, { ...sketch, x: sketchLeft }, sketchStyle, tokens)
@@ -531,7 +561,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               }
               if (marked) {
                 // Marks about a value come before it, so values line up at the right.
-                const wordRight = alignRight ? textX - measureWidth(ctx, text) - markReserve - paint.valueWordGap : textX - paint.valueWordGap
+                const wordRight = alignRight ? textX - (parts === undefined ? measureWidth(ctx, text) : summaryPartsWidth(ctx, parts)) - markReserve - paint.valueWordGap : textX - paint.valueWordGap
                 ctx.textAlign = 'right'
                 ctx.fillStyle = tokens.colors.label
                 ctx.fillText(valueWord!, wordRight, textY)

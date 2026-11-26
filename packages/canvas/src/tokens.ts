@@ -544,7 +544,7 @@ export const canvasPaintTokens = {
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
     valueSwatch: { size: 10, radius: 2, gap: 6, checkerCell: 3, edge: 1 },
     /** A folded editor's small picture before its value, such as the stored frame. */
-    valueThumbnail: { size: 16, radius: 2, gap: 6 },
+    valueThumbnail: { size: 16, radius: 2, gap: 6, fileNameGap: 4, entryGap: 8 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,
