@@ -34,7 +34,7 @@ test('a quick page waits for both reads without a loading sign and retains its a
   )
   await expect(summary.locator('.dinkster-page-load-answer')).toHaveCSS(
     'animation-duration',
-    '0.2s',
+    '0.24s',
   )
   await page.clock.runFor(200)
   await expect(loading).toHaveCount(0)
@@ -160,6 +160,7 @@ test('the content frame stays fixed, centres loading, and retains the last answe
   page,
 }) => {
   const section = page.getByRole('region', { name: 'Page loading' })
+  await section.getByRole('radio', { name: 'Fade and rise' }).check()
   const frame = section.locator('.dinkster-page-load-example')
   const summary = page.getByRole('region', { name: 'Account summary' })
   const bounds = await frame.boundingBox()
@@ -214,4 +215,46 @@ test('the content frame stays fixed, centres loading, and retains the last answe
     summary.getByText('Alex Morgan uses alex@example.test.'),
   ).toBeVisible()
   expect(await frame.boundingBox()).toEqual(bounds)
+})
+
+test('the rise arrival moves only the new answer six pixels over 240ms', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  const section = page.getByRole('region', { name: 'Page loading' })
+  const heading = section.getByRole('heading', { name: 'Page loading' })
+  const bounds = await heading.boundingBox()
+  await section.getByRole('radio', { name: 'Fade and rise' }).check()
+  await section.getByRole('button', { name: 'Load quickly' }).click()
+  await page.clock.runFor(80)
+  const answer = section.locator('.dinkster-page-load-answer')
+  await expect(answer).toHaveCSS('animation-duration', '0.24s')
+  await expect(answer).toHaveCSS(
+    'animation-timing-function',
+    'cubic-bezier(0.2, 0.7, 0.2, 1)',
+  )
+  const frames = await answer.evaluate((element) => {
+    const animation = element.getAnimations()[0]
+    if (!animation) throw new Error('The answer has no arrival animation')
+    animation.pause()
+    animation.currentTime = 0
+    const start = {
+      opacity: getComputedStyle(element).opacity,
+      transform: getComputedStyle(element).transform,
+    }
+    animation.currentTime = 240
+    return {
+      start,
+      end: {
+        opacity: getComputedStyle(element).opacity,
+        transform: getComputedStyle(element).transform,
+      },
+    }
+  })
+  expect(frames.start).toEqual({
+    opacity: '0',
+    transform: 'matrix(1, 0, 0, 1, 0, 6)',
+  })
+  expect(frames.end).toEqual({ opacity: '1', transform: 'none' })
+  expect(await heading.boundingBox()).toEqual(bounds)
 })

@@ -162,6 +162,9 @@ every core tab once.
   helper and a content render function, showing only the retained or arriving
   answer without another loading sign, error or retry. Keep known headings and
   actions outside both pieces so they stay mounted through reads and refreshes.
+  Both accept `arrival="fade"` (200ms) or `arrival="rise"` (240ms, 6px upward
+  settling). Main content defaults to fade; secondary regions default to rise.
+  Reduced motion disables both animations.
   `pending` covers the whole read, `value` retains the previous answer during
   refresh, and `error` exposes a failed read. A newer `load` supersedes an older
   completion; Solid owner disposal cancels timers and ignores late answers.

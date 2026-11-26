@@ -8,6 +8,7 @@ import { useProductStrings } from './strings.js'
 /** An additional region shares its main region's read, without duplicate feedback. */
 export function ProductPageAnswer<T>(props: {
   page: ReturnType<typeof createPageLoad<T>>
+  arrival?: 'fade' | 'rise'
   children: (value: T) => JSX.Element
 }) {
   const answer = createMemo(() => {
@@ -17,7 +18,10 @@ export function ProductPageAnswer<T>(props: {
   return (
     <Show when={answer()} keyed>
       {(result) => (
-        <div class="dinkster-page-load-answer">
+        <div
+          class="dinkster-page-load-answer"
+          data-arrival={props.arrival ?? 'rise'}
+        >
           {props.children(result.value)}
         </div>
       )}
@@ -29,6 +33,7 @@ export function ProductPageLoad<T>(props: {
   page: ReturnType<typeof createPageLoad<T>>
   read: () => Promise<T>
   loadingLabel: string
+  arrival?: 'fade' | 'rise'
   children: (value: T) => JSX.Element
 }) {
   const strings = useProductStrings()
@@ -53,7 +58,7 @@ export function ProductPageLoad<T>(props: {
             </div>
           )}
         </Show>
-        <ProductPageAnswer page={props.page}>
+        <ProductPageAnswer page={props.page} arrival={props.arrival ?? 'fade'}>
           {(value) => props.children(value)}
         </ProductPageAnswer>
       </div>
