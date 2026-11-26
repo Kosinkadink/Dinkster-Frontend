@@ -235,26 +235,26 @@ export function ProductModelList(props: ProductModelListProps) {
           </span>
         }
         status={
-          <Show when={progressing()}>
+          progressing() ? (
             <div class="dinkster-model-progress">
               <ProductProgress
                 label={`${model().name}: ${version().name}`}
                 value={version().progress}
               />
             </div>
-          </Show>
+          ) : undefined
         }
         trailing={
-          <Show when={!downloadable()}>
+          !downloadable() ? (
             <span class="dinkster-model-size">
               {progressing()
                 ? (version().message ?? stateLabel())
                 : version().size}
             </span>
-          </Show>
+          ) : undefined
         }
         action={
-          <Show when={downloadable()}>
+          downloadable() ? (
             <div class="dinkster-model-download">
               <ProductTextButton
                 icon={Download}
@@ -264,7 +264,7 @@ export function ProductModelList(props: ProductModelListProps) {
                 onClick={() => act(props.onDownload)}
               />
             </div>
-          </Show>
+          ) : undefined
         }
       >
         <Show when={version().facts?.length}>

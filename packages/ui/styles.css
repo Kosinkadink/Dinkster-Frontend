@@ -216,6 +216,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-row-main > .dinkster-row-copy { flex: 1; }
 .dinkster-row-main > .dinkster-icon { flex: none; color: var(--dinkster-text-secondary); }
 .dinkster-row[data-expanded='true'] > .dinkster-row-heading > .dinkster-row-main > .dinkster-icon:first-child { transform: rotate(90deg); }
+.dinkster-list[data-variant] :is(.dinkster-row-heading, .dinkster-row-main) { align-items: flex-start; }
 .dinkster-row-copy { display: grid; min-width: 0; gap: var(--dinkster-space-4); overflow-wrap: anywhere; }
 .dinkster-row-trailing { flex: none; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .dinkster-row-action { flex: none; }
@@ -226,14 +227,12 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-row-details { display: grid; min-width: 0; gap: var(--dinkster-space-12); }
 .dinkster-models { min-width: 0; }
 .dinkster-models .dinkster-row[data-expanded='true'] { background: var(--dinkster-surface-raised); border-radius: var(--dinkster-radius-control); }
-.dinkster-models .dinkster-row-main { position: relative; align-items: start; }
-.dinkster-models .dinkster-row-trailing { align-self: start; }
+.dinkster-models .dinkster-row-main { position: relative; }
 .dinkster-models .dinkster-row-main:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: var(--dinkster-space-4); }
 .dinkster-models .dinkster-row-main[aria-pressed='true']::before { position: absolute; top: 0; bottom: 0; left: calc(-1 * var(--dinkster-space-8)); width: var(--dinkster-space-4); border-radius: var(--dinkster-radius-small); background: var(--dinkster-accent-foreground); content: ''; }
 .dinkster-model-name { font-weight: var(--dinkster-weight-bold); }
 .dinkster-models .dinkster-row-details .dinkster-model-name { font-weight: var(--dinkster-weight-regular); }
 .dinkster-model-size { color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
-.dinkster-model-download { align-self: start; }
 .dinkster-model-download .dinkster-text-button { font: inherit; font-size: var(--dinkster-type-metadata-size); text-decoration: none; }
 .dinkster-model-progress .dinkster-product-progress { background: var(--dinkster-border-subtle); }
 .dinkster-model-summary { display: grid; gap: var(--dinkster-space-4); }
