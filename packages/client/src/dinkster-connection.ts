@@ -482,6 +482,7 @@ export interface MemoryConsumerItem {
   readonly itemId: string
   readonly displayName: string
   readonly bytesByResidency: Readonly<Record<string, number>>
+  readonly inUse?: boolean
   readonly pages?: { readonly pageBytes: number; readonly pageCount: number; readonly flags: readonly number[] }
 }
 
@@ -539,6 +540,7 @@ function decodeMemoryStatus(value: unknown): MemoryStatus | undefined {
       Object.values(device['residencyApplied']['budgetsByWorker']).every((budget) => budget === null || finite(budget))))) return undefined
   if (status['consumerDetails'] !== undefined && (!record(status['consumerDetails']) || !Object.values(status['consumerDetails']).every((items) => Array.isArray(items) && items.every((item) => {
     if (!record(item) || typeof item['itemId'] !== 'string' || typeof item['displayName'] !== 'string' || !numberRecord(item['bytesByResidency'])) return false
+    if (item['inUse'] !== undefined && typeof item['inUse'] !== 'boolean') return false
     const pages = item['pages']
     return pages === undefined || (record(pages) && finite(pages['pageBytes']) && finite(pages['pageCount']) &&
       Array.isArray(pages['flags']) && pages['flags'].every(finite) && pages['flags'].length === pages['pageCount'])

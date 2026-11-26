@@ -207,7 +207,7 @@ test('software history keeps snapshot identity, compatibility notices and empty/
                       id: 7,
                       generation: 12,
                       timestamp: '2026-11-22T22:00:00Z',
-                      reason: 'update',
+                      reason: 'rollback',
                       exact: true,
                       snapshot: {
                         engine: { version: '0.2.3', release: 'a'.repeat(64) },
@@ -249,7 +249,7 @@ test('software history keeps snapshot identity, compatibility notices and empty/
   await expect(entries).toHaveCount(2)
   await expect(entries.nth(0)).toContainText('Snapshot 12')
   await expect(entries.nth(0)).toContainText(
-    'History entry 7 - update. Engine 0.2.3',
+    'History entry 7 - Restore previous. Engine 0.2.3',
   )
   await expect(entries.nth(0)).toContainText(
     'Recorded without software substitutions.',
