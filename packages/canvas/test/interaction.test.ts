@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   asNodeId, coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
   type CommandInvocation, type NodeSchema, type WorkflowDocument,
+  boundaryOf,
+  boundaryItems,
 } from '@dinkster/core'
 import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type CanvasHoverTarget, type InteractionHost } from '../src/interaction.js'
 import { subgraphMarkRect } from '../src/registry-painter.js'
@@ -3341,7 +3343,7 @@ describe('after-generate controller chip', () => {
 })
 
 describe('boundary row rename interaction', () => {
-  it('double-clicking a boundary slot label requests a rename', () => {
+  const boundaryScene = () => {
     const scene = interactionScene() as any
     scene.boundaryNodes = [{
       side: 'inputs', x: 10, y: 100,
@@ -3350,6 +3352,27 @@ describe('boundary row rename interaction', () => {
         rows: [{ kind: 'ports', y: 20, height: 24, input: { portId: 'exposed', type: { kind: 'wildcard' } } }],
       },
     }]
+    return scene
+  }
+
+  it('a click on a boundary row name selects that item, and a drag moves the panel instead', () => {
+    const select = vi.fn()
+    const harness = interactionHarness(boundaryScene(), { onBoundaryRowSelect: select })
+    harness.fire('pointerdown', 70, 132)
+    harness.fire('pointerup', 70, 132)
+    expect(select).toHaveBeenCalledWith('inputs', 'exposed')
+    expect(harness.dispatched).toEqual([])
+
+    select.mockClear()
+    harness.fire('pointerdown', 70, 132)
+    harness.fire('pointermove', 110, 160)
+    harness.fire('pointerup', 110, 160)
+    expect(select).not.toHaveBeenCalled()
+    expect(harness.dispatched).toMatchObject([{ command: 'view.moveBoundaryNode' }])
+  })
+
+  it('double-clicking a boundary slot label requests a rename', () => {
+    const scene = boundaryScene()
     const rename = vi.fn()
     const harness = interactionHarness(scene, { onBoundaryRenameRequest: rename })
     harness.fire('dblclick', 70, 132)
@@ -4061,7 +4084,7 @@ describe('a wire dragged from the Inputs panel to a field', () => {
       sub: {
         id: 'sub', name: 'Soften', nextOrdinal: 5, links: {}, nets: {}, reroutes: {},
         nodes: { blur: { id: 'blur', type: 'Blur', values: { radius: 6 } } },
-        boundary: { inputs: [], outputs: [] },
+        boundary: boundaryOf([], []),
       },
     },
     view: { graphs: { sub: { nodes: { blur: { position: { x: 300, y: 100 } } } } } },
@@ -4085,7 +4108,7 @@ describe('a wire dragged from the Inputs panel to a field', () => {
     harness.fire('pointermove', node.x, node.y + field.y)
     harness.fire('pointerup', node.x, node.y + field.y)
 
-    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')).toEqual([{ kind: 'input', id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
     const derived = deriveBoundarySchema(store.doc.graphs.sub!, documentResolver(store.doc, resolve)).schema
     expect(derived?.body.find((item) => item.kind === 'input' && item.id === 'radius')).toMatchObject({ widget: { widgetType: 'INT', default: 6 } })
     expect(sceneOf(store.doc).links.filter((link) => link.boundary === true).map((link) => link.to))
@@ -4117,7 +4140,7 @@ describe('a wire dragged from the Inputs panel to a field', () => {
     harness.fire('pointermove', node.x, node.y + field.y)
     harness.fire('pointerup', node.x, node.y + field.y)
 
-    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')).toEqual([{ kind: 'input', id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
     const wired = sceneOf(store.doc)
     expect(wired.links.filter((link) => link.boundary === true).map((link) => [link.to, link.hidden]))
       .toEqual([[{ kind: 'port', node: 'blur', port: 'radius' }, undefined]])
@@ -4178,11 +4201,11 @@ describe('Inputs panel fields', () => {
         id: 'g1', name: 'Soften', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
         nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
         boundary: {
-          inputs: [
-            { id: 'image', binds: { kind: 'port', node: 'inner', port: 'image' } },
-            { id: 'radius', binds: { kind: 'port', node: 'inner', port: 'radius' }, promoted: true },
+          body: [
+            { kind: 'input', id: 'image', binds: { kind: 'port', node: 'inner', port: 'image' } },
+            { kind: 'input', id: 'radius', binds: { kind: 'port', node: 'inner', port: 'radius' }, promoted: true },
+            { kind: 'output', id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } },
           ],
-          outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } }],
         },
       },
     },
@@ -4274,15 +4297,15 @@ describe('Inputs panel fields', () => {
           id: 'g1', name: 'Soften', nextOrdinal: 3, nets: {}, reroutes: {},
           nodes: { prim: { id: 'prim', type: 'Int', values: { value: 3 } }, inner: { id: 'inner', type: 'Blur', values: {} } },
           links: { l0: { id: 'l0', from: { node: 'prim', port: 'INT' }, to: { node: 'inner', port: 'radius' } } },
-          boundary: {
-            inputs: [{ id: 'strength', promoted: true, wireHidden: true, binds: { kind: 'port', node: 'prim', port: 'value' } }],
-            outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } }],
-          },
+          boundary: { body: [
+            { kind: 'input', id: 'strength', promoted: true, wireHidden: true, binds: { kind: 'port', node: 'prim', port: 'value' } },
+            { kind: 'output', id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } },
+          ] },
         },
         g2: {
           id: 'g2', name: 'Wrap', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
           nodes: { mid: { id: 'mid', type: '#g1', values: { strength: 9 } } },
-          boundary: { inputs: [{ id: 'amount', promoted: true, binds: { kind: 'port', node: 'mid', port: 'strength' } }], outputs: [] },
+          boundary: { body: [{ kind: 'input', id: 'amount', promoted: true, binds: { kind: 'port', node: 'mid', port: 'strength' } }] },
         },
       },
       view: { graphs: { g0: { nodes: {} }, g1: { nodes: { prim: { position: { x: 200, y: 100 } }, inner: { position: { x: 400, y: 100 } } } }, g2: { nodes: {} } } },
@@ -4345,7 +4368,7 @@ describe('Inputs panel fields', () => {
 
   it('keeps the subgraph mark of a field wired outside the subgraph clickable', () => {
     const doc = structuredClone(workflow()) as any
-    doc.graphs.g1.boundary.inputs[1].wireHidden = true
+    doc.graphs.g1.boundary.body[1].wireHidden = true
     doc.graphs.g0.links = { l: { id: 'l', from: { node: 'strong', port: 'image_out' }, to: { node: 'soft', port: 'radius' } } }
     const scene = panelScene(doc as WorkflowDocument, 'soft')
     const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
@@ -4376,8 +4399,8 @@ describe('Inputs panel fields', () => {
       ...sub,
       reroutes: { r: { id: 'r' } },
       links: { leg: { id: 'leg', from: { reroute: 'r' }, to: { node: 'inner', port: 'radius' } } },
-      boundary: { ...sub.boundary!, inputs: sub.boundary!.inputs.map((item) => item.id === 'radius'
-        ? { ...item, binds: { kind: 'port', node: 'inner', port: 'radius', viaReroute: 'r' } } : item) },
+      boundary: { body: sub.boundary!.body.map((entry) => entry.kind === 'input' && entry.id === 'radius'
+        ? { ...entry, binds: { kind: 'port', node: 'inner', port: 'radius', viaReroute: 'r' } } : entry) },
     } } } as unknown as WorkflowDocument, coreCommandRegistry())
     pressPlus(store, 'soft')
     expect(radiusOf(store, 'g0', 'soft')).toBe(7)

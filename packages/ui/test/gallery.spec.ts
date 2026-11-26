@@ -224,6 +224,77 @@ test('setup feedback exposes known fractions, unknown progress and non-dismissab
   }
 })
 
+test('opt-in menus filter labels and keep keyboard editing, enabled selection and dismissal', async ({ page }, testInfo) => {
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/?theme=dark#menu-filter')
+    const trigger = page.getByRole('button', { name: 'Choose a format', exact: true })
+    await trigger.click()
+    const input = page.getByRole('textbox', { name: 'Filter formats' })
+    const menu = page.getByRole('menu', { name: 'Choose a format' })
+    await expect(input).toBeFocused()
+    const active = () => menu.locator('[data-active]')
+    await expect(active()).toHaveAccessibleName('Image')
+    await expect(input).toHaveCSS('outline-style', 'none')
+    await expect(input).toHaveCSS('border-top-color', await token(page, '--dinkster-text-secondary'))
+    await expect(active()).toHaveCSS('background-color', await token(page, '--dinkster-interaction-hover'))
+    await page.screenshot({ path: testInfo.outputPath(`menu-filter-open-dark-${width}.png`) })
+    await input.press('ArrowDown')
+    await input.press('ArrowDown')
+    await expect(active()).toHaveAccessibleName('Audio')
+    await expect(input).toBeFocused()
+    await page.screenshot({ path: testInfo.outputPath(`menu-filter-moved-dark-${width}.png`) })
+    await input.fill('iMaGe')
+    await expect(active()).toHaveAccessibleName('Image')
+    await expect(menu.getByRole('menuitemcheckbox')).toHaveCount(2)
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Image', exact: true })).toBeChecked()
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Image file', exact: true })).toHaveAccessibleDescription('An image stored in a file.')
+    await expect(menu.getByRole('menuitem', { name: 'Image sequence' })).toBeDisabled()
+    await input.press('Home')
+    expect(await input.evaluate((node: HTMLInputElement) => node.selectionStart)).toBe(0)
+    await input.press('End')
+    expect(await input.evaluate((node: HTMLInputElement) => node.selectionStart)).toBe(5)
+    await input.press('ArrowUp')
+    await expect(active()).toHaveAccessibleName('Image file')
+    await expect(input).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(active()).toHaveAccessibleName('Image')
+    await page.keyboard.press('ArrowDown')
+    await page.screenshot({ path: testInfo.outputPath(`menu-filter-filtered-dark-${width}.png`) })
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    await expect(page.getByRole('status').filter({ hasText: 'Image file selected' })).toBeVisible()
+    await trigger.press('ArrowDown')
+    await expect(input).toBeFocused()
+    await expect(input).toHaveValue('')
+    await input.fill('sequence')
+    await expect(active()).toHaveCount(0)
+    await input.press('ArrowDown')
+    await input.press('Enter')
+    await expect(input).toBeFocused()
+    await expect(menu.getByRole('menuitem', { name: 'Image sequence' })).toBeDisabled()
+    await input.fill('stored')
+    await expect(menu.getByRole('menuitem')).toHaveCount(0)
+    await expect(page.getByRole('status', { name: '', exact: true }).filter({ hasText: 'No matches' })).toBeVisible()
+    await expect(active()).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath(`menu-filter-empty-dark-${width}.png`) })
+    await input.press('ArrowDown')
+    await input.press('Enter')
+    await expect(input).toBeFocused()
+    await input.fill('AuD')
+    await input.press('Enter')
+    await expect(menu).toHaveCount(0)
+    await expect(page.getByRole('status').filter({ hasText: 'Audio selected' })).toBeVisible()
+    await trigger.click()
+    await input.press('Escape')
+    await expect(trigger).toBeFocused()
+    await trigger.click()
+    await page.getByRole('heading', { name: 'Menu filter', exact: true }).click()
+    await expect(menu).toHaveCount(0)
+  }
+})
+
 test('described menu choices keep separate accessible descriptions, checks and ordinary item behavior', async ({ page }) => {
   for (const theme of ['dark', 'light']) {
     for (const width of [1280, 390]) {
@@ -395,7 +466,7 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   expect(
     await button.evaluate((element) => element.matches(':focus-visible')),
   ).toBe(true)
-  await expect(button).toHaveCSS('outline-width', '2px')
+  await expect(button).toHaveCSS('outline-width', '1px')
   await expect(samples).toHaveScreenshot('buttons-focus.png')
   await button.hover()
   await page.mouse.down()
@@ -428,7 +499,7 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await expect(field).toHaveCSS('border-top-width', '1px')
   await expect(field).toHaveCSS(
     'border-top-color',
-    await token(page, '--dinkster-border-focus'),
+    await token(page, '--dinkster-text-secondary'),
   )
   await expect(field).toHaveCSS('outline-width', '0px')
   await field.press('a')
@@ -436,16 +507,16 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await page.keyboard.press('Tab')
   await page.keyboard.press('Shift+Tab')
   await expect(field).toBeFocused()
-  await expect(field).toHaveCSS('outline-width', '2px')
+  await expect(field).toHaveCSS('outline-width', '0px')
   await expect(field).toHaveCSS(
     'border-top-color',
-    await token(page, '--dinkster-border-subtle'),
+    await token(page, '--dinkster-text-secondary'),
   )
   await field.click()
   await expect(field).toHaveCSS('outline-width', '0px')
   await expect(field).toHaveCSS(
     'border-top-color',
-    await token(page, '--dinkster-border-focus'),
+    await token(page, '--dinkster-text-secondary'),
   )
   await page.keyboard.press('Tab')
   await page.getByLabel('Unchecked option').focus()
@@ -467,6 +538,47 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
     page.getByRole('link', { name: 'Forms', exact: true }),
   ).toBeInViewport()
   await expect(page).toHaveScreenshot('frame-stays-when-scrolled.png')
+})
+
+test('page field borders show focus without a second ring', async ({
+  page,
+}) => {
+  for (const theme of ['dark', 'light']) {
+    await page.goto(`/?theme=${theme}#controls`)
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme
+    }, theme)
+    await page.keyboard.press('Tab')
+    for (const [label, name, invalid] of [
+      ['Display name', 'text', false],
+      ['Notes', 'textarea', false],
+      ['Access', 'select', false],
+      ['Project ID', 'invalid', true],
+    ] as const) {
+      const field = page.getByLabel(label, { exact: true })
+      await field.focus()
+      await field.hover()
+      await expect(field).toHaveCSS('border-top-width', '1px')
+      await expect(field).toHaveCSS(
+        'border-top-color',
+        await token(
+          page,
+          invalid ? '--dinkster-danger-border' : '--dinkster-text-secondary',
+        ),
+      )
+      await expect(field).toHaveCSS('outline-width', '0px')
+      await expect(
+        field.locator('xpath=ancestor::div[@class="dinkster-field"][1]'),
+      ).toHaveScreenshot(`field-focus-${theme}-${name}.png`)
+    }
+    const disabled = page.getByLabel('Unavailable field', { exact: true })
+    await disabled.focus()
+    await expect(disabled).not.toBeFocused()
+    await expect(disabled).toHaveCSS(
+      'border-top-color',
+      await token(page, '--dinkster-border-subtle'),
+    )
+  }
 })
 
 test('quiet text menus keep shared focus, checked selection and dismissal without a resting outline', async ({ page }) => {
@@ -537,6 +649,111 @@ test('quiet text menus keep shared focus, checked selection and dismissal withou
     await expect(outlined).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await page.keyboard.press('Escape')
   }
+})
+
+test('menu end alignment preserves the trigger edge and viewport containment', async ({ page }, testInfo) => {
+  for (const width of [1280, 600, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/?theme=dark#menu-alignment')
+    const end = page.getByRole('button', { name: 'End actions', exact: true })
+    const start = page.getByRole('button', { name: 'Start actions', exact: true })
+    await end.click()
+    const menu = page.getByRole('menu', { name: 'End actions', exact: true })
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Recommended build', exact: true })).toBeFocused()
+    const anchor = (await end.boundingBox())!
+    const bounds = (await menu.boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(8)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8)
+    if (width === 1280) {
+      expect(anchor.x + bounds.width).toBeLessThanOrEqual(width - 8)
+      expect(anchor.x + anchor.width - bounds.width).toBeGreaterThanOrEqual(8)
+    }
+    if (anchor.x + anchor.width - bounds.width >= 8) {
+      expect(bounds.x + bounds.width).toBe(anchor.x + anchor.width)
+    }
+    await page.screenshot({ path: testInfo.outputPath(`menu-end-${width}.png`) })
+    await page.keyboard.press('ArrowDown')
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Alternative build', exact: true })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveCount(0)
+    await expect(end).toBeFocused()
+    await start.click()
+    const startMenu = page.getByRole('menu', { name: 'Start actions', exact: true })
+    const startAnchor = (await start.boundingBox())!
+    const startBounds = (await startMenu.boundingBox())!
+    expect(startBounds.x).toBeGreaterThanOrEqual(8)
+    expect(startBounds.x + startBounds.width).toBeLessThanOrEqual(width - 8)
+    if (startAnchor.x + startBounds.width <= width - 8) expect(startBounds.x).toBe(startAnchor.x)
+    await page.screenshot({ path: testInfo.outputPath(`menu-start-${width}.png`) })
+    await page.keyboard.press('Escape')
+    await expect(start).toBeFocused()
+    await end.click()
+    await page.getByRole('heading', { name: 'Menu alignment', exact: true }).click()
+    await expect(menu).toHaveCount(0)
+  }
+})
+
+test('an unavailable segmented choice keeps its place and name, carries its reason as description and tooltip, and cannot be chosen', async ({ page }) => {
+  for (const theme of ['dark', 'light']) {
+    await page.goto(`/?theme=${theme}#segmented-states`)
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme
+    }, theme)
+    const range = page.getByRole('radiogroup', { name: 'History range', exact: true })
+    const day = range.getByRole('radio', { name: 'Day', exact: true })
+    const week = range.getByRole('radio', { name: 'Week', exact: true })
+    const month = range.getByRole('radio', { name: 'Month', exact: true })
+    await expect(week).toBeDisabled()
+    await expect(week).toHaveAccessibleName('Week')
+    await expect(week).toHaveAccessibleDescription('Not enough history yet.')
+    await expect(day).not.toHaveAttribute('aria-describedby')
+    // The shared tooltip shows the same reason on hover.
+    await expect(range.locator('.dinkster-segment').nth(1)).toHaveAttribute('data-tooltip-label', 'Not enough history yet.')
+    await expect(range.locator('.dinkster-segment').nth(0)).not.toHaveAttribute('data-tooltip-label')
+
+    // The option keeps its place and its padded width between the two others.
+    const labels = range.locator('.dinkster-segment')
+    const dayBox = (await labels.nth(0).boundingBox())!
+    const weekBox = (await labels.nth(1).boundingBox())!
+    const monthBox = (await labels.nth(2).boundingBox())!
+    const weekText = (await labels.nth(1).locator('span').boundingBox())!
+    expect(dayBox.x + dayBox.width).toBeLessThanOrEqual(weekBox.x)
+    expect(weekBox.x + weekBox.width).toBeLessThanOrEqual(monthBox.x)
+    expect(weekBox.width).toBeGreaterThanOrEqual(weekText.width + 23)
+
+    // Pointer and arrow keys skip it.
+    await labels.nth(1).click({ force: true })
+    await expect(day).toBeChecked()
+    await expect(week).not.toBeChecked()
+    await day.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(month).toBeChecked()
+    await expect(month).toBeFocused()
+    await page.keyboard.press('ArrowLeft')
+    await expect(day).toBeChecked()
+
+    // Dimmed at rest and on hover, with no fill; when it is the checked value it keeps the selected fill, dimmed.
+    const secondary = await token(page, '--dinkster-text-secondary')
+    const opacity = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dinkster-interaction-disabled-opacity').trim())
+    await labels.nth(1).hover()
+    await expect(labels.nth(1)).toHaveCSS('color', secondary)
+    await expect(labels.nth(1)).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    expect(Number(await labels.nth(1).evaluate((element) => getComputedStyle(element).opacity))).toBe(Number(opacity))
+    await expect(labels.nth(1).locator('span')).toHaveCSS('opacity', '1')
+    const chosen = page.getByRole('radiogroup', { name: 'Chosen but unavailable', exact: true })
+    await expect(chosen.getByRole('radio', { name: 'This workflow', exact: true })).toBeChecked()
+    const selectedFill = await background(range.locator('.dinkster-segment').first())
+    expect(selectedFill).not.toBe('rgba(0, 0, 0, 0)')
+    const chosenLabel = chosen.locator('.dinkster-segment').first()
+    await expect(chosenLabel).toHaveCSS('background-color', selectedFill)
+    await expect(chosenLabel).toHaveCSS('color', await token(page, '--dinkster-text-primary'))
+    expect(Number(await chosenLabel.evaluate((element) => getComputedStyle(element).opacity))).toBe(Number(opacity))
+
+    await page.mouse.move(0, 0)
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await expect(page.getByRole('region', { name: 'Unavailable choices', exact: true })).toHaveScreenshot(`segmented-states-${theme}.png`)
+  }
+  await expectNoAxeViolations(page)
 })
 
 test('menus support pointer dismissal, keyboard navigation and immediate sign out', async ({

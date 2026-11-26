@@ -131,7 +131,7 @@ describe('icon bar', () => {
     expect(bar.querySelector('.sidebar-account > [data-testid="account"]')).not.toBeNull()
     const settingsButton = bar.querySelector<HTMLButtonElement>('[data-testid="settings-button"]')!
     expect(settingsButton.classList.contains('sidebar-settings-button')).toBe(true)
-    expect(settingsButton.dataset['tooltipDetail']).toBe('Ctrl+,')
+    expect(settingsButton.dataset['tooltipShortcut']).toBe('Ctrl+,')
     click(settingsButton)
     expect(settings).toHaveBeenCalledTimes(1)
     expect(place).not.toHaveBeenCalled()
@@ -259,7 +259,7 @@ describe('canvas corner controls', () => {
     ), root)
     const row = () => root.querySelector('[data-testid="canvas-zoom-row"]')!
     const zoomOut = row().querySelector<HTMLButtonElement>('[aria-label="Zoom out"]')!
-    expect(zoomOut.dataset['tooltipDetail']).toBe('alt+-')
+    expect(zoomOut.dataset['tooltipShortcut']).toBe('alt+-')
     click(zoomOut)
     click(row().querySelector('[aria-label="Zoom out"]')!)
     expect(zoomBy).toHaveBeenCalledTimes(2)
@@ -267,7 +267,7 @@ describe('canvas corner controls', () => {
     expect(menu()).toBe('zoom')
     expect(row().querySelector('.dinkster-canvas-closed-row-value')?.textContent).toBe('26%')
     const zoomInRow = root.querySelector('[data-testid="canvas-zoom-in"]')!
-    expect(zoomInRow.querySelector('.menu-shortcut')?.textContent).toBe('alt+=')
+    expect([...zoomInRow.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Alt', '='])
     click(zoomInRow)
     expect(zoomBy).toHaveBeenLastCalledWith(1.2)
     expect(menu()).toBe('zoom')
@@ -321,15 +321,15 @@ describe('Dinkster app menu', () => {
     app.dispose()
   })
 
-  it('shows current shortcut bindings, including overrides, and omits unbound hints', () => {
+  it('shows current shortcut bindings as keys, including overrides, and omits unbound shortcuts', () => {
     const { root, keybindings, dispose } = menuFixture()
     keybindings.set('edit.undo', 'Meta+U')
     keybindings.set('view.fitSelection', null)
     click(root.querySelector('[data-testid="dinkster-menu-button"]')!)
 
-    expect(root.querySelector('[data-item-id="workflow.open"] .menu-hint')?.textContent).toBe('ctrl+o')
-    expect(root.querySelector('[data-item-id="edit.undo"] .menu-hint')?.textContent).toBe('meta+u')
-    expect(root.querySelector('[data-item-id="view.fitSelection"] .menu-hint')).toBeNull()
+    expect([...root.querySelectorAll('[data-item-id="workflow.open"] kbd')].map((key) => key.textContent)).toEqual(['Ctrl', 'O'])
+    expect([...root.querySelectorAll('[data-item-id="edit.undo"] kbd')].map((key) => key.textContent)).toEqual(['Cmd', 'U'])
+    expect(root.querySelector('[data-item-id="view.fitSelection"] kbd')).toBeNull()
     dispose()
   })
 

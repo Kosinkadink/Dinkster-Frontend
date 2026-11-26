@@ -386,12 +386,15 @@ describe('concrete and union edges', () => {
         nets: {},
         reroutes: {},
         boundary: {
-          inputs: [{
-            id: 'in',
-            binds: { kind: 'port', node: 'whole', port: 'in' },
-            ...(alsoSingle ? { alsoBinds: [{ kind: 'port', node: 'single', port: 'in' }] } : {}),
-          }],
-          outputs: [{ id: 'out', binds: { kind: 'port', node: 'whole', port: 'out' } }],
+          body: [
+            {
+              kind: 'input',
+              id: 'in',
+              binds: { kind: 'port', node: 'whole', port: 'in' },
+              ...(alsoSingle ? { alsoBinds: [{ kind: 'port', node: 'single', port: 'in' }] } : {}),
+            },
+            { kind: 'output', id: 'out', binds: { kind: 'port', node: 'whole', port: 'out' } },
+          ],
         },
         nextOrdinal: 1,
       } as unknown as GraphDef
@@ -750,8 +753,10 @@ describe('MatchType resolution', () => {
       nets: {},
       reroutes: {},
       boundary: {
-        inputs: [{ id: 'in', binds: { kind: 'port', node: 'sw', port: 'in' } }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'sw', port: 'out' } }],
+        body: [
+          { kind: 'input', id: 'in', binds: { kind: 'port', node: 'sw', port: 'in' } },
+          { kind: 'output', id: 'out', binds: { kind: 'port', node: 'sw', port: 'out' } },
+        ],
       },
       nextOrdinal: 1,
     } as unknown as GraphDef

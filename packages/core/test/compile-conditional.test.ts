@@ -8,7 +8,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { compile, type CompileInput } from '../src/compile/compile.js'
-import type { WorkflowDocument } from '../src/format/document.js'
+import { boundaryOf } from '../src/format/document.js'
+import type { BoundaryItem, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId } from '../src/ids.js'
 import type { BodyRow, ChoiceSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
@@ -69,7 +70,7 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => ({
     nets: {},
     reroutes: {},
     nextOrdinal: 100,
-    ...(g.boundary ? { boundary: { inputs: g.boundary.inputs ?? [], outputs: g.boundary.outputs ?? [] } } : {}),
+    ...(g.boundary ? { boundary: boundaryOf((g.boundary.inputs ?? []) as BoundaryItem[], (g.boundary.outputs ?? []) as BoundaryItem[]) } : {}),
   }])),
   view: { graphs: {} },
 } as unknown as WorkflowDocument)

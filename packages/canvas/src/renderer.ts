@@ -47,7 +47,6 @@ import {
   BOUNDARY_SELECTION_OUTLINE_OUTSET,
   MULTI_SELECTION_OUTLINE_PAD,
   MULTI_SELECTION_OUTLINE_STROKE_WIDTH,
-  NODE_SELECTION_OUTLINE_OUTSET,
   SELECTION_OUTLINE_STROKE_WIDTH,
   TOOLBOX_GAP_FROM_ATTACHED_BADGE,
   toolboxLayout,
@@ -364,6 +363,18 @@ export type EditorSummaryMap = Readonly<Record<string, Readonly<Record<string, E
  * never stored.
  */
 export type RowMarkMap = RowProblemMap
+
+/**
+ * The boundary item selected in the Boundary panel: its row on the Inputs or
+ * Outputs panel, and the inner pins and field rows it goes to (node id ->
+ * input port ids or field value keys, and output port ids).
+ */
+export interface BoundaryFocusMarks {
+  readonly side: 'inputs' | 'outputs'
+  readonly item: string
+  readonly inputs: Readonly<Record<string, ReadonlySet<string>>>
+  readonly outputs: Readonly<Record<string, ReadonlySet<string>>>
+}
 
 /**
  * One row of a data-lens panel: label left, text right. Tones follow the
@@ -1409,6 +1420,30 @@ export class CanvasRenderer {
     this.updateNodePaint(this.openRows, next, () => { this.openRows = next })
   }
 
+  private boundaryFocus: BoundaryFocusMarks | undefined
+
+  /**
+   * Marks the selected boundary item in the selection color: its row on the
+   * boundary pseudo-node, and the inner pins and field rows it goes to.
+   */
+  setBoundaryFocus(focus: BoundaryFocusMarks | undefined): void {
+    const perNode = (marks: BoundaryFocusMarks | undefined): Record<string, readonly string[]> => {
+      const out: Record<string, string[]> = {}
+      for (const [prefix, map] of [['in', marks?.inputs ?? {}], ['out', marks?.outputs ?? {}]] as const) {
+        for (const [nodeId, keys] of Object.entries(map)) (out[nodeId] ??= []).push(...[...keys].map((key) => `${prefix}:${key}`))
+      }
+      return out
+    }
+    const before = this.boundaryFocus
+    this.updateNodePaint(perNode(before), perNode(focus), () => { this.boundaryFocus = focus })
+    if (before?.side === focus?.side && before?.item === focus?.item) return
+    for (const bnode of this.scene.boundaryNodes) {
+      if (bnode.side !== before?.side && bnode.side !== focus?.side) continue
+      this.invalidateGraphBounds({ minX: bnode.x, minY: bnode.y, maxX: bnode.x + bnode.layout.width, maxY: bnode.y + bnode.layout.height })
+    }
+    this.requestRender()
+  }
+
   private lensCapabilities: RendererLensCapabilities = {}
   private typeAdornments: readonly TypeAdornmentDescriptor[] = []
 
@@ -1463,11 +1498,8 @@ export class CanvasRenderer {
     const paint = canvasPaintTokens.node.outline
     const stroke = screenAwareStroke(missing ? paint.idle * paint.unrecognizedFactor : strong ? paint.strong : paint.idle,
       this.viewport.scale, strong ? paint.strongScreen : paint.screen)
-    const selected = this.overlay.selection?.has(node.id) === true
     const hovered = this.overlay.hoveredBadge
     let outset = stroke / 2
-    if (selected) outset = Math.max(outset, NODE_SELECTION_OUTLINE_OUTSET +
-      screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, this.viewport.scale, canvasPaintTokens.toolbox.selectionMinScreenStroke) / 2)
     if (this.overlay.bodyDropNode === node.id) {
       const drop = canvasPaintTokens.node.drop
       outset = Math.max(outset, drop.outset + screenAwareStroke(drop.stroke, this.viewport.scale, drop.stroke) / 2)
@@ -3507,7 +3539,6 @@ export class CanvasRenderer {
     const scale = this.viewport.scale
     const contentDetail = detailLevel !== 'overview'
     const pinRadius = detailRadius(t.pinRadius, scale, detailLevel)
-    const selectionStrokeWidth = screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, scale, canvasPaintTokens.toolbox.selectionMinScreenStroke)
 
     if (this.overlay.bodyDropNode === node.id) {
       const paint = canvasPaintTokens.node.drop
@@ -3551,9 +3582,10 @@ export class CanvasRenderer {
     // Header.
     ctx.beginPath()
     ctx.roundRect(node.x, node.y, l.width, l.headerHeight, [t.cornerRadius, t.cornerRadius, 0, 0])
+    const headerColor = selected ? t.colors.nodeSelectedHeader : t.colors.nodeHeader
     ctx.fillStyle = unrecognized
-      ? tintHex(t.colors.nodeHeader, t.colors.error, canvasPaintTokens.node.errorHeaderTint)
-      : nodeColor === undefined ? t.colors.nodeHeader : tintHex(t.colors.nodeHeader, nodeColor, canvasPaintTokens.node.identityHeaderTint)
+      ? tintHex(headerColor, t.colors.error, canvasPaintTokens.node.errorHeaderTint)
+      : nodeColor === undefined ? headerColor : tintHex(headerColor, nodeColor, canvasPaintTokens.node.identityHeaderTint)
     ctx.fill()
     paintHeaderRule(ctx, t, node.x, node.y, l.width, l.headerHeight, l.height)
     // Bypass wash: over body+header, under text, so content stays legible.
@@ -3583,7 +3615,7 @@ export class CanvasRenderer {
               ? t.colors.nodeOutline
               : progress
                 ? t.stateColors[progress.state]
-                : t.colors.nodeIdleOutline
+                : selected ? t.colors.nodeSelectedEdge : t.colors.nodeIdleOutline
     // Running and, in the frozen view, done and cached draw quieter than an
     // error: 2 px, the running colour at 90%, done at half strength, cached
     // dashed in the neutral outline.
@@ -3595,7 +3627,7 @@ export class CanvasRenderer {
     const outlineWidth = unrecognized
       ? outline.idle * outline.unrecognizedFactor
       : ran ? (running ? canvasPaintTokens.running.outlineStroke : ranOutline.stroke)
-      : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
+      : strongOutline ? outline.strong : selected || t.crispEdges ? outline.crisp : outline.idle
     const outlineOpacity = !ran ? 1 : running ? canvasPaintTokens.running.outlineOpacity : progress?.state === 'done' ? ranOutline.opacity : 1
     const outlineDash = unrecognized || runtimeError
       ? nodeStateDash('error', scale)
@@ -3609,7 +3641,7 @@ export class CanvasRenderer {
     const outlineStroke = screenAwareStroke(outlineWidth, scale, strongOutline || unrecognized ? outline.strongScreen : outline.screen)
     // Crisp edges draw the outline inside the node's box, so a 1 px outline
     // covers whole pixels instead of straddling the box's edge.
-    const outlineInset = t.crispEdges ? outlineStroke / 2 : 0
+    const outlineInset = selected || t.crispEdges ? outlineStroke / 2 : 0
     ctx.beginPath()
     ctx.roundRect(node.x + outlineInset, node.y + outlineInset, l.width - outlineInset * 2, l.height - outlineInset * 2, Math.max(0, t.cornerRadius - outlineInset))
     ctx.strokeStyle = outlineColor
@@ -3627,21 +3659,6 @@ export class CanvasRenderer {
       ctx.strokeStyle = outlineColor
       ctx.lineWidth = screenAwareStroke(paint.stroke, scale, paint.stroke)
       ctx.stroke()
-    }
-
-    // Selection is the topmost outline so the error state cannot hide it.
-    // White stays distinct from the blue live-affordance accent.
-    if (selected) {
-      this.drawSelectionOutline(
-        ctx,
-        node.x,
-        node.y,
-        l.width,
-        l.height,
-        NODE_SELECTION_OUTLINE_OUTSET,
-        t.cornerRadius,
-        selectionStrokeWidth,
-      )
     }
 
     this.drawMinimizeArrow(ctx, node)
@@ -4363,6 +4380,15 @@ export class CanvasRenderer {
         continue
       if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered)
         continue
+      const boundaryFocused = pin.widgetTap !== true &&
+        (pin.direction === 'in' ? this.boundaryFocus?.inputs : this.boundaryFocus?.outputs)?.[node.id]?.has(pin.portId) === true
+      if (boundaryFocused && !isTarget) {
+        ctx.beginPath()
+        ctx.arc(px, py, ringRadius, 0, Math.PI * 2)
+        ctx.strokeStyle = t.colors.selection
+        ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
+        ctx.stroke()
+      }
       // A field row that takes the held wire shows its own outline, so the
       // field's pin, the node's only target then, gets no ring.
       if (isTarget && this.overlay.dropRow?.nodeId !== node.id) {
@@ -4388,8 +4414,8 @@ export class CanvasRenderer {
         const pinAlpha = ctx.globalAlpha
         if (pin.kept !== undefined) ctx.globalAlpha = pinAlpha * canvasPaintTokens.widget.inactiveOpacity
         else if (pin.direction === 'in' && this.mutedInputPins.has(`${node.id}\u0000${pin.portId}`)) ctx.globalAlpha = pinAlpha * canvasPaintTokens.node.modeOpacity
-        if (pin.collapsedSection !== undefined) {
-          // Each pin of a closed box's cluster cuts the one above it.
+        if (pin.collapsedSection !== undefined || pin.pressed === true) {
+          // Each pin of a compact cluster cuts the one above it.
           ctx.fillStyle = t.colors.nodeBody
           ctx.beginPath()
           ctx.arc(px, py, radius + canvasPaintTokens.node.box.clusterRing, 0, Math.PI * 2)
@@ -4590,6 +4616,15 @@ export class CanvasRenderer {
       ctx.lineWidth = canvasPaintTokens.node.box.stroke
       ctx.beginPath()
       ctx.roundRect(chrome.x + half, chrome.y + half, chrome.width - half * 2, chrome.height - half * 2, chrome.radius)
+      ctx.stroke()
+    }
+    if (this.boundaryFocus?.inputs[sceneNode.id]?.has(row.valueKey) === true) {
+      // The field the boundary item selected in the Boundary panel goes to.
+      const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
+      ctx.strokeStyle = t.colors.selection
+      ctx.lineWidth = canvasPaintTokens.widget.diagnosticStroke
+      ctx.beginPath()
+      ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
       ctx.stroke()
     }
     // A problem on this field (out-of-range number, unknown choice, ...)
@@ -5009,6 +5044,13 @@ export class CanvasRenderer {
         if (row.kind !== 'ports') continue
         const rowY = y + row.y
         const slot = row.input ?? row.output
+        if (slot !== undefined && this.boundaryFocus?.side === bnode.side && this.boundaryFocus.item === slot.portId) {
+          ctx.beginPath()
+          ctx.roundRect(x + paint.focusInset, rowY + paint.focusInset, l.width - paint.focusInset * 2, row.height - paint.focusInset * 2, t.cornerRadius)
+          ctx.strokeStyle = t.colors.selection
+          ctx.lineWidth = screenAwareStroke(paint.focusStroke, scale, paint.focusStroke)
+          ctx.stroke()
+        }
         const dim = slot?.ghost === true
         if (dim) ctx.globalAlpha = GHOST_ALPHA
         if (row.input) {

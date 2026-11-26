@@ -10,6 +10,7 @@
  * canvas/test/interaction.test.ts ("modifier parity across link endpoint
  * kinds").
  */
+import { boundaryItems, type Boundary } from '@dinkster/core'
 import { expect, openRailPanel, test, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-live-proof'
@@ -41,10 +42,7 @@ async function openFixture(page: Page): Promise<void> {
           src: { id: 'src', type: 'FloatSource', values: {} },
         }, links: {
           tapLink: { id: 'tapLink', from: { node: 'tap', tap: 'amount' }, to: { node: 'sink', port: 'value' } },
-        }, nets: {}, reroutes: {}, boundary: {
-          inputs: [],
-          outputs: [{ id: 'result', binds: { kind: 'port', node: 'src', port: 'out' } }],
-        }, nextOrdinal: 40 },
+        }, nets: {}, reroutes: {}, boundary: { body: [{ kind: 'output', id: 'result', binds: { kind: 'port', node: 'src', port: 'out' } }] }, nextOrdinal: 40 },
       },
       view: { graphs: {
         g0: { nodes: { i0: { position: { x: 200, y: 160 } } } },
@@ -76,7 +74,7 @@ const subState = (page: Page) => page.evaluate(() => {
   const graph = doc.graphs['sub']! as unknown as {
     nodes: Record<string, unknown>
     links: Record<string, object>
-    boundary?: { inputs: readonly unknown[]; outputs: readonly unknown[] }
+    boundary?: Boundary
   }
   return {
     nodes: Object.keys(graph.nodes).sort(),
@@ -183,8 +181,8 @@ test('live: fresh tap drag re-points an existing boundary output', async ({ page
   const after = await subState(page)
   expect(after.revision).toBeGreaterThan(before.revision)
   expect(after.links).toEqual(before.links)
-  expect(after.boundary?.outputs).toEqual([{
-    id: 'result', binds: { kind: 'widgetTap', node: 'tap', tap: 'amount' },
+  expect(boundaryItems(after.boundary ?? undefined, 'outputs')).toEqual([{
+    kind: 'output', id: 'result', binds: { kind: 'widgetTap', node: 'tap', tap: 'amount' },
   }])
   await expect(page.locator('[data-binding-kind="widgetTap"]')).toContainText('Widget output')
   await page.screenshot({ path: `${proofDir}/live-d1-fresh-existing-pin.png` })
@@ -196,8 +194,8 @@ test('live: fresh tap drag creates a boundary output from the add slot', async (
   const after = await subState(page)
   expect(after.revision).toBeGreaterThan(before.revision)
   expect(after.links).toEqual(before.links)
-  expect(after.boundary?.outputs).toContainEqual({
-    id: 'amount', binds: { kind: 'widgetTap', node: 'tap', tap: 'amount' },
+  expect(boundaryItems(after.boundary ?? undefined, 'outputs')).toContainEqual({
+    kind: 'output', id: 'amount', binds: { kind: 'widgetTap', node: 'tap', tap: 'amount' },
   })
   await page.screenshot({ path: `${proofDir}/live-d2-fresh-add-slot.png` })
 })
@@ -207,8 +205,8 @@ test('live: Alt fan-out from a connected tap link exposes on the panel body', as
   await drag(page, await inputPoint(page, 'sink'), await boundaryPoint(page, 'body'), 'Alt')
   const after = await subState(page)
   expect(after.revision).toBeGreaterThan(before.revision)
-  expect(after.boundary?.outputs).toEqual([{
-    id: 'result', binds: { kind: 'widgetTap', node: 'tap', tap: 'amount' },
+  expect(boundaryItems(after.boundary ?? undefined, 'outputs')).toEqual([{
+    kind: 'output', id: 'result', binds: { kind: 'widgetTap', node: 'tap', tap: 'amount' },
   }])
   expect(after.links.map((l) => l.id)).toContain('tapLink')
   await page.screenshot({ path: `${proofDir}/live-d3-alt-fanout-body.png` })
@@ -221,7 +219,7 @@ test('live: ordinary port output still exposes on the same boundary panel', asyn
   await drag(page, from, to)
   await expect.poll(async () => {
     const state = await subState(page)
-    return (state.boundary?.outputs ?? []).length
+    return boundaryItems(state.boundary ?? undefined, 'outputs').length
   }).toBe(2)
   const after = await subState(page)
   expect(after.revision).toBeGreaterThan(before.revision)

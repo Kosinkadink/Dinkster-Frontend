@@ -251,11 +251,11 @@ export function DinksterAppMenu(props: {
   const groups = (): readonly ResolvedMenuGroup[] => [...accountGroup(), ...APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }): ResolvedMenuGroup[] => {
     const items = ids.flatMap((id): MenuItem[] => {
       const command = props.commands.get(id)
-      const hint = props.keybindings.combo(id)
+      const shortcut = props.keybindings.combo(id)
       return command ? [{
         id,
         label: command.label,
-        ...(hint ? { hint } : {}),
+        ...(shortcut ? { shortcut } : {}),
         action: { kind: 'host', action: id },
         ...(command.enabled?.() === false ? { disabled: true } : {}),
       }] : []
@@ -462,7 +462,7 @@ export function App(props: {
   let shellEl!: HTMLElement
   tooltips.register({ id: 'core.dom', resolve: (target, opts) => {
     const dom = target as Partial<DomTooltipTarget>
-    return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
+    return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(dom.shortcut ? { shortcut: dom.shortcut } : {}), ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
   } })
   tooltips.register({ id: 'core.canvas', resolve: (target, opts) => {
     const tab = app.activeTab()
@@ -1288,6 +1288,7 @@ export function App(props: {
   const cancelling = useSignal(app.cancellingExecutions)
   const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
     const live = () => liveTabOf(p.exec)
+    const pending = createMemo(() => runIsPending(p.exec))
     // A finished run shows its outputs while it is the chosen run; a running or
     // queued one only once its name is pressed, so the list stays one line each.
     const selected = () => selectedRunKey() === p.exec.key ||
@@ -1338,7 +1339,7 @@ export function App(props: {
               else app.pinExecutionOverlay(tab.id, p.exec.ref)
             } : undefined}
           />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
-          {...(runIsPending(p.exec) ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
+          {...(pending() ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
             detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
             menuMount={menuMount()} onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
       </Show>

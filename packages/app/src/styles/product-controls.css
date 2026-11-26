@@ -50,6 +50,8 @@
 .product-text-area:focus { border-color: var(--dinkster-border-subtle); }
 :where(:root[data-field-focus='pointer']) :is(.product-text-input, .product-text-area):focus { border-color: var(--dinkster-border-focus); }
 :root[data-field-focus='pointer'] :is(.product-text-input, .product-text-area, .product-color-popover input):focus-visible { outline: 0; }
+.product-text-input:not(:where(.product-color-input, .settings-editor *)):focus,
+.product-text-area:not(:where(.settings-editor *)):focus { border-color: var(--dinkster-text-secondary); outline: 0; }
 .product-text-input[aria-invalid='true'],
 .product-text-area[aria-invalid='true'] { border-color: var(--dinkster-danger-border); }
 .product-text-input:disabled,
@@ -144,8 +146,8 @@
 }
 .product-select-option.active { background: var(--dinkster-surface-selected); color: var(--dinkster-text-on-selected); }
 .product-select-option.selected::before {
-  border-right: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
-  border-bottom: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  border-right: var(--dinkster-indicator-width) solid var(--dinkster-border-focus);
+  border-bottom: var(--dinkster-indicator-width) solid var(--dinkster-border-focus);
 }
 .product-select-option.disabled { color: var(--dinkster-text-disabled); cursor: default; }
 .product-select-option.disabled.active { background: transparent; }
@@ -184,6 +186,8 @@
 :where(:root[data-field-focus='pointer']) .product-number:focus-within { border-color: var(--dinkster-border-focus); }
 .product-number:has(:focus-visible) { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 :root[data-field-focus='pointer'] .product-number:has(:focus-visible) { outline: 0; }
+.product-number:not(:where(.settings-editor *)):has(.product-number-field:focus) { border-color: var(--dinkster-text-secondary); outline: 0; }
+.product-number:not(:where(.settings-editor *)):has(.product-number-field[aria-invalid='true']:focus) { border-color: var(--dinkster-danger-border); }
 .product-number-field { appearance: none; min-width: 0; width: 100%; padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 0; outline: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; }
 .product-number .product-number-field:focus-visible { outline: 0; }
 .product-number-field:disabled { color: var(--dinkster-text-disabled); }
@@ -198,7 +202,7 @@
 .product-slider.disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .product-slider-rail { position: relative; display: block; width: 100%; height: calc(var(--dinkster-space-4) + 2px); border-radius: var(--dinkster-radius-small); background: var(--dinkster-border-strong); }
 .product-slider-fill { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--dinkster-accent-foreground); }
-.product-slider-thumb { position: absolute; top: 50%; width: var(--dinkster-space-16); height: var(--dinkster-space-16); border: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-surface-selected); transform: translate(-50%, -50%); }
+.product-slider-thumb { position: absolute; top: 50%; width: var(--dinkster-space-16); height: var(--dinkster-space-16); border: var(--dinkster-indicator-width) solid var(--dinkster-border-focus); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-surface-selected); transform: translate(-50%, -50%); }
 
 .product-color-trigger { appearance: none; display: inline-flex; align-items: center; gap: var(--dinkster-space-8); min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); font: inherit; cursor: pointer; }
 .product-color-trigger:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }

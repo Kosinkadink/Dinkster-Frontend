@@ -34,6 +34,8 @@ import {
   ProductWindowChrome,
   ProductWindowToolbar,
   ProductWindowAction,
+  ProductShortcut,
+  ProductShortcutText,
   ProductAccountMenu,
   ProductSignInControl,
   ProductBrandMark,
@@ -67,6 +69,7 @@ import {
   ProductPage,
   ProductRadio,
   ProductSection,
+  ProductSegmented,
   ProductSelect,
   ProductShell,
   ProductSpinner,
@@ -88,7 +91,7 @@ import {
   selectCanvasPage,
 } from './canvas.js'
 import { ContextMenuGallery } from './context-menus.js'
-import { PageLoadingGallery } from './page-loading.js'
+import { PageLoadingGallery, ProjectLoadingGallery } from './page-loading.js'
 import { CanvasChromeGallery } from './canvas-chrome.js'
 import { RunControlsGallery } from './run-controls.js'
 import { SiteGallery } from './site.js'
@@ -125,6 +128,29 @@ function Section(props: {
       <span class="dinkster-metadata dinkster-mono">{props.components}</span>
       {props.children}
     </ProductSection>
+  )
+}
+
+/** Choices that cannot be chosen keep their place, dimmed, with the reason as their description. */
+function SegmentedStates() {
+  const [scope, setScope] = createSignal('all')
+  const [range, setRange] = createSignal('day')
+  return (
+    <Section title="Unavailable choices" components="ProductSegmented">
+      <div><ProductSegmented label="Runs scope" value={scope()} onChange={setScope} options={[
+        { value: 'workflow', label: 'This workflow', disabled: 'A page is in front, not a workflow.' },
+        { value: 'all', label: 'All workflows' },
+      ]} /></div>
+      <div><ProductSegmented label="History range" value={range()} onChange={setRange} options={[
+        { value: 'day', label: 'Day' },
+        { value: 'week', label: 'Week', disabled: 'Not enough history yet.' },
+        { value: 'month', label: 'Month' },
+      ]} /></div>
+      <div><ProductSegmented label="Chosen but unavailable" value="workflow" onChange={() => {}} options={[
+        { value: 'workflow', label: 'This workflow', disabled: 'A page is in front, not a workflow.' },
+        { value: 'all', label: 'All workflows' },
+      ]} /></div>
+    </Section>
   )
 }
 
@@ -190,7 +216,7 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
+              (route() === '#project-loading' ? 'Project loading' : route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
@@ -208,6 +234,42 @@ function Gallery() {
           >
             <Match when={route() === '#page-loading'}>
               <PageLoadingGallery activity={activity()} />
+            </Match>
+            <Match when={route() === '#segmented-states'}>
+              <SegmentedStates />
+            </Match>
+            <Match when={route() === '#project-loading'}>
+              <ProjectLoadingGallery />
+            </Match>
+            <Match when={route() === '#menu-filter'}>
+              <Section title="Filtered menu" components="ProductMenu, ProductTextInput">
+                <ProductMenu
+                  label="Choose a format"
+                  filter={{ label: 'Filter formats', placeholder: 'Find a format' }}
+                  items={[
+                    { label: 'Image', checked: true, onSelect: () => setActivity('Image selected') },
+                    { label: 'Image file', description: 'An image stored in a file.', checked: false, onSelect: () => setActivity('Image file selected') },
+                    { label: 'Image sequence', description: 'Not available for this example.', disabled: true, onSelect: () => setActivity('Unavailable format selected') },
+                    'separator',
+                    { label: 'Audio', description: 'A sound recording.', onSelect: () => setActivity('Audio selected') },
+                    { label: 'Video', onSelect: () => setActivity('Video selected') },
+                  ]}
+                />
+              </Section>
+            </Match>
+            <Match when={route() === '#menu-alignment'}>
+              <Section title="Trigger edges" components="ProductMenu">
+                <div class="dinkster-actions">
+                  <ProductMenu label="End actions" align="end" fill="quiet" items={[
+                    { label: 'Recommended build', description: 'Matches the detected graphics card.', checked: true, onSelect: () => complete('Recommended build selected') },
+                    { label: 'Alternative build', description: 'Use an earlier runtime for this driver.', checked: false, onSelect: () => complete('Alternative build selected') },
+                  ]} />
+                  <ProductMenu label="Start actions" items={[
+                    { label: 'View package', onSelect: () => complete('Package viewed') },
+                    { label: 'Unavailable action', disabled: true, onSelect: () => {} },
+                  ]} />
+                </div>
+              </Section>
             </Match>
             <Match when={route() === '#setup-components'}>
               <Section title="Progress" components="ProductProgress">
@@ -1121,7 +1183,7 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <Show when={route() !== '#canvas' && route() !== '#page-loading'}>
+        <Show when={route() !== '#canvas' && route() !== '#page-loading' && route() !== '#project-loading'}>
           <p class="dinkster-metadata" role="status">
             {activity()}
           </p>
@@ -1223,6 +1285,12 @@ function WindowToolbarGallery() {
         <ProductLink href="#desktop-about">
           Back to Desktop information
         </ProductLink>
+        <ProductSection title="Shortcut keys">
+          <ProductShortcut keys="Ctrl+Shift+K" />
+          <ProductShortcut keys="Cmd+," />
+          <ProductShortcut keys={['Alt', '+']} />
+          <p class="dinkster-description"><ProductShortcutText text="Pan moves the canvas; `Ctrl+wheel` zooms. `Cmd+,` opens settings." /></p>
+        </ProductSection>
         <ProductField label="Execution state">
           {(attributes) => (
             <ProductSelect
@@ -1314,8 +1382,8 @@ function WindowToolbarGallery() {
               value={shortcut()}
               onChange={(event) => setShortcut(event.currentTarget.value)}
             >
-              <option value="Ctrl+K">Ctrl+K</option>
-              <option value="Alt+K">Alt+K</option>
+              <option value="Ctrl+K">Default binding</option>
+              <option value="Alt+K">Alternate binding</option>
               <option value="">No shortcut</option>
             </ProductSelect>
           )}
