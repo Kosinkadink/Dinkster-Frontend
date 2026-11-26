@@ -195,9 +195,10 @@ export const saveTargetGroups: readonly {
     examples: [
       { id: 'mapped-open', caption: 'Mount and Name are real inputs, grouped by the target editor. The header has no pin.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mapped: true, foldout: true, resting: true },
       { id: 'mapped-mount-wired', caption: 'Mount wired: its arriving archive value is quiet. Name stays editable.', stored: portrait, open: { mount: 'archive', prefix: 'renders/portrait' }, wiredParts: ['mount'], mapped: true, foldout: true, resting: true },
-      { id: 'mapped-name-wired', caption: 'Name wired: its arriving name is quiet. Mount stays editable.', stored: portrait, open: { mount: null, prefix: 'from/upstream' }, wiredParts: ['name'], mapped: true, foldout: true, resting: true },
+      { id: 'mapped-name-wired', caption: 'Name wired: its arriving name is quiet. Mount stays editable. Reset is hidden because the unwired Mount already has its default.', stored: portrait, open: { mount: null, prefix: 'from/upstream' }, wiredParts: ['name'], mapped: true, foldout: true, resting: true },
       { id: 'mapped-folded', caption: 'Folded with no wires: the Mount and Name pins are hidden.', stored: portrait, mapped: true, foldout: true },
-      { id: 'mapped-both-wired', caption: 'Folded with both inputs wired: their pins gather at the header on the node edge. No target input is invented.', stored: portrait, wiredParts: ['mount', 'name'], mapped: true, foldout: true },
+      { id: 'mapped-both-wired', caption: 'Folded with both inputs wired: the header is quiet and their pins gather on the node edge. No target input is invented.', stored: portrait, wiredParts: ['mount', 'name'], mapped: true, foldout: true },
+      { id: 'mapped-both-wired-open', caption: 'Both inputs wired, reopened: the header and both arriving values are quiet. Nothing in the editor can change.', stored: portrait, open: { mount: 'archive', prefix: 'from/upstream' }, wiredParts: ['mount', 'name'], mapped: true, foldout: true, resting: true },
     ],
   },
   {

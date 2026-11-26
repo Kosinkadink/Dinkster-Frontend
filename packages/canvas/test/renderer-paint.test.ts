@@ -11,6 +11,7 @@ import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET,
 import { paintToolboxIcon } from '../src/icons.js'
 import { createRegistryPainter } from '../src/registry-painter.js'
 import { createInNodeEditorScene, inNodeEditorExamples } from '../gallery/in-node-editors.js'
+import { createSaveTargetScene } from '../gallery/save-target-box.js'
 import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type CompanionDisplay, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, outputRowKey, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
@@ -161,6 +162,25 @@ function mutableCanvas(ctx: CanvasRenderingContext2D, clientWidth: number, clien
 
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = () => ({ viewId: 'core.line', rows: 1 })
+
+it('dims a mapped Save header only when both real inputs are wired, open or folded', () => {
+  for (const unfolded of [false, true]) {
+    for (const wiredParts of [[], ['mount'], ['name'], ['mount', 'name']] as const) {
+      const scene = createSaveTargetScene(defaultTokens, measure, () => ({ viewId: 'core.saveTarget', rows: 1 }),
+        { x: 0, y: 0 }, { prefix: 'renders/portrait' }, { mapped: true, unfolded, wiredParts })
+      const { ctx, calls } = recordingCtx()
+      const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens, (args) => {
+        if (args.row.editor) args.ctx.fillText('Save header', args.x, args.y)
+      })
+      try {
+        renderer.setScene(scene)
+        renderer.renderNow()
+        expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Save header')?.globalAlpha)
+          .toBe(wiredParts.length === 2 ? canvasPaintTokens.widget.connectedOpacity : 1)
+      } finally { renderer.dispose() }
+    }
+  }
+})
 
 // Two producers and two LATENT sinks: link 'bad' (IMAGE -> LATENT) is a
 // proven mismatch, link 'good' (LATENT -> LATENT) is healthy.

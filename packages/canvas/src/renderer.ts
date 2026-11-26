@@ -1489,7 +1489,9 @@ export class CanvasRenderer {
   widgetPaintState(node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>, driven?: { readonly value?: Json }): Pick<WidgetPaintArgs, 'value' | 'companion' | 'connected'> {
     const arriving = this.rowCompanion(node.id, row, driven)
     const companion = arriving?.state === 'unknown' ? undefined : arriving
-    const connected = arriving !== undefined
+    const written = row.editor === true && row.viewId === 'core.saveTarget' ? Object.values(row.parts?.writes ?? {}) : []
+    const connected = arriving !== undefined || written.length > 0 && written.every((inputId) =>
+      this.rowCompanion(node.id, { ...row, inputId, valueKey: inputId }) !== undefined)
     const drag = this.rowDrags[node.id]?.valueKey === row.valueKey ? this.rowDrags[node.id] : undefined
     const automatic = drag === undefined && row.spec.automatic === true && node.node.values[row.valueKey] === undefined
     return {
