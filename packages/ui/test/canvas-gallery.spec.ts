@@ -472,11 +472,14 @@ test('Open rows use a quiet outline and preserve keyboard focus and side-part co
         'stroke',
         await palette(
           id === 'focus-number'
-            ? '--dinkster-border-focus'
+            ? '--dinkster-border-keyboard-focus'
             : '--dinkster-accent-rest-border',
         ),
       )
-      await expect(outline).toHaveCSS('stroke-width', '2px')
+      await expect(outline).toHaveCSS(
+        'stroke-width',
+        id === 'focus-number' ? '1px' : '2px',
+      )
     }
     await openPage(page, 'save-target-box', theme)
     await cardsReady(page, 'save-target-box', theme)
