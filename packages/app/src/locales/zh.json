@@ -160,6 +160,7 @@
   "modelConsent.reviewPicker": "请选择推荐来源或输入模型文件的 URL，然后查看来源。只有您同意后才会开始下载。",
   "modelConsent.reviewListAriaLabel": "\u8981\u67e5\u770b\u7684\u6a21\u578b",
   "modelConsent.reviewTitle": "\u67e5\u770b\u4e0b\u8f7d",
+  "modelPresence.missingSummary": "\u7f3a\u5c11 {count} \u4e2a\u6a21\u578b",
   "modelConsent.reviewEyebrow": "\u6a21\u578b\u4e0b\u8f7d",
   "modelConsent.reviewLocal": "\u672c\u5730\u5df2\u53ef\u7528\u3002",
   "modelConsent.reviewCompleted": "\u5df2\u9a8c\u8bc1\u5e76\u5c31\u7eea\u3002",

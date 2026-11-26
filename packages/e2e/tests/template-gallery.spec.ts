@@ -156,6 +156,44 @@ test('reviews template models without opening or submitting a workflow and revok
   })
   await expect(dialog).toBeHidden()
   expect(starts).toHaveLength(1)
+  await page.evaluate(() => {
+    const backend = window.__dinksterTest!.app.backends.get().find((item) => item.protocol === 'dinkster')! as unknown as {
+      templatesEnabled: { set(enabled: boolean): void }
+      registry: { get(): import('@dinkster/client').SchemaRegistry; set(value: import('@dinkster/client').SchemaRegistry): void }
+    }
+    backend.templatesEnabled.set(true)
+    const registry = backend.registry.get()!
+    backend.registry.set({ ...registry, packs: new Map([...(registry.packs ?? []), ['demo', {
+      displayName: 'Demo', assets: [{ id: 'missing', name: 'missing.safetensors',
+        kind: 'model/vae', size: 2048, digest: `blake3:${'b'.repeat(64)}` }],
+    }]]) })
+  })
+  await page.keyboard.press('Alt+t')
+  await gallery.getByRole('button', { name: 'Use template', exact: true }).click()
+  await expect(gallery).toBeHidden()
+  await expect(page.getByTestId('import-asset-resolution-dialog')).toHaveCount(0)
+  const banner = page.getByTestId('missing-models-banner')
+  await expect(banner).toContainText('1 model missing')
+  await expect(banner).toContainText('2 KiB')
+  await captureProof(page, 'template-canvas-missing.png')
+  await page.setViewportSize({ width: 900, height: 900 })
+  await expect(banner).toBeVisible()
+  await captureProof(page, 'template-canvas-missing-900.png')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await banner.getByRole('button', { name: 'Review download', exact: true }).click()
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('missing.safetensors')
+  await expect(dialog.getByRole('button', { name: 'Run once', exact: true })).toHaveCount(0)
+  expect(starts).toHaveLength(1)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
+  await captureProof(page, 'template-canvas-review.png')
+  await page.evaluate(() => {
+    const backend = window.__dinksterTest!.app.backends.get().find((item) => item.protocol === 'dinkster')!
+    ;(backend as unknown as { templatesEnabled: { set(enabled: boolean): void } }).templatesEnabled.set(false)
+  })
+  await expect(dialog).toBeHidden()
+  await expect(banner).toBeHidden()
+  await captureProof(page, 'template-canvas-feature-off.png')
 })
 
 const proofDir = process.env['DINKSTER_TEMPLATE_PROOF_DIR']

@@ -378,6 +378,29 @@ describe('workflow model presence', () => {
     expect(app.assetConsent.get()).toBeUndefined()
   })
 
+  it('reviews unique missing workflow models without running and revokes when templates turn off', async () => {
+    const { backend, tab, presence } = await setup({ first: 'same.safetensors', repeated: 'same.safetensors',
+      otherKind: 'same.safetensors', local: 'local.safetensors' },
+    [field('first'), field('repeated'), field('otherKind', 'model/vae'), field('local')])
+    presence.mockImplementation(async (wanted) => wanted.map((model) => ({ ...model,
+      status: model.name === 'local.safetensors' ? 'local' as const : 'missing' as const, plannable: true })))
+    vi.spyOn(backend.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'test', jobs: [] })
+    backend.connection.ingest({ type: 'mounts_changed' })
+    await vi.waitFor(() => expect(models(tab)).toHaveLength(3))
+    app.reviewModelDownload(tab)
+    expect(app.assetConsent.get()).toBeUndefined()
+    backend.templatesEnabled.set(true)
+    app.reviewModelDownload(tab)
+    expect(app.assetConsent.get()?.models?.map((model) => model.requirement)).toEqual([
+      { name: 'same.safetensors', kind: 'model/checkpoint' },
+      { name: 'same.safetensors', kind: 'model/vae' },
+    ])
+    expect(app.assetConsent.get()?.retry).toBeUndefined()
+    expect(app.store.executions.get().size).toBe(0)
+    backend.templatesEnabled.set(false)
+    expect(app.assetConsent.get()).toBeUndefined()
+  })
+
   it('checks active flattened model fields, not dormant choices, media, selections or digest references', async () => {
     const { tab } = await setup({ 'files.model': 'active.safetensors', media: 'picture.png', selection: 'baked-in',
       digest: { digest: 'blake3:' + 'a'.repeat(64), name: 'stored.safetensors', size: 1, mediaType: 'application/octet-stream', virtualPath: 'models/stored.safetensors' },

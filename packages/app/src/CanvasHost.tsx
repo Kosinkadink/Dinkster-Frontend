@@ -200,6 +200,7 @@ import { imageCompareFrames } from './image-compare-frames.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
+import { formatByteSize } from './collections.js'
 
 type WidgetLayoutRow = Extract<Hit, { kind: 'widget' }>['row']
 
@@ -6504,6 +6505,28 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     })
   }
 
+  const missingModels = createMemo(() => {
+    backendsTick()
+    tabTargets()
+    const tab = activeTab()
+    if (!tab || tab.execution) return []
+    const backend = props.app.backendForTab(tab)
+    if (backend.protocol !== 'dinkster' || !backend.templatesEnabled.get()) return []
+    return [...new Map(problems().filter((problem) => problem.owner === tab.id &&
+      problem.code === 'model.availability.missing' && problem.data?.['backend'] === backend.id &&
+      problem.data['plannable'] === true)
+      .map((problem) => [JSON.stringify([problem.data!['name'], problem.data!['kind']]), problem])).values()]
+  })
+  const missingModelAmount = (): string => {
+    const assets = [...(registry()?.packs?.values() ?? [])].flatMap((pack) => pack.assets ?? [])
+    const sizes = missingModels().map((model) => {
+      const matches = assets.filter((asset) => asset.name === model.data?.['name'] && asset.kind === model.data?.['kind'])
+      return matches.every((asset) => asset.size === matches[0]?.size) ? matches[0]?.size : undefined
+    })
+    return sizes.every((size) => size !== undefined)
+      ? formatByteSize(sizes.reduce<number>((total, size) => total + size!, 0)) : ''
+  }
+
   /** Frozen-tab banner data: execution identity, status, live-sync verdict. */
   const frozenInfo = () => {
     executions()
@@ -7134,6 +7157,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         onZoomBy={(factor) => zoomCanvas?.(factor)}
         onZoomTo={(scale) => zoomCanvasTo?.(scale)}
       />
+
+      <Show when={missingModels().length > 0}>
+        <div ref={placeFrozenLine} class="frozen-banner" data-testid="missing-models-banner" role="status">
+          <span class="frozen-words">
+            <Icon icon={TriangleAlert} />
+            <span class="frozen-label">{message('modelPresence.missingSummary', { count: missingModels().length })}</span>
+            <Show when={missingModelAmount()}>{(amount) => <span class="frozen-sync">{amount()}</span>}</Show>
+          </span>
+          <span class="canvas-chrome-divider" aria-hidden="true" />
+          <ProductButton variant="ghost" type="button" class="canvas-chrome-button frozen-action"
+            onClick={() => { const tab = activeTab(); if (tab) props.app.reviewModelDownload(tab) }}
+          >{message('modelConsent.reviewTitle')}</ProductButton>
+        </div>
+      </Show>
 
       <Show when={frozenInfo()}>
         {(f) => (

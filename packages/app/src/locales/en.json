@@ -161,6 +161,7 @@
   "modelConsent.reviewPicker": "Choose a suggested source or enter the model file's URL, then review it. Nothing downloads until you agree.",
   "modelConsent.reviewListAriaLabel": "Model to review",
   "modelConsent.reviewTitle": "Review download",
+  "modelPresence.missingSummary": "{count, plural, one {# model missing} other {# models missing}}",
   "modelConsent.reviewEyebrow": "Model download",
   "modelConsent.reviewLocal": "Available locally.",
   "modelConsent.reviewCompleted": "Verified and ready.",
