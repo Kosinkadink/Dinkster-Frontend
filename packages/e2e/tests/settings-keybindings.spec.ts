@@ -5,6 +5,8 @@ import { expect, test, setShellRegion, waitForWorkspaceReady, mockProjectPacks }
 const proofDir = process.env['DINKSTER_I18N_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
 
+test.use({ seedWorkflows: false })
+
 test.beforeEach(async ({ page }) => {
   await mockProjectPacks(page)
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
