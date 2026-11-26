@@ -551,7 +551,7 @@
 .dinkster-about-preview { background: var(--dinkster-surface-canvas); color: var(--dinkster-text-primary); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); }
 .dinkster-choice { display: flex; align-items: center; gap: var(--dinkster-space-8); }
 .dinkster-check { accent-color: var(--dinkster-accent-foreground); }
-.dinkster-textarea { resize: vertical; }
+.dinkster-textarea { resize: none; field-sizing: content; height: auto; max-height: calc(var(--dinkster-space-32) * 6); overflow-y: auto; }
 .dinkster-menu-anchor { position: relative; }
 .dinkster-menu-trigger { user-select: none; }
 .dinkster-menu-filter { position: sticky; top: 0; z-index: 1; padding: var(--dinkster-space-4); margin-bottom: var(--dinkster-space-4); border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-subtle); background: inherit; }
