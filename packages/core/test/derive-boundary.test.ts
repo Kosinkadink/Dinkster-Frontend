@@ -217,7 +217,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
       boundary: { body: [{ kind: 'output', id: 'missing', binds: { kind: 'widgetTap', node: 'n0', tap: 'unknown' } }] },
     })
     const invalid = deriveBoundarySchema(missing, (type) => innerSchemas[type])
-    expect(invalid.schema).toBeUndefined()
+    expect(outputsOf(invalid.schema!)[0]!.unavailable?.code).toBe('boundary.tapMissing')
     expect(invalid.diagnostics).toContainEqual(expect.objectContaining({ code: 'boundary.tapMissing' }))
 
     const seed = innerSchemas.KSampler!.body[0]!
@@ -250,7 +250,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
         boundary: { body: [{ kind: 'output', id: 'invalid', binds: { kind: 'widgetTap', node: 'n0', tap } }] },
       })
       const result = deriveBoundarySchema(malformedDef, () => malformedSchema as NodeSchema)
-      expect(result.schema).toBeUndefined()
+      expect(outputsOf(result.schema!)[0]!.unavailable?.code).toBe(code)
       expect(result.diagnostics).toContainEqual(expect.objectContaining({ code }))
     }
   })
@@ -469,7 +469,13 @@ describe('boundary structural identity and presentation', () => {
       ...def,
       boundary: { body: [{ kind: 'input', id: 'size', binds: { kind: 'port', node: 'n0', port: 'mode.width' }, promoted: true }] },
     }), () => schema)
-    expect(inactive.schema).toBeUndefined()
+    expect(elabInputsOf(elaborateInterface(inactive.schema!, { values: {} }))).toEqual([])
+    const kept = elabInputsOf(elaborateInterface(inactive.schema!, { values: {} }, {
+      isInputConnected: () => true, isOutputConnected: () => false,
+    }))
+    expect(kept[0]!.apiName).toBeUndefined()
+    expect(kept[0]!.spec.type).toEqual({ kind: 'concrete', name: 'INT' })
+    expect(kept[0]!.kept).toContain('not a row of the chosen option')
     expect(inactive.diagnostics).toContainEqual(expect.objectContaining({ code: 'boundary.branchInactive' }))
   })
 
@@ -910,6 +916,45 @@ describe('Boundary sample acceptance compilation', () => {
   }
   const storeFor = (doc: WorkflowDocument) => new DocumentStore(doc, coreCommandRegistry(), 200, undefined,
     () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveBoundarySample) }))
+  it('keeps a broken middle binding inert without blocking or changing unrelated rows', () => {
+    const doc = boundarySample(2)
+    const store = storeFor(doc)
+    const before = store.doc.graphs.detail!.boundary!.body
+    const changed = store.dispatch({ command: 'boundary.unbind', params: {
+      graphId: 'detail', side: 'inputs', itemId: 'strength', node: 'sample', port: 'strength',
+    } })
+    expect(changed.ok).toBe(true)
+    const schema = documentResolver(store.doc, resolveBoundarySample)('#portrait')!
+    const rows = elabInputsOf(elaborateInterface(schema, store.doc.graphs.root!.nodes.first!))
+    expect(rows.find((row) => row.spec.id === 'strength')).toMatchObject({
+      kept: expect.stringContaining('strength'), spec: { unavailable: { code: 'boundary.unknownPort' } },
+    })
+    expect(rows.find((row) => row.spec.id === 'strength')!.apiName).toBeUndefined()
+    expect(rows.find((row) => row.spec.id === 'radius')!.spec.widget?.default).toBe(0.1)
+    expect(prompt(store.doc)['first.detail.sample']!.inputs.strength).toBe(0.3)
+    expect(prompt(store.doc)['second.detail.sample']!.inputs.strength).toBe(0.3)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.detail!.boundary!.body).toEqual(before)
+    expect(prompt(store.doc)['first.detail.sample']!.inputs.strength).toBe(0.2)
+    expect(prompt(store.doc)['second.detail.sample']!.inputs.strength).toBe(0.8)
+
+    const detail = structuredClone(store.doc.graphs.detail!)
+    Object.assign(detail, { boundary: { body: detail.boundary!.body.map((row) =>
+      'id' in row && row.id === 'strength' ? { ...row, alsoBinds: [{ kind: 'port', node: 'missing', port: 'strength' }] } : row) } })
+    const broken: WorkflowDocument = { ...store.doc, graphs: { ...store.doc.graphs, detail } }
+    const reopened = loadDocument(JSON.parse(JSON.stringify(broken)))
+    expect(reopened.document, JSON.stringify(reopened.diagnostics)).toBeDefined()
+    expect(prompt(reopened.document!)['first.detail.sample']!.inputs.strength).toBe(0.3)
+    expect(prompt(broken)['first.detail.sample']!.inputs.strength).toBe(0.3)
+    expect(prompt(broken)['first.detail.sample']!.inputs.count).toBe(3)
+    expect(prompt(broken)['second.detail.sample']!.inputs.count).toBe(2)
+    const linked = structuredClone(broken)
+    Object.assign(linked.graphs.root!.links, { bad: { id: 'bad', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'strength' } } })
+    const refused = compile({ document: linked, revision: 1, resolve: resolveBoundarySample,
+      scope: { kind: 'full' }, connection: asConnectionId('boundary-grid'), schemaHash: 'boundary-sample' })
+    expect(refused.ok).toBe(false)
+    expect(!refused.ok && refused.diagnostics.some((d) => d.code === 'boundary.danglingNode')).toBe(true)
+  })
   const edit = (store: DocumentStore, command: string, params: Record<string, Json>) => {
     const before = store.doc
     const result = store.dispatch({ command, params })

@@ -1742,7 +1742,7 @@ function elaboratePass(
     if (looked !== undefined) spec = { ...spec, widget: looked.widget }
     const parts = row.widget === undefined ? undefined : partsAt(row.widget, scope)
     // A field that is not sent is drawn and edited but never reaches the run.
-    const sent = !(scope.ghost || scope.dormant || row.sent === false)
+    const sent = !(scope.ghost || scope.dormant || row.sent === false || row.unavailable !== undefined)
     const hiddenByScope = scope.hidden && row.hidden !== true
     // A census also visits rows not chosen; they never replace a chosen row's entry.
     if (!scope.dormant || !unsetReads.has(path)) unsetReads.set(path, readWhenUnset(sent ? sentSpecOf(spec, hiddenByScope) : { ...spec, sent: false }))
@@ -1755,6 +1755,7 @@ function elaboratePass(
       ...common(scope),
       ...(parts !== undefined ? { parts } : {}),
       ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
+      ...(row.unavailable !== undefined ? { kept: row.unavailable.message } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),
       ...(looked !== undefined && Object.keys(looked.states).length > 0 ? { looked: looked.states } : {}),
       ...(hiddenByScope ? { hiddenByScope: true as const } : {}),
@@ -1789,7 +1790,7 @@ function elaboratePass(
         ...(scope.typeMember !== undefined ? { type: scopeType(row.type, scope.typeMember) } : {}),
       },
       ...common(scope),
-      ...(scope.ghost || scope.dormant ? { wireable: false as const } : {}),
+      ...(scope.ghost || scope.dormant || row.unavailable !== undefined ? { wireable: false as const } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),
     })
   }
@@ -1830,6 +1831,16 @@ function elaboratePass(
   const shownWhole = (scope: Scope): boolean => scope.formulaFrames.some((frame) => frame.outer !== undefined)
 
   const one = (row: BodyRow, raw: Scope): void => {
+    if ((row.kind === 'input' || row.kind === 'output') && row.unavailable !== undefined) {
+      const path = raw.prefix + row.id
+      const { code, message, inactive } = row.unavailable
+      if (inactive && !connectivity.isInputConnected(path) && !connectivity.isOutputConnected(path)) return
+      problems.add(path)
+      diagnostics.push(diag(inactive ? 'info' : 'warning', 'schema', code, message, { refs: [{ portId: path }] }))
+      if (row.kind === 'input') emitInput(row, path, raw)
+      else emitOutput(row, path, raw)
+      return
+    }
     const framed = 'outer' in row && row.outer !== undefined ? { ...raw, formulaFrames: outerFrames(row.outer) } : raw
     // A row hidden by its `visible` is still stored and sent to the run; a
     // row with a wire or a problem, or a box that holds one, shows anyway.

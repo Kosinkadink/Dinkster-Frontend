@@ -6,9 +6,9 @@
 
 import type { BoundaryItem, ConstructBoundaryBinding, DynamicPortState, GraphDef, Json, NodeData } from '../format/document.js'
 import type { NodeId } from '../ids.js'
-import { constructRowOf, innerMemberKey, interiorMembersOf, outerMemberKey, resolveBoundaryRoute } from '../schema/derive-boundary.js'
+import { constructRowOf, deriveBoundarySchema, innerMemberKey, interiorMembersOf, outerMemberKey, resolveBoundaryRoute } from '../schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../schema/elaborate.js'
-import type { NodeSchema } from '../schema/model.js'
+import { scopeRowsOf, type NodeSchema } from '../schema/model.js'
 import { boundaryItems } from '../format/document.js'
 
 /** Project schema-opted-in menus through promoted inputs without changing values. */
@@ -19,7 +19,11 @@ export function projectEditableOptions(
 ): ReadonlyMap<NodeId, Readonly<Record<string, DynamicPortState>>> {
   const projected = new Map<NodeId, Readonly<Record<string, DynamicPortState>>>()
   const claimed = new Map<NodeId, Set<string>>()
+  const schema = deriveBoundarySchema(child, () => undefined, undefined, resolveNode).schema
+  const unavailable = new Set(scopeRowsOf(schema?.body ?? []).flatMap((row) =>
+    (row.kind === 'input' || row.kind === 'output') && row.unavailable !== undefined ? [row.id] : []))
   for (const item of boundaryItems(child.boundary, 'inputs') ?? []) {
+    if (schema === undefined || unavailable.has(item.id)) continue
     if (item.promoted !== true || item.binds.kind !== 'port') continue
     const options = instanceDynamic?.[item.id]?.options
     if (options === undefined) continue
@@ -81,24 +85,6 @@ export function matchBoundaryItem(items: readonly BoundaryItem[], addr: Boundary
     code: 'ambiguous',
     message: `address '${addr.port}' matches ${candidates.length} boundary items (${candidates.map((c) => `'${c.id}'`).join(', ')}); boundary ids collide`,
   }
-}
-
-export interface CrossingProblem {
-  readonly code: string
-  readonly message: string
-}
-
-/**
- * Boundary output fan-out refusals for one child definition: an output has
- * exactly one source, so an output item carrying `alsoBinds` cannot lower.
- */
-export function boundaryOutputFanOutProblems(child: GraphDef): readonly CrossingProblem[] {
-  return (boundaryItems(child.boundary, 'outputs') ?? [])
-    .filter((item) => item.alsoBinds !== undefined)
-    .map((item) => ({
-      code: 'compile.boundary.forwardUnresolved',
-      message: `boundary output '${item.id}' of '${child.id}' cannot fan out`,
-    }))
 }
 
 /** Overlay authored port state at its flattened id, keeping the state beside it. */
@@ -197,6 +183,9 @@ export function projectConstructs(
   const dynamic = new Map<NodeId, Record<string, DynamicPortState>>()
   const values = new Map<NodeId, Record<string, Json>>()
   const owners = new Map<NodeId, Map<string, string>>()
+  const schema = deriveBoundarySchema(child, () => undefined, undefined, resolveNode).schema
+  const unavailable = new Set(scopeRowsOf(schema?.body ?? []).flatMap((row) =>
+    (row.kind === 'input' || row.kind === 'output') && row.unavailable !== undefined ? [row.id] : []))
   const dynamicOf = (node: NodeData): Record<string, DynamicPortState> => {
     let found = dynamic.get(node.id)
     if (!found) dynamic.set(node.id, (found = { ...(base.get(node.id) ?? node.dynamic) }))
@@ -217,6 +206,7 @@ export function projectConstructs(
     own(node, key, owner)
   }
   for (const item of [...(boundaryItems(child.boundary, 'inputs') ?? []), ...(boundaryItems(child.boundary, 'outputs') ?? [])]) {
+    if (schema === undefined || unavailable.has(item.id)) continue
     if (item.binds.kind === 'port' && item.promoted === true && Object.hasOwn(instance.values, item.id)) {
       // A field the subgraph node shows reaches its inner field before the
       // inner node's formulas read it, as a group count or a choice leader does.
@@ -291,4 +281,3 @@ export function projectConstructs(
   }
   return { dynamic, values, owners }
 }
-

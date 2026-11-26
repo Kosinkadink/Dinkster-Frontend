@@ -198,6 +198,26 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
       expect(before.value(secondPath, 'output91')).toBe(91)
       expect(before.value('sink', 'received')).toBe('30.0')
 
+      if (level === 2) {
+        dispatch('boundary.unbind', {
+          graphId: 'detail',
+          side: 'inputs',
+          itemId: 'strength',
+          node: 'sample',
+          port: 'strength',
+        })
+        const broken = await run()
+        expect(broken.first.strength).toBe(0.3)
+        expect(broken.second.strength).toBe(0.3)
+        expect(broken.value(path, 'output91')).toBe(91)
+        expect(broken.value(secondPath, 'output91')).toBe(91)
+        expect(broken.value('sink', 'received')).toBe('30.0')
+        expect(store.undo()).toBe(true)
+        const restored = await run()
+        expect(restored.first.strength).toBe(0.2)
+        expect(restored.second.strength).toBe(0.8)
+      }
+
       const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc)))
       expect(loaded.document, JSON.stringify(loaded.diagnostics)).toBeDefined()
       expect((await run(loaded.document!)).first).toEqual(before.first)

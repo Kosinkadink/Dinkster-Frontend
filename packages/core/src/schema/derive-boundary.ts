@@ -10,8 +10,8 @@
  * Key rules:
  * - A 'port' binding names one input or output of an inner node by its
  *   flattened id, at any depth of the node's body: a row of a group member,
- *   of a choice's chosen option, or of a type choice. Forwarding a whole
- *   group, choice or type choice to the face is refused.
+ *   of a choice's chosen option, or of a type choice. A 'construct'
+ *   binding forwards a whole group, choice, type choice or described row.
  * - Widget promotion: a promoted boundary input carries the inner WidgetSpec,
  *   so the instance renders the widget and stores the value under the
  *   boundary id. A non-promoted widget-backed input derives a socket-only
@@ -66,7 +66,7 @@ export interface SchemaResolver {
 }
 
 export interface DeriveResult {
-  /** Present unless an error-level diagnostic was produced. */
+  /** Row-local failures retain an inert row; only definition-wide failures withhold the schema. */
   readonly schema?: NodeSchema
   readonly diagnostics: readonly Diagnostic[]
 }
@@ -609,11 +609,6 @@ const constructShapeKey = (row: GroupSpec | ChoiceSpec | TypeChoiceSpec | Descri
 // ---------------------------------------------------------------------------
 
 /**
- * Derive the NodeSchema of a subgraph definition's boundary. Returns
- * diagnostics for every unresolvable binding; the schema is produced only if
- * no error occurred (partial schemas would let bad instances propagate).
- */
-/**
  * The subgraph node's body in the order the boundary stores it: each derived
  * row at its item's place, inside the stored sections and lines. A line left
  * with one row draws that row alone.
@@ -650,8 +645,15 @@ export function deriveBoundarySchema(
   resolveNode: (node: NodeData) => NodeSchema | undefined = (node) => resolve(node.type),
 ): DeriveResult {
   const diags: Diagnostic[] = []
+  const unavailable = new Map<string, NonNullable<InputSpec['unavailable']>>()
+  const knownTypes = new Map<string, TypeExpr>()
+  let currentItem: BoundaryItem | undefined
   const fail = (code: string, msg: string): void => {
-    diags.push(diag('error', 'schema', code, `[${graph.id}] ${msg}`))
+    const inactive = code === 'boundary.branchInactive' || code === 'boundary.slotDisconnected'
+    const message = `[${graph.id}] ${msg}`
+    if (currentItem !== undefined) unavailable.set(currentItem.id, { code, message, ...(inactive ? { inactive: true } : {}) })
+    diags.push(diag(inactive ? 'info' : 'error', 'schema', code, message,
+      currentItem === undefined ? undefined : { refs: [{ graphId: graph.id, portId: currentItem.id }] }))
   }
   let connectivityOf: ReturnType<typeof buildGraphConnectivity> | undefined
 
@@ -661,6 +663,7 @@ export function deriveBoundarySchema(
   }
 
   const inputs = boundaryItems(graph.boundary, 'inputs').map((item): BoundaryItem => {
+    currentItem = item
     const bindings = [item.binds, ...(item.alsoBinds ?? [])]
     if (bindings.every((binding) => binding.viaReroute === undefined)) return item
     const expanded = bindings.flatMap((binding): BoundaryBinding[] => {
@@ -679,11 +682,11 @@ export function deriveBoundarySchema(
     const { alsoBinds: _also, ...single } = item
     return { ...single, binds: expanded[0] ?? item.binds, ...(expanded.length > 1 ? { alsoBinds: expanded.slice(1) } : {}) }
   })
-  if (diags.length) return { diagnostics: diags }
-  if (boundaryItems(graph.boundary, 'outputs').some((item) => item.binds.viaReroute !== undefined)) {
-    fail('boundary.rerouteSide', 'junction attachments are input-side only')
-    return { diagnostics: diags }
+  for (const item of boundaryItems(graph.boundary, 'outputs')) {
+    currentItem = item
+    if (item.binds.viaReroute !== undefined) fail('boundary.rerouteSide', 'junction attachments are input-side only')
   }
+  currentItem = undefined
   const def = { ...graph, boundary: { ...graph.boundary, inputs } }
 
 
@@ -732,8 +735,8 @@ export function deriveBoundarySchema(
    * Resolve schema + route for one binding; undefined = failed, with one
    * diagnostic. A route must reach a port that exists in the definition:
    * the chosen option of each choice it crosses and a wired or chosen type
-   * choice. Forwarding a whole group, a choice or a type choice to the
-   * face is refused here.
+   * choice. A port binding names a single row; a construct binding names
+   * a whole group, choice, type choice or described row.
    */
   const routeForBinding = (
     binds: BoundaryBinding,
@@ -763,6 +766,13 @@ export function deriveBoundarySchema(
       return undefined
     }
     const route = result.route
+    if (route.terminal.kind === 'port') {
+      if (currentItem !== undefined && !knownTypes.has(currentItem.id)) knownTypes.set(currentItem.id, freshenType(route.terminal.slot.type, binds.node, typeBindingsFor(node)))
+      if (route.terminal.slot.unavailable !== undefined) {
+        fail(route.terminal.slot.unavailable.code, `${describe}: ${route.terminal.slot.unavailable.message}`)
+        return undefined
+      }
+    }
     if (binds.kind === 'port' && route.terminal.kind !== 'port') {
       fail('boundary.familyBind', `${describe} binds '${binds.port}', which is a group, a choice, a type choice or a described row; a whole construct is shown with a construct binding`)
       return undefined
@@ -818,23 +828,34 @@ export function deriveBoundarySchema(
   const shownRows = new Map<string, string>()
   const everyItem = [...boundaryItems(def.boundary, 'inputs'), ...boundaryItems(def.boundary, 'outputs')]
   for (const item of everyItem) {
+    currentItem = item
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
       if ((binding.kind === 'port' || binding.kind === 'construct') && !shownRows.has(JSON.stringify([binding.node, binding.port]))) shownRows.set(JSON.stringify([binding.node, binding.port]), item.id)
       if (binding.kind !== 'construct') continue
       const owner = constructOwners.find((other) => other.node === binding.node && other.path === binding.port)
-      if (owner !== undefined) fail('boundary.constructConflict', `boundary items '${owner.item}' and '${item.id}' both show '${binding.port}' whole`)
+      if (owner !== undefined) {
+        fail('boundary.constructConflict', `boundary items '${owner.item}' and '${item.id}' both show '${binding.port}' whole`)
+        unavailable.set(owner.item, unavailable.get(item.id)!)
+      }
       else constructOwners.push({ node: binding.node, path: binding.port, item: item.id })
     }
   }
   for (const item of everyItem) {
+    currentItem = item
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
       if (binding.kind !== 'port' && binding.kind !== 'construct') continue
       const owner = constructOwners.find((other) => other.node === binding.node && other.item !== item.id && binding.port.startsWith(`${other.path}.`))
-      if (owner !== undefined) fail('boundary.constructOwned', `boundary item '${item.id}' shows '${binding.port}', which is already shown through '${owner.item}'`)
+      if (owner !== undefined) {
+        fail('boundary.constructOwned', `boundary item '${item.id}' shows '${binding.port}', which is already shown through '${owner.item}'`)
+        unavailable.set(owner.item, unavailable.get(item.id)!)
+      }
     }
   }
-  if (region !== undefined && constructOwners.length > 0) fail('boundary.constructRegion', 'a repeated region shows single rows only, not a whole group, choice, type choice or described row')
-  if (diags.length) return { diagnostics: diags }
+  currentItem = undefined
+  if (region !== undefined && constructOwners.length > 0) {
+    fail('boundary.constructRegion', 'a repeated region shows single rows only, not a whole group, choice, type choice or described row')
+    return { diagnostics: diags }
+  }
 
   const exposedPathOf = (node: string, path: string): string | undefined => {
     const exact = shownRows.get(JSON.stringify([node, path]))
@@ -1022,7 +1043,9 @@ export function deriveBoundarySchema(
   }
 
   for (const item of boundaryItems(def.boundary, 'inputs')) {
+    currentItem = item
     if (!checkId(item)) continue
+    if (unavailable.has(item.id)) continue
     if (item.binds.kind === 'construct') {
       const row = constructRow(item, 'input')
       if (row !== undefined) items.push(row)
@@ -1138,7 +1161,9 @@ export function deriveBoundarySchema(
   }
 
   for (const item of boundaryItems(def.boundary, 'outputs')) {
+    currentItem = item
     if (!checkId(item)) continue
+    if (unavailable.has(item.id)) continue
     if (item.binds.kind === 'construct') {
       if (item.alsoBinds !== undefined) {
         fail('boundary.fanoutOnOutput', `boundary output '${item.id}': 'alsoBinds' is invalid on outputs (an output has exactly one source)`)
@@ -1225,6 +1250,7 @@ export function deriveBoundarySchema(
     })
   }
 
+  currentItem = undefined
   // Output-node status: any active inner output node makes
   // the instance one (partial-execution scoping descends through instances).
   // Runtime capabilities aggregate the same way. Nested subgraphs compose
@@ -1325,7 +1351,24 @@ export function deriveBoundarySchema(
     derivedItems = projected
   }
 
-  if (diags.some((d) => d.severity === 'error')) return { diagnostics: diags }
+  if (diags.some((d) => d.severity === 'error' && (d.refs === undefined || d.code === 'boundary.duplicateId'))) return { diagnostics: diags }
+
+  // A wildcard here is a neutral display pin, never an executable type.
+  // Keep the source's type when it is still known (for example a missing member).
+  derivedItems = derivedItems.filter((row) => !('id' in row && unavailable.has(row.id)))
+  for (const item of everyItem) {
+    const problem = unavailable.get(item.id)
+    if (problem === undefined) continue
+    const row = {
+      id: item.id,
+      ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
+      type: knownTypes.get(item.id) ?? { kind: 'wildcard' as const },
+      unavailable: problem,
+    }
+    derivedItems.push(boundaryItems(def.boundary, 'inputs').includes(item)
+      ? { ...row, kind: 'input', optional: true, sent: false }
+      : { ...row, kind: 'output' })
+  }
 
   // A row's condition reads the instance's own inputs. One that no longer
   // reads (an input it names was removed) is a problem on the row, and the

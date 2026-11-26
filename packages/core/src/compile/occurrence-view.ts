@@ -2,9 +2,10 @@ import { boundaryBindingKey, suppressedDeliveryKey, type BoundaryRouteLeg, type 
 import { asNodeId, asPortId, isOccurrenceAncestorOrSelf, isPortEndpoint, occurrenceKey, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
-import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, projectConstructs, projectEditableOptions } from './crossing.js'
+import { innerConstructAddress, matchBoundaryItem, projectConstructs, projectEditableOptions } from './crossing.js'
 import { documentNodeResolver } from './compile.js'
 import { boundaryItems } from '../format/document.js'
+import { scopeRowsOf } from '../schema/model.js'
 
 export interface ValueOwner {
   readonly graphId: string
@@ -115,11 +116,13 @@ export function occurrenceDynamicView(
     const childValueOwners = new Map<string, Map<string, ValueOwner>>()
     // A recorded route ends in this body; only unrecorded deliveries may continue freely.
     const instanceEvidence = inputEvidence.filter(({ ref, route }) => ref.node === node.id && route?.length !== 0)
-    if (boundaryOutputFanOutProblems(child).length > 0) return empty()
+    const unavailable = new Set(scopeRowsOf(resolveNode(def.id, node)?.body ?? []).flatMap((row) =>
+      (row.kind === 'input' || row.kind === 'output') && row.unavailable !== undefined ? [row.id] : []))
     const childEvidence = authoredInputEvidence(doc, child, [...traversedPath, hop])
     const childOwner = { instancePath: traversedPath.map(asNodeId), node: asNodeId(hop) }
     const suppressed = new Set((doc.occurrenceTopologies?.[occurrenceKey(childOwner)]?.suppressedDeliveries ?? []).map(suppressedDeliveryKey))
     for (const evidence of instanceEvidence) for (const item of boundaryItems(child.boundary, 'inputs')) {
+      if (unavailable.has(item.id)) continue
       const whole = item.binds.kind === 'construct'
       if (evidence.ref.port !== item.id && !(whole && evidence.ref.port.startsWith(`${item.id}.`))) continue
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
@@ -141,6 +144,7 @@ export function occurrenceDynamicView(
     for (const [target, dynamic] of constructs.dynamic) childOverlays.set(target, dynamic)
     for (const [target, projected] of constructs.values) childValues.set(target, projected)
     for (const item of boundaryItems(child.boundary, 'inputs')) {
+      if (unavailable.has(item.id)) continue
       const owner = valueOwners.get(hop)?.get(item.id) ?? { graphId: def.id, nodeId: hop, valueKey: item.id }
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.kind !== 'port') continue

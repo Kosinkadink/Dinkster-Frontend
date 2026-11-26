@@ -644,7 +644,7 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
           }
           if (isNodeBoundaryBinding(b) && !nodeExists(b.node)) {
             diags.push(
-              diag('error', 'invariant', 'doc.boundary.dangling', where(`boundary ${side.slice(0, -1)} '${item.id}' binds missing node '${b.node}'`)),
+              diag('warning', 'invariant', 'doc.boundary.dangling', where(`boundary ${side.slice(0, -1)} '${item.id}' binds missing node '${b.node}'`), { refs: [{ graphId: def.id, portId: item.id }] }),
             )
           }
         }

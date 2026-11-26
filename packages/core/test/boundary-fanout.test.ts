@@ -468,7 +468,7 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
 // Node removal cascade
 // ---------------------------------------------------------------------------
 
-describe('node.remove prunes fan-out bindings', () => {
+describe('node.remove retains inert fan-out bindings', () => {
   const makeStore = (item: unknown) =>
     new DocumentStore(
       docOf({
@@ -482,15 +482,15 @@ describe('node.remove prunes fan-out bindings', () => {
     )
   const inputsOfSub = (store: DocumentStore) => boundaryItems((store.doc.graphs['sub'] as GraphDef).boundary, 'inputs')
 
-  it('removing a fan-out target prunes only that route; the item survives', () => {
+  it('removing a fan-out target keeps the row and every route identifiable', () => {
     const store = makeStore({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in'), bind('s3', 'in')] })
     expect(store.dispatch({ command: 'node.remove', params: { graphId: 'sub', nodeIds: ['s2'] } }).ok).toBe(true)
-    expect(inputsOfSub(store)).toEqual([{ kind: 'input', id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s3', 'in')] }])
+    expect(inputsOfSub(store)).toEqual([{ kind: 'input', id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in'), bind('s3', 'in')] }])
   })
 
-  it('removing the PRIMARY target drops the whole boundary item', () => {
+  it('removing the primary target does not retarget the row to its next binding', () => {
     const store = makeStore({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in')] })
     expect(store.dispatch({ command: 'node.remove', params: { graphId: 'sub', nodeIds: ['s1'] } }).ok).toBe(true)
-    expect(inputsOfSub(store)).toEqual([])
+    expect(inputsOfSub(store)).toEqual([{ kind: 'input', id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in')] }])
   })
 })

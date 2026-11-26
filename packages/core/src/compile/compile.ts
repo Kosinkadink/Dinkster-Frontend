@@ -89,8 +89,8 @@ import {
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
 import { constructsOf } from '../schema/body.js'
-import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
-import { assetTypeId, canonicalTypeIdOf, effectiveAbsentPolicy, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
+import { innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
+import { assetTypeId, canonicalTypeIdOf, effectiveAbsentPolicy, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, scopeRowsOf, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue, sentSpecOf, sentWhenUnset } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
@@ -587,9 +587,11 @@ function compileImpl(
    * resolution returns 'muted', read right after it.
    */
   let lastMuted: string | undefined
+  let lastMutedReason: string | undefined
   const nameOf = (defId: string, node: NodeData): string => node.title ?? resolveNode(defId, node)?.displayName ?? node.id
   const markMuted = (defId: string, node: NodeData): 'muted' => {
     lastMuted = nameOf(defId, node)
+    lastMutedReason = `'${lastMuted}' is muted`
     return 'muted'
   }
 
@@ -970,6 +972,11 @@ function compileImpl(
   // main list). Note elabOf pushes to the main list directly by design:
   // elaboration facts are definition-level, not edge-level.
 
+  const boundaryProblem = (defId: string, node: NodeData, itemId: string): InputSpec['unavailable'] => {
+    const row = scopeRowsOf(resolveNode(defId, node)?.body ?? []).find((row) => 'id' in row && row.id === itemId)
+    return row?.kind === 'input' || row?.kind === 'output' ? row.unavailable : undefined
+  }
+
   function resolveInputPort(
     path: readonly NodeId[],
     defId: string,
@@ -1023,6 +1030,16 @@ function compileImpl(
         return undefined
       }
       const item = match.item
+      const problem = boundaryProblem(defId, node, item.id)
+      if (problem !== undefined) {
+        if (problem.inactive) {
+          markMuted(defId, node)
+          lastMutedReason = problem.message
+          return 'muted'
+        }
+        sink.push(diag('error', 'compile', problem.code, problem.message, { anchor: anchorOf(path, node.id), refs: [{ graphId: defId, nodeId: node.id, portId: item.id }] }))
+        return undefined
+      }
       // Fan-out (alsoBinds): one boundary input drives EVERY bound inner
       // input. Each binding resolves independently; muted/bypassed targets
       // drop out (their local edge is dead) while the edge stays alive for
@@ -1159,6 +1176,16 @@ function compileImpl(
         return undefined
       }
       const item = match.item
+      const problem = boundaryProblem(defId, node, item.id)
+      if (problem !== undefined) {
+        if (problem.inactive) {
+          markMuted(defId, node)
+          lastMutedReason = problem.message
+          return 'muted'
+        }
+        sink.push(diag('error', 'compile', problem.code, problem.message, { anchor: anchorOf(path, node.id), refs: [{ graphId: defId, nodeId: node.id, portId: item.id }] }))
+        return undefined
+      }
       if (item.binds.kind === 'unbound') return undefined
       if (item.binds.kind === 'widgetTap') {
         const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding: item.binds }]
@@ -1465,7 +1492,7 @@ function compileImpl(
               ...(tapped.passedAutomatic !== undefined ? { passedAutomatic: tapped.passedAutomatic } : {}) } }] }
           }
           const resolved = resolveOutputPort(at.path, at.defId, endpoint, sink, delivery)
-          if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
+          if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: lastMutedReason ?? `producer '${endpoint.node}' is muted or in an inactive occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
           if (!resolved) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `producer endpoint ${JSON.stringify(endpoint)} cannot deliver` } }] }
           return 'bypass' in resolved
             ? { steps: [{ kind: 'recurse', at: { kind: 'bypass', bypass: resolved.bypass } }] }
@@ -1632,13 +1659,6 @@ function compileImpl(
         }
         const instanceDynamic = ctx.overlays.get(node.id) ?? node.dynamic
         const resolveChildNode = (inner: NodeData): NodeSchema | undefined => resolveNode(child.id, inner)
-        const problems = boundaryOutputFanOutProblems(child)
-        if (problems.length > 0) {
-          for (const p of problems) {
-            diags.push(diag('error', 'compile', p.code, `${p.message} (node '${node.id}')`, { anchor: anchorOf(path, node.id) }))
-          }
-          continue
-        }
         const childCtx = newOccCtx(asGraphDefId(childId), childPath)
         for (const [target, dynamic] of projectEditableOptions(child, instanceDynamic, resolveChildNode)) {
           childCtx.overlays.set(target, dynamic)
@@ -1653,6 +1673,7 @@ function compileImpl(
         for (const projected of connected) {
           const match = matchBoundaryItem(boundaryItems(child.boundary, 'inputs'), projected.address)
           if (!match.ok) continue
+          if (boundaryProblem(defId, node, match.item.id) !== undefined) continue
           if (match.item.binds.kind === 'construct') {
             for (const source of [match.item.binds, ...(match.item.alsoBinds ?? [])]) {
               if (source.kind !== 'construct') continue
@@ -1748,6 +1769,7 @@ function compileImpl(
     }
     for (const item of boundaryItems(child.boundary, 'inputs')) {
       if (item.binds.kind !== 'port') continue
+      if (boundaryProblem(parentCtx.defId, node, item.id) !== undefined) continue
       const v = node.values[item.id]
       const ownerInput = item.promoted === true ? parentElab?.inputsByValueKey.get(item.id) : undefined
       if (v === undefined && ownerInput === undefined) continue
@@ -2126,13 +2148,13 @@ function compileImpl(
      * left out as before, with the warning: it then sends its field's own
      * value or refuses the run.
      */
-    const givesNothingFromMuted = (dst: ResolvedNodeInput, muted: string, what: string, defId: string): void => {
+    const givesNothingFromMuted = (dst: ResolvedNodeInput, reason: string, what: string, defId: string): void => {
       const receiver = emitAbsentInputs ? flat.get(dst.runtimeId) : undefined
       if (receiver === undefined) {
         diags.push(diag('warning', 'compile', 'compile.link.dropped', `${what} in graph '${defId}': connected node is muted`))
         return
       }
-      receiver.inputs[dst.inputId] = absentInputWire(`'${muted}' is muted`)
+      receiver.inputs[dst.inputId] = absentInputWire(reason)
       receiver.linkedInputs.delete(dst.inputId)
       recordSuccessfulDelivery(dst)
     }
@@ -2158,7 +2180,7 @@ function compileImpl(
       const structuralSrc = isPortEndpoint(c.from) && regionPseudoRef === undefined
         ? resolveOutputPort(path, defId, c.from, scratch, c.delivery)
         : undefined
-      const mutedSource = structuralSrc === 'muted' ? lastMuted : undefined
+      const mutedSource = structuralSrc === 'muted' ? lastMutedReason : undefined
       if (structuralSrc === 'muted' && Array.isArray(dsts)) {
         for (const dst of dsts) givesNothingFromMuted(dst, mutedSource!, c.what, defId)
         continue

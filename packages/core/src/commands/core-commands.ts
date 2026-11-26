@@ -20,7 +20,7 @@
 
 import { canonicalJson } from '../compile/hash.js'
 import { type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
-import { isNodeBoundaryBinding, PREVIEW_MODES, regionContractShapeProblems, type BoundaryItem, type ControllerMode, type GraphDef, type LinkData, type NodeMode, type PreviewMode, type RegionContract, type WorkflowDocument } from '../format/document.js'
+import { PREVIEW_MODES, regionContractShapeProblems, type ControllerMode, type GraphDef, type LinkData, type NodeMode, type PreviewMode, type RegionContract, type WorkflowDocument } from '../format/document.js'
 import { NET_VIEWS_EXT_KEY, removeNetViewPositions, updateNetViewPositions, type NetViewGeometry, type NetViewPosition } from '../format/net-views.js'
 import { inputsOf, isImageAssetInput, type NodeSchema } from '../schema/model.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
@@ -404,34 +404,8 @@ function deleteCascade(
       }
     }
   }
-  // Boundary items binding to removed nodes (subgraph defs only). A removed
-  // PRIMARY target drops the whole item; a removed FAN-OUT target drops just
-  // that entry (canonical form: 'alsoBinds' is omitted when it would empty).
-  if (def.boundary) {
-    const prune = (items: readonly BoundaryItem[]): { kept: BoundaryItem[]; changed: boolean } => {
-      let changed = false
-      const kept: BoundaryItem[] = []
-      for (const item of items) {
-        if (isNodeBoundaryBinding(item.binds) && removed.has(item.binds.node)) {
-          changed = true
-          continue
-        }
-        const also = item.alsoBinds?.filter((a) => !isNodeBoundaryBinding(a) || !removed.has(a.node))
-        if (item.alsoBinds !== undefined && also !== undefined && also.length !== item.alsoBinds.length) {
-          changed = true
-          const { alsoBinds: _drop, ...rest } = item
-          kept.push(also.length > 0 ? { ...rest, alsoBinds: also } : rest)
-          continue
-        }
-        kept.push(item)
-      }
-      return { kept, changed }
-    }
-    const inputs = prune(boundaryItems(def.boundary, 'inputs'))
-    const outputs = prune(boundaryItems(def.boundary, 'outputs'))
-    if (inputs.changed || outputs.changed) tx.set(['graphs', graphId, 'boundary'],
-      withBoundaryItems(withBoundaryItems(def.boundary, 'inputs', inputs.kept), 'outputs', outputs.kept) as unknown as Json)
-  }
+  // Boundary rows keep their identities and bindings so containing rows do
+  // not disappear or retarget. Derivation presents a removed target as inert.
   // The nodes themselves + their view state.
   for (const id of nodeIds) {
     tx.remove(['graphs', graphId, 'nodes', id])

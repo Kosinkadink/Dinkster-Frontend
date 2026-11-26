@@ -194,7 +194,7 @@ describe('boundary item lifecycle commands', () => {
     expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs').map((item) => item.id)).toEqual(['widget'])
   })
 
-  it('removes and restores a widget-tap boundary item with its node', () => {
+  it('retains an inert widget-tap boundary item when its node is removed', () => {
     const tapItem = {
       id: 'widget',
       binds: { kind: 'widgetTap', node: asNodeId('n1'), tap: asPortId('value') },
@@ -207,12 +207,12 @@ describe('boundary item lifecycle commands', () => {
     })
     expect(outcome.ok).toBe(true)
     expect(store.doc.graphs.sub!.nodes.n1).toBeUndefined()
-    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')).toEqual([])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')).toEqual([{ kind: 'output', ...tapItem }])
     expect(store.undo()).toBe(true)
     expect(store.doc.graphs.sub!.nodes.n1).toBeDefined()
     expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')).toEqual([{ kind: 'output', ...tapItem }])
     expect(store.redo()).toBe(true)
-    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')).toEqual([])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')).toEqual([{ kind: 'output', ...tapItem }])
   })
 
   it('rejects widget taps on inputs and mixed tap/port parameter shapes without mutation', () => {

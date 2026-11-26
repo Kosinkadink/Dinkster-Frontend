@@ -513,6 +513,8 @@ interface PortSpecBase {
   readonly visible?: Formulated<boolean>
   readonly outer?: OuterScope
   readonly visibleWhen?: readonly ScopedVisibility[]
+  /** Derived boundary row with no executable route; its pin is presentation only. */
+  readonly unavailable?: { readonly code: string; readonly message: string; readonly inactive?: true }
   /** Alpha handling at this port; undefined is the default 'preserve'. */
   readonly alphaPolicy?: AlphaPolicy
   readonly maskPolarity?: MaskPolarity
