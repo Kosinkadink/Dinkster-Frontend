@@ -1,6 +1,6 @@
 import { createMemo, createSignal, For, Show } from 'solid-js'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
-import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductMenu, ProductNotice, ProductTextButton } from '@dinkster/ui'
+import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductMenu, ProductNotice, ProductTextButton } from '@dinkster/ui'
 import type { AppState, Backend } from './app-state.js'
 import { backendConnectionStatus, canonicalBackendUrl } from './app-state.js'
 import { ConnectionCredentialControls, createConnectionProfiles } from './ConnectionProfiles.js'
@@ -8,7 +8,6 @@ import { validProfileUrl } from './connection-profiles.js'
 import { useAppMessage } from './locale.js'
 import { ProductField, productFieldIds } from './ProductForm.js'
 import { ProductTextInput } from './ProductControls.js'
-import { ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 
 function BackendRow(props: {
@@ -60,20 +59,25 @@ function BackendRow(props: {
     <Show when={removing()} fallback={<>
       <div class="storage-folder-heading">
         <ProductDisclosure title={title()} open={active() || editingToken()}>
-          <p class="dinkster-metadata" role="status">{message(`backendsPanel.connection.${status()}`)}</p>
-          <code class="backend-address">{props.url || message('backendsPanel.sameOrigin')}</code>
-          <Show when={schemaState()?.status === 'error'}><ProductNotice tone="warning">{message('backendsPanel.notice.schemaFailed', { message: (schemaState() as { message: string }).message })}</ProductNotice></Show>
-          <Show when={supervisor()?.detail}><p class="dinkster-metadata">{supervisor()!.detail}</p></Show>
-          <div class="dinkster-actions">
-            <Show when={status() === 'disconnected'} fallback={<ProductButton intent="remove" disabled={busy() || props.connections.busy()} onClick={() => props.backend && props.app.disconnectBackend(props.backend)}>{message('backendsPanel.action.disconnect')}</ProductButton>}>
-              <ProductButton data-testid="profile-connect" disabled={busy() || props.connections.busy()} onClick={() => { void perform(connect) }}>{message(busy() ? 'connectionProfiles.action.connecting' : 'connectionProfiles.action.connect')}</ProductButton>
+          <Show when={schemaState()?.status === 'error'}><ProductNotice tone="warning">
+            {message('backendsPanel.notice.schemaFailed', { message: (schemaState() as { message: string }).message })}
+            <ProductTextButton disabled={busy()} onClick={() => { void perform(() => props.app.refreshBackendSchemas(props.backend!)) }} data-testid="backend-schema-retry" label={message('backendsPanel.action.retrySchemas')} />
+          </ProductNotice></Show>
+          <ProductFacts label={props.name} items={[
+            { label: message('backendsPanel.label.address'), value: props.url ? <code class="backend-address">{props.url}</code> : message('backendsPanel.sameOrigin') },
+            ...(supervisor() ? [{ label: message('backendsPanel.engine.label'), value: <><span>{message(`backendsPanel.engine.${supervisor()!.state}`)}</span><Show when={supervisor()!.detail}><span class="dinkster-metadata">{supervisor()!.detail}</span></Show></> }] : []),
+          ]} />
+          <div class="backend-row-actions">
+            <Show when={status() === 'disconnected'}>
+              <ProductTextButton data-testid="profile-connect" intent="add" disabled={busy() || props.connections.busy()} onClick={() => { void perform(connect) }} label={message(busy() ? 'connectionProfiles.action.connecting' : 'connectionProfiles.action.connect')} />
             </Show>
             <Show when={props.backend} keyed>{(backend) => <>
-              <Show when={supervisor() !== undefined}><ProductButton disabled={busy()} onClick={() => { void perform(() => props.app.restartEngine(backend)) }} data-testid="backend-engine-restart">{message(busy() ? 'backendsPanel.action.restarting' : 'backendsPanel.action.restart')}</ProductButton></Show>
-              <Show when={schemaState()?.status === 'error'}><ProductButton disabled={busy()} onClick={() => { void perform(() => props.app.refreshBackendSchemas(backend)) }} data-testid="backend-schema-retry">{message('backendsPanel.action.retrySchemas')}</ProductButton></Show>
-              <ProductButton onClick={() => props.onOpenStorage?.(backend)}>{message('storagePanel.title')}</ProductButton>
-              <ProductButton onClick={() => props.onOpenResources?.(backend)}>{message('backendsPanel.resources')}</ProductButton>
-              <Show when={backend.protocol === 'dinkster'}><ProductButton onClick={() => props.onOpenSettings?.(backend)}>{message('shell.panel.settings.title')}</ProductButton></Show>
+              <Show when={supervisor() !== undefined}><ProductTextButton disabled={busy()} onClick={() => { void perform(() => props.app.restartEngine(backend)) }} data-testid="backend-engine-restart" label={message(busy() ? 'backendsPanel.action.restarting' : 'backendsPanel.action.restart')} /></Show>
+              <div class="backend-row-destinations">
+                <Show when={props.onOpenStorage}><ProductTextButton onClick={() => props.onOpenStorage?.(backend)} label={message('storagePanel.title')} /></Show>
+                <Show when={props.onOpenResources}><ProductTextButton onClick={() => props.onOpenResources?.(backend)} label={message('backendsPanel.resources')} /></Show>
+                <Show when={props.onOpenSettings}><ProductTextButton onClick={() => props.onOpenSettings?.(backend)} label={message('shell.panel.settings.title')} /></Show>
+              </div>
             </>}</Show>
           </div>
           <Show when={editingToken()}><ConnectionCredentialControls connections={props.connections} url={props.url} name={props.name} onClose={() => setEditingToken(false)} /></Show>
@@ -81,6 +85,7 @@ function BackendRow(props: {
         <Show when={props.backend !== props.defaultBackend || (validProfileUrl(props.url) && props.connections.custody())}><ProductMenu icon={Ellipsis} iconOnly label={message('backendsPanel.aria.actions', { backend: props.name })}
           items={[
             ...(validProfileUrl(props.url) && props.connections.custody() ? [{ label: message('backendsPanel.action.changeToken'), disabled: props.connections.busy(), onSelect: () => setEditingToken(true) }] : []),
+            ...(props.backend && status() !== 'disconnected' ? [{ label: message('backendsPanel.action.disconnect'), intent: 'remove' as const, disabled: busy() || props.connections.busy(), onSelect: () => props.app.disconnectBackend(props.backend!) }] : []),
             ...(props.backend !== props.defaultBackend ? [{ label: message('backendsPanel.action.remove'), intent: 'remove' as const, disabled: props.connections.busy(), onSelect: () => setRemoving(true) }] : []),
           ]} /></Show>
       </div>
@@ -130,7 +135,10 @@ export function BackendsPanel(props: {
     finally { setDiscovering(false) }
   }
   return <section class="backends-panel" data-testid="backends-panel" aria-label={message('backendsPanel.title')}>
-    <ProductPanelHeader title={message('backendsPanel.title')} actions={<ProductButton intent="add" aria-expanded={adding()} disabled={discovering()} onClick={() => setAdding(!adding())}>{message('backendsPanel.addBackend')}</ProductButton>} />
+    <div class="backend-toolbar">
+      <span class="dinkster-metadata">{message('backendsPanel.count', { count: addresses().length })}</span>
+      <ProductButton intent="add" aria-expanded={adding()} disabled={discovering()} onClick={() => setAdding(!adding())}>{message('backendsPanel.addBackend')}</ProductButton>
+    </div>
     <Show when={connections.error()}><ProductErrorBanner onDismiss={connections.dismissError}>{connections.error()}</ProductErrorBanner></Show>
     <Show when={adding()}><form class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); void add() }}>
       <ProductField controlId="backend-address" label={message('backendsPanel.label.address')} description={message('backendsPanel.help.address')} layout="stack" invalid={addError() !== ''}>

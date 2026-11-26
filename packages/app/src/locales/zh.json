@@ -2,6 +2,7 @@
   "storagePanel.title": "存储",
   "storagePanel.description": "设置模型文件夹和此项目使用的文件夹。",
   "backendsPanel.resources": "资源",
+  "backendsPanel.count": "{count, plural, one {# 个后端} other {# 个后端}}",
   "backendsPanel.action.disconnect": "断开连接",
   "backendsPanel.label.nameOptional": "名称 (可选)",
   "backendsPanel.aria.actions": "{backend} 的操作",

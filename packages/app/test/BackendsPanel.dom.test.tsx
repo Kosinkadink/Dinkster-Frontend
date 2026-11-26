@@ -14,7 +14,7 @@ const button = (root: Element, text: string) => [...root.querySelectorAll<HTMLBu
 function mount(app = new AppState()) {
   const root = document.createElement('div')
   document.body.append(root)
-  const unmount = render(() => <BackendsPanel app={app} />, root)
+  const unmount = render(() => <BackendsPanel app={app} onOpenStorage={() => {}} onOpenResources={() => {}} onOpenSettings={() => {}} />, root)
   disposers.push(() => { unmount(); app.dispose() })
   return { app, root }
 }
@@ -37,7 +37,8 @@ describe('BackendsPanel', () => {
       backend.schemaState.set({ status: 'ready' })
     })
     const { root } = mount(app)
-    expect(root.querySelector('h2')?.textContent).toBe('Backends')
+    expect(root.querySelector('[data-testid="backends-panel"]')?.getAttribute('aria-label')).toBe('Backends')
+    expect(root.querySelector('h2')).toBeNull()
     expect(root.textContent).not.toContain('Backend connections')
     const row = root.querySelector(`[data-connection="${backend.id}"]`)!
     const toggle = row.querySelector<HTMLButtonElement>('[aria-expanded]')!
@@ -153,6 +154,7 @@ describe('BackendsPanel', () => {
     const backend = app.addBackend('https://studio.test', 'Studio', false, 'dinkster')!
     ;(backend.connection.status as Signal<ConnectionStatus>).set('connected')
     const row = root.querySelector('[data-connection="https://studio.test"]')!
+    row.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
     button(row, 'Disconnect').click()
     expect(row.getAttribute('data-status')).toBe('disconnected')
     expect(app.backendFor(backend.id)).toBe(backend)

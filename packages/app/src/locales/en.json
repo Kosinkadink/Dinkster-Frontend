@@ -2,6 +2,7 @@
   "storagePanel.title": "Storage",
   "storagePanel.description": "Set up model folders and the folders this project uses.",
   "backendsPanel.resources": "Resources",
+  "backendsPanel.count": "{count, plural, one {# backend} other {# backends}}",
   "backendsPanel.action.disconnect": "Disconnect",
   "backendsPanel.label.nameOptional": "Name (optional)",
   "backendsPanel.aria.actions": "Actions for {backend}",
