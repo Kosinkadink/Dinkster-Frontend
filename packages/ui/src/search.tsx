@@ -398,7 +398,7 @@ export function ProductSearch(props: {
             <MarkedText text={row.title} query={props.markQuery ?? props.query} />
           </Show>
           <Show when={row.note}>
-            {(note) => <span class="dinkster-search-row-note"> {note()}</span>}
+            {(note) => <span class="dinkster-search-row-note"> <MarkedText text={note()} query={props.markQuery ?? props.query} /></span>}
           </Show>
         </span>
         <div class="dinkster-search-row-end">
@@ -408,7 +408,7 @@ export function ProductSearch(props: {
                 <Show when={row.detailIcon}>
                   {(icon) => <ProductIcon icon={icon()} />}
                 </Show>
-                <span>{detail()}</span>
+                <span><MarkedText text={detail()} query={props.markQuery ?? props.query} /></span>
               </span>
             )}
           </Show>

@@ -19,7 +19,7 @@ import { ProductField, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect as PackSelect } from './ProductSelect.js'
 import { LibraryStorageSettings } from './LibraryStorageSettings.js'
-import { ProductButton, ProductShortcut, ProductShortcutText, ProductSwitch, ProductSelect, ProductTextInput, ProductSettingRow, ProductSettingsPage, ProductSettingsSection, ProductToast, ProductErrorBanner, type ProductSearchGroup } from '@dinkster/ui'
+import { ProductButton, ProductShortcut, ProductShortcutText, ProductSwitch, ProductSelect, ProductTextInput, ProductSettingRow, ProductSettingsPage, ProductSettingsSection, ProductToast, ProductErrorBanner, productSearchMarks, type ProductSearchGroup } from '@dinkster/ui'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import type { Backend } from './app-state.js'
@@ -267,7 +267,24 @@ export function SettingsDialog(props: {
     undefined,
     { equals: sameIndex },
   )
-  const matches = createMemo(() => querySettingsIndex(index(), query()).flatMap((entry) => entry.matches))
+  const matches = createMemo(() => querySettingsIndex(index(), query()).flatMap((entry) => entry.matches).flatMap((match) => {
+    const place = match.source === 'setting' ? location(match.definition) : { group: 'shortcuts', section: 'commands' }
+    let detail = `${message(`settingsPage.group.${place.group}`)} - ${sectionLabel(place.group, place.section)}`
+    const titleMatches = productSearchMarks(match.name, query()).length > 0
+    const description = match.source === 'setting' ? match.definition.description ?? '' : ''
+    const first = productSearchMarks(description, query())[0]
+    let note: string | undefined
+    if (!titleMatches && first) {
+      const start = Math.max(0, first[0] - 24)
+      const end = Math.min(description.length, first[1] + 100)
+      note = `${start > 0 ? '...' : ''}${description.slice(start, end)}${end < description.length ? '...' : ''}`
+    }
+    if (!titleMatches && note === undefined && productSearchMarks(detail, query()).length === 0) {
+      if (productSearchMarks(match.id, query()).length === 0) return []
+      detail += ` - ${match.id}`
+    }
+    return [{ ...match, detail, note }]
+  }))
   const visible = () => definitions().filter((d) => location(d).group === group() && !layoutIds.has(d.id))
   const sections = () => [...new Set(visible().map((d) => location(d).section))]
   const conflicts = () => { changed(); return props.keybindings.conflicts() }
@@ -308,9 +325,8 @@ export function SettingsDialog(props: {
     </Show></div>
   }
   const searchGroups = createMemo<readonly ProductSearchGroup[]>(() => searching() ? [{ key: 'settings', label: message('settingsDialog.search.summary', { count: matches().length, query: query().trim() }), rows: matches().map((match) => {
-    const place = match.source === 'setting' ? location(match.definition) : { group: 'shortcuts', section: 'commands' }
     let reset = () => props.settings.reset(match.id)
-    return { key: `${match.source}:${match.id}`, title: match.name, detail: `${message(`settingsPage.group.${place.group}`)} - ${sectionLabel(place.group, place.section)}`,
+    return { key: `${match.source}:${match.id}`, title: match.name, detail: match.detail, ...(match.note === undefined ? {} : { note: match.note }),
       control: match.source === 'setting' ? settingRow(match.definition, true, (next) => { reset = next }) : keybindingRow(match.command, true),
       menu: { label: message('settingsPage.actions', { name: match.name }), get items() { changed(); return [
         { label: message('settingsPage.resetDefault'), disabled: match.source === 'setting' ? Object.is(props.settings.get(match.id), match.definition.defaultValue) : props.keybindings.combo(match.id) === props.keybindings.defaultCombo(match.id), onSelect: () => match.source === 'setting' ? reset() : props.keybindings.reset(match.id) },

@@ -286,6 +286,17 @@ describe('SettingsDialog search', () => {
     expect(root.querySelector('.dinkster-search-list')?.textContent).toContain('General - Workspace')
     expect(root.querySelector('.dinkster-search-list')?.textContent).toContain('Canvas - View')
     expect(root.querySelector('a[aria-current]')).toBeNull()
+
+    searchFor(root, 'show')
+    const descriptionMatch = root.querySelector('[data-setting-id="shell.gridGuide"]')!.closest('.dinkster-search-row')!
+    expect(descriptionMatch.querySelector('.dinkster-search-row-note')?.textContent).toContain('Show layout guides')
+    expect(descriptionMatch.querySelector('.dinkster-search-row-note mark')?.textContent).toBe('Show')
+    expect([...root.querySelectorAll('.dinkster-search-row')].every((row) => row.querySelector('mark') !== null)).toBe(true)
+
+    searchFor(root, 'canvas.quality')
+    expect(root.querySelector('.dinkster-search-row-detail mark')?.textContent).toBe('canvas.quality')
+    searchFor(root, 'keybinding')
+    expect(root.querySelectorAll('.dinkster-search-row')).toHaveLength(0)
     unmount()
   })
 

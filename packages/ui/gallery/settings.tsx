@@ -37,8 +37,11 @@ const settings: readonly Setting[] = [
   { id: 'canvas.bookmarkTransitions', label: 'Animate bookmark jumps', group: 'canvas', section: 'View', value: true },
   { id: 'canvas.minimap.visible', label: 'Show minimap', group: 'canvas', section: 'Minimap', value: true },
   { id: 'canvas.minimap.size', label: 'Size', group: 'canvas', section: 'Minimap', value: 'Small', options: ['Small', 'Medium', 'Large'] },
-  { id: 'canvas.minimap.groups', label: 'Show frames and groups', group: 'canvas', section: 'Minimap', value: true },
-  { id: 'canvas.minimap.bookmarks', label: 'Show bookmark numbers', group: 'canvas', section: 'Minimap', value: false },
+  { id: 'canvas.minimap.nodes', label: 'Colors', group: 'canvas', section: 'Minimap', value: true },
+  { id: 'canvas.minimap.noodles', label: 'Links', group: 'canvas', section: 'Minimap', value: true },
+  { id: 'canvas.minimap.groups', label: 'Frames and groups', group: 'canvas', section: 'Minimap', value: true },
+  { id: 'canvas.minimap.errors', label: 'Errors', group: 'canvas', section: 'Minimap', value: true },
+  { id: 'canvas.minimap.bookmarks', label: 'Bookmark numbers', group: 'canvas', section: 'Minimap', value: false },
   { id: 'execution.previews', label: 'Live sampling previews', group: 'runs', section: 'Previews', value: 'Off', options: ['Off', 'Cheap', 'Quality', 'Auto'] },
   { id: 'execution.mirrorPreviews', label: 'Mirror previews', group: 'runs', section: 'Previews', value: true },
   { id: 'storage.limit', label: 'Storage limit', group: 'storage', section: 'Local library', value: 100, unit: 'GB' },
@@ -120,12 +123,18 @@ export function SettingsGallery() {
   const searchGroups = createMemo<readonly ProductSearchGroup[]>(() => {
     if (query().trim() === '') return []
     const words = query().toLocaleLowerCase().trim().split(/\s+/)
-    const matches = settings.filter((setting) => words.every((word) => `${setting.label} ${setting.id} ${setting.group} ${setting.section}`.toLocaleLowerCase().includes(word)))
+    const matches = settings.filter((setting) => words.every((word) => `${setting.label} ${setting.id} ${setting.group} ${setting.section} ${setting.description ?? ''}`.toLocaleLowerCase().includes(word)))
     const shortcuts = commands.filter((command) => words.every((word) => `${command.label} ${command.id} Shortcuts`.toLocaleLowerCase().includes(word)))
-    return [{ key: 'settings', label: `${matches.length} ${matches.length === 1 ? 'setting' : 'settings'}`, rows: matches.map((setting) => ({
-      key: setting.id, title: setting.label, detail: `${groups.find((entry) => entry.id === setting.group)?.label} - ${setting.section}`,
-      control: control(setting, true), menu: settingMenu(setting),
-    })) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, detail: 'Shortcuts - Workflow', control: <>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-warning`} class="dinkster-setting-warning" role="status">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
+    return [{ key: 'settings', label: `${matches.length} ${matches.length === 1 ? 'setting' : 'settings'}`, rows: matches.map((setting) => {
+      const path = `${groups.find((entry) => entry.id === setting.group)?.label} - ${setting.section}`
+      const nameMatches = words.some((word) => setting.label.toLocaleLowerCase().includes(word))
+      const descriptionMatches = setting.description && words.some((word) => setting.description!.toLocaleLowerCase().includes(word))
+      const pathMatches = words.some((word) => path.toLocaleLowerCase().includes(word))
+      return { key: setting.id, title: setting.label, detail: nameMatches || descriptionMatches || pathMatches ? path : `${setting.id} - ${path}`,
+        ...(!nameMatches && descriptionMatches ? { note: setting.description! } : {}),
+        control: control(setting, true), menu: settingMenu(setting),
+      }
+    }) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, detail: 'Shortcuts - Workflow', control: <>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-warning`} class="dinkster-setting-warning" role="status">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
   })
   const chooseGroup = (id: string) => { setGroup(id); setQuery(''); setCapture(undefined) }
   const activate = (id: string) => {

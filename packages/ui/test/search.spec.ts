@@ -101,9 +101,9 @@ test('the preview floats beside the list on a node or blueprint row and is gone 
 test('the typed words are marked in each result title', async ({ page }) => {
   await page.goto('/#search')
   const search = example(page, 'search-typed')
-  await expect(search.getByRole('option', { name: /Gradient Image/ }).locator('mark')).toHaveText('Image')
+  await expect(search.getByRole('option', { name: /Gradient Image/ }).locator('.dinkster-search-row-title > mark')).toHaveText('Image')
   await field(search).fill('to vid')
-  await expect(search.getByRole('option', { name: /Image to video\s*Blueprint/ }).locator('mark')).toHaveText(['to', 'vid'])
+  await expect(search.getByRole('option', { name: /Image to video\s*Blueprint/ }).locator('.dinkster-search-row-title > mark')).toHaveText(['to', 'vid'])
 })
 
 test('the floating preview narrows to 240 px and is hidden when that does not fit beside the list in the window', async ({ page }) => {
