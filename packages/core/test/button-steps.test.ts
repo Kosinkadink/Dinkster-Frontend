@@ -826,17 +826,17 @@ describe('each step', () => {
 })
 
 describe('what a press may write', () => {
-  it('reads effective asset filenames in scope and after staged picker changes as one undo step', async () => {
-    const asset = (name: string) => ({ digest: `blake3:${'a'.repeat(64)}`, name, size: 123, mediaType: 'image/png', virtualPath: `input/${name}` })
+  it('reads effective asset filenames and kinds in scope and after staged picker changes as one undo step', async () => {
+    const asset = (name: string, mediaType = 'image/png') => ({ digest: `blake3:${'a'.repeat(64)}`, name, size: 123, mediaType, virtualPath: `input/${name}` })
     const rows = [
       { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: ['image/*'] } },
       { kind: 'input', id: 'result', type: { kind: 'concrete', types: ['STRING'] }, default: 'old' },
       { kind: 'input', id: 'after', type: { kind: 'concrete', types: ['STRING'] }, default: 'before' },
       { kind: 'button', id: 'fact', label: 'Read filename', steps: [
-        { step: 'set', field: 'result', value: { formula: 'filename(image)' } },
+        { step: 'set', field: 'result', value: { formula: 'filename(image) + ":" + kind(image)' } },
         { step: 'disconnect', input: 'image' },
         { step: 'openPicker', field: 'image' },
-        { step: 'set', field: 'after', value: { formula: 'filename(image)' } },
+        { step: 'set', field: 'after', value: { formula: 'filename(image) + ":" + kind(image)' } },
       ] },
     ]
     addSchema('test.asset_fact', rows)
@@ -854,7 +854,7 @@ describe('what a press may write', () => {
         : { node: asNodeId('src'), tap: asPortId('image') },
         to: { node: asNodeId('n1'), port: asPortId(prefix + 'image') } } } : {})
       const session = sessionOf(doc)
-      const host = hostOf({ openPicker: async () => asset('picked.png') })
+      const host = hostOf({ openPicker: async () => asset('picked.webm', 'video/webm') })
       const target = at(prefix + 'fact')
       if (driver === 'output') {
         expect(buttonAvailability(doc, target, host)).toEqual({ enabled: false, reason: 'Needs image, which is not known until a run.' })
@@ -872,8 +872,8 @@ describe('what a press may write', () => {
       }
       expect(buttonAvailability(doc, target, host)).toEqual({ enabled: true })
       expect((await runPress(session, target, host)).kind).toBe('done')
-      expect(valuesOf(session)).toEqual({ [prefix + 'image']: asset('picked.png'),
-        [prefix + 'result']: wired ? 'incoming.png' : 'saved.png', [prefix + 'after']: 'picked.png' })
+      expect(valuesOf(session)).toEqual({ [prefix + 'image']: asset('picked.webm', 'video/webm'),
+        [prefix + 'result']: wired ? 'incoming.png:image' : 'saved.png:image', [prefix + 'after']: 'picked.webm:video' })
       const after = session.doc
       expect(session.undo()).toBe(true)
       expect(session.doc).toEqual(doc)
@@ -881,6 +881,34 @@ describe('what a press may write', () => {
       expect(session.redo()).toBe(true)
       expect(session.doc).toEqual(after)
     }
+    for (const [mediaType, expected] of [['image/gif', 'image'], ['video/webm', 'video'], ['audio/flac', 'audio'],
+      ['model/gltf+json', '3d'], ['text/plain', 'text'], ['application/pdf', 'file'], ['image', 'file'], ['', 'unknown']]) {
+      const session = sessionOf(documentOf({ n1: { type: 'test.asset_fact', values: { image: asset('folder\\nested/file.ext', mediaType) } } }))
+      const outcome = await runSteps(session, [{ graphId: 'g0', nodeId: 'n1', prefix: '', steps: decodeSteps([
+        { step: 'set', field: 'result', value: { formula: 'filename(image)' } },
+        { step: 'set', field: 'after', value: { formula: 'kind(image) if known(kind(image)) else "unknown"' } },
+      ]) }], hostOf())
+      expect(outcome.kind, mediaType).toBe('done')
+      expect(valuesOf(session)).toMatchObject({ result: 'file.ext', after: expected })
+    }
+  })
+
+  it('keeps decoded asset facts unknown with a stored reference and rolls back earlier writes', async () => {
+    addSchema('test.decoded_asset_fact', [
+      { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['ASSET'] } },
+      { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+      { kind: 'button', id: 'read', label: 'Read width', steps: [
+        { step: 'set', field: 'marker', value: { value: 23 } },
+        { step: 'set', field: 'marker', value: { formula: 'width(image)' } },
+      ] },
+    ])
+    const doc = documentOf({ n1: { type: 'test.decoded_asset_fact', values: {
+      image: { digest: `blake3:${'a'.repeat(64)}`, name: '640x480.png', size: 123, mediaType: 'image/png', virtualPath: 'input/640x480.png' }, marker: 41,
+    } } })
+    const session = sessionOf(doc)
+    expect(await runPress(session, at('read'), hostOf())).toMatchObject({ kind: 'failed', message: 'Nothing was changed. A value this button needs is not known yet.' })
+    expect(session.doc).toEqual(doc)
+    expect(session.canUndo).toBe(false)
   })
 
   it('reads connected types without execution values and refreshes facts after Disconnect', async () => {

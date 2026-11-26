@@ -1347,14 +1347,18 @@ function elaboratePass(
     const linkedTypes = new LazyValues<string | null>()
     const facts = new LazyValues<FormulaValue>()
     const sizes = new Map<string, number>()
-    for (const name of names.assets) facts.setLazy(`filename(${name})`, () => {
+    for (const name of names.assets) for (const fact of ['filename', 'kind']) facts.setLazy(`${fact}(${name})`, () => {
       if (unknown.has(name)) return undefined
       const constant = fixed.get(name)
       const path = where.get(name)
       const value = constant !== undefined ? (constant.linked === true ? undefined : constant.value)
         : path === undefined ? undefined : linked(path) ? options.incomingValue?.(path)
           : Object.hasOwn(node.values, path) ? node.values[path] : defaults.get(path)
-      return isAssetRefValue(value) ? value.name : undefined
+      if (!isAssetRefValue(value)) return undefined
+      if (fact === 'filename') return value.name.split(/[\\/]/).at(-1)
+      if (value.mediaType === '') return undefined
+      const kind = /^(image|video|audio|model|text)\//.exec(value.mediaType)?.[1]
+      return kind === 'model' ? '3d' : kind ?? 'file'
     })
     for (const [name, kind] of names.names) {
       const path = where.get(name)!
