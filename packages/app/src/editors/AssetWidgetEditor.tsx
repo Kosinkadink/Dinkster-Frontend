@@ -34,6 +34,7 @@ import { AssetFileLocation } from '../AssetFileLocation.js'
 import { importNativeAsset, resolveDroppedAsset } from '../desktop-bridge.js'
 import { useAppMessage } from '../locale.js'
 import { tabDocumentUnchanged } from '../widget-editor-anchor.js'
+import { AssetQuickList, assetQuickListAllowed } from './AssetQuickList.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -116,6 +117,7 @@ function mediaUploadName(name: string): string {
 interface AssetImplementationProps extends WidgetEditorImplementationProps {
   setDismissBlocked: (blocked: () => boolean) => void
   setRequestClose: (handler: (close: () => void) => void) => void
+  commitImportedFile?: boolean | undefined
 }
 
 const AssetEditorImplementation: Component<AssetImplementationProps> = (implementationProps) => {
@@ -529,6 +531,9 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       try {
         for (const file of assetMulti ? files : files.slice(0, 1)) {
           if (!live || abort.signal.aborted || !(await pickAsset(file))) break
+          if (implementationProps.commitImportedFile && !assetMulti && pickerContextCurrent()) {
+            await commitEditorValue(assetSelection()[0]!)
+          }
         }
       } finally {
         if (assetUploadAbort === abort) assetUploadAbort = undefined
@@ -1062,7 +1067,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   )
 }
 
-export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
+const AssetPickerWidgetEditor: Component<WidgetEditorProps & { commitImportedFile?: boolean | undefined }> = (props) => {
   const accept = (): readonly string[] => {
     const value = props.ed.spec?.options['accept']
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
@@ -1103,6 +1108,7 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
         </Show>
         <AssetEditorImplementation
           {...implementationProps}
+          commitImportedFile={props.commitImportedFile}
           setDismissBlocked={bindDismissBlocked}
           setRequestClose={(handler) => { requestClose = handler }}
         />
@@ -1136,4 +1142,16 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
       }}
     />
   )
+}
+
+export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
+  const [picker, setPicker] = createSolidSignal(props.ed.inRow === undefined || props.ed.stagedFile !== undefined ||
+    !assetQuickListAllowed(props.ed.spec, props.ed.declaredType, props.ed.mergeableTypes))
+  const [file, setFile] = createSolidSignal<File>()
+  const QuickList: Component<WidgetEditorImplementationProps> = (implementation) => <AssetQuickList {...implementation}
+    browse={() => setPicker(true)} add={(chosen) => { setFile(chosen); setPicker(true) }} />
+  return <Show when={picker()} fallback={<WidgetEditorController {...props} implementation={QuickList} />}>
+    <AssetPickerWidgetEditor {...props} ed={file() === undefined ? props.ed : { ...props.ed, stagedFile: file()! }}
+      commitImportedFile={file() !== undefined} />
+  </Show>
 }

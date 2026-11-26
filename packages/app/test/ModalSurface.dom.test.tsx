@@ -333,11 +333,12 @@ describe('ASSET widget modal integration', () => {
     declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'ASSET' },
     initial: WidgetEditorState['initial'] = null,
     mountEditor = true,
+    inRow = false,
   ) => {
     const root = document.createElement('div')
     document.body.append(root)
     const close = vi.fn()
-    const dispatchTo = vi.fn()
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const digestA = `blake3:${'a'.repeat(64)}`
     const digestB = `blake3:${'b'.repeat(64)}`
     const connection = {
@@ -346,7 +347,7 @@ describe('ASSET widget modal integration', () => {
         { id: 'left', mode: 'read', state: 'ready', kind },
         { id: 'right', mode: 'read', state: 'ready', kind },
       ]),
-      listMountEntries: vi.fn(async (mountId: string) => ({
+      listMountEntries: vi.fn(async (mountId: string | undefined, _request?: { q?: string; cursor?: string }) => ({
         entries: mountId === 'left'
           ? [{ digest: digestA, name: 'shared.safetensors', size: 100, mediaType: 'application/x-safetensors', kind, virtualPath: 'a/shared.safetensors' }]
           : [{ digest: digestB, name: 'shared.safetensors', size: 200, mediaType: 'application/x-safetensors', kind, virtualPath: 'b/shared.safetensors' }],
@@ -363,6 +364,7 @@ describe('ASSET widget modal integration', () => {
       multiline: false,
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial,
+      ...(inRow ? { inRow: { look: 'original' as const, nodeTop: 0, nodeBottom: 100, storedAtOpen: initial } } : {}),
     }
     const backend = { protocol: 'dinkster', id: 'native', connection }
     const retainPickerAssets = vi.fn().mockResolvedValue(undefined)
@@ -377,6 +379,142 @@ describe('ASSET widget modal integration', () => {
       : () => {}
     return { root, close, dispatchTo, connection, ed, digestA, digestB, unmount, app, retainPickerAssets }
   }
+
+  it('picks a scalar file directly from the row and refuses a pick after its document changes', async () => {
+    const mounted = catalogAssetEditor('file/binary', undefined, null, true, true)
+    try {
+      await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
+      expect(mounted.root.querySelector('[data-editor-surface="asset-quick-list"]')).not.toBeNull()
+      expect(mounted.root.querySelector('dialog')).toBeNull()
+      const input = mounted.root.querySelector<HTMLInputElement>('input[role="combobox"]')!
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await vi.waitFor(() => expect(mounted.close).toHaveBeenCalledOnce())
+      expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
+        command: 'node.setValue', params: {
+          graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: {
+            digest: mounted.digestB, name: 'shared.safetensors', size: 200,
+            mediaType: 'application/x-safetensors', virtualPath: 'b/shared.safetensors',
+          },
+        },
+      })
+    } finally { mounted.unmount() }
+
+    const changed = catalogAssetEditor('file/binary', undefined, null, true, true)
+    try {
+      await vi.waitFor(() => expect(changed.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
+      Object.assign(changed.ed.tab.store, { revision: 1 })
+      changed.root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+      expect(changed.dispatchTo).not.toHaveBeenCalled()
+      expect(changed.close).not.toHaveBeenCalled()
+      expect(changed.root.textContent).toContain('The field changed.')
+    } finally { changed.unmount() }
+  })
+
+  it('opens the system chooser before the import dialog and leaves cancellation unchanged', async () => {
+    const mounted = catalogAssetEditor('file/binary', undefined, null, true, true)
+    try {
+      const chooser = mounted.root.querySelector<HTMLInputElement>('input[type="file"]')!
+      const clicked = vi.spyOn(chooser, 'click').mockImplementation(() => {})
+      const add = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Add a file from this computer')!
+      add.click()
+      expect(clicked).toHaveBeenCalledOnce()
+      expect(mounted.root.querySelector('dialog')).toBeNull()
+      chooser.dispatchEvent(new Event('change', { bubbles: true }))
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+      expect(mounted.close).not.toHaveBeenCalled()
+      expect(mounted.root.querySelector('dialog')).toBeNull()
+    } finally { mounted.unmount() }
+  })
+
+  it.each([true, false])('commits an imported quick-list file only after successful import: %s', async (accepted) => {
+    const initial = { digest: `blake3:${'b'.repeat(64)}`, name: 'saved.safetensors', size: 20,
+      mediaType: 'application/x-safetensors', virtualPath: 'mounts/left/saved.safetensors' }
+    const mounted = catalogAssetEditor('file/binary', undefined, initial, false, true)
+    const imported = { digest: mounted.digestA, name: 'chosen.safetensors', size: 3,
+      mediaType: 'application/x-safetensors', virtualPath: 'mounts/left/chosen.safetensors' }
+    const upload = vi.fn().mockResolvedValue(imported)
+    Object.assign(mounted.connection, {
+      uploadNamedAsset: upload, listLocalAssets: async () => ({ assets: [] }), checkAssetAvailability: async () => [],
+    })
+    const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(mounted.app, mounted.ed)} ed={mounted.ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    try {
+      const chooser = mounted.root.querySelector<HTMLInputElement>('input[type="file"]')!
+      Object.defineProperty(chooser, 'files', { value: [new File(['abc'], accepted ? 'chosen.safetensors' : 'wrong.txt', {
+        type: accepted ? 'application/x-safetensors' : 'text/plain',
+      })] })
+      chooser.dispatchEvent(new Event('change', { bubbles: true }))
+      expect(mounted.root.querySelector('dialog')).not.toBeNull()
+      if (accepted) {
+        await vi.waitFor(() => expect(mounted.close).toHaveBeenCalledOnce())
+        expect(upload).toHaveBeenCalledOnce()
+        expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
+          command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: imported },
+        })
+      } else {
+        await vi.waitFor(() => expect(mounted.root.textContent).toContain('Unsupported file type: text/plain'))
+        expect(upload).not.toHaveBeenCalled()
+        expect(mounted.dispatchTo).not.toHaveBeenCalled()
+        expect(mounted.close).not.toHaveBeenCalled()
+      }
+      expect(mounted.ed.initial).toEqual(initial)
+    } finally { dispose() }
+  })
+
+  it.each([1, 2])('keeps quick-list mount scope through filtering, views and scroll pages with %s mounts', async (count) => {
+    const scopeKey = 'dinkster.asset-quick-scope:file/binary'
+    const viewKey = 'dinkster.asset-quick-view:file/binary'
+    localStorage.removeItem(scopeKey); localStorage.removeItem(viewKey)
+    const mounted = catalogAssetEditor('file/binary', undefined, null, false, true)
+    mounted.connection.listMounts.mockResolvedValue([
+      { id: 'left', mode: 'read', state: 'ready', kind: 'file/binary' },
+      ...(count === 2 ? [{ id: 'right', mode: 'read', state: 'ready', kind: 'file/binary' }] : []),
+      { id: 'absent', mode: 'read', state: 'missing', kind: 'file/binary' },
+    ])
+    mounted.connection.listMountEntries.mockImplementation(async (_mountId, request) => ({
+      entries: [{ digest: mounted.digestA, name: request?.cursor ? 'older.safetensors' : 'newer.safetensors', size: 10,
+        mediaType: 'application/x-safetensors', kind: 'file/binary', virtualPath: `mounts/left/${request?.cursor ? 'older' : 'newer'}.safetensors` }],
+      ...(request?.cursor ? {} : { cursor: 'next' }),
+    }))
+    const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(mounted.app, mounted.ed)} ed={mounted.ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    try {
+      await vi.waitFor(() => expect(mounted.root.textContent).toContain('newer.safetensors'))
+      expect(mounted.connection.listMountEntries).toHaveBeenLastCalledWith(undefined, expect.objectContaining({
+        mountIds: count === 1 ? ['left'] : ['left', 'right'], recursive: true, sort: 'newest',
+      }))
+      const mount = mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-quick-mount"]')
+      if (count === 1) expect(mount).toBeNull()
+      else {
+        mount!.click()
+        expect(document.querySelector('[data-option-id="mount:absent"]')).toBeNull()
+        document.querySelector<HTMLElement>('[data-option-id="mount:right"]')!.click()
+        await vi.waitFor(() => expect(mounted.connection.listMountEntries).toHaveBeenLastCalledWith('right', expect.anything()))
+        expect(localStorage.getItem(scopeKey)).toBe('mount:right')
+      }
+      const field = mounted.root.querySelector<HTMLInputElement>('input[role="combobox"]')!
+      field.value = 'newer'; field.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      await vi.waitFor(() => expect(mounted.connection.listMountEntries).toHaveBeenLastCalledWith(count === 1 ? undefined : 'right', expect.objectContaining({ q: 'newer', recursive: true, sort: 'newest' })))
+      const pictures = mounted.root.querySelector<HTMLInputElement>('input[type="radio"][value="grid"]')!
+      pictures.click()
+      expect(mounted.root.querySelector('.collection-items.grid')).not.toBeNull()
+      expect(localStorage.getItem(viewKey)).toBe('grid')
+      const viewport = mounted.root.querySelector<HTMLElement>('[data-testid="collection-items"]')!
+      Object.defineProperties(viewport, { clientHeight: { value: 200 }, scrollHeight: { value: 1000 } })
+      viewport.scrollTop = 800; viewport.dispatchEvent(new Event('scroll'))
+      await vi.waitFor(() => expect(mounted.root.textContent).toContain('older.safetensors'))
+      expect(mounted.connection.listMountEntries).toHaveBeenLastCalledWith(count === 1 ? undefined : 'right', expect.objectContaining({ q: 'newer', cursor: 'next', recursive: true, sort: 'newest' }))
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+      dispose()
+      const reopened = render(() => <WidgetEditor app={mounted.app} ed={mounted.ed}
+        viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+      try {
+        await vi.waitFor(() => expect(mounted.root.textContent).toContain('newer.safetensors'))
+        expect(mounted.connection.listMountEntries).toHaveBeenLastCalledWith(count === 1 ? undefined : 'right', expect.not.objectContaining({ q: 'newer' }))
+        expect(mounted.root.querySelector('.collection-items.grid')).not.toBeNull()
+      } finally { reopened() }
+    } finally { dispose(); localStorage.removeItem(scopeKey); localStorage.removeItem(viewKey) }
+  })
 
   it('uses grouped model variants with kind-scoped scans and commits an exact variant ref', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
@@ -519,7 +657,7 @@ describe('ASSET widget modal integration', () => {
       { id: 'comfy-output', mode: 'read', state: 'ready', kind: 'media/image' },
       { id: 'archive', mode: 'read', state: 'ready', kind: 'media/image' },
     ])
-    mounted.connection.listMountEntries.mockImplementation(async (mountId: string) => ({ entries: [{
+    mounted.connection.listMountEntries.mockImplementation(async (mountId) => ({ entries: [{
       digest: `blake3:${mountId === 'comfy-input' ? '1' : mountId === 'comfy-output' ? '2' : '3'}`.padEnd(71, mountId === 'archive' ? '3' : '0'),
       name: `${mountId}.png`, size: 10, mediaType: 'application/x-safetensors', kind: 'media/image', virtualPath: `${mountId}.png`,
     }] }))

@@ -53,6 +53,12 @@ export interface CollectionPanelState {
 
 export function CollectionPanel(props: {
   readonly sources: readonly CollectionSource[]
+  readonly initialSourceId?: string
+  /** A canvas row can own the filter input while this panel owns its results. */
+  readonly search?: {
+    readonly query: () => string
+    readonly input: () => HTMLInputElement | undefined
+  }
   /** Optional host-owned source rail. The default flat tabs remain unchanged. */
   readonly sourceRail?: (controls: {
     readonly selectedId: () => string
@@ -158,13 +164,14 @@ export function CollectionPanel(props: {
 }) {
   const message = useAppMessage()
   const storage = safeLocalStorage()
-  const [sourceId, setSourceId] = createSolidSignal(props.sources[0]?.id ?? '')
+  const [sourceId, setSourceId] = createSolidSignal(props.initialSourceId ?? props.sources[0]?.id ?? '')
   const [mode, setModeSignal] = createSolidSignal<CollectionViewMode>(
     props.listOnly === true ? 'list' : props.modeKey !== undefined
       ? readCollectionViewMode(storage, props.modeKey, props.defaultMode ?? 'list')
       : props.defaultMode ?? 'list',
   )
-  const [query, setQuery] = createSolidSignal('')
+  const [localQuery, setQuery] = createSolidSignal('')
+  const query = () => props.search?.query() ?? localQuery()
   const [folder, setFolder] = createSolidSignal('')
   const [filters, setFilters] = createSolidSignal<Readonly<Record<string, string>>>(props.initialFilters ?? {})
   const [items, setItems] = createSolidSignal<readonly CollectionEntry[]>([])
@@ -194,9 +201,10 @@ export function CollectionPanel(props: {
     setArmedAction(undefined)
   })
   const clearSearch = (): void => {
-    if (searchEl === undefined || searchEl.value === '') return
-    searchEl.value = ''
-    searchEl.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    const input = props.search?.input() ?? searchEl
+    if (input === undefined || input.value === '') return
+    input.value = ''
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
   }
 
   const source = (): CollectionSource | undefined => props.sources.find((s) => s.id === sourceId())
@@ -469,6 +477,7 @@ export function CollectionPanel(props: {
    * pickable entry to onPick immediately; panel mode toggles selection +
    * onActivate. */
   const activate = (entry: CollectionEntry): void => {
+    if (props.search !== undefined && loading()) return
     if (entry.folder !== undefined) {
       navigateFolder(entry.folder.path)
       return
@@ -749,6 +758,7 @@ export function CollectionPanel(props: {
   )
 
   const searchKeyDown = (event: KeyboardEvent): void => {
+    if (event.isComposing) return
     if (event.key === 'Escape' && event.currentTarget instanceof HTMLInputElement && event.currentTarget.value !== '') {
       event.preventDefault()
       event.stopPropagation()
@@ -759,9 +769,26 @@ export function CollectionPanel(props: {
       event.preventDefault()
       focusEntry(rovingId())
     }
+    if (event.key === 'Enter' && props.search !== undefined && navigableItems().length > 0) {
+      event.preventDefault()
+      const entry = navigableItems().find((item) => item.id === rovingId())
+      if (entry !== undefined) activate(entry)
+    }
   }
 
-  const SearchControl = () => (
+  createEffect(() => {
+    const input = props.search?.input()
+    if (input === undefined) return
+    input.setAttribute('role', 'combobox')
+    input.setAttribute('aria-expanded', 'true')
+    input.setAttribute('aria-controls', resultsId)
+    input.setAttribute('aria-autocomplete', 'list')
+    input.setAttribute('aria-busy', String(loading()))
+    input.addEventListener('keydown', searchKeyDown)
+    onCleanup(() => input.removeEventListener('keydown', searchKeyDown))
+  })
+
+  const SearchControl = () => <Show when={props.search === undefined}>
     <span class="collection-search-field">
       <SearchInput
         value={query()}
@@ -781,7 +808,7 @@ export function CollectionPanel(props: {
       />
       <span id={descriptionId} class="collection-search-description">{searchDescription()}</span>
     </span>
-  )
+  </Show>
 
   const Controls = () => props.searchPriority === 'primary'
     ? <>

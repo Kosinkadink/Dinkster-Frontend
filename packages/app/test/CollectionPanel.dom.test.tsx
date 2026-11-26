@@ -1,4 +1,5 @@
 
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CollectionEntry, CollectionPageRequest, CollectionSource } from '@dinkster/core'
@@ -22,6 +23,44 @@ afterEach(() => {
 })
 
 describe('CollectionPanel folder navigation', () => {
+  it('filters from its canvas row without picking old results during a pending search', async () => {
+    const root = document.createElement('div'); document.body.append(root)
+    const picked = vi.fn()
+    const [query, setQuery] = createSignal('')
+    const [input, setInput] = createSignal<HTMLInputElement>()
+    let finish!: () => void
+    const source: CollectionSource = {
+      id: 'output', label: 'Output', page: async (request) => {
+        if (request.query !== '') await new Promise<void>((resolve) => { finish = resolve })
+        return { items: [file(request.query === '' ? 'old' : 'match')], total: 1 }
+      },
+    }
+    const dispose = render(() => <>
+      <input ref={setInput} value={query()} onInput={(event) => setQuery(event.currentTarget.value)} />
+      <CollectionPanel sources={[{ id: 'other', label: 'Other', page: async () => ({ items: [file('wrong-scope')] }) }, source]}
+        initialSourceId="output" search={{ query, input }} pick={{ pickable: () => true, onPick: picked }} />
+    </>, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('old.png'))
+      expect(root.textContent).not.toContain('wrong-scope')
+      expect(root.querySelector('[data-testid="collection-search"]')).toBeNull()
+      const field = input()!
+      expect(field.getAttribute('role')).toBe('combobox')
+      field.value = 'match'; field.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+      expect(picked).not.toHaveBeenCalled()
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+      finish()
+      await vi.waitFor(() => expect(root.textContent).toContain('match.png'))
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      expect(picked).toHaveBeenCalledOnce()
+      expect(picked.mock.calls[0]![0].id).toBe('match')
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      expect(field.value).toBe('')
+    } finally { dispose() }
+  })
+
   it('keeps selected mount scope and order through scroll pages and explicit shallow search', async () => {
     const requests: URL[] = []
     const connection = new DinksterConnection({

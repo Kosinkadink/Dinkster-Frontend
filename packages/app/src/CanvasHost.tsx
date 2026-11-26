@@ -187,6 +187,7 @@ import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type EditorTarget, type WidgetEditorState } from './WidgetEditor.js'
+import { assetQuickListAllowed } from './editors/AssetQuickList.js'
 import { GLSL_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedMedia, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
@@ -1725,7 +1726,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [rowHandedOff, setRowHandedOff] = createSolidSignal<WidgetEditorState | undefined>(undefined)
   // The row the keyboard is on while nothing is open; only the keyboard sets it.
   const [rowFocus, setRowFocus] = createSolidSignal<RowFocusState | undefined>(undefined)
-  const editorRestoresCanvasFocus = (state: WidgetEditorState): boolean => state.spec?.widgetType !== 'ASSET'
+  const editorRestoresCanvasFocus = (state: WidgetEditorState): boolean => state.spec?.widgetType !== 'ASSET' || state.inRow !== undefined
   let editorDocumentRevision: number | undefined
   let editorExtensionsGeneration: number | undefined
   // Reduce the open widget editor to app-level focus facts for the Context
@@ -5711,7 +5712,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (renderer.getDesignTokens().widgetEditing !== 'in-row') return false
       // The select view belongs to COMBO alone.
       const choice = row.viewId === 'core.select' && row.spec.remote === undefined
-      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor', 'core.saveTarget'].includes(row.viewId) && !choice) return false
+      const file = row.viewId === 'core.asset' && assetQuickListAllowed(row.spec, row.type, registry()?.mergeableTypes)
+      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor', 'core.saveTarget'].includes(row.viewId) && !choice && !file) return false
       if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
       if (widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi !== undefined) return false
       // Single-line text that holds a line break opens in the multiline editor,
