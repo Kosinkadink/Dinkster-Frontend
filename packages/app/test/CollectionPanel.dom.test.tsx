@@ -2,8 +2,11 @@
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CollectionEntry, CollectionPageRequest, CollectionSource } from '@dinkster/core'
-import { registerCatalog, setLocale } from '@dinkster/core'
+import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
+import { DinksterConnection } from '@dinkster/client'
 import { CollectionPanel } from '../src/CollectionPanel.js'
+import { mountAssetSource } from '../src/asset-browser/mountAssetSource.js'
+import { assetCollectionSource } from '../src/asset-browser/collection-adapter.js'
 
 const folder = (path: string): CollectionEntry => ({ id: `folder:${path}`, title: path.split('/').at(-1)!, folder: { path } })
 const file = (id: string): CollectionEntry => ({ id, title: `${id}.png`, ref: { id } })
@@ -19,6 +22,47 @@ afterEach(() => {
 })
 
 describe('CollectionPanel folder navigation', () => {
+  it('keeps selected mount scope and order through scroll pages and explicit shallow search', async () => {
+    const requests: URL[] = []
+    const connection = new DinksterConnection({
+      id: asConnectionId('native'), baseUrl: 'http://native', clientId: 'test',
+      fetchFn: async (url) => {
+        const request = new URL(url); requests.push(request)
+        const name = request.searchParams.has('cursor') ? 'older.bin' : 'newer.bin'
+        return new Response(JSON.stringify({
+          entries: [{ name, virtualPath: `mounts/output/folder/${name}`, digest: 'blake3:a', size: 7, mediaType: 'application/octet-stream' }],
+          ...(request.searchParams.has('cursor') ? {} : { cursor: 'next' }), total: 2,
+        }))
+      },
+    })
+    const all = assetCollectionSource(mountAssetSource(connection, ['input', 'output']))
+    const one = assetCollectionSource(mountAssetSource(connection, 'output'))
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <CollectionPanel sources={[{ ...all, page: (request) => all.page({ ...request, sort: 'newest', recursive: true }) },
+      { ...one, page: (request) => one.page({ ...request, sort: 'name', recursive: false }) }]} pagination="scroll" />, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('newer.bin'))
+      expect(requests[0]!.pathname).toBe('/api/mounts/entries')
+      expect(requests[0]!.searchParams.getAll('mount')).toEqual(['input', 'output'])
+      expect(requests[0]!.searchParams.get('sort')).toBe('newest')
+      expect(requests[0]!.searchParams.get('recursive')).toBe('true')
+      const viewport = root.querySelector<HTMLElement>('[data-testid="collection-items"]')!
+      Object.defineProperties(viewport, { clientHeight: { value: 200 }, scrollHeight: { value: 1000 } })
+      viewport.scrollTop = 800; viewport.dispatchEvent(new Event('scroll'))
+      await vi.waitFor(() => expect([...root.querySelectorAll('.collection-title')].map((row) => row.textContent)).toEqual(['newer.bin', 'older.bin']))
+      expect(requests.at(-1)!.searchParams.getAll('mount')).toEqual(['input', 'output'])
+      root.querySelector<HTMLButtonElement>('[data-source="mount:output"]')!.click()
+      const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
+      search.value = 'newer'; search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      await vi.waitFor(() => expect(requests.at(-1)!.searchParams.get('q')).toBe('newer'))
+      expect(requests.at(-1)!.pathname).toBe('/api/mounts/output/entries')
+      expect(requests.at(-1)!.searchParams.getAll('mount')).toEqual([])
+      expect(requests.at(-1)!.searchParams.get('recursive')).toBe('false')
+      expect(requests.at(-1)!.searchParams.get('sort')).toBe('name')
+      expect(requests.at(-1)!.searchParams.has('cursor')).toBe(false)
+    } finally { dispose() }
+  })
+
   it('continues a scroll page once and discards it when the search changes', async () => {
     let finish!: () => void
     const requests: CollectionPageRequest[] = []
