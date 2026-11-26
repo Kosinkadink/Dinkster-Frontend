@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { materializeBlueprint } from '../src/blueprint.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
+import { boundaryOf } from '../src/format/document.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 
@@ -36,7 +37,7 @@ function doc(graphs: Record<string, GraphDef>, root = 'g0'): WorkflowDocument {
 
 const node = (id: string, type = 'KSampler') => ({ id: asNodeId(id), type, values: {} })
 
-const boundary = { inputs: [], outputs: [] }
+const boundary = boundaryOf([], [])
 
 /** A blueprint body: root gA (boundary) instantiates nested gB (boundary). */
 function blueprintDoc(): WorkflowDocument {

@@ -63,8 +63,10 @@ test.beforeEach(async ({ page }) => {
           id: 'sub', name: 'Soften', links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
           nodes: { blur: { id: 'blur', type: 'Blur', values: { radius: 6, strength: 0.75 } } },
           boundary: {
-            inputs: [{ id: 'image', binds: { kind: 'port', node: 'blur', port: 'image' } }],
-            outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'blur', port: 'IMAGE' } }],
+            body: [
+              { kind: 'input', id: 'image', binds: { kind: 'port', node: 'blur', port: 'image' } },
+              { kind: 'output', id: 'image_out', binds: { kind: 'port', node: 'blur', port: 'IMAGE' } },
+            ],
           },
         },
       },
@@ -84,8 +86,9 @@ test('a field shown on the subgraph node has no wire inside, carries the mark, a
   await page.mouse.click(value.x, value.y, { button: 'right' })
   await page.getByRole('menuitem', { name: 'Show on subgraph node', exact: true }).click()
 
-  const inputs = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs['sub']!.boundary!.inputs)
-  await expect.poll(inputs).toContainEqual({ id: 'strength', binds: { kind: 'port', node: 'blur', port: 'strength' }, promoted: true, wireHidden: true })
+  const inputs = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs['sub']!.boundary!.body
+    .filter((entry) => entry.kind === 'input'))
+  await expect.poll(inputs).toContainEqual({ kind: 'input', id: 'strength', binds: { kind: 'port', node: 'blur', port: 'strength' }, promoted: true, wireHidden: true })
   const links = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().links
     .filter((link) => link.boundary === true && link.to.kind === 'port' && link.to.node === 'blur')
     .map((link) => ({ port: (link.to as { port: string }).port, hidden: link.hidden === true })))
@@ -99,9 +102,9 @@ test('a field shown on the subgraph node has no wire inside, carries the mark, a
 
   await page.mouse.click(mark.x, mark.y)
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
-  const selected = page.locator('[data-testid=boundary-item][data-selected]')
+  const selected = page.locator('.boundary-tree [data-entry-id][aria-selected="true"]')
   await expect(selected).toHaveCount(1)
-  await expect(selected).toHaveAttribute('data-boundary-id', 'strength')
+  await expect(selected).toHaveAttribute('data-entry-id', 'strength')
   if (proofDir) await page.screenshot({ path: join(proofDir, 'boundary-panel-selected.png'), animations: 'disabled' })
 
   // Outside, the subgraph node has the field, with no mark.

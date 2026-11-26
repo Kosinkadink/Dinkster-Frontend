@@ -169,6 +169,13 @@ every core tab once.
   `pending` covers the whole read, `value` retains the previous answer during
   refresh, and `error` exposes a failed read. A newer `load` supersedes an older
   completion; Solid owner disposal cancels timers and ignores late answers.
+  A project list can use `ProductProjectListHeader` with an `id` outside the
+  loading region and `ProductProjectRows` with that `labelledBy` inside it;
+  `ProductProjectList` composes both for callers that load them together.
+  Both loading components also accept persistent JSX children that read
+  `page.value()` reactively, preserving interactive rows and focus through
+  refresh completion; render functions instead replace the complete answer.
+  Project fact values also accept these shared answer regions.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as
   solid/outline, and accepts native button attributes. `ProductIconButton` is
   the quiet, square icon-only control with a required accessible label and the
@@ -194,7 +201,7 @@ every core tab once.
   messages are off; field problems are shown by `ProductField`.
   Changing to another record mounts a new form.
 - `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
-  keyboard item movement and opener focus restoration; `fill="quiet"` gives its text trigger the shared borderless quiet fill and retains its hover fill while open, while absent preserves the outlined trigger. Items keep their buttons
+  keyboard item movement and opener focus restoration; optional `filter={{ label, placeholder }}` opens with a shared text field that matches item labels case-insensitively. The first enabled match is highlighted; Up/Down move that highlight and Enter selects, while focus stays in the field. Descriptions do not affect matches, Home/End retain text editing in the field, and reopening clears the query. `fill="quiet"` gives its text trigger the shared borderless quiet fill and retains its hover fill while open, while absent preserves the outlined trigger. Items keep their buttons
   by position, so a host that passes new item objects while the menu is open
   (a count arriving) does not move focus or close it. Disabled items are
   skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns

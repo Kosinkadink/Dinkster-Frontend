@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { asGraphDefId, asLineageId, asNodeId, asPortId, coreCommandRegistry, DocumentStore, occurrenceKey, type NodeSchema, type OccurrenceRef, type WorkflowDocument } from '@dinkster/core'
+import { asGraphDefId, asLineageId, asNodeId, asPortId, coreCommandRegistry, DocumentStore, occurrenceKey, type NodeSchema, type OccurrenceRef, type WorkflowDocument, boundaryOf } from '@dinkster/core'
 import type { OccurrenceLinkEndpoint } from '@dinkster/core'
 
 vi.mock('lucide-solid', () => ({
@@ -52,10 +52,7 @@ function fixtureDocument(): WorkflowDocument {
           },
         },
         nets: {}, reroutes: {}, nextOrdinal: 2,
-        boundary: {
-          inputs: [],
-          outputs: [{ id: 'feed' as never, binds: binding() }],
-        },
+        boundary: boundaryOf([], [{ id: 'feed' as never, binds: binding() }]),
       },
     },
     view: { graphs: {} },

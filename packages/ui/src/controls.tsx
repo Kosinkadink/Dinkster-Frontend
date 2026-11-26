@@ -138,12 +138,20 @@ export function ProductButton(
     intent?: ProductRole
     fill?: ProductFill
     pending?: boolean
+    /** panel: as tall as a list row, for the dense settings of a side panel. */
+    density?: 'panel'
   },
 ) {
-  const [local, button] = splitProps(props, ['intent', 'fill', 'pending'])
+  const [local, button] = splitProps(props, [
+    'intent',
+    'fill',
+    'pending',
+    'density',
+  ])
   return (
     <Button
       {...button}
+      data-density={local.density}
       intent={local.intent}
       fill={local.fill ?? 'outline'}
       pending={local.pending}
@@ -387,7 +395,8 @@ export function ProductTextInput(
     'class' | 'style' | 'type'
   > & {
     type?: 'text' | 'email' | 'password' | 'url' | 'search' | 'tel'
-    density?: 'canvas'
+    /** canvas: inside a node row. panel: as tall as a list row, in body type, for the dense settings of a side panel. */
+    density?: 'canvas' | 'panel'
   },
 ) {
   useFieldFocus()

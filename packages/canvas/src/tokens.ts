@@ -3,7 +3,7 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { canvasSemanticTokens, DIM_FILL_SHARE, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
@@ -71,7 +71,7 @@ export const canvasPaintTokens = {
       maxLabelWidth: 120,
       stroke: 1,
       /** Shares of the tab's color: its fill over the canvas, its line over the canvas, its words over the title color. */
-      fillMix: 0.16,
+      fillMix: DIM_FILL_SHARE,
       hoverFillMix: 0.3,
       lineMix: 0.65,
       textMix: 0.7,
@@ -364,6 +364,9 @@ export const canvasPaintTokens = {
     labelPinGap: canvasSemanticTokens.space[4],
     /** Space between the panel title and the quieter text naming whose values its fields carry. */
     subtitleGap: canvasSemanticTokens.space[4],
+    /** The row of the boundary item selected in the Boundary panel. */
+    focusInset: 2,
+    focusStroke: 1.5,
   },
   net: {
     gap: 10,
