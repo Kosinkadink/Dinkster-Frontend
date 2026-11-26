@@ -2,8 +2,9 @@ import { createRoot, createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { Images } from 'lucide-solid'
 import { describe, expect, it, vi } from 'vitest'
-import { createPageTabHost, type PageTab } from '../src/page-tabs.js'
+import { createPageTabHost, PageTabPanel, type PageTab } from '../src/page-tabs.js'
 import { App } from '../src/App.js'
+import { ASSET_DRAG_TYPE } from '../src/asset-browser/drag.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import {
   layoutGroups,
@@ -139,6 +140,55 @@ describe('page tab host', () => {
 })
 
 describe('app page tabs', () => {
+  it('places an Assets drop as an undoable Board edit and retains dismissible refusals until a successful drop', async () => {
+    const app = createWorkflowApp()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    const available = vi.spyOn(app.connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+      digests.map((digest) => ({ digest, status: 'available' as const })))
+    try {
+      app.settings.set('features.board.enabled', true)
+      app.commands.get('board.new')!.run()
+      const entry = app.boards.entries.get()[0]!
+      const tab = app.pages.tabs().find((tab) => tab.id === `page:board:${entry.id}`) as PageTab
+      dispose = render(() => <PageTabPanel host={app.pages} tab={tab} />, root)
+      const surface = root.querySelector('.dinkster-board')!
+      const drop = (value: unknown) => {
+        const event = new Event('drop', { bubbles: true, cancelable: true })
+        Object.defineProperty(event, 'dataTransfer', { value: { getData: (type: string) => type === ASSET_DRAG_TYPE ? JSON.stringify(value) : '' } })
+        Object.defineProperties(event, { clientX: { value: 70 }, clientY: { value: 90 } })
+        surface.dispatchEvent(event)
+      }
+      const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'Reference', mediaType: 'image/png', size: 12, virtualPath: '' }
+      drop({ project: 'another-project', baseUrl: entry.baseUrl, asset })
+      await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('project and backend'))
+      expect(entry.session.doc.order).toEqual([])
+      drop({ project: 'default', baseUrl: entry.baseUrl, asset: { ...asset, digest: 'invalid' } })
+      await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('Invalid media drop'))
+      expect(entry.session.doc.order).toEqual([])
+      root.querySelector<HTMLButtonElement>('[role="alert"] button')!.click()
+      expect(root.querySelector('[role="alert"]')).toBeNull()
+      drop({ project: 'another-project', baseUrl: entry.baseUrl, asset })
+      await vi.waitFor(() => expect(root.querySelector('[role="alert"]')).not.toBeNull())
+      drop({ project: 'default', baseUrl: entry.baseUrl, asset })
+      await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(1))
+      const item = entry.session.doc.items[entry.session.doc.order[0]!]!
+      expect(item.kind).toBe('picture')
+      expect(item.rect.x).toBe(54)
+      expect(item.rect.y).toBe(10)
+      expect(root.querySelector('[role="alert"]')).toBeNull()
+      expect(entry.session.undo()).toBe(true)
+      expect(entry.session.doc.order).toEqual([])
+    } finally {
+      available.mockRestore()
+      dispose()
+      app.dispose()
+      root.remove()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('opens distinct session-backed Boards only when enabled and releases closed documents without changing workflows', () => {
     const app = createWorkflowApp()
     const workflows = app.tabs.get()
