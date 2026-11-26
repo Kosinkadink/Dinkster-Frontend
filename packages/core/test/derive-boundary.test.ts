@@ -1154,7 +1154,7 @@ describe('Boundary sample acceptance compilation', () => {
 
   it('boundary/counted-outputs/linked-outside', () => {
     const doc = boundarySample(2)
-    Object.assign(doc.graphs.root!.nodes, { outside: { id: 'outside', type: 'FloatSource', values: {} } })
+    Object.assign(doc.graphs.root!.nodes, { outside: { id: 'outside', type: 'IntSource', values: {} } })
     const store = storeFor(doc)
     const before = structuredClone(store.doc)
     const result = store.dispatch({ command: 'link.connect', params: { graphId: 'root', from: { node: 'outside', port: 'number' }, to: { node: 'first', port: 'count' } } })
