@@ -1085,6 +1085,8 @@ export interface MountEntry {
   readonly digest: string
   readonly size: number
   readonly mediaType: string
+  /** Filesystem modification time in Unix seconds. */
+  readonly modifiedAt?: number
   readonly kind?: string
 }
 
@@ -1092,6 +1094,7 @@ export interface MountEntryPage {
   readonly entries: readonly MountEntry[]
   /** Immediate subfolder names, present only on a non-recursive first page. */
   readonly folders?: readonly string[]
+  readonly folderCounts?: Readonly<Record<string, number>>
   readonly cursor?: string
   readonly total?: number
 }
@@ -3840,27 +3843,36 @@ export class DinksterConnection {
     if (!res.ok) throw new Error(`DELETE /api/mounts/${id} failed: ${res.status}`)
   }
 
-  async listMountEntries(mountId: string, req: { readonly q?: string; readonly path?: string; readonly recursive?: boolean; readonly cursor?: string; readonly limit?: number; readonly kind?: string; readonly signal?: AbortSignal } = {}): Promise<MountEntryPage> {
+  async listMountEntries(mountId: string | undefined, req: { readonly mountIds?: readonly string[]; readonly q?: string; readonly path?: string; readonly recursive?: boolean; readonly sort?: 'path' | 'name' | 'newest'; readonly cursor?: string; readonly limit?: number; readonly kind?: string; readonly signal?: AbortSignal } = {}): Promise<MountEntryPage> {
+    if (req.mountIds?.length === 0) return { entries: [], total: 0 }
     const params = new URLSearchParams({ project: this.project ?? 'default' })
+    for (const id of req.mountIds ?? []) params.append('mount', id)
     if (req.q) params.set('q', req.q)
     if (req.path !== undefined) params.set('path', req.path)
     if (req.recursive !== undefined) params.set('recursive', req.recursive ? 'true' : 'false')
+    if (req.sort !== undefined) params.set('sort', req.sort)
     if (req.cursor) params.set('cursor', req.cursor)
     if (req.limit !== undefined) params.set('limit', String(req.limit))
     if (req.kind) params.set('kind', req.kind)
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(mountId)}/entries?${params}`, req.signal !== undefined ? { signal: req.signal } : undefined)
+    const route = mountId === undefined ? '/api/mounts/entries' : `/api/mounts/${encodeURIComponent(mountId)}/entries`
+    const res = await this.fetchFn(`${this.baseUrl}${route}?${params}`, req.signal !== undefined ? { signal: req.signal } : undefined)
     if (!res.ok) throw new Error(`GET mount entries failed: ${res.status}`)
-    const payload = await res.json() as { entries?: unknown; folders?: unknown; cursor?: unknown; total?: unknown }
+    const payload = await res.json() as { entries?: unknown; folders?: unknown; folderCounts?: unknown; cursor?: unknown; total?: unknown }
     const entries = Array.isArray(payload.entries) ? payload.entries.filter((value): value is MountEntry => {
       if (typeof value !== 'object' || value === null) return false
       const row = value as Record<string, unknown>
       return typeof row['virtualPath'] === 'string' && typeof row['name'] === 'string' && typeof row['digest'] === 'string' &&
-        typeof row['size'] === 'number' && typeof row['mediaType'] === 'string' && (row['kind'] === undefined || typeof row['kind'] === 'string')
+        typeof row['size'] === 'number' && typeof row['mediaType'] === 'string' && (row['kind'] === undefined || typeof row['kind'] === 'string') &&
+        (row['modifiedAt'] === undefined || (typeof row['modifiedAt'] === 'number' && Number.isFinite(row['modifiedAt'])))
     }) : []
     const folders = Array.isArray(payload.folders) ? payload.folders.filter((value): value is string => typeof value === 'string') : undefined
+    const folderCounts = typeof payload.folderCounts === 'object' && payload.folderCounts !== null && !Array.isArray(payload.folderCounts)
+      ? Object.fromEntries(Object.entries(payload.folderCounts).filter((pair): pair is [string, number] => Number.isSafeInteger(pair[1]) && pair[1] >= 0))
+      : undefined
     return {
       entries,
       ...(folders !== undefined ? { folders } : {}),
+      ...(folderCounts !== undefined ? { folderCounts } : {}),
       ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}),
       ...(typeof payload.total === 'number' ? { total: payload.total } : {}),
     }
