@@ -42,7 +42,6 @@ import { buildGraphConnectivity, describedEntries, elabInputsOf, elaborateInterf
 import { applyUse, choiceScopeRows, framesNamesOf, isRowId, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf, scopeNamesOf } from './body.js'
 import { Formula, FormulaRefused, type FormulaScope } from '../mirror/formula.js'
 import { canonicalTypeIdOf, inputsOf, isNumberWidget, scopeRowsOf, typeExprFromTypeId } from './model.js'
-import { readWhenUnset } from './widget-defaults.js'
 import type {
   BodyRow,
   ChoiceSpec,
@@ -504,15 +503,6 @@ function scopesAround(body: readonly BodyRow[], path: string): readonly { readon
   return frames
 }
 
-/** Each row's own default value, as a formula reads it with nothing stored. */
-const ownDefaultOf = (row: Exclude<BodyRow, { kind: 'row' }> | undefined, stored: DynamicPortState | undefined): unknown => {
-  if (row === undefined) return undefined
-  if (row.kind === 'input') return readWhenUnset(row)
-  if (row.kind === 'state') return row.default
-  if (row.kind === 'choice') return stored?.selected ?? (row.required ? row.default ?? row.options[0]?.key : null)
-  return undefined
-}
-
 /** Name every unbound type variable inside a construct by its inner node. */
 function freshenRow<T extends OptionRow>(row: T, nodeId: string, bindings: ReadonlyMap<string, TypeExpr>): T {
   const type = (t: TypeExpr): TypeExpr => freshenType(t, nodeId, bindings)
@@ -565,6 +555,10 @@ function withStoredDefaults<T extends OptionRow>(row: T, prefix: string, node: N
       return (r.widget !== undefined
         ? { ...fixed, widget: { ...r.widget, default: values[path] } }
         : { ...fixed, ext: { ...r.ext, default: values[path] } }) as unknown as T
+    }
+    case 'state': {
+      const path = prefix + r.id
+      return (Object.hasOwn(values, path) ? { ...r, default: values[path] } : row) as T
     }
     case 'use': {
       const path = prefix + r.id
@@ -926,25 +920,14 @@ export function deriveBoundarySchema(
     })),
   })
 
-  const fixedInputs = new WeakMap<NodeData, ReadonlyMap<string, OuterName>>()
-  const unexposedInputsOf = (node: NodeData): ReadonlyMap<string, OuterName> => {
-    const cached = fixedInputs.get(node)
+  const fixedValues = new WeakMap<NodeData, ReadonlyMap<string, OuterName>>()
+  const unexposedValuesOf = (node: NodeData): ReadonlyMap<string, OuterName> => {
+    const cached = fixedValues.get(node)
     if (cached !== undefined) return cached
     const schema = resolveNode(node)!
     const connectivity = (connectivityOf ??= buildGraphConnectivity(graph))(node.id)
-    const rows = elabInputsOf(elaborateInterface(schema, node, connectivity, { promoteGhosts: false }))
-    const values = new Map<string, OuterName>()
-    for (const row of rows) {
-      if (row.kept !== undefined || row.ancestry?.some((ancestor) => ancestor.ghost)) continue
-      const path = row.spec.id
-      const stored = Object.hasOwn(node.values, path)
-      const linked = connectivity.isInputConnected(path)
-      if (!stored && !linked && (row.automatic?.state === 'loading' || row.automatic?.state === 'not-known')) continue
-      const value = row.origin.kind === 'selector' ? row.origin.selected ?? null
-        : stored ? node.values[path] : row.derivedValue ?? row.automatic?.value ?? readWhenUnset(row.spec)
-      if (value !== undefined || linked) values.set(path, { value, ...(linked ? { linked: true as const } : {}) })
-    }
-    fixedInputs.set(node, values)
+    const values = elaborateInterface(schema, node, connectivity, { promoteGhosts: false }).formulaValues
+    fixedValues.set(node, values)
     return values
   }
 
@@ -955,23 +938,17 @@ export function deriveBoundarySchema(
    * are carried out one more level.
    */
   const outerScopeOf = (binds: RouteBoundaryBinding, node: NodeData, path: string, shownAs: string, carried?: OuterScope): OuterScope => {
-    const meaningOf = (flat: string, row: () => unknown): OuterName | undefined => {
+    const meaningOf = (flat: string): OuterName | undefined => {
       const shown = flat === path ? shownAs : exposedPathOf(binds.node, flat)
       if (shown !== undefined) return { row: shown }
-      if (flat.includes('.') || rowById(resolveNode(node)!.body, flat)?.kind === 'input') return unexposedInputsOf(node).get(flat)
-      const value = Object.hasOwn(node.values, flat) ? node.values[flat] : row()
-      const linked = isInternallyConnected(binds, flat)
-      return value === undefined && !linked ? undefined : { value, ...(linked ? { linked: true as const } : {}) }
+      return unexposedValuesOf(node).get(flat)
     }
     if (carried !== undefined) {
-      const schema = resolveNode(node)
       return {
         frames: carried.frames.map((frame) => {
           const names: Record<string, OuterName> = {}
           for (const [name, meaning] of Object.entries(frame.names)) {
-            const outer = 'row' in meaning
-              ? meaningOf(meaning.row, () => ownDefaultOf(schema === undefined ? undefined : rowById(schema.body, meaning.row), node.dynamic?.[meaning.row]))
-              : meaning
+            const outer = 'row' in meaning ? meaningOf(meaning.row) : meaning
             if (outer !== undefined) names[name] = outer
           }
           return { rows: frame.rows, names }
@@ -983,7 +960,7 @@ export function deriveBoundarySchema(
       const names: Record<string, OuterName> = {}
       for (const name of framesNamesOf([frame.rows]).names.keys()) {
         const flat = frame.prefix + name
-        const meaning = meaningOf(flat, () => ownDefaultOf(name.includes('.') ? undefined : rowById(frame.rows, name), node.dynamic?.[flat]))
+        const meaning = meaningOf(flat)
         if (meaning !== undefined) names[name] = meaning
       }
       return { rows: frame.rows, names }

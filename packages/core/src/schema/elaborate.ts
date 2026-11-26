@@ -557,6 +557,8 @@ export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSect
 export interface ElaboratedInterface {
   /** Ordered as the body declares; members appear in their stored order at their group's place. */
   readonly items: readonly ElaboratedItem[]
+  /** Active fixed formula references, including choices and state with no rendered input. Pending values are omitted. */
+  readonly formulaValues: ReadonlyMap<string, OuterName>
   readonly chunkSafe?: Pick<NonNullable<NodeSchema['chunkSafe']>, 'inputs' | 'outputs'>
   /** Non-port values the run carries. */
   readonly submissionValues: readonly { readonly path: string; readonly apiPath: string; readonly value: Json }[]
@@ -963,6 +965,7 @@ function elaboratePass(
   const emittedInputs = new Set<string>()
   /** What a formula reads for each emitted input with nothing stored, from the spec compile sends it by. */
   const unsetReads = new Map<string, unknown>()
+  const formulaDefaults = new Map<string, unknown>()
   const emittedOutputs = new Set<string>()
   // A dormant census visits every option and variant, so a row they share, or
   // a row id two variants both declare, is emitted once per visit. Only rows
@@ -1637,6 +1640,7 @@ function elaboratePass(
     const hiddenByScope = scope.hidden && row.hidden !== true
     // A census also visits rows not chosen; they never replace a chosen row's entry.
     if (!scope.dormant || !unsetReads.has(path)) unsetReads.set(path, readWhenUnset(sent ? sentSpecOf(spec, hiddenByScope) : { ...spec, sent: false }))
+    if (!scope.ghost && !scope.dormant && scope.kept === undefined) formulaDefaults.set(path, unsetReads.get(path))
     push({
       kind: 'input',
       address: { port: path },
@@ -1738,6 +1742,7 @@ function elaboratePass(
         return
       case 'state':
         statePaths.add(scope.prefix + row.id)
+        if (!scope.ghost && !scope.dormant && scope.kept === undefined) formulaDefaults.set(scope.prefix + row.id, row.default)
         if (row.partOfRun) {
           emitInput({
             kind: 'input',
@@ -2185,6 +2190,7 @@ function elaboratePass(
     }
     if (!startOfPlace) chosen.set(path, key ?? null)
     const inRun = !scope.ghost && !scope.dormant
+    if (inRun && scope.kept === undefined) formulaDefaults.set(path, key ?? null)
     if (key !== undefined && inRun) choices[path] = key
     if (key !== undefined && inRun && row.required && row.leader === undefined && storedKey === undefined) unstoredChoices[path] = key
     // A kept walk draws the wired rows of a choice, not its dropdown.
@@ -2596,8 +2602,18 @@ function elaboratePass(
         }))
     }
   }
+  const formulaValues = new Map<string, OuterName>()
+  for (const [path, fallback] of formulaDefaults) {
+    const wired = linked(path)
+    const stored = Object.hasOwn(node.values, path)
+    const automatic = stored ? undefined : automaticInUse(path)
+    if (!wired && automatic === UNKNOWN) continue
+    const value = chosen.has(path) ? chosen.get(path) : stored ? node.values[path] : automatic ?? fallback
+    formulaValues.set(path, { value, ...(wired ? { linked: true as const } : {}) })
+  }
   const elaborated: ElaboratedInterface = {
     items,
+    formulaValues,
     submissionValues: [],
     ...(chunkSafe && covered ? { chunkSafe: {
       inputs: chunkSafe.inputs.filter((id) => items.some((item) => item.kind === 'input' && item.apiName === id)),
