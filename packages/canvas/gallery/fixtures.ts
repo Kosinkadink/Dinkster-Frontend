@@ -91,6 +91,7 @@ export const canvasGalleryPages = [
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
   ['row-summaries', 'Closed row summaries'],
+  ['row-file-previews', 'Thumbnails in closed file rows'],
   ['in-node-editors', 'Editors in the node'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],

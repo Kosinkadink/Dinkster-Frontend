@@ -91,10 +91,9 @@ export function editorSpaceItems(nodes: readonly {
 }
 
 /**
- * What the row of an editor shown in the node shows while a wire decides its
- * value, folded or not: what the wire brought in the last run, read by its
- * name when it has one, or `notKnown` in the placeholder color before one.
- * The value stored under the wire is not shown.
+ * Derived closed-file pictures and editor summaries. A wire shows its own
+ * carried value or `notKnown`, never the stored value under it. Unfolded
+ * editors keep their full preview instead of adding pictures to the row.
  */
 export function wiredEditorSummaries(nodes: readonly {
   readonly id: string

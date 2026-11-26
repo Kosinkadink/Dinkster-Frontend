@@ -97,7 +97,6 @@ export function widgetValueText(registry: WidgetRegistry, viewId: string, value:
 
 /** Kind icon of each row that opens an editor, raised in the `raised-editors` look. */
 const RAISED_ROW_ICONS: Readonly<Record<string, NonNullable<ToolboxButton['icon']>>> = {
-  'core.asset': 'image',
   'core.audioRecord': 'mic',
   'core.webcam': 'camera',
   'core.load3d': 'box',
@@ -127,8 +126,7 @@ function openerIconOf(row: WidgetRow, tokens: DesignTokens): NonNullable<Toolbox
   }
   return tokens.widgetRowLook === 'raised-editors'
     ? PARKED_EDITOR_VIEWS.has(row.viewId) ? undefined : RAISED_ROW_ICONS[row.viewId]
-    : row.viewId === 'core.asset' ? 'image'
-      : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
+    : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
       : undefined
 }
 
