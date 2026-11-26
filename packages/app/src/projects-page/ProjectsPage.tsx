@@ -420,6 +420,7 @@ export function ProjectsView(props: {
     if (painted() && found) props.onEngine?.({ ...(found.engine ? { state: found.engine } : {}), ...(found.open ? { open: found.open } : {}), notSetUp: found.all.length === 0 })
   })
   const [chosen, setChosen] = createSignal<string>()
+  const [narrowDetail, setNarrowDetail] = createSignal(!!props.shell.selectedProjectId())
   const [bannerShown, setBannerShown] = createSignal(true)
   const [folderFailed, setFolderFailed] = createSignal<string>()
   const [runsOnChoice, setRunsOnChoice] = createSignal(0)
@@ -527,6 +528,7 @@ export function ProjectsView(props: {
     try {
       await replace(await props.source.restoreProject(project))
       setChosen(project.id)
+      setNarrowDetail(true)
       if (newProject()) props.shell.showProjects()
     } catch {
       setRestoreFailed(project.name)
@@ -945,6 +947,7 @@ export function ProjectsView(props: {
       await setProjects((list) => byProjectTime([...(list ?? []).filter((entry) => entry.id !== project.id), project]))
       setChosen(project.id)
       setName('')
+      setNarrowDetail(true)
       setCreateError(undefined)
       setCreationAttempt(undefined)
       setFilesChoice(undefined)
@@ -958,6 +961,15 @@ export function ProjectsView(props: {
     } finally {
       setCreating(false)
     }
+  }
+  const backToList = () => {
+    setNarrowDetail(false)
+    props.shell.showProjects()
+  }
+  const cancelCreation = () => {
+    setCreationAttempt(undefined)
+    setCreateError(undefined)
+    backToList()
   }
   const newProjectForm = () => (
     <>
@@ -1017,7 +1029,7 @@ export function ProjectsView(props: {
           </Show>
         </div>
         <div class="dinkster-actions">
-          <ProductButton disabled={creating()} onClick={() => { setCreationAttempt(undefined); setCreateError(undefined); props.shell.showProjects() }}>{message('projects.action.cancel')}</ProductButton>
+          <ProductButton disabled={creating()} onClick={cancelCreation}>{message('projects.action.cancel')}</ProductButton>
           <ProductButton type="submit" intent="add" fill="solid" disabled={name().trim() === '' || !filesFolder().trim() || !startingContents() || creating() || readingWorkflow() || choosingFolder()}>
             {message('projects.new.create')}
           </ProductButton>
@@ -1051,6 +1063,8 @@ export function ProjectsView(props: {
     <div class="projects-page-content" data-testid="projects-content">
     <Show when={!setupOnly()} fallback={setup()}>
       <ProductProjectsView
+        narrowPanel={newProject() || narrowDetail() ? 'detail' : 'list'}
+        back={{ label: message('projects.title'), onSelect: backToList, disabled: creating() }}
         list={
           <>
           <ProductProjectListHeader
@@ -1066,6 +1080,7 @@ export function ProjectsView(props: {
             selected={newProject() ? undefined : selectedId()}
             onSelect={(id) => {
               setChosen(id)
+              setNarrowDetail(true)
               if (newProject()) props.shell.showProjects()
             }}
             loadingLabel={message('projects.loading')}
