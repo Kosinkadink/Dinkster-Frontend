@@ -81,20 +81,21 @@ test('icon-only activity items show immediate name-first help on hover and focus
   await expect(tooltip).toHaveText(libraryHelp)
 })
 
-test('Settings keeps immediate help, Alt detail, and hover-out', async ({ page }) => {
+test('Settings keeps immediate help, shortcut keys, and hover-out', async ({ page }) => {
   await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('tooltips.delayMs', 3000))
   const settings = page.getByTestId('settings-button')
   await settings.hover()
-  await expect(page.getByTestId('app-tooltip')).toHaveText('Settings', { timeout: 250 })
+  await expect(page.getByTestId('app-tooltip')).toHaveText('SettingsCtrl,', { timeout: 250 })
+  await expect(page.getByTestId('app-tooltip').getByLabel('Ctrl+,', { exact: true }).locator('kbd')).toHaveText(['Ctrl', ','])
   await page.mouse.move(600, 400)
   await expect(page.getByTestId('app-tooltip')).toBeHidden()
 
   await page.keyboard.down('Alt')
   await settings.hover()
-  await expect(page.getByTestId('app-tooltip')).toContainText('Ctrl+,', { timeout: 250 })
+  await expect(page.getByTestId('app-tooltip')).toHaveText('SettingsCtrl,', { timeout: 250 })
   await page.keyboard.up('Alt')
-  await expect(page.getByTestId('app-tooltip')).not.toContainText('Ctrl+,')
+  await expect(page.getByTestId('app-tooltip')).toHaveText('SettingsCtrl,')
 })
 
 test('top-right tooltip uses its real width and follows content changes', async ({ page }, testInfo) => {
@@ -262,7 +263,7 @@ seededTest('canvas pin and widget tooltips use scene coordinates and hide on mou
   await page.keyboard.up('Alt')
 })
 
-test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagnostic', async ({ page }) => {
+test('mismatch noodle midpoint grab-dot tooltip names the shown nodes and types', async ({ page }) => {
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   const point = await page.evaluate(async () => {
     const test = window.__dinksterTest!
@@ -300,5 +301,5 @@ test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagno
   await page.mouse.move(point.x, point.y)
   const tooltip = page.getByTestId('app-tooltip')
   await expect(tooltip).toContainText('Type mismatch', { timeout: 1_500 })
-  await expect(tooltip).toContainText('target.input: IMAGE cannot feed LATENT')
+  await expect(tooltip).toContainText('Latent sink: Input needs latent data, but Image source sends an image.')
 })
