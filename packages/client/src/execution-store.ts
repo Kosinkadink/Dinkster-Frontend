@@ -451,6 +451,7 @@ export class ExecutionStore {
   }): void {
     const key = executionKey(state.ref)
     if (!this.canRestoreCompleted(state.ref)) return
+    const warnings = this.get(state.ref)?.warnings
     this.recentlyEvicted.delete(key)
     this.unconfirmed.delete(key)
     this.provisionallyLost.delete(key)
@@ -470,6 +471,7 @@ export class ExecutionStore {
       activities: [],
       logs: [],
       logsDropped: 0,
+      ...(warnings === undefined ? {} : { warnings }),
       errors: [],
       ...(state.submittedBy === undefined ? {} : { submittedBy: state.submittedBy }),
       ...(state.automaticValues === undefined || state.automaticValues.length === 0 ? {} : { automaticValues: state.automaticValues }),

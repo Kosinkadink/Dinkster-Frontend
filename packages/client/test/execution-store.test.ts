@@ -708,6 +708,9 @@ describe('recorded stream replay', () => {
       virtualPath: 'output/value.json',
     }]
     if (mode === 'unregistered') {
+      store.apply({ kind: 'log', execution: ref, timestamp: 15, seq: 1,
+        runtimeNodeId: 'producer', level: 'warning', code: 'unpack_count_mismatch',
+        message: 'Expected 3 items; received 1' })
       store.apply({ kind: 'completed', execution: ref, timestamp: 20 })
     }
     store.restoreCompleted({
@@ -738,6 +741,9 @@ describe('recorded stream replay', () => {
     expect(restored.previews).toEqual({})
     expect(restored.activities).toEqual([])
     expect(restored.logs).toEqual([])
+    expect(restored.warnings?.map((warning) => warning.message) ?? []).toEqual(
+      mode === 'unregistered' ? ['Expected 3 items; received 1'] : [],
+    )
   })
 
   it('hydrateOutputs merges history outputs without overwriting live ones', () => {

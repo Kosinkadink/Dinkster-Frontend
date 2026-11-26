@@ -8223,6 +8223,9 @@ export class AppState {
             this.retainedRegistries.set(restored.artifact, registry)
             this.store.restoreCompleted(restored)
             held = this.store.get(restored.ref)
+            // Hydrated results do not enter reconnect reconciliation; recover
+            // their coded warnings from the optional durable journal here.
+            void backend.connection.backfillRunLog(restored.jobRef, LIBRARY_SCOPE).catch(() => {})
           }
         } catch {
           // A transport failure proves nothing; retry the persisted result on a later reload.
