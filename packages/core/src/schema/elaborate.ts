@@ -1313,7 +1313,7 @@ function elaboratePass(
       const path = where.get(name)!
       const constant = fixed.get(name)
       if (constant !== undefined) {
-        if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.set(name, formulaValueOf(constant.value, kind))
+        if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.set(name, constant.linked === true ? UNKNOWN : formulaValueOf(constant.value, kind))
         if (names.inputs.has(name)) wired.set(name, constant.linked === true)
       } else if (unknown.has(name)) {
         // A group's size with no entry in `sizes` reads unknown.

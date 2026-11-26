@@ -925,6 +925,25 @@ export function deriveBoundarySchema(
     })),
   })
 
+  const fixedInputs = new WeakMap<NodeData, ReadonlyMap<string, OuterName>>()
+  const unexposedInputsOf = (node: NodeData): ReadonlyMap<string, OuterName> => {
+    const cached = fixedInputs.get(node)
+    if (cached !== undefined) return cached
+    const schema = resolveNode(node)!
+    const connectivity = (connectivityOf ??= buildGraphConnectivity(graph))(node.id)
+    const rows = elabInputsOf(elaborateInterface(schema, node, connectivity, { promoteGhosts: false }))
+    const values = new Map<string, OuterName>()
+    for (const row of rows) {
+      if (row.kept !== undefined || row.ancestry?.some((ancestor) => ancestor.ghost)) continue
+      const path = row.spec.id
+      const value = Object.hasOwn(node.values, path) ? node.values[path]
+        : row.derivedValue ?? row.automatic?.value ?? readWhenUnset(row.spec)
+      if (value !== undefined) values.set(path, { value, ...(connectivity.isInputConnected(path) ? { linked: true as const } : {}) })
+    }
+    fixedInputs.set(node, values)
+    return values
+  }
+
   /**
    * What each name in the scopes around an inner row means on the subgraph
    * node: the subgraph row that shows it, else the definition's value. On an
@@ -935,6 +954,7 @@ export function deriveBoundarySchema(
     const meaningOf = (flat: string, row: () => unknown): OuterName | undefined => {
       const shown = flat === path ? shownAs : exposedPathOf(binds.node, flat)
       if (shown !== undefined) return { row: shown }
+      if (flat.includes('.')) return unexposedInputsOf(node).get(flat)
       const value = Object.hasOwn(node.values, flat) ? node.values[flat] : row()
       return value === undefined ? undefined : { value, ...(isInternallyConnected(binds, flat) ? { linked: true as const } : {}) }
     }
