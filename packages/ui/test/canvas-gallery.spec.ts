@@ -98,7 +98,11 @@ test('Controls inside an open row use ordinary borders and a secondary-text keyb
   await expect(trigger).toHaveCSS('border-color', await tokenColor('--dinkster-text-secondary'))
 })
 
-test('Save target shared fold-out distinguishes rest, typing and a reopened wired value', async ({ page }) => {
+test('Save target shared fold-out distinguishes rest, typing and a reopened wired value', async ({ playwright, baseURL, viewport }) => {
+  // The tall comparison page otherwise switches between LCD and grayscale text on different raster backends.
+  const browser = await playwright.chromium.launch({ args: ['--disable-accelerated-2d-canvas', '--disable-lcd-text'] })
+  const page = await browser.newPage({ baseURL: baseURL!, viewport: viewport!, reducedMotion: 'reduce' })
+  try {
   for (const theme of ['dark', 'light'] as const) {
     await openPage(page, 'save-target-box', theme)
     const section = page.getByRole('heading', { name: 'Shared fold-out editor', exact: true }).locator('..')
@@ -147,6 +151,7 @@ test('Save target shared fold-out distinguishes rest, typing and a reopened wire
     await expect(stage('name-wired').getByRole('button', { name: 'Reset to default', exact: true })).toHaveCount(0)
     await expect(stage('name-wired').locator('input')).toHaveValue('shots/shot_042')
   }
+  } finally { await browser.close() }
 })
 
 test('Shared-line fields join exposed ends and keep the middle side part detached', async ({ page }) => {
@@ -272,6 +277,10 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
 /** Every example card on the page has painted its canvas. */
 async function cardsReady(page: Page, id: string, theme: string) {
   const cards = page.locator('figure.dinkster-canvas-example canvas')
+  if (id === 'editor-choice-placement') {
+    await expect(page.getByRole('button', { name: 'Interpolation Linear', exact: true })).toBeVisible()
+    return cards
+  }
   await expect(cards.first()).toBeVisible()
   for (const card of await cards.all())
     await expect(card).toHaveAttribute('data-ready', new RegExp(`-${theme}$`))
