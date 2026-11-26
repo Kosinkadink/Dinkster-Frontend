@@ -94,6 +94,7 @@ function Menu(props: {
   const strings = useProductStrings()
   const [open, setOpen] = createSignal(false)
   const [query, setQuery] = createSignal('')
+  const [activeItem, setActiveItem] = createSignal<HTMLButtonElement>()
   const entries = createMemo(() => {
     const search = props.filter ? query().trim().toLocaleLowerCase() : ''
     return search
@@ -118,6 +119,22 @@ function Menu(props: {
       '[role^="menuitem"]:not(:disabled)',
     ),
   ]
+  createEffect(() => {
+    entries()
+    if (open() && props.filter) queueMicrotask(() => {
+      if (!open()) return
+      const item = enabledItems()[0]
+      setActiveItem(item)
+      if (item) revealItem(item)
+    })
+  })
+  const revealItem = (item: HTMLButtonElement) => {
+    const bounds = item.getBoundingClientRect()
+    const top = filterInput?.parentElement?.getBoundingClientRect().bottom ?? menu.getBoundingClientRect().top
+    const bottom = menu.getBoundingClientRect().top + menu.clientHeight
+    if (bounds.top < top) menu.scrollTop += bounds.top - top
+    else if (bounds.bottom > bottom) menu.scrollTop += bounds.bottom - bottom
+  }
   const show = (last = false) => {
     setQuery('')
     setOpen(true)
@@ -250,7 +267,7 @@ function Menu(props: {
       <Show when={open()}>
         <div
           ref={menu}
-          id={id}
+          id={props.filter ? `${id}-surface` : id}
           class="dinkster-menu dinkster-menu-popover"
           data-account={props.account ? '' : undefined}
           data-project={props.project ? '' : undefined}
@@ -258,6 +275,14 @@ function Menu(props: {
           tabindex="-1"
           aria-label={props.menuName}
           aria-describedby={props.identity ? `${id}-identity` : undefined}
+          onPointerMove={(event) => {
+            if (!props.filter) return
+            const item = (event.target as Element).closest<HTMLButtonElement>('.dinkster-menu-item:not(:disabled)')
+            if (item) setActiveItem(item)
+          }}
+          onFocusIn={(event) => {
+            if (props.filter && event.target.matches('.dinkster-menu-item:not(:disabled)')) setActiveItem(event.target as HTMLButtonElement)
+          }}
           onKeyDown={(event) => {
             if (event.isComposing) return
             if (event.key === 'Escape') {
@@ -270,7 +295,7 @@ function Menu(props: {
               event.preventDefault()
               const items = enabledItems()
               const current = items.indexOf(
-                document.activeElement as HTMLButtonElement,
+                event.target === filterInput ? activeItem()! : document.activeElement as HTMLButtonElement,
               )
               const last = items.length - 1
               const next =
@@ -285,7 +310,11 @@ function Menu(props: {
                       : current <= 0
                         ? last
                         : current - 1
-              items[next]?.focus()
+              const item = items[next]
+              if (event.target === filterInput) {
+                setActiveItem(item)
+                if (item) revealItem(item)
+              } else item?.focus()
             }
           }}
         >
@@ -295,13 +324,15 @@ function Menu(props: {
                 <ProductTextInput
                   ref={filterInput}
                   aria-label={filter().label}
+                  aria-controls={id}
+                  aria-activedescendant={activeItem()?.id}
                   placeholder={filter().placeholder}
                   value={query()}
                   onInput={(event) => setQuery(event.currentTarget.value)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' && !event.isComposing) {
                       event.preventDefault()
-                      enabledItems()[0]?.click()
+                      activeItem()?.click()
                     }
                   }}
                 />
@@ -324,7 +355,7 @@ function Menu(props: {
           </Show>
           {/* Index keeps each item's button when the host passes new item objects, so an open
               menu whose items update (a count arriving) keeps focus and stays open. */}
-          <div role={props.filter ? 'menu' : undefined} aria-label={props.filter ? props.menuName : undefined}>
+          <div id={props.filter ? id : undefined} role={props.filter ? 'menu' : undefined} aria-label={props.filter ? props.menuName : undefined}>
           <Index each={entries()}>
             {(entry) => (
               <Switch>
@@ -344,6 +375,7 @@ function Menu(props: {
                     // A function, so the row and the plain item each get their own element.
                     const button = () => (
                       <button
+                        id={`${descriptionId}-item`}
                         type="button"
                         role={
                           item().checked === undefined
@@ -360,6 +392,7 @@ function Menu(props: {
                             : item().description ? item().label : undefined
                         })()}
                         class="dinkster-menu-item"
+                        data-active={props.filter && activeItem()?.id === `${descriptionId}-item` ? '' : undefined}
                         data-description={item().description ? '' : undefined}
                         data-role={item().intent ?? 'neutral'}
                         disabled={item().disabled}
@@ -382,7 +415,7 @@ function Menu(props: {
                           {(description) => (
                             <span class="dinkster-menu-item-copy">
                               <span class="dinkster-menu-item-label">{item().label}</span>
-                              <span id={descriptionId} class="dinkster-menu-item-description">{description()}</span>
+                              <span id={descriptionId} class="dinkster-menu-item-description" aria-hidden="true">{description()}</span>
                             </span>
                           )}
                         </Show>
@@ -397,10 +430,12 @@ function Menu(props: {
                           <div class="dinkster-menu-row" role="none">
                             {button()}
                             <button
+                              id={`${descriptionId}-action`}
                               type="button"
                               role="menuitem"
                               tabindex="-1"
                               class="dinkster-menu-item dinkster-menu-row-action"
+                              data-active={props.filter && activeItem()?.id === `${descriptionId}-action` ? '' : undefined}
                               aria-label={`${action().label}: ${item().label}`}
                               title={action().label}
                               onClick={() => {
