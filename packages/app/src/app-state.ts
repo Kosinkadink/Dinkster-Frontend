@@ -707,10 +707,12 @@ const decodeWorkspaceExecutionEvent = (value: unknown): NormalizedEvent | undefi
         (value['origin'] !== undefined && value['origin'] !== 'stdout' && value['origin'] !== 'stderr' &&
           value['origin'] !== 'logging' && value['origin'] !== 'capture') ||
         (value['logger'] !== undefined && typeof value['logger'] !== 'string') ||
+        (value['code'] !== undefined && !workspaceString(value['code'])) ||
         (value['pythonLevel'] !== undefined && typeof value['pythonLevel'] !== 'string')) return undefined
       return {
         kind: 'log', execution, timestamp,
         level: value['level'], message: value['message'], seq: value['seq'],
+        ...(value['code'] === undefined ? {} : { code: value['code'] as string }),
         ...(value['runtimeNodeId'] === undefined ? {} : { runtimeNodeId: value['runtimeNodeId'] as string }),
         ...(value['emittedAt'] === undefined ? {} : { emittedAt: value['emittedAt'] as number }),
         ...(value['origin'] === undefined ? {} : { origin: value['origin'] as 'stdout' | 'stderr' | 'logging' | 'capture' }),

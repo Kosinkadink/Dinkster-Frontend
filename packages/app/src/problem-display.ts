@@ -1,8 +1,10 @@
 import {
   documentResolver,
+  diag,
   diagnosticBlocksExecution,
   inputsOf,
   outputsOf,
+  parseOccurrenceKey,
   subgraphDefIdOf,
   type Diagnostic,
   type DiagnosticOrigin,
@@ -13,6 +15,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { outputRowKey, type ProblemKind, type RowProblemMap } from '@dinkster/canvas'
+import type { ExecutionState } from '@dinkster/client'
 
 export interface ProblemSchemaRegistry {
   readonly resolve: (type: string) => NodeSchema | undefined
@@ -38,6 +41,18 @@ export type NodeProblemMap = Readonly<Record<string, readonly NodeProblemLine[]>
 export interface ProblemProjection {
   readonly nodes: NodeProblemMap
   readonly rows: RowProblemMap
+}
+
+/** Run problems share occurrence attribution without making a warning a failed run. */
+export function executionProblemDiagnostics(execution: ExecutionState): readonly Diagnostic[] {
+  return [...execution.errors, ...(execution.warnings ?? []).flatMap((entry) => {
+    if (entry.runtimeNodeId === undefined || entry.code === undefined) return []
+    const source = execution.artifact?.provenance.toSource[entry.runtimeNodeId]
+    return [diag('warning', 'runtime', `runtime.${entry.code}`, entry.message, {
+      anchor: { execution: execution.ref, ...(source === undefined ? {} : { occurrence: parseOccurrenceKey(source) }) },
+      data: { runtimeId: entry.runtimeNodeId },
+    })]
+  })]
 }
 
 /** Preserve every active diagnostic source before graph projection. */
