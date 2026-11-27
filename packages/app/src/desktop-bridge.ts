@@ -50,7 +50,30 @@ export interface DesktopFileImportProgress {
   readonly total: number | null
 }
 
+export interface WslStatus {
+  readonly available: boolean
+  readonly ready: boolean
+  readonly distribution: string
+  readonly detail: string
+}
+
+export interface WslJob {
+  readonly id: string
+  readonly operation: 'prepare' | 'copy-models'
+  readonly state: 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed'
+  readonly progress: { readonly stage: string; readonly completed: number; readonly total: number | null }
+  readonly result?: WslStatus | string
+  readonly error?: string
+}
+
 export interface DinksterDesktopBridge {
+  wslStatus?(): Promise<WslStatus>
+  prepareWsl?(): Promise<WslJob>
+  wslProjectRoot?(id: string): Promise<string>
+  /** Undefined means the native folder picker was closed without choosing. */
+  copyWslModels?(): Promise<WslJob | undefined>
+  wslJob?(id: string): Promise<WslJob>
+  cancelWslJob?(id: string): Promise<WslJob>
   saveFile?(bytes: Uint8Array, suggestedName: string): Promise<DesktopSaveResult>
   locale(): Promise<string>
   info(): Promise<unknown>
