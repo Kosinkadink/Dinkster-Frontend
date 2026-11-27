@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { applyStoredProblemFixes, buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, storedNumberFixes, storedRuleFixes, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
+import { applyStoredSaveTargetFixes, storedSaveTargetFixes, applyStoredProblemFixes, buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, storedNumberFixes, storedRuleFixes, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
 import { decodeSteps } from '../src/actions/steps.js'
 import type { CommandDefinition } from '../src/commands/contract.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
@@ -116,6 +116,63 @@ function later<T>(): { promise: Promise<T>; settle: (value: T) => void } {
 }
 
 describe('one press is one undo step, or nothing', () => {
+  it('changes missing named save targets to Project default atomically, preserving names and refusing stale mounts', async () => {
+    const type = 'test.save-target-fixes'
+    const target = (id: string) => ({ kind: 'input' as const, id, optional: true,
+      type: { kind: 'concrete' as const, name: 'dinkster.save_target' },
+      widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'absent', prefix: 'default-name' } } })
+    SCHEMAS.set(type, { type, displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true, body: [
+      ...['first', 'second', 'available', 'project', 'empty', 'wired', 'unstored'].map(target),
+      { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'dinkster.save_target' } },
+    ] })
+    const session = sessionOf(documentOf({ n1: { type, values: {
+      first: { mount: 'absent', prefix: 'renders/portrait' }, second: { mount: 'other', prefix: 'movie' },
+      available: { mount: 'ready', prefix: 'keep' }, project: { prefix: 'project-name' }, empty: null,
+      wired: { mount: 'absent', prefix: 'dormant' },
+    } } }, link('feed', ['n1', 'out'], ['n1', 'wired'])))
+    const host = hostOf()
+    let mounts = new Set(['ready'])
+    const fixes = storedSaveTargetFixes(session.doc, at('unused'), host, mounts)
+    const original = session.doc
+    expect(await applyStoredSaveTargetFixes(session, fixes, host, () => mounts)).toEqual({ kind: 'done', skipped: [], notes: [] })
+    expect(valuesOf(session)).toEqual({
+      first: { prefix: 'renders/portrait' }, second: { prefix: 'movie' },
+      available: { mount: 'ready', prefix: 'keep' }, project: { prefix: 'project-name' }, empty: null,
+      wired: { mount: 'absent', prefix: 'dormant' },
+    })
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(original)
+    expect(session.canUndo).toBe(false)
+    mounts = new Set(['ready', 'absent'])
+    expect(await applyStoredSaveTargetFixes(session, fixes, host, () => mounts)).toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(original)
+    mounts = new Set(['ready'])
+    expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'second', value: { mount: 'other', prefix: 'personal' } } }).ok).toBe(true)
+    const personal = session.doc
+    expect(await applyStoredSaveTargetFixes(session, fixes, host, () => mounts)).toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(personal)
+
+    const outer = documentOf({
+      left: { type: '#g1', values: { shown: { mount: 'absent', prefix: 'left' } } },
+      right: { type: '#g1', values: { shown: { mount: 'ready', prefix: 'right' } } },
+    })
+    const nested: WorkflowDocument = { ...outer, graphs: { ...outer.graphs, g1: {
+      ...documentOf({ n1: { type, values: { first: { mount: 'ready', prefix: 'inner' } } } }).graphs.g0!, id: asGraphDefId('g1'),
+      boundary: { body: [{ kind: 'input', id: asPortId('shown'),
+        binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('first') }, promoted: true }] },
+    } } }
+    const nestedHost = hostOf({ schemaResolverFor: (doc) => documentResolver(doc, resolve) })
+    const nestedSession = createLocalSession(nested, nestedHost.commands, { schemaResolverFor: nestedHost.schemaResolverFor! })
+    const nestedFixes = storedSaveTargetFixes(nestedSession.doc, { graphId: 'g1', nodeId: 'n1', instancePath: ['left'] }, nestedHost, mounts)
+    expect(await applyStoredSaveTargetFixes(nestedSession, nestedFixes, nestedHost, () => mounts)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(nestedSession, 'left')).toEqual({ shown: { prefix: 'left' } })
+    expect(valuesOf(nestedSession, 'right')).toEqual({ shown: { mount: 'ready', prefix: 'right' } })
+    expect(nestedSession.doc.graphs.g1!.nodes.n1!.values).toEqual({ first: { mount: 'ready', prefix: 'inner' } })
+    expect(nestedSession.undo()).toBe(true)
+    expect(nestedSession.doc).toEqual(nested)
+    expect(nestedSession.canUndo).toBe(false)
+  })
+
   it('stores mixed numeric and declared fixes atomically, refusing stale offers and conflicts', async () => {
     const type = 'test.declared-fixes'
     const schema = parseDinksterSchema(type, {

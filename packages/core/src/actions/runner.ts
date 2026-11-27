@@ -64,6 +64,7 @@ import { correctNumericValue, integerWidgetValue, isIntegerWidgetValue, numericS
 import { solveGraphTypes } from '../schema/solve.js'
 import { typesCompatible } from '../schema/type-relations.js'
 import { effectiveWidgetDefault, readWhenUnset } from '../schema/widget-defaults.js'
+import { isProjectDefaultTarget, isSaveTarget, type SaveTarget } from '../schema/save-target.js'
 import { decodeSteps, isOutsideStep, type Argument, type Step, type StepValue } from './steps.js'
 
 // ---------------------------------------------------------------------------
@@ -261,9 +262,10 @@ class AutomaticNeeded extends Error {
 }
 
 /** A literal from the wire: a whole number is an int, `{"float": n}` a decimal. */
-function literalOf(raw: unknown): Value {
+function literalOf(raw: unknown): unknown {
   if (typeof raw === 'number') return Number.isInteger(raw) ? BigInt(raw) : raw
-  if (Array.isArray(raw)) return raw.map((item) => literalOf(item) as Exclude<Value, readonly unknown[]>)
+  if (Array.isArray(raw)) return raw.map(literalOf)
+  if (isSaveTarget(raw) || isProjectDefaultTarget(raw)) return { ...raw }
   if (typeof raw === 'object' && raw !== null && typeof (raw as Record<string, unknown>)['float'] === 'number') {
     return (raw as Record<string, number>)['float']!
   }
@@ -340,6 +342,9 @@ export function fieldValue(field: ElaboratedInput, value: unknown, name: string)
       }
       return choice
     }
+    case 'SAVE_TARGET':
+      if (value === null || isSaveTarget(value) || isProjectDefaultTarget(value)) return value
+      return refuse(`${name} takes a save target; the button gave ${display(value)}.`)
     case 'MULTI_COMBO': {
       if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) return refuse(`${name} takes a list of options.`)
       const fixed = widget.remote === undefined ? normalizedComboOptions(widget) : []
@@ -566,6 +571,60 @@ export function storedNumberFixes(doc: WorkflowDocument, target: StepPlace, host
         part: { ...target, prefix, steps: [{ step: 'set', field: name, value: { kind: 'literal', value } }] } }]
     }
     return []
+  })
+}
+
+/** A stored save target whose named mount is not available on this machine. */
+export interface StoredSaveTargetFix {
+  readonly part: StepPart
+  readonly valueKey: string
+  readonly owner: ValueOwner
+  readonly before: SaveTarget
+  readonly stamp: string
+}
+
+/** Only stored, unwired targets are offered; Project default and derived values stay as they are. */
+export function storedSaveTargetFixes(
+  doc: WorkflowDocument, target: StepPlace, host: ActionHost, readyMounts: ReadonlySet<string>,
+): readonly StoredSaveTargetFix[] {
+  const view = viewOf(doc, target, host)
+  if (view === undefined) return []
+  return elabInputsOf(view.elaborated).flatMap((field): StoredSaveTargetFix[] => {
+    const widget = field.spec.widget
+    const path = valueKeyOf(field)
+    const before = view.node.values[path]
+    if (widget?.widgetType !== 'SAVE_TARGET' || field.derivedValue !== undefined || field.kept !== undefined ||
+      view.connectivity.isInputConnected(path) || !Object.hasOwn(view.node.values, path) ||
+      !isSaveTarget(before) || readyMounts.has(before.mount)) return []
+    for (const [prefix, context] of view.contexts) {
+      const name = [...context.paths].find(([, key]) => key === path)?.[0]
+      if (name === undefined) continue
+      const owner = view.valueOwners.get(path) ?? { graphId: target.graphId, nodeId: target.nodeId, valueKey: path }
+      if (JSON.stringify(doc.graphs[owner.graphId]?.nodes[owner.nodeId]?.values[owner.valueKey]) !== JSON.stringify(before)) return []
+      return [{ valueKey: path, owner, before,
+        stamp: JSON.stringify([view.node.type, widget, owner, before]),
+        part: { ...target, prefix, steps: [{ step: 'set', field: name, value: { kind: 'literal', value: { prefix: before.prefix } } }] } }]
+    }
+    return []
+  })
+}
+
+/** Recheck mount availability and every offered value before one atomic, undoable step run. */
+export function applyStoredSaveTargetFixes(
+  session: DocumentSession,
+  fixes: readonly StoredSaveTargetFix[],
+  host: ActionHost,
+  readyMounts: () => ReadonlySet<string> | undefined,
+  options: PressOptions = {},
+): Promise<PressOutcome> {
+  return runSteps(session, fixes.map((fix) => fix.part), host, {
+    ...options, strict: true, noWait: true,
+    unchanged: (doc) => {
+      if (options.unchanged?.(doc) === false) return false
+      const mounts = readyMounts()
+      return mounts !== undefined && fixes.every((fix) =>
+        storedSaveTargetFixes(doc, fix.part, host, mounts).some((now) => now.valueKey === fix.valueKey && now.stamp === fix.stamp))
+    },
   })
 }
 
@@ -1986,7 +2045,7 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
     checkRead(scope, name)
     return scope.values.values?.get(name)
   }
-  const valueOf = (value: StepValue, scope: FormulaContext): Value | typeof UNKNOWN => {
+  const valueOf = (value: StepValue, scope: FormulaContext): unknown => {
     if (value.kind === 'literal') return literalOf(value.value)
     if (value.kind === 'lookup') return UNKNOWN
     const outcome = evaluateIn(scope, locals, value.text, (name) => read(scope, name), (name) => checkRead(scope, name))
@@ -2070,7 +2129,7 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
     // Only deterministic values are staged here. No host effect runs during a repaint.
     try {
       const actions: Action[] = []
-      const write = (name: string, value: Value | typeof UNKNOWN, scope = context): void => {
+      const write = (name: string, value: unknown, scope = context): void => {
         const path = scope.paths.get(name)
         const field = path === undefined ? undefined : inputAt(view, path)
         if (path === undefined || field === undefined || view.connectivity.isInputConnected(path)) return
