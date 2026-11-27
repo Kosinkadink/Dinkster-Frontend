@@ -314,6 +314,39 @@ it('hides manual Unpack count actions for known wired counts and restores them w
   }
 })
 
+it('retires only excess estimated outputs without editing the stored count or growing on estimates', () => {
+  const wire = JSON.parse(readFileSync(new URL('../../core/test/fixtures/flow_schemas.json', import.meta.url), 'utf8'))
+  const parsed = parseDinksterSchema('Unpack', wire['dinkster.utilities.unpack']).schema!
+  const unpack: NodeSchema = { ...parsed, body: parsed.body.map(item => item.kind === 'input' && item.id === 'count'
+    ? { ...item, listCountOf: 'list' } : item) }
+  const texts: TypeExpr = { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }
+  const source = schemaOf('Source', [{ kind: 'output', id: 'out', type: texts }])
+  const sink = schemaOf('Sink', [{ ...input('in'), type: { kind: 'concrete', name: 'STRING' } }])
+  const resolve = (type: string) => type === 'Unpack' ? unpack : type === 'Source' ? source : type === 'Sink' ? sink : undefined
+  const doc = docOf({ g0: { nodes: {
+    source: { type: 'Source' }, unpack: { type: 'Unpack', values: { count: 3 } }, sink: { type: 'Sink' },
+  }, links: [[['source', 'out'], ['unpack', 'list']], [['unpack', 'items.2'], ['sink', 'in']]] } })
+  const before = JSON.stringify(doc)
+  const shown = (count: number | undefined) => buildScene({ document: doc, graphId: 'g0', resolve, tokens: defaultTokens, measure, widgetMeasure,
+    listCountEstimateOf: (_path, node, port) => node === 'source' && port === 'out' && count !== undefined
+      ? { kind: 'estimate', count, sources: ['last-run'] } : undefined,
+  })
+  const outputs = (scene: Scene) => scene.nodes.find(node => node.id === 'unpack')!.layout.pins.filter(pin => pin.direction === 'out')
+  expect(outputs(shown(7)).map(pin => pin.portId)).toEqual(['items.0', 'items.1', 'items.2'])
+  const dropped = shown(1)
+  expect(outputs(dropped).map(pin => [pin.portId, pin.inactive === true])).toEqual([['items.0', false], ['items.2', true]])
+  expect(dropped.links.find(link => link.from.kind === 'port' && link.from.node === 'unpack')?.dimmed).toBe(true)
+  expect(dropped.diagnostics).toContainEqual(expect.objectContaining({ severity: 'warning', anchor: { occurrence: { instancePath: [], node: 'unpack' } } }))
+  expect(outputs(shown(0)).map(pin => [pin.portId, pin.inactive === true])).toEqual([['items.2', true]])
+  for (const count of [3, 8, undefined]) {
+    expect(outputs(shown(count)).map(pin => [pin.portId, pin.inactive === true])).toEqual([
+      ['items.0', false], ['items.1', false], ['items.2', false],
+    ])
+    expect(shown(count).diagnostics).not.toContainEqual(expect.objectContaining({ code: 'list.count.retiredOutputs' }))
+  }
+  expect(JSON.stringify(doc)).toBe(before)
+})
+
 it('carries independent counts through nested occurrence wires without using an inner default', () => {
   const texts: TypeExpr = { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }
   const local = schemaOf('Local texts', [{

@@ -814,6 +814,7 @@ export function boundaryPositions(input: BuildSceneInput): ReturnType<BoundaryPo
 
 export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
+  const countDiagnostics: Diagnostic[] = []
   /**
    * A node's interface as drawn. A row hidden by its `visible` shows while it
    * has a problem: a solver problem on its port, a stored value its
@@ -848,9 +849,33 @@ export function buildScene(input: BuildSceneInput): Scene {
       const spec = resolveWidgetRepresentation(widget, representations?.[valueKey]).spec
       if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, stored)) problemRows.add(item.address.port)
     }
-    const shown = problemRows.size > (solverProblems?.size ?? 0)
+    let shown = problemRows.size > (solverProblems?.size ?? 0)
       ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
       : elaborated
+    // Estimates can retire outputs, but only a user edit can add them.
+    const estimatedValues: Record<string, Json> = {}
+    for (const field of elabInputsOf(shown)) {
+      if (field.spec.listCountOf === undefined) continue
+      const prefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
+      const source = contexts.get(prefix)?.paths.get(field.spec.listCountOf)
+      const fact = source === undefined ? undefined : solvedTypes.listCountFactOf(asNodeId(nodeId), 'input', source)
+      const stored = node.values[valueKeyOf(field)]
+      const min = field.spec.widget?.options['min']
+      const max = field.spec.widget?.options['max']
+      if (fact?.kind !== 'estimate' || typeof stored !== 'number' || fact.count >= stored ||
+          typeof min === 'number' && fact.count < min || typeof max === 'number' && fact.count > max) continue
+      estimatedValues[valueKeyOf(field)] = fact.count
+    }
+    const displayNode = Object.keys(estimatedValues).length === 0 ? node : { ...node, values: { ...node.values, ...estimatedValues } }
+    if (displayNode !== node) shown = elaborateInterface(schema, displayNode, connectivity, { problemRows, ...lookups })
+    if (displayNode !== node && elabOutputsOf(shown).some(output => output.kept !== undefined)) {
+      countDiagnostics.push({
+        severity: 'warning', origin: 'compile', code: 'list.count.retiredOutputs',
+        message: 'Some outputs are outside the estimated list count. Their wires give nothing.',
+        refs: [{ graphId: input.graphId, nodeId }],
+        ...(sourcePath === undefined ? {} : { anchor: { occurrence: { instancePath: sourcePath, node: asNodeId(nodeId) } } }),
+      })
+    }
     const fields = elabInputsOf(shown)
     const unknown = new Set<string>()
     for (const [path, group] of constructsOf(schema, node.dynamic)) {
@@ -861,10 +886,10 @@ export function buildScene(input: BuildSceneInput): Scene {
       if (field?.spec.listCountOf === undefined) continue
       const fieldPrefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
       const source = contexts.get(fieldPrefix)?.paths.get(field.spec.listCountOf)
-      if (source !== undefined && solvedTypes.listCountOf(asNodeId(nodeId), 'input', source) === undefined) unknown.add(path)
+      if (source !== undefined && solvedTypes.listCountFactOf(asNodeId(nodeId), 'input', source) === undefined) unknown.add(path)
     }
     const counted = unknown.size === 0 ? shown
-      : elaborateInterface(schema, node, connectivity, { problemRows, ...lookups, unknownCountGroups: unknown })
+      : elaborateInterface(schema, displayNode, connectivity, { problemRows, ...lookups, unknownCountGroups: unknown })
     return hideKnownListCountButtons(counted, contexts, port => solvedTypes.listCountOf(asNodeId(nodeId), 'input', port))
   }
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
@@ -2056,7 +2081,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   const result: Scene = {
     graphId: input.graphId, nodes, links, reroutes, netStubs, groups, boundaryNodes,
     ...(graphView?.groupMembership === undefined ? {} : { groupMembership: graphView.groupMembership }),
-    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...automaticDiagnostics],
+    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...automaticDiagnostics, ...countDiagnostics],
     ...(input.occurrence !== undefined ? { occurrence: { owner: input.occurrence.owner, bodyGraph: def.id } } : {}),
   }
   if (input.layoutGeneration !== undefined && input.occurrence === undefined && input.occurrenceView === undefined && view !== undefined) {

@@ -9,6 +9,7 @@ import {
   type NodeProgress,
   type NodeSchema,
   type OutputSpec,
+  type OccurrenceListCountEstimate,
   type TypeExpr,
 } from '@dinkster/core'
 import {
@@ -18,6 +19,7 @@ import {
   type CompanionMap,
   type DesignTokens,
   type OverlayState,
+  type BadgeMap,
   type RowMarkMap,
   type Scene,
   type TextMeasurer,
@@ -36,6 +38,7 @@ export interface SwitchPrimitiveCard {
   readonly rowMarks?: RowMarkMap
   readonly inactive?: ReadonlySet<string>
   readonly overlay?: OverlayState
+  readonly badges?: BadgeMap
 }
 
 const concrete = (name: string): TypeExpr => ({ kind: 'concrete', name })
@@ -237,7 +240,7 @@ export function sceneOf(
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
   graphs: Record<string, Graph>,
-  show: { readonly graph: string; readonly through?: string },
+  show: { readonly graph: string; readonly through?: string; readonly listCountEstimateOf?: OccurrenceListCountEstimate },
 ): Scene {
   const schemas = new Map<string, NodeSchema>()
   for (const graph of Object.values(graphs))
@@ -333,6 +336,7 @@ export function sceneOf(
     measure,
     widgetMeasure,
     seedControllerEnabled: true,
+    ...(show.listCountEstimateOf === undefined ? {} : { listCountEstimateOf: show.listCountEstimateOf }),
   }
   if (show.graph === 'root')
     return buildScene({

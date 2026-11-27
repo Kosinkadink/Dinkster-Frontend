@@ -8,6 +8,8 @@ import {
 } from '@dinkster/core'
 import {
   pinPosition,
+  problemBadge,
+  PROBLEM_WARNING_BADGE,
   type DesignTokens,
   type TextMeasurer,
   type WidgetMeasure,
@@ -219,7 +221,7 @@ export function smallFlowNodesGallery(
 ): readonly SwitchPrimitiveCard[] {
   const scene = (
     graphs: Record<string, Graph>,
-    show: { graph: string; through?: string } = { graph: 'root' },
+    show: Parameters<typeof sceneOf>[4] = { graph: 'root' },
   ) => sceneOf(tokens, measure, widgetMeasure, graphs, show)
   const node = (
     type: NodeSchema,
@@ -736,6 +738,27 @@ export function smallFlowNodesGallery(
           ],
         },
       }),
+    })
+  }
+
+  const estimatedUnpack = { ...unpack, body: unpack.body.map(row => row.kind === 'input' && row.id === 'count'
+    ? { ...row, listCountOf: 'list' } : row) }
+  for (const count of [3, 1, 0]) {
+    const estimated = scene({ root: {
+      nodes: {
+        list: node(listSource, 0, 0, { width: 160 }),
+        unpack: node(estimatedUnpack, 220, 0, { width: 240, values: { count: 3 } }),
+        has: node(hasValue, 520, 70, { width: 170 }),
+      },
+      links: [['list', 'list', 'unpack', 'list'], ['unpack', 'items.2', 'has', 'value']],
+    } }, { graph: 'root', listCountEstimateOf: (_path, node, port) => node === 'list' && port === 'list'
+      ? { kind: 'estimate', count, sources: ['last-run'] } : undefined })
+    cards.push({
+      caption: count === 3
+        ? 'The last run estimates 3 items. The saved count is 3; all outputs remain live. The estimate is not a workflow fact.'
+        : `The last-run estimate fell to ${count}, while the saved count is still 3. Unwired excess outputs disappear; wired Item 2 stays dimmed and its wire gives nothing. Warning is outside the node. No smaller-count button is offered.`,
+      scene: estimated,
+      ...(estimated.diagnostics.length === 0 ? {} : { badges: { unpack: [problemBadge(PROBLEM_WARNING_BADGE, 1)] } }),
     })
   }
 
