@@ -4865,7 +4865,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       let interactionInvalidated = false
       if (replaced) {
         scene = built
-        interactionInvalidated = renderer.setScene(scene)
+        interactionInvalidated = renderer.setScene(scene) || key !== sceneKey
         setSceneVersion((version) => version + 1)
       }
       if (interactionInvalidated) {

@@ -376,6 +376,7 @@ it('keeps a held wire drag alive as recorded list counts arrive and disappear', 
     dispatched.push(invocation)
     return { ok: true }
   } })
+  controller.setSelectionOwner('tab-a:clean')
   const source = scene.nodes.find(node => node.id === 'lat')!
   const output = source.layout.pins.find(pin => pin.direction === 'out')!
   const sink = scene.nodes.find(node => node.id === 'c1')!
@@ -403,6 +404,18 @@ it('keeps a held wire drag alive as recorded list counts arrive and disappear', 
     expect(renderer.getOverlay()).toEqual(heldOverlay)
     fire('pointerup', sink.x, sink.y + input.y)
     expect(dispatched).toContainEqual(expect.objectContaining({ command: 'link.connect' }))
+    dispatched.length = 0
+    controller.setSelection(['lat'])
+    fire('pointerdown', source.x + source.layout.width, source.y + output.y)
+    fire('pointermove', sink.x, sink.y + input.y)
+    install({ ...scene, links: scene.links.map(link => ({ ...link,
+      listCountFact: { kind: 'estimate', count: 2, sources: ['last-run'] },
+    })) })
+    controller.setSelectionOwner('tab-b:clean')
+    expect(renderer.getOverlay().ghostLink).toBeUndefined()
+    expect(controller.getSelection()).toEqual(new Set())
+    fire('pointerup', sink.x, sink.y + input.y)
+    expect(dispatched).toEqual([])
   } finally {
     controller.dispose()
     renderer.dispose()
