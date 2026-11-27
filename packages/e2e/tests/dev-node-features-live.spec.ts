@@ -8,6 +8,7 @@ test('a late numeric lookup makes one shared correction and tells both viewers',
   const peerContext = await browser.newContext({ baseURL: new URL(page.url()).origin })
   const peer = await peerContext.newPage()
   let sharedTab: string | undefined
+  let releaseLookup: (() => void) | undefined
   try {
     await peer.goto('/')
     await waitForWorkspaceReady(peer)
@@ -51,6 +52,22 @@ test('a late numeric lookup makes one shared correction and tells both viewers',
       })).toBe('ready')
       expect(await viewer.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.picker!.values.strength)).toBe(4.25)
     }
+    const lookupReleased = new Promise<void>((resolve) => { releaseLookup = resolve })
+    let lookupHeld = false
+    await peer.route('**/api/lookups', async (route) => {
+      const request = route.request()
+      const body = request.method() === 'POST' ? request.postDataJSON() as { function?: string; args?: unknown } : undefined
+      if (body?.function !== 'dinkster_nodes_dev.lookups.strength_limit' || JSON.stringify(body.args) !== '["sdxl"]') {
+        await route.continue()
+        return
+      }
+      // Hold the real answer until the other viewer's correction arrives first.
+      const response = await route.fetch()
+      const bytes = await response.body()
+      lookupHeld = true
+      await lookupReleased
+      await route.fulfill({ response, body: bytes })
+    })
     const beforeRevision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
     expect(await page.evaluate(async () => {
       const app = window.__dinksterTest!.app as NonNullable<typeof window.__dinksterTest>['app'] & {
@@ -60,6 +77,14 @@ test('a late numeric lookup makes one shared correction and tells both viewers',
         command: 'node.setValue', params: { graphId: 'g0', nodeId: 'picker', inputId: 'category_filter', value: 'sdxl' },
       })).ok
     })).toBe(true)
+    await expect.poll(() => lookupHeld).toBe(true)
+    for (const viewer of [page, peer]) {
+      await expect.poll(() => viewer.evaluate(() => {
+        const tab = window.__dinksterTest!.app.activeTab()!
+        return { revision: tab.store.revision, strength: tab.store.doc.graphs.g0!.nodes.picker!.values.strength }
+      })).toEqual({ revision: beforeRevision + 2, strength: 2 })
+    }
+    releaseLookup!()
     for (const viewer of [page, peer]) {
       await expect.poll(() => viewer.evaluate(() => {
         const app = window.__dinksterTest!.app
@@ -74,6 +99,7 @@ test('a late numeric lookup makes one shared correction and tells both viewers',
       await expect(viewer.getByTestId('fixes-notice')).toBeVisible()
     }
   } finally {
+    releaseLookup?.()
     if (sharedTab !== undefined) {
       const error = await page.evaluate((tab) =>
         (window.__dinksterTest!.app as unknown as { endCollabSession(id: string): Promise<string | undefined> }).endCollabSession(tab), sharedTab)

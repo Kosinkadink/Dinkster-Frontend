@@ -123,8 +123,8 @@ test('two viewers see missing save targets fixed and restored together in one un
       const tab = app.activeTab()!
       return { error, tab: tab.id, session: app.collabFor(tab.id)?.descriptor.sessionId }
     })
-    sharedTab = shared.tab
     expect(shared.error).toBeUndefined()
+    sharedTab = shared.tab
     expect(shared.session).toBeTruthy()
     expect(await peer.evaluate((session) =>
       (window.__dinksterTest!.app as unknown as { joinCollabSession(id: string): Promise<string | undefined> }).joinCollabSession(session), shared.session!)).toBeUndefined()
@@ -134,7 +134,32 @@ test('two viewers see missing save targets fixed and restored together in one un
     await problem.locator('summary').click()
     const action = problem.getByRole('button', { name: 'Use project default for all', exact: true })
     await expect(action).toBeVisible()
-    const beforeRevision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
+    const offeredRevision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
+    expect(await peer.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      return app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'first', inputId: 'target', value: { mount: 'absent-archive', prefix: 'portraits/peer' },
+      } })
+    })).toMatchObject({ ok: true })
+    for (const viewer of [page, peer]) {
+      await expect.poll(() => viewer.evaluate(() => {
+        const store = window.__dinksterTest!.app.activeTab()!.store
+        return { revision: store.revision, target: store.doc.graphs.g0!.nodes.first!.values.target }
+      })).toEqual({ revision: offeredRevision + 1, target: { mount: 'absent-archive', prefix: 'portraits/peer' } })
+    }
+    await expect(action).toHaveCount(0)
+    const recheck = problem.getByRole('button', { name: 'Check again', exact: true })
+    await expect(recheck).toBeVisible()
+    await expect(problem).toContainText('Could not apply this fix. The workflow changed.')
+    expect(await page.evaluate(() => {
+      const store = window.__dinksterTest!.app.activeTab()!.store
+      return { revision: store.revision, targets: ['first', 'second'].map((node) => store.doc.graphs.g0!.nodes[node]!.values.target) }
+    })).toEqual({ revision: offeredRevision + 1, targets: [
+      { mount: 'absent-archive', prefix: 'portraits/peer' }, { mount: 'absent-clips', prefix: 'clips/second' },
+    ] })
+    await recheck.click()
+    await expect(action).toBeVisible()
+    const beforeRevision = offeredRevision + 1
     await action.click()
     for (const viewer of [page, peer]) {
       await expect.poll(() => viewer.evaluate(() => {
@@ -143,7 +168,7 @@ test('two viewers see missing save targets fixed and restored together in one un
           revision: store.revision,
           targets: ['first', 'second'].map((node) => store.doc.graphs.g0!.nodes[node]!.values.target),
         }
-      })).toEqual({ revision: beforeRevision + 1, targets: [{ prefix: 'portraits/first' }, { prefix: 'clips/second' }] })
+      })).toEqual({ revision: beforeRevision + 1, targets: [{ prefix: 'portraits/peer' }, { prefix: 'clips/second' }] })
     }
     await expect(action).toHaveCount(0)
     expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
@@ -155,7 +180,7 @@ test('two viewers see missing save targets fixed and restored together in one un
           targets: ['first', 'second'].map((node) => store.doc.graphs.g0!.nodes[node]!.values.target),
         }
       })).toEqual({ revision: beforeRevision + 2, targets: [
-        { mount: 'absent-archive', prefix: 'portraits/first' },
+        { mount: 'absent-archive', prefix: 'portraits/peer' },
         { mount: 'absent-clips', prefix: 'clips/second' },
       ] })
     }

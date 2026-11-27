@@ -750,6 +750,21 @@ describe('AppState multi-window workspace', () => {
     expect(tab.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(12)
     expect(app.adjustmentNotices.get().get(tab.id)?.adjustments.map((item) => item.details)).toEqual([['amount: 14 to 12']])
     expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+    const revision = tab.store.revision
+    for (const invocation of [
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 12 } },
+      { command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { amount: 12 } } },
+      { command: 'batch', params: { invocations: [
+        { command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { amount: 12 } } },
+      ] } },
+    ]) {
+      expect((await app.dispatchTo(tab, invocation)).ok).toBe(true)
+      await (tab.store as unknown as { settle(): Promise<void> }).settle()
+      await drainTasks()
+      expect(tab.store.revision).toBe(revision)
+      expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+      expect(app.adjustmentNotices.get().get(tab.id)?.adjustments.map((item) => item.details)).toEqual([['amount: 14 to 12']])
+    }
     expect((await app.dispatchEditTo(tab, { command: 'node.setValue', params: {
       graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 8,
     } })).ok).toBe(true)
