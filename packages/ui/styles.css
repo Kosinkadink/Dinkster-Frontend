@@ -744,12 +744,13 @@ button.dinkster-row-main { cursor: pointer; }
 [data-density='site'] .dinkster-menu-trigger[data-account]:is(:hover, [aria-expanded='true']) { background: var(--dinkster-surface-raised); }
 [data-density='site'] .dinkster-menu-trigger[data-account] > :is(.dinkster-menu-label, .dinkster-icon), [data-density='site'] .dinkster-menu[data-account] .dinkster-icon { display: none; }
 [data-density='site'] .dinkster-avatar { width: var(--dinkster-site-avatar-size); height: var(--dinkster-site-avatar-size); background: var(--dinkster-interaction-hover); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
-.dinkster-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); text-align: left; font: inherit; cursor: pointer; user-select: none; }
+.dinkster-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); padding: var(--dinkster-space-4) var(--dinkster-space-8); text-align: left; font: inherit; cursor: pointer; user-select: none; }
 .dinkster-select-trigger > .dinkster-canvas-list-label { min-width: 0; }
 .dinkster-select-trigger > .dinkster-icon { flex: none; color: var(--dinkster-text-secondary); }
 .dinkster-select-trigger:disabled { color: var(--dinkster-text-disabled); cursor: default; }
 .floating-surface.dinkster-select-list { position: fixed; z-index: 1002; overflow-y: auto; padding: var(--dinkster-space-4) 0; background: var(--dinkster-surface-panel); border-radius: var(--dinkster-radius-small); }
-.dinkster-select-list > .dinkster-canvas-list-option { padding-inline: var(--dinkster-space-12); }
+.dinkster-select-list > .dinkster-canvas-list-option { padding-inline: var(--dinkster-space-8); }
+[data-density='site'] .dinkster-select-trigger, .dinkster-select-list[data-density='site'] > .dinkster-canvas-list-option { padding-inline: var(--dinkster-space-12); }
 [data-density='site'] .dinkster-disclosure > summary { display: flex; align-items: center; gap: var(--dinkster-space-8); list-style: none; }
 [data-density='site'] .dinkster-disclosure > summary::-webkit-details-marker { display: none; }
 [data-density='site'] .dinkster-disclosure > summary > .dinkster-icon { display: block; }
