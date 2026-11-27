@@ -27,15 +27,17 @@ describe('App View occurrence fields', () => {
       expect(warning()).toBeNull()
       const store = app.activeTab()!.store
       expect(store.dispatch({ command: 'dynamic.removeMember', params: { graphId: 'root', nodeId: 'picker', construct: 'layers', member: 'blue' } }).ok).toBe(true)
-      await vi.waitFor(() => expect(warning()?.textContent).toContain("'blue' is not in the list"))
+      await vi.waitFor(() => expect(warning()?.textContent).toBe('"blue" is not one of the choices.'))
       expect(store.doc.graphs.root!.nodes.picker!.values.pick).toBe('blue')
       const combo = root.querySelector('[data-testid="app-view-combo"]')!
-      expect(document.getElementById(combo.getAttribute('aria-describedby')!)?.textContent).toContain("'blue'")
+      expect(document.getElementById(combo.getAttribute('aria-describedby')!)?.textContent).toBe('"blue" is not one of the choices.')
+      expect(combo.getAttribute('data-tone')).toBe('warning')
       expect(store.undo()).toBe(true)
       await vi.waitFor(() => expect(warning()).toBeNull())
+      expect(root.querySelector('[data-testid="app-view-combo"]')?.getAttribute('data-tone')).toBeNull()
       expect(store.doc.graphs.root!.nodes.picker!.values.pick).toBe('blue')
       expect(store.redo()).toBe(true)
-      await vi.waitFor(() => expect(warning()?.textContent).toContain("'blue' is not in the list"))
+      await vi.waitFor(() => expect(warning()?.textContent).toBe('"blue" is not one of the choices.'))
       expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'picker', inputId: 'pick', value: 'red' } }).ok).toBe(true)
       await vi.waitFor(() => expect(warning()).toBeNull())
     } finally {

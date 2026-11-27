@@ -70,7 +70,7 @@ import { CancelExecutionButton } from './CancelExecutionButton.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect, type ProductSelectOption } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
-import { ProductNotice } from './ProductForm.js'
+import { ProductFieldMessage, ProductNotice } from './ProductForm.js'
 import { AppWidgetPreview } from './AppWidgetPreview.js'
 import { AppPreviewSurface } from './AppPreviewSurface.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
@@ -1248,6 +1248,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       dataAttributes={{
         'data-remote': controlProps.row.spec?.remote ? (remoteFor(controlProps.row)?.state ?? 'idle') : 'static',
         'data-param-select': rowKey(controlProps.row.entry),
+        'data-tone': controlProps.problemId === undefined ? undefined : 'warning',
       }}
       onFocus={() => loadRemoteOptions(controlProps.row)}
       onPointerDown={() => loadRemoteOptions(controlProps.row)}
@@ -2003,7 +2004,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               <InlineControl />
             </Show>
             <Show when={optionProblem()}>
-              {(problem) => <div id={optionProblemId}><ProductNotice tone="warning" testId="app-view-option-problem">{problem().message}</ProductNotice></div>}
+              {(problem) => <ProductFieldMessage id={optionProblemId} tone="warning" testId="app-view-option-problem">{problem().message}</ProductFieldMessage>}
             </Show>
             <Show when={!comboControl() && errors().get(rowKey(row().entry))}>
               {(message) => <ProductNotice tone="error" testId="app-view-error">{message()}</ProductNotice>}

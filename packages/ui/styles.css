@@ -1405,6 +1405,8 @@ button.dinkster-row-main { cursor: pointer; }
 .product-select[aria-expanded='true'] { border-color: var(--dinkster-border-hover); background: var(--dinkster-interaction-hover); }
 .product-select[aria-expanded='true'] { border-color: var(--dinkster-border-strong); }
 .product-select:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.product-select[data-tone='warning'],
+.product-select[data-tone='warning']:hover { border-color: var(--dinkster-warning-border); }
 .product-select:disabled { color: var(--dinkster-text-disabled); background: var(--dinkster-surface-raised); cursor: default; }
 .product-select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .product-select-caret {

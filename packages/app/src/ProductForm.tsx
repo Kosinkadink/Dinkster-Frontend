@@ -1,5 +1,7 @@
 import { Show, type JSX } from 'solid-js'
 import { ProductShortcutText } from '@dinkster/ui'
+import TriangleAlert from 'lucide-solid/icons/triangle-alert'
+import { Icon } from './Icon.js'
 
 export interface ProductFieldIds {
   readonly label: string
@@ -48,18 +50,25 @@ export function ProductField(props: {
       </div>
       <div class="product-field-control">{props.children}</div>
       <Show when={props.actions}><div class="product-field-actions">{props.actions}</div></Show>
-      <Show when={props.message}>
-        <p
-          id={ids.message}
-          class="product-field-message"
-          data-testid={props.messageTestId}
-          data-tone={tone()}
-          role={tone() === 'status' ? 'status' : 'alert'}
-          aria-live={tone() === 'status' ? 'polite' : undefined}
-        >{props.message}</p>
-      </Show>
+      <Show when={props.message}><ProductFieldMessage id={ids.message} testId={props.messageTestId} tone={tone()}>{props.message}</ProductFieldMessage></Show>
     </div>
   )
+}
+
+export function ProductFieldMessage(props: {
+  readonly id: string
+  readonly testId?: string | undefined
+  readonly tone: 'error' | 'warning' | 'status'
+  readonly children: JSX.Element
+}) {
+  return <p
+    id={props.id}
+    class="product-field-message"
+    data-testid={props.testId}
+    data-tone={props.tone}
+    role={props.tone === 'status' ? 'status' : 'alert'}
+    aria-live={props.tone === 'status' ? 'polite' : undefined}
+  ><Show when={props.tone === 'warning'}><Icon icon={TriangleAlert} /></Show>{props.children}</p>
 }
 
 export function ProductNotice(props: {

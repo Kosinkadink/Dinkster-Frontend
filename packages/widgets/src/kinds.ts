@@ -280,7 +280,7 @@ export const comboKind: WidgetKind<Json> = {
     // A list a lookup gave is help for editing: the stored choice is kept and
     // marked, and the run decides whether it is valid.
     if (spec.looked?.options !== undefined) {
-      return [diag('warning', 'schema', 'widget.COMBO.unknownOption', `'${String(value)}' is not in the list the pack gave for these inputs`)]
+      return [diag('warning', 'schema', 'widget.COMBO.unknownOption', `"${String(value)}" is not one of the choices.`)]
     }
     return spec.remote
       ? [diag('warning', 'schema', 'widget.COMBO.unknownOption', `'${String(value)}' is not in the last-known option snapshot (the remote list may have changed)`)]
