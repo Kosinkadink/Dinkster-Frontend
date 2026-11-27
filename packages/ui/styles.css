@@ -241,7 +241,7 @@
 .dinkster-button[data-resource-release] { position: relative; border-color: transparent; color: var(--dinkster-text-secondary); min-height: var(--dinkster-space-24); height: var(--dinkster-space-24); padding: 0 var(--dinkster-space-8); }
 .dinkster-button[data-resource-release]:not(:disabled, [aria-disabled='true']):is(:hover, :focus-visible) { color: var(--dinkster-danger-foreground); background: transparent; }
 .dinkster-button[data-resource-release]:not(:disabled, [aria-disabled='true']):is(:hover, :focus-visible)::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--dinkster-danger-foreground); opacity: .12; pointer-events: none; }
-.dinkster-menu-trigger[data-fill='quiet'][aria-expanded='true']:not(:active) { background: var(--dinkster-interaction-hover); }
+.dinkster-menu-trigger[data-fill='quiet'][aria-expanded='true']:not(:active) { background: var(--dinkster-interaction-pressed); }
 .dinkster-button[data-icon-only] { width: var(--dinkster-control-compact-height); padding: 0; }
 .dinkster-button[data-density='panel'] { gap: var(--dinkster-space-4); height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-8); }
 .dinkster-button[data-density='panel'] > .dinkster-icon { width: 14px; height: 14px; }
@@ -1675,8 +1675,11 @@ button.dinkster-row-main { cursor: pointer; }
 .workflow-queue-submit:hover:not(:disabled) { border-color: var(--dinkster-success-border); background: var(--dinkster-success-wash); }
 .workflow-queue-submit:active:not(:disabled) { border-color: var(--dinkster-success-border); background: var(--dinkster-success-wash-pressed); }
 .workflow-queue-toggle:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
-.workflow-queue-submit:focus-visible,
-.workflow-queue-toggle:focus-visible { z-index: 1; outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
+.workflow-queue-toggle:is(:active, [aria-expanded='true']) { background: var(--dinkster-interaction-pressed); }
+.workflow-queue-buttons :is(.workflow-queue-submit, .workflow-queue-toggle):focus-visible,
+.workflow-queue-cancel:has(:focus-visible) { z-index: 1; outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
+/* The cancel segment owns the joined corners; its smaller icon button does not. */
+.workflow-queue-buttons .workflow-queue-cancel > :focus-visible { outline: none; }
 .workflow-queue-buttons .workflow-queue-submit:disabled { color: var(--dinkster-text-muted); border-color: var(--dinkster-border-subtle); background: transparent; opacity: 1; cursor: default; }
 .workflow-queue-toggle svg { width: 15px; height: 15px; }
 .workflow-queue-buttons .workflow-queue-toggle { font-size: var(--dinkster-type-metadata-size); }
@@ -1871,9 +1874,10 @@ button.dinkster-row-main { cursor: pointer; }
 .product-button[data-variant='accent']:active:not(:disabled) { border-color: var(--dinkster-accent-border); background: var(--dinkster-accent-wash-pressed); }
 .product-button[data-variant='danger']:hover:not(:disabled) { border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash); }
 .product-button[data-variant='danger']:active:not(:disabled) { border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash-pressed); }
-/* A secondary or ghost outline is subtle at rest, the hover outline under the pointer and strong only while pressed or open; primary, accent and danger keep their own. */
-.product-button:is([data-variant='secondary'], [data-variant='ghost']):hover:not(:disabled) { border-color: var(--dinkster-border-hover); }
-.product-button:is([data-variant='secondary'], [data-variant='ghost']):is(:active, [aria-expanded='true']:not(:where(.problems-models-toggle))):not(:disabled) { border-color: var(--dinkster-border-strong); }
+/* Secondary outlines brighten under the pointer and while pressed or open. Ghost buttons use fill alone. */
+.product-button[data-variant='secondary']:hover:not(:disabled) { border-color: var(--dinkster-border-hover); }
+.product-button[data-variant='secondary']:is(:active, [aria-expanded='true']:not(:where(.problems-models-toggle))):not(:disabled) { border-color: var(--dinkster-border-strong); }
+.product-button[data-variant='ghost'][aria-expanded='true']:not(:disabled) { background: var(--dinkster-interaction-pressed); }
 .product-button[data-variant='primary']:is(:hover, :active):not(:disabled) { color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); }
 .product-button:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .product-button[data-variant='primary']:disabled { border-color: var(--dinkster-border-subtle); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); opacity: 1; }
