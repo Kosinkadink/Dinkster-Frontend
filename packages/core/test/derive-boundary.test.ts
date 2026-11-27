@@ -2049,6 +2049,10 @@ describe('Boundary sample acceptance compilation', () => {
         'port' in link.to && link.to.node === 'first' && link.to.port === 'mode.picture')!
       edit(store, 'link.disconnect', { graphId: 'root', linkId: imageLink.id })
       expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('mode.picture')
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'mode.picture' } })
+      const imageReceiver = prompt(store.doc)[path]!
+      const retainedImage = Object.values(store.doc.graphs.root!.links).find((link) =>
+        'port' in link.to && link.to.node === 'first' && link.to.port === 'mode.picture')!
       edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
       expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('dormant occurrence caption')
       edit(store, 'link.connect', { graphId: 'root', from: { node: 'caption', port: 'value' }, to: { node: 'first', port: 'mode.text' } })
@@ -2057,6 +2061,7 @@ describe('Boundary sample acceptance compilation', () => {
         expect(prompt(current)[path]!.slotVariants?.mode).toBe('text')
         expect(prompt(current)[path]!.inputs).toMatchObject({ 'mode.text': 'literal outside caption', 'mode.mix': 0.8 })
         expect(prompt(current)[path]!.inputs).not.toHaveProperty('mode.picture')
+        expect(current.graphs.root!.links[retainedImage.id]).toEqual(retainedImage)
         expect(prompt(current)[second]).toEqual(sibling)
         expect(current.graphs.root!.nodes.first!.values['mode.text']).toBe('dormant occurrence caption')
         expect(current.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
@@ -2067,6 +2072,16 @@ describe('Boundary sample acceptance compilation', () => {
       expect(store.doc.graphs.root!.links).toEqual(linked.graphs.root!.links)
       expect(prompt(store.doc)[path]!.slotVariants?.mode).toBe('image')
       expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('mode.text')
+      for (const current of [store.doc, loadDocument(JSON.parse(JSON.stringify(store.doc))).document!]) {
+        expect(prompt(current)[path]).toEqual(imageReceiver)
+        expect(prompt(current)[path]!.inputs['mode.picture']).toEqual(['imageA', 0])
+        expect(prompt(current)[second]).toEqual(sibling)
+        expect(current.graphs.root!.links).toEqual(linked.graphs.root!.links)
+        expect(current.graphs.root!.nodes.first!.values['mode.text']).toBe('dormant occurrence caption')
+        expect(current.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+        expect(current.graphs.detail).toEqual(original.graphs.detail)
+        expect(current.graphs.portrait).toEqual(original.graphs.portrait)
+      }
       const malformed = structuredClone(store.doc)
       const staleLink = Object.values(malformed.graphs.root!.links).find((link) =>
         'port' in link.to && link.to.node === 'first' && link.to.port === 'mode.text')!
