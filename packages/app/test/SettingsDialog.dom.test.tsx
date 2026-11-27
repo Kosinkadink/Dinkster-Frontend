@@ -162,7 +162,7 @@ describe('SettingsDialog search', () => {
     unmount()
   })
 
-  it('shows cleanup progress, server byte totals, explicit retry and backend refusal', async () => {
+  it('shows cleanup progress, inline failure, explicit retry and backend refusal', async () => {
     let enabled = true
     let finish!: () => void
     let fail = true
@@ -200,12 +200,15 @@ describe('SettingsDialog search', () => {
     expect(clearRequests).toBe(1)
     finish()
     await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Cleanup unavailable'))
+    expect(root.querySelector('[role="alert"]')?.closest('.dinkster-settings-section')).not.toBeNull()
     expect(clear.disabled).toBe(false)
     fail = false
     pending = Promise.resolve()
     clear.click()
     confirm().click()
-    await vi.waitFor(() => expect(root.textContent).toContain('113 bytes freed across 2 files'))
+    await vi.waitFor(() => expect(root.querySelector('dialog')).toBeNull())
+    expect(root.querySelector('[role="alert"]')).toBeNull()
+    expect(root.querySelector('[role="status"]')).toBeNull()
     await vi.waitFor(() => expect(clear.disabled).toBe(false))
     enabled = false
     clear.click()

@@ -77,8 +77,9 @@ function PackSettingsPanel(props: {
       }
       return <div data-pack-setting-id={name}><ProductSettingRow id={name} controlId={controlId}
         label={field.title} description={field.description} modified={!Object.is(value(), field.default)}
+        fullWidth={field.type === 'string' && field.enum === undefined}
         resetLabel={message('settingsDialog.action.reset')} menuLabel={message('settingsPage.actions', { name: field.title })}
-        resetDefaultLabel={message('settingsPage.resetDefault')} copyIdLabel={message('settingsPage.copySettingId')}
+        copyIdLabel={message('settingsPage.copySettingId')}
         onReset={() => { void update(name, field.default) }} onCopyId={() => props.onCopyId(name)}>
         <Show when={field.type === 'boolean'}>
           <ProductSwitch id={controlId} label={field.title} aria-describedby={describedBy} checked={value() as boolean} disabled={saving()} onChange={(next) => { void update(name, next) }} />
@@ -104,7 +105,6 @@ function SettingField(props: {
   readonly locale: () => void
   readonly inline?: boolean
   readonly onCopyId: (id: string) => void
-  readonly resetRef?: (reset: () => void) => void
 }) {
   const messageText = useAppMessage()
   const definition = props.definition
@@ -147,7 +147,6 @@ function SettingField(props: {
     setStringDraft(undefined)
     props.settings.reset(definition.id)
   }
-  props.resetRef?.(resetValue)
   const control = () => <>
       <Show when={definition.type === 'boolean'}><ProductSwitch id={controlId} label={name()} aria-describedby={describedBy()} checked={value() as boolean} onChange={setValue} /></Show>
       <Show when={definition.type === 'number'}><ProductNumberInput id={controlId} ariaLabel={name()} {...(props.inline ? {} : { ariaLabelledBy: ids.label })} ariaDescribedBy={describedBy()} ariaInvalid={validation() !== undefined} value={String(value())} min={definition.min} max={definition.max} step={definition.step} unit={definition.id === 'tooltips.delayMs' ? 'ms' : ['shell.layout.left.width', 'shell.layout.right.width', 'shell.layout.bottom.height'].includes(definition.id) ? 'px' : undefined} onCommit={commitNumber} onRevert={() => setValidation(undefined)} /></Show>
@@ -172,6 +171,7 @@ function SettingField(props: {
       <Show when={definition.type === 'combo'}><ProductSelect id={controlId} aria-label={props.inline ? name() : undefined} aria-labelledby={props.inline ? undefined : ids.label} aria-describedby={describedBy()} options={options()} value={String(value())} onChange={setValue} /></Show>
     </>
   return <Show when={!props.inline} fallback={<div data-setting-id={definition.id}>
+    <Show when={modified()}><ProductTextButton label={messageText('settingsDialog.action.reset')} onClick={resetValue} /></Show>
     {control()}
     <Show when={validationMessage()}>{(text) => <p id={`${controlId}-error`} class="dinkster-field-error" role="alert">{text()}</p>}</Show>
   </div>}>
@@ -179,7 +179,7 @@ function SettingField(props: {
       description={description() === undefined ? undefined : <ProductShortcutText text={description()!} />}
       error={validationMessage()} fullWidth={definition.type === 'string'} modified={modified()}
       resetLabel={messageText('settingsDialog.action.reset')} menuLabel={messageText('settingsPage.actions', { name: name() })}
-      resetDefaultLabel={messageText('settingsPage.resetDefault')} copyIdLabel={messageText('settingsPage.copySettingId')}
+      copyIdLabel={messageText('settingsPage.copySettingId')}
       onReset={resetValue} onCopyId={() => props.onCopyId(definition.id)}>{control()}</ProductSettingRow>
   </Show>
 }
@@ -312,7 +312,7 @@ export function SettingsDialog(props: {
     setQuery('')
     searchInput.focus()
   }
-  const settingRow = (d: SettingDefinition, inline = false, resetRef?: (reset: () => void) => void) => <SettingField definition={d} settings={props.settings} changed={changed} locale={locale} inline={inline} onCopyId={(id) => { void copyId(id) }} {...(resetRef ? { resetRef } : {})} />
+  const settingRow = (d: SettingDefinition, inline = false) => <SettingField definition={d} settings={props.settings} changed={changed} locale={locale} inline={inline} onCopyId={(id) => { void copyId(id) }} />
   const keybindingRow = (command: AppCommand, inline = false) => {
     const controlId = `keybinding-${command.id}`
     const commandLabel = () => { locale(); return command.label }
@@ -339,17 +339,18 @@ export function SettingsDialog(props: {
     ]
     return <div data-command-id={command.id}><Show when={!inline} fallback={<><Show when={modified()}><ProductTextButton label={message('settingsDialog.action.reset')} onClick={() => props.keybindings.reset(command.id)} /></Show>{control()}<Show when={conflictMessage()}>{(text) => <p id={`${controlId}-warning`} class="dinkster-setting-warning" role="status">{text()}</p>}</Show></>}>
       <ProductSettingRow id={command.id} controlId={controlId} label={commandLabel()} modified={modified()} warning={conflictMessage()}
-        resetLabel={message('settingsDialog.action.reset')} menuLabel={message('settingsPage.actions', { name: commandLabel() })} resetDefaultLabel={message('settingsPage.resetDefault')} copyIdLabel={message('settingsPage.copyCommandId')}
+        resetLabel={message('settingsDialog.action.reset')} menuLabel={message('settingsPage.actions', { name: commandLabel() })} copyIdLabel={message('settingsPage.copyCommandId')}
         menuItems={menuItems()}
         onReset={() => props.keybindings.reset(command.id)} onCopyId={() => { void copyId(command.id) }}>{control()}</ProductSettingRow>
     </Show></div>
   }
   const searchGroups = createMemo<readonly ProductSearchGroup[]>(() => searching() && matches().length > 0 ? [{ key: 'settings', label: message('settingsDialog.search.summary', { count: matches().length, query: query().trim() }), rows: matches().map((match) => {
-    let reset = () => props.settings.reset(match.id)
     return { key: `${match.source}:${match.id}`, title: match.name, detail: match.detail, ...(match.note === undefined ? {} : { note: match.note }),
-      control: match.source === 'setting' ? settingRow(match.definition, true, (next) => { reset = next }) : keybindingRow(match.command, true),
+      get modified() { changed(); return match.source === 'setting' ? !Object.is(props.settings.get(match.id), match.definition.defaultValue) : props.keybindings.combo(match.id) !== props.keybindings.defaultCombo(match.id) },
+      fullWidth: match.source === 'setting' && match.definition.type === 'string',
+      control: match.source === 'setting' ? settingRow(match.definition, true) : keybindingRow(match.command, true),
       menu: { label: message('settingsPage.actions', { name: match.name }), get items() { changed(); return [
-        ...(match.source === 'setting' ? [{ label: message('settingsPage.resetDefault'), disabled: Object.is(props.settings.get(match.id), match.definition.defaultValue), onSelect: () => reset() }] : props.keybindings.combo(match.id) ? [{ label: message('settingsPage.removeShortcut'), onSelect: () => props.keybindings.set(match.id, null) }] : []),
+        ...(match.source === 'keybinding' && props.keybindings.combo(match.id) ? [{ label: message('settingsPage.removeShortcut'), onSelect: () => props.keybindings.set(match.id, null) }] : []),
         { label: message(match.source === 'setting' ? 'settingsPage.copySettingId' : 'settingsPage.copyCommandId'), description: match.id, onSelect: () => { void copyId(match.id) } },
       ] } },
     }
@@ -394,10 +395,10 @@ export function SettingsDialog(props: {
           <Show when={props.storageConnection} keyed>{(connection) => <LibraryStorageSettings connection={connection} onCopyId={(id) => { void copyId(id) }} />}</Show>
         </Show>
         <Show when={group() === 'packs' && props.packSettings}>{(packSettings) => <For each={packSettings().packs()}>{(pack) => <ProductSettingsSection title={pack.displayName}><PackSettingsPanel packId={pack.id} client={packSettings().client} onCopyId={(id) => { void copyId(id) }} /></ProductSettingsSection>}</For>}</Show>
-        <Show when={group() === 'engine'}><For each={(props.backends ?? []).filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')}>{(backend) => <ProductSettingsSection title={backend.label}>
+        <Show when={group() === 'engine'}><For each={(props.backends ?? []).filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')}>{(backend) => <>
           <RuntimeSettingsPanel connection={backend.connection} backendLabel={backend.label} categories={(category) => !['memory-budgets', 'memory-headroom', 'aimdo-policy'].includes(category)} alwaysOpen settingsPage onCopyId={(id) => { void copyId(id) }} />
           <AgentPermissionsPanel connection={backend.connection} backendLabel={backend.label} />
-        </ProductSettingsSection>}</For></Show>
+        </>}</For></Show>
       </ProductSettingsPage>
       <ProductToast notification={toast()} onDismiss={() => setToast(undefined)} />
     </div>

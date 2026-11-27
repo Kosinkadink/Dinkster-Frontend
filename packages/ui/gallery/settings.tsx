@@ -56,14 +56,14 @@ const settings: readonly Setting[] = [
   { id: 'storage.limit', label: 'Keep at most', group: 'storage', section: 'Limit', value: 10737418240, unit: 'GB' },
   { id: 'pack.dinkster-nodes-dev.showTips', label: 'Show example tips', group: 'packs', section: 'Dinkster nodes (dev)', value: false, description: 'An example stored pack preference; it does not change node execution.' },
   { id: 'pack.example.enabled', label: 'Enable example pack feature', group: 'packs', section: 'Example pack', value: true, description: 'Gallery fixture, not a live pack setting.' },
-  { id: 'engine.dtype.diffusion', label: 'Diffusion model precision', group: 'engine', section: 'Local engine', value: 'Auto', options: ['Auto', 'FP16', 'BF16', 'FP32'], description: 'Applies to workers started from now on.' },
-  { id: 'engine.dtype.textEncoder', label: 'Text encoder precision', group: 'engine', section: 'Local engine', value: 'Auto', options: ['Auto', 'FP16', 'BF16', 'FP32'], description: 'Applies to workers started from now on.' },
-  { id: 'engine.dtype.vae', label: 'VAE precision', group: 'engine', section: 'Local engine', value: 'Auto', options: ['Auto', 'FP16', 'BF16', 'FP32'], description: 'Applies to workers started from now on.' },
-  { id: 'engine.fp8', label: 'Native FP8 matrix multiplication', group: 'engine', section: 'Local engine', value: false, description: 'Applies to workers started from now on.' },
-  { id: 'engine.jobs', label: 'Maximum running jobs', group: 'engine', section: 'Local engine', value: 1 },
-  { id: 'engine.arguments', label: 'Worker arguments', group: 'engine', section: 'Local engine', value: '', list: true, description: 'Applies to workers started from now on.' },
-  { id: 'engine.logging', label: 'Default log level', group: 'engine', section: 'Local engine', value: 'Info', options: ['Debug', 'Info', 'Warning', 'Error', 'Critical'] },
-  { id: 'engine.loggers', label: 'Logger overrides', group: 'engine', section: 'Local engine', value: '', list: true },
+  { id: 'engine.dtype.diffusion', label: 'Diffusion model precision', group: 'engine', section: 'Local engine - applies to workers started from now on', value: 'Auto', options: ['Auto', 'FP16', 'BF16', 'FP32'] },
+  { id: 'engine.dtype.textEncoder', label: 'Text encoder precision', group: 'engine', section: 'Local engine - applies to workers started from now on', value: 'Auto', options: ['Auto', 'FP16', 'BF16', 'FP32'] },
+  { id: 'engine.dtype.vae', label: 'VAE precision', group: 'engine', section: 'Local engine - applies to workers started from now on', value: 'Auto', options: ['Auto', 'FP16', 'BF16', 'FP32'] },
+  { id: 'engine.fp8', label: 'Native FP8 matrix multiplication', group: 'engine', section: 'Local engine - applies to workers started from now on', value: false },
+  { id: 'engine.jobs', label: 'Maximum running jobs', group: 'engine', section: 'Local engine - applies immediately', value: 1 },
+  { id: 'engine.arguments', label: 'Worker arguments', group: 'engine', section: 'Local engine - applies to workers started from now on', value: '', list: true },
+  { id: 'engine.logging', label: 'Default log level', group: 'engine', section: 'Local engine - applies immediately', value: 'Info', options: ['Debug', 'Info', 'Warning', 'Error', 'Critical'] },
+  { id: 'engine.loggers', label: 'Logger overrides', group: 'engine', section: 'Local engine - applies immediately', value: '', list: true },
   { id: 'studio.dtype.diffusion', label: 'Diffusion model precision', group: 'engine', section: 'Studio server', value: 'Auto', locked: true },
   { id: 'studio.dtype.textEncoder', label: 'Text encoder precision', group: 'engine', section: 'Studio server', value: 'BF16', locked: true },
   { id: 'studio.dtype.vae', label: 'VAE precision', group: 'engine', section: 'Studio server', value: 'FP16', locked: true },
@@ -120,7 +120,6 @@ export function SettingsGallery() {
   const settingMenu = (setting: Setting) => ({
     label: `Actions for ${setting.label}`,
     get items() { return [
-      ...(setting.group === 'engine' ? [] : [{ label: 'Reset to default', disabled: value(setting) === setting.value, onSelect: () => update(setting.id, setting.value) }]),
       { label: setting.group === 'engine' ? 'Copy ID' : 'Copy setting ID', description: setting.id, onSelect: () => { void copyId(setting.id) } },
     ] },
   })
@@ -172,9 +171,11 @@ export function SettingsGallery() {
       const pathMatches = words.some((word) => path.toLocaleLowerCase().includes(word))
       return { key: setting.id, title: setting.label, detail: nameMatches || descriptionMatches || pathMatches ? path : `${setting.id} - ${path}`,
         ...(!nameMatches && descriptionMatches ? { note: setting.description! } : {}),
-        control: control(setting, true), menu: settingMenu(setting),
+        get modified() { return setting.group !== 'engine' && value(setting) !== setting.value },
+        fullWidth: typeof setting.value === 'string' && !setting.options,
+        control: <><Show when={setting.group !== 'engine' && value(setting) !== setting.value}><ProductTextButton label="Reset" onClick={() => update(setting.id, setting.value)} /></Show>{control(setting, true)}</>, menu: settingMenu(setting),
       }
-    }) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, detail: `Shortcuts - ${message(`settingsPage.commands.${command.id.split('.')[0]}`)}`, control: <><Show when={combo(command.id) !== keybindings.defaultCombo(command.id)}><ProductTextButton label="Reset" onClick={() => keybindings.reset(command.id)} /></Show>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-warning`} class="dinkster-setting-warning" role="status">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
+    }) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, get modified() { return combo(command.id) !== keybindings.defaultCombo(command.id) }, detail: `Shortcuts - ${message(`settingsPage.commands.${command.id.split('.')[0]}`)}`, control: <><Show when={combo(command.id) !== keybindings.defaultCombo(command.id)}><ProductTextButton label="Reset" onClick={() => keybindings.reset(command.id)} /></Show>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-warning`} class="dinkster-setting-warning" role="status">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
   })
   const chooseGroup = (id: string) => { setGroup(id); setQuery(''); setCapture(undefined) }
   const activate = (id: string) => {
@@ -195,7 +196,7 @@ export function SettingsGallery() {
   const row = (setting: Setting) => {
     return <ProductSettingRow id={setting.id} label={setting.label} description={setting.description ? <ProductShortcutText text={setting.description} /> : undefined} error={error(setting)}
       fullWidth={!setting.locked && (setting.list ? editingList() === setting.id : typeof setting.value === 'string' && !setting.options)} modified={setting.group !== 'engine' && value(setting) !== setting.value} resetLabel="Reset" menuLabel={`Actions for ${setting.label}`}
-      resetDefaultLabel="Reset to default" copyIdLabel="Copy setting ID"
+      copyIdLabel="Copy setting ID"
       menuItems={settingMenu(setting).items}
       onReset={() => update(setting.id, setting.value)} onCopyId={() => { void copyId(setting.id) }}>
       {control(setting)}
@@ -243,7 +244,7 @@ export function SettingsGallery() {
           <For each={settingsCommandGroups(commands)}>{(area) => <ProductSettingsSection title={message(`settingsPage.commands.${area.id}`)}><For each={area.commands}>{(command) => <ProductSettingRow
             id={command.id} label={command.label} modified={combo(command.id) !== keybindings.defaultCombo(command.id)}
             warning={shortcutError(command.id)}
-            resetLabel="Reset" menuLabel={`Actions for ${command.label}`} resetDefaultLabel="Reset to default" copyIdLabel="Copy command ID"
+            resetLabel="Reset" menuLabel={`Actions for ${command.label}`} copyIdLabel="Copy command ID"
             menuItems={shortcutMenu(command).items}
             onReset={() => keybindings.reset(command.id)} onCopyId={() => { void copyId(command.id) }}>
             {shortcutControl(command)}
@@ -253,7 +254,7 @@ export function SettingsGallery() {
     </div>
     <Show when={confirmClear()}><ProductDialog title="Clear run files?" onDismiss={() => setConfirmClear(false)}>
       <ProductConfirmation consequence="Removes 3.1 GB of files that no run or project is using. This cannot be undone." actionLabel="Clear" intent="remove"
-        onCancel={() => setConfirmClear(false)} onConfirm={() => { setCleared(true); setConfirmClear(false); setToast({ message: 'Run files cleared' }) }} />
+        onCancel={() => setConfirmClear(false)} onConfirm={() => { setCleared(true); setConfirmClear(false) }} />
     </ProductDialog></Show>
     <ProductToast notification={toast()} onDismiss={() => setToast(undefined)} />
   </ProductPage>

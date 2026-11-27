@@ -1,7 +1,6 @@
 import { For, Show, createSignal, createUniqueId, onCleanup, onMount, splitProps, type ComponentProps, type JSX } from 'solid-js'
-import { Ellipsis } from 'lucide-solid'
 import { ProductButton, ProductTextButton } from './controls.js'
-import { ProductMenu } from './menu.js'
+import { ProductContextMenu, type ProductMenu } from './menu.js'
 import { ProductSearch } from './search.js'
 import { ProductShortcut } from './shortcut.js'
 
@@ -89,7 +88,6 @@ export function ProductSettingRow(props: {
   modified: boolean
   resetLabel: string
   menuLabel: string
-  resetDefaultLabel: string
   copyIdLabel: string
   menuItems?: ComponentProps<typeof ProductMenu>['items'] | undefined
   onReset: () => void
@@ -97,7 +95,9 @@ export function ProductSettingRow(props: {
   children: JSX.Element
 }) {
   const controlId = () => props.controlId ?? props.id
-  return <div class="dinkster-setting-row" data-setting-id={props.id} data-modified={props.modified} data-full-width={props.fullWidth}>
+  return <ProductContextMenu label={props.menuLabel} items={props.menuItems ?? [
+    { label: props.copyIdLabel, description: props.id, onSelect: props.onCopyId },
+  ]}><div class="dinkster-setting-row" data-setting-id={props.id} data-modified={props.modified} data-full-width={props.fullWidth}>
     <div class="dinkster-setting-copy">
       <label for={controlId()} id={`${controlId()}-label`}>{props.label}</label>
       <Show when={props.description}><p id={`${controlId()}-description`}>{props.description}</p></Show>
@@ -108,11 +108,5 @@ export function ProductSettingRow(props: {
       <Show when={props.modified}><ProductTextButton label={props.resetLabel} onClick={props.onReset} /></Show>
       {props.children}
     </div>
-    <span class="dinkster-setting-menu">
-      <ProductMenu label={props.menuLabel} icon={Ellipsis} iconOnly fill="quiet" align="end" items={props.menuItems ?? [
-        { label: props.resetDefaultLabel, disabled: !props.modified, onSelect: props.onReset },
-        { label: props.copyIdLabel, description: props.id, onSelect: props.onCopyId },
-      ]} />
-    </span>
-  </div>
+  </div></ProductContextMenu>
 }

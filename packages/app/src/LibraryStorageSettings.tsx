@@ -1,6 +1,6 @@
 import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
-import type { DinksterConnection, LibraryStorage, LibraryStorageCleanup } from '@dinkster/client'
-import { ProductByteSizeInput, ProductConfirmation, ProductDialog, ProductErrorBanner, ProductSettingsSection, ProductSettingRow, ProductSwitch, ProductTextButton, ProductToast } from '@dinkster/ui'
+import type { DinksterConnection, LibraryStorage } from '@dinkster/client'
+import { ProductByteSizeInput, ProductConfirmation, ProductDialog, ProductErrorBanner, ProductSettingsSection, ProductSettingRow, ProductSwitch, ProductTextButton } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
 
 export function LibraryStorageSettings(props: {
@@ -15,7 +15,7 @@ export function LibraryStorageSettings(props: {
   const [saveError, setSaveError] = createSignal<{ id: string; text: string }>()
   const [clearing, setClearing] = createSignal(false)
   const [confirmClear, setConfirmClear] = createSignal(false)
-  const [result, setResult] = createSignal<LibraryStorageCleanup>()
+  const [clearError, setClearError] = createSignal('')
   const canClear = (): boolean => status()?.collectionEnabled === true && status()?.blocked.length === 0 && (status()?.reclaimableBytes ?? 0) > 0
   const bytes = (value: number | null): string => value === null ? message('storageSettings.unknown') : message('storageSettings.bytes', { count: value })
   const blockedReason = (reason: string): string => reason === 'owner_completeness_unknown'
@@ -67,17 +67,17 @@ export function LibraryStorageSettings(props: {
     if (busy() || !canClear()) return
     setBusy(true)
     setClearing(true)
-    setError('')
-    setResult(undefined)
+    setClearError('')
+    let refreshAfterClear = false
     try {
       const next = await props.connection.clearLibraryStorage()
       if (!current) return
-      setResult(next.collectionEnabled && next.blocked.length === 0 ? next : undefined)
+      refreshAfterClear = next.collectionEnabled && next.blocked.length === 0
       setStatus((previous) => previous === undefined ? undefined : {
         ...previous, collectionEnabled: next.collectionEnabled, blocked: next.blocked, reclaimableBytes: null,
       })
     } catch (cause) {
-      if (current) setError(cause instanceof Error ? cause.message : String(cause))
+      if (current) setClearError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       if (current) {
         setConfirmClear(false)
@@ -85,7 +85,7 @@ export function LibraryStorageSettings(props: {
         setBusy(false)
       }
     }
-    if (current && result()?.collectionEnabled) await refresh()
+    if (current && refreshAfterClear) await refresh()
   }
   const byteFields = ['temporaryBytes', 'adoptedBytes', 'reclaimableBytes'] as const
   return <section class="dinkster-stack" data-testid="library-storage-settings">
@@ -100,11 +100,12 @@ export function LibraryStorageSettings(props: {
             </dd>
           </div>}</For></dl>
           <For each={loaded().blocked}>{(reason) => <p class="dinkster-settings-note">{blockedReason(reason)}</p>}</For>
+          <Show when={clearError()}>{(reason) => <p class="dinkster-field-error" role="alert">{reason()}</p>}</Show>
         </ProductSettingsSection>
         <ProductSettingsSection title={message('storageSettings.limitSection')}>
           <For each={['library-storage-limited', ...(limit() !== null && loaded().policyAvailable ? ['library-storage-limit'] : [])]}>{(id) => {
             const label = () => message(id === 'library-storage-limited' ? 'storageSettings.limited' : 'storageSettings.limit')
-            return <ProductSettingRow id={id} label={label()} modified={false} resetLabel="" resetDefaultLabel=""
+            return <ProductSettingRow id={id} label={label()} modified={false} resetLabel=""
               error={saveError()?.id === id ? saveError()?.text : undefined}
               menuLabel={message('settingsPage.actions', { name: label() })} copyIdLabel={message('runtimeSettings.page.copyId')}
               onReset={() => {}} onCopyId={() => props.onCopyId?.(id)} menuItems={[{ label: message('runtimeSettings.page.copyId'), description: id, disabled: !props.onCopyId, onSelect: () => props.onCopyId?.(id) }]}>
@@ -126,6 +127,5 @@ export function LibraryStorageSettings(props: {
       <ProductConfirmation consequence={message('storageSettings.confirmDescription', { size: bytes(status()?.reclaimableBytes ?? null) })} actionLabel={message('storageSettings.clear')} intent="remove" pending={clearing()} disabled={!canClear()}
         onCancel={() => setConfirmClear(false)} onConfirm={() => { void clear() }} />
     </ProductDialog></Show>
-    <ProductToast notification={result() ? { message: message('storageSettings.cleared', { bytes: result()!.reclaimedBytes, files: result()!.reclaimedFiles }) } : undefined} onDismiss={() => setResult(undefined)} />
   </section>
 }

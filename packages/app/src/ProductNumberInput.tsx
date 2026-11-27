@@ -264,8 +264,8 @@ export function ProductNumberInput(props: {
       />
       <Show when={props.unit}><span class="product-number-unit">{props.unit}</span></Show>
       <span class="product-number-steppers">
+        <button type="button" tabindex="-1" aria-label="Decrease value" disabled={props.disabled || pending()} onPointerDown={(event) => event.preventDefault()} onClick={() => step(-1)}>{'\u2212'}</button>
         <button type="button" tabindex="-1" aria-label="Increase value" disabled={props.disabled || pending()} onPointerDown={(event) => event.preventDefault()} onClick={() => step(1)}>+</button>
-        <button type="button" tabindex="-1" aria-label="Decrease value" disabled={props.disabled || pending()} onPointerDown={(event) => event.preventDefault()} onClick={() => step(-1)}>-</button>
       </span>
     </span>
   )

@@ -1,6 +1,6 @@
 import { createEffect, createSignal, createUniqueId, For, Index, onCleanup, onMount, Show } from 'solid-js'
 import { LockKeyhole } from 'lucide-solid'
-import { ProductIcon, ProductSelect as SharedProductSelect, ProductSettingRow, ProductSwitch, ProductTextButton } from '@dinkster/ui'
+import { ProductIcon, ProductSelect as SharedProductSelect, ProductSettingsSection, ProductSettingRow, ProductSwitch, ProductTextButton } from '@dinkster/ui'
 import {
   RuntimeSettingsError,
   type DinksterConnection,
@@ -42,7 +42,6 @@ function EngineSettingRows(props: {
   readonly category: string
   readonly section: RuntimeSettingSection
   readonly editable: boolean
-  readonly workerNotice: boolean
   readonly connection: SettingsConnection
   readonly onSaveStart: () => void
   readonly onSaved: (section: RuntimeSettingSection) => void
@@ -104,7 +103,7 @@ function EngineSettingRows(props: {
     const count = (): number => Array.isArray(current()) ? (current() as unknown[]).length : Object.keys(asRecord(current())).length
     const shown = (): string => definition.kind === 'list' ? count() === 0 ? message('settingsPage.noneShortcut') : message(count() === 1 ? 'runtimeSettings.page.oneItem' : 'runtimeSettings.page.itemCount', { count: count() })
       : typeof current() === 'boolean' ? message(current() ? 'runtimeSettings.page.on' : 'runtimeSettings.page.off') : typeof current() === 'string' || typeof current() === 'number' ? String(current()) : message('runtimeSettings.page.unavailable')
-    const description = (): string => [props.workerNotice ? message('runtimeSettings.page.workerNotice') : '', props.section.source === 'runtime' && (!props.section.persistence.available || !props.section.persistence.persisted) ? message('runtimeSettings.page.memoryOnly') : ''].filter(Boolean).join(' ')
+    const description = (): string => props.section.source === 'runtime' && (!props.section.persistence.available || !props.section.persistence.persisted) ? message('runtimeSettings.page.memoryOnly') : ''
     const finishList = async (): Promise<void> => {
       const submitted = props.category === 'worker-comfy-args'
         ? argumentsDraft().map((row) => row.value).filter((item) => item.trim() !== '')
@@ -113,7 +112,7 @@ function EngineSettingRows(props: {
     }
     return <ProductSettingRow id={id} controlId={controlId} label={message(definition.label)} description={description() || undefined}
       error={error()?.id === id ? error()?.text : undefined} fullWidth={definition.kind === 'list' && editing()}
-      modified={false} resetLabel="" resetDefaultLabel="" menuLabel={message('settingsPage.actions', { name: message(definition.label) })} copyIdLabel={message('runtimeSettings.page.copyId')}
+      modified={false} resetLabel="" menuLabel={message('settingsPage.actions', { name: message(definition.label) })} copyIdLabel={message('runtimeSettings.page.copyId')}
       onReset={() => {}} onCopyId={() => props.onCopyId(id)} menuItems={[{ label: message('runtimeSettings.page.copyId'), description: id, onSelect: () => props.onCopyId(id) }]}>
       <Show when={props.editable && definition.kind !== 'locked'} fallback={<output id={controlId} class="dinkster-setting-locked"><ProductIcon icon={LockKeyhole} />{shown()}</output>}>
         <Show when={definition.kind === 'precision' || definition.kind === 'level'}><SharedProductSelect id={controlId} aria-label={message(definition.label)} aria-describedby={error()?.id === id ? `${controlId}-error` : undefined} disabled={saving()} value={String(current())}
@@ -372,7 +371,6 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
     const section = data()?.settings[category]
     return section !== undefined && editable(category, section) && knownEditor(category)
   })
-  const allWaitForWorkers = (): boolean => changeable().length > 0 && changeable().every((category) => data()?.settings[category]?.mutability === 'on-worker-restart')
 
   return (
     <Show when={props.settingsPage} fallback={<section class="runtime-settings" data-testid="runtime-settings" aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })}>
@@ -417,16 +415,19 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
         </div>
       </Show>
     </section>}>
-      <section data-testid="runtime-settings" aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })}>
+      <section class="dinkster-stack" data-testid="runtime-settings" aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })}>
         <Show when={loading()}><p class="dinkster-settings-note" role="status">{message('runtimeSettings.status.loading')}</p></Show>
         <Show when={error()}><p class="dinkster-field-error" role="alert">{error()}</p></Show>
         <Show when={data()}>
           <Show when={categories().length === 0}><p class="dinkster-settings-note">{message('runtimeSettings.state.empty')}</p></Show>
           <Show when={categories().length > 0 && changeable().length === 0}><p class="dinkster-settings-note">{message('runtimeSettings.page.locked')}</p></Show>
-          <Show when={allWaitForWorkers()}><p class="dinkster-settings-note">{message('runtimeSettings.page.allWorkers')}</p></Show>
-          <For each={categories()}>{(category) => <Show when={data()?.settings[category]}>{(section) => <EngineSettingRows category={category} section={section()}
-            editable={editable(category, section()) && knownEditor(category)} workerNotice={!allWaitForWorkers() && section().mutability === 'on-worker-restart'}
+          <For each={[true, false]}>{(workers) => <Show when={categories().some((category) => (data()?.settings[category]?.mutability === 'on-worker-restart') === workers)}>
+            <ProductSettingsSection title={`${props.backendLabel ?? message('runtimeSettings.backend')} - ${message(workers ? 'runtimeSettings.page.workerNotice' : 'runtimeSettings.page.immediate')}`}>
+          <For each={categories().filter((category) => (data()?.settings[category]?.mutability === 'on-worker-restart') === workers)}>{(category) => <Show when={data()?.settings[category]}>{(section) => <EngineSettingRows category={category} section={section()}
+            editable={editable(category, section()) && knownEditor(category)}
             connection={props.connection} onSaveStart={invalidateLoad} onSaved={(updated) => replace(category, updated)} onCopyId={(id) => props.onCopyId?.(id)} />}</Show>}</For>
+            </ProductSettingsSection>
+          </Show>}</For>
         </Show>
       </section>
     </Show>

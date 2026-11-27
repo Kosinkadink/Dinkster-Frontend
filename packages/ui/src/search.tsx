@@ -7,11 +7,11 @@ import {
   onMount,
   type JSX,
 } from 'solid-js'
-import { DraftingCompass, ChevronRight, Ellipsis, Search, X, type LucideIcon } from 'lucide-solid'
+import { DraftingCompass, ChevronRight, Search, X, type LucideIcon } from 'lucide-solid'
 import { parseAssetTypeId, parseListTypeId, parseStreamTypeId } from '@dinkster/core'
 import { ProductIcon, ProductSwitch } from './controls.js'
 import { ProductShortcut } from './shortcut.js'
-import { ProductMenu, type ProductMenuItem } from './menu.js'
+import { ProductContextMenu, type ProductMenuItem } from './menu.js'
 
 /** A kind of result, shown as a named tab; Tab steps through them. */
 export interface ProductSearchKind {
@@ -41,13 +41,15 @@ export interface ProductSearchRow {
   readonly keys?: readonly string[]
   /** An editor for a result that can be changed without leaving the search. */
   readonly control?: JSX.Element
+  readonly modified?: boolean
+  readonly fullWidth?: boolean
   /** A switch at the right that changes the thing in place without choosing the row. */
   readonly toggle?: {
     readonly checked: boolean
     readonly label: string
     readonly onChange: (next: boolean) => void
   }
-  /** Row actions, such as a setting's reset and canonical identifier. */
+  /** Right-click actions, such as copying the canonical identifier. */
   readonly menu?: { readonly label: string; readonly items: readonly (ProductMenuItem | 'separator')[] }
   /** The count of a folder row. */
   readonly count?: number
@@ -374,7 +376,7 @@ export function ProductSearch(props: {
     const row = rowProps.row
     const kind = row.kind ?? 'result'
     const selected = () => current() === row.key
-    return (
+    const content = (
       <div
         id={optionId(row.key)}
         class="dinkster-list-row dinkster-search-row"
@@ -382,6 +384,8 @@ export function ProductSearch(props: {
         aria-selected={selected()}
         data-kind={kind}
         data-key={row.key}
+        data-modified={row.modified}
+        data-full-width={row.fullWidth}
         onPointerDown={(event) => event.preventDefault()}
         onPointerMove={() => {
           if (!selected()) props.onCurrent(row.key)
@@ -433,11 +437,6 @@ export function ProductSearch(props: {
           <Show when={row.control}><div class="dinkster-search-row-control"
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}>{row.control}</div></Show>
-          <Show when={row.menu}>{(menu) => <span class="dinkster-search-row-menu"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}>
-            <ProductMenu label={menu().label} icon={Ellipsis} iconOnly fill="quiet" align="end" items={menu().items} />
-          </span>}</Show>
           <Show when={kind === 'folder'}>
             <Show when={row.count !== undefined}>
               <span class="dinkster-search-row-detail">{row.count}</span>
@@ -449,6 +448,7 @@ export function ProductSearch(props: {
         </div>
       </div>
     )
+    return <Show when={row.menu} fallback={content}>{(menu) => <ProductContextMenu label={menu().label} items={menu().items}>{content}</ProductContextMenu>}</Show>
   }
   return (
     <div
