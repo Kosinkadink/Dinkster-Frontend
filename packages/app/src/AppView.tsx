@@ -66,6 +66,7 @@ import { isTextTarget } from './settings.js'
 import { parseNumericCommit, parsePrimitiveListCommit, widgetCommitError } from './widget-commit.js'
 import { Icon } from './Icon.js'
 import { ProductButton, ProductCheckbox, ProductTextArea, ProductTextInput } from './ProductControls.js'
+import { ProductButton as SharedProductButton, ProductIcon } from '@dinkster/ui'
 import { CancelExecutionButton } from './CancelExecutionButton.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect, type ProductSelectOption } from './ProductSelect.js'
@@ -2494,8 +2495,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             {(description) => <p class="app-view-description">{description()}</p>}
           </Show>
         </div>
-        <ProductButton
-          class="app-view-arrange-toggle"
+        <SharedProductButton
           data-testid="app-view-arrange-toggle"
           aria-pressed={arrange()}
           disabled={frozen() || !activeTab()}
@@ -2504,11 +2504,10 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             if (tab) props.app.setTabAppArrange(tab.id, !arrange())
           }}
         >
-          <Icon icon={SlidersHorizontal} /> {message('appView.arrange')}
-        </ProductButton>
+          <ProductIcon icon={SlidersHorizontal} /> {message('appView.arrange')}
+        </SharedProductButton>
         <Show when={!documentLayout()?.desktop.items.some((item) => item.kind === 'queue')}>
-          <ProductButton variant="primary"
-            class="app-view-queue"
+          <SharedProductButton fill="solid"
             data-testid="app-view-queue"
             disabled={frozen() || !activeTab()}
             onClick={() => {
@@ -2516,8 +2515,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               if (tab) void props.app.queue(tab)
             }}
           >
-            <Icon icon={Play} /> {message('appView.queue')}
-          </ProductButton>
+            <ProductIcon icon={Play} /> {message('appView.queue')}
+          </SharedProductButton>
         </Show>
         <CancelExecutionButton app={props.app} execution={(executions(), props.app.currentCancellableExecution())} />
       </header>

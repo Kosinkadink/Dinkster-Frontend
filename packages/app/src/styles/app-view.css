@@ -27,8 +27,8 @@
 .app-view.mobile-presentation .app-view-header { flex-wrap: wrap; }
 .app-view.mobile-presentation { padding-right: var(--dinkster-space-16); padding-left: var(--dinkster-space-16); }
 .app-view.mobile-presentation .app-view-titles { flex-basis: 100%; }
-.app-view.mobile-presentation .app-view-arrange-toggle,
-.app-view.mobile-presentation .app-view-queue { flex: 1; justify-content: center; }
+.app-view.mobile-presentation [data-testid='app-view-arrange-toggle'],
+.app-view.mobile-presentation [data-testid='app-view-queue'] { flex: 1; justify-content: center; }
 .app-view-titles { flex: 1; min-width: 0; }
 .app-view-title { margin: 0; font-size: 20px; font-weight: 700; }
 .app-view-description { margin: 4px 0 0; color: var(--dinkster-text-secondary); }
