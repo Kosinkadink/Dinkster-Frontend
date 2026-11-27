@@ -454,6 +454,9 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
   await compact.evaluate((element) => element.scrollIntoView({ block: 'center' }))
   await compact.focus()
   await capture(page, 'after-boundary-region-compact-explanation-wide')
+  await page.getByTestId('rail-resize').focus()
+  await page.keyboard.press('Home')
+  await identityViewport(page)
   const inputPin = await page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'n1')!
@@ -469,6 +472,7 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
   await page.mouse.move(inputPin.x, inputPin.y)
   await expect(page.getByTestId('app-tooltip')).toContainText('If absent:', { timeout: 1_500 })
   await capture(page, 'after-boundary-consumer-absence-explanation-wide')
+  await widenRail(page)
   if (proofDir) {
     await compact.locator('xpath=ancestor::*[@data-testid="boundary-settings"]')
       .screenshot({ path: join(proofDir, 'boundary-region-compact-output.png'), animations: 'disabled' })
