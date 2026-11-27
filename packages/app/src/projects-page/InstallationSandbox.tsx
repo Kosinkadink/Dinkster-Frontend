@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from 'solid-js'
+import { createSignal, For, onCleanup, Show } from 'solid-js'
 import {
   createPageLoad, ProductButton, ProductConfirmation, ProductDialog, ProductDisclosure, ProductErrorBanner,
   ProductField, ProductList, ProductListRow, ProductNotice, ProductPageLoad, ProductPanel,
@@ -36,6 +36,9 @@ export function InstallationSandbox(props: { readonly root: string; readonly eng
   const [error, setError] = createSignal<string>()
   const [notification, setNotification] = createSignal<{ message: string }>()
   const [opened, setOpened] = createSignal<string>()
+  const addressButtons = new Map<string, HTMLButtonElement>()
+  let retired = false
+  onCleanup(() => { retired = true })
   const query = () => new URLSearchParams({ root: props.root, engine: props.engine })
 
   async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -55,6 +58,16 @@ export function InstallationSandbox(props: { readonly root: string; readonly eng
     await Promise.all([readiness.load(readReadiness), packs.load(readPacks)])
   }
   void refresh()
+
+  async function dismissAddresses(pack: string) {
+    setOpened(undefined)
+    await packs.load(readPacks)
+    // Refresh replaces the disabled trigger after native dialog focus restoration.
+    // Do not steal focus if the person has already moved to another control.
+    if (!retired && !opened() && document.activeElement === document.body) {
+      addressButtons.get(pack)?.focus()
+    }
+  }
 
   async function change(enabled: boolean) {
     if (changing() || readiness.pending()) return
@@ -104,6 +117,7 @@ export function InstallationSandbox(props: { readonly root: string; readonly eng
                     { label: message('installations.sandbox.internet'), cell: (pack) => <Show when={pack.internetAddresses !== null}
                       fallback={message('installations.sandbox.unknown')}>
                       <ProductTextButton label={message('installations.sandbox.addresses', { count: pack.internetAddresses!.length })}
+                        ref={(button) => { addressButtons.set(pack.pack, button) }}
                         disabled={changing() || packs.pending() || Boolean(packs.error())} onClick={() => setOpened(pack.pack)} />
                     </Show> },
                   ]} />
@@ -115,7 +129,7 @@ export function InstallationSandbox(props: { readonly root: string; readonly eng
       </ProductPanel>
     </div>
     <Show when={opened()} keyed>{(pack) => <InternetAddresses root={props.root} engine={props.engine} pack={pack}
-      onDismiss={() => { setOpened(undefined); void packs.load(readPacks) }}
+      onDismiss={() => { void dismissAddresses(pack) }}
       onSaved={() => setNotification({ message: message('installations.sandbox.addressSaved') })} />}</Show>
     <ProductToast notification={notification()} onDismiss={() => setNotification(undefined)} />
   </ProductProjectSection>

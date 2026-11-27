@@ -193,6 +193,7 @@ it('reads saved sandbox authority per installation and keeps unavailable prerequ
 
 it('shows pack requests and edits all internet addresses with provenance and field-specific refusals', async () => {
   let addresses = [{ address: 'https://models.example', source: 'pack' }, { address: 'https://mirror.example', source: 'user' }]
+  let packRead: Promise<void> | undefined
   vi.stubGlobal('fetch', vi.fn(async (input, init) => {
     const url = new URL(String(input), 'http://localhost')
     if (url.pathname.endsWith('/readiness')) return Response.json({ sandboxPacks: true, available: true, detail: '' })
@@ -207,6 +208,7 @@ it('shows pack requests and edits all internet addresses with provenance and fie
       }
       return Response.json({ internetAddresses: addresses })
     }
+    await packRead
     return Response.json({ available: true, packs: [
       { pack: 'Detector', graphicsCard: { requested: true, granted: true }, internetAddresses: addresses },
       { pack: 'Local tools', graphicsCard: { requested: false, granted: false }, internetAddresses: [] },
@@ -243,6 +245,23 @@ it('shows pack requests and edits all internet addresses with provenance and fie
   expect(dialog().textContent).not.toContain('https://models.example')
   expect(dialog().textContent).toContain('https://mirror.exampleAdded by you')
   expect(dialog().textContent).toContain('https://extra.exampleAdded by you')
+  dialog().dispatchEvent(new Event('close'))
+  await settle()
+  const addressButton = [...document.querySelectorAll<HTMLButtonElement>('table button')]
+    .find((button) => button.textContent === '2 addresses')!
+  expect(document.querySelector('dialog')).toBeNull()
+  expect(document.activeElement).toBe(addressButton)
+  addressButton.click()
+  await settle()
+  let release!: () => void
+  packRead = new Promise<void>((resolve) => { release = resolve })
+  dialog().dispatchEvent(new Event('close'))
+  await settle()
+  const toggle = document.querySelector<HTMLButtonElement>('[role="switch"]')!
+  toggle.focus()
+  release()
+  await settle()
+  expect(document.activeElement).toBe(toggle)
   dispose()
 })
 
