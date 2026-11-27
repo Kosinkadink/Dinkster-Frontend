@@ -141,6 +141,32 @@ afterEach(() => {
 
 describe('default backend', () => {
 
+  it('drops lookup, choice and scoped answers when the engine reports another account', async () => {
+    let principal = 'account-a'
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const payload = url.endsWith('/api/account')
+        ? { available: true, canStartSignIn: true, signInUnavailableReason: null, signedIn: true,
+          profile: null, signIn: { state: 'idle' }, principalRevision: principal }
+        : url.includes('/api/choices/') ? [principal]
+        : url.endsWith('/api/lookups') ? { answer: principal } : { owner: principal }
+      return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })
+    })
+    const backend = app.backends.get()[0]!
+    if (backend.protocol !== 'dinkster') throw new Error('native backend expected')
+    await backend.connection.accountStatus()
+    const call = { nodeType: 'test.node', node: 'test', function: 'pack.list', args: [] }
+    expect(await backend.lookups.request(call)).toEqual({ state: 'ready', answer: 'account-a' })
+    expect(await backend.scopedClient.remoteChoices('/api/choices/test')).toEqual(['account-a'])
+    expect(await backend.scopedClient.query('/api/test', {})).toEqual({ owner: 'account-a' })
+    principal = 'account-b'
+    await backend.connection.accountStatus()
+    expect(backend.lookups.entry(call)).toBeUndefined()
+    expect(await backend.lookups.request(call)).toEqual({ state: 'ready', answer: 'account-b' })
+    expect(await backend.scopedClient.remoteChoices('/api/choices/test')).toEqual(['account-b'])
+    expect(await backend.scopedClient.query('/api/test', {})).toEqual({ owner: 'account-b' })
+  })
+
   it('is not removable', () => {
     const def = app.backends.get()[0]!
     app.removeBackend(def.id)

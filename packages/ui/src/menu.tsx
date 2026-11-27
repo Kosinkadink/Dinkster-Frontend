@@ -624,7 +624,6 @@ export function ProductAccountMenu(props: {
         {
           label: strings.signOut,
           icon: LogOut,
-          intent: 'remove',
           onSelect: props.onSignOut,
         },
       ]}

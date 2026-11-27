@@ -230,10 +230,14 @@ test('phone toolbar uses D branding and an operable circular account control', a
     await expect(trigger).toBeFocused()
     await expect(menu).toHaveCount(0)
     await chooseToolbar(page, 'Account state', 'signing-in-no-url')
+    await pending.scrollIntoViewIfNeeded()
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
     await bar.getByRole('button', { name: 'Signing in', exact: true }).click()
     await expect(bar.getByRole('menuitem')).toHaveText(['Cancel sign-in'])
     await page.keyboard.press('Escape')
     await chooseToolbar(page, 'Account state', 'sign-in-unavailable')
+    await trigger.scrollIntoViewIfNeeded()
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
     await trigger.click()
     await expect(
       bar.getByRole('menu', { name: 'Sign in', exact: true }),

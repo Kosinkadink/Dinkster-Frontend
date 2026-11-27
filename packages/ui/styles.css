@@ -2121,11 +2121,12 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-audio-waveform-played, .dinkster-audio-waveform-playhead { stroke: var(--dinkster-text-primary); }
 .dinkster-audio-waveform-playhead { stroke-width: 1; vector-effect: non-scaling-stroke; }
 
-.audio-transport { width: 100%; min-width: 0; box-sizing: border-box; padding: var(--dinkster-space-8); color: var(--dinkster-text-primary); display: flex; flex-direction: column; gap: var(--dinkster-space-4); }
+.audio-transport { width: 100%; height: 100%; min-width: 0; box-sizing: border-box; padding: var(--dinkster-space-8); color: var(--dinkster-text-primary); display: flex; flex-direction: column; gap: var(--dinkster-space-4); }
 .audio-transport audio { display: none; }
 .audio-transport.interactive { pointer-events: auto; }
-.audio-waveform { flex: none; height: 54px; position: relative; display: flex; background: var(--dinkster-surface-inset); border-radius: var(--dinkster-radius-small); overflow: hidden; }
+.audio-waveform { flex: 1; min-height: 54px; position: relative; display: flex; background: var(--dinkster-surface-inset); border-radius: var(--dinkster-radius-small); overflow: hidden; }
 .audio-waveform .dinkster-audio-waveform[data-empty] path { stroke: var(--dinkster-border-subtle); }
+.audio-waveform .dinkster-audio-waveform-centerline { stroke: var(--dinkster-border-subtle); }
 .audio-waveform .dinkster-audio-waveform-played, .audio-waveform .dinkster-audio-waveform-playhead { stroke: var(--dinkster-accent-foreground); }
 .audio-waveform .dinkster-audio-waveform-playhead { stroke-width: 1.5; }
 .audio-preview-failure { display: flex; align-items: center; justify-content: center; width: 100%; padding: 0 var(--dinkster-space-8); color: var(--dinkster-warning-foreground); font-size: var(--dinkster-type-metadata-size); text-align: center; overflow-wrap: anywhere; }

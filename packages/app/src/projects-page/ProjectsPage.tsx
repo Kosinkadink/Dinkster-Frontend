@@ -291,7 +291,7 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
   const message = useAppMessage()
   const connection = processConnection()
   const source = processSource(connection)
-  const account = createAccountSession(() => connection)
+  const account = createAccountSession(() => connection, '')
   const [place, setPlace] = createSignal<Place>('projects')
   const [count, setCount] = createSignal<number>()
   const [setupStatus, setSetupStatus] = createSignal<SetupStatus>()
