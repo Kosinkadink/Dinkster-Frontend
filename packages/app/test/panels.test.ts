@@ -115,7 +115,7 @@ describe('aggregatePanelIndicators', () => {
     ({ count, severity, label })
 
   it('sums counts and keeps the worst severity across panels', () => {
-    const combined = aggregatePanelIndicators([indicator(2, 'info'), indicator(1, 'error'), indicator(4, 'warning')])
-    expect(combined).toEqual({ count: 7, severity: 'error', label: '7 notifications' })
+    const combined = aggregatePanelIndicators([indicator(2, 'warning'), indicator(1, 'error'), indicator(4, 'warning')])
+    expect(combined).toEqual({ count: 7, severity: 'error', label: '7 problems' })
   })
 })

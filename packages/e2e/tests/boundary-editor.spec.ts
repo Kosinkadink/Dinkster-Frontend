@@ -50,12 +50,8 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
   await page.mouse.dblclick(mark.x, mark.y)
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   await expect(previousRailTab).toHaveAttribute('aria-selected', 'true')
-  const indicator = boundaryTab(page).getByTestId('panel-indicator')
-  await expect(indicator).toBeVisible()
-  await expect(indicator).toHaveAttribute('data-severity', 'info')
-  await expect(indicator.locator('.visually-hidden')).toHaveText('Boundary editable for this subgraph')
   if (await boundaryTab(page).getAttribute('aria-selected') === 'false') {
-    await capture(page, 'boundary-tab-highlighted-subgraph')
+    await capture(page, 'boundary-tab-subgraph')
   }
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
@@ -243,7 +239,7 @@ test('root prompt reopens definitions and the panel follows the drilled tab', as
   })
   await expect(boundaryTab(page).getByTestId('panel-indicator')).toHaveCount(0)
   await page.evaluate((drilled) => { window.__dinksterTest!.app.activeTabId.set(drilled) }, drilledTabId)
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
+  await expect(boundaryTab(page)).toBeVisible()
 
   const setBoundaryPlacement = (placement: 'rail' | 'floating') => page.evaluate((next) => {
     const app = window.__dinksterTest!.app as unknown as {
@@ -253,11 +249,9 @@ test('root prompt reopens definitions and the panel follows the drilled tab', as
   }, placement)
   expect(await setBoundaryPlacement('floating')).toBe(true)
   const floatingBoundary = page.locator('[data-testid="floating-panel"][data-panel="boundary"]')
-  await expect(floatingBoundary.getByTestId('panel-indicator')).toBeVisible()
-  await expect(floatingBoundary.getByTestId('panel-indicator').locator('.visually-hidden'))
-    .toHaveText('Boundary editable for this subgraph')
+  await expect(floatingBoundary).toBeVisible()
   expect(await setBoundaryPlacement('rail')).toBe(true)
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
+  await expect(boundaryTab(page)).toBeVisible()
 
   await page.setViewportSize({ width: 1600, height: 950 })
   await capture(page, 'after-boundary-wide')
@@ -271,7 +265,6 @@ test('root prompt reopens definitions and the panel follows the drilled tab', as
   await expect(page.locator('.boundary-tree [data-entry-id]')).toHaveCount(0)
   await capture(page, 'boundary-root-hidden')
   await drillIntoOccurrence(page)
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
   await expect(page.locator('[data-entry-id="image"]')).toBeVisible()
 })
 

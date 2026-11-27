@@ -1966,7 +1966,6 @@
   "shell.status.memoryStale": "数据已过期",
   "shell.status.workflowContext": "{count} 个节点，已选择 {selected} 个",
   "shell.reviewUpgrades.label": "审查升级",
-  "shell.status.boundaryEditable": "这个子图的边界可编辑",
   "shell.status.composingPacks": "组合包 {done}/{total}",
   "shell.status.frameRate": "{fps} FPS / 最慢 {slowest} ms",
   "shell.status.frameRateMeasuring": "正在测量帧率...",
