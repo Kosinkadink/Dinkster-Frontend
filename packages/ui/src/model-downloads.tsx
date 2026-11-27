@@ -247,6 +247,64 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
   )
 }
 
+function DestinationLabel(props: {
+  readonly label: string
+  readonly name: string
+  readonly path: string | undefined
+  readonly freeSpace: string | undefined
+}) {
+  let label!: HTMLSpanElement
+  let name!: HTMLElement
+  let path!: HTMLSpanElement
+  let disposed = false
+  const [truncated, setTruncated] = createSignal(false)
+  const placeSpace = () => {
+    if (disposed || !label || !name) return
+    label.dataset.spaceBelow = 'false'
+    label.dataset.pathBelow = 'false'
+    label.dataset.spaceBelow = String(name.scrollWidth > name.clientWidth)
+    label.dataset.pathBelow = String(
+      path.getBoundingClientRect().height > name.getBoundingClientRect().height,
+    )
+    setTruncated(name.scrollWidth > name.clientWidth)
+  }
+  createEffect(() => {
+    void props.label
+    void props.name
+    void props.path
+    void props.freeSpace
+    queueMicrotask(placeSpace)
+  })
+  onMount(() => {
+    let width = -1
+    const observer = new ResizeObserver(() => {
+      const next = label.getBoundingClientRect().width
+      if (next === width) return
+      width = next
+      placeSpace()
+    })
+    observer.observe(label)
+    void document.fonts?.ready.then(placeSpace)
+    onCleanup(() => observer.disconnect())
+  })
+  onCleanup(() => {
+    disposed = true
+  })
+  return (
+    <span ref={label} class="dinkster-model-download-destination-label">
+      <span>{props.label}</span>
+      <ProductIcon icon={Folder} />
+      <strong ref={name} data-tooltip-label={truncated() ? props.name : undefined}>
+        {props.name}
+      </strong>
+      <span ref={path} class="dinkster-model-download-destination-path">{props.path}</span>
+      <Show when={props.freeSpace}>
+        <span class="dinkster-model-download-space">{props.freeSpace}</span>
+      </Show>
+    </span>
+  )
+}
+
 /** The dialog's caller owns planning, selection and live jobs, including while it is closed. */
 export function ProductModelDownloads(props: {
   readonly summary: string
@@ -295,17 +353,12 @@ export function ProductModelDownloads(props: {
                 (location) => location.id === destination().selectedId,
               )
             const label = () => (
-              <span class="dinkster-model-download-destination-label">
-                <span>{destination().label}</span>
-                <ProductIcon icon={Folder} />
-                <strong>{selected()?.name ?? destination().emptyLabel}</strong>
-                <span class="dinkster-model-download-destination-path">
-                  {selected()?.path}
-                </span>
-                <span class="dinkster-model-download-space">
-                  {destination().freeSpace}
-                </span>
-              </span>
+              <DestinationLabel
+                label={destination().label}
+                name={selected()?.name ?? destination().emptyLabel}
+                path={selected()?.path}
+                freeSpace={selected() ? destination().freeSpace : undefined}
+              />
             )
             return (
               <div class="dinkster-model-download-destination">
